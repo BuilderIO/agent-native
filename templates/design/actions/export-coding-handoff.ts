@@ -6,7 +6,6 @@ import {
   getRequestContext,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
@@ -16,6 +15,10 @@ import {
   buildRawHandoffUrl,
   normalizeHandoffFormat,
 } from "../server/lib/coding-handoff.js";
+import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
 import "../server/db/index.js";
 
@@ -64,11 +67,17 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async ({ id, origin, format }, ctx) => {
+  run: withDesignExportFailureTracking<{
+    id: string;
+    origin?: string;
+    format: "markdown" | "json";
+  }>("coding_handoff")(async ({ id, origin, format }, ctx, facts) => {
     const access = await assertAccess("design", id, "viewer");
     const design = access.resource as typeof schema.designs.$inferSelect;
+    facts.designId = id;
 
     const snapshot = await buildDesignSnapshot(id, design.data);
+    facts.fileCount = snapshot.files.length;
 
     if (snapshot.files.length === 0) {
       throw new Error("This design has no files to hand off yet");
@@ -99,16 +108,8 @@ export default defineAction({
       fileCount: snapshot.files.length,
     });
 
-    track(
-      "design_exported",
-      {
-        app_name: "design",
-        template_name: "design",
-        output_id: id,
-        output_type: "design",
-        export_format: "coding_handoff",
-        file_count: snapshot.files.length,
-      },
+    trackDesignExported(
+      { ...facts, exportFormat: "coding_handoff", status: "completed" },
       ctx,
     );
 
@@ -127,7 +128,7 @@ export default defineAction({
         Date.now() + HANDOFF_TTL_SECONDS * 1000,
       ).toISOString(),
     };
-  },
+  }),
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
     const designId = (result as { designId?: string }).designId;

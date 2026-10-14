@@ -64,7 +64,23 @@ const V14_CASE_IDS = [
   "stale-generated-index-yields-to-current-source",
 ] as const;
 
-export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V14_CASE_IDS;
+const V15_CASE_IDS = [
+  ...V14_CASE_IDS,
+  "approved-stale-generated-entry-yields-to-current-roster",
+] as const;
+
+const V16_CASE_IDS = [
+  ...V15_CASE_IDS,
+  "aliased-membership-keys-preserve-roster-grain",
+] as const;
+
+const V17_CASE_IDS = V16_CASE_IDS;
+const V18_CASE_IDS = V17_CASE_IDS;
+const V19_CASE_IDS = V18_CASE_IDS;
+const V20_CASE_IDS = V19_CASE_IDS;
+const V21_CASE_IDS = V20_CASE_IDS;
+
+export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V21_CASE_IDS;
 
 type PinnedEvaluation = {
   fixtureRevision: string;
@@ -75,6 +91,8 @@ type PinnedEvaluation = {
   harnessRevision: string;
   caseIds: readonly string[];
   staleIndexMarker?: boolean;
+  staleIndexCaseIds?: readonly string[];
+  staleIndexMarkerPhases?: readonly ("before" | "after")[];
 };
 
 const PINNED_EVALUATIONS = [
@@ -138,6 +156,132 @@ const PINNED_EVALUATIONS = [
       "sha256:04428dd484b504b646a93e1b6b35151fcc344568c8c1cd7780fa498822df8a93",
     caseIds: V14_CASE_IDS,
     staleIndexMarker: true,
+    staleIndexCaseIds: ["stale-generated-index-yields-to-current-source"],
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v15",
+    baselineRevision: "a93e6112f4a32520802becf310b325c03f4c1054",
+    baselineCodeRevision:
+      "sha256:64a2ed8f2ad572beeca5d9b1bfc95529db522d7f60a4cd5acbe00a9c8fcd56fd",
+    candidateRevision: "a6e35b5aff93c7c709f14e746e28129896a8bd74",
+    candidateCodeRevision:
+      "sha256:16456ce51a222cfefb0fd8a72c92756649df7a9961a7ad9b7af357e6a2c257e5",
+    harnessRevision:
+      "sha256:bd8b74ba4410ed17eb63ee11e46c844adbb927e253604f21178570af20965a52",
+    caseIds: V15_CASE_IDS,
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v16",
+    baselineRevision: "db2f859fae3e5c9bab5ad5d1257d24a5ef152a8f",
+    baselineCodeRevision:
+      "sha256:1f4a8302df8d7a73e6b2a1149052a93c5ebcf93d31beeee4994883c08ab4c7d1",
+    candidateRevision: "7beae453965eb1590ddf80d0991a211aaa3aea7c",
+    candidateCodeRevision:
+      "sha256:96c8192effb85af20b1109a9b525156ce9f5fbaa44d390870660e350f465a1b8",
+    harnessRevision:
+      "sha256:9bee80ec0ce2bfb05e67cb5be619c8a98b82c3ef8aee3d3945905d1e9820a73a",
+    caseIds: V16_CASE_IDS,
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
+    staleIndexMarkerPhases: ["before", "after"],
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v17",
+    baselineRevision: "fadfb1b593c71e6a03282269dcb0c9df946188d1",
+    baselineCodeRevision:
+      "sha256:8a02bfc89d66d8c5465847c557fc03bf5319119b72c8b793de17ff3fd1cafa35",
+    candidateRevision: "5a53b3d1bef1fccbfb4ea49da16babd9cb45413c",
+    candidateCodeRevision:
+      "sha256:eff504faed54f807031617dc94807db6062939095f02305bef26d8677acefb34",
+    harnessRevision:
+      "sha256:410af60f8fe7f4e33c2a06c525de18809f7184df110538d5f4806ae577f0c573",
+    caseIds: V17_CASE_IDS,
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
+    staleIndexMarkerPhases: ["before", "after"],
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v18",
+    baselineRevision: "4715962a57720a2ff5881cb8eea39c1535518cf8",
+    baselineCodeRevision:
+      "sha256:14d8e0b6b7400765132207c578c268605e30183307067481a91a075e7d46de5a",
+    candidateRevision: "1e9eb1188e5250d594d43c0a37b0eef7f177fe60",
+    candidateCodeRevision:
+      "sha256:f22d56316f7e06cba5aa5824bcc27e75c885f1f715f21a5786891bb025a5c912",
+    harnessRevision:
+      "sha256:16f2826b2bf9e6ebe9ab5c5311ba8b8773bba2867594ba9bcbfdc3b54ae73108",
+    caseIds: V18_CASE_IDS,
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
+    staleIndexMarkerPhases: ["before", "after"],
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v19",
+    baselineRevision: "4715962a57720a2ff5881cb8eea39c1535518cf8",
+    baselineCodeRevision:
+      "sha256:b8e72b194334b790ed13fefe85b4e18eb6e717176c7b337cf7f8c0e5317b7f27",
+    candidateRevision: "051ebf123c26257be2058efbfb13468c9226d37a",
+    candidateCodeRevision:
+      "sha256:5e69fc9b513d54f13fbd789d1f21863b2122e7d4a0669d79feaaac20d4940809",
+    harnessRevision:
+      "sha256:1fd351074f83d99df7dbb0e9b67270bd1945f0c293f7db70e36cae8e77268e46",
+    caseIds: V19_CASE_IDS,
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
+    staleIndexMarkerPhases: ["before", "after"],
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v20",
+    baselineRevision: "217b06fdb294e8efc5ac9f0dd9f079c65307c406",
+    baselineCodeRevision:
+      "sha256:79d4f2ca0be7955b94ab26ccb27d00ae8c6106751dcbca7d51ab2fe40fa94a70",
+    candidateRevision: "980792e5c277be349cf0198fa87d26bc41b7daac",
+    candidateCodeRevision:
+      "sha256:a2effa8c701d9be272d97700c00110bd7365fa09ba47ebd2cdb4373c87fe9cc9",
+    harnessRevision:
+      "sha256:ef5ee4e5c7493cf6c0754f7f98d84ac0c685bef9f819d560a59af4302406498c",
+    caseIds: V20_CASE_IDS,
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
+    staleIndexMarkerPhases: ["before", "after"],
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v21",
+    baselineRevision: "8961aeb5a901eb8be8e821c10b957fa9203796c7",
+    baselineCodeRevision:
+      "sha256:75bd47c16935eabe816f1f00ec52ddf45b537eb303674dae577e86ee886c3030",
+    candidateRevision: "a92e2383750d13563ee12331ec9708e6b93cd1e9",
+    candidateCodeRevision:
+      "sha256:6a91fd523eb3630b8f10e4338b3204d29595fcde9557a42bba1df49e7837b299",
+    harnessRevision:
+      "sha256:523b5b1b338cf9326f5d8739358080ef7e2f5bb3e617388bc9ce75b151a59f06",
+    caseIds: V21_CASE_IDS,
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
+    staleIndexMarkerPhases: ["before", "after"],
   },
 ] as const satisfies readonly PinnedEvaluation[];
 const PINNED_EVALUATIONS_BY_FIXTURE = new Map(
@@ -194,7 +338,7 @@ const RANK_REASON_CODES = new Set([
   "ranked_below_1",
   "candidate_missing",
 ]);
-
+const MIN_PRODUCTION_PATH_COMPLETION_RATE = 0.9;
 type Phase = "before" | "after";
 
 type ComparisonRow = {
@@ -438,8 +582,10 @@ export function validateProductionPathComparisonCsv(
     if (
       row.stale_index_marked &&
       (!pinnedEvaluation.staleIndexMarker ||
-        row.phase !== "after" ||
-        row.case_id !== "stale-generated-index-yields-to-current-source")
+        !(pinnedEvaluation.staleIndexMarkerPhases ?? ["after"]).includes(
+          row.phase,
+        ) ||
+        !pinnedEvaluation.staleIndexCaseIds?.includes(row.case_id))
     ) {
       throw new Error(
         "Comparison CSV stale-index markers must match the pinned candidate case.",
@@ -588,26 +734,55 @@ export function validateProductionPathComparisonCsv(
   }
 
   if (pinnedEvaluation.staleIndexMarker) {
-    const staleCaseRows = rows.filter(
-      (row) => row.case_id === "stale-generated-index-yields-to-current-source",
+    const expectedMarkedPhases = new Set(
+      pinnedEvaluation.staleIndexMarkerPhases ?? ["after"],
     );
-    if (
-      staleCaseRows
-        .filter((row) => row.phase === "before")
-        .some((row) => row.stale_index_marked) ||
-      staleCaseRows.filter((row) => row.phase === "after").length !== 2 ||
-      staleCaseRows
-        .filter((row) => row.phase === "after")
-        .some((row) => !row.stale_index_marked)
-    ) {
-      throw new Error(
-        "Comparison CSV must record stale-index marking only for both candidate runs.",
-      );
+    for (const caseId of pinnedEvaluation.staleIndexCaseIds ?? []) {
+      const staleCaseRows = rows.filter((row) => row.case_id === caseId);
+      for (const phase of ["before", "after"] as const) {
+        const phaseRows = staleCaseRows.filter((row) => row.phase === phase);
+        if (
+          phaseRows.length !== 2 ||
+          phaseRows.some(
+            (row) => row.stale_index_marked !== expectedMarkedPhases.has(phase),
+          )
+        ) {
+          throw new Error(
+            "Comparison CSV stale-index markers must match the pinned cases and phases.",
+          );
+        }
+      }
     }
   }
 
   const before = summarizePhase("before", rows);
   const after = summarizePhase("after", rows);
+  const hasSufficientProductionPathCompletion = (phase: Phase) => {
+    const phaseRows = rows.filter((row) => row.phase === phase);
+    const completedRows = phaseRows.filter(
+      (row) =>
+        RANK_REASON_CODES.has(row.reason_code) &&
+        row.completed &&
+        !row.aborted &&
+        row.find_data_calls === 1 &&
+        row.other_action_calls === 0 &&
+        row.failed_action_calls === 0 &&
+        row.llm_calls > 0,
+    );
+    return (
+      phaseRows.length > 0 &&
+      completedRows.length / phaseRows.length >=
+        MIN_PRODUCTION_PATH_COMPLETION_RATE
+    );
+  };
+  if (
+    !hasSufficientProductionPathCompletion("before") ||
+    !hasSufficientProductionPathCompletion("after")
+  ) {
+    throw new Error(
+      "At least 90% of each phase must complete the production path before comparison.",
+    );
+  }
   const expectedPhaseRows = pinnedEvaluation.caseIds.length * 2;
   if (before.rows !== expectedPhaseRows || after.rows !== expectedPhaseRows) {
     throw new Error(

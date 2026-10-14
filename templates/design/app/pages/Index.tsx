@@ -111,6 +111,10 @@ import {
   type DesignFilter,
 } from "@/lib/design-filter";
 import {
+  designPromptReferenceTypes,
+  trackDesignPromptSubmitted,
+} from "@/lib/design-funnel-tracking";
+import {
   clearPendingGeneration,
   writePendingGeneration,
 } from "@/lib/pending-generation";
@@ -783,7 +787,8 @@ export default function Index() {
   const createDesign = useCallback(
     (
       title: string,
-      designSystemId?: string | null,
+      designSystemId: string | null | undefined,
+      creationMethod: "prompt" | "blank",
     ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
@@ -831,6 +836,7 @@ export default function Index() {
           title: finalTitle,
           projectType,
           ...(designSystemId !== undefined ? { designSystemId } : {}),
+          creationMethod,
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({
@@ -884,8 +890,11 @@ export default function Index() {
       prompt: string,
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
-      pendingOptions?: { skipQuestions?: boolean },
+      pendingOptions?: { skipQuestions?: boolean; fromSkip?: boolean },
     ) => {
+      const promptSource = quickStartRef.current
+        ? "suggestion_chip"
+        : "composer";
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const templateCopyDesignSystemId =
@@ -898,6 +907,25 @@ export default function Index() {
         newDesignMode === "app"
           ? await resolveAppDesignSystemId()
           : templateCopyDesignSystemId;
+      const reportPromptSubmitted = (outputId: string) => {
+        if (pendingOptions?.fromSkip) return;
+        try {
+          trackDesignPromptSubmitted({
+            outputId,
+            source: promptSource,
+            prompt,
+            referenceTypes: designPromptReferenceTypes({
+              contextItems: options.contextItems,
+              files,
+              templateSelected: Boolean(selectedTemplate),
+              designSystemId,
+            }),
+            startMode: selectedTemplate ? "template" : newDesignMode,
+          });
+        } catch {
+          // coercion-ok: analytics must never block opening the new design.
+        }
+      };
 
       if (selectedTemplate && newDesignMode === "design") {
         setNewDesignHandoffPending(true);
@@ -972,6 +1000,7 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
+          reportPromptSubmitted(result.id);
           void navigate(`/design/${result.id}`);
           return;
         } catch (error) {
@@ -987,7 +1016,11 @@ export default function Index() {
 
       const derivedTitle = derivePromptTitle(prompt);
 
-      const { id, title, ready } = createDesign(derivedTitle, designSystemId);
+      const { id, title, ready } = createDesign(
+        derivedTitle,
+        designSystemId,
+        "prompt",
+      );
       handleGenerateDesignTitle(id, prompt, title);
 
       if (fullAppBuildingEnabled && newDesignMode === "app") {
@@ -1060,6 +1093,7 @@ export default function Index() {
         }
       }
 
+      reportPromptSubmitted(id);
       trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
       void navigate(`/design/${id}`);
@@ -1094,6 +1128,7 @@ export default function Index() {
       const { id, ready } = createDesign(
         t("home.untitledDesign"),
         designSystemId,
+        "blank",
       );
       await ready;
       void navigate(`/design/${id}`);
@@ -1122,11 +1157,16 @@ export default function Index() {
         }
         return false;
       }
-      await handleSubmitPrompt("", [], {
-        contextItems: await homeContext.prepareSubmission(
-          snapshotComposerContextItems(homeContext.contextItems),
-        ),
-      });
+      await handleSubmitPrompt(
+        "",
+        [],
+        {
+          contextItems: await homeContext.prepareSubmission(
+            snapshotComposerContextItems(homeContext.contextItems),
+          ),
+        },
+        { fromSkip: true },
+      );
       return false;
     }
     await startBlankDesign();

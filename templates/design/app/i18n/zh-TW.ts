@@ -1294,7 +1294,6 @@ export default {
       tokens: "權杖",
       threads: "討論串",
       label: "設計工作區",
-      account: "帳戶",
       collapse: "收合側邊欄",
       expand: "展開側邊欄",
     },
@@ -1313,6 +1312,16 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\n主要顏色: #2563eb",
       importPasted: "匯入貼上的權杖",
       importedCount: "已匯入 {{count}} 個權杖",
+      importing: "正在匯入權杖…",
+      importedWithSkipped:
+        "已匯入 {{count}} 個權杖，已略過 {{skipped}} 個無效值或檔案。",
+      importedWithOmissions:
+        "已匯入 {{count}} 個權杖，已略過 {{skipped}} 個無效項目。因匯入限制未處理的數量：權杖 {{omittedTokens}}，檔案 {{omittedFiles}}。",
+      importedWithReadFailures:
+        "已匯入 {{count}} 個權杖，但無法讀取 {{readFailures}} 個檔案。請重新選取並重試。",
+      importedWithReadFailuresAndOmissions:
+        "已匯入 {{count}} 個權杖。無法讀取 {{readFailures}} 個檔案。另略過了 {{skipped}} 個無效項目，且因匯入限制未處理 {{omittedTokens}} 個權杖和 {{omittedFiles}} 個檔案。請重新選取無法讀取的檔案並重試。",
+      noTokensFound: "找不到有效權杖。請檢查檔案格式和權杖值。",
       count: "{{count}} 個權杖",
       search: "搜尋權杖",
       noMatches: "沒有符合的權杖",
@@ -1399,7 +1408,7 @@ export default {
       figUploadProcessing: "轉換中…",
       figImportWarningTitle: "大型 .fig 匯入",
       figImportWarningDescription:
-        "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的畫框。",
+        "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的頁面。",
       figImportFrameCount: "已選取 {{selected}} / {{total}} 個畫框",
       figImportSelectAll: "全選",
       figImportClearAll: "全部清除",
@@ -1408,6 +1417,10 @@ export default {
       figImportAll: "全部匯入",
       figImportAnalyzing: "分析中…",
       figImportSaving: "正在儲存 {{saved}} / {{total}} 個畫框",
+      figImportFrameLimit: "所選頁面的畫框總數不能超過 {{max}} 個。",
+      figImportFramesSkippedWarning:
+        "已略過 {{count}} 個過於複雜、無法匯入的畫框：{{names}}",
+      figUploadLimits: "最大 {{size}} GB · 每次匯入最多 {{frames}} 個畫框",
       figmaPasteBodyUnlimited:
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:
@@ -1430,6 +1443,7 @@ export default {
       htmlPlaceholder: "<main>在此貼上獨立 HTML...</main>",
       importHtml: "匯入 HTML",
       chooseHtmlFile: "選擇 HTML 檔案",
+      allSupportedFiles: "所有支援的檔案",
       githubTitle: "GitHub",
       githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
       localTitle: "本機 app",
@@ -2248,6 +2262,7 @@ export default {
     figmaLink: "Figma 連結",
     importFromFigma: "從 Figma 匯入",
     figmaFile: "Figma 檔案 (.fig)",
+    figmaFileMaxSize: "最大 {{max}} GB",
     openImport: "開啟匯入",
     importSelectedFile: "匯入所選檔案",
     starterSaasPrompt:

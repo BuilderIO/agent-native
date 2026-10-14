@@ -1,26 +1,19 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { type Locator, type Page } from "@playwright/test";
 
-import { e2eBaseURL } from "./base-url";
-import { expandAllLayers, gotoEditor } from "./helpers";
+import { appPath } from "./helpers";
+import {
+  childrenOf,
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
-const baseURL = e2eBaseURL();
-
-async function postAction(
-  page: Page,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const res = await page.request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
-    { data: input, headers: { "Content-Type": "application/json" } },
-  );
-  if (!res.ok()) {
-    throw new Error(
-      `${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`,
-    );
-  }
-  return res.json();
-}
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+const LIVE_SCREEN =
+  'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])';
 
 const FIXTURE = `<!doctype html>
 <html lang="en">
@@ -44,461 +37,24 @@ const FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
+/** Moving a layer to the top level stamps a generated id on an unnamed body; naming it keeps the parent literal. */
+const FIXTURE_WITH_BODY_ID = FIXTURE.replace(
+  "<body ",
+  '<body data-agent-native-node-id="page" ',
+);
+
+const LOOSE_CARD = { x: 24, y: 368, width: 120, height: 60 };
+const STICKER = { x: 500, y: 1000, width: 60, height: 40 };
+
 const BOARD_FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Board</title></head>
-  <body style="margin:0;min-height:900px;background:#e5e5e5">
-    <div data-agent-native-node-id="board-a" data-agent-native-layer-name="Board Sticker" style="position:absolute;left:20px;top:520px;width:120px;height:80px;background:#f59e0b"></div>
+  <body style="margin:0;position:relative;background:transparent;overflow:visible">
+    <div data-agent-native-node-id="board-a" data-agent-native-layer-name="Board Sticker" style="position:absolute;left:300px;top:450px;width:120px;height:80px;background:#f59e0b"></div>
   </body>
 </html>`;
 
-async function newDesign(page: Page): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: "layers panel interaction",
-    projectType: "prototype",
-  });
-  const id = created?.id ?? created?.data?.id;
-  if (!id) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content: FIXTURE,
-    fileType: "html",
-  });
-  return id;
-}
-
-async function newDesignWithBoard(page: Page): Promise<string> {
-  const id = await newDesign(page);
-  const board = await postAction(page, "create-file", {
-    designId: id,
-    filename: "__board__.html",
-    content: BOARD_FIXTURE,
-    fileType: "html",
-  });
-  const boardFileId = board?.id ?? board?.data?.id;
-  if (!boardFileId) throw new Error("create-file returned no board id");
-  await postAction(page, "update-design", {
-    id,
-    dataOperations: [{ op: "set", path: ["boardFileId"], value: boardFileId }],
-  });
-  return id;
-}
-
-async function openEditorAndExpandLayers(
-  page: Page,
-  designId: string,
-): Promise<void> {
-  await gotoEditor(page, designId);
-  await expandAllLayers(page);
-}
-
-function layerTree(page: Page): Locator {
-  return page.getByRole("tree", { name: "Layers" });
-}
-
-function layerRowButton(page: Page, name: string): Locator {
-  return layerTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${cssString(name)}"]`) })
-    .first();
-}
-
-function layerRow(page: Page, name: string): Locator {
-  return layerRowButton(page, name).locator(
-    'xpath=ancestor::*[@role="treeitem"][1]',
-  );
-}
-
-async function visibleLayerNames(page: Page): Promise<string[]> {
-  return layerTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .evaluateAll((nodes) =>
-      nodes
-        .map((node) => (node.textContent ?? "").trim())
-        .filter((name) => name.length > 0),
-    );
-}
-
-async function rowLevel(page: Page, name: string): Promise<number> {
-  const level = await layerRow(page, name).getAttribute("aria-level");
-  if (!level) throw new Error(`missing aria-level for layer row ${name}`);
-  return Number(level);
-}
-
-async function clickLayerRow(page: Page, name: string): Promise<void> {
-  const button = layerRowButton(page, name);
-  await expect(button).toBeVisible();
-  await button.click({ force: true });
-}
-
-async function clickLayerAction(
-  page: Page,
-  name: string,
-  label: string,
-): Promise<void> {
-  const row = layerRow(page, name);
-  await row.hover();
-  await row.locator(`button[aria-label="${label}"]`).click({ force: true });
-}
-
-function cssString(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function node(page: Page, id: string): Locator {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator(`[data-agent-native-node-id="${id}"]`);
-}
-
-function renameInput(page: Page): Locator {
-  return layerTree(page).locator('input[aria-label="Rename layer"]');
-}
-
-async function toastMessages(page: Page): Promise<string[]> {
-  return page
-    .locator("[data-sonner-toast]")
-    .evaluateAll((nodes) => nodes.map((n) => (n.textContent ?? "").trim()));
-}
-
-test.describe("interaction: layers panel", () => {
-  let designId: string;
-
-  test.beforeEach(async ({ page }, testInfo) => {
-    designId = testInfo.title.includes("board")
-      ? await newDesignWithBoard(page)
-      : await newDesign(page);
-    await openEditorAndExpandLayers(page, designId);
-  });
-
-  test("top row is topmost-rendered, matching DOM order (Steve's footer-above-header report)", async ({
-    page,
-  }) => {
-    const names = await visibleLayerNames(page);
-    const footerIdx = names.indexOf("Footer");
-    const headerIdx = names.indexOf("Site Header");
-    expect(footerIdx).toBeGreaterThan(-1);
-    expect(headerIdx).toBeGreaterThan(-1);
-    expect(footerIdx).toBeLessThan(headerIdx);
-    const topLevelInPanelOrder = [
-      names.indexOf("Footer"),
-      names.indexOf("Main"),
-      names.indexOf("Nav"),
-      names.indexOf("Site Header"),
-    ];
-    expect(topLevelInPanelOrder).toEqual(
-      [...topLevelInPanelOrder].sort((a, b) => a - b),
-    );
-  });
-
-  test('dragging a nav link row inserts exactly "above Shop"', async ({
-    page,
-  }) => {
-    const before = await visibleLayerNames(page);
-    expect(before.indexOf("Contact")).toBeGreaterThan(-1);
-    expect(before.indexOf("About")).toBeGreaterThan(-1);
-    expect(before.indexOf("Shop")).toBeGreaterThan(-1);
-
-    const shopRow = layerRow(page, "Shop");
-    const box = await shopRow.boundingBox();
-    if (!box) throw new Error("Shop row has no bounding box");
-    await layerRowButton(page, "Contact").dragTo(shopRow, {
-      targetPosition: { x: box.width / 2, y: 2 },
-    });
-
-    await expect
-      .poll(
-        async () => {
-          const names = await visibleLayerNames(page);
-          const contactIdx = names.indexOf("Contact");
-          const shopIdx = names.indexOf("Shop");
-          const aboutIdx = names.indexOf("About");
-          return (
-            contactIdx > -1 &&
-            shopIdx > -1 &&
-            aboutIdx > -1 &&
-            contactIdx === shopIdx - 1 &&
-            shopIdx < aboutIdx
-          );
-        },
-        {
-          message:
-            "expected Contact to land directly above Shop, ahead of About, after the drag",
-        },
-      )
-      .toBe(true);
-    await expect(toastMessages(page)).resolves.not.toContain(
-      "Could not move that layer",
-    );
-  });
-
-  test("dropping a row onto a container row reparents it as the topmost child", async ({
-    page,
-  }) => {
-    const containerLevel = await rowLevel(page, "Panel");
-    const panelRow = layerRow(page, "Panel");
-    const panelBox = await panelRow.boundingBox();
-    if (!panelBox) throw new Error("Panel row has no bounding box");
-    await layerRowButton(page, "Loose Card").dragTo(panelRow, {
-      targetPosition: { x: 96, y: panelBox.height / 2 },
-    });
-
-    await expect
-      .poll(async () => rowLevel(page, "Loose Card"))
-      .toBe(containerLevel + 1);
-    await expect
-      .poll(async () => {
-        const names = await visibleLayerNames(page);
-        return (
-          names.indexOf("Loose Card") > -1 &&
-          names.indexOf("Panel Child") > -1 &&
-          names.indexOf("Loose Card") < names.indexOf("Panel Child")
-        );
-      })
-      .toBe(true);
-    await expect
-      .poll(() =>
-        node(page, "panel").evaluate(
-          (el, childId) =>
-            Boolean(
-              el.querySelector(`[data-agent-native-node-id="${childId}"]`),
-            ),
-          "loose",
-        ),
-      )
-      .toBe(true);
-  });
-
-  test("dropping an absolutely positioned layer row onto a Frame row keeps its on-screen position", async ({
-    page,
-  }) => {
-    const before = await node(page, "sticker").boundingBox();
-    if (!before) throw new Error("Sticker has no bounding box");
-
-    const panelRow = layerRow(page, "Panel");
-    const panelBox = await panelRow.boundingBox();
-    if (!panelBox) throw new Error("Panel row has no bounding box");
-    await layerRowButton(page, "Sticker").dragTo(panelRow, {
-      targetPosition: { x: 96, y: panelBox.height / 2 },
-    });
-
-    await expect
-      .poll(() =>
-        node(page, "panel").evaluate((el) =>
-          Boolean(el.querySelector('[data-agent-native-node-id="sticker"]')),
-        ),
-      )
-      .toBe(true);
-
-    const after = await node(page, "sticker").boundingBox();
-    if (!after) throw new Error("Sticker has no bounding box after the move");
-    expect(
-      after.x,
-      `reparenting via the panel must not move the element on screen — was x=${before.x}, now x=${after.x}`,
-    ).toBeCloseTo(before.x, 0);
-    expect(
-      after.y,
-      `reparenting via the panel must not move the element on screen — was y=${before.y}, now y=${after.y}`,
-    ).toBeCloseTo(before.y, 0);
-  });
-
-  test("Could not move that layer never appears for an ordinary, default-named layer (Logan's repro)", async ({
-    page,
-  }) => {
-    const before = await visibleLayerNames(page);
-    const looseCardRow = layerRow(page, "Loose Card");
-    const untitledRow = layerRowButton(page, "Untitled");
-    expect(before.includes("Untitled")).toBe(true);
-
-    await untitledRow.dragTo(looseCardRow, {
-      targetPosition: { x: 96, y: 2 },
-    });
-
-    await page.waitForTimeout(300);
-    await expect(toastMessages(page)).resolves.not.toContain(
-      "Could not move that layer",
-    );
-    await expect
-      .poll(async () => {
-        const names = await visibleLayerNames(page);
-        return names.indexOf("Untitled") < names.indexOf("Loose Card");
-      })
-      .toBe(true);
-  });
-
-  test("rename via double-click commits on Enter and cancels on Escape", async ({
-    page,
-  }) => {
-    await layerRowButton(page, "Loose Card").dblclick({ force: true });
-    const input = renameInput(page);
-    await expect(input).toBeVisible();
-    await expect(input).toBeFocused();
-    await expect(input).toHaveValue("Loose Card");
-
-    await input.fill("Renamed Via Escape");
-    await input.press("Escape");
-    await expect(renameInput(page)).toHaveCount(0);
-    await expect(layerRowButton(page, "Loose Card")).toBeVisible();
-    await expect(layerRowButton(page, "Renamed Via Escape")).toHaveCount(0);
-
-    await layerRowButton(page, "Loose Card").dblclick({ force: true });
-    const input2 = renameInput(page);
-    await expect(input2).toBeVisible();
-    await input2.fill("Committed Card");
-    await input2.press("Enter");
-    await expect(renameInput(page)).toHaveCount(0);
-    await expect(layerRowButton(page, "Committed Card")).toBeVisible();
-    await expect(layerRowButton(page, "Loose Card")).toHaveCount(0);
-
-    await expect(node(page, "loose")).toHaveAttribute(
-      "data-agent-native-layer-name",
-      "Committed Card",
-    );
-
-    await expect
-      .poll(() => getIndexHtml(page, designId), {
-        timeout: 15_000,
-        message: "the renamed layer must reach persisted source HTML",
-      })
-      .toContain('data-agent-native-layer-name="Committed Card"');
-
-    await gotoEditor(page, designId);
-    await expandAllLayers(page);
-    await expect(layerRowButton(page, "Committed Card")).toBeVisible();
-    await expect(layerRowButton(page, "Loose Card")).toHaveCount(0);
-    await expect(node(page, "loose")).toHaveAttribute(
-      "data-agent-native-layer-name",
-      "Committed Card",
-    );
-  });
-
-  test("Cmd+R opens the rename editor for the selection", async ({ page }) => {
-    await clickLayerRow(page, "Loose Card");
-    await expect(layerRow(page, "Loose Card")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    const mod = process.platform === "darwin" ? "Meta" : "Control";
-    await page.keyboard.down(mod);
-    await page.keyboard.press("r");
-    await page.keyboard.up(mod);
-    await expect(renameInput(page)).toBeVisible({ timeout: 2000 });
-  });
-
-  test("hide and lock toggle from the row: locked layer is not canvas-selectable but stays panel-selectable", async ({
-    page,
-  }) => {
-    await clickLayerAction(page, "Loose Card", "Lock layer");
-    await expect(
-      layerRow(page, "Loose Card").locator('button[aria-label="Unlock layer"]'),
-    ).toBeVisible();
-    await expect(node(page, "loose")).toHaveAttribute(
-      "data-agent-native-locked",
-      "true",
-    );
-
-    await clickLayerRow(page, "Loose Card");
-    await expect(layerRow(page, "Loose Card")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-
-    const box = await node(page, "loose").boundingBox();
-    if (!box) throw new Error("loose node has no bounding box");
-    await clickLayerRow(page, "Site Header");
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(300);
-    await expect(layerRow(page, "Loose Card")).toHaveAttribute(
-      "aria-selected",
-      "false",
-    );
-
-    await clickLayerAction(page, "Loose Card", "Hide layer");
-    await expect(node(page, "loose")).toBeHidden();
-    await expect(
-      layerRow(page, "Loose Card").locator('button[aria-label="Show layer"]'),
-    ).toBeVisible();
-  });
-
-  test("one undo fully restores parent and position after a panel-drag reparent", async ({
-    page,
-  }) => {
-    const beforeBox = await node(page, "loose").boundingBox();
-    if (!beforeBox) throw new Error("no bounding box for loose before move");
-    const beforeParentIsMain = await node(page, "loose").evaluate(
-      (el) =>
-        Boolean(el.closest('[data-agent-native-node-id="main"]')) &&
-        !el.closest('[data-agent-native-node-id="panel"]'),
-    );
-    expect(beforeParentIsMain).toBe(true);
-
-    const panelRowForUndo = layerRow(page, "Panel");
-    const panelBoxForUndo = await panelRowForUndo.boundingBox();
-    if (!panelBoxForUndo) throw new Error("Panel row has no bounding box");
-    await layerRowButton(page, "Loose Card").dragTo(panelRowForUndo, {
-      targetPosition: { x: 96, y: panelBoxForUndo.height / 2 },
-    });
-    await expect
-      .poll(() =>
-        node(page, "loose").evaluate((el) =>
-          Boolean(el.closest('[data-agent-native-node-id="panel"]')),
-        ),
-      )
-      .toBe(true);
-
-    const mod = process.platform === "darwin" ? "Meta" : "Control";
-    await page.keyboard.down(mod);
-    await page.keyboard.press("z");
-    await page.keyboard.up(mod);
-
-    await expect
-      .poll(() =>
-        node(page, "loose").evaluate((el) =>
-          Boolean(el.closest('[data-agent-native-node-id="panel"]')),
-        ),
-      )
-      .toBe(false);
-    const afterUndoBox = await node(page, "loose").boundingBox();
-    if (!afterUndoBox) throw new Error("no bounding box for loose after undo");
-    expect(Math.abs(afterUndoBox.x - beforeBox.x)).toBeLessThan(5);
-    expect(Math.abs(afterUndoBox.y - beforeBox.y)).toBeLessThan(5);
-  });
-
-  test("dragging a board-object row onto a screen's file row moves it into the screen (board -> in)", async ({
-    page,
-  }) => {
-    await expandAllLayers(page);
-    const names = await visibleLayerNames(page);
-    expect(names.includes("Board Sticker")).toBe(true);
-
-    const screenFileRowButton = layerRowButton(page, "Home");
-    await expect(
-      screenFileRowButton,
-      "the screen's own layer row must be visible to drop a board object onto it",
-    ).toBeVisible({ timeout: 10_000 });
-    const screenFileRow = layerRow(page, "Home");
-    const screenFileBox = await screenFileRow.boundingBox();
-    if (!screenFileBox) throw new Error("screen file row has no bounding box");
-
-    await layerRowButton(page, "Board Sticker").dragTo(screenFileRow, {
-      targetPosition: { x: 96, y: screenFileBox.height / 2 },
-    });
-
-    await expect
-      .poll(() =>
-        page
-          .locator("iframe[data-design-preview-iframe]")
-          .first()
-          .contentFrame()
-          .locator('[data-agent-native-node-id="board-a"]')
-          .count(),
-      )
-      .toBeGreaterThan(0);
-  });
-});
+const HOME_FRAME = { x: 100, y: 50, width: 1440, height: 1200, z: 0 };
 
 const SIBLING_REORDER_FIXTURE = `<!doctype html>
 <html lang="en">
@@ -512,151 +68,548 @@ const SIBLING_REORDER_FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
-async function newSiblingReorderDesign(page: Page): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: "sibling reorder interaction",
-    projectType: "prototype",
-  });
-  const id = created?.id ?? created?.data?.id;
-  if (!id) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content: SIBLING_REORDER_FIXTURE,
-    fileType: "html",
-  });
+test.use({ viewport: { width: 1600, height: 1000 } });
+
+const FIXTURE_CONTAINERS = ["Home", "Main", "Frame", "Panel", "Nav"];
+
+async function openSeeded(
+  app: App,
+  html = FIXTURE,
+  containers = FIXTURE_CONTAINERS,
+) {
+  const id = await app.seed(html);
+  await app.open(id);
+  await expandLayers(app.page, containers);
   return id;
 }
 
-async function getIndexHtml(page: Page, designId: string): Promise<string> {
-  const res = await page.request.get(
-    `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
-  );
-  if (!res.ok()) {
-    throw new Error(`get-design failed: ${res.status()} ${await res.text()}`);
+/** Expands each named row, retrying while the tree is still mounting. */
+async function expandLayers(page: Page, names: string[]) {
+  for (const name of names) {
+    const row = layerRow(page, name);
+    await expect(async () => {
+      const expand = row.getByRole("button", { name: "Expand layer" });
+      if (await expand.count()) await expand.click();
+      await expect(row).toHaveAttribute("aria-expanded", "true", {
+        timeout: 1_000,
+      });
+    }).toPass({ timeout: 15_000 });
   }
-  const result = await res.json();
-  const files = result.files ?? result.data?.files;
-  const file = files?.find((f: any) => f.filename === "index.html");
-  if (!file) throw new Error("index.html missing from get-design response");
-  return file.content as string;
 }
 
-function domOrder(html: string): "AB" | "BA" {
-  const aIdx = html.indexOf('data-agent-native-node-id="node-a"');
-  const bIdx = html.indexOf('data-agent-native-node-id="node-b"');
-  if (aIdx < 0 || bIdx < 0) throw new Error("node-a/node-b missing from html");
-  return aIdx < bIdx ? "AB" : "BA";
+function layerTree(page: Page) {
+  return page.getByRole("tree", { name: "Layers" });
 }
 
-async function livePreviewBodyOrder(page: Page): Promise<string[]> {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator('[data-agent-native-node-id="wrap"] > [data-agent-native-node-id]')
+function layerRowButton(page: Page, name: string) {
+  return layerTree(page)
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: page.locator(`span[title="${name}"]`) });
+}
+
+function layerRow(page: Page, name: string) {
+  return layerRowButton(page, name).locator(
+    'xpath=ancestor::*[@role="treeitem"][1]',
+  );
+}
+
+function renameInput(page: Page) {
+  return layerTree(page).locator('input[aria-label="Rename layer"]');
+}
+
+/** The Layers tree as indented names, top row first. */
+async function layerOutline(page: Page) {
+  return layerTree(page)
+    .getByRole("treeitem")
+    .evaluateAll((items) =>
+      items.map(
+        (item) =>
+          "  ".repeat(Number(item.getAttribute("aria-level")) - 1) +
+          (item
+            .querySelector("[data-layer-row-button] span[title]")
+            ?.getAttribute("title") ?? ""),
+      ),
+    );
+}
+
+/** Names of the rows directly under `parent`, in panel order. */
+async function rowsUnder(page: Page, parent: string) {
+  return layerTree(page)
+    .getByRole("treeitem")
+    .evaluateAll((items, parentName) => {
+      const rows = items.map((item) => ({
+        level: Number(item.getAttribute("aria-level")),
+        name:
+          item
+            .querySelector("[data-layer-row-button] span[title]")
+            ?.getAttribute("title") ?? "",
+      }));
+      const start = rows.findIndex((row) => row.name === parentName);
+      const names: string[] = [];
+      for (const row of rows.slice(start + 1)) {
+        if (row.level <= rows[start].level) break;
+        if (row.level === rows[start].level + 1) names.push(row.name);
+      }
+      return names;
+    }, parent);
+}
+
+async function dragRowOnto(
+  page: Page,
+  source: Locator,
+  target: Locator,
+  where: "top" | "middle",
+) {
+  const box = (await target.boundingBox())!;
+  await source.dragTo(target, {
+    targetPosition: { x: 96, y: where === "top" ? 2 : box.height / 2 },
+  });
+}
+
+/** The saved style properties that decide where a node renders. */
+function placement(node: SavedNode | undefined) {
+  const {
+    position,
+    left,
+    top,
+    width,
+    height,
+    "margin-top": marginTop,
+  } = styleOf(node);
+  return { position, left, top, "margin-top": marginTop, width, height };
+}
+
+async function liveChildIds(app: App, parentId: string) {
+  return app
+    .node(parentId)
+    .locator(":scope > [data-agent-native-node-id]")
     .evaluateAll((nodes) =>
-      nodes.map((n) => n.getAttribute("data-agent-native-node-id") ?? ""),
+      nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
     );
 }
 
-async function stampPreviewWindowMarker(page: Page): Promise<void> {
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator("html")
-    .evaluate((el) => {
-      (el.ownerDocument.defaultView as any).__previewReorderMarker = "alive";
-    });
-}
+test.describe("interaction: layers panel", () => {
+  test("top row is topmost-rendered, matching DOM order (Steve's footer-above-header report)", async ({
+    app,
+  }) => {
+    await openSeeded(app);
 
-async function previewWindowMarkerSurvived(page: Page): Promise<boolean> {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator("html")
-    .evaluate(
-      (el) =>
-        (el.ownerDocument.defaultView as any).__previewReorderMarker ===
-        "alive",
-    );
-}
-
-test.describe("interaction: layers panel sibling reorder and preview sync", () => {
-  let siblingDesignId: string;
-
-  test.beforeEach(async ({ page }) => {
-    siblingDesignId = await newSiblingReorderDesign(page);
-    await openEditorAndExpandLayers(page, siblingDesignId);
+    await expect
+      .poll(() => layerOutline(app.page))
+      .toStrictEqual([
+        "Home",
+        "  Footer",
+        "  Sticker",
+        "  Main",
+        "    Frame",
+        "      Untitled",
+        "    Loose Card",
+        "    Panel",
+        "      Panel Child",
+        "  Nav",
+        "    Shop",
+        "    About",
+        "    Contact",
+        "  Site Header",
+      ]);
   });
 
-  test("dragging B above A in the panel reaches the persisted file, the live iframe, and the panel alike; one undo restores B,A", async ({
-    page,
+  test('dragging a nav link row inserts exactly "above Shop"', async ({
+    app,
   }) => {
-    expect(domOrder(await getIndexHtml(page, siblingDesignId))).toBe("BA");
-    expect(await livePreviewBodyOrder(page)).toEqual(["node-b", "node-a"]);
+    const page = app.page;
+    const id = await openSeeded(app);
+    const before = await app.savedNodes(id);
+    expect(childrenOf(before, "nav")).toStrictEqual([
+      "nav-shop",
+      "nav-about",
+      "nav-contact",
+    ]);
 
-    await clickLayerRow(page, "Other");
-    await stampPreviewWindowMarker(page);
+    await dragRowOnto(
+      page,
+      layerRowButton(page, "Contact"),
+      layerRow(page, "Shop"),
+      "top",
+    );
+    await app.settled();
 
-    const aRow = layerRow(page, "A");
-    const aBox = await aRow.boundingBox();
-    if (!aBox) throw new Error("A row has no bounding box");
-    await layerRowButton(page, "B").dragTo(aRow, {
-      targetPosition: { x: aBox.width / 2, y: 2 },
+    const after = await app.savedNodes(id);
+    expect(childrenOf(after, "nav")).toStrictEqual([
+      "nav-contact",
+      "nav-shop",
+      "nav-about",
+    ]);
+    expectOnlyChanged(before, after, []);
+    await expect
+      .poll(() => rowsUnder(page, "Nav"))
+      .toStrictEqual(["Contact", "Shop", "About"]);
+    await expect
+      .poll(() => liveChildIds(app, "nav"))
+      .toStrictEqual(["nav-contact", "nav-shop", "nav-about"]);
+  });
+
+  test("dropping a row onto a container row reparents it as the topmost child", async ({
+    app,
+  }) => {
+    const page = app.page;
+    const id = await openSeeded(app);
+    const before = await app.savedNodes(id);
+    expect(await app.designRect("loose")).toEqual(LOOSE_CARD);
+
+    await dragRowOnto(
+      page,
+      layerRowButton(page, "Loose Card"),
+      layerRow(page, "Panel"),
+      "middle",
+    );
+    await app.settled();
+
+    const after = await app.savedNodes(id);
+    expect(childrenOf(after, "panel")).toStrictEqual(["panel-child", "loose"]);
+    expect(childrenOf(after, "main")).toStrictEqual(["panel", "loose2"]);
+    expect(
+      placement(after.get("loose")),
+      "Panel's box starts at 24,152, so 16px margin plus 200px top keeps the card at y 368",
+    ).toEqual({
+      position: "absolute",
+      left: "0px",
+      top: "200px",
+      "margin-top": "16px",
+      width: "120px",
+      height: "60px",
     });
-
+    expectOnlyChanged(before, after, ["loose"]);
     await expect
-      .poll(async () => domOrder(await getIndexHtml(page, siblingDesignId)), {
-        message:
-          "expected the persisted index.html sibling order to become A,B",
-      })
-      .toBe("AB");
+      .poll(() => rowsUnder(page, "Panel"))
+      .toStrictEqual(["Loose Card", "Panel Child"]);
+    expect(
+      await app.designRect("loose"),
+      "a Layers reparent changes the hierarchy, not where the card sits on the canvas",
+    ).toEqual(LOOSE_CARD);
+  });
 
-    await expect
-      .poll(() => livePreviewBodyOrder(page), {
-        message:
-          "expected the live preview iframe's body child order to become node-a,node-b",
-      })
-      .toEqual(["node-a", "node-b"]);
+  test("dropping an absolutely positioned layer row onto a Frame row keeps its on-screen position", async ({
+    app,
+  }) => {
+    const page = app.page;
+    const id = await openSeeded(app);
+    const before = await app.savedNodes(id);
+    expect(await app.designRect("sticker")).toEqual(STICKER);
 
+    await dragRowOnto(
+      page,
+      layerRowButton(page, "Sticker"),
+      layerRow(page, "Panel"),
+      "middle",
+    );
+    await app.settled();
+
+    const after = await app.savedNodes(id);
+    expect(childrenOf(after, "panel")).toStrictEqual([
+      "panel-child",
+      "sticker",
+    ]);
+    expect(
+      placement(after.get("sticker")),
+      "Panel's box starts at 24,152, so the offsets inside it are 476,848",
+    ).toEqual({
+      position: "absolute",
+      left: "476px",
+      top: "848px",
+      width: "60px",
+      height: "40px",
+    });
+    expectOnlyChanged(before, after, ["sticker"]);
+    expect(await app.designRect("sticker")).toEqual(STICKER);
+  });
+
+  test("dragging an unnamed layer's row reorders it like a named one", async ({
+    app,
+  }) => {
+    const page = app.page;
+    const id = await openSeeded(app);
+    const before = await app.savedNodes(id);
     await expect
-      .poll(
-        async () => {
-          const names = await visibleLayerNames(page);
-          return (
-            names.indexOf("B") > -1 && names.indexOf("B") < names.indexOf("A")
-          );
+      .poll(() => rowsUnder(page, "Main"))
+      .toStrictEqual(["Frame", "Loose Card", "Panel"]);
+
+    await dragRowOnto(
+      page,
+      layerRowButton(page, "Frame"),
+      layerRow(page, "Panel"),
+      "top",
+    );
+    await app.settled();
+
+    const after = await app.savedNodes(id);
+    expect(childrenOf(after, "main")).toStrictEqual([
+      "panel",
+      "loose2",
+      "loose",
+    ]);
+    expectOnlyChanged(before, after, []);
+    await expect
+      .poll(() => rowsUnder(page, "Main"))
+      .toStrictEqual(["Loose Card", "Frame", "Panel"]);
+    expect(await app.designRect("loose2")).toEqual(LOOSE_CARD);
+    expect(await app.designRect("loose")).toEqual({ ...LOOSE_CARD, y: 444 });
+  });
+
+  test("rename via double-click commits on Enter and cancels on Escape", async ({
+    app,
+  }) => {
+    const page = app.page;
+    const id = await openSeeded(app);
+    const before = await app.savedNodes(id);
+
+    await layerRowButton(page, "Loose Card").dblclick();
+    await expect(renameInput(page)).toBeFocused();
+    await expect(renameInput(page)).toHaveValue("Loose Card");
+    await renameInput(page).fill("Renamed Via Escape");
+    await renameInput(page).press("Escape");
+    await expect(renameInput(page)).toHaveCount(0);
+    await expect
+      .poll(() => rowsUnder(page, "Main"))
+      .toStrictEqual(["Frame", "Loose Card", "Panel"]);
+    await app.settled();
+    expectOnlyChanged(before, await app.savedNodes(id), []);
+
+    await layerRowButton(page, "Loose Card").dblclick();
+    await renameInput(page).fill("Committed Card");
+    await renameInput(page).press("Enter");
+    await expect(renameInput(page)).toHaveCount(0);
+    await app.settled();
+
+    const after = await app.savedNodes(id);
+    expect(after.get("loose")?.attrs).toEqual({
+      ...before.get("loose")?.attrs,
+      "data-agent-native-layer-name": "Committed Card",
+    });
+    expectOnlyChanged(before, after, ["loose"]);
+    await expect
+      .poll(() => rowsUnder(page, "Main"))
+      .toStrictEqual(["Frame", "Committed Card", "Panel"]);
+
+    await app.open(id);
+    await expandLayers(page, ["Home", "Main"]);
+    await expect
+      .poll(() => rowsUnder(page, "Main"))
+      .toStrictEqual(["Frame", "Committed Card", "Panel"]);
+  });
+
+  test("Cmd+R opens the rename editor for the selection", async ({ app }) => {
+    const page = app.page;
+    const id = await openSeeded(app);
+    await app.zoomToFit();
+    const before = await app.savedNodes(id);
+    const center = await app.pagePoint(
+      LOOSE_CARD.x + LOOSE_CARD.width / 2,
+      LOOSE_CARD.y + LOOSE_CARD.height / 2,
+    );
+    await page.mouse.click(center.x, center.y);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Loose Card"]);
+
+    await page.keyboard.press(`${MOD}+r`);
+
+    const input = layerTree(page)
+      .getByRole("treeitem", { selected: true })
+      .locator('input[aria-label="Rename layer"]');
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("Loose Card");
+    await input.fill("Shortcut Card");
+    await input.press("Enter");
+    await app.settled();
+
+    const after = await app.savedNodes(id);
+    expect(after.get("loose")?.attrs["data-agent-native-layer-name"]).toBe(
+      "Shortcut Card",
+    );
+    expectOnlyChanged(before, after, ["loose"]);
+  });
+
+  test("one undo fully restores parent and position after a panel-drag reparent", async ({
+    app,
+  }) => {
+    const page = app.page;
+    const id = await openSeeded(app);
+    const before = await app.savedNodes(id);
+
+    await dragRowOnto(
+      page,
+      layerRowButton(page, "Loose Card"),
+      layerRow(page, "Panel"),
+      "middle",
+    );
+    await app.settled();
+    expect(
+      (await app.savedNodes(id)).get("loose")?.parent,
+      "the panel drag must reparent the card before undo is meaningful",
+    ).toBe("panel");
+
+    await page.keyboard.press(`${MOD}+z`);
+    await app.settled();
+
+    const after = await app.savedNodes(id);
+    expect(childrenOf(after, "main")).toStrictEqual([
+      "panel",
+      "loose",
+      "loose2",
+    ]);
+    expect(childrenOf(after, "panel")).toStrictEqual(["panel-child"]);
+    expectOnlyChanged(before, after, []);
+    await expect
+      .poll(() => rowsUnder(page, "Main"))
+      .toStrictEqual(["Frame", "Loose Card", "Panel"]);
+    expect(await app.designRect("loose")).toEqual(LOOSE_CARD);
+  });
+
+  // fixme: product bug: Board-to-screen move through Layers ignores the screen's canvas offset: with Home at 100,50, board-a (board 300,450) is saved at left
+  test.fixme("dragging a board-object row onto a screen's file row moves it into the screen (board -> in)", async ({
+    app,
+  }) => {
+    const page = app.page;
+    const id = await app.seed(FIXTURE_WITH_BODY_ID, {
+      files: { "__board__.html": BOARD_FIXTURE },
+    });
+    const seeded = await app.savedRecord(id);
+    const fileId = (filename: string) =>
+      seeded.files.find((file) => file.filename === filename)!.id;
+    const setup = await page.request.post(
+      appPath("/_agent-native/actions/update-design"),
+      {
+        data: {
+          id,
+          dataOperations: [
+            {
+              op: "set",
+              path: ["boardFileId"],
+              value: fileId("__board__.html"),
+            },
+            {
+              op: "set",
+              path: ["canvasFrames", fileId("index.html")],
+              value: HOME_FRAME,
+            },
+          ],
         },
-        { message: "expected B's row to move directly before A's row" },
-      )
-      .toBe(true);
-
-    expect(await previewWindowMarkerSurvived(page)).toBe(true);
-    await expect(toastMessages(page)).resolves.not.toContain(
-      "Could not move that layer",
+      },
+    );
+    expect(setup.ok()).toBe(true);
+    await app.open(id);
+    await expandLayers(page, ["Home"]);
+    const frames = (await app.savedRecord(id)).data?.canvasFrames as Record<
+      string,
+      unknown
+    >;
+    expect(
+      frames[fileId("index.html")],
+      "Home must open where it was placed for the expected offsets to hold",
+    ).toEqual(HOME_FRAME);
+    const before = await app.savedNodes(id);
+    expect((await app.savedNodes(id, "__board__.html")).has("board-a")).toBe(
+      true,
     );
 
-    const mod = process.platform === "darwin" ? "Meta" : "Control";
-    await page.keyboard.down(mod);
-    await page.keyboard.press("z");
-    await page.keyboard.up(mod);
+    await dragRowOnto(
+      page,
+      layerRowButton(page, "Board Sticker"),
+      layerRow(page, "Home"),
+      "middle",
+    );
+    await app.settled();
 
+    const after = await app.savedNodes(id);
+    expect(childrenOf(after, "page")).toStrictEqual([
+      "header",
+      "nav",
+      "main",
+      "sticker",
+      "footer",
+      "board-a",
+    ]);
+    expect(
+      styleOf(after.get("board-a")),
+      "Home sits at 100,50 on the canvas, so the board's 300,450 is 200,400 inside it",
+    ).toEqual({
+      position: "absolute",
+      left: "200px",
+      top: "400px",
+      width: "120px",
+      height: "80px",
+      background: "#f59e0b",
+    });
+    expectOnlyChanged(before, after, ["board-a"]);
+    expect((await app.savedNodes(id, "__board__.html")).has("board-a")).toBe(
+      false,
+    );
     await expect
-      .poll(async () => domOrder(await getIndexHtml(page, siblingDesignId)))
-      .toBe("BA");
+      .poll(() => rowsUnder(page, "Home"))
+      .toStrictEqual([
+        "Board Sticker",
+        "Footer",
+        "Sticker",
+        "Main",
+        "Nav",
+        "Site Header",
+      ]);
+    expect(await app.designRect("board-a")).toEqual({
+      x: 200,
+      y: 400,
+      width: 120,
+      height: 80,
+    });
+  });
+});
+
+test.describe("interaction: layers panel sibling reorder and preview sync", () => {
+  test("dragging B above A in the panel reaches the persisted file, the live iframe, and the panel alike; one undo restores B,A", async ({
+    app,
+  }) => {
+    const page = app.page;
+    const id = await openSeeded(app, SIBLING_REORDER_FIXTURE, ["Home", "Wrap"]);
+    const before = await app.savedNodes(id);
+    expect(childrenOf(before, "wrap")).toStrictEqual(["node-b", "node-a"]);
+    await expect.poll(() => rowsUnder(page, "Wrap")).toStrictEqual(["A", "B"]);
+
+    await layerRowButton(page, "Other").click();
+    await expect.poll(() => app.selectedLayers()).toEqual(["Other"]);
+    const liveWindow = page.locator(LIVE_SCREEN).contentFrame().locator("html");
+    await liveWindow.evaluate((el) => {
+      (el.ownerDocument.defaultView as any).__previewReorderMarker = "alive";
+    });
+
+    await dragRowOnto(
+      page,
+      layerRowButton(page, "B"),
+      layerRow(page, "A"),
+      "top",
+    );
+    await app.settled();
+
+    const reordered = await app.savedNodes(id);
+    expect(childrenOf(reordered, "wrap")).toStrictEqual(["node-a", "node-b"]);
+    expectOnlyChanged(before, reordered, []);
     await expect
-      .poll(() => livePreviewBodyOrder(page))
-      .toEqual(["node-b", "node-a"]);
+      .poll(() => liveChildIds(app, "wrap"))
+      .toStrictEqual(["node-a", "node-b"]);
+    await expect.poll(() => rowsUnder(page, "Wrap")).toStrictEqual(["B", "A"]);
+    expect(
+      await liveWindow.evaluate(
+        (el) => (el.ownerDocument.defaultView as any).__previewReorderMarker,
+      ),
+      "a reorder must patch the live screen, not remount its iframe",
+    ).toBe("alive");
+
+    await page.keyboard.press(`${MOD}+z`);
+    await app.settled();
+
+    const undone = await app.savedNodes(id);
+    expect(childrenOf(undone, "wrap")).toStrictEqual(["node-b", "node-a"]);
+    expectOnlyChanged(before, undone, []);
     await expect
-      .poll(async () => {
-        const names = await visibleLayerNames(page);
-        return (
-          names.indexOf("A") > -1 && names.indexOf("A") < names.indexOf("B")
-        );
-      })
-      .toBe(true);
+      .poll(() => liveChildIds(app, "wrap"))
+      .toStrictEqual(["node-b", "node-a"]);
+    await expect.poll(() => rowsUnder(page, "Wrap")).toStrictEqual(["A", "B"]);
   });
 });

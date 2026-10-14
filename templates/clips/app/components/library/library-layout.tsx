@@ -244,6 +244,44 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     kind: "image",
   });
   const { data: sharedCount } = useRecordingsCount({ view: "shared" });
+  const suggestionCountArgs = useMemo(() => {
+    if (recordingScope) return null;
+    if (location.pathname === "/library") {
+      return { view: "library" as const, kind: "video" as const };
+    }
+    if (location.pathname.startsWith("/library/folder/")) {
+      return {
+        view: "library" as const,
+        kind: "all" as const,
+        folderId: folderId ?? null,
+      };
+    }
+    if (location.pathname === "/screenshots") {
+      return {
+        view: "library" as const,
+        kind: "image" as const,
+      };
+    }
+    if (location.pathname === "/shared") return { view: "shared" as const };
+    if (location.pathname === "/archive") return { view: "archive" as const };
+    if (location.pathname === "/trash") return { view: "trash" as const };
+    if (spaceId && location.pathname.startsWith(`/spaces/${spaceId}`)) {
+      return {
+        view: "space" as const,
+        spaceId,
+        folderId: folderId ?? null,
+      };
+    }
+    return null;
+  }, [folderId, location.pathname, recordingScope, spaceId]);
+  const { data: suggestionRecordingCount } = useRecordingsCount(
+    suggestionCountArgs ?? {},
+    { enabled: suggestionCountArgs !== null },
+  );
+  const hasKnownEmptyList =
+    suggestionCountArgs !== null &&
+    typeof suggestionRecordingCount === "number" &&
+    suggestionRecordingCount === 0;
 
   const libFolderList: FolderNode[] = useMemo(
     () =>
@@ -870,12 +908,21 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 t("recordingPage.listFollowUpActions"),
                 t("recordingPage.draftQuestions"),
               ]
-            : [
-                t("navigation.agentSuggestionSummary"),
-                t("navigation.agentSuggestionPricing"),
-                t("navigation.agentSuggestionFiller"),
-              ]
+            : hasKnownEmptyList
+              ? []
+              : location.pathname === "/screenshots"
+                ? [
+                    t("navigation.agentScreenshotSuggestionSummary"),
+                    t("navigation.agentScreenshotSuggestionText"),
+                    t("navigation.agentScreenshotSuggestionCompare"),
+                  ]
+                : [
+                    t("navigation.agentSuggestionSummary"),
+                    t("navigation.agentSuggestionPricing"),
+                    t("navigation.agentSuggestionFiller"),
+                  ]
         }
+        dynamicSuggestions={false}
         agentPageHref="/settings/agent"
         scope={recordingScope}
         browserTabId={getBrowserTabId()}

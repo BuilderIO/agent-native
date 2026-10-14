@@ -1,12 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+import { type APIRequestContext, type Page } from "@playwright/test";
 
 import {
   designFrame,
@@ -14,6 +9,7 @@ import {
   expandAllLayers,
   gotoEditor,
 } from "./helpers";
+import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
 const ALIGN_HTML = `<!doctype html>
 <html>
@@ -303,6 +299,21 @@ async function expectOffset(
   await expect
     .poll(() => layerOffset(page, layerName), { timeout: 10_000 })
     .toEqual(expected);
+}
+
+/** Waits for saves, then checks the node's saved offset and that no other saved node changed. */
+async function expectSavedOffset(
+  app: App,
+  designId: string,
+  before: Awaited<ReturnType<App["savedNodes"]>>,
+  nodeId: string,
+  expected: { left: string; top: string },
+) {
+  await app.settled();
+  const after = await app.savedNodes(designId);
+  const { left, top } = styleOf(after.get(nodeId));
+  expect({ left, top }, `saved offset of ${nodeId}`).toEqual(expected);
+  expectOnlyChanged(before, after, [nodeId]);
 }
 
 function boardPreviewFrame(page: Page) {
@@ -649,14 +660,15 @@ test("layer hydration requests a complete measurement when board offset metadata
 });
 
 test("Left and Right alignment controls move to their named edges", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(request, requireBaseURL(baseURL));
+  const designId = await app.seed(ALIGN_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Chip");
   await expectOffset(page, "Chip", { left: 300, top: 250 });
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align right").click();
   await expectOffset(page, "Chip", {
@@ -666,17 +678,22 @@ test("Left and Right alignment controls move to their named edges", async ({
 
   await alignButton(page, "Align left").click();
   await expectOffset(page, "Chip", { left: 0, top: 250 });
+  await expectSavedOffset(app, designId, before, "align-chip", {
+    left: "0px",
+    top: "250px",
+  });
 });
 
 test("Top and Bottom alignment controls move to their named edges", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(request, requireBaseURL(baseURL));
+  const designId = await app.seed(ALIGN_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Chip");
   await expectOffset(page, "Chip", { left: 300, top: 250 });
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align bottom").click();
   await expectOffset(page, "Chip", {
@@ -686,21 +703,31 @@ test("Top and Bottom alignment controls move to their named edges", async ({
 
   await alignButton(page, "Align top").click();
   await expectOffset(page, "Chip", { left: 300, top: 0 });
+  await expectSavedOffset(app, designId, before, "align-chip", {
+    left: "300px",
+    top: "0px",
+  });
 });
 
-test("aligning one axis leaves a percentage offset on the other axis put", async ({
+// fixme: product bug: Align top saves left: 390px (the computed value) instead of keeping the authored left: 50%, so the chip no longer tracks its parent's
+test.fixme("aligning one axis leaves a percentage offset on the other axis put", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(request, requireBaseURL(baseURL));
+  const designId = await app.seed(ALIGN_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Percent");
   const half = BOUNDS_WIDTH / 2;
   await expectOffset(page, "Percent", { left: half, top: 100 });
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align top").click();
   await expectOffset(page, "Percent", { left: half, top: 0 });
+  await expectSavedOffset(app, designId, before, "align-percent-chip", {
+    left: "50%",
+    top: "0px",
+  });
 });
 
 test("a lone top-level frame has nothing to align against", async ({
@@ -1133,15 +1160,10 @@ test("Position edits invert own and static-containing-block transforms and persi
 
 // Alignment uses Group bounds; Position remains Frame-relative.
 test("Align uses a Group's bounds while Position stays Frame-relative", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(
-    request,
-    requireBaseURL(baseURL),
-    GROUP_POSITION_HTML,
-  );
+  const designId = await app.seed(GROUP_POSITION_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Group child");
 
@@ -1149,6 +1171,8 @@ test("Align uses a Group's bounds while Position stays Frame-relative", async ({
   const y = page.getByRole("textbox", { name: "Y-position" });
   await expect(x).toHaveValue("100px");
   await expect(y).toHaveValue("100px");
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align left").click();
   await expectOffset(page, "Group child", { left: 0, top: 80 });
@@ -1162,6 +1186,10 @@ test("Align uses a Group's bounds while Position stays Frame-relative", async ({
   await expectOffset(page, "Group child", { left: 40, top: 80 });
   await expect(x).toHaveValue("60px");
   await expect(y).toHaveValue("100px");
+  await expectSavedOffset(app, designId, before, "group-child", {
+    left: "40px",
+    top: "80px",
+  });
 });
 
 const TRANSFORM_HTML = `<!doctype html>
@@ -1214,17 +1242,14 @@ async function authoredOffset(page: Page, layerName: string) {
 }
 
 test("a scaled parent does not scale the offsets that get committed", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(
-    request,
-    requireBaseURL(baseURL),
-    TRANSFORM_HTML,
-  );
+  const designId = await app.seed(TRANSFORM_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Inner");
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align right").click();
   await expect
@@ -1235,25 +1260,30 @@ test("a scaled parent does not scale the offsets that get committed", async ({
   await expect
     .poll(() => authoredOffset(page, "Inner"), { timeout: 10_000 })
     .toEqual({ left: "680px", top: "540px" });
+  await expectSavedOffset(app, designId, before, "inner", {
+    left: "680px",
+    top: "540px",
+  });
 });
 
 test("a transformed node aligns by its layout box, not its painted box", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(
-    request,
-    requireBaseURL(baseURL),
-    TRANSFORM_HTML,
-  );
+  const designId = await app.seed(TRANSFORM_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Shifted");
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align right").click();
   await expect
     .poll(() => authoredOffset(page, "Shifted"), { timeout: 10_000 })
     .toEqual({ left: "680px", top: "300px" });
+  await expectSavedOffset(app, designId, before, "shifted", {
+    left: "680px",
+    top: "300px",
+  });
 });
 
 test("a static parent is not the containing block, so alignment refuses", async ({

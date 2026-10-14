@@ -415,9 +415,17 @@ describe("McpAppRenderer security helpers", () => {
     expect(result).toEqual({
       content: [{ type: "text", text: "tool result" }],
     });
-    expect(callTool).toHaveBeenCalledWith("mcp__apps__inspect", {
-      id: "item-1",
-    });
+    expect(callTool).toHaveBeenCalledWith(
+      "mcp__apps__inspect",
+      { id: "item-1" },
+      {
+        context: {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          orgId: "acme",
+        },
+      },
+    );
     expect(endpoints).toEqual([
       "/_agent-native/mcp/apps/list-tools",
       "/_agent-native/mcp/apps/call-tool",

@@ -207,9 +207,12 @@ const messages = {
     expandSidebar: "サイドバーを展開",
     collapseSidebar: "サイドバーを折りたたむ",
     agentEmptyState: "録画についてどのようにお手伝いしましょうか？",
-    agentSuggestionSummary: "最新の録画を要約して",
-    agentSuggestionPricing: "価格について話した箇所を探して",
-    agentSuggestionFiller: "このクリップからフィラー語を削除して",
+    agentSuggestionSummary: "録画を要約して",
+    agentSuggestionPricing: "価格の言及を探して",
+    agentSuggestionFiller: "フィラー語を削除して",
+    agentScreenshotSuggestionSummary: "スクリーンショットを要約して",
+    agentScreenshotSuggestionText: "スクリーンショット内の文字を探して",
+    agentScreenshotSuggestionCompare: "スクリーンショットを比較して",
     createFolderError: "作成に失敗しました",
     folderCreated: "フォルダを作成しました",
     folderNamePlaceholder: "フォルダ名",
@@ -305,6 +308,10 @@ const messages = {
     transcriptionCompleted: "文字起こしが完了しました",
     transcriptNotReady: "トランスクリプトはまだ準備ができていません",
     tryAfterTranscription: "文字起こしが完了してからもう一度お試しください。",
+    silenceTranscriptUnavailableTitle:
+      "この文字起こしは無音部分の削除に使用できません",
+    silenceTranscriptUnavailableDescription:
+      "新しい文字起こしを生成してから、もう一度無音部分を削除してください。",
     titleGenerationQueued: "タイトルを生成中…",
     descriptionQueued: "説明を生成中…",
     chapterQueued: "チャプターを生成中…",
@@ -1878,6 +1885,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (ローカライズ済み)",
     recordingDownloadStarted: "Recording download started (ローカライズ済み)",
+    partialLocalCopyDownloadStarted:
+      "ローカルコピーは不完全な可能性があります。利用可能な録画データをダウンロードしています。",
     backToLibrary: "Back to library (ローカライズ済み)",
     clipsRecorder: "Clips recorder (ローカライズ済み)",
     preparingSources: "Preparing sources… (ローカライズ済み)",
@@ -2043,6 +2052,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (ローカライズ済み)",
     cleanupComplete: "ディクテーションをクリーンアップしました",
     cleanupFailed: "ディクテーションをクリーンアップできませんでした",
+    undoCleanup: "元に戻す",
+    restoreOriginal: "元に戻す",
+    cleanupRestored: "元のディクテーションを復元しました",
+    cleanupRestoreFailed: "元のディクテーションを復元できませんでした",
     startFirst: "考えをテキストに変えましょう",
     recordOnDesktop: "デスクトップで録音",
     emptyDesktopDescription:

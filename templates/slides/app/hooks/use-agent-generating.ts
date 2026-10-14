@@ -108,6 +108,7 @@ export function useAgentGenerating(options?: {
     outputId: string;
     submitMessageId: string;
   } | null>(null);
+  const terminalRunErrorTabRef = useRef<string | null>(null);
   const scopedTabIdRef = useRef<string | null>(scopedTabId);
   scopedTabIdRef.current = scopedTabId;
   const activeTabRef = useRef<string | null>(scopedTabId);
@@ -176,18 +177,30 @@ export function useAgentGenerating(options?: {
 
   useEffect(() => {
     if (!hasTabScope) return;
-    activeTabRef.current = scopedTabId;
-    activeSubmitRef.current = null;
+    const preserveCorrelatedSubmission =
+      scopedTabId !== null &&
+      activeSubmitRef.current !== null &&
+      activeTabRef.current === scopedTabId;
+    const preserveCorrelatedRunError =
+      scopedTabId !== null && terminalRunErrorTabRef.current === scopedTabId;
+    if (!preserveCorrelatedSubmission) {
+      activeTabRef.current = scopedTabId;
+      activeSubmitRef.current = null;
+    }
     clearStopDebounce();
     clearWatchdog();
     setRecentlyGenerating(false);
     setTimedOut(false);
-    setRunError(false);
-    setRunErrorCode(null);
+    if (!preserveCorrelatedRunError) {
+      terminalRunErrorTabRef.current = null;
+      setRunError(false);
+      setRunErrorCode(null);
+    }
   }, [clearStopDebounce, clearWatchdog, hasTabScope, scopedTabId]);
 
   useEffect(() => {
     if (!providerMissing) return;
+    terminalRunErrorTabRef.current = null;
     clearStopDebounce();
     clearWatchdog();
     setRecentlyGenerating(false);
@@ -222,8 +235,11 @@ export function useAgentGenerating(options?: {
       const detail = (event as CustomEvent).detail;
       const eventTabId =
         typeof detail?.tabId === "string" ? detail.tabId : null;
+      // A confirmed submission can fail before the running-state hook updates.
+      const hasCorrelatedSubmission =
+        activeSubmitRef.current !== null && activeTabRef.current === eventTabId;
       if (
-        !generationActiveRef.current ||
+        (!generationActiveRef.current && !hasCorrelatedSubmission) ||
         !eventTabId ||
         !activeTabRef.current ||
         eventTabId !== activeTabRef.current ||
@@ -231,6 +247,7 @@ export function useAgentGenerating(options?: {
       ) {
         return;
       }
+      terminalRunErrorTabRef.current = eventTabId;
       activeSubmitRef.current = null;
       activeTabRef.current = null;
       clearStopDebounce();
@@ -371,6 +388,7 @@ export function useAgentGenerating(options?: {
       setRunError(false);
       setRunErrorCode(null);
       resetWatchdog();
+      terminalRunErrorTabRef.current = null;
       activeSubmitRef.current = submitMessageId;
       activeGenerationAttemptRef.current =
         generationAttemptId && generationOutputId
@@ -424,6 +442,7 @@ export function useAgentGenerating(options?: {
       setRunError(false);
       setRunErrorCode(null);
       resetWatchdog();
+      terminalRunErrorTabRef.current = null;
       activeSubmitRef.current = submitMessageId;
       activeTabRef.current = null;
       const submission = sendToAgentChatAndConfirm(

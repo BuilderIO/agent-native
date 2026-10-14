@@ -446,11 +446,10 @@ const enUS = {
     zoomMeetingIdsDescription:
       "Required. One Zoom meeting ID per line for each recurring series whose owner opted in (spaces are fine). Every occurrence keeps the same ID.",
     zoomLookbackDays: "Lookback days",
-    zoomIncludeSummaries: "Import AI Companion summaries",
     invalidZoomMeetingIds:
       "Not valid Zoom meeting IDs: {{entries}}. Use the number from the meeting invite, like 123 4567 8901.",
     zoomDescription:
-      "Every hour, Brain imports transcripts (and summaries, if turned on) only from the approved series. Other meetings in the Zoom account are never downloaded. Changing the list re-scans the lookback window.",
+      "Every hour, Brain imports transcripts only from the approved series. Other meetings in the Zoom account are never downloaded. Changing the list re-scans the lookback window.",
     zoomAdminOnly:
       "Only organization owners and admins can change Zoom settings. You can still rename this source.",
     approvedRepositories: "Approved repositories",
@@ -7232,11 +7231,10 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingIdsDescription:
         "مطلوب. معرّف اجتماع Zoom واحد في كل سطر لكل سلسلة متكررة وافق مالكها على الانضمام (المسافات مسموحة). تحتفظ كل جلسة بنفس المعرّف.",
       zoomLookbackDays: "عدد أيام الرجوع",
-      zoomIncludeSummaries: "استيراد ملخصات AI Companion",
       invalidZoomMeetingIds:
         "معرّفات اجتماعات Zoom غير صالحة: {{entries}}. استخدم الرقم الموجود في دعوة الاجتماع، مثل 123 4567 8901.",
       zoomDescription:
-        "كل ساعة، يستورد Brain النصوص (والملخصات إذا كانت مفعّلة) من السلاسل المعتمدة فقط. لا يتم تنزيل أي اجتماعات أخرى في حساب Zoom. يؤدي تغيير القائمة إلى إعادة فحص فترة الرجوع.",
+        "كل ساعة، يستورد Brain النصوص من السلاسل المعتمدة فقط. لا يتم تنزيل أي اجتماعات أخرى في حساب Zoom. يؤدي تغيير القائمة إلى إعادة فحص فترة الرجوع.",
       zoomAdminOnly:
         "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير إعدادات Zoom. لا يزال بإمكانك إعادة تسمية هذا المصدر.",
     },
@@ -7247,11 +7245,10 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingIdsDescription:
         "Erforderlich. Eine Zoom-Meeting-ID pro Zeile für jede wiederkehrende Serie, deren Verantwortliche zugestimmt haben (Leerzeichen sind erlaubt). Jeder Termin behält dieselbe ID.",
       zoomLookbackDays: "Rückblick in Tagen",
-      zoomIncludeSummaries: "AI Companion-Zusammenfassungen importieren",
       invalidZoomMeetingIds:
         "Keine gültigen Zoom-Meeting-IDs: {{entries}}. Verwende die Nummer aus der Meeting-Einladung, z. B. 123 4567 8901.",
       zoomDescription:
-        "Brain importiert stündlich Transkripte (und, falls aktiviert, Zusammenfassungen) nur aus den freigegebenen Serien. Andere Meetings im Zoom-Konto werden nie heruntergeladen. Eine Änderung der Liste durchsucht den Rückblickzeitraum erneut.",
+        "Brain importiert stündlich Transkripte nur aus den freigegebenen Serien. Andere Meetings im Zoom-Konto werden nie heruntergeladen. Eine Änderung der Liste durchsucht den Rückblickzeitraum erneut.",
       zoomAdminOnly:
         "Nur Organisationsinhaber und -administratoren können Zoom-Einstellungen ändern. Du kannst diese Quelle weiterhin umbenennen.",
     },
@@ -7262,11 +7259,10 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingIdsDescription:
         "Obligatorio. Un ID de reunión de Zoom por línea para cada serie periódica cuyo propietario haya dado su aprobación (se admiten espacios). Cada sesión mantiene el mismo ID.",
       zoomLookbackDays: "Días hacia atrás",
-      zoomIncludeSummaries: "Importar resúmenes de AI Companion",
       invalidZoomMeetingIds:
         "ID de reunión de Zoom no válidos: {{entries}}. Usa el número de la invitación, como 123 4567 8901.",
       zoomDescription:
-        "Cada hora, Brain importa transcripciones (y resúmenes, si están activados) solo de las series aprobadas. Nunca se descargan otras reuniones de la cuenta de Zoom. Al cambiar la lista se vuelve a revisar el periodo hacia atrás.",
+        "Cada hora, Brain importa transcripciones solo de las series aprobadas. Nunca se descargan otras reuniones de la cuenta de Zoom. Al cambiar la lista se vuelve a revisar el periodo hacia atrás.",
       zoomAdminOnly:
         "Solo los propietarios y administradores de la organización pueden cambiar la configuración de Zoom. Aún puedes cambiar el nombre de esta fuente.",
     },
@@ -7277,11 +7273,10 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingIdsDescription:
         "Obligatoire. Un ID de réunion Zoom par ligne pour chaque série récurrente dont le propriétaire a donné son accord (les espaces sont acceptés). Chaque occurrence conserve le même ID.",
       zoomLookbackDays: "Jours d'historique",
-      zoomIncludeSummaries: "Importer les résumés AI Companion",
       invalidZoomMeetingIds:
         "ID de réunion Zoom non valides : {{entries}}. Utilisez le numéro de l'invitation, par exemple 123 4567 8901.",
       zoomDescription:
-        "Chaque heure, Brain importe les transcriptions (et les résumés, s'ils sont activés) uniquement des séries approuvées. Les autres réunions du compte Zoom ne sont jamais téléchargées. Modifier la liste réanalyse la période d'historique.",
+        "Chaque heure, Brain importe les transcriptions uniquement des séries approuvées. Les autres réunions du compte Zoom ne sont jamais téléchargées. Modifier la liste réanalyse la période d'historique.",
       zoomAdminOnly:
         "Seuls les propriétaires et administrateurs de l'organisation peuvent modifier les paramètres Zoom. Vous pouvez toujours renommer cette source.",
     },
@@ -7292,11 +7287,10 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingIdsDescription:
         "ज़रूरी। हर उस दोहराई जाने वाली सीरीज़ के लिए एक पंक्ति में एक Zoom मीटिंग ID जिसके मालिक ने सहमति दी है (स्पेस चल सकते हैं)। हर मीटिंग की ID वही रहती है।",
       zoomLookbackDays: "पीछे देखने के दिन",
-      zoomIncludeSummaries: "AI Companion सारांश इंपोर्ट करें",
       invalidZoomMeetingIds:
         "अमान्य Zoom मीटिंग ID: {{entries}}। आमंत्रण में दिया नंबर इस्तेमाल करें, जैसे 123 4567 8901।",
       zoomDescription:
-        "Brain हर घंटे केवल स्वीकृत सीरीज़ से ट्रांसक्रिप्ट (और चालू होने पर सारांश) आयात करता है। Zoom खाते की अन्य मीटिंग कभी डाउनलोड नहीं होतीं। सूची बदलने पर पीछे देखने की अवधि फिर से स्कैन होती है।",
+        "Brain हर घंटे केवल स्वीकृत सीरीज़ से ट्रांसक्रिप्ट आयात करता है। Zoom खाते की अन्य मीटिंग कभी डाउनलोड नहीं होतीं। सूची बदलने पर पीछे देखने की अवधि फिर से स्कैन होती है।",
       zoomAdminOnly:
         "केवल संगठन के मालिक और एडमिन Zoom सेटिंग्स बदल सकते हैं। आप अब भी इस स्रोत का नाम बदल सकते हैं।",
     },
@@ -7307,11 +7301,10 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingIdsDescription:
         "必須。主催者が同意した定期ミーティングごとに、1 行に 1 つ Zoom ミーティング ID を入力します（スペース可）。各回は同じ ID を使い続けます。",
       zoomLookbackDays: "さかのぼる日数",
-      zoomIncludeSummaries: "AI Companion の要約をインポート",
       invalidZoomMeetingIds:
         "無効な Zoom ミーティング ID: {{entries}}。招待に記載された番号（例: 123 4567 8901）を使用してください。",
       zoomDescription:
-        "Brain は 1 時間ごとに、承認済みの定期ミーティングからのみ文字起こし（有効な場合は要約も）を取り込みます。Zoom アカウント内のほかのミーティングはダウンロードしません。一覧を変更すると、さかのぼる期間を再スキャンします。",
+        "Brain は 1 時間ごとに、承認済みの定期ミーティングからのみ文字起こしを取り込みます。Zoom アカウント内のほかのミーティングはダウンロードしません。一覧を変更すると、さかのぼる期間を再スキャンします。",
       zoomAdminOnly:
         "Zoom の設定を変更できるのは組織のオーナーと管理者のみです。このソースの名前は引き続き変更できます。",
     },
@@ -7322,11 +7315,10 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingIdsDescription:
         "필수. 소유자가 동의한 반복 시리즈마다 한 줄에 하나씩 Zoom 회의 ID를 입력하세요(공백 허용). 모든 회차는 같은 ID를 유지합니다.",
       zoomLookbackDays: "조회 기간(일)",
-      zoomIncludeSummaries: "AI Companion 요약 가져오기",
       invalidZoomMeetingIds:
         "유효하지 않은 Zoom 회의 ID: {{entries}}. 초대장의 번호(예: 123 4567 8901)를 사용하세요.",
       zoomDescription:
-        "Brain은 매시간 승인된 시리즈에서만 대본(켜져 있으면 요약도)을 가져옵니다. Zoom 계정의 다른 회의는 다운로드하지 않습니다. 목록을 변경하면 조회 기간을 다시 검사합니다.",
+        "Brain은 매시간 승인된 시리즈에서만 대본을 가져옵니다. Zoom 계정의 다른 회의는 다운로드하지 않습니다. 목록을 변경하면 조회 기간을 다시 검사합니다.",
       zoomAdminOnly:
         "조직 소유자와 관리자만 Zoom 설정을 변경할 수 있습니다. 이 소스의 이름은 계속 변경할 수 있습니다.",
     },
@@ -7337,11 +7329,10 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingIdsDescription:
         "Obrigatório. Um ID de reunião do Zoom por linha para cada série recorrente cujo responsável autorizou (espaços são permitidos). Cada ocorrência mantém o mesmo ID.",
       zoomLookbackDays: "Dias de retrospectiva",
-      zoomIncludeSummaries: "Importar resumos do AI Companion",
       invalidZoomMeetingIds:
         "IDs de reunião do Zoom inválidos: {{entries}}. Use o número do convite, como 123 4567 8901.",
       zoomDescription:
-        "A cada hora, o Brain importa transcrições (e resumos, se ativados) somente das séries aprovadas. Outras reuniões da conta do Zoom nunca são baixadas. Alterar a lista verifica novamente o período de retrospectiva.",
+        "A cada hora, o Brain importa transcrições somente das séries aprovadas. Outras reuniões da conta do Zoom nunca são baixadas. Alterar a lista verifica novamente o período de retrospectiva.",
       zoomAdminOnly:
         "Somente proprietários e administradores da organização podem alterar as configurações do Zoom. Você ainda pode renomear esta fonte.",
     },
@@ -7352,11 +7343,10 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingIdsDescription:
         "必填。每行一个 Zoom 会议 ID，对应主持人已同意加入的周期性会议系列（可包含空格）。每次会议的 ID 保持不变。",
       zoomLookbackDays: "回溯天数",
-      zoomIncludeSummaries: "导入 AI Companion 摘要",
       invalidZoomMeetingIds:
         "无效的 Zoom 会议 ID：{{entries}}。请使用会议邀请中的号码，例如 123 4567 8901。",
       zoomDescription:
-        "Brain 每小时仅从已批准的系列导入转录（开启后也导入摘要）。Zoom 账户中的其他会议绝不会被下载。更改列表会重新扫描回溯期。",
+        "Brain 每小时仅从已批准的系列导入转录。Zoom 账户中的其他会议绝不会被下载。更改列表会重新扫描回溯期。",
       zoomAdminOnly:
         "只有组织所有者和管理员可以更改 Zoom 设置。你仍然可以重命名此来源。",
     },

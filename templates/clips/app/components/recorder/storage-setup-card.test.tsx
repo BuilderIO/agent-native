@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   retry: vi.fn(() => true),
   useBuilderConnectFlow: vi.fn(),
   storageSetupHref: "/settings/general#video-storage" as string | null,
+  trackOnboardingEvent: vi.fn(),
+  correlationIds: 0,
 }));
 
 vi.mock("@/components/settings/settings-links", () => ({
@@ -26,6 +28,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  createOnboardingCorrelationId: () => `view-${++mocks.correlationIds}`,
+  trackOnboardingEvent: (...args: unknown[]) =>
+    mocks.trackOnboardingEvent(...args),
   useOnboarding: () => ({
     loading: false,
     error: null,
@@ -138,6 +143,8 @@ describe("StorageSetupCard", () => {
     mocks.cancel.mockReset();
     mocks.retry.mockReset().mockReturnValue(true);
     mocks.useBuilderConnectFlow.mockReset().mockReturnValue(flowState());
+    mocks.trackOnboardingEvent.mockReset();
+    mocks.correlationIds = 0;
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(new Response(null, { status: 503 })),
@@ -830,5 +837,168 @@ describe("StorageSetupCard", () => {
     expect(container.textContent).toContain("clipsSettings.storageAskAdmin");
     expect(container.textContent).not.toContain("settings.s3Title");
     expect(container.querySelector("a[href]")).toBeNull();
+  });
+
+  describe("storage step tracking", () => {
+    function storageEvents(name?: string) {
+      return mocks.trackOnboardingEvent.mock.calls.filter(
+        ([eventName]) => name === undefined || eventName === name,
+      );
+    }
+
+    async function connectBuilderAndConfigure() {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          Response.json({
+            configured: true,
+            builderConfigured: true,
+            builderUploadConfigured: true,
+          }),
+        ),
+      );
+      await createAndActivate();
+      const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {
+        onConnected: () => void;
+      };
+      act(() => connectOptions.onConnected());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+    }
+
+    it("records one view per showing, labeled by the surface", async () => {
+      await act(async () => {
+        root.render(
+          <StorageSetupCard
+            onConfigured={vi.fn()}
+            connectSource="clips_record_storage_setup_card"
+          />,
+        );
+      });
+      await act(async () => {
+        root.render(
+          <StorageSetupCard
+            onConfigured={vi.fn()}
+            connectSource="clips_record_storage_setup_card"
+          />,
+        );
+      });
+
+      expect(storageEvents()).toEqual([
+        [
+          "onboarding_step_viewed",
+          {
+            step_id: "file-storage",
+            flow: "clips_record_storage_setup_card",
+            step_view_id: "view-1",
+          },
+        ],
+      ]);
+    });
+
+    it("records an explicit skip once, and no completion", async () => {
+      const onSkip = vi.fn();
+      await renderCard(vi.fn(), onSkip);
+
+      act(() => bodyButton("agentChat.onboarding.skipForNow")?.click());
+
+      expect(onSkip).toHaveBeenCalledOnce();
+      expect(storageEvents("onboarding_step_skipped")).toEqual([
+        [
+          "onboarding_step_skipped",
+          {
+            step_id: "file-storage",
+            flow: "clips_file_upload_storage_setup_card",
+            step_view_id: "view-1",
+          },
+        ],
+      ]);
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
+    });
+
+    it("records the Builder choice and one completion when storage is configured", async () => {
+      const onConfigured = vi.fn();
+      await renderCard(onConfigured);
+
+      await connectBuilderAndConfigure();
+
+      expect(onConfigured).toHaveBeenCalledOnce();
+      expect(storageEvents("onboarding_method_clicked")).toEqual([
+        [
+          "onboarding_method_clicked",
+          {
+            step_id: "file-storage",
+            flow: "clips_file_upload_storage_setup_card",
+            step_view_id: "view-1",
+            method_id: "builder",
+          },
+        ],
+      ]);
+      expect(storageEvents("onboarding_step_completed")).toEqual([
+        [
+          "onboarding_step_completed",
+          {
+            step_id: "file-storage",
+            flow: "clips_file_upload_storage_setup_card",
+            step_view_id: "view-1",
+            method_id: "builder",
+          },
+        ],
+      ]);
+      expect(storageEvents("onboarding_step_skipped")).toHaveLength(0);
+    });
+
+    it("records the S3 choice without claiming completion", async () => {
+      await renderCard();
+
+      act(() =>
+        container
+          .querySelector<HTMLAnchorElement>(
+            'a[href="/settings/general#video-storage"]',
+          )
+          ?.dispatchEvent(
+            new MouseEvent("click", { bubbles: true, cancelable: true }),
+          ),
+      );
+
+      expect(storageEvents("onboarding_method_clicked")).toEqual([
+        [
+          "onboarding_method_clicked",
+          {
+            step_id: "file-storage",
+            flow: "clips_file_upload_storage_setup_card",
+            step_view_id: "view-1",
+            method_id: "s3",
+          },
+        ],
+      ]);
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
+    });
+
+    it("records nothing past the view while storage stays unconfigured", async () => {
+      await renderCard(vi.fn(), vi.fn());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+
+      expect(storageEvents().map(([name]) => name)).toEqual([
+        "onboarding_step_viewed",
+      ]);
+    });
+
+    it("still skips when tracking throws", async () => {
+      mocks.trackOnboardingEvent.mockImplementation(() => {
+        throw new Error("tracker down");
+      });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const onSkip = vi.fn();
+      await renderCard(vi.fn(), onSkip);
+
+      act(() => bodyButton("agentChat.onboarding.skipForNow")?.click());
+
+      expect(onSkip).toHaveBeenCalledOnce();
+      warn.mockRestore();
+    });
   });
 });

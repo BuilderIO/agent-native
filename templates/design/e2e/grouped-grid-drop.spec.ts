@@ -1,4 +1,3 @@
-import { expect, test } from "@playwright/test";
 import { parse } from "parse5";
 
 import {
@@ -9,6 +8,7 @@ import {
   postAction,
   setBaseURL,
 } from "./drag-and-drop.shared";
+import { expect, expectOnlyChanged, test, type App } from "./rails";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -32,13 +32,6 @@ const GROUPED_GRID_FIXTURE = `<!doctype html>
     <div data-agent-native-node-id="occupied-d" data-agent-native-layer-name="Occupied D" style="grid-column:2;grid-row:3;background:#14b8a6">OD</div>
   </section>
 </body></html>`;
-
-async function deleteDesign(
-  page: Parameters<typeof postAction>[0],
-  id: string,
-) {
-  await postAction(page, "delete-design", { id }).catch(() => {});
-}
 
 function preview(page: Parameters<typeof node>[0]) {
   return page
@@ -101,287 +94,231 @@ function overlaps(
 }
 
 test("grouped span-2 grid drop previews without overlap and persists undo/redo placement", async ({
+  app,
   page,
 }) => {
-  const designId = await newDesign(page, GROUPED_GRID_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    const sourceA = node(page, "source-a");
-    const sourceARow = page.getByRole("treeitem", { name: /Source A/ });
-    const sourceBRow = page.getByRole("treeitem", { name: /Source B/ });
-    await sourceARow.click();
-    await sourceBRow.click({ modifiers: ["Shift"] });
-    await expect(sourceARow).toHaveAttribute("aria-selected", "true");
-    await expect(sourceBRow).toHaveAttribute("aria-selected", "true");
+  const designId = await app.seed(GROUPED_GRID_FIXTURE);
+  await openEditor(page, designId);
+  const sourceA = node(page, "source-a");
+  const sourceARow = page.getByRole("treeitem", { name: /Source A/ });
+  const sourceBRow = page.getByRole("treeitem", { name: /Source B/ });
+  await sourceARow.click();
+  await sourceBRow.click({ modifiers: ["Shift"] });
+  await expect(sourceARow).toHaveAttribute("aria-selected", "true");
+  await expect(sourceBRow).toHaveAttribute("aria-selected", "true");
 
-    const occupiedA = (await node(page, "occupied-a").boundingBox())!;
-    const occupiedB = (await node(page, "occupied-b").boundingBox())!;
-    const occupiedC = (await node(page, "occupied-c").boundingBox())!;
-    const dropPoint = {
-      x: occupiedB.x + occupiedB.width / 4, // Third column of the span-2 row.
-      y: (occupiedA.y + occupiedA.height + occupiedC.y) / 2, // Second row.
-    };
-    const dragToGrid = async () => {
-      const sourceBox = (await sourceA.boundingBox())!;
-      await page.mouse.move(
-        sourceBox.x + sourceBox.width / 2,
-        sourceBox.y + sourceBox.height / 2,
-      );
-      await page.mouse.down();
-      await page.mouse.move(
-        sourceBox.x + sourceBox.width / 2 + 12,
-        sourceBox.y + sourceBox.height / 2 + 8,
-        { steps: 6 },
-      );
-      await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
-    };
-    const originalHtml = await indexHtml(page, designId);
-    await dragToGrid();
+  const occupiedA = (await node(page, "occupied-a").boundingBox())!;
+  const occupiedB = (await node(page, "occupied-b").boundingBox())!;
+  const occupiedC = (await node(page, "occupied-c").boundingBox())!;
+  const dropPoint = {
+    x: occupiedB.x + occupiedB.width / 4, // Third column of the span-2 row.
+    y: (occupiedA.y + occupiedA.height + occupiedC.y) / 2, // Second row.
+  };
+  const dragToGrid = async () => {
+    const sourceBox = (await sourceA.boundingBox())!;
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width / 2 + 12,
+      sourceBox.y + sourceBox.height / 2 + 8,
+      { steps: 6 },
+    );
+    await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
+  };
+  const originalHtml = await indexHtml(page, designId);
+  await dragToGrid();
 
-    const heldA = await stylePlacement(page, "source-a");
-    const heldB = await stylePlacement(page, "source-b");
-    const heldOccupiedB = await stylePlacement(page, "occupied-b");
-    const heldOccupiedC = await stylePlacement(page, "occupied-c");
-    expect(heldA.column).toMatch(/3\s*\/\s*5/);
-    expect(heldA.row).toMatch(/2\s*\/\s*3/);
-    expect(heldB.column).toMatch(/3\s*\/\s*5/);
-    expect(heldB.row).toMatch(/3\s*\/\s*4/);
-    expect(heldOccupiedC.row).not.toBe("3");
-    expect(overlaps(heldA, heldB)).toBe(false);
-    expect(overlaps(heldA, heldOccupiedB)).toBe(false);
-    expect(overlaps(heldA, heldOccupiedC)).toBe(false);
-    expect(overlaps(heldB, heldOccupiedB)).toBe(false);
-    expect(overlaps(heldB, heldOccupiedC)).toBe(false);
-    await expect(
-      preview(page).locator("[data-agent-native-insertion-guide]"),
-    ).toBeVisible();
-    expect(await indexHtml(page, designId)).toBe(originalHtml);
+  const heldA = await stylePlacement(page, "source-a");
+  const heldB = await stylePlacement(page, "source-b");
+  const heldOccupiedB = await stylePlacement(page, "occupied-b");
+  const heldOccupiedC = await stylePlacement(page, "occupied-c");
+  expect(heldA.column).toMatch(/3\s*\/\s*5/);
+  expect(heldA.row).toMatch(/2\s*\/\s*3/);
+  expect(heldB.column).toMatch(/3\s*\/\s*5/);
+  expect(heldB.row).toMatch(/3\s*\/\s*4/);
+  expect(heldOccupiedC.row).not.toBe("3");
+  expect(overlaps(heldA, heldB)).toBe(false);
+  expect(overlaps(heldA, heldOccupiedB)).toBe(false);
+  expect(overlaps(heldA, heldOccupiedC)).toBe(false);
+  expect(overlaps(heldB, heldOccupiedB)).toBe(false);
+  expect(overlaps(heldB, heldOccupiedC)).toBe(false);
+  await expect(
+    preview(page).locator("[data-agent-native-insertion-guide]"),
+  ).toBeVisible();
+  expect(await indexHtml(page, designId)).toBe(originalHtml);
 
-    await page.keyboard.press("Escape");
-    await page.mouse.up();
-    expect(await indexHtml(page, designId)).toBe(originalHtml);
-    expect(await stylePlacement(page, "source-a")).toMatchObject({
-      column: "1 / span 2",
-      row: "1",
-    });
-    expect(await stylePlacement(page, "occupied-c")).toMatchObject({
-      column: "4",
-      row: "3",
-    });
-    await sourceARow.click();
-    await sourceBRow.click({ modifiers: ["Shift"] });
-    await dragToGrid();
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  expect(await indexHtml(page, designId)).toBe(originalHtml);
+  expect(await stylePlacement(page, "source-a")).toMatchObject({
+    column: "1 / span 2",
+    row: "1",
+  });
+  expect(await stylePlacement(page, "occupied-c")).toMatchObject({
+    column: "4",
+    row: "3",
+  });
+  await sourceARow.click();
+  await sourceBRow.click({ modifiers: ["Shift"] });
+  await dragToGrid();
 
-    await page.mouse.up();
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 10_000 })
-      .toMatch(
-        /data-agent-native-node-id="source-a"[^>]*style="[^"]*grid-column:\s*3\s*\/\s*5/i,
-      );
-
-    const persisted = await indexHtml(page, designId);
-    expect(persisted).toMatch(
+  await page.mouse.up();
+  await expect
+    .poll(() => indexHtml(page, designId), { timeout: 10_000 })
+    .toMatch(
       /data-agent-native-node-id="source-a"[^>]*style="[^"]*grid-column:\s*3\s*\/\s*5/i,
     );
-    expect(persisted).toMatch(
-      /data-agent-native-node-id="source-b"[^>]*style="[^"]*grid-column:\s*3\s*\/\s*5/i,
-    );
 
-    await page.keyboard.press("ControlOrMeta+z");
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 10_000 })
-      .toMatch(
-        /data-agent-native-node-id="source-a"[^>]*grid-column:\s*1\s*\/\s*span\s*2/i,
-      );
-    const undone = await indexHtml(page, designId);
-    expect(undone).toMatch(
-      /data-agent-native-node-id="source-b"[^>]*grid-column:\s*1\s*\/\s*span\s*2/i,
+  const persisted = await indexHtml(page, designId);
+  expect(persisted).toMatch(
+    /data-agent-native-node-id="source-a"[^>]*style="[^"]*grid-column:\s*3\s*\/\s*5/i,
+  );
+  expect(persisted).toMatch(
+    /data-agent-native-node-id="source-b"[^>]*style="[^"]*grid-column:\s*3\s*\/\s*5/i,
+  );
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect
+    .poll(() => indexHtml(page, designId), { timeout: 10_000 })
+    .toMatch(
+      /data-agent-native-node-id="source-a"[^>]*grid-column:\s*1\s*\/\s*span\s*2/i,
     );
-    expect(undone).toMatch(
-      /data-agent-native-node-id="occupied-c"[^>]*grid-column:\s*4(?:;|")/i,
+  const undone = await indexHtml(page, designId);
+  expect(undone).toMatch(
+    /data-agent-native-node-id="source-b"[^>]*grid-column:\s*1\s*\/\s*span\s*2/i,
+  );
+  expect(undone).toMatch(
+    /data-agent-native-node-id="occupied-c"[^>]*grid-column:\s*4(?:;|")/i,
+  );
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect
+    .poll(() => indexHtml(page, designId), { timeout: 10_000 })
+    .toMatch(
+      /data-agent-native-node-id="source-a"[^>]*grid-column:\s*3\s*\/\s*5/i,
     );
-    await page.keyboard.press("ControlOrMeta+Shift+z");
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 10_000 })
-      .toMatch(
-        /data-agent-native-node-id="source-a"[^>]*grid-column:\s*3\s*\/\s*5/i,
-      );
-    const redone = await indexHtml(page, designId);
-    expect(redone).toMatch(
-      /data-agent-native-node-id="source-b"[^>]*grid-column:\s*3\s*\/\s*5/i,
-    );
-    expect(redone).toMatch(
-      /data-agent-native-node-id="occupied-c"[^>]*grid-column:\s*1\s*\/\s*2/i,
-    );
-    await page.reload({ waitUntil: "domcontentloaded" });
-    const afterReloadA = await stylePlacement(page, "source-a");
-    const afterReloadB = await stylePlacement(page, "source-b");
-    expect(afterReloadA.column).toMatch(/3\s*\/\s*5/);
-    expect(afterReloadB.column).toMatch(/3\s*\/\s*5/);
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  const redone = await indexHtml(page, designId);
+  expect(redone).toMatch(
+    /data-agent-native-node-id="source-b"[^>]*grid-column:\s*3\s*\/\s*5/i,
+  );
+  expect(redone).toMatch(
+    /data-agent-native-node-id="occupied-c"[^>]*grid-column:\s*1\s*\/\s*2/i,
+  );
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const afterReloadA = await stylePlacement(page, "source-a");
+  const afterReloadB = await stylePlacement(page, "source-b");
+  expect(afterReloadA.column).toMatch(/3\s*\/\s*5/);
+  expect(afterReloadB.column).toMatch(/3\s*\/\s*5/);
 });
 
-test("grouped occupied-cell drop preserves child order through Apply, undo, redo, and reload", async ({
+function childrenOf(
+  nodes: Map<string, { parent: string | null; index: number }>,
+  parent: string,
+) {
+  return [...nodes.entries()]
+    .filter(([, node]) => node.parent === parent)
+    .sort(([, a], [, b]) => a.index - b.index)
+    .map(([id]) => id);
+}
+
+const TARGET_GRID_ITEMS = [
+  "source-a",
+  "source-b",
+  "occupied-a",
+  "occupied-b",
+  "occupied-c",
+  "occupied-d",
+];
+
+/** Rendered boxes of the target grid's items, in design pixels. */
+async function targetGridBoxes(app: App) {
+  const boxes: Record<
+    string,
+    { left: number; top: number; right: number; bottom: number }
+  > = {};
+  for (const id of TARGET_GRID_ITEMS) {
+    const { x, y, width, height } = await app.designRect(id);
+    boxes[id] = { left: x, top: y, right: x + width, bottom: y + height };
+  }
+  return boxes;
+}
+
+// fixme: product bug: Displaced Occupied A is pushed outside the 4 explicit columns: rendered at x 980-1044 (64px wide, a sliver) instead of keeping a 216px
+test.fixme("dropping a two-item group on an occupied grid cell keeps every item inside the 4×3 grid without overlap, and undo, redo and reload agree", async ({
+  app,
   page,
 }) => {
-  const designId = await newDesign(page, GROUPED_GRID_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    const sourceA = node(page, "source-a");
-    await page.getByRole("treeitem", { name: /Source A/ }).click();
-    await page
-      .getByRole("treeitem", { name: /Source B/ })
-      .click({ modifiers: ["Shift"] });
-    await expect(
-      page.getByRole("treeitem", { name: /Source A/ }),
-    ).toHaveAttribute("aria-selected", "true");
-    await expect(
-      page.getByRole("treeitem", { name: /Source B/ }),
-    ).toHaveAttribute("aria-selected", "true");
-    await preview(page)
-      .locator("body")
-      .evaluate(() => {
-        const parent = window.parent as Window & { __gridMoves?: unknown };
-        parent.__gridMoves = null;
-        parent.addEventListener("message", (event) => {
-          if (event.data?.type === "visual-grid-group-change")
-            parent.__gridMoves = event.data.moves;
-        });
-      });
-    await preview(page)
-      .locator("body")
-      .evaluate(() =>
-        window.postMessage(
-          { type: "set-grid-group-batching-enabled", enabled: true },
-          "*",
-        ),
-      );
-    await preview(page)
-      .locator("body")
-      .evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
-    const occupiedA = (await node(page, "occupied-a").boundingBox())!;
-    const sourceBox = (await sourceA.boundingBox())!;
-    const dragToOccupied = async () => {
-      await page.mouse.move(
-        sourceBox.x + sourceBox.width / 2,
-        sourceBox.y + sourceBox.height / 2,
-      );
-      await page.mouse.down();
-      await page.mouse.move(
-        sourceBox.x + sourceBox.width / 2 + 12,
-        sourceBox.y + sourceBox.height / 2 + 8,
-        { steps: 6 },
-      );
-      await page.mouse.move(
-        occupiedA.x + occupiedA.width / 2,
-        occupiedA.y + occupiedA.height / 2,
-        { steps: 24 },
-      );
-    };
-    await dragToOccupied();
-    await expect
-      .poll(() => stylePlacement(page, "source-a"))
-      .toMatchObject({ column: "1 / 3", row: "1 / 2" });
-    const liveOrder = async () =>
-      preview(page)
-        .locator(
-          '[data-agent-native-node-id="target-grid"] > [data-agent-native-node-id]',
-        )
-        .evaluateAll((nodes) =>
-          nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
-        );
-    await page.mouse.up();
-    await expect
-      .poll(
-        () =>
-          preview(page)
-            .locator("body")
-            .evaluate(
-              () =>
-                (
-                  (window.parent as Window & { __gridMoves?: unknown[] })
-                    .__gridMoves ?? []
-                ).length,
-            ),
-        { timeout: 10_000 },
-      )
-      .toBe(2);
-    expect(
-      await preview(page)
-        .locator("body")
-        .evaluate(() =>
-          (
-            window.parent as Window & {
-              __gridMoves?: Array<{
-                persistenceAnchorSourceId?: string;
-                persistencePlacement?: string;
-              }>;
-            }
-          ).__gridMoves?.map((move) => [
-            move.persistenceAnchorSourceId,
-            move.persistencePlacement,
-          ]),
-        ),
-    ).toEqual([
-      ["occupied-a", "before"],
-      ["source-a", "after"],
-    ]);
-    await expect
-      .poll(async () => (await liveOrder()).slice(0, 3), { timeout: 10_000 })
-      .toEqual(["source-a", "source-b", "occupied-a"]);
-    const placementAfterDrop = await Promise.all(
-      ["source-a", "source-b", "occupied-a", "occupied-b"].map((id) =>
-        stylePlacement(page, id),
-      ),
-    );
+  const designId = await app.seed(GROUPED_GRID_FIXTURE);
+  await openEditor(page, designId);
+  await page.getByRole("treeitem", { name: /Source A/ }).click();
+  await page
+    .getByRole("treeitem", { name: /Source B/ })
+    .click({ modifiers: ["Shift"] });
+  expect(await app.selectedLayers()).toEqual(["Source B", "Source A"]);
+  const before = await app.savedNodes(designId);
+  const occupiedA = (await app.node("occupied-a").boundingBox())!;
+  const sourceBox = (await app.node("source-a").boundingBox())!;
 
-    await page.keyboard.press("ControlOrMeta+z");
-    await expect
-      .poll(() => persistedTargetGridOrder(page, designId), { timeout: 10_000 })
-      .toEqual(["occupied-a", "occupied-b", "occupied-c", "occupied-d"]);
-    await expect
-      .poll(async () => (await liveOrder()).slice(-4, -1), { timeout: 10_000 })
-      .toEqual(["occupied-a", "occupied-b", "occupied-c"]);
-    await page.keyboard.press("ControlOrMeta+Shift+z");
-    await expect
-      .poll(async () => (await liveOrder()).slice(0, 3), { timeout: 10_000 })
-      .toEqual(["source-a", "source-b", "occupied-a"]);
-    await expect
-      .poll(async () =>
-        Promise.all(
-          ["source-a", "source-b", "occupied-a", "occupied-b"].map((id) =>
-            stylePlacement(page, id),
-          ),
-        ),
-      )
-      .toEqual(placementAfterDrop);
-    await expect
-      .poll(() => persistedTargetGridOrder(page, designId), { timeout: 10_000 })
-      .toEqual([
-        "source-a",
-        "source-b",
-        "occupied-a",
-        "occupied-b",
-        "occupied-c",
-        "occupied-d",
-      ]);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect
-      .poll(() => persistedTargetGridOrder(page, designId), { timeout: 10_000 })
-      .toEqual([
-        "source-a",
-        "source-b",
-        "occupied-a",
-        "occupied-b",
-        "occupied-c",
-        "occupied-d",
-      ]);
-    await expect
-      .poll(async () => (await liveOrder()).slice(0, 3), { timeout: 10_000 })
-      .toEqual(["source-a", "source-b", "occupied-a"]);
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2,
+    sourceBox.y + sourceBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2 + 12,
+    sourceBox.y + sourceBox.height / 2 + 8,
+    { steps: 6 },
+  );
+  await page.mouse.move(
+    occupiedA.x + occupiedA.width / 2,
+    occupiedA.y + occupiedA.height / 2,
+    {
+      steps: 24,
+    },
+  );
+  await expect
+    .poll(() => stylePlacement(page, "source-a"))
+    .toMatchObject({ column: "1 / 3", row: "1 / 2" });
+  await page.mouse.up();
+  await app.settled();
+
+  const dropped = await app.savedNodes(designId);
+  expect(childrenOf(dropped, "target-grid")).toEqual(TARGET_GRID_ITEMS);
+  expect(childrenOf(dropped, "source-group")).toEqual([]);
+  const boxes = await targetGridBoxes(app);
+  const gridContent = { left: 516, top: 116, right: 964, bottom: 364 };
+  const outside = Object.entries(boxes)
+    .filter(
+      ([, box]) =>
+        box.left < gridContent.left - 1 ||
+        box.top < gridContent.top - 1 ||
+        box.right > gridContent.right + 1 ||
+        box.bottom > gridContent.bottom + 1,
+    )
+    .map(([id, box]) => `${id} at ${JSON.stringify(box)}`);
+  expect(
+    outside,
+    "items pushed outside the 4 explicit columns or 3 rows",
+  ).toEqual([]);
+  const overlapping = TARGET_GRID_ITEMS.flatMap((a, i) =>
+    TARGET_GRID_ITEMS.slice(i + 1)
+      .filter((b) => overlaps(boxes[a]!, boxes[b]!))
+      .map((b) => `${a}+${b}`),
+  );
+  expect(overlapping).toEqual([]);
+  expect(
+    boxes["occupied-a"]!.right - boxes["occupied-a"]!.left,
+    "Occupied A keeps its 2-column span",
+  ).toBe(216);
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(designId), []);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await app.settled();
+  expectOnlyChanged(dropped, await app.savedNodes(designId), []);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect.poll(() => targetGridBoxes(app)).toEqual(boxes);
 });

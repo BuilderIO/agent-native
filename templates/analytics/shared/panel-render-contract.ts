@@ -5,11 +5,18 @@ import {
   type SqlPanel,
   type SqlPanelConfig,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import { axisDirection, isDateAxis } from "./chart-axis-labels";
 import { normalizeDashboardConfig } from "./dashboard-config-normalization";
 import {
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
+import {
+  NON_APP_SERIES_COLORS,
+  UNKNOWN_APP_COLOR,
+  appSeriesColor,
+  isUnknownApp,
+} from "./tokens/app-series-colors";
 
 export { PANEL_CHART_TYPES };
 
@@ -254,8 +261,11 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
       isRecord(value) &&
       ["xKey", "seriesKey", "valueKey"].every(
         (key) => typeof value[key] === "string" && value[key] !== "",
-      ),
-    expected: "an object with string xKey, seriesKey and valueKey",
+      ) &&
+      (value.seriesOrder === undefined ||
+        STRING_ARRAY_SHAPE.valid(value.seriesOrder)),
+    expected:
+      "an object with string xKey, seriesKey and valueKey, and an optional seriesOrder array of series values",
   },
 };
 
@@ -609,34 +619,215 @@ function collectIgnoredConfig(
   return ignored;
 }
 
-const MAX_CHART_POINTS = 400;
+export const MAX_CHART_POINTS = 400;
 
-/** Rows a chart draws: line, area, combo and heatmap keep the newest, the rest the first. */
-export function limitChartRows(
-  rows: Record<string, unknown>[],
-  chartType: ChartType,
-): Record<string, unknown>[] {
+const POINT_LIMITED_CHART_TYPES: readonly string[] = [
+  "line",
+  "area",
+  "bar",
+  "combo",
+  "pie",
+  "heatmap",
+  "funnel",
+  "callout",
+];
+const LAST_POINT_CHART_TYPES: readonly string[] = [
+  "line",
+  "area",
+  "combo",
+  "heatmap",
+];
+
+/** Points a chart drops past MAX_CHART_POINTS; the viewer must be told. */
+export interface ChartPointLimit {
+  shown: number;
+  total: number;
+  keeps: "newest" | "last" | "first";
+}
+
+/**
+ * Line, area, combo and heatmap charts keep their last rows, and bar charts
+ * their first. Only an `xKey` of dates in date order makes the kept rows the
+ * newest, for a bar chart too; otherwise the note must not claim recency.
+ */
+export function chartPointLimit(
+  rows: readonly Record<string, unknown>[],
+  chartType: string,
+  xKey?: string,
+): ChartPointLimit | null {
+  const type = LEGACY_CHART_TYPE_ALIASES[chartType] ?? chartType;
   if (
     rows.length <= MAX_CHART_POINTS ||
-    ![
-      "line",
-      "area",
-      "bar",
-      "combo",
-      "pie",
-      "heatmap",
-      "funnel",
-      "callout",
-    ].includes(chartType)
+    !POINT_LIMITED_CHART_TYPES.includes(type)
   ) {
-    return rows;
+    return null;
   }
-  return chartType !== "line" &&
-    chartType !== "area" &&
-    chartType !== "combo" &&
-    chartType !== "heatmap"
-    ? rows.slice(0, MAX_CHART_POINTS)
-    : rows.slice(-MAX_CHART_POINTS);
+  const xValues = xKey ? rows.map((row) => row[xKey]) : [];
+  const keepsLast = LAST_POINT_CHART_TYPES.includes(type);
+  const datesInOrder = isDateAxis(xValues) && axisDirection(xValues) !== null;
+  return {
+    shown: MAX_CHART_POINTS,
+    total: rows.length,
+    keeps:
+      datesInOrder && (keepsLast || type === "bar")
+        ? "newest"
+        : keepsLast
+          ? "last"
+          : "first",
+  };
+}
+
+/**
+ * Rows a chart draws, per `chartPointLimit`. Newest is the end of the rows
+ * unless `xKey` shows they run newest-first (ORDER BY date DESC).
+ */
+export function limitChartRows<T extends Record<string, unknown>>(
+  rows: T[],
+  chartType: string,
+  xKey?: string,
+): T[] {
+  const limit = chartPointLimit(rows, chartType, xKey);
+  if (!limit) return rows;
+  const newestFirst =
+    limit.keeps === "newest" &&
+    !!xKey &&
+    axisDirection(rows.map((row) => row[xKey])) === "descending";
+  return limit.keeps === "first" || newestFirst
+    ? rows.slice(0, limit.shown)
+    : rows.slice(-limit.shown);
+}
+
+const STACKABLE_CHART_TYPES: readonly string[] = ["bar", "area"];
+
+// "Other" and "unknown" buckets go on top of a stack, whatever their size.
+const CATCH_ALL_SERIES = /^(other|others|unknown|not set|none|n\/a)$/;
+
+function isCatchAllSeries(key: string): boolean {
+  return CATCH_ALL_SERIES.test(
+    key
+      .trim()
+      .replace(/^[([{]\s*|\s*[)\]}]$/g, "")
+      .toLowerCase(),
+  );
+}
+
+function seriesTotal(rows: Record<string, unknown>[], key: string): number {
+  let total = 0;
+  for (const row of rows) {
+    const value = Number(row[key]);
+    if (Number.isFinite(value)) total += value;
+  }
+  return total;
+}
+
+/**
+ * Each drawn series' slot in `config.colors`: `config.pivot.seriesOrder` first,
+ * then result order. Never draw order: authors give colors a meaning (green
+ * for positive), so ranking a stack or a reordered result must not hand one
+ * series another's color.
+ */
+export function seriesColorSlots(
+  orderedKeys: readonly string[],
+  resultKeys: readonly string[],
+  panel: RenderPanel,
+): number[] {
+  const listed = Array.from(new Set(keyList(panel.config?.pivot?.seriesOrder)));
+  const listedSet = new Set(listed);
+  const slots = [...listed, ...resultKeys.filter((key) => !listedSet.has(key))];
+  return orderedKeys.map((key) => slots.indexOf(key));
+}
+
+// The pivot columns that hold an Agent-Native app key. Series names alone can't
+// say so: `chat` or `content` is also a channel or a site section.
+const APP_PIVOT_COLUMNS = new Set(["app", "template"]);
+
+function isSplitByApp(
+  panel: RenderPanel,
+  appColors: readonly (string | undefined)[],
+): boolean {
+  const column = panel.config?.pivot?.seriesKey;
+  return (
+    typeof column === "string" &&
+    APP_PIVOT_COLUMNS.has(column.trim().toLowerCase()) &&
+    appColors.some((color) => color !== undefined)
+  );
+}
+
+/**
+ * The color each of `orderedKeys` draws in. With `config.colors`, `palette` is
+ * those colors and every series takes its slot. Otherwise a chart pivoted by an
+ * app column that holds an Agent-Native app draws apps in their fixed colors
+ * and every other series muted; any other chart takes `palette` by slot.
+ */
+export function resolveSeriesColors(
+  orderedKeys: readonly string[],
+  slots: readonly number[],
+  panel: RenderPanel,
+  palette: readonly string[],
+): string[] {
+  const appColors = orderedKeys.map(appSeriesColor);
+  if (
+    keyList(panel.config?.colors).length > 0 ||
+    !isSplitByApp(panel, appColors)
+  ) {
+    return slots.map((slot) => palette[slot % palette.length]);
+  }
+  const otherSlots = slots.filter(
+    (_, index) => !appColors[index] && !isUnknownApp(orderedKeys[index]),
+  );
+  return orderedKeys.map((key, index) => {
+    const app = appColors[index];
+    if (app) return app;
+    if (isUnknownApp(key)) return UNKNOWN_APP_COLOR;
+    const rank = otherSlots.filter((slot) => slot < slots[index]).length;
+    return NON_APP_SERIES_COLORS[rank % NON_APP_SERIES_COLORS.length];
+  });
+}
+
+/**
+ * The order a panel draws its series in; the first is the bottom of a stack.
+ * `config.pivot.seriesOrder` and a listed `config.yKeys` are the author's
+ * order. Otherwise a stacked bar or area chart puts the largest total first and
+ * an "Other"/"unknown" bucket last, and any other chart keeps result order.
+ */
+export function orderPanelSeries(
+  rows: Record<string, unknown>[],
+  yKeys: string[],
+  panel: RenderPanel,
+): string[] {
+  const config = panel.config;
+  if (!config?.pivot && keyList(config?.yKeys).length > 0) return yKeys;
+
+  const present = new Set(yKeys);
+  const listed = Array.from(
+    new Set(
+      keyList(config?.pivot?.seriesOrder).filter((key) => present.has(key)),
+    ),
+  );
+  const listedSet = new Set(listed);
+  const rest = yKeys.filter((key) => !listedSet.has(key));
+  const chartType =
+    LEGACY_CHART_TYPE_ALIASES[panel.chartType] ?? panel.chartType;
+  if (
+    config?.stacked !== true ||
+    !STACKABLE_CHART_TYPES.includes(chartType) ||
+    rest.length < 2
+  ) {
+    return [...listed, ...rest];
+  }
+
+  const totals = new Map(rest.map((key) => [key, seriesTotal(rows, key)]));
+  const ranked = rest
+    .map((key, index) => ({ key, index }))
+    .sort((a, b) => {
+      const catchAll =
+        Number(isCatchAllSeries(a.key)) - Number(isCatchAllSeries(b.key));
+      if (catchAll !== 0) return catchAll;
+      const diff = (totals.get(b.key) ?? 0) - (totals.get(a.key) ?? 0);
+      return diff !== 0 ? diff : a.index - b.index;
+    })
+    .map(({ key }) => key);
+  return [...listed, ...ranked];
 }
 
 export interface HeatmapKeys {
@@ -675,10 +866,14 @@ export interface PanelRenderPlan {
   rawColumns: string[];
   xKey: string;
   yKeys: string[];
+  /** Each of `yKeys`' color slot; `resolveSeriesColors` turns them into colors. */
+  colorSlots: number[];
   /** The viewer sees "No data": no rows, or a funnel or heatmap that finds nothing to draw. */
   empty: boolean;
   /** Rows that draw something; 0 when `empty`. */
   renderedRowCount: number;
+  /** Set when the chart draws only MAX_CHART_POINTS of `rows`. */
+  pointLimit: ChartPointLimit | null;
   /** Set for a funnel panel; the renderer draws exactly these items. */
   funnel: DashboardFunnelRows | null;
   /** Set for a heatmap panel; the renderer reads exactly these columns. */
@@ -702,7 +897,13 @@ export function planPanelRender(
         })
       : null;
   const rows = pivoted ? pivoted.rows : rawRows;
-  const { xKey, yKeys } = detectKeys(rows, config, pivoted?.seriesKeys);
+  const detected = detectKeys(rows, config, pivoted?.seriesKeys);
+  const xKey = detected.xKey;
+  const yKeys = orderPanelSeries(
+    limitChartRows(rows, panel.chartType, xKey),
+    detected.yKeys,
+    panel,
+  );
   const noRows = rows.length === 0;
   const funnel =
     panel.chartType === "funnel"
@@ -739,8 +940,10 @@ export function planPanelRender(
     rawColumns,
     xKey,
     yKeys,
+    colorSlots: seriesColorSlots(yKeys, detected.yKeys, panel),
     empty,
     renderedRowCount: empty ? 0 : (funnel?.items.length ?? rows.length),
+    pointLimit: empty ? null : chartPointLimit(rows, panel.chartType, xKey),
     funnel,
     heatmap,
     missingKeys,

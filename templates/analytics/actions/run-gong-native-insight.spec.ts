@@ -67,12 +67,16 @@ describe("run-gong-native-insight", () => {
   it("passes one consolidated request to the connected Gong operation", async () => {
     callMcpToolMock.mockResolvedValue({ answer: "Renewal risk is pricing." });
 
+    const context = { caller: "automation" as const };
     await expect(
-      action.run({
-        operation: "ask_account",
-        allowCreditRequest: true,
-        arguments: { account: "Acme", question: "Summarize renewal risk" },
-      }),
+      action.run(
+        {
+          operation: "ask_account",
+          allowCreditRequest: true,
+          arguments: { account: "Acme", question: "Summarize renewal risk" },
+        },
+        context,
+      ),
     ).resolves.toMatchObject({
       source: "gong-native-mcp",
       operation: "ask_account",
@@ -87,7 +91,7 @@ describe("run-gong-native-insight", () => {
       "org_gong",
       "ask_account",
       { account: "Acme", question: "Summarize renewal risk" },
-      { providerId: "gong" },
+      { providerId: "gong", context },
     );
   });
 

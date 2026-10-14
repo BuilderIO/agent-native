@@ -51,6 +51,74 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.209.0
+
+### Minor Changes
+
+- 8961aeb: Add BigQuery to managed Google workspace OAuth connections.
+
+### Patch Changes
+
+- d52c0b3: Save streamed agent run events in batches, so write tools no longer wait for hundreds of single-row inserts after the model finishes.
+- 9df9b9e: Keep chat prompts whose run never started out of later model history while preserving failed turns that produced a response.
+- 340b878: Add `resolveAdditionalActions` to `createAgentChatPlugin` so apps can add request-scoped actions for the signed-in caller, such as tools registered while the server runs. Interactive chat receives them by default; A2A and MCP `ask_app` receive them only when listed in `additionalActionSurfaces`. Entries are bound to their caller, checked and validated on every call, cannot reuse any built-in action name, and keep the same names for a chat run, including its hosted durable background continuations. Those continuations resolve the names again, so each entry has its current definition and is checked again. The caller's MCP tools are pinned the same way, so a saved action allowlist that names an MCP tool removed mid-turn no longer fails the durable continuation; calling that tool returns an error instead.
+- 1856007: Export `getBetterAuthUserIdForEmail` and `platformWaitUntil` from `@agent-native/core/server` and `readAnalyticsAnonymousId` from `@agent-native/core/tracking`, so app server routes can key their own analytics events to the same user and anonymous visitor ids that signup tracking uses, and keep post-response work alive on Netlify, where Nitro drops `event.waitUntil`.
+- 980bd9f: Realtime voice sessions use reasoning effort values supported by GPT-Live.
+- d31e11d: Reconcile stale assistant replies and keep pending questions in status without duplicating chat text.
+- 11c3988: Extract large HTML responses before applying the context limit and save full Markdown or text instead of raw page code, with bounded search results.
+- 62cc000: Add the missing `notified_at` column to share tables created before it existed
+  (`tool_shares`, `data_program_shares`, and the creative-context share tables).
+  Share inserts name that column, so sharing an extension, data program, or
+  creative context with a user or org failed on those databases.
+- Release all public npm packages with a patch version bump.
+- 3be2c82: Preserve approved tool inputs across reloads, identify approval pauses with structured metadata, require exact input matches for reader-local calls, and keep pauses from triggering automatic continuation.
+- 3be2c82: Replay an approved tool call when its paused result is missing from the stream.
+- 3be2c82: Preserve renewed tool approval asks and reserve continuation history for the selected call.
+- 6c0529a: Reuse one tokenizer for context token counts instead of rebuilding it on every call, removing seconds of delay before each agent model call on long threads.
+- 3b9d3cd: When preloaded context times out or fails, the agent now searches only if the request depends on workspace knowledge instead of always searching before answering.
+- 9bb5cda: Keep missing optional peers out of Node server bundles and replay the exact tool call a user approved.
+- 3ab5193: Drop the caller-supplied `size` from Builder upload attachments and measure it on the server, reject invalid attachments up front with an `invalid_attachment` error, and teach the turn-into-app browser-host guide to attach Project instructions and knowledge files verbatim, so a bad or missing attachment no longer reads as a temporary Builder outage or a silent drop.
+- 49ec8ae: Report verification email delivery failures instead of showing a successful signup, and limit repeated-signup verification emails to one per address every five minutes.
+- 459b1eb: Allow apps to authorize connected MCP tool calls immediately before remote execution.
+- Updated dependencies
+  - @agent-native/agentkit@0.209.0
+  - @agent-native/recap-cli@0.5.72
+
+## 0.208.0
+
+### Minor Changes
+
+- 0fb4de3: Add an isolated, file-scoped Google Sheets connection for Analytics exports and localize Figma token-validation errors across settings and hydration flows.
+
+### Patch Changes
+
+- 789eb04: Prevent action queries and denied persisted results from crossing an initial cache binding, and release restore payloads after hydration completes. Block further writes after access denial and order deletion after any storage writes already in flight. Retain trusted first-session preloads without refetching, remove unverified preloads before exposing authenticated UI, and clear denied action results even if cache binding fails. Keep disk revocation active after binding failures, and prevent failed deletions from permitting stale restoration until deletion succeeds. Serialize sign-out clearing with storage operations, retain same-user cache bindings through session refresh, and keep known prior-scope denials from invalidating the next scope. Reset prior-scope denial UI state using fetch-start binding provenance while preserving unknown and same-scope denials. Wait for pending storage writes before enumerating obsolete scope records. Retain failed obsolete-record deletions for retry and bound cache cleanup so stalled storage cannot indefinitely hide authenticated content; timeout keeps restore and persistence disabled. Bound sign-out caller waits while retaining the underlying clear barrier, and remove prebind results before exposing fresh content when clearing stalls or fails. Route late access denials to their fetch-start cache binding so they revoke the originating scope rather than the current scope. Persist invalidation intent and a cache epoch before denial deletion or sign-out clearing, so later documents reject older records and old-tab writes; reject a timed-out clear caller without removing its durable barrier. Disable persistent caching when safety metadata is unavailable. Use a separate storage-access probe to avoid overwriting a newer invalidation epoch, and ignore revocation callbacks from older epochs. Share one binding wait budget across clear, cleanup, and restore to prevent sequential storage delays from extending the initial content gate.
+- 4434457: Authorize localhost source operations with short-lived, one-use, operation-scoped capabilities.
+- d7d852c: Use the durable assistant answer when a completed chat thread snapshot is stale after reload.
+- 590252b: Declare `readOnlyHint`, `destructiveHint`, and `openWorldHint` on the directory catalog's app-only `create_embed_session` tool so ChatGPT plugin review no longer rejects the submission for missing tool annotations.
+- 9cb95d8: The workspace switch menu closes after persistence while session and query refresh continues.
+- 0fb4de3: Keep token usage from each automation retry attempt instead of overwriting earlier attempts.
+- cde733c: Retry transient Builder gateway rate limits with the full bounded backoff budget before using a fallback model.
+- 4434457: Add versioned Motion source editing for linked HTML entrypoints.
+- Release all public npm packages with a patch version bump.
+- db2f859: Add a resend verification email action to email-verification run recovery.
+- 4434457: Stamp dev-rendered JSX with source provenance, add a CSP-safe React Motion Text runtime, and allow accessible slider thumb labels.
+- 0fb4de3: Retry transient provider rate limits with bounded exponential backoff before showing a terminal error.
+- 75e39e8: Keep Chat setup stable through transient provider-readiness refresh failures.
+- 0fb4de3: Preserve existing OAuth scopes on partial connection updates and clear scopes that providers revoke on reconnect.
+- 4434457: Authenticate localhost Motion source relays and verify edited modules against the selected screen's saved import graph.
+- cde733c: Preserve programmatic Settings navigation targets when a route module fails to load.
+- 4434457: Bound Motion source provenance checks to the remaining import-graph byte budget before parsing source files or TypeScript configs.
+- afe2ee7: Preserve completed tool-call history links and keep legacy block data renderable when optional fields are absent.
+- 4434457: Support composable text animation tracks and blur effects in Motion Text.
+- cde733c: Return readable fallbacks for HTML-labeled plain-text and empty responses, and reject truncated bodies before processing or saving them.
+- Updated dependencies [0fb4de3]
+- Updated dependencies [afe2ee7]
+- Updated dependencies
+- Updated dependencies [0fb4de3]
+  - @agent-native/agentkit@0.208.0
+  - @agent-native/recap-cli@0.5.71
+
 ## 0.207.1
 
 ### Patch Changes
@@ -4022,20 +4090,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - 1aafc1d: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
 - 40baf42: Preserve browser attribution through Better Auth email signup user creation.
 - 1aafc1d: Avoid treating the desktop broker identity as proof that an app's own session is authenticated.
-
-## 0.167.2
-
-### Patch Changes
-
-- 95d9d70: Bound public-site monitor requests and clarify unified-diff framing in visual recap authoring prompts.
-- 7f22204: Warn on the Agent Automations page when schedule-triggered automations can never fire — recurring jobs disabled at build time, no durable scheduler on the hosting target, or local development — via a new `get-scheduled-trigger-status` action. The build embeds its recurring-jobs decision into the server bundle so the warning reflects whether a scheduled trigger was actually emitted, and a failed status check is reported as unverified rather than healthy.
-- Updated dependencies [95d9d70]
-  - @agent-native/recap-cli@0.5.7
-
-## 0.167.1
-
-### Patch Changes
-
-- ca9ee7e: Merge same-day changelog categories without duplicating headings.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

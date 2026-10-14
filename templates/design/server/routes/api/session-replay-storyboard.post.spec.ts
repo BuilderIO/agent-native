@@ -806,6 +806,7 @@ describe("POST /api/session-replay-storyboard", () => {
         title: "Session replay storyboard",
         projectType: "prototype",
         designSystemId: null,
+        creationMethod: "import_analytics",
       }),
       expect.objectContaining({
         actionName: "create-design",

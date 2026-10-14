@@ -214,7 +214,7 @@ describe("reference prefetch status", () => {
       });
 
       expect(text).toContain(
-        `<context-note>Preloaded context was unavailable this turn (${reason}); search for anything relevant with the available tools before answering.</context-note>`,
+        `<context-note>Preloaded context was unavailable this turn (${reason}); if the request depends on workspace knowledge, such as prior work, team docs, brand defaults, or people, search for it with the available tools before answering; otherwise continue without it.</context-note>`,
       );
       expect(runContext?.contextStatus?.prefetch).toBe(status);
     },
@@ -488,6 +488,40 @@ describe("a screen read that outlives its cap", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
+  });
+
+  it("keeps a continuation on the additional action names its turn started with", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const runId = `run-${randomUUID()}`;
+    await insertRun(runId, threadId, runId, {
+      dispatchMode: "background",
+      turnInitiator: { email: "owner@example.com", anonymous: false },
+    });
+    const seenAvailable: string[][] = [];
+
+    await firstPrompt(
+      {
+        resolveAdditionalActions: async () => ({
+          "kept-tool": viewScreen(async () => "kept"),
+          "new-tool": viewScreen(async () => "new"),
+        }),
+        resolveActionSurface: async (details) => {
+          seenAvailable.push([...details.availableActionNames]);
+          return { allowedActionNames: details.availableActionNames };
+        },
+      },
+      {
+        threadId,
+        __resolvedAdditionalActionNames: ["kept-tool", "gone-tool"],
+      } as never,
+      { background: { runId, turnId: runId } },
+    );
+
+    expect(seenAvailable).toHaveLength(1);
+    expect(seenAvailable[0]).toEqual(
+      expect.arrayContaining(["kept-tool", "gone-tool"]),
+    );
+    expect(seenAvailable[0]).not.toContain("new-tool");
   });
 
   it("stays timed_out in the trace and the run context when the read resolves before the prompt is assembled", async () => {

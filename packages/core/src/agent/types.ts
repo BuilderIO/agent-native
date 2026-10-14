@@ -178,6 +178,8 @@ export type AgentChatStructuredContentPart =
       toolName?: string;
       input?: unknown;
       args?: unknown;
+      approvalKey?: string;
+      approvalAskId?: string;
     }
   | {
       type: "tool-result";
@@ -186,6 +188,8 @@ export type AgentChatStructuredContentPart =
       toolInput?: string;
       content: string;
       isError?: boolean;
+      approvalPause?: boolean;
+      approvalAskId?: string;
     };
 
 export interface AgentChatStructuredMessage {
@@ -338,6 +342,12 @@ export interface AgentChatRequest {
         orgId: string | null;
         mode: "default";
       };
+  /**
+   * Names of the request-scoped additional actions the turn started with,
+   * carried across authenticated durable background dispatches so a
+   * continuation keeps the same tool set. Deleted from client requests.
+   */
+  __resolvedAdditionalActionNames?: string[];
   turnId?: string;
   /** Turn metadata the client forwards; read only for the keys it names. */
   metadata?: Record<string, unknown>;
@@ -351,6 +361,7 @@ export interface AgentChatRequest {
   harness?: AgentChatHarnessRequest;
   trackInRunsTray?: boolean;
   approvedToolCalls?: string[];
+  approvedToolCallAskIds?: string[];
   skipPendingSelectionContext?: boolean;
 }
 
@@ -398,6 +409,7 @@ export type AgentChatEvent =
         | "max_tokens"
         | "stop_sequence"
         | "error";
+      errorCode?: string;
     }
   | {
       type: "tool_start";
@@ -418,6 +430,8 @@ export type AgentChatEvent =
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      /** False marks current completed events; absence is reserved for older journals. */
+      approvalPause?: boolean;
       outcomeUnknown?: true;
       replayed?: true;
       fileMutation?: AgentFileMutationProof;

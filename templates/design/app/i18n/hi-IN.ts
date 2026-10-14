@@ -850,7 +850,6 @@ export default {
       tokens: "टोकन",
       threads: "थ्रेड",
       label: "डिज़ाइन कार्यक्षेत्र",
-      account: "खाता",
       collapse: "साइडबार समेटें",
       expand: "साइडबार फैलाएँ",
     },
@@ -1185,6 +1184,16 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
       importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      importing: "टोकन इम्पोर्ट हो रहे हैं…",
+      importedWithSkipped:
+        "{{count}} टोकन इम्पोर्ट हुए। {{skipped}} अमान्य मान या फाइलें छोड़ी गईं।",
+      importedWithOmissions:
+        "{{count}} टोकन इम्पोर्ट हुए। {{skipped}} अमान्य आइटम छोड़े गए। सीमा के कारण प्रोसेस नहीं हुए (टोकन: {{omittedTokens}}, फाइलें: {{omittedFiles}})।",
+      importedWithReadFailures:
+        "{{count}} टोकन इम्पोर्ट हुए, लेकिन {{readFailures}} फ़ाइलें पढ़ी नहीं जा सकीं। उन्हें फिर से चुनकर दोबारा कोशिश करें।",
+      importedWithReadFailuresAndOmissions:
+        "{{count}} टोकन इम्पोर्ट हुए। {{readFailures}} फ़ाइलें पढ़ी नहीं जा सकीं। {{skipped}} अमान्य आइटम भी छोड़े गए और सीमा के कारण {{omittedTokens}} टोकन तथा {{omittedFiles}} फ़ाइलें प्रोसेस नहीं हुईं। न पढ़ी जा सकी फ़ाइलें फिर से चुनकर दोबारा कोशिश करें।",
+      noTokensFound: "कोई मान्य टोकन नहीं मिला। फाइल के फ़ॉर्मैट और टोकन मान जांचें।",
       count: "{{count}} टोकन",
       search: "टोकन खोजें",
       noMatches: "कोई मेल खाता टोकन नहीं",
@@ -1270,7 +1279,7 @@ export default {
       figUploadProcessing: "बदला जा रहा है…",
       figImportWarningTitle: "बड़ा .fig आयात",
       figImportWarningDescription:
-        "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी फ़्रेम चुनें।",
+        "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी पेज चुनें।",
       figImportFrameCount: "{{total}} में से {{selected}} फ़्रेम चुने गए",
       figImportSelectAll: "सभी चुनें",
       figImportClearAll: "सभी हटाएँ",
@@ -1279,6 +1288,10 @@ export default {
       figImportAll: "सभी आयात करें",
       figImportAnalyzing: "विश्लेषण हो रहा है…",
       figImportSaving: "{{total}} में से {{saved}} फ़्रेम सहेजे जा रहे हैं",
+      figImportFrameLimit: "ऐसे पेज चुनें जिनमें कुल {{max}} या उससे कम फ़्रेम हों।",
+      figImportFramesSkippedWarning:
+        "आयात के लिए बहुत जटिल {{count}} फ़्रेम छोड़ दिए गए: {{names}}",
+      figUploadLimits: "अधिकतम {{size}} GB · प्रति आयात {{frames}} फ़्रेम",
       figUploadDescriptionShort:
         "स्थानीय आयात — Figma API कोटा नहीं। समर्थित एम्बेडेड छवियाँ शामिल की जाती हैं।",
       figUploadImagesSkippedWarning:
@@ -1306,6 +1319,7 @@ export default {
       htmlPlaceholder: "<main>Standalone HTML यहाँ paste करें...</main>",
       importHtml: "HTML आयात करें",
       chooseHtmlFile: "HTML file चुनें",
+      allSupportedFiles: "सभी समर्थित फ़ाइलें",
       githubTitle: "GitHub",
       githubDescription:
         "जल्द आ रहा है: repository से screens और components सीधे import करें।",
@@ -2201,6 +2215,7 @@ export default {
     figmaLink: "Figma लिंक",
     importFromFigma: "Figma से आयात करें",
     figmaFile: "Figma फ़ाइल (.fig)",
+    figmaFileMaxSize: "अधिकतम {{max}} GB",
     openImport: "आयात खोलें",
     importSelectedFile: "चुनी गई फ़ाइल आयात करें",
     starterSaasPrompt:

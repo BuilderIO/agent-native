@@ -188,6 +188,56 @@ createAgentChatPlugin({
 Agent 會繼承相同操作表面。由於不受限制的 shell 無法強制執行嚴格的操作
 邊界，trusted shell 工具會自動降為依請求過濾的 sandbox。
 
+### 請求層級的附加動作
+
+當呼叫端可用的動作只有在請求時才能確定（例如使用者在伺服器執行期間註冊的工具）時，
+請使用 `resolveAdditionalActions`。此回呼會在每個經過驗證的互動式對話執行（正式
+環境與開發環境）中執行一次，先於 `tool-search` 和 `resolveActionSurface`，因此兩
+者都能看到回傳的項目。這些項目僅在該次執行中加入該呼叫端的登錄表。只有當你在
+`additionalActionSurfaces` 中列出對應的介面時，A2A 任務和 MCP 的 `ask_app` 呼叫
+才會收到它們；`surface` 會告訴回呼是哪個介面在請求。
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+請將回傳的項目視為不可信的輸入。當項目名稱不是 1–64 個字母、數字、`_` 或 `-` 時，
+當名稱屬於任何範本、框架、開發或 MCP 動作（包括對代理隱藏的動作）時，當它是呼叫
+端看不到的 `mcp__` 名稱時，或當其工具定義無法使用時，框架會忽略該項目，並只記錄
+一次警告。描述中的隱藏控制字元會被移除並限制長度。`parameters` 必須是根為
+`object`、描述純 JSON 資料的有界 schema，且只能使用常見的驗證與註解關鍵字。未知關鍵
+字、`pattern`、`patternProperties`、`uniqueItems`、`$async`、`$id`、錨點，以及任
+何遞迴的或指向 schema 之外的 `$ref` 都會被拒絕。模型看到的是經過檢查的 schema 副本，
+引數過大而無法據此驗證的呼叫會被拒絕。`readOnly` 和 `access` 等旗標是你的應
+用程式自己的宣告，框架會像信任 `run` 一樣信任它們：請根據你的程式碼實際執行的操作
+來設定它們，切勿依據使用者註冊的中繼資料來設定。
+
+每個項目都綁定到解析它時所針對的呼叫端。無論由哪個調度器發起，每次呼叫都會拒絕為
+不同的使用者或組織執行，強制執行該項目的 `access` 政策，並在不做型別強制轉換的情
+況下依其 schema 驗證引數。
+
+只有當託管的對話輪次作為持久背景執行繼續時，名稱才會被固定。回呼會再次執行，該輪
+次對這些項目和呼叫端的 MCP 工具都保留原有名稱：新項目不會加入，已消失的名稱在被呼
+叫時會回傳錯誤，仍然存在的名稱會執行其目前的定義。其他所有請求都會重新解析，包括
+本機側邊欄上的每次繼續；中斷的串流重新連接到其執行時不會解析任何內容。
+
+請把綁定的身分放進名稱裡，例如視窗 id 或範圍（`notes_window_42_insert`），這樣重
+新綁定讀起來就是一個工具離開、另一個工具出現。「一律允許」的核准跟隨工具名稱，因
+此當同一個名稱之後代表新的內容時，核准仍會沿用。
+
+這些項目僅是代理迴圈使用的原生工具。與呼叫端的 MCP 工具一樣，無法從 `run-code`
+或 `tool-orchestration` 存取它們。
+
+`event` 在 `chat` 和 `a2a` 中設定；`ask_app` 呼叫沒有該欄位。對於匿名請求、排程
+工作、自動化或代理團隊的子代理，不會呼叫該回呼。回呼擲出的錯誤會使請求失敗。
+
 ## 原生內嵌 UI {#native-inline-ui}
 
 當你的 actions 回傳結構化資料——記錄清單、圖表資料集、狀態摘要——且這些資料應在對話串中呈現為真實的 UI 元件，而非純文字描述時，請使用此功能。你在 action 上定義 `chatUI` 渲染器，Agent-Native 會將其呈現為第一方 React 元件：沒有 iframe，沒有獨立的渲染路徑。

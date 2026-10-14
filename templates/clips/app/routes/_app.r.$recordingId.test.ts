@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { shouldOfferTranscriptRegeneration } from "@/lib/background-ai-error";
+
 function readRoute(name: string): string {
   return readFileSync(resolve(process.cwd(), "app/routes", name), "utf8");
 }
@@ -136,7 +138,7 @@ describe("direct recording route shell cue", () => {
     expect(menu).not.toContain('t("recordingPage.cleanUpRecording")');
   });
 
-  it("keeps background AI work in one persistent Sonner lifecycle", () => {
+  it("keeps background AI work in one finite terminal Sonner lifecycle", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 
     expect(route).toContain("const aiRequestStatusQ = useQuery");
@@ -148,7 +150,7 @@ describe("direct recording route shell cue", () => {
       "activeAiRequestRef.current.requestedAt !== aiRequestStatus.requestedAt",
     );
     expect(route).toContain("requestedAt: result?.requestedAt ?? null");
-    expect(route).toContain("duration: Number.POSITIVE_INFINITY");
+    expect(route).not.toContain("duration: Number.POSITIVE_INFINITY");
     expect(route).toContain("transcriptPendingObservedRef.current = true");
     expect(route).toContain(
       "transcriptLifecycleRecordingIdRef.current !== recording.id",
@@ -160,6 +162,16 @@ describe("direct recording route shell cue", () => {
     expect(route).not.toContain(
       'toast.success(t("recordingPage.fillerQueued"))',
     );
+  });
+
+  it("offers transcript regeneration when silence removal needs timestamps", () => {
+    expect(
+      shouldOfferTranscriptRegeneration(
+        "remove-silences",
+        "timestamped_transcript_required",
+        "rec_1",
+      ),
+    ).toBe(true);
   });
 
   it("keeps Share primary and unifies mobile viewer panels", () => {

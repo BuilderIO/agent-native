@@ -943,9 +943,8 @@ describe("editable .fig conversion", () => {
       nodeCount: 5,
       imageCount: 0,
     });
-    expect(summary.frames.map((frame) => frame.frameName)).toEqual([
-      "Card",
-      "Banner",
+    expect(summary.pages).toEqual([
+      { id: "1:2", name: "Page 1", frameCount: 2 },
     ]);
     expect(shouldWarnForFigImport(1024, summary)).toBe(false);
     expect(shouldWarnForFigImport(10 * 1024 * 1024, summary)).toBe(true);
@@ -1316,6 +1315,69 @@ describe("editable .fig conversion", () => {
     expect(() =>
       renderHtmlTemplates(document, { maxFrameOutputBytes: 200 }),
     ).toThrow(/render output budget/i);
+  });
+
+  it("imports a whole page selection and skips frames over the per-frame budget", async () => {
+    const document = twoFrameEditableDocument();
+    document.nodeChanges[3]!.textData = { characters: "x".repeat(20_000) };
+
+    const result = await convertShared(
+      { format: "kiwi", document, images: [], thumbnail: null },
+      {
+        originalName: "pages.fig",
+        ownerEmail: "example@example.com",
+        normalizeHtml: (content) => content,
+        maxFrameHtmlBytes: 8 * 1024,
+        selection: new Set(["1:2"]),
+        uploader: vi.fn(),
+      },
+    );
+
+    expect(result.files.map((file) => file.preferredFrame?.title)).toEqual([
+      "Banner",
+    ]);
+    expect(result.skippedFrames).toEqual([
+      { pageName: "Page 1", frameName: "Card" },
+    ]);
+  });
+
+  it("does not report fidelity issues from a frame it skipped", () => {
+    const document = twoFrameEditableDocument();
+    document.nodeChanges[2]!.fillPaints = [
+      { type: "IMAGE", image: { hash: "missing-hash" } },
+    ];
+    document.nodeChanges[3]!.textData = { characters: "x".repeat(20_000) };
+
+    const rendered = renderHtmlTemplates(document, {
+      maxFrameOutputBytes: 8 * 1024,
+      skipOversizedFrames: true,
+      trackUnresolvedImageRefs: true,
+      missingImageUrl: "about:blank",
+    });
+
+    expect(rendered.frames.map((frame) => frame.frameName)).toEqual(["Banner"]);
+    expect(rendered.skippedFrames).toEqual([
+      { pageName: "Page 1", frameName: "Card" },
+    ]);
+    expect([...rendered.unresolvedImageRefs!]).toEqual([]);
+  });
+
+  it("explains when every selected frame is over the per-frame budget", async () => {
+    const document = editableDocument();
+    document.nodeChanges[3]!.textData = { characters: "x".repeat(20_000) };
+
+    await expect(
+      convertShared(
+        { format: "kiwi", document, images: [], thumbnail: null },
+        {
+          originalName: "heavy.fig",
+          ownerEmail: "example@example.com",
+          normalizeHtml: (content) => content,
+          maxFrameHtmlBytes: 8 * 1024,
+          uploader: vi.fn(),
+        },
+      ),
+    ).rejects.toThrow(/every selected \.fig frame is too complex/i);
   });
 
   it("uploads embedded images with bounded concurrency", async () => {

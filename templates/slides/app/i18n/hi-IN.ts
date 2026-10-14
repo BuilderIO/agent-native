@@ -791,6 +791,10 @@ const messages = {
     generationFailed: "स्लाइड नहीं बन पाईं। चैट में विवरण देखें और फिर से कोशिश करें।",
     generationOutcomeUnresolved:
       "हम पुष्टि नहीं कर पाए कि स्लाइड बनी हैं या नहीं। दोबारा कोशिश करने से पहले डेक देखें।",
+    partialGenerationFailed:
+      "हम स्लाइड बनाना पूरा नहीं कर पाए। आगे बढ़ने से पहले, यहाँ मौजूद स्लाइड और अपना मूल अनुरोध देख लें।",
+    originalPrompt: "आपका अनुरोध",
+    backToHome: "होम पर वापस जाएं",
     checkedDeckTryAgain: "मैंने डेक जाँच लिया है। फिर कोशिश करें",
     deckHasNoSlides: "डेक में कोई स्लाइड नहीं है।",
     pdfRenderFailed: "PDF रेंडर नहीं हो सका।",

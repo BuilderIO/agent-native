@@ -1,12 +1,8 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 import { appPath, openAppMenuSubmenu } from "./helpers";
+import { expect, test } from "./rails";
 
 async function setFeatureFlagRules(
   page: Page,
@@ -315,60 +311,51 @@ test("built-in template preserves its dimensions and locks and can be saved agai
   }
 });
 
-test("home Templates tab opens a built-in template design", async ({
+test("the Home Templates tab opens a fresh copy of a built-in template in the editor with its screen rendered", async ({
+  app,
   page,
-  request,
 }) => {
-  let createdDesignId: string | undefined;
+  await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
+  await page.getByRole("tab", { name: "Templates", exact: true }).click();
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response
+        .url()
+        .includes("/_agent-native/actions/create-design-from-template") &&
+      response.request().method() === "POST",
+  );
+  await page
+    .getByRole("button", { name: "Event story — vertical", exact: true })
+    .click();
+  const response = await createResponse;
+  expect(response.ok()).toBe(true);
+  expect(response.request().postDataJSON()).toMatchObject({
+    templateId: "preset-social-story",
+  });
+  const designId: string = (await response.json()).id;
+  app.adopt(designId);
 
-  try {
-    await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
-    await page.waitForLoadState("load");
-    await page.getByRole("tab", { name: "Templates", exact: true }).click();
-    const templateCard = page.getByRole("button", {
-      name: "Event story — vertical",
-      exact: true,
-    });
-    await expect(templateCard).toBeVisible();
-
-    const createResponse = page.waitForResponse(
-      (response) =>
-        response
-          .url()
-          .includes("/_agent-native/actions/create-design-from-template") &&
-        response.request().method() === "POST",
-    );
-    await templateCard.click();
-    const response = await createResponse;
-    expect(response.ok()).toBe(true);
-    expect(response.request().postDataJSON()).toMatchObject({
-      templateId: "preset-social-story",
-    });
-
-    const created = await response.json();
-    createdDesignId = created.id ?? created.data?.id ?? created.design?.id;
-    expect(createdDesignId).toBeTruthy();
-    await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, {
-      timeout: 30_000,
-    });
-    expect(page.url()).toContain(`/design/${createdDesignId}`);
-    const design = await getAction(request, "get-design", {
-      id: createdDesignId!,
-    });
-    expect(JSON.parse(design.data || "{}").templateSource).toMatchObject({
-      templateId: "preset-social-story",
-      title: "Event story — vertical",
-    });
-    expect(
-      design.files.map((file: { filename: string }) => file.filename),
-    ).toContain("event-story.html");
-  } finally {
-    if (createdDesignId) {
-      await postAction(request, "delete-design", { id: createdDesignId }).catch(
-        () => {},
-      );
-    }
-  }
+  await expect(page).toHaveURL(new RegExp(`/design/${designId}(?:[?#].*)?$`));
+  await expect(app.node("headline")).toBeVisible();
+  await expect(app.node("template-logo")).toHaveAttribute(
+    "data-agent-native-locked",
+    "true",
+  );
+  await expect(app.node("template-background")).toHaveAttribute(
+    "data-agent-native-locked",
+    "true",
+  );
+  const saved = await app.savedRecord(designId);
+  expect(saved.data?.templateSource).toMatchObject({
+    templateId: "preset-social-story",
+    title: "Event story — vertical",
+    category: "social",
+  });
+  expect(
+    saved.files
+      .map((file) => file.filename)
+      .filter((name) => name !== "__board__.html"),
+  ).toStrictEqual(["event-story.html"]);
 });
 
 test("template copy clears a linked design system when explicitly requested", async ({
@@ -432,7 +419,37 @@ test("template copy clears a linked design system when explicitly requested", as
     const persisted = await getAction(request, "get-design", {
       id: createdDesignId!,
     });
-    expect(persisted.designSystemId ?? null).toBeNull();
+    expect(persisted.designSystemId).toBeNull();
+    expect(JSON.parse(persisted.data).templateSource).toMatchObject({
+      templateId: sourceTemplateId,
+      templateDesignSystemId: designSystemId,
+      appliedDesignSystemId: null,
+      designSystemOverridden: true,
+    });
+    expect(
+      persisted.files.map((file: { filename: string; content: string }) => [
+        file.filename,
+        file.content.replace(/ data-agent-native-node-id="[^"]*"/g, ""),
+      ]),
+      "the template's screen is still copied, apart from the node ids the copy mints",
+    ).toStrictEqual([
+      ["index.html", "<html><body><main>Template source</main></body></html>"],
+    ]);
+
+    const template = await getAction(request, "get-design-template", {
+      templateId: sourceTemplateId!,
+    });
+    expect(
+      template.designSystemId,
+      "the template keeps its design system",
+    ).toBe(designSystemId);
+    const source = await getAction(request, "get-design", {
+      id: sourceDesignId!,
+    });
+    expect(
+      source.designSystemId,
+      "the source design keeps its design system",
+    ).toBe(designSystemId);
   } finally {
     if (createdDesignId) {
       await postAction(request, "delete-design", { id: createdDesignId }).catch(

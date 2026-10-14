@@ -191,6 +191,71 @@ HTTP, MCP, A2A, jobs या triggers को नहीं। default framework gu
 request-filtered sandbox तक सीमित हो जाते हैं, क्योंकि unrestricted shell
 सख्त action boundary लागू नहीं कर सकता।
 
+### अनुरोध-स्कोप वाले अतिरिक्त actions
+
+जब कॉलर जिन actions का उपयोग कर सकता है वे केवल अनुरोध के समय पता चलते हों, जैसे
+सर्वर चलते समय उपयोगकर्ता द्वारा register किए गए tools, तब
+`resolveAdditionalActions` का उपयोग करें। callback हर authenticated interactive
+chat run (production और dev) के लिए एक बार चलता है, `tool-search` और
+`resolveActionSurface` से पहले, इसलिए दोनों को लौटाई गई entries दिखती हैं। ये
+केवल उसी run के लिए उस कॉलर की registry में जुड़ती हैं। A2A tasks और MCP
+`ask_app` calls इन्हें तभी पाते हैं जब आप उन surfaces को
+`additionalActionSurfaces` में सूचीबद्ध करें; `surface` callback को बताता है कि
+कौन-सा अनुरोध कर रहा है।
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+लौटाई गई entries को untrusted input मानें। framework किसी entry को अनदेखा कर
+देता है, और एक बार warning log करता है, जब उसका नाम 1–64 अक्षरों, अंकों, `_` या
+`-` का न हो; जब वह नाम किसी template, framework, dev या MCP action का हो, उन
+actions सहित जो agent से छिपे हैं; जब वह ऐसा `mcp__` नाम हो जिसे कॉलर नहीं देख
+सकता; या जब उसकी tool definition उपयोग योग्य न हो। descriptions से छिपे control
+characters हटा दिए जाते हैं और उनकी लंबाई सीमित की जाती है। `parameters` सादे
+JSON data का एक सीमित schema होना चाहिए जिसकी root `object` हो, और जो केवल सामान्य
+validation और annotation keywords का उपयोग करे। अज्ञात keywords, `pattern`,
+`patternProperties`, `uniqueItems`, `$async`, `$id`, anchors, और recursive अथवा
+schema के बाहर इंगित करने वाला कोई भी `$ref` अस्वीकार कर दिया जाता है। model को
+schema की जाँची हुई copy दिखती है, और जिस call के arguments उसके विरुद्ध validate
+करने के लिए बहुत बड़े हों, वह अस्वीकार कर दी जाती है।
+`readOnly` और `access` जैसे flags आपके ऐप की अपनी घोषणाएँ हैं, जिन पर framework
+वैसे ही भरोसा करता है जैसे `run` पर: इन्हें इस आधार पर set करें कि आपका code
+क्या करता है, किसी उपयोगकर्ता द्वारा register किए गए metadata से कभी नहीं।
+
+हर entry उस कॉलर से बंधी होती है जिसके लिए उसे resolve किया गया था। हर call,
+चाहे कोई भी dispatcher उसे करे, किसी दूसरे उपयोगकर्ता या organization के लिए
+चलने से इनकार करता है, entry की `access` policy लागू करता है, और arguments को
+उसके schema के विरुद्ध type coercion के बिना validate करता है।
+
+नाम केवल तब pin होते हैं जब कोई hosted chat turn durable background run के रूप
+में जारी रहता है। callback फिर चलता है, और turn इन entries और कॉलर के MCP tools
+दोनों के लिए अपने मूल नाम बनाए रखता है: नई entries बाहर रहती हैं, जो नाम गायब हो
+गया वह call करने पर error लौटाता है, और जो नाम बना रहता है वह अपनी वर्तमान
+definition चलाता है। बाकी हर request नए सिरे से resolve होती है, जिसमें local
+sidecar पर हर continuation भी शामिल है, और जो टूटा हुआ stream अपने run से फिर
+जुड़ता है वह कुछ भी resolve नहीं करता।
+
+binding की पहचान नाम में रखें, जैसे कोई window id या scope
+(`notes_window_42_insert`), ताकि rebind ऐसा पढ़ा जाए कि एक tool जा रहा है और
+दूसरा आ रहा है। "हमेशा अनुमति दें" approvals tool के नाम का अनुसरण करते हैं, इसलिए
+जब वही नाम बाद में किसी नई चीज़ का अर्थ लेता है तब भी वे लागू रहते हैं।
+
+ये entries केवल agent loop के लिए native tools हैं। कॉलर के MCP tools की तरह, इन
+तक `run-code` या `tool-orchestration` से नहीं पहुँचा जा सकता।
+
+`event` `chat` और `a2a` के लिए सेट होता है; `ask_app` calls में यह नहीं होता।
+anonymous अनुरोधों, scheduled jobs, automations या agent-team sub-agents के लिए
+callback नहीं बुलाया जाता। callback द्वारा throw की गई error अनुरोध को विफल कर
+देती है।
+
 ## Native inline UI {#native-inline-ui}
 
 इसका उपयोग तब करें जब आपके actions structured data वापस करते हैं — records की एक list, एक chart dataset, एक status summary — जो plain text विवरण के बजाय chat thread के अंदर एक वास्तविक UI component के रूप में रेंडर होनी चाहिए। आप action पर एक `chatUI` renderer परिभाषित करते हैं, और Agent-Native इसे एक first-party React component के रूप में रेंडर करता है: कोई iframes नहीं, कोई अलग rendering path नहीं।

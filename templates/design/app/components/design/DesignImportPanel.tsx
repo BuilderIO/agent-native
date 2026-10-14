@@ -22,6 +22,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -38,6 +39,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import {
   MAX_BROWSER_FIG_BYTES,
+  MAX_BROWSER_FIG_FRAMES,
+  MAX_BROWSER_FIG_GB,
   MAX_BROWSER_FIG_MB,
   MAX_FIG_UPLOAD_BYTES,
   uploadDesignFile,
@@ -66,6 +69,9 @@ import {
   claimPendingDesignImport,
   claimFigImportToast,
   dismissFigImportToast,
+  onFigImportParked,
+  parkPreparedFigImport,
+  takeParkedFigImport,
   updateFigImportToast,
   type FigImportToastOwner,
 } from "@/lib/pending-import";
@@ -90,7 +96,16 @@ type FigSaveCount = { saved: number; total: number };
 
 type FigImportPreview = PreparedFigImport["summary"] & {
   fileName: string;
+  error?: string;
 };
+
+function defaultFigPageSelection(
+  summary: PreparedFigImport["summary"],
+): Set<string> {
+  return summary.frameCount <= MAX_BROWSER_FIG_FRAMES
+    ? new Set(summary.pages.map((page) => page.id))
+    : new Set();
+}
 
 export interface DesignImportPanelHandle {
   importFile: (file: File) => void;
@@ -180,13 +195,51 @@ export const DesignImportPanel = forwardRef<
     }
   }, [fileUploadStatus.data?.configured, fileUploadStatus.isSuccess]);
 
+  const designIdRef = useRef(context.designId);
+  designIdRef.current = context.designId;
+
+  const showFigImportPicker = useCallback(
+    (
+      prepared: PreparedFigImport,
+      retry?: { selection: ReadonlySet<string>; error: string },
+    ) => {
+      pendingFigImportRef.current = prepared;
+      setActiveMode("fig-upload");
+      setFigImportSelection(
+        retry
+          ? new Set(retry.selection)
+          : defaultFigPageSelection(prepared.summary),
+      );
+      setFigImportPreview({
+        ...prepared.summary,
+        fileName: prepared.file.name,
+        error: retry?.error,
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     unmountedRef.current = false;
     return () => {
       unmountedRef.current = true;
-      pendingFigImportRef.current?.dispose();
+      const pending = pendingFigImportRef.current;
+      pendingFigImportRef.current = null;
+      if (pending) parkPreparedFigImport(designIdRef.current, pending);
     };
   }, []);
+
+  useEffect(() => {
+    const resume = () => {
+      if (unmountedRef.current) return;
+      const parked = takeParkedFigImport(context.designId);
+      if (parked) showFigImportPicker(parked);
+    };
+    resume();
+    return onFigImportParked((designId) => {
+      if (designId === context.designId) resume();
+    });
+  }, [context.designId, showFigImportPicker]);
 
   const clearFigUploadState = useCallback((owner?: FigImportToastOwner) => {
     setFigUploadBusy(false);
@@ -281,6 +334,19 @@ export const DesignImportPanel = forwardRef<
           }),
         );
       }
+      const skippedFrames = result?.skippedFrames ?? [];
+      if (skippedFrames.length) {
+        const names = formatters.formatList(skippedFrames.slice(0, 3), {
+          type: "unit",
+          style: "short",
+        });
+        fidelityWarnings.push(
+          t("designEditor.import.figImportFramesSkippedWarning", {
+            count: formatNumber(skippedFrames.length),
+            names: skippedFrames.length > 3 ? `${names}, …` : names,
+          }),
+        );
+      }
       const skippedEmbeddedImageCount = result?.skippedEmbeddedImageCount;
       if (skippedEmbeddedImageCount) {
         fidelityWarnings.push(
@@ -303,7 +369,7 @@ export const DesignImportPanel = forwardRef<
         `/design/${result?.designId ?? context.designId}?editorView=overview`,
       );
     },
-    [context.designId, formatNumber, navigate, queryClient, t],
+    [context.designId, formatNumber, formatters, navigate, queryClient, t],
   );
 
   const importHtmlString = useCallback(
@@ -482,6 +548,24 @@ export const DesignImportPanel = forwardRef<
             },
           });
         } catch (localError) {
+          const preparedReusable =
+            (localError as { preparedReusable?: unknown }).preparedReusable ===
+            true;
+          if (selection && preparedReusable) {
+            if (unmountedRef.current) {
+              parkPreparedFigImport(context.designId, prepared);
+              throw localError;
+            }
+            showFigImportPicker(prepared, {
+              selection,
+              error:
+                localError instanceof Error
+                  ? localError.message
+                  : t("common.genericError"),
+            });
+            return;
+          }
+          if (preparedReusable) prepared.dispose();
           if (
             selection ||
             prepared.file.size > MAX_FIG_UPLOAD_BYTES ||
@@ -516,6 +600,7 @@ export const DesignImportPanel = forwardRef<
       ensureStorageForFigFallback,
       finishImport,
       reportFigProgress,
+      showFigImportPicker,
       t,
     ],
   );
@@ -559,18 +644,11 @@ export const DesignImportPanel = forwardRef<
             }),
           );
           if (unmountedRef.current) {
-            prepared.dispose();
+            parkPreparedFigImport(context.designId, prepared);
             return;
           }
           if (shouldWarnForFigImport(file.size, prepared.summary)) {
-            pendingFigImportRef.current = prepared;
-            setFigImportSelection(
-              new Set(prepared.summary.frames.map((frame) => frame.id)),
-            );
-            setFigImportPreview({
-              ...prepared.summary,
-              fileName: file.name,
-            });
+            showFigImportPicker(prepared);
             return;
           }
         } catch (localError) {
@@ -616,6 +694,7 @@ export const DesignImportPanel = forwardRef<
       formatNumber,
       reportFigProgress,
       runPreparedFigImport,
+      showFigImportPicker,
       t,
     ],
   );
@@ -627,7 +706,7 @@ export const DesignImportPanel = forwardRef<
       void handleFigFileChange(pending?.file);
   }, [context.designId, handleFigFileChange]);
 
-  const toggleFigImportFrame = useCallback((id: string, checked: boolean) => {
+  const toggleFigImportPage = useCallback((id: string, checked: boolean) => {
     setFigImportSelection((current) => {
       const next = new Set(current);
       if (checked) next.add(id);
@@ -646,9 +725,22 @@ export const DesignImportPanel = forwardRef<
     clearFigUploadState();
   }, [clearFigUploadState, context.designId]);
 
+  const selectedFigFrameCount = useMemo(
+    () =>
+      (figImportPreview?.pages ?? []).reduce(
+        (sum, page) =>
+          figImportSelection.has(page.id) ? sum + page.frameCount : sum,
+        0,
+      ),
+    [figImportPreview, figImportSelection],
+  );
+  const figImportOverFrameLimit =
+    selectedFigFrameCount > MAX_BROWSER_FIG_FRAMES;
+
   const confirmFigImport = useCallback(async () => {
     const prepared = pendingFigImportRef.current;
-    if (!prepared || figImportSelection.size === 0) return;
+    if (!prepared || figImportSelection.size === 0 || figImportOverFrameLimit)
+      return;
     const selection = new Set(figImportSelection);
     pendingFigImportRef.current = null;
     setFigImportPreview(null);
@@ -660,7 +752,7 @@ export const DesignImportPanel = forwardRef<
           error instanceof Error ? error.message : t("common.genericError"),
       });
     }
-  }, [figImportSelection, runPreparedFigImport, t]);
+  }, [figImportOverFrameLimit, figImportSelection, runPreparedFigImport, t]);
 
   const copyVisualEditCommand = useCallback(
     async (command: string) => {
@@ -932,7 +1024,10 @@ export const DesignImportPanel = forwardRef<
             id="fig-file-import"
             icon={<IconUpload className="size-3.5" />}
             title={t("designEditor.import.figUploadTitle")}
-            description={t("designEditor.import.figUploadDescriptionShort")}
+            description={t("designEditor.import.figUploadLimits", {
+              size: formatNumber(MAX_BROWSER_FIG_GB),
+              frames: formatNumber(MAX_BROWSER_FIG_FRAMES),
+            })}
             isOpen={activeMode === "fig-upload"}
             onToggle={() =>
               setActiveMode((mode) =>
@@ -988,75 +1083,103 @@ export const DesignImportPanel = forwardRef<
                       </p>
                     </div>
                   </div>
-                  {figImportPreview.frames.length > 1 ? (
-                    <>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">
-                          {t("designEditor.import.figImportFrameCount", {
-                            selected: formatNumber(figImportSelection.size),
-                            total: formatNumber(figImportPreview.frames.length),
-                          })}
-                        </span>
-                        <div className="flex shrink-0 gap-1">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() =>
-                              setFigImportSelection(
-                                new Set(
-                                  figImportPreview.frames.map(
-                                    (frame) => frame.id,
-                                  ),
-                                ),
-                              )
-                            }
-                          >
-                            {t("designEditor.import.figImportSelectAll")}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setFigImportSelection(new Set())}
-                          >
-                            {t("designEditor.import.figImportClearAll")}
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="max-h-40 space-y-0.5 overflow-y-auto rounded border border-border/60 bg-background/60 p-1">
-                        {figImportPreview.frames.map((frame) => (
-                          <FigImportFrameRow
-                            key={frame.id}
-                            frame={frame}
-                            checked={figImportSelection.has(frame.id)}
-                            onCheckedChange={toggleFigImportFrame}
-                          />
-                        ))}
-                      </div>
-                    </>
+                  {figImportPreview.error ? (
+                    <p className="leading-snug text-destructive">
+                      {figImportPreview.error}
+                    </p>
                   ) : null}
-                  <div className="flex justify-end gap-1.5">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={cancelFigImportPreview}
+                  <div className="space-y-1">
+                    <p
+                      className={cn(
+                        "tabular-nums",
+                        figImportOverFrameLimit
+                          ? "text-destructive"
+                          : "text-muted-foreground",
+                      )}
                     >
-                      {t("designEditor.import.figImportCancel")}
-                    </Button>
+                      {t("designEditor.import.figImportFrameCount", {
+                        selected: formatNumber(selectedFigFrameCount),
+                        total: formatNumber(figImportPreview.frameCount),
+                      })}
+                    </p>
+                    {figImportPreview.pages.length > 1 ? (
+                      <div className="flex flex-wrap gap-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-xs"
+                          onClick={() =>
+                            setFigImportSelection(
+                              new Set(
+                                figImportPreview.pages.map((page) => page.id),
+                              ),
+                            )
+                          }
+                        >
+                          {t("designEditor.import.figImportSelectAll")}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => setFigImportSelection(new Set())}
+                        >
+                          {t("designEditor.import.figImportClearAll")}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="max-h-60 space-y-0.5 overflow-y-auto rounded border border-border/60 bg-background/60 p-1">
+                    {figImportPreview.pages.map((page) => (
+                      <FigImportPageRow
+                        key={page.id}
+                        page={page}
+                        frameCountLabel={formatNumber(page.frameCount)}
+                        checked={figImportSelection.has(page.id)}
+                        onCheckedChange={toggleFigImportPage}
+                      />
+                    ))}
+                  </div>
+                  {figImportPreview.frameCount > MAX_BROWSER_FIG_FRAMES ? (
+                    <p
+                      className={cn(
+                        "leading-snug",
+                        figImportOverFrameLimit
+                          ? "text-destructive"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {t("designEditor.import.figImportFrameLimit", {
+                        max: formatNumber(MAX_BROWSER_FIG_FRAMES),
+                      })}
+                    </p>
+                  ) : null}
+                  <div className="grid gap-1">
                     <Button
                       type="button"
                       size="sm"
-                      disabled={figImportSelection.size === 0}
+                      className="w-full"
+                      disabled={
+                        figImportSelection.size === 0 || figImportOverFrameLimit
+                      }
                       onClick={() => void confirmFigImport()}
                     >
-                      {figImportSelection.size ===
-                      figImportPreview.frames.length
+                      {figImportSelection.size === figImportPreview.pages.length
                         ? t("designEditor.import.figImportAll")
                         : t("designEditor.import.figImportSelected", {
                             count: formatNumber(figImportSelection.size),
                           })}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="w-full"
+                      onClick={cancelFigImportPreview}
+                    >
+                      {t("designEditor.import.figImportCancel")}
                     </Button>
                   </div>
                 </div>
@@ -1240,12 +1363,14 @@ export const DesignImportPanel = forwardRef<
   );
 });
 
-const FigImportFrameRow = memo(function FigImportFrameRow({
-  frame,
+const FigImportPageRow = memo(function FigImportPageRow({
+  page,
+  frameCountLabel,
   checked,
   onCheckedChange,
 }: {
-  frame: FigImportPreview["frames"][number];
+  page: FigImportPreview["pages"][number];
+  frameCountLabel: string;
   checked: boolean;
   onCheckedChange: (id: string, checked: boolean) => void;
 }) {
@@ -1253,20 +1378,15 @@ const FigImportFrameRow = memo(function FigImportFrameRow({
     <label className="flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 hover:bg-muted/60">
       <Checkbox
         checked={checked}
-        onCheckedChange={(next) => onCheckedChange(frame.id, next === true)}
+        onCheckedChange={(next) => onCheckedChange(page.id, next === true)}
         className="mt-0.5"
-        aria-label={frame.frameName}
+        aria-label={page.name}
       />
-      <span className="min-w-0 flex-1">
-        <span className="block whitespace-normal break-words text-foreground">
-          {frame.frameName}
-        </span>
-        <span className="block truncate text-xs text-muted-foreground">
-          {frame.pageName}
-          {frame.width && frame.height
-            ? ` · ${Math.round(frame.width)} × ${Math.round(frame.height)}`
-            : ""}
-        </span>
+      <span className="min-w-0 flex-1 whitespace-normal break-words text-foreground">
+        {page.name}
+      </span>
+      <span className="shrink-0 tabular-nums text-muted-foreground">
+        {frameCountLabel}
       </span>
     </label>
   );

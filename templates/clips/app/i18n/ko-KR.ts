@@ -203,9 +203,12 @@ const messages = {
     expandSidebar: "사이드바 펼치기",
     collapseSidebar: "사이드바 접기",
     agentEmptyState: "녹화와 관련해 무엇을 도와드릴까요?",
-    agentSuggestionSummary: "마지막 녹화를 요약해 줘",
-    agentSuggestionPricing: "가격을 언급한 위치를 찾아 줘",
-    agentSuggestionFiller: "이 클립에서 군더더기 표현을 제거해 줘",
+    agentSuggestionSummary: "녹화 요약하기",
+    agentSuggestionPricing: "가격 언급 찾기",
+    agentSuggestionFiller: "군더더기 표현 제거",
+    agentScreenshotSuggestionSummary: "스크린샷 요약하기",
+    agentScreenshotSuggestionText: "스크린샷에서 텍스트 찾기",
+    agentScreenshotSuggestionCompare: "스크린샷 비교하기",
     createFolderError: "만들기 실패",
     folderCreated: "폴더가 생성됨",
     folderNamePlaceholder: "폴더 이름",
@@ -301,6 +304,10 @@ const messages = {
     transcriptionCompleted: "전사가 완료되었습니다.",
     transcriptNotReady: "스크립트가 아직 준비되지 않았습니다.",
     tryAfterTranscription: "전사가 완료된 후 다시 시도하세요.",
+    silenceTranscriptUnavailableTitle:
+      "이 스크립트는 무음 구간 제거에 사용할 수 없습니다",
+    silenceTranscriptUnavailableDescription:
+      "새 스크립트를 생성한 후 무음 구간 제거를 다시 시도하세요.",
     titleGenerationQueued: "제목 생성 중…",
     descriptionQueued: "설명 생성 중…",
     chapterQueued: "챕터 생성 중…",
@@ -1853,6 +1860,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (현지화됨)",
     recordingDownloadStarted: "Recording download started (현지화됨)",
+    partialLocalCopyDownloadStarted:
+      "로컬 사본이 불완전할 수 있습니다. 사용 가능한 녹화 데이터를 다운로드하고 있습니다.",
     backToLibrary: "Back to library (현지화됨)",
     clipsRecorder: "Clips recorder (현지화됨)",
     preparingSources: "Preparing sources… (현지화됨)",
@@ -2012,6 +2021,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (현지화됨)",
     cleanupComplete: "받아쓰기를 정리했습니다",
     cleanupFailed: "받아쓰기를 정리하지 못했습니다",
+    undoCleanup: "실행 취소",
+    restoreOriginal: "원본 복원",
+    cleanupRestored: "원본 받아쓰기를 복원했습니다",
+    cleanupRestoreFailed: "원본 받아쓰기를 복원하지 못했습니다",
     startFirst: "생각을 텍스트로 바꿔 보세요",
     recordOnDesktop: "데스크톱에서 녹음",
     emptyDesktopDescription:

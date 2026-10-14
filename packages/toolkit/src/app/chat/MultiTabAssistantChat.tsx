@@ -2285,6 +2285,21 @@ export function MultiTabAssistantChat({
           continue;
         }
         if (!chatRefs.current.has(threadId)) continue;
+        if (delivery.modelOverride) {
+          threadModelRef.current.set(threadId, delivery.modelOverride);
+          delete delivery.modelOverride;
+          bumpModelSelectionVersion();
+          // The tab's handle still holds the previous selection and send gate
+          // until it re-renders; the version bump re-runs this flush after that.
+          continue;
+        }
+        if (
+          delivery.send.submit &&
+          !hostManagedModels &&
+          modelListLoading &&
+          !resolveThreadModelSelection(threadId)
+        )
+          continue;
         const lane = { delivery, handedOff: false };
         deliveryLanes.current.set(threadId, lane);
         if (!delivery.targetReported) {
@@ -2298,10 +2313,6 @@ export function MultiTabAssistantChat({
           if (deliveryLanes.current.get(threadId) === lane)
             deliveryLanes.current.delete(threadId);
           continue;
-        }
-        if (delivery.modelOverride) {
-          threadModelRef.current.set(threadId, delivery.modelOverride);
-          bumpModelSelectionVersion();
         }
         const deliver = () => {
           if (deliveryLanes.current.get(threadId) !== lane) return;
@@ -2375,7 +2386,12 @@ export function MultiTabAssistantChat({
         else setTimeout(deliver, 50);
       }
     },
-    [bumpModelSelectionVersion],
+    [
+      bumpModelSelectionVersion,
+      hostManagedModels,
+      modelListLoading,
+      resolveThreadModelSelection,
+    ],
   );
 
   // Listen for builder.submitChat postMessages

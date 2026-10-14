@@ -74,11 +74,7 @@ export async function recordZoomAuditEvent(
   });
 }
 
-const ZOOM_SETTING_KEYS = [
-  "includeSummaries",
-  "lookbackDays",
-  "userIds",
-] as const;
+const ZOOM_SETTING_KEYS = ["lookbackDays", "userIds"] as const;
 
 export function zoomAllowlistChange(
   before: Record<string, unknown>,

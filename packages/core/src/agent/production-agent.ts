@@ -365,6 +365,7 @@ import {
   claimSetupResume,
   setupResumeRefusedRunId,
 } from "./setup-resume-claim.js";
+import { getStrictToolInputValidator } from "./strict-tool-input.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
@@ -372,7 +373,10 @@ import {
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
-import { findCompletedJournalEntry } from "./tool-call-journal.js";
+import {
+  findCompletedJournalEntry,
+  isUnavailableToolCallInput,
+} from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
@@ -1384,6 +1388,50 @@ export function readPersistedActionSurface(
   }
 }
 
+function readPersistedAdditionalActionNames(
+  body: AgentChatRequest,
+): string[] | undefined {
+  const names = body.__resolvedAdditionalActionNames;
+  if (names === undefined) return undefined;
+  if (!Array.isArray(names) || names.some((name) => typeof name !== "string")) {
+    throw new Error("Persisted additional action names are malformed");
+  }
+  return names;
+}
+
+/**
+ * A durable continuation re-resolves the caller's additional actions, which
+ * may have changed since the turn started. Keep the turn's names: drop entries
+ * that appeared since, and keep a vanished name as an entry that fails loudly
+ * when called, so a persisted action allowlist that names it still resolves.
+ * A name that has since become a registered action is left to that action.
+ */
+export function pinAdditionalActionsToTurn(
+  resolved: Record<string, ActionEntry>,
+  turnNames: readonly string[],
+  registered: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  const pinned: Record<string, ActionEntry> = {};
+  for (const name of turnNames) {
+    if (Object.hasOwn(registered, name)) continue;
+    pinned[name] = Object.hasOwn(resolved, name)
+      ? resolved[name]
+      : {
+          tool: {
+            description: `${name} is no longer available to this caller.`,
+            parameters: { type: "object", properties: {} },
+          },
+          readOnly: true,
+          run: () => {
+            throw new Error(
+              `${name} is no longer available to this caller; it was removed after this turn started.`,
+            );
+          },
+        };
+  }
+  return pinned;
+}
+
 export function filterActionsByAllowedNames(
   actions: Record<string, ActionEntry>,
   allowedActionNames: readonly string[],
@@ -2311,6 +2359,16 @@ export function serializeDurableDispatchPayload(
     throw new TypeError("Durable dispatch payload could not be serialized");
   }
   return payload;
+}
+
+function approvedInputRequiresForeground(input: unknown): boolean {
+  const originalPayload = JSON.stringify({ input });
+  try {
+    return serializeDurableDispatchPayload({ input }) !== originalPayload;
+  } catch (error) {
+    if (error instanceof DurableAttachmentReferenceRequiredError) return true;
+    throw error;
+  }
 }
 
 function toolInputActivityLabel(toolName?: string): string {
@@ -3408,6 +3466,12 @@ export function structuredHistoryToEngineMessages(
           toolInput,
           content: wire.content,
           ...(part.isError ? { isError: true } : {}),
+          ...(typeof part.approvalPause === "boolean"
+            ? { approvalPause: part.approvalPause }
+            : {}),
+          ...(typeof part.approvalAskId === "string"
+            ? { approvalAskId: part.approvalAskId }
+            : {}),
         });
       }
     }
@@ -4514,6 +4578,7 @@ function isToolCallTimeoutResult(content: string): boolean {
 
 export interface TerminalActionStop {
   message: string;
+  transcriptMessage?: string;
   errorCode?: string;
   details?: string;
 }
@@ -4607,6 +4672,7 @@ export type AgentToolCallExecutionResult =
   | {
       status: "failed";
       output: string;
+      terminalError?: Extract<AgentChatEvent, { type: "error" }>;
     };
 
 export interface ExecuteAgentToolCallOptions {
@@ -4627,6 +4693,7 @@ export interface ExecuteAgentToolCallOptions {
   threadId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
+  approvedToolCallAskId?: string;
   onApprovalRequired?: (
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
@@ -4640,6 +4707,7 @@ export interface AgentApprovalBinding {
   input: unknown;
   callId: string;
   approvalKey: string;
+  approvalId?: string;
 }
 
 export async function executeAgentToolCall(
@@ -4694,6 +4762,9 @@ export async function executeAgentToolCall(
   const events: AgentChatEvent[] = [];
   const send = (event: AgentChatEvent) => {
     events.push(event);
+    if (event.type === "text" && event.text === "Tool execution complete.") {
+      return;
+    }
     options.send?.(event);
   };
   const controller = options.signal ? null : new AbortController();
@@ -4733,6 +4804,7 @@ export async function executeAgentToolCall(
       threadId: options.threadId,
       turnId: options.turnId,
       approvedToolCalls: options.approvedToolCalls,
+      approvedToolCallAskId: options.approvedToolCallAskId,
       onApprovalRequired: options.onApprovalRequired,
       consumeApproval: options.consumeApproval,
       isToolAlwaysAllowed: options.isToolAlwaysAllowed,
@@ -4754,6 +4826,10 @@ export async function executeAgentToolCall(
       (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
         event.type === "tool_done" && event.tool === options.name,
     );
+  const terminalError = events.find(
+    (event): event is Extract<AgentChatEvent, { type: "error" }> =>
+      event.type === "error" && event.recoverable === false,
+  );
 
   if (approval) {
     return {
@@ -4761,6 +4837,13 @@ export async function executeAgentToolCall(
       approvalKey: approval.approvalKey,
       output:
         completed?.result ?? `Awaiting human approval to run ${options.name}.`,
+    };
+  }
+  if (terminalError) {
+    return {
+      status: "failed",
+      output: completed?.result ?? terminalError.error,
+      terminalError,
     };
   }
   if (!completed) {
@@ -4943,11 +5026,39 @@ export function toolCallCacheKey(toolName: string, input: unknown): string {
 export function findApprovedStructuredToolCall(
   history: AgentChatStructuredMessage[] | undefined,
   approvedToolCalls: readonly string[] | undefined,
-): { name: string; input: unknown; callId: string } | undefined {
-  if (!Array.isArray(history) || !approvedToolCalls?.length) return undefined;
+  approvedToolCallAskIds?: readonly string[],
+):
+  | {
+      status: "found";
+      toolCall: {
+        name: string;
+        input: unknown;
+        callId: string;
+        approvalAskId?: string;
+      };
+    }
+  | { status: "ambiguous" }
+  | { status: "missing" } {
+  if (!Array.isArray(history) || !approvedToolCalls?.length) {
+    return { status: "missing" };
+  }
   const approved = new Set(approvedToolCalls);
-  const calls = new Map<string, { name: string; input: unknown }>();
-  let match: { name: string; input: unknown; callId: string } | undefined;
+  const approvedAskIds = new Set(approvedToolCallAskIds ?? []);
+  const calls = new Map<
+    string,
+    {
+      name: string;
+      input: unknown;
+      approvalKey?: string;
+      approvalAskId?: string;
+    }
+  >();
+  const matches: Array<{
+    name: string;
+    input: unknown;
+    callId: string;
+    approvalAskId?: string;
+  }> = [];
 
   for (const message of history) {
     if (message.role === "assistant") {
@@ -4966,7 +5077,15 @@ export function findApprovedStructuredToolCall(
               ? part.toolName
               : "";
         if (!callId || !name) continue;
-        calls.set(callId, { name, input: part.input ?? part.args ?? {} });
+        calls.set(callId, {
+          name,
+          input:
+            part.input !== undefined
+              ? part.input
+              : (part.args ?? { omitted: "tool-input" }),
+          ...(part.approvalKey ? { approvalKey: part.approvalKey } : {}),
+          ...(part.approvalAskId ? { approvalAskId: part.approvalAskId } : {}),
+        });
       }
       continue;
     }
@@ -4974,22 +5093,67 @@ export function findApprovedStructuredToolCall(
     for (const part of message.content) {
       if (part.type !== "tool-result") continue;
       const call = calls.get(part.toolCallId);
-      if (!call || !approved.has(toolCallCacheKey(call.name, call.input))) {
+      if (!call) {
         continue;
       }
-      const result = part.content.toLowerCase();
+      const matchesApproval =
+        approvedAskIds.size > 0
+          ? Boolean(
+              call.approvalAskId && approvedAskIds.has(call.approvalAskId),
+            )
+          : approved.has(
+              call.approvalKey ?? toolCallCacheKey(call.name, call.input),
+            );
+      if (!matchesApproval) {
+        continue;
+      }
+      if (part.approvalPause !== true) continue;
       if (
-        !result.includes("did not execute") &&
-        !result.includes("awaiting human approval") &&
-        !result.includes("waiting for your approval")
+        approvedAskIds.size > 0 &&
+        (!call.approvalAskId ||
+          !approvedAskIds.has(call.approvalAskId) ||
+          part.approvalAskId !== call.approvalAskId)
       ) {
         continue;
       }
-      match = { ...call, callId: part.toolCallId };
+      if (
+        call.approvalAskId &&
+        part.approvalAskId &&
+        call.approvalAskId !== part.approvalAskId
+      ) {
+        continue;
+      }
+      matches.push({
+        name: call.name,
+        input: call.input,
+        callId: part.toolCallId,
+        ...((part.approvalAskId ?? call.approvalAskId)
+          ? { approvalAskId: part.approvalAskId ?? call.approvalAskId }
+          : {}),
+      });
     }
   }
 
-  return match;
+  if (approvedAskIds.size > 0) {
+    const distinctAskIds = new Set(
+      matches.map((match) => match.approvalAskId).filter(Boolean),
+    );
+    if (
+      distinctAskIds.size !== 1 ||
+      distinctAskIds.size !== approvedAskIds.size
+    ) {
+      return { status: matches.length === 0 ? "missing" : "ambiguous" };
+    }
+    const exactMatches = matches.filter((match) =>
+      approvedAskIds.has(match.approvalAskId ?? ""),
+    );
+    if (exactMatches.length === 0) return { status: "missing" };
+    return { status: "found", toolCall: exactMatches.at(-1)! };
+  }
+
+  if (matches.length > 1) return { status: "ambiguous" };
+  const toolCall = matches[0];
+  return toolCall ? { status: "found", toolCall } : { status: "missing" };
 }
 
 const INTERRUPTED_TOOL_LEDGER_POLL_MS =
@@ -5760,6 +5924,8 @@ function validateRawToolInput(
   entry: ActionEntry,
   input: unknown,
 ): string | null {
+  const strict = getStrictToolInputValidator(entry);
+  if (strict) return strict(input);
   if (!shouldValidateRawToolParameters(entry)) return null;
   const parameters = entry.tool.parameters;
   if (!parameters) return null;
@@ -5911,6 +6077,7 @@ export async function runAgentLoop(opts: {
     hardMaxResultChars?: number;
   };
   approvedToolCalls?: string[];
+  approvedToolCallAskId?: string;
   /**
    * Server-side approval persistence hooks. The HTTP transport supplies these
    * so client-supplied history is never the authorization source; direct loop
@@ -6322,7 +6489,7 @@ export async function runAgentLoop(opts: {
       stop.errorCode === "needs-approval" ||
       stop.errorCode === "awaiting-user-input"
     ) {
-      send({ type: "text", text: stop.message });
+      send({ type: "text", text: stop.transcriptMessage ?? stop.message });
       return;
     }
     send({
@@ -6401,6 +6568,7 @@ export async function runAgentLoop(opts: {
     let terminalStopReason:
       | Extract<EngineEvent, { type: "stop" }>["reason"]
       | undefined;
+    let terminalStopErrorCode: string | undefined;
     const toolCallErrors = new Map<
       string,
       { name: string; input: unknown; error: string }
@@ -6456,6 +6624,7 @@ export async function runAgentLoop(opts: {
       streamedAssistantText = "";
       streamedAssistantToolCalls.length = 0;
       terminalStopReason = undefined;
+      terminalStopErrorCode = undefined;
       toolCallErrors.clear();
       try {
         let providerOptions = opts.providerOptions;
@@ -6533,6 +6702,9 @@ export async function runAgentLoop(opts: {
             type: "model_stream",
             status: "end",
             ...(terminalStopReason ? { reason: terminalStopReason } : {}),
+            ...(terminalStopErrorCode
+              ? { errorCode: terminalStopErrorCode }
+              : {}),
           });
         };
         let lastModelStreamProgressAt = Date.now();
@@ -6789,6 +6961,7 @@ export async function runAgentLoop(opts: {
             } else if (event.type === "stop") {
               terminalStopReason = event.reason;
               if (event.reason === "error") {
+                terminalStopErrorCode = event.errorCode;
                 throw engineStopError(event, engineMessages);
               }
             }
@@ -6797,6 +6970,13 @@ export async function runAgentLoop(opts: {
               break;
             }
           }
+        } catch (err: unknown) {
+          // A thrown engine error skips the `stop` event, so its code must
+          // reach the bracket end here or the failed attempt goes unlabeled.
+          const thrownCode = (err as { errorCode?: unknown } | null)?.errorCode;
+          if (typeof thrownCode === "string")
+            terminalStopErrorCode ??= thrownCode;
+          throw err;
         } finally {
           closeModelStreamBracket();
           if (!eventIteratorDone) {
@@ -7258,11 +7438,27 @@ export async function runAgentLoop(opts: {
       | undefined;
     let turnYieldedToUser = false;
 
-    const noteToolCallSucceeded = (actionEntry: ActionEntry) => {
+    const noteToolCallSucceeded = (
+      actionEntry: ActionEntry,
+      toolName: string,
+      toolInput: unknown,
+    ) => {
       if (actionEntry.endsTurn !== true) return;
       turnYieldedToUser = true;
+      const question =
+        toolName === "ask-question" &&
+        typeof toolInput === "object" &&
+        toolInput !== null &&
+        "question" in toolInput &&
+        typeof toolInput.question === "string"
+          ? toolInput.question.trim()
+          : "";
+      const waitingMessage = "Waiting for your answer before continuing";
       requestedActionStop ??= {
-        message: "Waiting for your answer before continuing.",
+        message: question
+          ? `${waitingMessage}: ${question}`
+          : `${waitingMessage}.`,
+        transcriptMessage: `${waitingMessage}.`,
         errorCode: "awaiting-user-input",
       };
     };
@@ -7304,21 +7500,24 @@ export async function runAgentLoop(opts: {
     ): Promise<EngineContentPart> => {
       noteToolNeeded(toolCall.name);
       const actionEntry = actions[toolCall.name];
-      const placeholderNormalization = actionEntry
-        ? normalizeOptionalToolPlaceholders(
-            actionEntry.tool.parameters,
-            toolCall.input,
-          )
-        : { input: toolCall.input, changed: false };
+      const strictToolInput = getStrictToolInputValidator(actionEntry);
+      const placeholderNormalization =
+        actionEntry && !strictToolInput
+          ? normalizeOptionalToolPlaceholders(
+              actionEntry.tool.parameters,
+              toolCall.input,
+            )
+          : { input: toolCall.input, changed: false };
       if (placeholderNormalization.changed) {
         toolCall = { ...toolCall, input: placeholderNormalization.input };
       }
-      const jsonStringCoercion = actionEntry
-        ? coerceStringifiedJsonToolValues(
-            actionEntry.tool.parameters,
-            toolCall.input,
-          )
-        : { input: toolCall.input, changed: false };
+      const jsonStringCoercion =
+        actionEntry && !strictToolInput
+          ? coerceStringifiedJsonToolValues(
+              actionEntry.tool.parameters,
+              toolCall.input,
+            )
+          : { input: toolCall.input, changed: false };
       if (jsonStringCoercion.changed) {
         toolCall = { ...toolCall, input: jsonStringCoercion.input };
       }
@@ -7583,13 +7782,16 @@ export async function runAgentLoop(opts: {
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
+      const requestedApproval = approvedToolCallKeys.delete(approvalKey);
       const approvalBinding: AgentApprovalBinding = {
         toolName: toolCall.name,
         input: toolCall.input,
         callId: toolCall.id,
         approvalKey,
+        ...(requestedApproval && opts.approvedToolCallAskId
+          ? { approvalId: opts.approvedToolCallAskId }
+          : {}),
       };
-      const requestedApproval = approvedToolCallKeys.delete(approvalKey);
       const wasApproved =
         requestedApproval && opts.consumeApproval
           ? await opts.consumeApproval(approvalBinding)
@@ -7680,6 +7882,7 @@ export async function runAgentLoop(opts: {
             input: journalToolInput as Record<string, unknown>,
             result,
             completedSideEffect: false,
+            approvalPause: true,
           });
           recordToolResult(result, false);
           turnYieldedToUser = true;
@@ -7755,7 +7958,7 @@ export async function runAgentLoop(opts: {
               : {}),
           });
           recordToolResult(result, false, journaled.artifacts);
-          noteToolCallSucceeded(actionEntry);
+          noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           return {
             type: "tool-result" as const,
@@ -7840,7 +8043,7 @@ export async function runAgentLoop(opts: {
                 : {}),
             });
             recordToolResult(result, false, ledgerResult.artifacts);
-            noteToolCallSucceeded(actionEntry);
+            noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
             resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
             return {
               type: "tool-result" as const,
@@ -8524,7 +8727,7 @@ export async function runAgentLoop(opts: {
         });
         recordToolResult(result, isError, toolArtifacts, receipt);
         if (!isError) {
-          noteToolCallSucceeded(actionEntry);
+          noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           if (cacheKey) {
             readOnlyToolResultCache.set(cacheKey, {
               content: result,
@@ -10140,6 +10343,9 @@ export async function chainServerDrivenContinuation(opts: {
         }
       : {}),
   };
+  // Approval selectors apply only to the request that consumes their one-shot grants.
+  delete continuationBody.approvedToolCalls;
+  delete continuationBody.approvedToolCallAskIds;
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
   try {
     if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
@@ -10622,6 +10828,7 @@ export function createProductionAgentHandler(
         AGENT_CHAT_RECOVERY_OF_RUN_FIELD
       ];
       delete body.__resolvedActionSurface;
+      delete body.__resolvedAdditionalActionNames;
     }
     let requestedActionScope: AgentActionScope | undefined;
     if (hasOwn(body, "actionScope")) {
@@ -10690,7 +10897,7 @@ export function createProductionAgentHandler(
       }
       backgroundRunClaimedEarly = true;
     }
-    const dispatchToBackground =
+    let dispatchToBackground =
       !isBackgroundWorker &&
       isAgentChatDurableBackgroundEnabled({
         appOptIn: options.durableBackgroundRuns,
@@ -10751,25 +10958,145 @@ export function createProductionAgentHandler(
       setResponseStatus(event, 401);
       return { error: "Background agent runs require a persisted initiator" };
     }
+    const submittedApprovedToolCalls: unknown = (
+      body as unknown as Record<string, unknown>
+    ).approvedToolCalls;
+    if (
+      submittedApprovedToolCalls !== undefined &&
+      (!Array.isArray(submittedApprovedToolCalls) ||
+        submittedApprovedToolCalls.length > 200 ||
+        submittedApprovedToolCalls.some(
+          (key: unknown) => typeof key !== "string" || key.length === 0,
+        ))
+    ) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_invalid",
+        retryable: false,
+      };
+    }
     const requestedApprovedToolCalls =
-      Array.isArray(body.approvedToolCalls) && body.approvedToolCalls.length > 0
-        ? body.approvedToolCalls
-            .filter((key: unknown): key is string => typeof key === "string")
-            .slice(0, 200)
+      Array.isArray(submittedApprovedToolCalls) &&
+      submittedApprovedToolCalls.length > 0
+        ? (submittedApprovedToolCalls as string[])
         : undefined;
+    const submittedApprovedToolCallAskIds: unknown = (
+      body as unknown as Record<string, unknown>
+    ).approvedToolCallAskIds;
+    if (
+      submittedApprovedToolCallAskIds !== undefined &&
+      (!Array.isArray(submittedApprovedToolCallAskIds) ||
+        submittedApprovedToolCallAskIds.length > 200 ||
+        submittedApprovedToolCallAskIds.some(
+          (id: unknown) =>
+            typeof id !== "string" || id.length === 0 || id.trim() !== id,
+        ))
+    ) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_ask_id_invalid",
+        retryable: false,
+      };
+    }
+    const requestedApprovedToolCallAskIds =
+      Array.isArray(submittedApprovedToolCallAskIds) &&
+      submittedApprovedToolCallAskIds.length > 0
+        ? (submittedApprovedToolCallAskIds as string[])
+        : undefined;
+    // The approval fast path replays one call, so reject batches before any key can be dropped.
+    if (requestedApprovedToolCalls && requestedApprovedToolCalls.length > 1) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_count_unsupported",
+        retryable: false,
+      };
+    }
+    if (
+      requestedApprovedToolCallAskIds &&
+      (requestedApprovedToolCallAskIds.length !== 1 ||
+        requestedApprovedToolCalls?.length !== 1)
+    ) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_ask_id_count_unsupported",
+        retryable: false,
+      };
+    }
+    const approvedToolCallLookup = findApprovedStructuredToolCall(
+      requestStructuredHistory,
+      requestedApprovedToolCalls,
+      requestedApprovedToolCallAskIds,
+    );
+    if (approvedToolCallLookup.status === "ambiguous") {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_history_ambiguous",
+        retryable: false,
+      };
+    }
+    const exactApprovedToolCall =
+      approvedToolCallLookup.status === "found"
+        ? approvedToolCallLookup.toolCall
+        : undefined;
+    if (requestedApprovedToolCalls?.length && !exactApprovedToolCall) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_history_missing",
+        retryable: false,
+      };
+    }
+    if (
+      exactApprovedToolCall &&
+      isUnavailableToolCallInput(exactApprovedToolCall.input)
+    ) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_input_unavailable",
+        retryable: false,
+      };
+    }
+    if (dispatchToBackground && exactApprovedToolCall) {
+      if (approvedInputRequiresForeground(exactApprovedToolCall.input)) {
+        // The dispatch payload must not persist raw bytes; execute while this request still has them.
+        dispatchToBackground = false;
+      }
+    }
+    const approvedToolCallsForExecution = exactApprovedToolCall
+      ? [
+          toolCallCacheKey(
+            exactApprovedToolCall.name,
+            exactApprovedToolCall.input,
+          ),
+        ]
+      : requestedApprovedToolCalls;
     const resolvedApprovalTurnId =
-      !isBackgroundWorker &&
-      ownerEmail &&
-      threadId &&
-      requestedApprovedToolCalls?.length
+      ownerEmail && threadId && approvedToolCallsForExecution?.length
         ? await resolveAgentToolApprovalTurnId({
             ownerEmail,
             orgId: getRequestOrgId() ?? null,
             threadId,
             requestedTurnId: requestTurnId,
-            approvalKeys: requestedApprovedToolCalls,
+            approvalKeys: approvedToolCallsForExecution,
+            ...(requestedApprovedToolCallAskIds
+              ? { approvalId: requestedApprovedToolCallAskIds[0] }
+              : {}),
           })
         : null;
+    if (requestedApprovedToolCallAskIds?.length && !resolvedApprovalTurnId) {
+      setResponseStatus(event, 409);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_not_pending",
+        retryable: false,
+      };
+    }
     // The continuation marker is client-controlled. Defer setup admission only
     // for automatic successors when the named stop and turn can be checked
     // under the run-slot lock. A user's manual Continue starts new work and
@@ -11036,11 +11363,24 @@ export function createProductionAgentHandler(
       ownerEmail &&
       getRequestContext()?.agentRunAnonymous !== true
     ) {
-      const additionalActions = await options.resolveAdditionalActions({
+      const resolvedAdditionalActions = await options.resolveAdditionalActions({
         event,
         ownerEmail,
         orgId: getRequestOrgId() ?? null,
       });
+      const turnAdditionalActionNames = isBackgroundWorker
+        ? readPersistedAdditionalActionNames(body)
+        : undefined;
+      const additionalActions = turnAdditionalActionNames
+        ? pinAdditionalActionsToTurn(
+            resolvedAdditionalActions,
+            turnAdditionalActionNames,
+            resolvedActions,
+          )
+        : resolvedAdditionalActions;
+      if (!isBackgroundWorker) {
+        body.__resolvedAdditionalActionNames = Object.keys(additionalActions);
+      }
       const requestActions = { ...resolvedActions, ...additionalActions };
       if (requestActions[TOOL_SEARCH_ACTION_NAME]) {
         requestActions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() =>
@@ -12029,10 +12369,6 @@ export function createProductionAgentHandler(
     // may truncate tool arguments and intentionally assigns fresh replay ids.
     // The loop still consumes only a matching server-created grant for the
     // current owner/org/thread/turn/tool/input tuple.
-    const exactApprovedToolCall = findApprovedStructuredToolCall(
-      requestStructuredHistory,
-      requestedApprovedToolCalls,
-    );
     const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
       isFirstRequest: requestHistory.length === 0,
       systemPrompt: requestSystemPrompt,
@@ -12050,7 +12386,7 @@ export function createProductionAgentHandler(
       !isBackgroundWorker &&
       internalContinuation === true &&
       !continueOf &&
-      !requestedApprovedToolCalls?.length &&
+      !approvedToolCallsForExecution?.length &&
       typeof message === "string" &&
       message.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT) &&
       typeof threadId === "string" &&
@@ -12126,7 +12462,7 @@ export function createProductionAgentHandler(
           replayCompletedTurn:
             typeof requestTurnId === "string" &&
             Boolean(requestTurnId.trim()) &&
-            !requestedApprovedToolCalls,
+            !approvedToolCallsForExecution,
           dispatchMode: dispatchToBackground
             ? "background"
             : foregroundSelfChainEligible
@@ -12193,6 +12529,7 @@ export function createProductionAgentHandler(
         toolName: binding.toolName,
         callId: binding.callId,
         approvalKey: binding.approvalKey,
+        ...(binding.approvalId ? { approvalId: binding.approvalId } : {}),
       };
     };
     const approvalHooks = {
@@ -12212,7 +12549,6 @@ export function createProductionAgentHandler(
         });
       },
     };
-    const approvedToolCallsForExecution = requestedApprovedToolCalls;
     if (
       isBackgroundWorker &&
       (await isTurnAborted(effectiveThreadId, effectiveTurnId))
@@ -13187,6 +13523,11 @@ export function createProductionAgentHandler(
           ...(approvedToolCallsForExecution
             ? { approvedToolCalls: approvedToolCallsForExecution }
             : {}),
+          ...(requestedApprovedToolCallAskIds
+            ? {
+                approvedToolCallAskId: requestedApprovedToolCallAskIds[0],
+              }
+            : {}),
           onApprovalRequired: approvalHooks.onApprovalRequired,
           consumeApproval: approvalHooks.consumeApproval,
           isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
@@ -13228,6 +13569,11 @@ export function createProductionAgentHandler(
               threadId: effectiveThreadId,
               turnId: effectiveTurnId,
               approvedToolCalls: approvedToolCallsForExecution,
+              ...(requestedApprovedToolCallAskIds
+                ? {
+                    approvedToolCallAskId: requestedApprovedToolCallAskIds[0],
+                  }
+                : {}),
               onApprovalRequired: approvalHooks.onApprovalRequired,
               consumeApproval: approvalHooks.consumeApproval,
               isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,

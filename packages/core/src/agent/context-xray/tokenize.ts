@@ -13,11 +13,20 @@ async function loadTokenizer(): Promise<TokenCounter | null> {
     // browser fallback, while the documented estimate below is sufficient
     // when an edge runtime cannot resolve the tokenizer.
     tokenizerPromise = import(/* @vite-ignore */ TOKENIZER_MODULE_ID)
-      .then((mod) =>
-        typeof mod.countTokens === "function"
+      .then((mod): TokenCounter | null => {
+        // The package's countTokens rebuilds the BPE encoder on every call
+        // (~20 ms); counting a whole context part by part before each model
+        // call turned that into seconds of dead time per turn.
+        if (typeof mod.getTokenizer === "function") {
+          const encoder = mod.getTokenizer() as {
+            encode(text: string, allowedSpecial: "all"): ArrayLike<number>;
+          };
+          return (text) => encoder.encode(text.normalize("NFKC"), "all").length;
+        }
+        return typeof mod.countTokens === "function"
           ? (mod.countTokens as TokenCounter)
-          : null,
-      )
+          : null;
+      })
       .catch(() => null);
   }
   return tokenizerPromise;
