@@ -128,10 +128,18 @@ export function createPollEventsHandler(
 
     const pushAwareness = (change: AwarenessChangeEvent) => {
       if (closed) return;
-      if (!canSeeAwarenessChangeForUser(change, session.email, session.orgId)) {
-        return;
-      }
-      safePush(JSON.stringify(change));
+      if (!change.owner && !change.orgId && !change.resourceType) return;
+      void state
+        .resolveChangeVisibilityForUser(
+          change,
+          session.email,
+          session.orgId,
+          ACCESS_CHECK_WAIT_MS,
+        )
+        .then((visibility) => {
+          if (visibility === "visible") safePush(JSON.stringify(change));
+        })
+        .catch(() => {});
     };
 
     state.getPollEmitter().on(POLL_CHANGE_EVENT, push);
