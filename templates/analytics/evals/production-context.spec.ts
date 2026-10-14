@@ -27,9 +27,7 @@ describe("Analytics production eval context", () => {
 
     expect(prompt).toContain("Reference details");
     expect(prompt).toContain("Some preloaded context was unavailable");
-    expect(prompt).toContain(
-      "search for anything relevant with the available tools",
-    );
+    expect(prompt).toContain("if the request depends on workspace knowledge");
   });
 
   it("keeps the production agent path available after an empty prefetch times out", () => {
@@ -42,9 +40,7 @@ describe("Analytics production eval context", () => {
     expect(prompt).toContain(
       "Preloaded context was unavailable this turn (timed out)",
     );
-    expect(prompt).toContain(
-      "search for anything relevant with the available tools",
-    );
+    expect(prompt).toContain("if the request depends on workspace knowledge");
   });
 
   it("uses the Analytics guard, explicit identity, and read-only query actions", () => {

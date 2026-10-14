@@ -67,6 +67,12 @@ const mocks = vi.hoisted(() => ({
   agentEngine: { state: "configured", missing: false, canChat: true },
   requireAgentEngineConfiguredForDispatch: vi.fn(async () => {}),
   starterPrompt: "Un panel de análisis con cuatro indicadores clave.",
+  trackDesignRelay: vi.fn(),
+}));
+
+vi.mock("@/lib/design-relay-tracking", () => ({
+  trackDesignRelay: (...args: unknown[]) => mocks.trackDesignRelay(...args),
+  runWhenTabVisible: (callback: () => void) => (callback(), () => {}),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
@@ -685,6 +691,7 @@ describe("Index skip to editor", () => {
       title: "Untitled Design",
       projectType: "prototype",
       designSystemId: null,
+      creationMethod: "blank",
     });
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
@@ -1669,5 +1676,142 @@ describe("home library", () => {
     );
     expect(mocks.focusComposer).not.toHaveBeenCalled();
     expect(mocks.navigate).toHaveBeenCalledWith("/design/copied-design");
+  });
+});
+
+describe("home funnel tracking", () => {
+  const promptEvents = () =>
+    mocks.trackDesignRelay.mock.calls.filter(
+      ([name]) => name === "design_prompt_submitted",
+    );
+
+  it("records one prompt submit with the new design id, after create-design resolves", async () => {
+    let resolveCreate: (() => void) | undefined;
+    mocks.createDesign.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+    let submit: Promise<void> | undefined;
+    await act(async () => {
+      submit = mocks.promptProps?.onSubmit(
+        "A pricing page with three tiers",
+        [
+          {
+            path: "/u/shot.png",
+            originalName: "shot.png",
+            filename: "shot.png",
+            type: "image/png",
+            size: 10,
+          },
+        ],
+        {
+          contextItems: [
+            {
+              key: "design-home-reference:figma:FILEKEY:node-1",
+              title: "Figma",
+              context: "",
+            },
+          ],
+        },
+      );
+      await Promise.resolve();
+    });
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "design-1", creationMethod: "prompt" }),
+    );
+    expect(promptEvents()).toHaveLength(0);
+
+    await act(async () => {
+      resolveCreate?.();
+      await submit;
+    });
+    expect(promptEvents()).toEqual([
+      [
+        "design_prompt_submitted",
+        {
+          output_id: "design-1",
+          output_type: "design",
+          source: "composer",
+          has_text: true,
+          prompt_length_bucket: "1-50",
+          reference_types: ["figma", "image"],
+          reference_count: 2,
+          start_mode: "design",
+        },
+      ],
+    ]);
+    expect(JSON.stringify(promptEvents())).not.toContain("pricing");
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/design-1");
+  });
+
+  it("does not record a prompt submit when create-design fails", async () => {
+    mocks.createDesign.mockRejectedValueOnce(new Error("database unavailable"));
+    await act(async () => {
+      await expect(
+        mocks.promptProps?.onSubmit("New design", [], {}),
+      ).rejects.toThrow("database unavailable");
+    });
+    expect(promptEvents()).toHaveLength(0);
+  });
+
+  it("records a suggestion chip as its own source", async () => {
+    mocks.createDesign.mockResolvedValue(undefined);
+    mocks.submitWithText.mockImplementationOnce(async (text: string) => {
+      await mocks.promptProps?.onSubmit(text, [], {});
+      return true;
+    });
+    const suggestion = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Generated dashboard",
+    );
+    await act(async () => suggestion?.click());
+    expect(promptEvents()).toHaveLength(1);
+    expect(promptEvents()[0][1]).toMatchObject({
+      source: "suggestion_chip",
+      output_id: "design-1",
+    });
+  });
+
+  it("records a template prompt with the copied design id", async () => {
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Make it blue", [], {});
+    });
+    expect(promptEvents()).toHaveLength(1);
+    expect(promptEvents()[0][1]).toMatchObject({
+      output_id: "copied-design",
+      start_mode: "template",
+      reference_types: expect.arrayContaining(["template"]),
+    });
+  });
+
+  it("does not record a prompt submit for Skip or Use template", async () => {
+    mocks.createDesign.mockResolvedValue(undefined);
+    await act(async () => {
+      await mocks.promptProps?.onSkip();
+    });
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+    await act(async () => {
+      await mocks.promptProps?.onSkip();
+    });
+    expect(mocks.createFromTemplate).toHaveBeenCalledTimes(1);
+    expect(mocks.navigate).toHaveBeenCalledTimes(2);
+    expect(promptEvents()).toHaveLength(0);
+  });
+
+  it("opens the design even when tracking throws", async () => {
+    mocks.createDesign.mockResolvedValue(undefined);
+    mocks.trackDesignRelay.mockImplementation(() => {
+      throw new Error("analytics down");
+    });
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("New design", [], {});
+    });
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/design-1");
+    mocks.trackDesignRelay.mockReset();
   });
 });

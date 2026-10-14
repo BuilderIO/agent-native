@@ -269,6 +269,65 @@ describe("analytics query catalog", () => {
     );
   });
 
+  it("keeps an approved stale source-index match below a fresher definition", () => {
+    const search = "monthly workspace member count";
+    const results = rankAnalyticsQueryCatalog({
+      search,
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "stale-approved-monthly-workspace-member-count",
+          metric: "Monthly Workspace Member Count",
+          definition:
+            "Monthly snapshot of synthetic workspace members, retained for discovery.",
+          table: "stale_monthly_workspace_member_counts",
+          columnsUsed: "month_start, workspace_id, member_count",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          sourceIndexStale: true,
+          approved: true,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+        {
+          id: "current-monthly-workspace-member-total",
+          metric: "Monthly Workspace Member Total",
+          definition: "Current monthly count of synthetic workspace members.",
+          table: "current_monthly_workspace_member_totals",
+          columnsUsed: "month_start, workspace_id, member_total",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          sourceIndexStale: false,
+          approved: false,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "current-monthly-workspace-member-total",
+      sourceIndexStale: false,
+    });
+    const staleCandidate = results.find(
+      (candidate) =>
+        candidate.kind === "data-dictionary" &&
+        candidate.id === "stale-approved-monthly-workspace-member-count",
+    );
+    expect(staleCandidate).toMatchObject({
+      sourceIndexStale: true,
+      approved: true,
+    });
+    expect(candidateQueryPriority(staleCandidate!, search)).toMatchObject({
+      rankingTier: 0,
+      trust: 0,
+      freshness: 0,
+    });
+  });
+
   it("requires row-level role evidence for workspace roster questions", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "current workspace user roster with roles",
@@ -333,6 +392,179 @@ describe("analytics query catalog", () => {
     expect(ids[0]).toBe("dbt-workspace-member-role-bridge");
     expect(ids).toEqual(["dbt-workspace-member-role-bridge"]);
     expect(ids).not.toContain("approved-monthly-workspace-user-count");
+  });
+
+  it("searches SQL-projected columns without treating them as trusted roster keys", () => {
+    const dictionaryEntries = [
+      {
+        id: "projected-membership-model",
+        metric: "model:user_organization_projection",
+        definition:
+          "Generated SQL projection metadata; schema is not verified.",
+        table: "user_organization_projection",
+        sqlProjectedColumns: "user_id, organization_id",
+        sourceKind: "dbt",
+        sourceIndex: true,
+        approved: false,
+        aiGenerated: true,
+        origin: "source-index",
+      },
+    ];
+
+    const projectionSearch = rankAnalyticsQueryCatalog({
+      search: "organization_id",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries,
+    });
+    expect(projectionSearch[0]).toMatchObject({
+      id: "projected-membership-model",
+      sqlProjectedColumns: "user_id, organization_id",
+    });
+
+    const rosterSearch = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries,
+    });
+    expect(rosterSearch).toEqual([]);
+  });
+
+  it("uses parser-inferred membership keys when dbt SQL proves the row grain", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "dbt-un-nested-membership",
+          metric: "model:user_organization_role",
+          definition: "Expanded array-backed membership rows.",
+          table: "user_organization_role",
+          grain:
+            "Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+          sqlProjectedColumns: "user_id, organization_id",
+          inferredMembershipKeys: ["user_id", "organization_id"],
+          inferredMembershipKeyRoles: {
+            user: "user_id",
+            organization: "organization_id",
+          },
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "dbt-un-nested-membership",
+      inferredMembershipKeys: ["user_id", "organization_id"],
+    });
+  });
+
+  it("uses role-mapped aliases and projected role fields for dbt rosters", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "dbt-aliased-membership",
+          metric: "model:user_organization_aliases",
+          definition: "Expanded array-backed membership rows with role detail.",
+          table: "user_organization_aliases",
+          grain: "One row per member-workspace membership",
+          semanticScope: "membership",
+          sqlProjectedColumns: "member_key, workspace_key, role_code",
+          inferredMembershipKeys: ["member_key", "workspace_key"],
+          inferredMembershipKeyRoles: {
+            user: "member_key",
+            organization: "workspace_key",
+          },
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "dbt-aliased-membership",
+      inferredMembershipKeyRoles: {
+        user: "member_key",
+        organization: "workspace_key",
+      },
+    });
+  });
+
+  it("ranks direct UNNEST membership rows with aliased identity keys", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "dbt-direct-aliased-membership",
+          metric: "model:user_organization_aliased_base",
+          definition: "Expanded array-backed membership rows with role detail.",
+          table: "user_organization_aliased_base",
+          grain:
+            "Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+          semanticScope: "membership",
+          sqlProjectedColumns: "member_key, role_codes, workspace_key",
+          inferredMembershipKeys: ["member_key", "workspace_key"],
+          inferredMembershipKeyRoles: {
+            user: "member_key",
+            organization: "workspace_key",
+          },
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "dbt-direct-aliased-membership",
+      inferredMembershipKeys: ["member_key", "workspace_key"],
+      inferredMembershipKeyRoles: {
+        user: "member_key",
+        organization: "workspace_key",
+      },
+    });
+  });
+
+  it("does not infer membership roles from aliases without source role metadata", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "dbt-unverified-aliases",
+          metric: "model:unverified_aliases",
+          definition: "An imported model with ambiguous output keys.",
+          table: "unverified_aliases",
+          grain: "One row per member-workspace pair.",
+          sqlProjectedColumns: "member_key, workspace_key",
+          inferredMembershipKeys: ["member_key", "workspace_key"],
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
   });
 
   it("accepts member identity keys for workspace roster questions", () => {

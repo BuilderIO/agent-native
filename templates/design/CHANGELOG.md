@@ -3,21 +3,55 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-12
+## 2026-10-13
+
+### Added
+
+- Right-clicking a layer now has a Send to menu that opens Claude, Claude Code or Codex with your design's agent prompt, or copies that prompt.
 
 ### Fixed
 
+- Disable Design exports until a screen exists
+
+## 2026-10-12
+
+### Added
+
+- Add code-backed Motion controls for Text Stagger and SVG path trim across React and linked HTML.
+- SVG paths can be animated with native Path trim controls
+
+### Improved
+
+- Empty-canvas right-click menu now leads with Explore with Agent and Copy link
+- Feedback and comment controls stay readable in compact layouts, and long import frame names remain visible.
+- Layers panel right-click menu is simpler: Copy, Copy link to the layer, Rename, Hide, Lock, plus Arrange and Transform submenus
+- New Motion timelines start at 2 seconds by default.
+- Right-clicking a layer now shows a simpler menu with Edit with Agent presets (Inspiration, Polish, Debug, Generate states, Make responsive), Copy link, and Arrange/Transform submenus
+- Right-clicking several layers now shows a multi-layer menu with Group selection and Boolean operations
+
+### Fixed
+
+- Design shows generic prompt suggestions when personalized suggestions do not load
+- Exports stay unavailable until initial generation creates a canvas frame
+- Figma file links are rejected when entered as access tokens.
+- Go to main component now selects the main component
+- Paste here in the right-click menu now places pasted layers where you clicked on the overview canvas.
+- The comment toolbar opens the mention picker
+- The @ mention picker stays open while choosing a person
+- Undo and redo retry brief save conflicts so rapid screen changes keep working.
 - Cached templates remain available during temporary refresh errors, with an option to retry.
 
 ## 2026-10-11
 
 ### Improved
 
+- Design animations can be edited in a source-backed timeline and previewed in the Motion dock.
 - The Design agent has a dedicated icon in the editor rail and prompt starter.
 - The editor's left rail tab is now called Layers, and the designs dashboard is now called Home.
 
 ### Fixed
 
+- Motion controls are read-only for React components with conditional or multiple JSX returns.
 - Accept authenticated private storyboard uploads from Analytics.
 - Analytics can securely add replay screenshots to a Design storyboard
 - Analytics replay screenshots can use the active workspace upload connection while keeping the storyboard private.
@@ -66,6 +100,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Reorganized the editor's app menu into File, Edit, View, and Preferences submenus, with a theme picker and Save local copy.
 - Design keeps hidden Code source reads quiet and speeds layer identity work.
 - Design keeps Layers rows and rename focus stable as layers are inserted.
 - Share button now has an export chevron menu with downloads, agent prompt, and publish
@@ -117,10 +152,22 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- The toolbar's Agent menu runs Inspiration, Debug or Polish on your selection through the agent chat.
 - Agents can draw an onboarding-journey storyboard on a Design canvas in one call, with real session screenshots, arrows and drop-off labels.
 
 ### Improved
 
+- Annotate mode and the Draw tool are now an opt-in Lab; turn on Annotate in Settings > Labs to use them.
+- Interact mode's top bar now has a device picker, a Light / Dark / System preview theme, back and forward through the screens you visit, a route dropdown and reload.
+- The color picker has one mode select (Hex, RGB, HSL, HSB, Display P3, OKLCH) and can write colors outside sRGB; PNG and PDF exports use their sRGB fallback.
+- The color picker is now 272px wide with a larger saturation square, a New color swatch, a mode select and a copy button, and Tokens panel colors open in it.
+- The color picker's gradient, image and shader panes now sit under the paint row, and a stop's or shader color's swatch opens a second picker beside the panel.
+- The color picker's paint row is now Solid, Gradient, Image and Shader on the left and a Blend menu and a Contrast check on the right; for text it shows the contrast ratio against what is behind it and can fix the color for AA or AAA.
+- The color picker shows a Previous swatch you can click to restore the opening color, and a Libraries tab that binds a fill to one of the design's color tokens.
+- The floating toolbar is rebuilt as Move, Frame, Shapes, Text, Pen, Comment and Agent, with a menu where a group has more than one tool; Shapes holds Image/video, each group's button shows the tool you used last, and Interact keeps just Move and Agent.
+- The inspector opens straight on the selection with every section on one grid, and a URL screen's route, Reload and Open in browser move to the top bar.
+- The inspector's Comments, Tweaks and Code tabs and the Design tweaks lab are gone; designs with saved tweaks still apply them.
+- The inspector's Fill field now reads each fill in its own notation: hex, Display P3, OKLCH, a token's name, or the paint's name.
 - A progress toast now stays on screen while a .fig file is analyzed, converted, and saved, even if you switch panels
 - Import prompts call out content that could not be carried over, and SVG export prompts explain which parts become static.
 - Improved onboarding journey storyboards with localized captions, exact replay timing, and resumable private screenshot imports.

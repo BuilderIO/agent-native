@@ -1,5 +1,32 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.326
+
+### Patch Changes
+
+- Updated dependencies [789eb04]
+- Updated dependencies [4434457]
+- Updated dependencies [d7d852c]
+- Updated dependencies [590252b]
+- Updated dependencies [9cb95d8]
+- Updated dependencies [0fb4de3]
+- Updated dependencies [cde733c]
+- Updated dependencies [4434457]
+- Updated dependencies
+- Updated dependencies [db2f859]
+- Updated dependencies [4434457]
+- Updated dependencies [0fb4de3]
+- Updated dependencies [75e39e8]
+- Updated dependencies [0fb4de3]
+- Updated dependencies [0fb4de3]
+- Updated dependencies [4434457]
+- Updated dependencies [cde733c]
+- Updated dependencies [4434457]
+- Updated dependencies [afe2ee7]
+- Updated dependencies [4434457]
+- Updated dependencies [cde733c]
+  - @agent-native/core@0.208.0
+
 ## 0.1.325
 
 ### Patch Changes
@@ -2173,12 +2200,5 @@
 - Updated dependencies [95d9d70]
 - Updated dependencies [7f22204]
   - @agent-native/core@0.167.2
-
-## 0.1.226
-
-### Patch Changes
-
-- Updated dependencies [ca9ee7e]
-  - @agent-native/core@0.167.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -6,7 +6,6 @@ import {
 } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -15,6 +14,11 @@ import {
   resolveDefaultDesignSystemId,
   resolveDesignSystemIdByTitle,
 } from "../server/lib/design-system-defaults.js";
+import {
+  defaultCreationMethod,
+  DESIGN_CREATION_METHODS,
+  trackDesignCreated,
+} from "./_design-tracking.js";
 import getDesignSystem from "./get-design-system.js";
 
 function designDeepLink(designId: string): string {
@@ -69,6 +73,12 @@ export default defineAction({
       .describe(
         "Exact title of an accessible design system to link (case-insensitive, whitespace-trimmed); resolved server-side. Use designSystemId when you already have the id; the id wins if both are given.",
       ),
+    creationMethod: z
+      .enum(DESIGN_CREATION_METHODS)
+      .optional()
+      .describe(
+        "Internal: set by the Design UI and import flows to record how the project was started. Agents should omit this.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -93,6 +103,7 @@ export default defineAction({
       projectType,
       designSystemId,
       designSystem,
+      creationMethod,
     },
     ctx,
   ) => {
@@ -129,16 +140,13 @@ export default defineAction({
       updatedAt: now,
     });
 
-    track(
-      "design_created",
+    trackDesignCreated(
+      id,
       {
-        app_name: "design",
-        template_name: "design",
-        output_id: id,
-        output_type: "design",
-        project_type: projectType ?? "prototype",
-        variant_count: 0,
-        design_system_id: resolvedDesignSystemId ?? undefined,
+        creationMethod: creationMethod ?? defaultCreationMethod(ctx),
+        projectType: projectType ?? "prototype",
+        designSystemId: resolvedDesignSystemId,
+        variantCount: 0,
       },
       ctx,
     );

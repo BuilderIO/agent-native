@@ -152,6 +152,7 @@ describe("workspace provider OAuth", () => {
     expect(isWorkspaceProviderOAuthScope("workspace")).toBe(false);
     expect(isGoogleWorkspaceOAuthProvider("gmail")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("google_calendar")).toBe(true);
+    expect(isGoogleWorkspaceOAuthProvider("bigquery")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("figma")).toBe(false);
   });
 
@@ -166,6 +167,7 @@ describe("workspace provider OAuth", () => {
     for (const provider of [
       "gmail",
       "google_calendar",
+      "bigquery",
       "google_docs",
       "google_drive",
       "google_sheets",

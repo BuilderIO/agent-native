@@ -6,6 +6,7 @@ export {
 } from "./questions.js";
 export {
   askUserQuestion,
+  GUIDED_QUESTIONS_SUBMITTED_EVENT,
   formatGuidedAnswerValue,
   formatGuidedAnswersForAgent,
   getOtherGuidedAnswerText,
@@ -23,6 +24,7 @@ export {
   type GuidedQuestionOption,
   type GuidedQuestionPayload,
   type GuidedQuestionType,
+  type GuidedQuestionsSubmittedDetail,
   type UseGuidedQuestionFlowOptions,
 } from "./guided-questions.js";
 export { AgentKitActionWidget } from "./action-widget.js";

@@ -903,6 +903,17 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/spacing-handle-rule.ts
+  function isAutoLayoutDisplay(display) {
+    return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
+  }
+  function marginHandlesApply(context) {
+    if (context.anyAuto) return true;
+    if (context.margins.some((margin) => margin !== 0)) return true;
+    const inFlow = context.position !== "absolute" && context.position !== "fixed";
+    return inFlow && isAutoLayoutDisplay(context.parentDisplay);
+  }
+
   // shared/text-layer-rule.ts
   var TEXT_LAYER_TAGS = /* @__PURE__ */ new Set([
     "a",
@@ -4074,9 +4085,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         writeCapability: writable ? "authored-jsx-literal" : "unsupported",
         reason: writable ? void 0 : "The runtime did not expose a verified authored component invocation location."
       };
-    }
-    function isAutoLayoutDisplay(display) {
-      return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
     }
     function rectInfoForElement(el) {
       if (el.getAttribute("data-an-primitive") === "boolean-operand") {
@@ -8273,6 +8281,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return handles.filter(Boolean);
     }
+    var marginParentDisplayCache = null;
+    function marginParentDisplay(el) {
+      var parent = el.parentElement;
+      if (!parent) return void 0;
+      var now = Date.now();
+      var cached = marginParentDisplayCache;
+      if (cached && cached.el === el && cached.parent === parent && now - cached.at < 250) {
+        return cached.display;
+      }
+      var display = window.getComputedStyle(parent).display;
+      marginParentDisplayCache = {
+        el,
+        parent,
+        display,
+        at: now
+      };
+      return display;
+    }
     function buildMarginSpacingHandles(el, rect, cs) {
       var line = chromeLineScale();
       var tickLength = Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) * line;
@@ -8281,6 +8307,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       var right = clampSpacingValue(readPx(cs.marginRight), true);
       var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
       var left = clampSpacingValue(readPx(cs.marginLeft), true);
+      var autoTop = marginValueIsAuto(el, "top", cs.marginTop);
+      var autoRight = marginValueIsAuto(el, "right", cs.marginRight);
+      var autoBottom = marginValueIsAuto(el, "bottom", cs.marginBottom);
+      var autoLeft = marginValueIsAuto(el, "left", cs.marginLeft);
+      var draggingMargin = !!spacingDrag && spacingDrag.handle.kind === "margin";
+      if (!draggingMargin && !marginHandlesApply({
+        margins: [top, right, bottom, left],
+        anyAuto: autoTop || autoRight || autoBottom || autoLeft,
+        parentDisplay: marginParentDisplay(el),
+        position: cs.position
+      })) {
+        return [];
+      }
       return [
         makeSpacingHandle({
           key: "margin:top",
@@ -8290,7 +8329,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "top",
           orientation: "horizontal",
           value: top,
-          valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+          valueLabel: autoTop ? "auto" : "",
           elementRect: rect,
           region: {
             x: 0,
@@ -8313,7 +8352,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "right",
           orientation: "vertical",
           value: right,
-          valueLabel: marginValueIsAuto(el, "right", cs.marginRight) ? "auto" : "",
+          valueLabel: autoRight ? "auto" : "",
           elementRect: rect,
           region: {
             x: rect.width + Math.min(0, right),
@@ -8336,7 +8375,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "bottom",
           orientation: "horizontal",
           value: bottom,
-          valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom) ? "auto" : "",
+          valueLabel: autoBottom ? "auto" : "",
           elementRect: rect,
           region: {
             x: 0,
@@ -8359,7 +8398,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "left",
           orientation: "vertical",
           value: left,
-          valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+          valueLabel: autoLeft ? "auto" : "",
           elementRect: rect,
           region: {
             x: Math.min(0, -left),

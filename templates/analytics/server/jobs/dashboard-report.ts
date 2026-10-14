@@ -142,7 +142,7 @@ export async function runDashboardReportsOnce(): Promise<{
           result.reportError ??
           `panels unavailable: ${result.degradedPanelIds.join(", ") || "unknown"}`;
 
-        if (!result.emailsSent) {
+        if (!result.delivered) {
           failed++;
           const retryMessage = retryAt
             ? `${degradedReason} (retry scheduled)`
@@ -159,6 +159,17 @@ export async function runDashboardReportsOnce(): Promise<{
             await persistDashboardReportResult(sub, "error", retryMessage);
             await notifyDashboardReportGaveUp(sub, degradedReason);
           }
+          continue;
+        }
+
+        if (result.slackError) {
+          failed++;
+          console.error(
+            `[dashboard-report] Subscription ${sub.id} emailed the report but Slack delivery failed:`,
+            result.slackError,
+          );
+          await persistDashboardReportResult(sub, "error", result.slackError);
+          await notifyDashboardReportGaveUp(sub, result.slackError);
           continue;
         }
 

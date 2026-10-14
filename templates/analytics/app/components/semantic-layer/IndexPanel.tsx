@@ -205,6 +205,8 @@ function sourceStateLabel(status: BrainSourceStatus, t: Translate): string {
   switch (status) {
     case "connected":
       return t("dataStatus.connected");
+    case "configured":
+      return t("dataStatus.configuredUnverified");
     case "not-connected":
       return t("dataStatus.notConnected");
     case "needs-reauth":
@@ -303,7 +305,9 @@ function SourceStatusRowView({
   const actionLabel =
     row.status === "needs-reauth"
       ? t("dataSources.reconnect")
-      : row.status === "connected" || row.status === "error"
+      : row.status === "connected" ||
+          row.status === "configured" ||
+          row.status === "error"
         ? t("dataSources.manage")
         : t("dataSources.connect");
   // Only sources with a data-source card have a page to act on.
@@ -1186,6 +1190,7 @@ function DictionarySection() {
       if (
         candidate.schemaVersion !== 1 ||
         typeof candidate.generatedAt !== "string" ||
+        !Number.isFinite(Date.parse(candidate.generatedAt)) ||
         entries.length === 0 ||
         sources.length === 0
       ) {

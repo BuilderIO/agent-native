@@ -203,7 +203,7 @@ export function renderOverviewCanvas({
     handleCanvasImagePaste,
   } = editorClipboard;
   const {
-    commentsHidden,
+    commentPinsHidden,
     viewSettings: { pixelGrid, snapToPixelGrid, rulers },
     handleCrossScreenElementDrop,
     boardFrameGeometry,
@@ -321,7 +321,7 @@ export function renderOverviewCanvas({
           onReviewPendingScreen: handleReviewPendingScreen,
           reviewResourceId: id,
           reviewPinMode: pinMode,
-          reviewCommentsHidden: commentsHidden,
+          reviewCommentsHidden: commentPinsHidden,
           reviewCanPost: canCommentDesign,
           reviewCanResolve: canEditDesign,
           reviewTargetId: null,
@@ -508,7 +508,7 @@ export function renderOverviewCanvas({
       }) ? (
         <ReviewCanvasPins
           active={pinMode}
-          hidden={commentsHidden}
+          hidden={commentPinsHidden}
           onClose={handleExitReviewCommentMode}
           canvasSelector="[data-multi-screen-canvas-surface]"
           showPlacementPlane={false}

@@ -611,4 +611,54 @@ describe("copying one instance of a repeated list", () => {
       snapshotFor("rgb(220, 38, 38)"),
     );
   });
+
+  it("records which screen each copied screen came from so paste can find it again", async () => {
+    const file: DesignFile = {
+      id: "screen-a",
+      filename: "index.html",
+      fileType: "html",
+      content: "<!doctype html><html><body><div>Home</div></body></html>",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const frame = { x: 100, y: 50, width: 390, height: 844 };
+    const copiedScreenEntriesRef = ref<
+      DesignClipboardScreenEntry[] | undefined
+    >(undefined);
+
+    await runCopySelection({
+      canvasFrameGeometryById: { "screen-a": frame },
+      copiedLayerEntriesRef: ref<CanvasLayerClipboardEntry[]>([]),
+      copiedLayerHtmlRef: ref<string | null>(null),
+      copiedScreenEntriesRef,
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => file.content!,
+      getSelectedLayerSnapshots: () => [],
+      lastWrittenClipboardMarkerRef: ref<string | null>(null),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: ["screen-a"],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("overview"),
+    });
+
+    expect(copiedScreenEntriesRef.current).toEqual([
+      expect.objectContaining({
+        sourceScreenId: "screen-a",
+        canvasFrame: frame,
+      }),
+    ]);
+    expect(
+      parseDesignClipboardMarker(
+        clipboard.writeDesignClipboard.mock.lastCall?.[0].html,
+        "local-clipboard-token",
+      )?.screens?.[0]?.sourceScreenId,
+    ).toBe("screen-a");
+  });
 });

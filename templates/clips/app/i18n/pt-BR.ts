@@ -308,6 +308,10 @@ const messages = {
     transcriptionCompleted: "Transcrição concluída",
     transcriptNotReady: "A transcrição ainda não está pronta",
     tryAfterTranscription: "Tente novamente após o término da transcrição.",
+    silenceTranscriptUnavailableTitle:
+      "Não é possível usar esta transcrição para remover silêncios",
+    silenceTranscriptUnavailableDescription:
+      "Tente gerar uma nova transcrição e depois remover os silêncios novamente.",
     titleGenerationQueued: "Gerando título…",
     descriptionQueued: "Gerando descrição…",
     chapterQueued: "Gerando capítulos…",

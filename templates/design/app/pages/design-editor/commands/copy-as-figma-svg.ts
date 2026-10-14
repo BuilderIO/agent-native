@@ -1,6 +1,11 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
+import {
+  browserDesignExportErrorType,
+  trackBrowserDesignExported,
+  type BrowserDesignExportContext,
+} from "@/lib/design-export-tracking";
 import type {
   LiveFigmaSvgSnapshot,
   LiveFigmaSvgSource,
@@ -14,6 +19,8 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface CopyAsFigmaSvgArgs {
   activeFile: DesignFile;
+  /** Join keys for the `design_exported` this command reports. */
+  exportTracking?: BrowserDesignExportContext;
   figmaSvgExportingRef: RefObject<boolean>;
   id: string | undefined;
   resolveLiveFigmaSvgSnapshot: (
@@ -30,6 +37,7 @@ export interface CopyAsFigmaSvgArgs {
 
 export async function runCopyAsFigmaSvg({
   activeFile,
+  exportTracking,
   figmaSvgExportingRef,
   id,
   resolveLiveFigmaSvgSnapshot,
@@ -41,6 +49,11 @@ export async function runCopyAsFigmaSvg({
 }: CopyAsFigmaSvgArgs) {
   if (figmaSvgExportingRef.current) return;
   if (!canCopyFigmaSvgToClipboard()) {
+    trackBrowserDesignExported("figma_copy", {
+      ...exportTracking,
+      status: "failed",
+      errorType: "unsupported",
+    });
     toast.error(t("designEditor.toasts.figmaSvgUnsupported"));
     return;
   }
@@ -61,7 +74,16 @@ export async function runCopyAsFigmaSvg({
       },
     );
     toast.success(t("designEditor.toasts.figmaSvgCopied"));
+    trackBrowserDesignExported("figma_copy", {
+      ...exportTracking,
+      status: "completed",
+    });
   } catch (error) {
+    trackBrowserDesignExported("figma_copy", {
+      ...exportTracking,
+      status: "failed",
+      errorType: browserDesignExportErrorType(error),
+    });
     if (error instanceof FigmaSvgCopyError) {
       const key =
         error.code === "blocked"

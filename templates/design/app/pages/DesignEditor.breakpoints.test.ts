@@ -347,7 +347,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       "handleIframeContextMenu({ ...payload, breakpointWidthPx })",
     );
     expect(source).toContain(
-      "commentPinsHidden={commentsHidden || !screenIsActive}",
+      "commentPinsHidden={commentPinsHidden || !screenIsActive}",
     );
   });
 
