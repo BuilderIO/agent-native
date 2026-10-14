@@ -377,7 +377,7 @@ const SCHEMA_DETAILS_RESOLVED = `(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_D
 const SCHEMA_DETAILS_MODIFIERS =
   "(?:(?!(?:in|of|on|at|from|by|with|to|for|the|a|an|this|that|these|those|each|every|any|your|our|my|their|is|are|does|do|did|should|would|can|has|have)\\b)[\\w-]+\\s+){0,3}";
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|stores?|tracks?|records?)\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN}|what\\s+(?:is|are)\\s+the\\s+(?:${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)|(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_OBJECT})\\b|what\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\s+(?:is|are)\\b|what\\s+${SCHEMA_DETAILS_OBJECT}\\s+${SCHEMA_DETAILS_HOLDS}\\b))${SCHEMA_DETAILS_RESOLVED}`,
+  `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|stores?|tracks?|records?)\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN}|what\\s+(?:is|are)\\s+the\\s+(?:${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)|(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT})\\b|what\\s+the\\s+${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\s+(?:is|are)\\b|what\\s+${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+${SCHEMA_DETAILS_HOLDS}\\b))${SCHEMA_DETAILS_RESOLVED}`,
   "i",
 );
 const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
@@ -392,7 +392,7 @@ const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
 // and "what is the table size?" are answer-shaped questions that only mention a
 // table.
 const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
-  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what\\s+(?:is|are)\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|what\\s+(?:is|are)\\s+the\\s+(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_OBJECT}\\b|(?:which|what)\\s+${SCHEMA_DETAILS_MODIFIERS}(?:dataset|table|column|field|schema)s?\\s+(?:${SCHEMA_DETAILS_HOLDS}|is|are|does|do|should|would|can|name|for|to)\\b)[^.?!\\n]*\\?`,
+  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what\\s+(?:is|are)\\s+the\\s+${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|what\\s+(?:is|are)\\s+the\\s+(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\b|(?:which|what)\\s+${SCHEMA_DETAILS_MODIFIERS}(?:dataset|table|column|field|schema)s?\\s+(?:${SCHEMA_DETAILS_HOLDS}|is|are|does|do|should|would|can|name|for|to)\\b)[^.?!\\n]*\\?`,
   "i",
 );
 
