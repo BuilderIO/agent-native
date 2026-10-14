@@ -1259,6 +1259,8 @@ describe("realDataFinalGuard", () => {
     "I fixed both panels. Can you tell me what else is off:\n- the table shows 43 rows",
     "Tell me if anything else is off and the table shows 43 rows.",
     "Could you confirm the table has 43 rows?",
+    "I fixed both panels. Can you share anything else that's off:\n- the table shows 43 rows",
+    "I need you to confirm the table is current, so I re-ran it and it shows 43 rows.",
   ])(
     "does not treat the agent's own narration as a schema request: %s",
     (draftText) => {
@@ -1323,6 +1325,10 @@ describe("realDataFinalGuard", () => {
     "For this metric, which table holds the monthly usage?",
     "I need the name of the table before I can continue.",
     "I need table names before I can continue.",
+    "Could you let me know which table holds monthly usage?",
+    "Could you clarify which table holds monthly usage?",
+    "Would you mind providing the dataset name?",
+    "Could you provide the following?\n- the BigQuery dataset name",
     "What table stores monthly credit usage?",
     "To continue, please provide:\n- the dataset name\n- the column that holds usage",
     "To continue, please provide the following:\n\n- the dataset name\n- the column that holds usage",

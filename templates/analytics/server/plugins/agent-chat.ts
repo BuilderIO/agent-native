@@ -334,21 +334,25 @@ const SCHEMA_DETAILS_NOUN =
 // table of the results").
 const SCHEMA_DETAILS_IMPERATIVE =
   "(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b";
-// "Would you like me to show ..." is an offer, and "tell me if/whether ..." or
-// "could you confirm the table has 43 rows" is feedback, never a request for
-// details; "could you" counts only before a verb that asks to be given one.
+// "Would you like me to show ..." is an offer, and verification or feedback
+// ("tell me if ...", "could you confirm the table has 43 rows", "can you share
+// anything else that's off") is never a request for details. A denylist of
+// those verbs, not an allowlist of ask verbs: "could you let me know which
+// table" and "would you mind providing" are real asks.
+const SCHEMA_DETAILS_FEEDBACK_VERB =
+  "(?!(?:\\s+please)?\\s+(?:(?:double-)?confirm|verify|check|see|look|share anything|let me know (?:if|whether|what else|anything)|tell me (?:if|whether|what else|anything|how|why))\\b)";
 const SCHEMA_DETAILS_FEEDBACK =
   "(?! (?:if|whether|what else|anything|how|why)\\b)";
-const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)(?: please)? (?:provide|share|send|give|specify|name|list|tell me${SCHEMA_DETAILS_FEEDBACK})|do you know|please\\s+(?:provide|share|send|tell me${SCHEMA_DETAILS_FEEDBACK})|tell me${SCHEMA_DETAILS_FEEDBACK}|i need you to)\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
+const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}|do you know|please\\s+(?:provide|share(?! anything)|send|tell me${SCHEMA_DETAILS_FEEDBACK})|tell me${SCHEMA_DETAILS_FEEDBACK}|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
 // A list lead-in must ask to be given something: "Can you tell me what else is
 // off:" followed by a summary bullet that mentions a table is feedback.
-const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)(?: please)? (?:provide|share|send)|please\\s+(?:provide|share|send)|i need you to)\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
+const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}(?: please)? (?:provide|share|send|give|specify|list)|please\\s+(?:provide|share(?! anything)|send)|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
   `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|has|stores?|tracks?|records?)\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
   "i",
 );
 const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_LIST_ASK}[^.?!\\n]{0,80}:[ \\t]*\\n(?:[ \\t]*\\n)*((?:[ \\t]*(?:[-*•]|\\d+[.)])[^\\n]*\\n?){1,6})`,
+  `${SCHEMA_DETAILS_LIST_ASK}[^.?!\\n]{0,80}[:?][ \\t]*\\n(?:[ \\t]*\\n)*((?:[ \\t]*(?:[-*•]|\\d+[.)])[^\\n]*\\n?){1,6})`,
   "i",
 );
 // The interrogative must open the sentence or a framing clause ("For this
