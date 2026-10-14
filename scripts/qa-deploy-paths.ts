@@ -1028,38 +1028,51 @@ function writeResult(failure: string | null, leaked: string[]): void {
   );
 }
 
+let interruptedBy: NodeJS.Signals | null = null;
+let finishing: Promise<never> | undefined;
+
+// Ends the run once, whichever gets here first: the run's own failure or a
+// cancellation. A cancelled run that could not remove something must say so
+// exactly as a failed one does.
+function finish(failure: string | null): Promise<never> {
+  return (finishing ??= (async () => {
+    const outcome = interruptedBy ? `interrupted by ${interruptedBy}` : failure;
+    const leaked = (await runCleanups()).map(redact);
+    if (leaked.length > 0) {
+      warn(
+        `LEAKED RESOURCES (clean these up by hand):\n${leaked.map((entry) => `  - ${entry}`).join("\n")}`,
+      );
+    }
+    writeResult(outcome, leaked);
+
+    log("summary");
+    for (const result of steps) {
+      log(
+        `  ${result.status === "passed" ? "✔" : "✘"} ${result.name} (${(result.ms / 1000).toFixed(1)}s)`,
+      );
+    }
+    process.exit(interruptedBy ? 130 : outcome || leaked.length > 0 ? 1 : 0);
+  })());
+}
+
 async function main(): Promise<void> {
-  let failure: string | null = null;
   const interrupted = async (signal: NodeJS.Signals) => {
+    interruptedBy ??= signal;
     log(`received ${signal}; cleaning up`);
     await stopActiveRuns();
-    await runCleanups();
-    process.exit(130);
+    await finish(null);
   };
   process.once("SIGINT", () => void interrupted("SIGINT"));
   process.once("SIGTERM", () => void interrupted("SIGTERM"));
 
+  let failure: string | null = null;
   try {
     await runTarget();
   } catch (error) {
     failure = redact(errorMessage(error));
     warn(`FAILED: ${failure}`);
   }
-  const leaked = (await runCleanups()).map(redact);
-  if (leaked.length > 0) {
-    warn(
-      `LEAKED RESOURCES (clean these up by hand):\n${leaked.map((entry) => `  - ${entry}`).join("\n")}`,
-    );
-  }
-  writeResult(failure, leaked);
-
-  log("summary");
-  for (const result of steps) {
-    log(
-      `  ${result.status === "passed" ? "✔" : "✘"} ${result.name} (${(result.ms / 1000).toFixed(1)}s)`,
-    );
-  }
-  process.exit(failure || leaked.length > 0 ? 1 : 0);
+  await finish(failure);
 }
 
 void main();

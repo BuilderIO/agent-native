@@ -68,6 +68,25 @@ const minAgeSeconds = maxAgeMinutes * 60;
 const reaped: string[] = [];
 const failures: string[] = [];
 
+function fail(label: string, error: unknown): void {
+  failures.push(
+    redactSecrets(
+      `${label}: ${error instanceof Error ? error.message : String(error)}`,
+      secrets,
+    ),
+  );
+}
+
+// Each sweep fails on its own: an outage on one side must not stop the other
+// side from being swept.
+async function sweep(kind: string, run: () => Promise<void>): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    fail(`${kind} sweep`, error);
+  }
+}
+
 function reapAll(
   kind: string,
   names: string[],
@@ -88,49 +107,39 @@ function reapAll(
       reaped.push(`${kind} ${name}`);
       say(`deleted ${kind} ${name}`);
     } catch (error) {
-      failures.push(
-        redactSecrets(
-          `${kind} ${name}: ${error instanceof Error ? error.message : String(error)}`,
-          secrets,
-        ),
-      );
+      fail(`${kind} ${name}`, error);
     }
   }, Promise.resolve());
 }
 
 async function main(): Promise<void> {
   if (only !== "databases") {
-    await reapAll(
-      "site",
-      listNetlifySites("an-deploy-ci-").map((site) => site.name),
-      deleteNetlifySite,
+    await sweep("site", () =>
+      reapAll(
+        "site",
+        listNetlifySites("an-deploy-ci-").map((site) => site.name),
+        deleteNetlifySite,
+      ),
     );
   }
   if (only !== "netlify" && adminUrl) {
-    const rows = await withSql(
-      adminUrl,
-      (sql) =>
-        sql`select datname from pg_database where datname like 'an\\_deploy\\_ci\\_%'`,
-    );
-    await reapAll(
-      "database",
-      rows.map((row) => String(row.datname)),
-      (name) => dropDatabase(adminUrl, name),
-    );
+    await sweep("database", async () => {
+      const rows = await withSql(
+        adminUrl,
+        (sql) =>
+          sql`select datname from pg_database where datname like 'an\\_deploy\\_ci\\_%'`,
+      );
+      await reapAll(
+        "database",
+        rows.map((row) => String(row.datname)),
+        (name) => dropDatabase(adminUrl, name),
+      );
+    });
   }
 }
 
 async function run(): Promise<void> {
-  try {
-    await main();
-  } catch (error) {
-    failures.push(
-      redactSecrets(
-        error instanceof Error ? error.message : String(error),
-        secrets,
-      ),
-    );
-  }
+  await main();
   say(
     `${dryRun ? "dry run: nothing deleted" : `deleted ${reaped.length}`}; ${failures.length} failure(s).`,
   );
