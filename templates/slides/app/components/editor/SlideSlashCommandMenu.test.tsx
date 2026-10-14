@@ -796,6 +796,36 @@ describe("slide slash command menu", () => {
     );
   });
 
+  it("reopens at the first command before keyboard navigation", () => {
+    const { editingEl, textNode } = renderWithTypedSlash("");
+
+    keyDown(editingEl, "ArrowDown");
+    keyDown(editingEl, "ArrowDown");
+    expect(
+      screen
+        .getByRole("option", { name: /Heading 2/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+
+    keyDown(editingEl, "Escape");
+    textNode.deleteData(0, 1);
+    setCaret(textNode, 0);
+    fireInput(editingEl, "deleteContentBackward", null);
+    typeSlash(editingEl, textNode, 0);
+
+    expect(
+      screen
+        .getByRole("option", { name: /Texto/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    keyDown(editingEl, "ArrowDown");
+    expect(
+      screen
+        .getByRole("option", { name: /Heading 1/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
   it("updates the active command when the pointer moves over an option", () => {
     const { editingEl } = renderWithTypedSlash("");
     const heading2 = screen.getByRole("option", { name: /Heading 2/ });

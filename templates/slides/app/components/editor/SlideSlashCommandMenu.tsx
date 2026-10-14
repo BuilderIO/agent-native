@@ -399,6 +399,7 @@ export function SlideSlashCommandMenu({
       ) {
         return;
       }
+      if (current.query !== next.query) setActiveIndex(0);
       menuRef.current = next;
       setMenu(next);
     };
@@ -409,6 +410,7 @@ export function SlideSlashCommandMenu({
       if (!next) return false;
       pendingSlash.current = false;
       pendingSlashRetries.current = 0;
+      setActiveIndex(0);
       menuRef.current = next;
       setMenu(next);
       return true;
@@ -478,8 +480,6 @@ export function SlideSlashCommandMenu({
       window.removeEventListener("resize", refreshGeometry);
     };
   }, [editingEl, textSession]);
-
-  useEffect(() => setActiveIndex(0), [menu?.query]);
 
   useEffect(() => {
     if (
