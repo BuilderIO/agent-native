@@ -164,8 +164,10 @@ describe("recorder redaction", () => {
     recorder.log("leaks", {
       signed:
         "https://bucket.s3.amazonaws.com/f.png?X-Amz-Credential=AKIA1&X-Amz-Signature=abcd1234",
+      // guard:allow-secret-literal — fake credentials verify redaction
       database: "postgres://admin:hunter2@db.internal:5432/app",
       json: '{"apiKey":"abc123"}',
+      // guard:allow-secret-literal — fake key header verifies redaction
       pem: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC",
     });
 
