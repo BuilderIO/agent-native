@@ -1169,10 +1169,10 @@ describe("realDataFinalGuard", () => {
             isError: false,
             content: '{"saved":true,"changed":true}',
             receipt: {
-              tool: "mutate-dashboard",
               changed: true,
               verified: true,
               summary: "Saved the dashboard.",
+              checks: [{ id: "pageviews-line", ok: true }],
             },
           },
         ],
@@ -1180,6 +1180,49 @@ describe("realDataFinalGuard", () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  it("still retries figures after a save that checked no panel", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Rename the pageviews panel",
+        draftText:
+          "Renamed the panel. The table shows 43 accounts under 5% utilization.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              changed: true,
+              verified: true,
+              summary:
+                "Saved 1 op(s); no panel render was affected, so no panel was checked.",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({ maxRetries: 2 });
+  });
+
+  it.each([
+    "I need the table name before I can continue.",
+    "To continue, please provide:\n- the dataset name\n- the column that holds usage",
+  ])("retries a request for schema details: %s", (draftText) => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Pull AI credit usage by user for each month",
+        draftText,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "Do not ask the user for warehouse schema identifiers",
+      ),
+    });
   });
 
   it("accepts the action's string setup link without overwriting it with the settings path", () => {

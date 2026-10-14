@@ -319,13 +319,21 @@ export function analyticsExtraContext(): string {
   return `<data-source-guidance>\n${ANALYTICS_PROMPT_RULES.map((rule) => rule.text).join("\n")}\n</data-source-guidance>`;
 }
 
-// Both patterns stay inside one sentence: a summary of the agent's own work
-// ("tell me if something else is off. ... 43 rows in the table") is not a
-// request, and a cross-sentence match discards a correct answer.
+// A request stays inside one sentence or one bulleted list: a summary of the
+// agent's own work ("tell me if something else is off. ... 43 rows in the
+// table") is not a request, and a cross-sentence match discards a correct
+// answer. "I need to check which table" is the agent narrating, so the bare
+// "i need" form needs a direct object.
 const SCHEMA_DETAILS_NOUN =
   "\\b(?:bigquery\\s+)?(?:dataset(?: name)?s?|table(?: name)?s?|column(?: name)?s?|field(?: name)?s?|schema|sql query)\\b";
+const SCHEMA_DETAILS_ASK =
+  "\\b(?:could you|can you|would you|please\\s+(?:provide|share|send|tell)|provide|share|send(?: me)?|tell me|i need (?:you to|the|your))\\b";
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
-  `\\b(?:could you|can you|would you|please\\s+(?:provide|share|send|tell)|provide|share|send(?: me)?|tell me|i need you to)\\b[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}`,
+  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}`,
+  "i",
+);
+const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
+  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,80}:[ \\t]*\\n((?:[ \\t]*(?:[-*•]|\\d+[.)])[^\\n]*\\n?){1,6})`,
   "i",
 );
 const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
@@ -335,9 +343,12 @@ const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
 
 function looksLikeSchemaDetailsRequest(text: string): boolean {
   const draft = stripInjectedAnalyticsGuardContext(String(text ?? ""));
+  const listItems = SCHEMA_DETAILS_LIST_REQUEST_PATTERN.exec(draft)?.[1];
   return (
     SCHEMA_DETAILS_REQUEST_PATTERN.test(draft) ||
-    SCHEMA_DETAILS_QUESTION_PATTERN.test(draft)
+    SCHEMA_DETAILS_QUESTION_PATTERN.test(draft) ||
+    (listItems !== undefined &&
+      new RegExp(SCHEMA_DETAILS_NOUN, "i").test(listItems))
   );
 }
 
@@ -1199,13 +1210,17 @@ export function realDataFinalGuard(
       expandToolSurface: true,
     };
   }
-  // A verified dashboard save ran the panel SQL, so its receipt is the
-  // live-query evidence for the figures the draft quotes.
+  // A verified dashboard save that rendered panels ran their SQL, so its
+  // receipt is the live-query evidence for the figures the draft quotes. A
+  // save with no panel checks (`noRenderAffected`) proves nothing about data.
   if (
     dataQueryAttempted ||
     hasSuccessfulDashboardSave(
       (context.toolResults ?? []).filter(
-        (result) => result.receipt?.verified === true,
+        ({ receipt }) =>
+          receipt?.verified === true &&
+          (receipt.checks?.length ?? 0) > 0 &&
+          receipt.checks?.every((check) => check.ok),
       ),
     )
   ) {
