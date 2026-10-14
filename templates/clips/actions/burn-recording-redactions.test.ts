@@ -52,6 +52,15 @@ const state = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
+  fail: (message: string, options: Record<string, unknown> = {}): never => {
+    const error = new Error(message) as Error & Record<string, unknown>;
+    Object.assign(error, {
+      actionContractError: true,
+      errorCode: options.errorCode ?? "action_failed",
+      statusCode: options.statusCode ?? 400,
+    });
+    throw error;
+  },
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(async () => undefined),
@@ -196,6 +205,17 @@ describe("burning redactions into a recording", () => {
     state.duringEncode = null;
     recording.videoUrl = "https://cdn.example.com/media/clips/rec_1.webm";
     recording.kind = "video";
+  });
+
+  it("returns a typed setup error when storage is not connected", async () => {
+    state.uploadUrl = null;
+
+    await expect(run()).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "storage_setup_required",
+      statusCode: 503,
+    });
+    expect(state.updated).toHaveLength(0);
   });
 
   it("refuses to burn when the frame size cannot be read", async () => {

@@ -40,9 +40,9 @@ import {
   runFfmpegWithProgress,
   withRemuxSlot,
 } from "../server/lib/video-remux.js";
-import { STORAGE_SETUP_REQUIRED_REASON } from "../server/lib/video-storage.js";
 import { ensureRecordingFilmstrip } from "./lib/ensure-recording-filmstrip.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
+import { failStorageSetupRequired } from "./lib/storage-setup-error.js";
 
 const BURN_TIMEOUT_MS = 20 * 60 * 1000;
 const MAX_DURATION_DRIFT_MS = 250;
@@ -240,7 +240,7 @@ export async function burnRedactionsFor(args: {
     return null;
   });
   if (!upload?.url) {
-    throw new Error(STORAGE_SETUP_REQUIRED_REASON);
+    failStorageSetupRequired();
   }
 
   timer.mark("upload");

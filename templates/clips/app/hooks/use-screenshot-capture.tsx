@@ -18,6 +18,7 @@ import {
   screenshotCaptureUnsupportedReason,
   stopScreenshotStream,
 } from "@/lib/screenshot-capture";
+import { storageSetupErrorMessage } from "@/lib/storage-setup-error-message";
 
 export interface ScreenshotCaptureScope {
   folderId?: string | null;
@@ -105,7 +106,12 @@ export function useScreenshotCapture({
           toast.error(
             err instanceof ScreenshotCaptureError
               ? t(`screenshot.${err.key}`)
-              : errorMessage(err) || t("screenshot.failed"),
+              : (storageSetupErrorMessage(
+                  err,
+                  t("recordingPage.connectStorageFinishSaving"),
+                ) ??
+                  errorMessage(err) ??
+                  t("screenshot.failed")),
           );
         }
       } finally {
@@ -137,7 +143,14 @@ export function useScreenshotCapture({
           toast.success(t("screenshot.saved"), { id: pendingToastId });
         } catch (err) {
           toast.dismiss(pendingToastId);
-          toast.error(errorMessage(err) || t("screenshot.failed"));
+          toast.error(
+            storageSetupErrorMessage(
+              err,
+              t("recordingPage.connectStorageFinishSaving"),
+            ) ??
+              errorMessage(err) ??
+              t("screenshot.failed"),
+          );
           // The capture exists nowhere else, and the screen may not be
           // there to take again: the crop step reopens on it, to save again
           // or cancel. A lost response on a save that did land makes this a

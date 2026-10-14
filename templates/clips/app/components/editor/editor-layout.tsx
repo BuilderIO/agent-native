@@ -77,6 +77,7 @@ import {
   savePlaybackSpeedPreference,
   SLOW_SPEED_CEILING,
 } from "@/lib/playback-speed";
+import { storageSetupErrorMessage } from "@/lib/storage-setup-error-message";
 import {
   addCut,
   addSplitAt,
@@ -1208,9 +1209,17 @@ export function EditorLayout({
       }
     } catch (err: any) {
       setBurning(false);
-      toast.error(err?.message ?? t("editorLayout.burnFailed"), {
-        id: burnToastRef.current ?? undefined,
-      });
+      toast.error(
+        storageSetupErrorMessage(
+          err,
+          t("recordingPage.connectStorageFinishSaving"),
+        ) ??
+          err?.message ??
+          t("editorLayout.burnFailed"),
+        {
+          id: burnToastRef.current ?? undefined,
+        },
+      );
       burnToastRef.current = null;
     }
   }, [
