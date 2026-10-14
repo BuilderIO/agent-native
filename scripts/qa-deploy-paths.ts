@@ -40,6 +40,8 @@ import {
   deleteNetlifySite,
   dropDatabase,
   makeNetlifySitePublic,
+  netlifyCliArgs,
+  netlifyEnv,
   repoRoot,
   runQuiet,
   withSql,
@@ -126,6 +128,9 @@ const warn = (message: string) => console.error(redact(`${tag} ${message}`));
 
 registerSecrets(PASSWORD);
 if (adminDatabaseUrlArg) registerSecrets(...secretsInUrl(adminDatabaseUrlArg));
+if (process.env.NETLIFY_AUTH_TOKEN) {
+  registerSecrets(process.env.NETLIFY_AUTH_TOKEN);
+}
 
 interface StepResult {
   name: string;
@@ -760,10 +765,10 @@ async function buildPresets(
 }
 
 // The guide's Step 3. The site is registered for deletion by name before it is
-// created, so a create that fails halfway cannot strand it.
+// created, so a create that fails halfway cannot strand it. Netlify commands
+// run in `netlifyEnv()`, the only environment that carries the Netlify token.
 async function createNetlifySite(
   appDir: string,
-  env: NodeJS.ProcessEnv,
   databaseUrl: string,
   authSecret: string,
 ): Promise<string> {
@@ -772,16 +777,15 @@ async function createNetlifySite(
   await step("create the Netlify site", () =>
     runLive(
       "npx",
-      [
-        "netlify",
+      netlifyCliArgs([
         "sites:create",
         "--name",
         name,
         ...(netlifyAccountSlug ? ["--account-slug", netlifyAccountSlug] : []),
-      ],
+      ]),
       {
         cwd: appDir,
-        env,
+        env: netlifyEnv(),
         timeoutMs: 5 * 60_000,
         label: "netlify sites:create",
       },
@@ -795,9 +799,9 @@ async function createNetlifySite(
       ["DATABASE_URL", databaseUrl],
       ["BETTER_AUTH_SECRET", authSecret],
     ] as const) {
-      await runLive("npx", ["netlify", "env:set", key, value], {
+      await runLive("npx", netlifyCliArgs(["env:set", key, value]), {
         cwd: appDir,
-        env,
+        env: netlifyEnv(),
         timeoutMs: 5 * 60_000,
         label: `netlify env:set ${key}`,
       });
@@ -822,16 +826,15 @@ async function deployToNetlify(
   await step("deploy to Netlify", () =>
     runLive(
       "npx",
-      [
-        "netlify",
+      netlifyCliArgs([
         "deploy",
         "--prod",
         "--dir=dist",
         "--functions=.netlify/functions-internal",
-      ],
+      ]),
       {
         cwd: appDir,
-        env,
+        env: netlifyEnv(),
         timeoutMs: 15 * 60_000,
         label: "netlify deploy",
       },
@@ -882,7 +885,7 @@ async function runTarget(): Promise<void> {
 
   const siteName =
     target === "netlify"
-      ? await createNetlifySite(appDir, env, databaseUrl, authSecret)
+      ? await createNetlifySite(appDir, databaseUrl, authSecret)
       : null;
 
   await step("migrate the database", () =>

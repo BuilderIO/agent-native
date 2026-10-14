@@ -34,6 +34,8 @@ jobs:
     name: Sweep leaked sites and databases
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      SLACK_CHANNEL: C0C4U4XRT6X
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -64,11 +66,24 @@ jobs:
           dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
           set -euo pipefail
+          mkdir -p report
           args=(--max-age-minutes 120)
           if [ "$dry_run" = "true" ]; then
             args+=(--dry-run)
           fi
-          pnpm exec tsx scripts/reap-deploy-paths.ts "${args[@]}"
+          pnpm exec tsx scripts/reap-deploy-paths.ts "${args[@]}" 2>&1 | tee report/reap.log
+
+      # Only a failed sweep leaves anything worth keeping: an hourly artifact
+      # for every clean run would be thousands of 90-day files.
+      - name: Retain the complete report
+        id: report-artifact
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-paths-reaper-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: report/
+          if-no-files-found: ignore
+          retention-days: 90
 
       - name: Post the failure
         if: ${{ failure() }}
@@ -77,5 +92,5 @@ jobs:
           method: chat.postMessage
           token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
           payload: |
-            channel: C0C4U4XRT6X
-            text: ":rotating_light: The deploy-path reaper failed, so leaked Netlify sites or Neon databases may not have been cleaned up. ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            channel: ${{ env.SLACK_CHANNEL }}
+            text: ":rotating_light: The deploy-path reaper failed, so leaked Netlify sites or Neon databases may not have been cleaned up. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Full report: ${{ steps.report-artifact.outputs.artifact-url }}"

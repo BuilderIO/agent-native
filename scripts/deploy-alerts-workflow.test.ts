@@ -16,10 +16,56 @@ function load(file: string): { jobs: Record<string, Workflow>; raw: string } {
 
 const QA_CHANNEL = "C0C4U4XRT6X";
 
+function steps(job: Workflow): Workflow[] {
+  return job.steps as Workflow[];
+}
+
 function slackSteps(job: Workflow): Workflow[] {
-  return (job.steps as Workflow[]).filter((step) =>
+  return steps(job).filter((step) =>
     String(step.uses).startsWith("slackapi/slack-github-action@"),
   );
+}
+
+function retainedReport(job: Workflow, prefix: string): Workflow | undefined {
+  return steps(job).find(
+    (step) =>
+      String(step.uses).startsWith("actions/upload-artifact@") &&
+      String((step.with as Record<string, unknown>).name).startsWith(prefix),
+  );
+}
+
+// What guard-automated-findings.ts requires of a scheduled reporter, plus the
+// alert-specific behavior: it names its channel through SLACK_CHANNEL, keeps a
+// complete 90-day report, posts after that report exists, and links it.
+function assertReporter(job: Workflow, prefix: string): void {
+  assert.equal((job.env as Record<string, string>).SLACK_CHANNEL, QA_CHANNEL);
+
+  const [post, ...rest] = slackSteps(job);
+  assert.ok(post, "the job has no Slack step");
+  assert.equal(rest.length, 0, "a reporter posts one rollup");
+  const inputs = post.with as Record<string, unknown>;
+  assert.equal(inputs.method, "chat.postMessage");
+  assert.equal(inputs.token, "${{ secrets.QA_SLACK_BOT_TOKEN }}");
+  assert.match(
+    String(inputs.payload),
+    /channel: \$\{\{ env\.SLACK_CHANNEL \}\}/,
+  );
+
+  const report = retainedReport(job, prefix);
+  assert.ok(report, `no ${prefix}* report artifact is uploaded`);
+  assert.equal((report.with as Record<string, unknown>)["retention-days"], 90);
+  assert.ok(
+    steps(job).indexOf(report) < steps(job).indexOf(post),
+    "the report is retained before the alert that links it",
+  );
+  assert.match(
+    String(inputs.payload),
+    new RegExp(`steps\\.${String(report.id)}\\.outputs\\.artifact-url`),
+  );
+
+  // A failed post must fail the run: an alert that did not send is visible.
+  assert.equal(inputs.errors, undefined);
+  assert.equal(post["continue-on-error"], undefined);
 }
 
 describe("deploy-path alerts go to #qa-agent-native", () => {
@@ -35,36 +81,38 @@ describe("deploy-path alerts go to #qa-agent-native", () => {
       assert.match(condition, /needs\.hosts\.result == 'failure'/);
     });
 
-    it("posts to the QA channel with the QA bot token", () => {
-      const [post, ...rest] = slackSteps(report);
-      assert.ok(post, "the report job has no Slack step");
-      assert.equal(rest.length, 0);
-      const inputs = post.with as Record<string, string>;
-      assert.equal(inputs.method, "chat.postMessage");
-      assert.equal(inputs.token, "${{ secrets.QA_SLACK_BOT_TOKEN }}");
-      assert.match(inputs.payload, new RegExp(`channel: ${QA_CHANNEL}`));
+    it("keeps a complete report and links it from one Slack post", () => {
+      assertReporter(report, "deploy-canary-report-");
     });
 
-    it("lets a failed post fail the run, so an alert that did not send is visible", () => {
-      const [post] = slackSteps(report);
-      const inputs = post!.with as Record<string, unknown>;
-      assert.equal(inputs.errors, undefined);
-      assert.equal(post!["continue-on-error"], undefined);
+    it("records whether it could collect the legs' result files instead of hiding a failed download", () => {
+      const collect = steps(report).find((step) => step.id === "legs");
+      assert.ok(collect);
+      assert.equal(collect["continue-on-error"], true);
+      const write = steps(report).find(
+        (step) => step.name === "Write the report",
+      );
+      assert.match(
+        JSON.stringify(write),
+        /steps\.legs\.outcome/,
+        "the report must say whether the legs' files were collected",
+      );
     });
   });
 
   describe("the reaper", () => {
     const { jobs } = load("deploy-paths-reaper.yml");
-    const steps = jobs.reap!.steps as Workflow[];
-    const last = steps[steps.length - 1]!;
+    const reap = jobs.reap!;
 
-    it("ends with a Slack post that runs only when an earlier step failed", () => {
-      assert.ok(String(last.uses).startsWith("slackapi/slack-github-action@"));
-      assert.match(String(last.if), /failure\(\)/);
-      assert.match(
-        String((last.with as Record<string, string>).payload),
-        new RegExp(`channel: ${QA_CHANNEL}`),
-      );
+    it("keeps a complete report and links it from one Slack post", () => {
+      assertReporter(reap, "deploy-paths-reaper-report-");
+    });
+
+    it("alerts and keeps the report only when a step failed", () => {
+      const [post] = slackSteps(reap);
+      const report = retainedReport(reap, "deploy-paths-reaper-report-");
+      assert.match(String(post!.if), /failure\(\)/);
+      assert.match(String(report!.if), /failure\(\)/);
     });
   });
 

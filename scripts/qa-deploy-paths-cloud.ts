@@ -49,20 +49,26 @@ export async function withSql<T>(
   }
 }
 
-// The app under test gets exactly the settings this check sets, never ones
-// left in the shell or inherited from the `pnpm` run that started it. Netlify's
-// auth token is the one NETLIFY_* value that passes through: a NETLIFY_SITE_ID
-// from the shell would point the deploy at someone's real site, and a
+// The two credentials the check runs with. They belong to the check's own
+// process: one reaches the Netlify CLI, the other a SQL connection, and no
+// install, build, or app process the check starts ever needs either.
+const CHECK_CREDENTIALS = ["NETLIFY_AUTH_TOKEN", "DEPLOY_CHECK_DATABASE_URL"];
+
+// What a child process the check starts gets: exactly the settings the check
+// sets, never ones left in the shell or inherited from the `pnpm` run that
+// started it, and never the check's own credentials. Install and build scripts
+// run third-party code, and the app under test is the thing being judged, so
+// none of them may hold a token that can delete Netlify sites. A NETLIFY_SITE_ID
+// from the shell would also point the deploy at someone's real site, and a
 // NETLIFY_DATABASE_URL would win over the DATABASE_URL the check sets.
 export function baseEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
   for (const key of Object.keys(env)) {
     if (/^(npm_|PNPM_)/i.test(key)) delete env[key];
-    if (key.startsWith("NETLIFY_") && key !== "NETLIFY_AUTH_TOKEN") {
-      delete env[key];
-    }
+    if (key.startsWith("NETLIFY_")) delete env[key];
   }
   for (const key of [
+    ...CHECK_CREDENTIALS,
     "INIT_CWD",
     "NODE_ENV",
     "NITRO_PRESET",
@@ -74,6 +80,30 @@ export function baseEnv(): NodeJS.ProcessEnv {
   ]) {
     delete env[key];
   }
+  return env;
+}
+
+// The Netlify CLI the check runs. It is pinned because it runs with the team's
+// token and can delete sites, and the repo's other credentialed workflows pin
+// netlify-cli the same way (27.9.0 is the newest of those); bump them together.
+// The guide says `npx netlify`; the docs contract still checks that text, and
+// the subcommands and flags here are the guide's own.
+export const NETLIFY_CLI_PACKAGE = "netlify-cli@27.9.0";
+
+/** `npx` arguments that run the pinned Netlify CLI with these arguments. */
+export function netlifyCliArgs(args: string[]): string[] {
+  return ["--yes", "--package", NETLIFY_CLI_PACKAGE, "netlify", ...args];
+}
+
+// The one environment that carries the Netlify token, for Netlify CLI calls
+// only. Install scripts of the CLI's own dependencies stay off, as they do where
+// the repo's workflows install it with `--ignore-scripts`. Without the env
+// token the CLI falls back to the user's own login.
+export function netlifyEnv(): NodeJS.ProcessEnv {
+  const env = baseEnv();
+  const token = process.env.NETLIFY_AUTH_TOKEN;
+  if (token) env.NETLIFY_AUTH_TOKEN = token;
+  env.npm_config_ignore_scripts = "true";
   return env;
 }
 
@@ -91,6 +121,14 @@ export function runQuiet(
   });
 }
 
+function runNetlifyApi(method: string, data: unknown): string {
+  return runQuiet(
+    "npx",
+    netlifyCliArgs(["api", method, "--data", JSON.stringify(data)]),
+    { env: netlifyEnv() },
+  );
+}
+
 export interface NetlifySite {
   id: string;
   name: string;
@@ -104,18 +142,12 @@ const SITES_PER_PAGE = 100;
 export function listNetlifySites(nameFilter: string): NetlifySite[] {
   const sites: NetlifySite[] = [];
   for (let page = 1; ; page++) {
-    const stdout = runQuiet("npx", [
-      "netlify",
-      "api",
-      "listSites",
-      "--data",
-      JSON.stringify({
-        name: nameFilter,
-        filter: "all",
-        page,
-        per_page: SITES_PER_PAGE,
-      }),
-    ]);
+    const stdout = runNetlifyApi("listSites", {
+      name: nameFilter,
+      filter: "all",
+      page,
+      per_page: SITES_PER_PAGE,
+    });
     const parsed: unknown = JSON.parse(stdout);
     assert.ok(Array.isArray(parsed), "listSites did not return a list.");
     sites.push(...(parsed as NetlifySite[]));
@@ -132,13 +164,7 @@ export function deleteNetlifySite(name: string): void {
     `Refusing to delete "${name}": this check did not create it.`,
   );
   for (const site of listNetlifySites(name).filter((s) => s.name === name)) {
-    runQuiet("npx", [
-      "netlify",
-      "api",
-      "deleteSite",
-      "--data",
-      JSON.stringify({ site_id: site.id }),
-    ]);
+    runNetlifyApi("deleteSite", { site_id: site.id });
   }
   const left = listNetlifySites(name).filter((site) => site.name === name);
   assert.equal(
@@ -161,13 +187,10 @@ export function makeNetlifySitePublic(name: string): void {
   const sites = listNetlifySites(name).filter((site) => site.name === name);
   assert.equal(sites.length, 1, `Expected one Netlify site named ${name}.`);
   const updated = JSON.parse(
-    runQuiet("npx", [
-      "netlify",
-      "api",
-      "updateSite",
-      "--data",
-      JSON.stringify({ site_id: sites[0]!.id, body: { sso_login: false } }),
-    ]),
+    runNetlifyApi("updateSite", {
+      site_id: sites[0]!.id,
+      body: { sso_login: false },
+    }),
   ) as { sso_login?: boolean };
   assert.equal(
     updated.sso_login,
