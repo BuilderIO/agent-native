@@ -11,7 +11,6 @@ import { hashAgentToolApprovalKey } from "./approval-key.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
-  AGENT_TOOL_APPROVAL_POLICY_AWAITING_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
   AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL,
@@ -73,11 +72,6 @@ export async function ensureAgentToolApprovalPolicyTable(): Promise<void> {
         "tool_revision",
         AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL,
       );
-      await ensureColumnExists(
-        "agent_tool_approval_policies",
-        "awaiting_revision",
-        AGENT_TOOL_APPROVAL_POLICY_AWAITING_COLUMN_SQL,
-      );
       await ensureIndexExists(
         "idx_agent_tool_approval_policies_scope",
         AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
@@ -137,29 +131,38 @@ function approvalPolicyId(binding: AgentToolApprovalPolicyBinding): string {
     .digest("hex")}`;
 }
 
+export class AgentToolApprovalNotFoundError extends Error {
+  constructor() {
+    super("The approval this grant was requested from was not found.");
+    this.name = "AgentToolApprovalNotFoundError";
+  }
+}
+
 /**
- * Saves "always allow" for one tool name. The client names only the tool, not
- * the card that was clicked, so the grant starts out covering only an entry
- * without a revision. The next approval the server consumes for that tool,
- * the one the user just approved, binds the grant to that call's revision, so
- * it never covers a revision the user was not shown.
+ * Saves "always allow" for one tool name. With `approvalId`, the grant takes
+ * the revision of that approval row, the card the user clicked, so it never
+ * covers a revision they were not shown. Without one, it covers only an entry
+ * that declares no revision.
  */
 export async function setAgentToolApprovalPolicy(input: {
   binding: Omit<AgentToolApprovalPolicyBinding, "toolRevision">;
   enabled: boolean;
+  approvalId?: string;
 }): Promise<void> {
   const binding = normalizeApprovalPolicyBinding(input.binding);
+  const toolRevision = input.approvalId
+    ? await readApprovalRevision(binding, input.approvalId)
+    : null;
   await ensureAgentToolApprovalPolicyTable();
   const now = Date.now();
   const id = approvalPolicyId(binding);
   await getDbExec().execute({
     sql: `INSERT INTO agent_tool_approval_policies
-      (id, owner_email, org_id, tool_name, tool_revision, awaiting_revision,
-       enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)
+      (id, owner_email, org_id, tool_name, tool_revision, enabled, created_at,
+       updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
-        tool_revision = NULL,
-        awaiting_revision = excluded.awaiting_revision,
+        tool_revision = excluded.tool_revision,
         enabled = excluded.enabled,
         updated_at = excluded.updated_at`,
     args: [
@@ -167,12 +170,36 @@ export async function setAgentToolApprovalPolicy(input: {
       binding.ownerEmail,
       binding.orgId,
       binding.toolName,
-      input.enabled,
+      toolRevision,
       input.enabled,
       now,
       now,
     ],
   });
+}
+
+async function readApprovalRevision(
+  binding: Omit<AgentToolApprovalPolicyBinding, "toolRevision">,
+  approvalId: string,
+): Promise<string | null> {
+  await ensureAgentToolApprovalTable();
+  const result = await getDbExec().execute({
+    sql: `SELECT tool_revision FROM agent_tool_approvals
+      WHERE id = ?
+        AND owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+        AND tool_name = ?`,
+    args: [
+      approvalId,
+      binding.ownerEmail,
+      binding.orgId ?? null,
+      binding.orgId ?? null,
+      binding.toolName,
+    ],
+  });
+  const row = result.rows[0] as { tool_revision?: unknown } | undefined;
+  if (!row) throw new AgentToolApprovalNotFoundError();
+  return typeof row.tool_revision === "string" ? row.tool_revision : null;
 }
 
 export async function isAgentToolAlwaysAllowed(
@@ -354,31 +381,5 @@ export async function consumeAgentToolApproval(
       now,
     ],
   });
-  if (result.rowsAffected !== 1) return false;
-  await bindAwaitingApprovalPolicy(binding, now);
-  return true;
-}
-
-async function bindAwaitingApprovalPolicy(
-  binding: AgentToolApprovalBinding,
-  now: number,
-): Promise<void> {
-  await ensureAgentToolApprovalPolicyTable();
-  await getDbExec().execute({
-    sql: `UPDATE agent_tool_approval_policies
-      SET tool_revision = ?, awaiting_revision = FALSE, updated_at = ?
-      WHERE owner_email = ?
-        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-        AND tool_name = ?
-        AND enabled = TRUE
-        AND awaiting_revision = TRUE`,
-    args: [
-      binding.toolRevision ?? null,
-      now,
-      binding.ownerEmail,
-      binding.orgId ?? null,
-      binding.orgId ?? null,
-      binding.toolName,
-    ],
-  });
+  return result.rowsAffected === 1;
 }

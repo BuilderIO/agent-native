@@ -10202,13 +10202,32 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(chatMocks.callAction).toHaveBeenCalledWith(
       "set-tool-approval-policy",
-      { toolName: "publish-release", enabled: true },
+      {
+        toolName: "publish-release",
+        enabled: true,
+        approvalId: "approval-default-policy",
+      },
     );
     expect(chatMocks.control.resolveApproval).toHaveBeenCalledWith(
       "run-1",
       "approval-default-policy",
       { decision: "approve", optionIds: ["approve"] },
     );
+  });
+
+  it("offers no always-allow for an approval that cannot persist", async () => {
+    chatMocks.approvalRequest = {
+      id: "approval-managed",
+      title: "Allow this managed agent tool?",
+      kind: "approval",
+      metadata: {
+        toolName: "managed-agent-tool",
+        allowPersistentApproval: false,
+      },
+    };
+    await mount(baseProps());
+
+    expect(chatMocks.approvalCardProps.onAlwaysAllow).toBeUndefined();
   });
 
   it("opens active reasoning and omits explicitly hidden reasoning", async () => {
