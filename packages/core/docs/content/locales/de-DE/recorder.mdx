@@ -207,7 +207,7 @@ configureRecorder({
 - **sentry**: ob Sentry-Fehler die letzten Ereignisse erhalten. Das greift nur, wenn die App Sentry im Browser nutzt.
 - **enabled**: ob der Rekorder überhaupt läuft.
 
-Ein Zeitfenster oder eine Obergrenze, die keine positive Zahl ist, wirft einen `RangeError`, statt auf einen Standardwert zurückzufallen. Der Rekorder begrenzt außerdem seine Gesamtgröße auf etwa 512 KB JSON, unabhängig von `maxEvents`. So bleibt er unter 1,5 MB Speicher pro Tab.
+Ein Zeitfenster oder eine Obergrenze, die keine positive Zahl ist, wirft einen `RangeError`, statt auf einen Standardwert zurückzufallen. Der Rekorder begrenzt außerdem seine Gesamtgröße auf etwa 512 KB JSON, unabhängig von `maxEvents`. So bleibt er unter 2 MB Speicher pro Tab.
 
 ## Ziele {#destinations}
 

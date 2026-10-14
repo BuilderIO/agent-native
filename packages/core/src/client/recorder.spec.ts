@@ -76,6 +76,7 @@ describe("recorder buffer", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     configureRecorder({ windowSeconds: 30 });
     vi.setSystemTime(new Date("2026-10-14T16:00:00.000Z"));
+    clearRecorder();
     recorder.log("old");
     vi.setSystemTime(new Date("2026-10-14T16:00:20.000Z"));
     recorder.log("recent");
@@ -86,6 +87,16 @@ describe("recorder buffer", () => {
     expect(report.events.map((event) => event.name)).toEqual(["recent"]);
     expect(report.windowSeconds).toBe(30);
     expect(report.dropped).toBe(0);
+  });
+
+  it("reports only the seconds it has been recording since a clear", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-14T16:00:00.000Z"));
+    clearRecorder();
+    vi.setSystemTime(new Date("2026-10-14T16:00:04.200Z"));
+
+    expect(recorder.report().windowSeconds).toBe(5);
+    expect(recorder.report({ seconds: 2 }).windowSeconds).toBe(2);
   });
 
   it("applies a lower event cap to what it already holds", () => {
@@ -147,6 +158,22 @@ describe("recorder redaction", () => {
     const [event] = recorder.report().events;
 
     expect(event!.data).toEqual({ value: `${"x".repeat(180)} [redacted]…` });
+  });
+
+  it("redacts signed URLs, URL credentials, quoted credentials, and private keys", () => {
+    recorder.log("leaks", {
+      signed:
+        "https://bucket.s3.amazonaws.com/f.png?X-Amz-Credential=AKIA1&X-Amz-Signature=abcd1234",
+      database: "postgres://admin:hunter2@db.internal:5432/app",
+      json: '{"apiKey":"abc123"}',
+      pem: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC",
+    });
+
+    const text = JSON.stringify(recorder.report().events[0]!.data);
+
+    for (const secret of ["abcd1234", "hunter2", "abc123", "MIIEvQIB"]) {
+      expect(text).not.toContain(secret);
+    }
   });
 
   it("cuts strings at 200 characters and an event at about 2 KB, saying what it cut", () => {
@@ -487,6 +514,8 @@ describe("recorder report", () => {
     (
       window as { __AGENT_NATIVE_CONFIG__?: { appId: string } }
     ).__AGENT_NATIVE_CONFIG__ = { appId: "Design" };
+    vi.setSystemTime(new Date("2026-10-14T16:18:00.000Z"));
+    clearRecorder();
     vi.setSystemTime(new Date("2026-10-14T16:20:00.000Z"));
     window.history.pushState({}, "", "/designs/d1?file=f2");
     recorder.log("first");
@@ -627,23 +656,32 @@ describe("recorder off switch", () => {
 describe("recorder browser capture", () => {
   it("records error and warning toasts, not other toasts", async () => {
     startRecorder();
+    const toaster = document.createElement("ol");
+    toaster.setAttribute("data-sonner-toaster", "");
     const toast = (type: string, text: string) => {
       const item = document.createElement("li");
       item.setAttribute("data-sonner-toast", "");
       item.setAttribute("data-type", type);
       item.textContent = text;
-      document.body.append(item);
+      toaster.append(item);
       return item;
     };
+    toast("error", "Couldn't reach the server");
+    document.body.append(toaster);
     toast("success", "Saved");
     const loading = toast("loading", "Saving…");
     toast("error", "Couldn't load comments");
-    await vi.waitFor(() => expect(eventsOf("toast")).toHaveLength(1));
+    await vi.waitFor(() => expect(eventsOf("toast")).toHaveLength(2));
     loading.setAttribute("data-type", "warning");
     loading.textContent = "Saved locally only";
 
     await vi.waitFor(() =>
       expect(eventsOf("toast")).toEqual([
+        {
+          type: "toast",
+          name: "error",
+          data: { text: "Couldn't reach the server" },
+        },
         {
           type: "toast",
           name: "error",

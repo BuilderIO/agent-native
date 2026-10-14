@@ -207,7 +207,7 @@ configureRecorder({
 - **sentry**: Sentry 오류에 최근 이벤트를 붙일지 여부. 앱에 브라우저 Sentry가 있을 때만 동작합니다.
 - **enabled**: 레코더를 실행할지 여부.
 
-양수가 아닌 기록 구간이나 상한은 기본값으로 대체되지 않고 `RangeError`를 던집니다. 레코더는 `maxEvents` 값과 상관없이 전체 크기도 JSON 기준 약 512 KB로 제한하므로, 탭당 메모리는 1.5 MB 미만으로 유지됩니다.
+양수가 아닌 기록 구간이나 상한은 기본값으로 대체되지 않고 `RangeError`를 던집니다. 레코더는 `maxEvents` 값과 상관없이 전체 크기도 JSON 기준 약 512 KB로 제한하므로, 탭당 메모리는 2 MB 미만으로 유지됩니다.
 
 ## 전송 대상 {#destinations}
 

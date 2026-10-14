@@ -1,4 +1,4 @@
-import { redactStandaloneTokens } from "../observability/trace-error.js";
+import { redactCapturedString } from "../observability/trace-redaction.js";
 import { redact, SECRET_KEY_RE } from "../tracking/redaction.js";
 import {
   actionErrorCode,
@@ -80,6 +80,8 @@ const REDACTED = "[redacted]";
 const REMOVED = "[removed]";
 const SECRET_KEY = new RegExp(`${SECRET_KEY_RE.source}|session|card|cvv`, "i");
 const TOAST_SELECTOR = "[data-sonner-toast]";
+// Sonner mounts this list with the first toast, so other inserted DOM is never scanned.
+const TOASTER_SELECTOR = "[data-sonner-toaster]";
 
 let windowSeconds = 120;
 let maxEvents = 2_000;
@@ -89,6 +91,7 @@ let started = false;
 let buffer: { event: StoredEvent; chars: number }[] = [];
 let bufferChars = 0;
 let dropped = 0;
+let recordingSince = Date.now();
 let lastPath: string | null = null;
 let lastErrorReportAt = -Infinity;
 let nextWorkId = 0;
@@ -150,8 +153,8 @@ function trim(now: number): void {
   }
 }
 
-function redactText(text: string): string {
-  const masked = redactStandaloneTokens(redact(text));
+function redactText(text: string, truncated: boolean): string {
+  const masked = redactCapturedString(redact(text), { truncated });
   return masked === text
     ? text
     : masked.replace(/<redacted>|\[REDACTED\]/g, REDACTED);
@@ -164,7 +167,7 @@ function cleanString(
 ): string {
   const cut = value.length > MAX_STRING_LENGTH;
   let text = cut ? value.slice(0, MAX_STRING_LENGTH) : value;
-  if (redactSecrets) text = redactText(text);
+  if (redactSecrets) text = redactText(text, cut);
   if (cut) text += "…";
   if (budget) budget.left -= text.length + 2;
   return text;
@@ -505,7 +508,9 @@ function observeToasts(): MutationObserver {
       for (const node of mutation.addedNodes) {
         if (!(node instanceof Element)) continue;
         if (node.matches(TOAST_SELECTOR)) check(node);
-        else node.querySelectorAll(TOAST_SELECTOR).forEach(check);
+        else if (node.matches(TOASTER_SELECTOR)) {
+          node.querySelectorAll(TOAST_SELECTOR).forEach(check);
+        }
       }
     }
   });
@@ -539,9 +544,9 @@ export function buildRecorderReport(
   }
   const now = Date.now();
   trim(now);
-  const covered =
+  const requested =
     seconds === undefined ? windowSeconds : Math.min(seconds, windowSeconds);
-  const from = now - covered * 1000;
+  const from = now - requested * 1000;
   const events: RecorderEvent[] = [];
   for (const { event } of buffer) {
     if (event.at >= from) {
@@ -570,7 +575,10 @@ export function buildRecorderReport(
     url: reportUrl(),
     at: new Date(now).toISOString(),
     reason,
-    windowSeconds: covered,
+    windowSeconds: Math.min(
+      requested,
+      Math.max(0, Math.ceil((now - recordingSince) / 1000)),
+    ),
     events,
     watched,
     pending: pending(),
@@ -708,6 +716,7 @@ export function clearRecorder(): void {
   buffer = [];
   bufferChars = 0;
   dropped = 0;
+  recordingSince = Date.now();
   lastPath = null;
   stateBaselines.clear();
 }

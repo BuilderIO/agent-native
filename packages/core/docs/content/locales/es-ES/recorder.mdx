@@ -207,7 +207,7 @@ configureRecorder({
 - **sentry**: si los errores de Sentry reciben los eventos recientes. Solo actúa cuando la app tiene Sentry en el navegador.
 - **enabled**: si el registrador se ejecuta o no.
 
-Una ventana o un límite que no sea un número positivo lanza un `RangeError` en lugar de volver a un valor predeterminado. El registrador también limita su tamaño total a unos 512 KB de JSON, sea cual sea `maxEvents`, lo que lo mantiene por debajo de 1,5 MB de memoria por pestaña.
+Una ventana o un límite que no sea un número positivo lanza un `RangeError` en lugar de volver a un valor predeterminado. El registrador también limita su tamaño total a unos 512 KB de JSON, sea cual sea `maxEvents`, lo que lo mantiene por debajo de 2 MB de memoria por pestaña.
 
 ## Destinos {#destinations}
 

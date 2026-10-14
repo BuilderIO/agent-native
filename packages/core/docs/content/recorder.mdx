@@ -207,7 +207,7 @@ configureRecorder({
 - **sentry**: whether Sentry errors get the recent events. It only acts when the app has browser Sentry.
 - **enabled**: whether the recorder runs at all.
 
-A window or cap that is not a positive number throws a `RangeError` instead of falling back to a default. The recorder also caps its total size at about 512 KB of JSON, whatever `maxEvents` is, which keeps it under 1.5 MB of memory per tab.
+A window or cap that is not a positive number throws a `RangeError` instead of falling back to a default. The recorder also caps its total size at about 512 KB of JSON, whatever `maxEvents` is, which keeps it under 2 MB of memory per tab.
 
 ## Destinations {#destinations}
 

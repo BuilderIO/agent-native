@@ -207,7 +207,7 @@ configureRecorder({
 - **sentry**：Sentry 錯誤是否附帶最近的事件。只有當應用程式使用瀏覽器端 Sentry 時才會生效。
 - **enabled**：記錄器是否執行。
 
-如果時間窗口或上限不是正數，會拋出 `RangeError`，而不是退回預設值。無論 `maxEvents` 是多少，記錄器還會把總大小限制在約 512 KB 的 JSON 以內，讓每個分頁的記憶體用量保持在 1.5 MB 以下。
+如果時間窗口或上限不是正數，會拋出 `RangeError`，而不是退回預設值。無論 `maxEvents` 是多少，記錄器還會把總大小限制在約 512 KB 的 JSON 以內，讓每個分頁的記憶體用量保持在 2 MB 以下。
 
 ## 報告目的地 {#destinations}
 

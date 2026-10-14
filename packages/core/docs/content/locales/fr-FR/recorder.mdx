@@ -207,7 +207,7 @@ configureRecorder({
 - **sentry** : si les erreurs Sentry reçoivent les événements récents. Cela n'agit que si l'app utilise Sentry côté navigateur.
 - **enabled** : si l'enregistreur fonctionne ou non.
 
-Une fenêtre ou un plafond qui n'est pas un nombre positif lève une `RangeError` au lieu de revenir à une valeur par défaut. L'enregistreur plafonne aussi sa taille totale à environ 512 Ko de JSON, quelle que soit la valeur de `maxEvents`, ce qui le maintient sous 1,5 Mo de mémoire par onglet.
+Une fenêtre ou un plafond qui n'est pas un nombre positif lève une `RangeError` au lieu de revenir à une valeur par défaut. L'enregistreur plafonne aussi sa taille totale à environ 512 Ko de JSON, quelle que soit la valeur de `maxEvents`, ce qui le maintient sous 2 Mo de mémoire par onglet.
 
 ## Destinations des rapports {#destinations}
 
