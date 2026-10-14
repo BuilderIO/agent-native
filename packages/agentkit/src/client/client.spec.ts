@@ -3983,6 +3983,94 @@ describe("AgentKitClient", () => {
     await client.dispose();
   });
 
+  it("releases an inherited reply when a refreshed continuation settles", async () => {
+    const settled = Promise.withResolvers<void>();
+    let refresh = false;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [
+        {
+          id: "assistant-shared",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Shared reply" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "completed",
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          completedAt: "2026-08-29T00:00:01.000Z",
+        },
+        {
+          id: "run-2",
+          threadId: "thread-1",
+          status: "running",
+          lastSequence: 1,
+          // The refresh read model omits the client-only inherited id.
+          ...(refresh ? {} : { inheritedMessageId: "assistant-shared" }),
+        },
+      ],
+      // Only the continuation's events survive, so event hydration lists it
+      // ahead of its predecessor and cannot re-derive the inherited reply.
+      events: [
+        { ...protocolEvent(1, { type: "run.started" }), runId: "run-2" },
+      ],
+      activeRunIds: ["run-2"],
+    });
+    transport.subscribeToRun = async function* ({ runId }) {
+      if (runId !== "run-2") return;
+      await settled.promise;
+      yield {
+        id: "run-2-event-2",
+        threadId: "thread-1",
+        runId: "run-2",
+        sequence: 2,
+        occurredAt: "2026-08-29T00:00:03.000Z",
+        type: "run.completed",
+      } as AgentEvent;
+    };
+    const client = new AgentKitClient({ transport });
+
+    const hydrated = await client.loadThread("thread-1");
+    expect(hydrated.runs["run-2"]?.inheritedMessageId).toBe("assistant-shared");
+    refresh = true;
+    transport.getRun = async () => ({
+      id: "run-2",
+      threadId: "thread-1",
+      status: "running",
+      lastSequence: 1,
+    });
+    const refreshed = await client.loadThread("thread-1");
+    expect(refreshed.runs["run-2"]?.inheritedMessageId).toBe(
+      "assistant-shared",
+    );
+    expect(
+      refreshed.messages.find((message) => message.id === "assistant-shared")
+        ?.status,
+    ).toBe("streaming");
+    settled.resolve();
+    await vi.waitFor(() =>
+      expect(
+        client.getSnapshot().threads["thread-1"]?.runs["run-2"]?.status,
+      ).toBe("completed"),
+    );
+    expect(
+      client
+        .getSnapshot()
+        .threads["thread-1"]?.messages.find(
+          (message) => message.id === "assistant-shared",
+        )?.status,
+    ).toBe("complete");
+    await client.dispose();
+  });
+
   it("prefers refreshed terminal status over a live run at the same cursor", async () => {
     let getRunCalls = 0;
     const transport = createTransport([]);

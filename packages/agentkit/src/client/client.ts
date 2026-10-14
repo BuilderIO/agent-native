@@ -2541,11 +2541,18 @@ export class AgentKitClient implements AgentKitController {
           hasExistingCatchUp;
         if (run && !this.isTerminalStatus(run.status)) {
           const responseIsBehindCursor = run.lastSequence < appliedSequence;
+          const localRun = this.getThread(threadId).runs[runId];
+          const inheritedMessageId =
+            run.inheritedMessageId ??
+            (localRun
+              ? localRun.inheritedMessageId
+              : snapshotRun?.inheritedMessageId);
           const refreshedRun = {
             ...(responseIsBehindCursor && snapshotRun
               ? { ...snapshotRun, ...run, status: snapshotRun.status }
               : run),
             lastSequence: appliedSequence,
+            ...(inheritedMessageId === undefined ? {} : { inheritedMessageId }),
           };
           runSnapshots.set(runId, refreshedRun);
           if (responseIsBehindCursor) {
