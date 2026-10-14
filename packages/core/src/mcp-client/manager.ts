@@ -771,9 +771,8 @@ export class McpClientManager {
         );
       }
       const client = current.client;
-      const authorize = this.resolveToolAuthorization
-        ? this.resolveToolAuthorization(known)
-        : options.authorize;
+      const authorize =
+        this.resolveToolAuthorization?.(known) ?? options.authorize;
       if (authorize) {
         const verdict = await authorize(normalizedArgs, options.context);
         if (verdict === false) {

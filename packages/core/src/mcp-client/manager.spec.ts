@@ -447,6 +447,28 @@ describe("McpClientManager", () => {
     expect(callImpl).toHaveBeenCalledWith("mutate", args);
   });
 
+  it("keeps a call's own authorization when the manager resolver has no policy", async () => {
+    const callImpl = vi.fn(() => ({ content: [] }));
+    serverFixtures["secured-bin"] = {
+      tools: [{ name: "mutate" }],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { secured: { command: "secured-bin" } },
+    });
+    mgr.setToolAuthorizationResolver(() => undefined);
+    await mgr.start();
+
+    await expect(
+      mgr.callTool(
+        "mcp__secured__mutate",
+        {},
+        { authorize: async () => false },
+      ),
+    ).rejects.toMatchObject({ name: "ForbiddenError", statusCode: 403 });
+    expect(callImpl).not.toHaveBeenCalled();
+  });
+
   it("does not call a stale server after asynchronous authorization", async () => {
     const staleCall = vi.fn(() => ({
       content: [{ type: "text", text: "stale" }],
