@@ -255,6 +255,14 @@ for (const target of targets) {
       });
     }
 
+    if (target.app === "chat" && target.environment === "beta") {
+      await test.step("confirm Chat's Get started landing", async () => {
+        await expect
+          .poll(() => new URL(verificationPage.url()).pathname)
+          .toBe("/home");
+      });
+    }
+
     await test.step("wait for the application to become usable", async () => {
       await waitForApplicationReady(verificationPage, target.app);
     });

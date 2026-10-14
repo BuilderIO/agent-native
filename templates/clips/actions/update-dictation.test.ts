@@ -129,6 +129,27 @@ describe("update-dictation cleanup restore", () => {
     expect(result).toEqual({ id: "dictation_1", ok: true, updated: true });
   });
 
+  it("advances the cleanup version when editing the raw transcript", async () => {
+    const args = updateDictation.schema.parse({
+      id: "dictation_1",
+      fullText: "replacement transcript",
+    });
+
+    const result = await updateDictation.run(args);
+
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fullText: "replacement transcript",
+        cleanupVersion: {
+          kind: "sql",
+          strings: ["", " + 1"],
+          values: ["dictations.cleanupVersion"],
+        },
+      }),
+    );
+    expect(result).toEqual({ id: "dictation_1", ok: true, updated: true });
+  });
+
   it("only accepts an expected version for a cleanup restore", async () => {
     const args = updateDictation.schema.parse({
       id: "dictation_1",
