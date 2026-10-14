@@ -443,6 +443,22 @@ export async function readRecoverableRecordingBackup(recordingId: string) {
   };
 }
 
+/** Finds a local copy by the server row holding this upload attempt. */
+export async function readRecoverableRecordingBackupForServerId(
+  serverRecordingId: string,
+) {
+  const metas = await listRecordingBackupMetas();
+  const meta =
+    metas.find(
+      (candidate) => candidate.serverRecordingId === serverRecordingId,
+    ) ??
+    metas.find((candidate) => candidate.recordingId === serverRecordingId) ??
+    metas.find((candidate) =>
+      candidate.staleServerRecordingIds?.includes(serverRecordingId),
+    );
+  return meta ? readRecoverableRecordingBackup(meta.recordingId) : null;
+}
+
 /** Same tolerance the desktop app applies to a finalize receipt. */
 function durationToleranceMs(localDurationMs: number): number {
   return Math.max(5_000, localDurationMs * 0.02);

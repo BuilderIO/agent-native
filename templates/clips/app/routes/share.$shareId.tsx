@@ -122,7 +122,7 @@ import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
-  readRecoverableRecordingBackup,
+  readRecoverableRecordingBackupForServerId,
   recordingBackupFilename,
 } from "@/lib/recording-backup";
 import {
@@ -1219,7 +1219,9 @@ export default function ShareRoute() {
     if (!recording) return;
     setDownloading(true);
     try {
-      const copy = await readRecoverableRecordingBackup(recording.id);
+      const copy = await readRecoverableRecordingBackupForServerId(
+        recording.id,
+      );
       if (!copy) {
         toast.error(t("recordRoute.noLocalRecordingData"));
         return;

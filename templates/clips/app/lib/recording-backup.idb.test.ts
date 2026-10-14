@@ -9,6 +9,7 @@ import {
   putRecordingBackupChunk,
   putRecordingBackupMeta,
   readRecoverableRecordingBackup,
+  readRecoverableRecordingBackupForServerId,
   updateRecordingBackupMeta,
   type RecordingBackupMeta,
 } from "./recording-backup";
@@ -56,6 +57,41 @@ describe("recording backup (IndexedDB)", () => {
 
     expect(copy?.meta.recordingId).toBe("rec-a");
     expect(await text(copy?.blob)).toBe("abcd");
+  });
+
+  it("finds a retried upload by its current server id", async () => {
+    await putRecordingBackupMeta(
+      meta({
+        recordingId: "local-1",
+        serverRecordingId: "retry-2",
+        bytes: 9,
+        chunkCount: 1,
+      }),
+    );
+    await putRecordingBackupChunk("local-1", 0, new Blob(["recovered"]));
+
+    const copy = await readRecoverableRecordingBackupForServerId("retry-2");
+
+    expect(copy?.meta.recordingId).toBe("local-1");
+    expect(await text(copy?.blob)).toBe("recovered");
+  });
+
+  it("finds a retried upload by an earlier failed server id", async () => {
+    await putRecordingBackupMeta(
+      meta({
+        recordingId: "local-1",
+        serverRecordingId: "retry-2",
+        staleServerRecordingIds: ["retry-1"],
+        bytes: 9,
+        chunkCount: 1,
+      }),
+    );
+    await putRecordingBackupChunk("local-1", 0, new Blob(["recovered"]));
+
+    const copy = await readRecoverableRecordingBackupForServerId("retry-1");
+
+    expect(copy?.meta.recordingId).toBe("local-1");
+    expect(await text(copy?.blob)).toBe("recovered");
   });
 
   it("keeps upload state when a later chunk rewrites the meta", async () => {
