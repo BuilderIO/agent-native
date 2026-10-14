@@ -624,3 +624,89 @@ test("a new motion preset applies to every selected target", async ({
     "e2e-motion-reference-rectangle-2",
   ]);
 });
+
+test("saving imported inline CSS moves its animation into managed source", async ({
+  request,
+}) => {
+  let importedDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Motion CSS import round trip",
+      projectType: "prototype",
+    });
+    importedDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!importedDesignId) {
+      throw new Error("create-design did not return an id");
+    }
+
+    const authoredSource = `<!doctype html>
+<html><head><style>
+.hero {
+  animation-name: hero-fade;
+  animation-duration: 900ms;
+  animation-timing-function: ease-in;
+  animation-fill-mode: both;
+}
+@keyframes hero-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+</style></head>
+<body><div id="hero" class="hero" data-agent-native-node-id="motion-css-import-target">Hero</div></body></html>`;
+    const file = await postAction(request, "create-file", {
+      designId: importedDesignId,
+      filename: "index.html",
+      content: authoredSource,
+      fileType: "html",
+    });
+    if (!file.id) throw new Error("create-file did not return an id");
+
+    const imported = await getAction(request, "get-motion-timeline", {
+      designId: importedDesignId,
+      sourceRef: file.id,
+    });
+    expect(imported.timelines).toHaveLength(1);
+    expect(imported.timelines[0]).toMatchObject({
+      durationMs: 900,
+      tracks: [
+        {
+          targetNodeId: "motion-css-import-target",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0", ease: "ease-in" },
+            { t: 1, value: "1", ease: "ease" },
+          ],
+        },
+      ],
+    });
+
+    const saved = await postAction(request, "apply-motion-edit", {
+      designId: importedDesignId,
+      fileId: file.id,
+      sourceRef: file.id,
+      tracks: imported.timelines[0].tracks,
+      durationMs: imported.timelines[0].durationMs,
+      playbackMode: imported.timelines[0].playbackMode,
+      defaultEase: imported.timelines[0].defaultEase,
+      includeContent: true,
+    });
+    expect(saved).toMatchObject({ persisted: true, contentPatched: true });
+    expect(saved.patchedContent).toContain("data-agent-native-motion");
+    expect(saved.patchedContent).not.toContain("animation-name: hero-fade");
+    expect(saved.patchedContent).toContain("@keyframes hero-fade");
+
+    const reread = await getAction(request, "get-motion-timeline", {
+      designId: importedDesignId,
+      sourceRef: file.id,
+    });
+    expect(reread.timelines).toHaveLength(1);
+    expect(reread.timelines[0]).toMatchObject({
+      durationMs: 900,
+      tracks: imported.timelines[0].tracks,
+    });
+  } finally {
+    if (importedDesignId) {
+      await postAction(request, "delete-design", { id: importedDesignId });
+    }
+  }
+});

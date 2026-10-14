@@ -130,6 +130,43 @@ describe("Motion source document CSS codec", () => {
     }
   });
 
+  it("rejects important declarations inside managed keyframes", () => {
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      durationMs: 900,
+      tracks: [
+        {
+          targetNodeId: "hero-title",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0", ease: "linear" },
+            { t: 1, value: "1", ease: "ease-out" },
+          ],
+          durationMs: 400,
+        },
+      ],
+    };
+    const compiled = compileMotionCode(sourceTimeline);
+    const metadata = decodeMotionCodeMetadata(compiled.css);
+    expect(metadata.status).toBe("valid");
+    if (metadata.status !== "valid") return;
+
+    const root = postcss.parse(compiled.css);
+    let markedImportant = false;
+    root.walkAtRules(/^(?:-webkit-)?keyframes$/i, (rule) => {
+      rule.walkDecls((declaration) => {
+        if (markedImportant) return;
+        declaration.important = true;
+        markedImportant = true;
+      });
+    });
+
+    expect(markedImportant).toBe(true);
+    expect(() =>
+      reconcileMotionCodeDocument(root.toString(), metadata.document),
+    ).toThrow(/authored rules the timeline cannot represent/);
+  });
+
   it("preserves edited per-track durations when CSS duration matches the parsed span", () => {
     const sourceTimeline: MotionTimeline = {
       ...timeline,

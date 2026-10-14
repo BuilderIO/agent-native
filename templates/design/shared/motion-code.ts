@@ -701,6 +701,7 @@ function assertManagedMotionCssShape(root: postcss.Root): void {
       }
       let propertyCount = 0;
       assertDeclarations(child, allowedProperties, (declaration) => {
+        if (declaration.important) return false;
         if (declaration.prop.toLowerCase() === "animation-timing-function") {
           return true;
         }

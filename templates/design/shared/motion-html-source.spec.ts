@@ -125,6 +125,106 @@ describe("HTML Motion source adapter", () => {
     }
   });
 
+  it("fails closed when a Motion target has dynamic or Alpine motion styles", () => {
+    for (const attribute of [
+      'x-transition.opacity=""',
+      ':style="style"',
+      'x-bind:style="style"',
+      'v-bind:style="style"',
+    ]) {
+      const source = html.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        `<h1 data-agent-native-node-id="hero-title" ${attribute}>Hello</h1>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining(attribute.split("=")[0]!),
+      });
+
+      let writeError: unknown;
+      try {
+        apply(source);
+      } catch (error) {
+        writeError = error;
+      }
+      expect(writeError).toMatchObject({ code: "unsupported-target" });
+    }
+  });
+
+  it("refuses authored inline animation and transition declarations on a target", () => {
+    for (const style of [
+      "animation: pulse 1s infinite",
+      "transition: opacity 200ms ease",
+      "-webkit-animation-name: pulse",
+      "\\61 nimation: pulse 1s infinite",
+      "\\74 ransition: opacity 200ms ease",
+      "-\\77 ebkit-animation-name: pulse",
+    ]) {
+      const source = html.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        `<h1 data-agent-native-node-id="hero-title" style="${style}">Hello</h1>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining("uses style"),
+      });
+
+      let writeError: unknown;
+      try {
+        apply(source);
+      } catch (error) {
+        writeError = error;
+      }
+      expect(writeError).toMatchObject({ code: "unsupported-target" });
+    }
+  });
+
+  it("allows a target when dynamic style bindings belong to another element", () => {
+    const source = html.replace(
+      "  </main>",
+      '    <aside style="animation: pulse 1s infinite" x-transition.opacity x-bind:style="style">Other animation</aside>\n  </main>',
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+    expect(apply(source).source).toContain("data-agent-native-motion");
+  });
+
+  it("allows unrelated static inline styles on a Motion target", () => {
+    const source = html.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" style="color: rebeccapurple; background-color: white">Hello</h1>',
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+    expect(apply(source).source).toContain(
+      'style="color: rebeccapurple; background-color: white"',
+    );
+  });
+
   it("updates only the managed CSS and keeps unrelated HTML byte-for-byte", () => {
     const first = apply(html);
     const next = applyMotionHtmlSourceEdit({

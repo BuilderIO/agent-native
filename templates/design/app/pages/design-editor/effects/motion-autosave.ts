@@ -224,29 +224,45 @@ export function runMotionAutosave({
       retry: () => void;
     },
   ) => {
-    if (motionAutosaveRevisionRef.current === motionAutosaveRevision) {
+    const isCurrentFile = previousMotionFileIdRef.current === fileIdAtSchedule;
+    if (
+      isCurrentFile &&
+      motionAutosaveRevisionRef.current === motionAutosaveRevision
+    ) {
       motionAutosaveFailedRevisionRef.current = motionAutosaveRevision;
       lastScheduledMotionAutosaveRevisionRef.current = 0;
     }
     if (isStaleMotionSourceError(error)) {
+      if (!isCurrentFile) return;
       motionSourceConflictRef.current = true;
       toast.error(motionSourceConflictMessage, {
         duration: Number.POSITIVE_INFINITY,
         action: {
           label: motionReloadFromSourceLabel,
-          onClick: () => {
-            void queryClient
-              .invalidateQueries({
-                queryKey: ["action", "get-motion-timeline"],
-              })
-              .then(() => {
-                if (previousMotionFileIdRef.current !== fileIdAtSchedule) {
-                  return;
-                }
-                motionSourceConflictRef.current = false;
-                setMotionHydrationFingerprint(null);
-                setMotionTracksDirty(false);
-              });
+          onClick: async () => {
+            if (previousMotionFileIdRef.current !== fileIdAtSchedule) return;
+            const queryKey = [
+              "action",
+              "get-motion-timeline",
+              { designId: id, sourceRef: fileIdAtSchedule },
+            ] as const;
+            const timelineQuery = queryClient
+              .getQueryCache()
+              .find({ queryKey, exact: true });
+            if (!timelineQuery?.isActive()) return;
+            try {
+              await queryClient.refetchQueries(
+                { queryKey, exact: true, type: "active" },
+                { throwOnError: true },
+              );
+            } catch (reloadError) {
+              reportError(reloadError);
+              return;
+            }
+            if (previousMotionFileIdRef.current !== fileIdAtSchedule) return;
+            motionSourceConflictRef.current = false;
+            setMotionHydrationFingerprint(null);
+            setMotionTracksDirty(false);
           },
         },
       });

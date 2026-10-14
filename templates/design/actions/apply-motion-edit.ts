@@ -47,8 +47,11 @@ import {
   type MotionEasingVariable,
 } from "../shared/motion-easing.js";
 import {
+  assertMotionHtmlSourceTargets,
   applyMotionHtmlSourceEdit,
+  instrumentMotionHtmlPreviewSource,
   MotionHtmlSourceError,
+  removeUnversionedManagedMotionStyle,
   readMotionHtmlSource,
 } from "../shared/motion-html-source.js";
 import {
@@ -959,10 +962,46 @@ export default defineAction({
       failMotionReactSourceError(currentReactRead.error);
     }
     const currentHtmlRead =
-      isLocalHtmlSource && localSourceLocation
-        ? readMotionHtmlSource(currentContent, localSourceLocation.filePath)
+      (isLocalHtmlSource && localSourceLocation) || isInlineHtml
+        ? readMotionHtmlSource(
+            currentContent,
+            localSourceLocation?.filePath ?? file.filename,
+          )
         : null;
-    if (currentHtmlRead?.status === "invalid") {
+    const legacyInlineMotionCss =
+      isInlineHtml &&
+      currentHtmlRead?.status === "invalid" &&
+      currentHtmlRead.error.code === "invalid-managed-style"
+        ? extractManagedMotionCss(currentContent)
+        : null;
+    const isLegacyInlineManagedMotion = Boolean(
+      legacyInlineMotionCss &&
+      decodeMotionCodeMetadata(legacyInlineMotionCss).status === "absent",
+    );
+    let inlineHtmlSourceForWrite = currentContent;
+    let legacyAuthoredTracks: MotionTrack[] = [];
+    if (isLegacyInlineManagedMotion) {
+      try {
+        inlineHtmlSourceForWrite =
+          removeUnversionedManagedMotionStyle(currentContent);
+      } catch (error) {
+        if (error instanceof MotionHtmlSourceError) {
+          failMotionHtmlSourceError(error);
+        }
+        throw error;
+      }
+      const legacySourceRead = readMotionHtmlSource(
+        inlineHtmlSourceForWrite,
+        file.filename,
+      );
+      if (legacySourceRead.status === "invalid") {
+        failMotionHtmlSourceError(legacySourceRead.error);
+      }
+      if (legacySourceRead.status === "valid") {
+        legacyAuthoredTracks = legacySourceRead.document?.tracks ?? [];
+      }
+    }
+    if (currentHtmlRead?.status === "invalid" && !isLegacyInlineManagedMotion) {
       failMotionHtmlSourceError(currentHtmlRead.error);
     }
     const currentTextRead = isInlineHtml
@@ -1137,7 +1176,34 @@ export default defineAction({
       }
     }
 
-    const inputTracks = tracks as MotionTrack[];
+    const requestedTracks = tracks as MotionTrack[];
+    const requestedTrackKeys = new Set(
+      requestedTracks.map((track) =>
+        motionTrackKey(track.targetNodeId, track.property),
+      ),
+    );
+    const overlappingLegacyAuthoredTrack = legacyAuthoredTracks.find((track) =>
+      requestedTrackKeys.has(
+        motionTrackKey(track.targetNodeId, track.property),
+      ),
+    );
+    if (overlappingLegacyAuthoredTrack) {
+      failMotionHtmlSourceError(
+        new MotionHtmlSourceError(
+          "unsupported-authored-motion",
+          `Legacy managed Motion and authored HTML CSS both define the ${overlappingLegacyAuthoredTrack.property} track on target "${overlappingLegacyAuthoredTrack.targetNodeId}". Remove one source animation before saving.`,
+        ),
+      );
+    }
+    const inputTracks = [
+      ...requestedTracks,
+      ...legacyAuthoredTracks.filter(
+        (track) =>
+          !requestedTrackKeys.has(
+            motionTrackKey(track.targetNodeId, track.property),
+          ),
+      ),
+    ];
 
     if (
       inputTracks.length === 0 &&
@@ -1233,6 +1299,38 @@ export default defineAction({
       updatedAt: now,
     };
 
+    if (isInlineHtml && !canPatchManagedMotionCss(currentContent)) {
+      fail(
+        `${MOTION_SOURCE_WRITE_UNAVAILABLE}: Motion code writes currently work only in inline HTML designs.`,
+        {
+          errorCode: MOTION_SOURCE_WRITE_UNAVAILABLE,
+          statusCode: 422,
+        },
+      );
+    }
+    if (isLegacyInlineManagedMotion) {
+      try {
+        assertMotionHtmlSourceTargets({
+          source: currentContent,
+          sourceFilePath: file.filename,
+          targetNodeIds: [
+            ...new Set([
+              ...typedTracks.map((track) => track.targetNodeId),
+              ...nativeStyles.map((style) => style.targetNodeId),
+              ...(runtimeTextDocument?.animations.map(
+                (animation) => animation.targetNodeId,
+              ) ?? []),
+            ]),
+          ],
+        });
+      } catch (error) {
+        if (error instanceof MotionHtmlSourceError) {
+          failMotionHtmlSourceError(error);
+        }
+        throw error;
+      }
+    }
+
     let reactSourceEdit: ReturnType<typeof applyMotionReactSourceEdit> | null =
       null;
     let htmlSourceEdit: ReturnType<typeof applyMotionHtmlSourceEdit> | null =
@@ -1288,6 +1386,35 @@ export default defineAction({
         throw new Error("Motion source adapter did not return an edit.");
       }
       compiled = { css: sourceEdit.css, hash: sourceEdit.hash };
+    } else if (isInlineHtml) {
+      try {
+        const preview = instrumentMotionHtmlPreviewSource({
+          source: inlineHtmlSourceForWrite,
+          sourceFilePath: file.filename,
+        });
+        htmlSourceEdit = applyMotionHtmlSourceEdit({
+          currentSource: inlineHtmlSourceForWrite,
+          expectedSource: inlineHtmlSourceForWrite,
+          preview: { sourceHash: preview.sourceHash },
+          sourceFilePath: file.filename,
+          timeline: sourceTimeline,
+          textDocument: runtimeTextDocument,
+          easingVariables,
+          audioClips: sourceAudioClips,
+        });
+      } catch (error) {
+        if (error instanceof MotionHtmlSourceError) {
+          failMotionHtmlSourceError(error);
+        }
+        if (error instanceof MotionNativeStyleRuntimeError) {
+          fail(error.message, {
+            errorCode: `motion_native_style_${error.code.replace(/-/g, "_")}`,
+            statusCode: 422,
+          });
+        }
+        throw error;
+      }
+      compiled = { css: htmlSourceEdit.css, hash: htmlSourceEdit.hash };
     } else {
       try {
         compiled = compileMotionCode(sourceTimeline, {

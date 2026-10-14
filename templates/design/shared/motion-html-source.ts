@@ -5,6 +5,7 @@ import {
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { parse, type ParserError } from "parse5";
+import postcss from "postcss";
 
 import {
   importAuthoredCssAnimations,
@@ -576,8 +577,9 @@ function assertTargetsExist(
         `HTML source contains ${matches.length} elements with ${NODE_ID_ATTRIBUTE}="${nodeId}".`,
       );
     }
-    const tagName = matches[0]!.tagName;
-    if (matches[0]!.insideTemplate) {
+    const target = matches[0]!;
+    const tagName = target.tagName;
+    if (target.insideTemplate) {
       sourceError(
         "unsupported-target",
         `Motion target "${nodeId}" is inside an inert HTML template.`,
@@ -593,7 +595,93 @@ function assertTargetsExist(
         `Motion target "${nodeId}" is on a non-rendered ${tagName} element.`,
       );
     }
+    const conflictingMotionBinding = target.attrs?.find(
+      ({ name }) =>
+        name.startsWith("x-transition") ||
+        [":style", "x-bind:style", "v-bind:style"].includes(name),
+    );
+    if (conflictingMotionBinding) {
+      sourceError(
+        "unsupported-target",
+        `Motion target "${nodeId}" uses ${conflictingMotionBinding.name}, which cannot be synchronized with CSS Motion yet.`,
+      );
+    }
+    const inlineStyle = target.attrs?.find(({ name }) => name === "style");
+    if (inlineStyle && hasInlineMotionDeclarations(inlineStyle.value)) {
+      sourceError(
+        "unsupported-target",
+        `Motion target "${nodeId}" uses style, which cannot be synchronized with CSS Motion yet.`,
+      );
+    }
   }
+}
+
+function hasInlineMotionDeclarations(value: string): boolean {
+  const motionProperty =
+    /^(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$/i;
+  try {
+    const declarations = postcss.parse(`.motion-target {\n${value}\n}`);
+    let found = false;
+    declarations.walkDecls((declaration) => {
+      if (
+        motionProperty.test(decodeCssIdentifier(declaration.prop).toLowerCase())
+      ) {
+        found = true;
+      }
+    });
+    return found;
+  } catch {
+    const withoutComments = value.replace(/\/\*[\s\S]*?\*\//g, "");
+    return /(?:^|;)\s*(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\s*:/i.test(
+      decodeCssIdentifier(withoutComments),
+    );
+  }
+}
+
+function decodeCssIdentifier(value: string): string {
+  return value.replace(
+    /\\(?:([a-f\d]{1,6})(?:\r\n|[\t\n\f\r ])?|([\r\n\f])|([^\r\n\f]))/gi,
+    (
+      _match,
+      hex: string | undefined,
+      newline: string | undefined,
+      char: string | undefined,
+    ) => {
+      if (hex) {
+        const codePoint = Number.parseInt(hex, 16);
+        if (
+          codePoint === 0 ||
+          codePoint > 0x10ffff ||
+          (codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ) {
+          return "\ufffd";
+        }
+        return String.fromCodePoint(codePoint);
+      }
+      return newline ? "" : (char ?? "");
+    },
+  );
+}
+
+export function assertMotionHtmlSourceTargets(args: {
+  source: string;
+  targetNodeIds: readonly string[];
+  sourceFilePath?: string;
+}): void {
+  assertTargetsExist(args.source, args.targetNodeIds, args.sourceFilePath);
+}
+
+/** Removes only an unversioned managed block so the HTML adapter can migrate it. */
+export function removeUnversionedManagedMotionStyle(source: string): string {
+  const { nodes } = parseHtml(source);
+  const managedStyle = findManagedStyle(source, nodes);
+  if (!managedStyle) return source;
+  const metadata = decodeMotionCodeMetadata(managedStyle.css);
+  if (metadata.status === "valid") return source;
+  if (metadata.status === "invalid") {
+    sourceError("invalid-managed-style", metadata.error.message);
+  }
+  return `${source.slice(0, managedStyle.range.start)}${source.slice(managedStyle.range.end)}`;
 }
 
 interface AuthoredHtmlStyleImport {

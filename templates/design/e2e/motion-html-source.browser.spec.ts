@@ -31,13 +31,17 @@ import {
 const baseURL = e2eBaseURL();
 const sourcePath = "index.html";
 const nodeId = "motion-target";
+const alpineTransitionNodeId = "alpine-transition-target";
+const inlineAnimationNodeId = "inline-animation-target";
 const source = `<!doctype html>
 <html lang="en">
-  <head><meta charset="utf-8"><title>Motion HTML source</title></head>
+  <head><meta charset="utf-8"><title>Motion HTML source</title><style>@keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }</style></head>
   <body>
     <main x-data="{ open: true }">
       <button id="alpine-toggle" type="button" @click="open = !open">Toggle visibility</button>
-      <section id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open" x-transition.opacity>Motion target</section>
+      <section id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open">Motion target</section>
+      <section id="${alpineTransitionNodeId}" data-agent-native-node-id="${alpineTransitionNodeId}" x-show="open" x-transition.opacity>Alpine transition target</section>
+      <section id="${inlineAnimationNodeId}" data-agent-native-node-id="${inlineAnimationNodeId}" style="animation: pulse 1s infinite">Inline animation target</section>
     </main>
     <script type="module">import Alpine from "alpinejs"; window.Alpine = Alpine; Alpine.start();</script>
   </body>
@@ -286,7 +290,11 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       "{ open: true }",
     );
     await expect(target).toHaveAttribute("x-show", "open");
-    await expect(target).toHaveAttribute("x-transition.opacity", "");
+    await expect(target).not.toHaveAttribute("x-transition.opacity");
+    await expect(frame.locator(`#${alpineTransitionNodeId}`)).toHaveAttribute(
+      "x-transition.opacity",
+      "",
+    );
 
     const initialSourceHash = createHash("sha256")
       .update(fs.readFileSync(path.join(rootPath, sourcePath), "utf8"))
@@ -299,6 +307,80 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       designId,
       connectionId,
     });
+
+    const refusedWrite = await request.post(
+      `${baseURL}/_agent-native/actions/apply-motion-edit`,
+      {
+        data: {
+          designId,
+          fileId: screenId,
+          sourceRef: screenId,
+          localSource: {
+            connectionId,
+            modulePath: sourcePath,
+            moduleVersionHash: initialSourceHash,
+            timelineVersionHash: initialSourceHash,
+            renderedNodeIds: [alpineTransitionNodeId],
+          },
+          tracks: [
+            {
+              targetNodeId: alpineTransitionNodeId,
+              property: "opacity",
+              keyframes: [
+                { t: 0, value: "0", ease: "linear" },
+                { t: 1, value: "1", ease: "linear" },
+              ],
+            },
+          ],
+          durationMs: 500,
+          playbackMode: "once",
+          defaultEase: "linear",
+        },
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    expect(refusedWrite.ok()).toBe(false);
+    expect(await refusedWrite.text()).toContain("x-transition.opacity");
+    expect(fs.readFileSync(path.join(rootPath, sourcePath), "utf8")).toBe(
+      source,
+    );
+
+    const refusedInlineAnimation = await request.post(
+      `${baseURL}/_agent-native/actions/apply-motion-edit`,
+      {
+        data: {
+          designId,
+          fileId: screenId,
+          sourceRef: screenId,
+          localSource: {
+            connectionId,
+            modulePath: sourcePath,
+            moduleVersionHash: initialSourceHash,
+            timelineVersionHash: initialSourceHash,
+            renderedNodeIds: [inlineAnimationNodeId],
+          },
+          tracks: [
+            {
+              targetNodeId: inlineAnimationNodeId,
+              property: "opacity",
+              keyframes: [
+                { t: 0, value: "0", ease: "linear" },
+                { t: 1, value: "1", ease: "linear" },
+              ],
+            },
+          ],
+          durationMs: 500,
+          playbackMode: "once",
+          defaultEase: "linear",
+        },
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    expect(refusedInlineAnimation.ok()).toBe(false);
+    expect(await refusedInlineAnimation.text()).toContain("uses style");
+    expect(fs.readFileSync(path.join(rootPath, sourcePath), "utf8")).toBe(
+      source,
+    );
 
     const expectedTrack = {
       targetNodeId: nodeId,
@@ -483,7 +565,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       page.locator('[data-motion-property-row="translate"]'),
     ).toContainText("Position");
     await expect(durationInput).toHaveValue("1200");
-    await expect(frame.locator(`#${nodeId}`)).toHaveAttribute(
+    await expect(frame.locator(`#${alpineTransitionNodeId}`)).toHaveAttribute(
       "x-transition.opacity",
       "",
     );
