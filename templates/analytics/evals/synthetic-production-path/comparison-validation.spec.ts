@@ -96,12 +96,18 @@ const V23_COMPARISON_CSV = fileURLToPath(
     import.meta.url,
   ),
 );
+const V24_COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v24-before-after.csv",
+    import.meta.url,
+  ),
+);
 function loadMeasuredComparisonCsv(): string {
-  return readFileSync(V23_COMPARISON_CSV, "utf8");
+  return readFileSync(V24_COMPARISON_CSV, "utf8");
 }
 
 describe("Analytics synthetic production-path comparison artifact", () => {
-  it("validates the measured v23 production-path comparison", () => {
+  it("validates the measured v24 production-path comparison", () => {
     const result = validateProductionPathComparisonCsv(
       loadMeasuredComparisonCsv(),
     );
@@ -119,9 +125,9 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         failedRuns: 4,
         abortedRuns: 0,
         staleIndexMarked: 4,
-        revision: "1da583a5059d855ef7f61dc1e017607416e123d9",
+        revision: "757e1dd35809cce59999f5e54762151c00750a6b",
         codeRevision:
-          "sha256:3318fa7f1d05ddb47311de6ada0b040eed206bbd0896e6a68a5ec6709f593c5e",
+          "sha256:be8c3426f227f48c193b4cedd7395c1a13b9b50f38f60a3e92940e55c232eafb",
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
       after: {
@@ -135,14 +141,27 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         failedRuns: 0,
         abortedRuns: 0,
         staleIndexMarked: 4,
-        revision: "fe0be8aea0fb0d32b46627f047d0956f805a4b04",
+        revision: "9053f1751fd69bf19f757cc793c5d89b0af02cb2",
         codeRevision:
-          "sha256:18f36c78aab1ae868080c79a457f681979a118c9711e50b94278a58227253fae",
+          "sha256:9166a100c8e888383a96c9612d585f2a32ba2e921f6ca49e3b55fb0e8ce26a40",
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
     });
     expect(result.before.revision).not.toBe(result.after.revision);
     expect(result.before.codeRevision).not.toBe(result.after.codeRevision);
+  });
+
+  it("still validates the preserved v23 comparison as historical evidence", () => {
+    const result = validateProductionPathComparisonCsv(
+      readFileSync(V23_COMPARISON_CSV, "utf8"),
+    );
+
+    expect(result.after).toMatchObject({
+      contractAccuracy: 50,
+      revision: "fe0be8aea0fb0d32b46627f047d0956f805a4b04",
+      codeRevision:
+        "sha256:18f36c78aab1ae868080c79a457f681979a118c9711e50b94278a58227253fae",
+    });
   });
 
   it("still validates the preserved v22 comparison", () => {

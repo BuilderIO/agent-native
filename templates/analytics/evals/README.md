@@ -43,6 +43,31 @@ accuracy gain. No production index or data rows were written for this eval.
 
 ## Synthetic source and grain cases
 
+### Current production-path retrieval comparison v24
+
+[`SYNTHETIC-analytics-production-path-v24-before-after.csv`](./synthetic-production-path/SYNTHETIC-analytics-production-path-v24-before-after.csv)
+records two runs each for 25 synthetic cases on baseline `757e1dd35809` and
+candidate `9053f1751fd6`, using identical pinned harness bytes. It measures the
+current per-source freshness contract and includes a case where the only
+membership reference is a monthly aggregate.
+
+- Case-contract accuracy rose from 46/50 runs (92%) to 50/50 (100%).
+- Positive-source top-1 retrieval rose from 46/48 (95.8%) to 48/48 (100%).
+- Correct abstentions rose from 0/2 to 2/2; unexpected aggregate matches fell
+  from 2/2 to 0/2.
+- All 100 runs completed through the production agent loop and called only the
+  metadata-only `find-data` action once; there were no aborts or failed actions.
+- Mean harness latency rose from 31.5 ms to 45.6 ms. This is local synthetic
+  timing, not a production latency measurement.
+
+The v23 CSV remains available as historical evidence, but its candidate
+predates the current per-source freshness contract. V24 is the current
+source-pinned measurement. This deterministic harness uses a synthetic model
+and in-memory source index; it is not a hosted-model, BigQuery-connection, or
+production-data test, and it does not replay Brent's historical chat. The CSV
+contains only synthetic case IDs, bounded metrics, and provenance hashes. No
+production rows, prompts, transcripts, user identifiers, or secrets were used.
+
 ### Production-path retrieval comparison v22
 
 [`SYNTHETIC-analytics-production-path-v22-before-after.csv`](./synthetic-production-path/SYNTHETIC-analytics-production-path-v22-before-after.csv)
