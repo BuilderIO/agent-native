@@ -17,8 +17,8 @@ export default defineAction({
     ),
   }),
   agentTool: false,
-  // The recorder caps its buffer at 512 KB of JSON.
-  maxBodyBytes: 1024 * 1024,
+  // The recorder caps its buffer at 512K characters of JSON, up to 1.5 MB of UTF-8.
+  maxBodyBytes: 2 * 1024 * 1024,
   changeEvents: false,
   // The report belongs in private storage, not in the audit log's input copy.
   audit: { recordInputs: false },

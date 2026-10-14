@@ -653,6 +653,32 @@ describe("recorder off switch", () => {
 
     expect(recorder.report()).toMatchObject({ events: [], dropped: 0 });
   });
+
+  it("records nothing from work that was in flight when it was cleared", async () => {
+    let answerAction!: (response: Response) => void;
+    let answerState!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        String(url).includes("application-state")
+          ? new Promise<Response>((resolve) => (answerState = resolve))
+          : new Promise<Response>((resolve) => (answerAction = resolve)),
+      ),
+    );
+    const action = callAction("list-mail", {});
+    const write = writeClientAppState("compose", { to: "a@example.com" });
+
+    clearRecorder();
+    await vi.waitFor(() => {
+      expect(answerAction).toBeDefined();
+      expect(answerState).toBeDefined();
+    });
+    answerAction(jsonResponse({ ok: true }));
+    answerState(jsonResponse({ to: "a@example.com" }));
+    await Promise.all([action, write]);
+
+    expect(recorder.report()).toMatchObject({ events: [], pending: [] });
+  });
 });
 
 describe("recorder browser capture", () => {

@@ -92,6 +92,8 @@ let buffer: { event: StoredEvent; chars: number }[] = [];
 let bufferChars = 0;
 let dropped = 0;
 let recordingSince = Date.now();
+// Bumped by every clear, so work that started before a sign-out records nothing.
+let generation = 0;
 let lastPath: string | null = null;
 let lastErrorReportAt = -Infinity;
 let nextWorkId = 0;
@@ -370,9 +372,11 @@ export function recordActionStart(
 }) => void {
   if (!recording()) return () => {};
   const startedAt = Date.now();
+  const startedIn = generation;
   const id = trackWork("action", name, startedAt);
   return ({ error, response, signal }) => {
     inFlight.delete(id);
+    if (generation !== startedIn) return;
     record(() => {
       const cancelled = Boolean(error) && signal?.aborted === true;
       const status = response?.status ?? actionErrorStatus(error);
@@ -408,9 +412,11 @@ export function recordStateWrite(
 ): void {
   if (!recording()) return;
   const startedAt = Date.now();
+  const startedIn = generation;
   const id = trackWork("state", key, startedAt);
   const settle = (ok: boolean, error?: unknown) => {
     inFlight.delete(id);
+    if (generation !== startedIn) return;
     record(() => {
       const cancelled = !ok && signal?.aborted === true;
       const status = ok ? undefined : actionErrorStatus(error);
@@ -717,6 +723,8 @@ export function clearRecorder(): void {
   bufferChars = 0;
   dropped = 0;
   recordingSince = Date.now();
+  generation += 1;
+  inFlight.clear();
   lastPath = null;
   stateBaselines.clear();
 }
@@ -742,7 +750,6 @@ export function startRecorder(): void {
 function stopRecorder(): void {
   enabled = false;
   clearRecorder();
-  inFlight.clear();
   toastObserver?.disconnect();
   toastObserver = null;
   if (!started) return;
