@@ -47,7 +47,7 @@ accuracy gain. No production index or data rows were written for this eval.
 
 [`SYNTHETIC-analytics-production-path-v22-before-after.csv`](./synthetic-production-path/SYNTHETIC-analytics-production-path-v22-before-after.csv)
 records two runs each for 25 synthetic cases on baseline `1da583a5059d` and
-candidate `a1f50aedbc37`, using the same pinned production-path harness. The
+candidate `4021bd355e7d`, using the same pinned production-path harness. The
 suite includes an abstention case where the only available membership source
 is a monthly aggregate.
 
@@ -57,6 +57,11 @@ is a monthly aggregate.
   from 2/2 to 0/2.
 - All 100 runs completed through the production agent loop, called `find-data`
   exactly once, and had no aborts.
+
+The separate [ranker-only 12-case v6 artifact](./synthetic-retrieval/SYNTHETIC-analytics-retrieval-v6.csv)
+reports top-1 5/12 and hit@5 10/12 on its pinned baseline, versus 12/12 for
+both metrics with the current matcher. It tests catalog ranking directly, not
+the production agent path.
 
 This is a deterministic harness with a synthetic model and in-memory source
 index, not a hosted-model, BigQuery-connection, or production-latency test. Its

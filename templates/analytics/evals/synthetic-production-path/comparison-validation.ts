@@ -293,9 +293,9 @@ const PINNED_EVALUATIONS = [
     baselineRevision: "1da583a5059d855ef7f61dc1e017607416e123d9",
     baselineCodeRevision:
       "sha256:2e06c8bddad47a8ed932b60171383e064ed013910489bb7cb6331a2bc17b7f52",
-    candidateRevision: "a1f50aedbc37362ddd52062be4a0bba8259d1f12",
+    candidateRevision: "4021bd355e7de06321bd692cb754a6d7a06ad72e",
     candidateCodeRevision:
-      "sha256:9d53acff41c133f36c1313eb7f794bf03a6a01222bafdfaeff7c861b33f227cd",
+      "sha256:abaa3aa4552424931a31ded4c49015c79298aae8a0b1cfd17e9b1b7b5ea220fc",
     harnessRevision:
       "sha256:bf3c188894629f2300d071e32e5ba8a147e194bafd80251c0e9472e5ed57da93",
     caseIds: V22_CASE_IDS,
