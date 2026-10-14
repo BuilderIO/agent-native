@@ -1144,7 +1144,9 @@ test.describe("groups", () => {
           ancestor = ancestor.parentElement;
         }
         const { left, top, width, height } = element.getBoundingClientRect();
-        return { x: left, y: top, width, height };
+        // The knob's centre, and the pointer's value, stop half a knob short of each end.
+        const knob = element.querySelector("span")!.getBoundingClientRect();
+        return { x: left, y: top, width, height, inset: knob.width / 2 };
       });
       const y = rect.y + rect.height / 2;
       const startX = rect.x + rect.width * 0.9;
@@ -1167,7 +1169,8 @@ test.describe("groups", () => {
       expect(hit.sliderHit).toBe(true);
       await page.mouse.move(startX, y);
       await page.mouse.down();
-      await page.mouse.move(rect.x + (rect.width * target) / 100, y, {
+      const travel = rect.width - rect.inset * 2;
+      await page.mouse.move(rect.x + rect.inset + (travel * target) / 100, y, {
         steps: 6,
       });
       await expect

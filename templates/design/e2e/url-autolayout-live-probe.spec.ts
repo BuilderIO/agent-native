@@ -11,6 +11,7 @@ import {
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import { E2E_EMAIL } from "./global-setup";
+import { INTERACT_FRAME } from "./interact-helpers";
 import { expect, test, type App } from "./rails";
 
 const SOURCE = `<!doctype html><html><head><style>
@@ -577,16 +578,12 @@ test.describe("URL-backed live auto-layout probe", () => {
     await interact.click();
     await expect(shell).toHaveAttribute("data-screen-interact-mode", "true");
 
-    const frame = page.locator("iframe[data-design-preview-iframe]").first();
-    const liveDocument = frame.contentFrame();
-    const shield = liveDocument.locator(
-      '[data-agent-native-edit-overlay="shield"]',
-    );
-    await expect(shield).toHaveCSS("pointer-events", "none", {
-      timeout: 5_000,
-    });
+    const liveDocument = page.locator(INTERACT_FRAME).contentFrame();
     const input = liveDocument.locator("#startup-search");
     await expect(input).toBeVisible({ timeout: 30_000 });
+    await expect(
+      liveDocument.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toHaveCount(0);
     const bounds = await input.boundingBox();
     if (!bounds) throw new Error("Interact input has no bounding box");
     await page.mouse.click(
@@ -596,9 +593,9 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect
       .poll(() =>
         page.evaluate(
-          () =>
-            document.activeElement ===
-            document.querySelector("iframe[data-design-preview-iframe]"),
+          (selector) =>
+            document.activeElement === document.querySelector(selector),
+          INTERACT_FRAME,
         ),
       )
       .toBe(true);

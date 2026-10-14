@@ -1,7 +1,7 @@
 import { type FrameLocator, type Locator, type Page } from "@playwright/test";
 
 import { appPath, designFrame, expandAllLayers } from "./helpers";
-import { childrenOf, expect, expectOnlyChanged, test } from "./rails";
+import { type App, childrenOf, expect, expectOnlyChanged, test } from "./rails";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const FIXTURE = `<!doctype html>
@@ -101,15 +101,14 @@ function addStrokeButton(section: Locator): Locator {
   );
 }
 
-async function openBooleanMenu(page: Page) {
-  const canvas = page.locator("[data-design-canvas-container]");
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error("Design canvas has no browser geometry");
-  await canvas.dispatchEvent("contextmenu", {
-    button: 2,
-    clientX: box.x + 8,
-    clientY: box.y + 8,
-  });
+async function openBooleanMenu(app: App, selectedNodeId: string) {
+  const page = app.page;
+  const rect = await app.designRect(selectedNodeId);
+  const point = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  await page.mouse.click(point.x, point.y, { button: "right" });
   const menu = page.getByRole("menu").last();
   const booleanOperations = menu.getByRole("menuitem", {
     name: "Boolean operations",
@@ -119,7 +118,7 @@ async function openBooleanMenu(page: Page) {
   await booleanOperations.hover();
   const submenu = page.getByRole("menu").last();
   await expect(
-    submenu.getByRole("menuitem", { name: "Subtract", exact: true }),
+    submenu.getByRole("menuitem", { name: /^Subtract/ }),
   ).toBeVisible();
   return submenu;
 }
@@ -221,10 +220,8 @@ test.fixme("Subtract creates an editable, transparent mask with undo and unique 
     .poll(() => page.locator('[role="treeitem"][aria-selected="true"]').count())
     .toBe(2);
 
-  const submenu = await openBooleanMenu(page);
-  await submenu
-    .getByRole("menuitem", { name: "Subtract", exact: true })
-    .click();
+  const submenu = await openBooleanMenu(app, "cutter");
+  await submenu.getByRole("menuitem", { name: /^Subtract/ }).click();
 
   const frame = designFrame(page, indexScreenId);
   const booleanRoot = frame.locator('svg[data-an-primitive="boolean"]');
@@ -847,10 +844,8 @@ test("inside stroke follows exposed cutter edges without drawing overlap seams",
   await layerRow(page, "Overlap Base").click();
   await layerRow(page, "Overlap Cutter A").click({ modifiers: ["Shift"] });
   await layerRow(page, "Overlap Cutter B").click({ modifiers: ["Shift"] });
-  const submenu = await openBooleanMenu(page);
-  await submenu
-    .getByRole("menuitem", { name: "Subtract", exact: true })
-    .click();
+  const submenu = await openBooleanMenu(app, "overlap-cutter-b");
+  await submenu.getByRole("menuitem", { name: /^Subtract/ }).click();
   const frame = designFrame(page, indexScreenId);
   const overlapRoot = frame.locator('svg[data-an-primitive="boolean"]').first();
   const overlapRootId = await overlapRoot.getAttribute(
@@ -887,10 +882,8 @@ test("inside stroke follows exposed cutter edges without drawing overlap seams",
   await expandAllLayers(page);
   await layerRow(page, "Base").click();
   await layerRow(page, "Cutter").click({ modifiers: ["Shift"] });
-  const secondSubmenu = await openBooleanMenu(page);
-  await secondSubmenu
-    .getByRole("menuitem", { name: "Subtract", exact: true })
-    .click();
+  const secondSubmenu = await openBooleanMenu(app, "cutter");
+  await secondSubmenu.getByRole("menuitem", { name: /^Subtract/ }).click();
   await expect(frame.locator('svg[data-an-primitive="boolean"]')).toHaveCount(
     2,
   );
@@ -935,10 +928,8 @@ test("redo keeps the Boolean result selected for immediate follow-up actions", a
   await expandAllLayers(page);
   await layerRow(page, "Base").click();
   await layerRow(page, "Cutter").click({ modifiers: ["Shift"] });
-  const submenu = await openBooleanMenu(page);
-  await submenu
-    .getByRole("menuitem", { name: "Subtract", exact: true })
-    .click();
+  const submenu = await openBooleanMenu(app, "cutter");
+  await submenu.getByRole("menuitem", { name: /^Subtract/ }).click();
 
   const frame = designFrame(page, indexScreenId);
   const booleanResults = frame.locator('svg[data-an-primitive="boolean"]');
