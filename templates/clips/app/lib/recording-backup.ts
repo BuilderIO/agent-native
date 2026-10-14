@@ -419,6 +419,17 @@ export function recordingBackupFilename(meta: RecordingBackupMeta): string {
   return `clips-recording-${stamp}.${extension}`;
 }
 
+export function recordingBackupTracksServerId(
+  meta: RecordingBackupMeta,
+  serverRecordingId: string,
+): boolean {
+  return (
+    meta.recordingId === serverRecordingId ||
+    meta.serverRecordingId === serverRecordingId ||
+    (meta.staleServerRecordingIds ?? []).includes(serverRecordingId)
+  );
+}
+
 /**
  * The copy's recoverable bytes. `whole` is true only for a finished copy with
  * every chunk; anything else (cut off mid-recording, a missing final chunk, a
@@ -452,9 +463,8 @@ export async function readRecoverableRecordingBackupForServerId(
     metas.find(
       (candidate) => candidate.serverRecordingId === serverRecordingId,
     ) ??
-    metas.find((candidate) => candidate.recordingId === serverRecordingId) ??
     metas.find((candidate) =>
-      candidate.staleServerRecordingIds?.includes(serverRecordingId),
+      recordingBackupTracksServerId(candidate, serverRecordingId),
     );
   return meta ? readRecoverableRecordingBackup(meta.recordingId) : null;
 }

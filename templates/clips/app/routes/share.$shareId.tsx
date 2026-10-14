@@ -124,6 +124,7 @@ import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
   readRecoverableRecordingBackupForServerId,
   recordingBackupFilename,
+  recordingBackupTracksServerId,
 } from "@/lib/recording-backup";
 import {
   isRecordingWaitingForStorage,
@@ -1226,7 +1227,7 @@ export default function ShareRoute() {
         toast.error(t("recordRoute.noLocalRecordingData"));
         return;
       }
-      if (copy.meta.recordingId !== recording.id) {
+      if (!recordingBackupTracksServerId(copy.meta, recording.id)) {
         toast.error(t("recordRoute.localCopyUnreadable"));
         return;
       }

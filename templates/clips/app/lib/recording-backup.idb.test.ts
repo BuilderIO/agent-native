@@ -10,6 +10,7 @@ import {
   putRecordingBackupMeta,
   readRecoverableRecordingBackup,
   readRecoverableRecordingBackupForServerId,
+  recordingBackupTracksServerId,
   updateRecordingBackupMeta,
   type RecordingBackupMeta,
 } from "./recording-backup";
@@ -92,6 +93,19 @@ describe("recording backup (IndexedDB)", () => {
 
     expect(copy?.meta.recordingId).toBe("local-1");
     expect(await text(copy?.blob)).toBe("recovered");
+  });
+
+  it("recognizes current, original, and stale server ids for a local copy", () => {
+    const recording = meta({
+      recordingId: "local-1",
+      serverRecordingId: "retry-2",
+      staleServerRecordingIds: ["retry-1"],
+    });
+
+    expect(recordingBackupTracksServerId(recording, "retry-2")).toBe(true);
+    expect(recordingBackupTracksServerId(recording, "local-1")).toBe(true);
+    expect(recordingBackupTracksServerId(recording, "retry-1")).toBe(true);
+    expect(recordingBackupTracksServerId(recording, "other-id")).toBe(false);
   });
 
   it("keeps upload state when a later chunk rewrites the meta", async () => {
