@@ -257,6 +257,12 @@ describe("provider-api-request approval gate", () => {
     });
   });
 
+  it("keeps a per-tool always-allow from standing in for the per-request gate", () => {
+    expect(
+      (action as { allowPersistentApproval?: boolean }).allowPersistentApproval,
+    ).toBe(false);
+  });
+
   it("gates an unknown write path by default", async () => {
     await expect(
       gate(

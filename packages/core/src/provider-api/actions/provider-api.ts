@@ -329,6 +329,11 @@ export interface CreateProviderApiRequestActionOptions<
         args: z.output<TSchema>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * `false` keeps a per-tool "always allow" from standing in for the
+   * `needsApproval` decision, for gates that decide per request.
+   */
+  allowPersistentApproval?: boolean;
 }
 
 export function createProviderApiRequestAction<
@@ -359,6 +364,9 @@ export function createProviderApiRequestAction<
                 ctx?: ActionRunContext,
               ) => boolean | Promise<boolean>),
         }),
+    ...(options.allowPersistentApproval === undefined
+      ? {}
+      : { allowPersistentApproval: options.allowPersistentApproval }),
     planMode: {
       effect: (args) => {
         const request = args as ProviderRequestActionArgs;

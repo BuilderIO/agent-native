@@ -701,9 +701,24 @@ async function runBatchSearch(
   const batch = normalizeBatch(job.batch);
   const request = job.request as ProviderRequest;
   const search = job.search as SearchConfig;
-  const sourceItems = await loadBatchSourceItems(job, batch);
+  const { items: sourceItems, version: sourceVersion } =
+    await loadBatchSourceItems(job, batch);
   const totalSourceItems = sourceItems.length;
   let nextIndex = numberValue(job.checkpoint.nextIndex, 0);
+  // The saved position is an index into one version of the input dataset. If it
+  // was re-staged since this job began, the same index points at other rows, so
+  // resuming would skip or repeat records.
+  const pinnedVersion = job.checkpoint.sourceVersion;
+  if (
+    nextIndex > 0 &&
+    typeof pinnedVersion === "number" &&
+    sourceVersion !== null &&
+    pinnedVersion !== sourceVersion
+  ) {
+    throw new Error(
+      `Input dataset ${batch.inputDatasetId} was re-staged after this job started, so its saved position no longer points at the same rows. Start a new job from the current dataset.`,
+    );
+  }
   let batchesThisCall = 0;
   let itemsThisCall = 0;
   let current = job;
@@ -734,6 +749,7 @@ async function runBatchSearch(
           ...job.checkpoint,
           nextIndex,
           sourceItemCount: totalSourceItems,
+          sourceVersion,
         },
         provider.quota,
       );
@@ -772,6 +788,7 @@ async function runBatchSearch(
           ...job.checkpoint,
           nextIndex,
           sourceItemCount: totalSourceItems,
+          sourceVersion,
           stoppedReason: status === "completed" ? "completed" : "budget",
         },
         batchesProcessed: current.batchesProcessed + 1,
@@ -790,6 +807,7 @@ async function runBatchSearch(
     ...job.checkpoint,
     nextIndex,
     sourceItemCount: totalSourceItems,
+    sourceVersion,
     stoppedReason: "budget",
   });
 }
@@ -860,9 +878,9 @@ async function callProvider(
 async function loadBatchSourceItems(
   job: ProviderCorpusJobRecord,
   batch: Required<BatchConfig>,
-): Promise<unknown[]> {
-  if (batch.items.length > 0) return batch.items;
-  if (!batch.inputDatasetId) return [];
+): Promise<{ items: unknown[]; version: number | null }> {
+  if (batch.items.length > 0) return { items: batch.items, version: null };
+  if (!batch.inputDatasetId) return { items: [], version: null };
   const scope = {
     id: batch.inputDatasetId,
     appId: job.appId,
@@ -872,18 +890,20 @@ async function loadBatchSourceItems(
     new Error(
       `Input dataset ${batch.inputDatasetId} was not found. It may have been evicted to make room for newer staged data; stage it again and restart the job.`,
     );
-  // An empty read cannot tell "no items" from "evicted or replaced mid-read",
-  // and the job would then pause as a normal budget stop with no error. Rows
-  // and metadata are separate reads, so an empty result only counts when the
-  // dataset has the same version on both sides of the row read.
+  // Rows and metadata are separate reads. A result only counts when the dataset
+  // has the same version on both sides of the row read: an empty read cannot
+  // tell "no items" from "evicted or replaced mid-read" (the job would pause as
+  // a normal budget stop), and a non-empty one could belong to a newer version
+  // than the one the checkpoint pins.
   for (let attempt = 0; attempt < 3; attempt++) {
     const before = await getStagedDatasetMeta(scope);
     if (!before) throw notFound();
     const items = await getStagedDatasetRows(scope);
-    if (items.length > 0) return items;
     const after = await getStagedDatasetMeta(scope);
     if (!after) throw notFound();
-    if (after.updatedAt === before.updatedAt) return items;
+    if (after.updatedAt === before.updatedAt) {
+      return { items, version: after.updatedAt };
+    }
   }
   throw new Error(
     `Input dataset ${batch.inputDatasetId} kept changing while it was being read. Stage it once more and restart the job.`,

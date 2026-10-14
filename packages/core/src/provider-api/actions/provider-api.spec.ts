@@ -266,6 +266,15 @@ describe("provider API request retry safety", () => {
     expect(retrySafe({ stageAs: "repos" })).toBe(true);
   });
 
+  it("forwards allowPersistentApproval so a per-request gate is not overridden", () => {
+    const gated = createProviderApiRequestAction(
+      { executeRequest: vi.fn() },
+      { allowPersistentApproval: false },
+    );
+    expect(gated.allowPersistentApproval).toBe(false);
+    expect(action.allowPersistentApproval).toBeUndefined();
+  });
+
   it("refuses writes and workspace file saves, which a replay could overwrite", () => {
     expect(retrySafe({ method: "POST" })).toBe(false);
     expect(retrySafe({ saveToFile: "github/repos.json" })).toBe(false);

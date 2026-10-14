@@ -314,6 +314,9 @@ export default createProviderApiRequestAction(
     getOwnerEmail: () => getCredentialContext()?.userEmail ?? null,
     http: false,
     toolCallable: false,
+    // The gate decides per request (method and path). A per-tool "always allow"
+    // would otherwise cover Gmail deletes and settings writes too.
+    allowPersistentApproval: false,
     needsApproval: (
       args: { provider: string; method?: string; path: string },
       ctx?: ActionRunContext,
