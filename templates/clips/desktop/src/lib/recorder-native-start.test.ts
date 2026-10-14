@@ -680,6 +680,35 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
+  it("ignores a native stop event tagged for another recording", async () => {
+    const pending = startRecording({
+      ...params,
+      mode: "screen-camera",
+      cameraOn: true,
+      micOn: false,
+      systemAudioOn: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    const recordingId = createdRecordingId();
+
+    for (const payload of [
+      { recordingId: `${recordingId}-stale` },
+      { recordingId: null },
+      {},
+      "stale-recording",
+    ]) {
+      await mocks.emit("clips:recorder-stop", payload);
+      await flush();
+    }
+
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      0,
+    );
+    await handle.cancel();
+  });
+
   it("cleans up a failed server create and enables capture and toolbar on retry", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response("Unavailable", { status: 503 }),
@@ -764,7 +793,10 @@ describe("native recording startup", () => {
     await vi.advanceTimersByTimeAsync(3_600);
 
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
-    expect(onCaptureStartRequested).toHaveBeenCalledWith(createdRecordingId());
+    expect(onCaptureStartRequested).toHaveBeenCalledWith(
+      createdRecordingId(),
+      createdRecordingId(),
+    );
 
     begin.resolve();
     const handle = await pending;

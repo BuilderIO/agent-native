@@ -38,7 +38,10 @@ import {
   stageRecordFirstFile,
   type RecordFirstFile,
 } from "./record-first";
-import { RECORDER_DISCARD_EVENT } from "./recorder-events";
+import {
+  RECORDER_DISCARD_EVENT,
+  recorderStopTargetsRecording,
+} from "./recorder-events";
 import {
   buildCreateRecordingRequestHeaders,
   buildCreateRecordingRequestBody,
@@ -240,7 +243,10 @@ export interface StartParams {
   preAcquiredAudioStream?: MediaStream | null;
   preAcquiredCaptureSuspension?: RewindCaptureSuspensionLease | null;
   pendingTranscriptionTeardown?: Promise<void> | null;
-  onCaptureStartRequested?: (recordingId: string | null) => void;
+  onCaptureStartRequested?: (
+    recordingId: string | null,
+    captureIdentity?: string | null,
+  ) => void;
 }
 
 const REWIND_CLIP_ORIGINS_KEY = "clips.rewindClipOrigins.v1";
@@ -3387,7 +3393,8 @@ async function tryStartRewindFullscreenRecording(
         !(pauseQueue?.getDesiredPaused() ?? pausedAt !== null),
       ),
     ),
-    listen("clips:recorder-stop", () => {
+    listen("clips:recorder-stop", (event) => {
+      if (!recorderStopTargetsRecording(event.payload, id)) return;
       void handle.stop().catch((error) => {
         console.error("[clips-recorder] Rewind handle.stop() threw:", error);
       });
@@ -3665,7 +3672,7 @@ async function startNativeFullscreenRecording(
       localOnly,
       hasCamera: wantsCamera,
     });
-    params.onCaptureStartRequested?.(localOnly ? null : id || null);
+    params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     await guardRecordingStart(beginPromise, { signal: params.signal });
     assertStartupActive();
     console.log(
@@ -4140,7 +4147,8 @@ async function startNativeFullscreenRecording(
         !(pauseQueue?.getDesiredPaused() ?? pausedAt !== null),
       );
     }),
-    listen("clips:recorder-stop", () => {
+    listen("clips:recorder-stop", (event) => {
+      if (!recorderStopTargetsRecording(event.payload, id)) return;
       console.log("[clips-recorder] native stop event received");
       handle.stop().catch((err) => {
         console.error("[clips-recorder] native handle.stop() threw:", err);
@@ -4801,7 +4809,8 @@ async function startRecordingInner(
             emitState(true);
           }
         }),
-        listen("clips:recorder-stop", () => {
+        listen("clips:recorder-stop", (event) => {
+          if (!recorderStopTargetsRecording(event.payload, id)) return;
           console.log("[clips-recorder] local stop event received");
           if (startedAt === 0) {
             cancelRequestedDuringStartup = true;
@@ -5241,7 +5250,8 @@ async function startRecordingInner(
           }
         }
       }),
-      listen("clips:recorder-stop", () => {
+      listen("clips:recorder-stop", (event) => {
+        if (!recorderStopTargetsRecording(event.payload, id)) return;
         console.log("[clips-recorder] stop event received");
         if (!handle) {
           cancelRequestedDuringStartup = true;

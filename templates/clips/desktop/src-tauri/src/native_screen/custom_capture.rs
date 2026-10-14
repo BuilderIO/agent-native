@@ -3279,6 +3279,7 @@ unsafe fn av_string_suffix(obj: *mut objc2::runtime::AnyObject) -> String {
 
 #[derive(Clone)]
 struct RestartParams {
+    recording_id: Option<String>,
     include_audio: bool,
     capture_system_audio: bool,
     include_camera_overlay: bool,
@@ -3292,6 +3293,17 @@ struct RestartParams {
     capture_region: Option<NativeCaptureRegion>,
     width: u32,
     height: u32,
+}
+
+fn emit_capture_recorder_stop(app: &AppHandle, recording_id: Option<&str>) {
+    if let Some(recording_id) = recording_id {
+        let _ = app.emit(
+            "clips:recorder-stop",
+            serde_json::json!({ "recordingId": recording_id }),
+        );
+    } else {
+        let _ = app.emit("clips:recorder-stop", ());
+    }
 }
 
 pub(crate) struct CustomCaptureResume {
@@ -3599,15 +3611,6 @@ fn spawn_capture_watchdog(
             if shutdown.load(Ordering::SeqCst) {
                 return;
             }
-            if params.include_camera_overlay
-                && app
-                    .state::<super::NativeFullscreenRecordingState>()
-                    .warm_generation
-                    .load(Ordering::SeqCst)
-                    != params.alignment_generation
-            {
-                return;
-            }
             if writer.appends_closed.load(Ordering::SeqCst) {
                 if shutdown.load(Ordering::SeqCst) {
                     return;
@@ -3629,7 +3632,7 @@ fn spawn_capture_watchdog(
                     let _ = guard.stop_capture();
                 }
                 if params.emit_recorder_stop {
-                    let _ = app.emit("clips:recorder-stop", ());
+                    emit_capture_recorder_stop(&app, params.recording_id.as_deref());
                 }
                 return;
             }
@@ -3640,7 +3643,7 @@ fn spawn_capture_watchdog(
             if watch.user_stopped() {
                 if params.emit_recorder_stop {
                     eprintln!("[mixer] user stopped capture via macOS; emitting recorder stop");
-                    let _ = app.emit("clips:recorder-stop", ());
+                    emit_capture_recorder_stop(&app, params.recording_id.as_deref());
                 } else {
                     eprintln!("[mixer] user stopped Screen Memory capture via macOS");
                 }
@@ -3665,12 +3668,6 @@ fn spawn_capture_watchdog(
                             !shutdown.load(Ordering::SeqCst)
                                 && !watch.is_paused()
                                 && !watch.user_stopped()
-                                && (!params.include_camera_overlay
-                                    || app
-                                        .state::<super::NativeFullscreenRecordingState>()
-                                        .warm_generation
-                                        .load(Ordering::SeqCst)
-                                        == params.alignment_generation)
                         },
                         &mut last_geometry,
                     ) {
@@ -3683,12 +3680,6 @@ fn spawn_capture_watchdog(
                             if shutdown.load(Ordering::SeqCst)
                                 || watch.is_paused()
                                 || watch.user_stopped()
-                                || (params.include_camera_overlay
-                                    && app
-                                        .state::<super::NativeFullscreenRecordingState>()
-                                        .warm_generation
-                                        .load(Ordering::SeqCst)
-                                        != params.alignment_generation)
                             {
                                 return;
                             }
@@ -3745,7 +3736,7 @@ fn spawn_capture_watchdog(
                     let _ = guard.stop_capture();
                 }
                 if params.emit_recorder_stop {
-                    let _ = app.emit("clips:recorder-stop", ());
+                    emit_capture_recorder_stop(&app, params.recording_id.as_deref());
                 }
                 return;
             }
@@ -3774,12 +3765,6 @@ fn spawn_capture_watchdog(
                             !shutdown.load(Ordering::SeqCst)
                                 && !watch.is_paused()
                                 && !watch.user_stopped()
-                                && (!params.include_camera_overlay
-                                    || app
-                                        .state::<super::NativeFullscreenRecordingState>()
-                                        .warm_generation
-                                        .load(Ordering::SeqCst)
-                                        == params.alignment_generation)
                         },
                     )
                 })
@@ -3787,16 +3772,7 @@ fn spawn_capture_watchdog(
                 Ok(())
             };
             match alignment_result.and_then(|()| {
-                if shutdown.load(Ordering::SeqCst)
-                    || watch.is_paused()
-                    || watch.user_stopped()
-                    || (params.include_camera_overlay
-                        && app
-                            .state::<super::NativeFullscreenRecordingState>()
-                            .warm_generation
-                            .load(Ordering::SeqCst)
-                            != params.alignment_generation)
-                {
+                if shutdown.load(Ordering::SeqCst) || watch.is_paused() || watch.user_stopped() {
                     return Err("Recording stopped while rebuilding the capture stream.".into());
                 }
                 build_custom_scstream(&params, &replacement_handler, &watch, None).and_then(
@@ -3824,12 +3800,6 @@ fn spawn_capture_watchdog(
                             || writer.appends_closed.load(Ordering::SeqCst)
                             || watch.is_paused()
                             || watch.user_stopped()
-                            || (params.include_camera_overlay
-                                && app
-                                    .state::<super::NativeFullscreenRecordingState>()
-                                    .warm_generation
-                                    .load(Ordering::SeqCst)
-                                    != params.alignment_generation)
                             || !replacement_handler.is_current()
                         {
                             false
@@ -3867,6 +3837,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     output_path: &Path,
     include_audio: bool,
     capture_system_audio: bool,
+    recording_id: Option<&str>,
     include_camera_overlay: bool,
     alignment_generation: u64,
     mic_device_id: Option<&str>,
@@ -3933,6 +3904,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     let (width, height) = native_capture_dimensions(capture_width, capture_height);
 
     let params = RestartParams {
+        recording_id: recording_id.map(str::to_string),
         include_audio,
         capture_system_audio,
         include_camera_overlay,
