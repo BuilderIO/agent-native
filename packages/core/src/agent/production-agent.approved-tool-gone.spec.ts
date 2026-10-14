@@ -7,6 +7,9 @@ import type { ActionEntry } from "./production-agent.js";
 import type { AgentChatStructuredMessage } from "./types.js";
 
 const consumeApproval = vi.hoisted(() => vi.fn(async () => true));
+const pendingToolNames = vi.hoisted(() =>
+  vi.fn(async (): Promise<string[]> => ["send-email"]),
+);
 
 vi.mock("./tool-approval-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./tool-approval-store.js")>()),
@@ -14,6 +17,7 @@ vi.mock("./tool-approval-store.js", async (importOriginal) => ({
   createAgentToolApproval: vi.fn(async () => "approval-1"),
   consumeAgentToolApproval: consumeApproval,
   isAgentToolAlwaysAllowed: vi.fn(async () => false),
+  listPendingAgentToolApprovalToolNames: pendingToolNames,
 }));
 
 const { createProductionAgentHandler, toolCallCacheKey } =
@@ -69,7 +73,19 @@ function testEngine() {
   return { engine, stream };
 }
 
-async function approve(threadId: string, actions: Record<string, ActionEntry>) {
+// The same turn replayed by a client that shortened the call's arguments.
+const truncatedTurn = pausedTurn.map((message) => ({
+  ...message,
+  content: message.content.map((part) =>
+    part.type === "tool-call" ? { ...part, input: { to: "customer@…" } } : part,
+  ),
+})) as AgentChatStructuredMessage[];
+
+async function approve(
+  threadId: string,
+  actions: Record<string, ActionEntry>,
+  history: AgentChatStructuredMessage[] = pausedTurn,
+) {
   const { engine, stream } = testEngine();
   const handler = createProductionAgentHandler({
     systemPrompt: "Test",
@@ -89,7 +105,7 @@ async function approve(threadId: string, actions: Record<string, ActionEntry>) {
               message: "Approved",
               threadId,
               turnId: `${threadId}-turn`,
-              structuredHistory: pausedTurn,
+              structuredHistory: history,
               approvedToolCalls: [toolCallCacheKey("send-email", EMAIL)],
             }),
           }),
@@ -149,6 +165,48 @@ describe("an approved call", () => {
     expect(consumeApproval).toHaveBeenCalledOnce();
     expect(sendEmail).toHaveBeenCalledOnce();
     expect(stream).not.toHaveBeenCalled();
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ errorCode: "tool_unavailable" }),
+    );
+  });
+
+  it("stops before the model when a truncated replay hides an approved tool that is gone", async () => {
+    const { stream, events } = await approve(
+      "thread-truncated-gone",
+      {},
+      truncatedTurn,
+    );
+
+    expect(pendingToolNames).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: "thread-truncated-gone" }),
+    );
+    expect(stream).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "tool_unavailable",
+      }),
+    );
+  });
+
+  it("hands a truncated replay to the model when the approved tool is still there", async () => {
+    const { stream, events } = await approve(
+      "thread-truncated-present",
+      {
+        "send-email": {
+          tool: {
+            description: "Send an email",
+            parameters: { type: "object", properties: {} },
+          },
+          readOnly: false,
+          needsApproval: true,
+          run: vi.fn(async () => "Sent"),
+        },
+      },
+      truncatedTurn,
+    );
+
+    expect(stream).toHaveBeenCalled();
     expect(events).not.toContainEqual(
       expect.objectContaining({ errorCode: "tool_unavailable" }),
     );

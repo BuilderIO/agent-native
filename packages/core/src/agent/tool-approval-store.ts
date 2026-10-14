@@ -133,10 +133,12 @@ function approvalPolicyId(binding: AgentToolApprovalPolicyBinding): string {
 
 /**
  * Saves "always allow" for one tool name. The grant covers the revision the
- * caller was most recently asked to approve under that name, read from the
- * server's own pending approval rather than from the client, so it never
- * covers a revision the user was not shown. With no pending approval it
- * covers only an entry without a revision.
+ * caller was asked to approve under that name, read from the server's own
+ * pending approvals rather than from the client, so it never covers a revision
+ * the user was not shown. When the caller has pending approvals for different
+ * revisions, the client's tool name cannot say which card was clicked, so the
+ * grant is refused. With no pending approval it covers only an entry without
+ * a revision.
  */
 export async function setAgentToolApprovalPolicy(input: {
   binding: Omit<AgentToolApprovalPolicyBinding, "toolRevision">;
@@ -170,29 +172,42 @@ export async function setAgentToolApprovalPolicy(input: {
   });
 }
 
+export class AmbiguousToolApprovalRevisionError extends Error {
+  constructor(toolName: string) {
+    super(
+      `Several calls to ${toolName} are waiting for approval for different versions of it. Approve them one at a time instead.`,
+    );
+    this.name = "AmbiguousToolApprovalRevisionError";
+  }
+}
+
 async function readPendingApprovalRevision(
   binding: AgentToolApprovalPolicyBinding,
 ): Promise<string | null> {
   await ensureAgentToolApprovalTable();
+  // Expired rows count too: the card the user clicked may be past its TTL
+  // while another thread's newer approval for the same name is not.
   const result = await getDbExec().execute({
-    sql: `SELECT tool_revision FROM agent_tool_approvals
+    sql: `SELECT DISTINCT tool_revision FROM agent_tool_approvals
       WHERE owner_email = ?
         AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
         AND tool_name = ?
         AND status = 'pending'
-        AND expires_at > ?
-      ORDER BY created_at DESC
-      LIMIT 1`,
+        AND created_at > ?
+      LIMIT 2`,
     args: [
       binding.ownerEmail,
       binding.orgId,
       binding.orgId,
       binding.toolName,
-      Date.now(),
+      Date.now() - APPROVAL_CLEANUP_AGE_MS,
     ],
   });
-  const value = (result.rows?.[0] as { tool_revision?: unknown } | undefined)
-    ?.tool_revision;
+  const rows = (result.rows ?? []) as Array<{ tool_revision?: unknown }>;
+  if (rows.length > 1) {
+    throw new AmbiguousToolApprovalRevisionError(binding.toolName);
+  }
+  const value = rows[0]?.tool_revision;
   return typeof value === "string" ? value : null;
 }
 
@@ -266,6 +281,45 @@ export async function resolveAgentToolApprovalTurnId(binding: {
   const requestedTurnId = binding.requestedTurnId?.trim();
   if (requestedTurnId && turnIds.has(requestedTurnId)) return requestedTurnId;
   return turnIds.size === 1 ? [...turnIds][0]! : null;
+}
+
+/**
+ * The tool names of the caller's pending approvals in this thread that match
+ * the client's approved keys, for checking that each approved tool still
+ * exists before the model is told the approval went through.
+ */
+export async function listPendingAgentToolApprovalToolNames(binding: {
+  ownerEmail: string;
+  orgId?: string | null;
+  threadId: string;
+  approvalKeys: readonly string[];
+}): Promise<string[]> {
+  const approvalKeys = [...new Set(binding.approvalKeys)].slice(0, 200);
+  if (approvalKeys.length === 0) return [];
+  await ensureAgentToolApprovalTable();
+  const hashes = approvalKeys.map(hashAgentToolApprovalKey);
+  const placeholders = hashes.map(() => "?").join(", ");
+  const result = await getDbExec().execute({
+    sql: `SELECT DISTINCT tool_name FROM agent_tool_approvals
+      WHERE owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND thread_id = ?
+        AND approval_key_hash IN (${placeholders})
+        AND status = 'pending'
+        AND expires_at > ?`,
+    args: [
+      binding.ownerEmail,
+      binding.orgId ?? null,
+      binding.orgId ?? null,
+      binding.threadId,
+      ...hashes,
+      Date.now(),
+    ],
+  });
+  return (result.rows ?? []).flatMap((row: unknown) => {
+    const name = (row as { tool_name?: unknown }).tool_name;
+    return typeof name === "string" ? [name] : [];
+  });
 }
 
 export async function createAgentToolApproval(

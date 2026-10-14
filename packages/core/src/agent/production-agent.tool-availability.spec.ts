@@ -8,6 +8,7 @@ import type {
 } from "./engine/types.js";
 import {
   actionsToEngineTools,
+  pinAdditionalActionsToTurn,
   runAgentLoop,
   toolCallCacheKey,
   type ActionEntry,
@@ -204,6 +205,45 @@ describe("tools that are gone since earlier in the conversation", () => {
     expect(done("editor-format")?.result).toMatch(
       /^Error: Tool no longer available/,
     );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "error", errorCode: "tool_unavailable" }),
+    );
+    expect(seen).toHaveLength(1);
+  });
+});
+
+describe("a durable continuation whose pinned tool was removed", () => {
+  // The turn pinned both names; editor-format was removed before this run.
+  const pinned = () =>
+    pinAdditionalActionsToTurn({ "task-run": tool("Run a task") }, [
+      "editor-format",
+      "task-run",
+    ]);
+
+  it("treats the placeholder as gone, not as a tool that failed", async () => {
+    const { seen, done } = await run({
+      registry: pinned(),
+      turns: [[callTo("editor-format")]],
+    });
+
+    expect(done("editor-format")?.result).toMatch(
+      /^Error: Tool no longer available: "editor-format"/,
+    );
+    expect(JSON.stringify(seen[0])).toContain(
+      "no longer available: editor-format.",
+    );
+  });
+
+  it("stops when the approved call's tool is a placeholder", async () => {
+    const { seen, events } = await run({
+      registry: pinned(),
+      turns: [
+        [callTo("editor-format")],
+        [{ type: "text", text: "improvised" }],
+      ],
+      approvedToolCalls: [toolCallCacheKey("editor-format", {})],
+    });
+
     expect(events).toContainEqual(
       expect.objectContaining({ type: "error", errorCode: "tool_unavailable" }),
     );

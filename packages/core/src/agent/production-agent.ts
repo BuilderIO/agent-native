@@ -370,6 +370,7 @@ import {
   consumeAgentToolApproval,
   createAgentToolApproval,
   isAgentToolAlwaysAllowed,
+  listPendingAgentToolApprovalToolNames,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
@@ -1408,26 +1409,40 @@ function readPersistedAdditionalActionNames(
  * that appeared since, and keep a vanished name as an entry that fails loudly
  * when called, so a persisted action allowlist that names it still resolves.
  */
+// Placeholders that keep a removed name in a pinned turn's registry. The agent
+// loop treats them as absent, so they get the same gone-tool error and stop.
+const unavailableActionEntries = new WeakSet<ActionEntry>();
+
+export function isUnavailableActionEntry(
+  entry: ActionEntry | undefined,
+): boolean {
+  return entry !== undefined && unavailableActionEntries.has(entry);
+}
+
 export function pinAdditionalActionsToTurn(
   resolved: Record<string, ActionEntry>,
   turnNames: readonly string[],
 ): Record<string, ActionEntry> {
   const pinned: Record<string, ActionEntry> = {};
   for (const name of turnNames) {
-    pinned[name] = Object.hasOwn(resolved, name)
-      ? resolved[name]
-      : {
-          tool: {
-            description: `${name} is no longer available to this caller.`,
-            parameters: { type: "object", properties: {} },
-          },
-          readOnly: true,
-          run: () => {
-            throw new Error(
-              `${name} is no longer available to this caller; it was removed after this turn started.`,
-            );
-          },
-        };
+    if (Object.hasOwn(resolved, name)) {
+      pinned[name] = resolved[name];
+      continue;
+    }
+    const placeholder: ActionEntry = {
+      tool: {
+        description: `${name} is no longer available to this caller.`,
+        parameters: { type: "object", properties: {} },
+      },
+      readOnly: true,
+      run: () => {
+        throw new Error(
+          `${name} is no longer available to this caller; it was removed after this turn started.`,
+        );
+      },
+    };
+    unavailableActionEntries.add(placeholder);
+    pinned[name] = placeholder;
   }
   return pinned;
 }
@@ -6169,7 +6184,11 @@ export async function runAgentLoop(opts: {
     for (const name of requested) noteToolNeeded(name);
     const wanted = [...requested].flatMap((name) => {
       const tool = availableToolMap.get(name);
-      return tool && !activeToolNames.has(name) ? [tool] : [];
+      return tool &&
+        !activeToolNames.has(name) &&
+        !isUnavailableActionEntry(actions[name])
+        ? [tool]
+        : [];
     });
     const added: string[] = [];
     const overflow: string[] = [];
@@ -6239,7 +6258,9 @@ export async function runAgentLoop(opts: {
   // than "Unknown tool", and loaded ones that went away are named up front.
   const historyToolNames = readHistoryToolNames(messages, priorSearches.names);
   const droppedToolNames = [...new Set(priorSearches.names)].filter(
-    (name) => isHistoryToolName(name) && !availableToolMap.has(name),
+    (name) =>
+      isHistoryToolName(name) &&
+      (!availableToolMap.has(name) || isUnavailableActionEntry(actions[name])),
   );
   if (droppedToolNames.length > 0) {
     appendUserContextNote(
@@ -7437,7 +7458,10 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
       noteToolNeeded(toolCall.name);
-      const actionEntry = actions[toolCall.name];
+      const registeredEntry = actions[toolCall.name];
+      const actionEntry = isUnavailableActionEntry(registeredEntry)
+        ? undefined
+        : registeredEntry;
       const strictToolInput = getStrictToolInputValidator(actionEntry);
       const placeholderNormalization =
         actionEntry && !strictToolInput
@@ -7663,7 +7687,9 @@ export async function runAgentLoop(opts: {
       }
 
       if (!actionEntry) {
-        const noLongerAvailable = historyToolNames.has(toolCall.name);
+        const noLongerAvailable =
+          historyToolNames.has(toolCall.name) ||
+          isUnavailableActionEntry(registeredEntry);
         const result = finalizeToolErrorResult(
           noLongerAvailable
             ? formatToolNoLongerAvailable(toolCall.name)
@@ -13374,10 +13400,13 @@ export function createProductionAgentHandler(
 
         let instrumented = false;
         try {
+          const isRequestToolGone = (name: string) =>
+            !requestActions[name] ||
+            isUnavailableActionEntry(requestActions[name]);
           if (
             exactApprovedToolCall &&
             approvedToolCallsForExecution &&
-            !requestActions[exactApprovedToolCall.name]
+            isRequestToolGone(exactApprovedToolCall.name)
           ) {
             const result = formatToolNoLongerAvailable(
               exactApprovedToolCall.name,
@@ -13410,6 +13439,34 @@ export function createProductionAgentHandler(
               recoverable: false,
             });
             return;
+          }
+          // A client may replay the approved call with truncated arguments, so
+          // it is not matched above; the server's pending rows still name the
+          // tools that were approved.
+          if (
+            !exactApprovedToolCall &&
+            approvedToolCallsForExecution &&
+            ownerEmail &&
+            effectiveThreadId
+          ) {
+            const goneApprovedTool = (
+              await listPendingAgentToolApprovalToolNames({
+                ownerEmail,
+                orgId: getRequestOrgId() ?? null,
+                threadId: effectiveThreadId,
+                approvalKeys: approvedToolCallsForExecution,
+              })
+            ).find(isRequestToolGone);
+            if (goneApprovedTool) {
+              const stop = approvedToolUnavailableStop(goneApprovedTool);
+              send({
+                type: "error",
+                error: stop.message,
+                errorCode: stop.errorCode,
+                recoverable: false,
+              });
+              return;
+            }
           }
           if (exactApprovedToolCall && approvedToolCallsForExecution) {
             send({
