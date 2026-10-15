@@ -746,6 +746,12 @@ function readAuthoredHtmlMotion(
     if (result.status === "unsupported") {
       sourceError("unsupported-authored-motion", result.reason);
     }
+    if (hasLinkedStylesheet(nodes)) {
+      sourceError(
+        "unsupported-authored-motion",
+        "Inline CSS animations cannot be imported while linked stylesheets remain unresolved.",
+      );
+    }
     for (const name of result.definedKeyframeNames) {
       keyframeNameCounts.set(name, (keyframeNameCounts.get(name) ?? 0) + 1);
     }
@@ -806,6 +812,20 @@ function readAuthoredHtmlMotion(
         : "Inline CSS animations cannot be represented by one Motion timeline.",
     );
   }
+}
+
+function hasLinkedStylesheet(nodes: readonly HtmlNode[]): boolean {
+  return nodes.some(
+    (node) =>
+      node.tagName === "link" &&
+      !node.insideTemplate &&
+      attributes(node, "rel").some((attribute) =>
+        attribute.value
+          .split(/[\t\n\f\r ]+/)
+          .some((value) => value.toLowerCase() === "stylesheet"),
+      ) &&
+      attributes(node, "href").some((attribute) => attribute.value.trim()),
+  );
 }
 
 function isSupportedAuthoredHtmlStyle(node: HtmlNode): boolean {

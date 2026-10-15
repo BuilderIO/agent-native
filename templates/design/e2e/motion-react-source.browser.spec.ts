@@ -855,6 +855,9 @@ test.describe.serial("React Motion source browser writeback", () => {
       exact: true,
     });
     await expect(durationInput).toHaveValue("1200");
+    const priorSourceChangeCount = viteChangedFiles.filter(
+      (changedPath) => changedPath === sourceFilePath,
+    ).length;
     const motionCodeSave = page.waitForResponse(
       (response) =>
         response.url().includes("/_agent-native/actions/apply-motion-edit") &&
@@ -893,6 +896,14 @@ test.describe.serial("React Motion source browser writeback", () => {
         ],
       });
 
+    await expect
+      .poll(
+        () =>
+          viteChangedFiles.filter(
+            (changedPath) => changedPath === sourceFilePath,
+          ).length,
+      )
+      .toBeGreaterThan(priorSourceChangeCount);
     await page.goto(reactDevServerUrl, { waitUntil: "load" });
     const browserTarget = page.locator(`#${nodeId}`);
     await expect(browserTarget).toHaveAttribute(
@@ -972,8 +983,9 @@ function App() {
   animation-fill-mode: both;
 }
 @keyframes source-fade {
-  from { opacity: 0.1; }
-  to { opacity: 0.9; }
+  from { opacity: 0.1; transform: translateY(12px); }
+  50% { opacity: 0.5; transform: translateY(6px); }
+  to { opacity: 0.9; transform: translateY(0px); }
 }
 \`}</style>
       <button data-agent-native-node-id="motion-target" id="motion-target">
@@ -1014,7 +1026,18 @@ createRoot(document.getElementById("root")!).render(<App />);
           durationMs: 900,
           keyframes: [
             { t: 0, value: "0.1", ease: "linear" },
+            { t: 0.5, value: "0.5", ease: "linear" },
             { t: 1, value: "0.9", ease: "ease" },
+          ],
+        },
+        {
+          targetNodeId,
+          property: "transform",
+          durationMs: 900,
+          keyframes: [
+            { t: 0, value: "translateY(12px)", ease: "linear" },
+            { t: 0.5, value: "translateY(6px)", ease: "linear" },
+            { t: 1, value: "translateY(0px)", ease: "ease" },
           ],
         },
       ],
@@ -1044,7 +1067,17 @@ createRoot(document.getElementById("root")!).render(<App />);
           property: "opacity",
           keyframes: [
             { t: 0, value: "0.25", ease: "linear" },
+            { t: 0.5, value: "0.5", ease: "linear" },
             { t: 1, value: "0.75", ease: "linear" },
+          ],
+        },
+        {
+          targetNodeId,
+          property: "transform",
+          keyframes: [
+            { t: 0, value: "translateY(12px)", ease: "linear" },
+            { t: 0.5, value: "translateY(6px)", ease: "linear" },
+            { t: 1, value: "translateY(0px)", ease: "linear" },
           ],
         },
       ],
@@ -1081,7 +1114,17 @@ createRoot(document.getElementById("root")!).render(<App />);
           property: "opacity",
           keyframes: [
             { t: 0, value: "0.25", ease: "linear" },
+            { t: 0.5, value: "0.5", ease: "linear" },
             { t: 1, value: "0.75", ease: "linear" },
+          ],
+        },
+        {
+          targetNodeId,
+          property: "transform",
+          keyframes: [
+            { t: 0, value: "translateY(12px)", ease: "linear" },
+            { t: 0.5, value: "translateY(6px)", ease: "linear" },
+            { t: 1, value: "translateY(0px)", ease: "linear" },
           ],
         },
       ],
@@ -1102,23 +1145,32 @@ createRoot(document.getElementById("root")!).render(<App />);
       )
       .toBeGreaterThan(0);
     const atHalfTime = await renderedTarget.evaluate(async (element) => {
-      const animation = element
-        .getAnimations()
-        .find((candidate) =>
-          (candidate.effect as KeyframeEffect | null)
-            ?.getKeyframes()
-            .some((keyframe) => "opacity" in keyframe),
-        );
-      if (!animation) throw new Error("React opacity animation is missing");
-      animation.pause();
-      await animation.ready;
-      animation.currentTime = 450;
+      const properties = ["opacity", "transform"];
+      const animations = properties.map((property) => {
+        const animation = element
+          .getAnimations()
+          .find((candidate) =>
+            (candidate.effect as KeyframeEffect | null)
+              ?.getKeyframes()
+              .some((keyframe) => property in keyframe),
+          );
+        if (!animation)
+          throw new Error(`React ${property} animation is missing`);
+        animation.pause();
+        return animation;
+      });
+      await Promise.all(animations.map((animation) => animation.ready));
+      for (const animation of animations) animation.currentTime = 450;
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => resolve()),
       );
-      return getComputedStyle(element).opacity;
+      return {
+        opacity: getComputedStyle(element).opacity,
+        translateY: new DOMMatrixReadOnly(getComputedStyle(element).transform)
+          .m42,
+      };
     });
-    expect(atHalfTime).toBe("0.5");
+    expect(atHalfTime).toEqual({ opacity: "0.5", translateY: 6 });
 
     const persistedTimelineId = roundTrip.timelines[0]?.id;
     if (!persistedTimelineId) {

@@ -41,13 +41,25 @@ describe("apply-motion-edit Text stagger validation", () => {
     expect(action.schema.safeParse(input).success).toBe(true);
   });
 
-  it("keeps legacy absolute stagger bounded at 5000ms", () => {
+  it("keeps fixed stagger bounded by the source duration limit", () => {
     const { overlapPercent: _overlapPercent, ...legacyAnimation } = animation;
 
     expect(
       action.schema.safeParse({
         ...input,
-        textDocument: { version: 2, animations: [legacyAnimation] },
+        textDocument: {
+          version: 2,
+          animations: [{ ...legacyAnimation, staggerMs: 9600 }],
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        ...input,
+        textDocument: {
+          version: 2,
+          animations: [{ ...legacyAnimation, staggerMs: 120_001 }],
+        },
       }).success,
     ).toBe(false);
   });

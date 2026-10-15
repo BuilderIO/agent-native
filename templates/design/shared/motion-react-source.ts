@@ -828,6 +828,12 @@ function readAuthoredReactMotion(
         result.reason,
       );
     }
+    if (hasImportedStylesheet(sourceFile)) {
+      throw new MotionReactSourceError(
+        "unsupported-authored-motion",
+        "Inline CSS animations cannot be imported while CSS module dependencies remain unresolved.",
+      );
+    }
     for (const name of result.definedKeyframeNames) {
       keyframeNameCounts.set(name, (keyframeNameCounts.get(name) ?? 0) + 1);
     }
@@ -886,6 +892,50 @@ function readAuthoredReactMotion(
         : "Inline CSS animations cannot be represented by one Motion timeline.",
     );
   }
+}
+
+function hasImportedStylesheet(sourceFile: TypeScript.SourceFile): boolean {
+  let found = false;
+  const visit = (node: TypeScript.Node): void => {
+    if (
+      ts.isImportDeclaration(node) &&
+      isCssModuleSpecifier(node.moduleSpecifier)
+    ) {
+      found = true;
+      return;
+    }
+    if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier &&
+      isCssModuleSpecifier(node.moduleSpecifier)
+    ) {
+      found = true;
+      return;
+    }
+    if (ts.isCallExpression(node) && node.arguments.length > 0) {
+      const isRequire =
+        ts.isIdentifier(node.expression) && node.expression.text === "require";
+      const isDynamicImport =
+        node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      if (
+        (isRequire || isDynamicImport) &&
+        isCssModuleSpecifier(node.arguments[0]!)
+      ) {
+        found = true;
+        return;
+      }
+    }
+    if (!found) ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
+function isCssModuleSpecifier(node: TypeScript.Expression): boolean {
+  if (!ts.isStringLiteral(node) && !ts.isNoSubstitutionTemplateLiteral(node)) {
+    return false;
+  }
+  return /\.(?:css|scss|sass|less|styl)(?:[?#].*)?$/i.test(node.text);
 }
 
 function assertNoUnsupportedReactStylePropAnimations(

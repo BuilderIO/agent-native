@@ -277,6 +277,83 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("round-trips one authored JSX CSS animation with multiple properties", () => {
+    const modulePath = "src/components/Card.tsx";
+    const authored = `function Card() {
+  return (
+    <main>
+      <style>{\`
+#hero {
+  animation-name: hero-enter;
+  animation-duration: 900ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+@keyframes hero-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  50% { opacity: 0.5; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0px); }
+}
+\`}</style>
+      <h1 id="hero">Hello</h1>
+    </main>
+  );
+}`;
+    const targetNodeId = generatedMotionNodeId(modulePath, 1);
+    const read = readMotionReactSource(authored, modulePath);
+
+    expect(read).toMatchObject({
+      status: "valid",
+      targetNodeIds: [targetNodeId],
+      document: {
+        durationMs: 900,
+        tracks: [
+          {
+            targetNodeId,
+            property: "opacity",
+            keyframes: [
+              { t: 0, value: "0", ease: "ease-out" },
+              { t: 0.5, value: "0.5", ease: "ease-out" },
+              { t: 1, value: "1" },
+            ],
+          },
+          {
+            targetNodeId,
+            property: "transform",
+            keyframes: [
+              { t: 0, value: "translateY(12px)", ease: "ease-out" },
+              { t: 0.5, value: "translateY(6px)", ease: "ease-out" },
+              { t: 1, value: "translateY(0px)" },
+            ],
+          },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("multi-property JSX CSS Motion was not readable");
+    }
+
+    const written = applyMotionReactSourceEdit({
+      currentSource: authored,
+      expectedSource: authored,
+      preview: previewFor(authored),
+      modulePath,
+      timeline: {
+        ...makeTimeline(targetNodeId),
+        tracks: read.document.tracks,
+        durationMs: read.document.durationMs,
+      },
+    });
+
+    expect(written.source).not.toContain("animation-name: hero-enter;");
+    expect(written.source).toContain("@keyframes hero-enter");
+    expect(readMotionReactSource(written.source, modulePath)).toMatchObject({
+      status: "valid",
+      targetNodeIds: [targetNodeId],
+      document: { tracks: read.document.tracks },
+    });
+  });
+
   it("rejects animations for one React target across separate style blocks", () => {
     const source = `function Card() {
   return <main>
@@ -743,6 +820,23 @@ function Card(style = { animationName: "fade" }) {
       document: {
         tracks: [{ keyframes: [{ value: "0" }, { value: "0.75" }] }],
       },
+    });
+  });
+
+  it("fails closed when imported CSS can change an inline animation", () => {
+    const authored = `import styles from "./Card.module.css";
+function Card() {
+  return (
+    <main>
+      <style>{\`#hero { animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } }\`}</style>
+      <h1 id="hero" className={styles.hero}>Hello</h1>
+    </main>
+  );
+}`;
+
+    expect(readMotionReactSource(authored, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
     });
   });
 

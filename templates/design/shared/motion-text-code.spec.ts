@@ -478,6 +478,28 @@ describe("Motion Text source and runtime", () => {
     ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
   });
 
+  it("accepts a fixed stagger derived from a long native TextStagger duration", () => {
+    const fixedStagger = {
+      ...document.animations[0]!,
+      staggerMs: 9600,
+      durationMs: 12_000,
+    };
+
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({ version: 2, animations: [fixedStagger] }),
+      ),
+    ).toMatchObject({ status: "valid" });
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({
+          version: 2,
+          animations: [{ ...fixedStagger, staggerMs: 120_001 }],
+        }),
+      ),
+    ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
+  });
+
   it.each([
     "cubic-bezier(0, 0.9971093535, 1, 1)",
     "spring(0.674)",

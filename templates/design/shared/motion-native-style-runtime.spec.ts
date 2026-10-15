@@ -161,6 +161,30 @@ describe("native Figma Motion runtime adapter", () => {
     ).not.toHaveProperty("overlapPercent");
   });
 
+  it("keeps long fixed-stagger projections valid in the source document", () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const style = {
+      ...base,
+      duration: 12,
+      props: {
+        ...base.props,
+        presetStaggerOverlap: 20,
+        textDelayTimingMode: "fixed-stagger",
+      },
+    };
+    const animations = motionNativeStylesToTextAnimations([style]);
+
+    expect(animations).toMatchObject([
+      { durationMs: 12_000, staggerMs: 9_600 },
+    ]);
+    expect(
+      decodeMotionTextDocument(JSON.stringify({ version: 2, animations })),
+    ).toMatchObject({ status: "valid" });
+  });
+
   it("preserves the previous overlap encoding for marker-less TextStagger styles", () => {
     const base = createMotionNativeStyleInstance({
       styleKey: "TextStagger",

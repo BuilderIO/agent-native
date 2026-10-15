@@ -102,7 +102,7 @@ export type MotionTextReadResult =
 const MAX_TEXT_ANIMATIONS = 64;
 const MAX_TEXT_KEYFRAMES = 128;
 const MAX_TEXT_DURATION_MS = 120_000;
-export const MAX_MOTION_TEXT_STAGGER_MS = 5_000;
+export const MAX_MOTION_TEXT_STAGGER_MS = MAX_TEXT_DURATION_MS;
 const MAX_RUNTIME_UNITS = 512;
 const PARAGRAPH_TAGS = new Set([
   "blockquote",
@@ -362,10 +362,7 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       );
     }
     const staggerMs = finiteNumber(raw.staggerMs, `${field}.staggerMs`);
-    const maxStaggerMs =
-      overlapPercent === undefined
-        ? MAX_MOTION_TEXT_STAGGER_MS
-        : MAX_TEXT_DURATION_MS;
+    const maxStaggerMs = MAX_MOTION_TEXT_STAGGER_MS;
     if (staggerMs < 0 || staggerMs > maxStaggerMs) {
       sourceError(
         "invalid-document",

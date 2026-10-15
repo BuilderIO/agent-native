@@ -1069,10 +1069,13 @@ free of motion are unsupported. Importable animations use a positive fixed
 `ms`/`s` duration, a non-negative fixed delay, a Motion-supported easing,
 `animation-fill-mode: both`, one iteration, normal direction, running state,
 replace composition, and static keyframe stops from 0% through 100% with both
-endpoints and one supported property: `opacity`, `transform`, `translate`,
-`scale`, `rotate`, `color`, `background-color`, `border-radius`,
-`border-color`, `border-width`, or `box-shadow`. Each target can have one
-imported animation. Shorthand, multiple animation names, conditional animation
+endpoints and one or more supported properties: `opacity`, `transform`,
+`translate`, `scale`, `rotate`, `color`, `background-color`, `border-radius`,
+`border-color`, `border-width`, or `box-shadow`. Each property needs static 0%
+and 100% endpoints, and duplicate declarations at one stop are unsupported;
+Motion maps properties to parallel tracks with shared target and animation
+timing. Each target can have one imported animation. Shorthand, multiple
+animation names, conditional animation
 definitions, ambiguous targets, CSS variables in keyframe values, and external
 stylesheets are unsupported; the source reader fails closed so Motion does not
 silently discard or flatten them. The exact global
