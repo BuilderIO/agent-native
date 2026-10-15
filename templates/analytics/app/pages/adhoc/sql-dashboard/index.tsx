@@ -1000,6 +1000,10 @@ function SqlDashboardPageContent({
     setDashboardUpdatedBy(null);
     setResourceAccess(null);
     setEditMode(false);
+    // An unfinished rename or description belongs to the dashboard it was
+    // typed on; kept, it would reappear and save onto the next one.
+    setEditingName(false);
+    setEditingDescription(false);
     resetRevisionNavigation();
     revisionRestoreInFlightRef.current = false;
     if (!dashboardId) setLoaded(true);
