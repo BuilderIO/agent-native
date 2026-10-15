@@ -906,7 +906,8 @@ function SqlDashboardPageContent({
   const dashboardShared =
     dashboardVisibility === "org" || dashboardVisibility === "public";
   const trackSave = useDashboardSaveFeedback({
-    dashboardId,
+    // Its Undo works only in edit mode, so leaving edit mode closes the toast.
+    dashboardId: editing ? dashboardId : undefined,
     shared: dashboardShared,
     otherViewers: otherViewerCount(activeUsers, session?.email),
     onUndo: undoLatestSave,
