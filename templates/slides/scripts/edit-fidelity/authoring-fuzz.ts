@@ -281,6 +281,20 @@ function browserSessionClaimId(pathname: string) {
   )?.[1];
 }
 
+function browserSessionHeartbeatId(method: string, pathname: string) {
+  if (method !== "POST") return null;
+  const encodedId =
+    /^\/_agent-native\/browser-sessions\/([^/]+)\/heartbeat$/.exec(
+      pathname,
+    )?.[1];
+  if (!encodedId) return null;
+  try {
+    return decodeURIComponent(encodedId);
+  } catch {
+    return null;
+  }
+}
+
 export function uniquePendingBrowserSessionId(
   claims: readonly { method: string; pathname: string }[],
 ) {
@@ -448,7 +462,11 @@ export function isExpectedSaveReloadWatchedRequestAbort(
 
 function browserSessionNavigationRequestKind(method: string, pathname: string) {
   if (isBrowserSessionClaimRequest(method, pathname)) return "poll" as const;
-  if (method === "POST" && pathname === "/_agent-native/browser-sessions") {
+  if (
+    method === "POST" &&
+    (pathname === "/_agent-native/browser-sessions" ||
+      browserSessionHeartbeatId(method, pathname) !== null)
+  ) {
     return "heartbeat" as const;
   }
   return null;
@@ -474,6 +492,11 @@ export function browserSessionNavigationRequestIdentity(
     return claimSessionId
       ? { status: "identified", kind, sessionId: claimSessionId }
       : null;
+  const heartbeatSessionId = browserSessionHeartbeatId(method, pathname);
+  if (heartbeatSessionId !== null) {
+    return { status: "identified", kind, sessionId: heartbeatSessionId };
+  }
+  if (pathname !== "/_agent-native/browser-sessions") return null;
   if (postData === null) {
     return { status: "invalid", reason: "malformed-registration" };
   }

@@ -5645,18 +5645,6 @@ async function runAuthoringFuzzQa(
       if (identity?.status === "identified") {
         return { kind: identity.kind, sessionId: identity.sessionId };
       }
-      if (request.method() === "POST") {
-        const heartbeatId =
-          /^\/_agent-native\/browser-sessions\/([^/]+)\/heartbeat$/.exec(
-            requestUrl.pathname,
-          )?.[1];
-        if (heartbeatId) {
-          return {
-            kind: "heartbeat",
-            sessionId: decodeURIComponent(heartbeatId),
-          };
-        }
-      }
       return null;
     };
     const isBrowserSessionRequest = (request: any) =>

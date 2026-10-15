@@ -2252,6 +2252,24 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
       "not-json",
     ),
   ).toEqual({ status: "invalid", reason: "malformed-registration" });
+  expect(
+    browserSessionNavigationRequestIdentity(
+      "POST",
+      "/_agent-native/browser-sessions/session%20id/heartbeat",
+      null,
+    ),
+  ).toEqual({
+    status: "identified",
+    kind: "heartbeat",
+    sessionId: "session id",
+  });
+  expect(
+    browserSessionNavigationRequestIdentity(
+      "POST",
+      "/_agent-native/browser-sessions/%E0%A4%A/heartbeat",
+      null,
+    ),
+  ).toBeNull();
 
   const heartbeatAbort = {
     ...claimAbort,
