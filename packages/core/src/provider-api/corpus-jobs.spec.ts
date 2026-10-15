@@ -190,6 +190,16 @@ vi.mock("../server/request-context.js", () => ({
   }),
 }));
 
+const stagedStore = vi.hoisted(() => ({
+  getStagedDatasetRows: vi.fn(),
+  getStagedDatasetMeta: vi.fn(),
+}));
+vi.mock("./staged-datasets-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./staged-datasets-store.js")>()),
+  getStagedDatasetRows: stagedStore.getStagedDatasetRows,
+  getStagedDatasetMeta: stagedStore.getStagedDatasetMeta,
+}));
+
 const { createProviderCorpusJobAction, createProviderCorpusJobReadAction } =
   await import("./corpus-jobs.js");
 const {
@@ -198,6 +208,7 @@ const {
   getProviderCorpusJob,
   appendProviderCorpusJobHits,
   getProviderCorpusJobHits,
+  updateProviderCorpusJob,
 } = await import("./corpus-jobs-store.js");
 
 function providerEnvelope(json: unknown, status = 200) {
@@ -356,6 +367,264 @@ describe("provider corpus jobs", () => {
     expect(second.job.status).toBe("completed");
     expect(second.coverage.batchesProcessed).toBe(2);
     expect(batches).toEqual([["c1", "c2"], ["c3"]]);
+  });
+
+  describe("batch input from a staged dataset", () => {
+    const meta = (updatedAt: number) => ({
+      id: "ds_input",
+      name: "cohort",
+      rowCount: 0,
+      updatedAt,
+    });
+
+    function startFromDataset() {
+      const seen: unknown[] = [];
+      const action = createProviderCorpusJobAction({
+        appId: "analytics",
+        getRuntime: () => ({
+          executeRequest: async (args) => {
+            seen.push((args.body as any).filter.callIds);
+            return providerEnvelope({ callTranscripts: [] });
+          },
+        }),
+      });
+      const run = () =>
+        action.run({
+          operation: "start",
+          name: "transcripts",
+          mode: "batch-search",
+          request: {
+            provider: "fake",
+            method: "POST",
+            path: "/calls/transcript",
+            body: { filter: {} },
+          },
+          batch: {
+            inputDatasetId: "ds_input",
+            batchSize: 5,
+            itemBodyPath: "filter.callIds",
+            responseItemsPath: "callTranscripts",
+          },
+          search: {
+            query: "Figma MCP",
+            textPaths: ["transcript"],
+            idPaths: ["callId"],
+          },
+          limits: { batchBudget: 1 },
+        }) as Promise<any>;
+      return { run, seen };
+    }
+
+    beforeEach(() => {
+      stagedStore.getStagedDatasetRows.mockReset();
+      stagedStore.getStagedDatasetMeta.mockReset();
+    });
+
+    it("fails clearly when the dataset is gone instead of finishing an empty batch", async () => {
+      stagedStore.getStagedDatasetMeta.mockResolvedValue(null);
+      stagedStore.getStagedDatasetRows.mockResolvedValue([]);
+
+      const result = await startFromDataset().run();
+
+      expect(result.job.status).toBe("failed");
+      expect(result.error).toMatch(/was not found/);
+    });
+
+    it("fails when the dataset is evicted between the row read and the version check", async () => {
+      stagedStore.getStagedDatasetMeta
+        .mockResolvedValueOnce(meta(100))
+        .mockResolvedValueOnce(null);
+      stagedStore.getStagedDatasetRows.mockResolvedValue([]);
+
+      const result = await startFromDataset().run();
+
+      expect(result.job.status).toBe("failed");
+      expect(result.error).toMatch(/was not found/);
+    });
+
+    it("reads again when the dataset is re-staged between the row read and the version check", async () => {
+      stagedStore.getStagedDatasetMeta
+        .mockResolvedValueOnce(meta(100))
+        .mockResolvedValueOnce(meta(200))
+        .mockResolvedValue(meta(200));
+      stagedStore.getStagedDatasetRows
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([{ id: "c1" }, { id: "c2" }]);
+
+      const { run, seen } = startFromDataset();
+      await run();
+
+      expect(seen).toEqual([[{ id: "c1" }, { id: "c2" }]]);
+    });
+
+    describe("resuming a paused job", () => {
+      function startPaused() {
+        const seen: unknown[] = [];
+        const action = createProviderCorpusJobAction({
+          appId: "analytics",
+          getRuntime: () => ({
+            executeRequest: async (args) => {
+              seen.push((args.body as any).filter.callIds);
+              return providerEnvelope({ callTranscripts: [] });
+            },
+          }),
+        });
+        const start = () =>
+          action.run({
+            operation: "start",
+            name: "transcripts",
+            mode: "batch-search",
+            request: {
+              provider: "fake",
+              method: "POST",
+              path: "/calls/transcript",
+              body: { filter: {} },
+            },
+            batch: {
+              inputDatasetId: "ds_input",
+              batchSize: 2,
+              itemBodyPath: "filter.callIds",
+              responseItemsPath: "callTranscripts",
+            },
+            search: { query: "Figma MCP", textPaths: ["transcript"] },
+            limits: { batchBudget: 1 },
+          }) as Promise<any>;
+        const resume = (jobId: string) =>
+          action.run({
+            operation: "continue",
+            jobId,
+            limits: { batchBudget: 1 },
+          }) as Promise<any>;
+        return { start, resume, seen };
+      }
+
+      const rows = [{ id: "c1" }, { id: "c2" }, { id: "c3" }];
+
+      it("continues from its saved position while the dataset version is unchanged", async () => {
+        stagedStore.getStagedDatasetMeta.mockResolvedValue(meta(100));
+        stagedStore.getStagedDatasetRows.mockResolvedValue(rows);
+        const { start, resume, seen } = startPaused();
+
+        const first = await start();
+        expect(first.job.status).toBe("paused");
+        const second = await resume(first.job.id);
+
+        expect(second.job.status).toBe("completed");
+        expect(seen).toEqual([[rows[0], rows[1]], [rows[2]]]);
+      });
+
+      it("fails when the same timestamp comes back with a different row count", async () => {
+        stagedStore.getStagedDatasetMeta.mockResolvedValue({
+          ...meta(100),
+          rowCount: 3,
+        });
+        stagedStore.getStagedDatasetRows.mockResolvedValue(rows);
+        const { start, resume } = startPaused();
+        const first = await start();
+
+        stagedStore.getStagedDatasetMeta.mockResolvedValue({
+          ...meta(100),
+          rowCount: 5,
+        });
+        const second = await resume(first.job.id);
+
+        expect(second.job.status).toBe("failed");
+        expect(second.error).toMatch(/re-staged after this job started/);
+      });
+
+      it("fails closed for a saved position whose version was never recorded", async () => {
+        stagedStore.getStagedDatasetMeta.mockResolvedValue(meta(100));
+        stagedStore.getStagedDatasetRows.mockResolvedValue(rows);
+        const { start, resume, seen } = startPaused();
+        const first = await start();
+        await updateProviderCorpusJob({
+          id: first.job.id,
+          appId: "analytics",
+          ownerEmail: "ada@example.com",
+          checkpoint: { nextIndex: 2, sourceItemCount: 3 },
+        });
+
+        const second = await resume(first.job.id);
+
+        expect(second.job.status).toBe("failed");
+        expect(second.error).toMatch(/version was never recorded/);
+        expect(seen).toEqual([[rows[0], rows[1]]]);
+      });
+
+      it("checks the version even when the job paused for quota before any progress", async () => {
+        stagedStore.getStagedDatasetMeta.mockResolvedValue(meta(100));
+        stagedStore.getStagedDatasetRows.mockResolvedValue(rows);
+        const action = createProviderCorpusJobAction({
+          appId: "analytics",
+          getRuntime: () => ({
+            executeRequest: async () =>
+              providerEnvelope(
+                {
+                  error: "provider_quota_exhausted",
+                  retryAt: "2026-06-17T12:00:00.000Z",
+                  retryAfterMs: 60_000,
+                  reason: "cooldown",
+                },
+                429,
+              ),
+          }),
+        });
+        const first = (await action.run({
+          operation: "start",
+          name: "transcripts",
+          mode: "batch-search",
+          request: {
+            provider: "fake",
+            method: "POST",
+            path: "/calls/transcript",
+            body: { filter: {} },
+          },
+          batch: {
+            inputDatasetId: "ds_input",
+            batchSize: 2,
+            itemBodyPath: "filter.callIds",
+            responseItemsPath: "callTranscripts",
+          },
+          search: { query: "Figma MCP", textPaths: ["transcript"] },
+        })) as any;
+        expect(first.job.status).toBe("quota_wait");
+
+        stagedStore.getStagedDatasetMeta.mockResolvedValue(meta(200));
+        const second = (await action.run({
+          operation: "continue",
+          jobId: first.job.id,
+        })) as any;
+
+        expect(second.job.status).toBe("failed");
+        expect(second.error).toMatch(/re-staged after this job started/);
+      });
+
+      it("fails instead of resuming at the old position against a re-staged dataset", async () => {
+        stagedStore.getStagedDatasetMeta.mockResolvedValue(meta(100));
+        stagedStore.getStagedDatasetRows.mockResolvedValue(rows);
+        const { start, resume, seen } = startPaused();
+        const first = await start();
+
+        stagedStore.getStagedDatasetMeta.mockResolvedValue(meta(200));
+        const second = await resume(first.job.id);
+
+        expect(second.job.status).toBe("failed");
+        expect(second.error).toMatch(/re-staged after this job started/);
+        expect(seen).toEqual([[rows[0], rows[1]]]);
+      });
+    });
+
+    it("treats an unchanged empty dataset as no items, not as a failure", async () => {
+      stagedStore.getStagedDatasetMeta.mockResolvedValue(meta(100));
+      stagedStore.getStagedDatasetRows.mockResolvedValue([]);
+
+      const { run, seen } = startFromDataset();
+      const result = await run();
+
+      expect(seen).toEqual([]);
+      expect(result.job.status).not.toBe("failed");
+      expect(result.error ?? null).toBeNull();
+    });
   });
 
   it("pauses with quota_wait and preserves resumable progress", async () => {

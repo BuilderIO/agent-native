@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   contentHistoryEntryFromChanges,
   filterFileDeletionHistoryEntry,
+  insertAtFileOrderIndex,
   partitionContentHistoryEntry,
   pruneGeometryHistoryEntryForDeletedFiles,
   pruneSelectionHistoryStackIds,
@@ -10,6 +11,34 @@ import {
   remapSelectionHistoryStackIds,
   restoreFileContentHistoryOrderToken,
 } from "@/pages/design-editor/history";
+
+describe("restored file order", () => {
+  it.each([-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects unreadable order index %s",
+    (index) => {
+      expect(() =>
+        insertAtFileOrderIndex(["first"], "restored", index),
+      ).toThrow("Invalid file order index");
+    },
+  );
+
+  it("inserts a restored file at its original index without dropping later files", () => {
+    const files = ["first", "third", "created-after-delete"];
+
+    expect(insertAtFileOrderIndex(files, "restored-second", 1)).toEqual([
+      "first",
+      "restored-second",
+      "third",
+      "created-after-delete",
+    ]);
+  });
+
+  it("appends when a deletion history entry has no saved order index", () => {
+    expect(
+      insertAtFileOrderIndex(["first", "second"], "restored", undefined),
+    ).toEqual(["first", "second", "restored"]);
+  });
+});
 
 describe("geometry history selection pruning", () => {
   it("does not restore selection to a screen deleted after the gesture", () => {

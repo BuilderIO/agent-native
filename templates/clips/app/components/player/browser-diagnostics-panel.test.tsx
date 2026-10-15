@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { AppActivityEvent } from "@shared/app-activity";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +20,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, string | number>) => {
     const messages: Record<string, string> = {
       "browserDiagnostics.afterRecording": "After recording",
+      "browserDiagnostics.appData": "Data",
+      "browserDiagnostics.appEvent": "Event",
+      "browserDiagnostics.appFailureSummary": "{{count}} app failures",
+      "browserDiagnostics.appSource": "App activity",
+      "browserDiagnostics.appUnavailable": "App activity could not be loaded.",
+      "browserDiagnostics.beforeRecording": "Before recording",
+      "browserDiagnostics.noAppTitle": "No app activity",
       "browserDiagnostics.browserCapture": "Browser capture",
       "browserDiagnostics.captureSuccessful": "Capture successful",
       "browserDiagnostics.capturedDescription":
@@ -60,6 +68,64 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     );
   },
 }));
+
+const appEvents: AppActivityEvent[] = [
+  {
+    timestampMs: 1,
+    elapsedMs: -800,
+    type: "action",
+    name: "list-folders",
+    ok: false,
+    status: 403,
+    errorCode: "forbidden_scope",
+  },
+  {
+    timestampMs: 2,
+    elapsedMs: 500,
+    type: "action",
+    name: "list-labels",
+    ok: true,
+  },
+  {
+    timestampMs: 3,
+    elapsedMs: 900,
+    type: "action",
+    name: "list-labels",
+    ok: true,
+  },
+  {
+    timestampMs: 4,
+    elapsedMs: 1_200,
+    type: "state",
+    name: "design-selection",
+    data: { opacity: 0.97 },
+  },
+  {
+    timestampMs: 5,
+    elapsedMs: 1_300,
+    type: "state",
+    name: "design-selection",
+    data: { opacity: 0.91 },
+  },
+];
+
+const listedIssueCount =
+  VIEWER_PREVIEW_BROWSER_DIAGNOSTICS.summary.consoleErrorCount +
+  VIEWER_PREVIEW_BROWSER_DIAGNOSTICS.summary.consoleWarnCount +
+  VIEWER_PREVIEW_BROWSER_DIAGNOSTICS.summary.networkFailureCount;
+
+const diagnosticsWithAppActivity = {
+  ...VIEWER_PREVIEW_BROWSER_DIAGNOSTICS,
+  appActivity: {
+    app: "mail",
+    build: "dev",
+    eventCount: appEvents.length,
+    failureCount: 1,
+    dropped: 0,
+    coverage: [{ fromElapsedMs: -30_000, toElapsedMs: 9_000 }],
+    failures: [],
+  },
+};
 
 describe("browser diagnostics data", () => {
   it("adapts the public fixture to the internal relative-time contract", () => {
@@ -112,6 +178,42 @@ describe("browser diagnostics data", () => {
         ),
       ),
     ).toHaveLength(2);
+  });
+
+  it("puts app failures under issues and groups only identical app events", () => {
+    const issues = buildBrowserDiagnosticGroups(
+      VIEWER_PREVIEW_BROWSER_DIAGNOSTICS,
+      "issues",
+      appEvents,
+    ).filter((group) => group.kind === "app");
+    expect(issues.map((group) => group.entries[0].name)).toEqual([
+      "list-folders",
+    ]);
+
+    const app = buildBrowserDiagnosticGroups(
+      VIEWER_PREVIEW_BROWSER_DIAGNOSTICS,
+      "app",
+      appEvents,
+    );
+    expect(
+      app.map((group) =>
+        group.kind === "app"
+          ? [group.entries[0].name, group.entries.length]
+          : group.kind,
+      ),
+    ).toEqual([
+      ["list-folders", 1],
+      ["list-labels", 2],
+      ["design-selection", 1],
+      ["design-selection", 1],
+    ]);
+    expect(
+      buildBrowserDiagnosticGroups(
+        VIEWER_PREVIEW_BROWSER_DIAGNOSTICS,
+        "console",
+        appEvents,
+      ).some((group) => group.kind === "app"),
+    ).toBe(false);
   });
 
   it("formats clip-relative times without implying epoch timestamps", () => {
@@ -250,6 +352,86 @@ describe("BrowserDiagnosticsPanel", () => {
 
     expect(consoleSection?.getAttribute("data-state")).toBe("open");
     expect(consoleSection?.textContent).toContain("No console events");
+  });
+
+  it("shows app activity as its own seekable section, marking lookback rows as before the recording", () => {
+    const onSeek = vi.fn();
+    act(() => {
+      root.render(
+        <BrowserDiagnosticsPanel
+          diagnostics={diagnosticsWithAppActivity}
+          appActivityEvents={{ status: "ready", events: appEvents }}
+          durationMs={VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS}
+          onSeek={onSeek}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("1 app failures");
+    const appSection = container.querySelector(
+      '[data-browser-diagnostics-section="app"]',
+    );
+    expect(appSection?.textContent).toContain("App activity");
+    expect(appSection?.textContent).toContain(String(appEvents.length));
+    act(() => appSection?.querySelector("button")?.click());
+
+    expect(appSection?.textContent).toContain("Before recording");
+    const seekButton = Array.from(
+      appSection?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+    ).find((button) => button.textContent === "0:01.2");
+    act(() => seekButton?.click());
+    expect(onSeek).toHaveBeenCalledWith(1_200);
+
+    const issuesSection = container.querySelector(
+      '[data-browser-diagnostics-section="issues"]',
+    );
+    expect(issuesSection?.querySelector("button")?.textContent).toBe(
+      `Issues${listedIssueCount + 1}`,
+    );
+    act(() => issuesSection?.querySelector("button")?.click());
+    expect(issuesSection?.textContent).toContain("list-folders");
+  });
+
+  it("keeps unreadable app activity distinct from an empty section", () => {
+    act(() => {
+      root.render(
+        <BrowserDiagnosticsPanel
+          diagnostics={diagnosticsWithAppActivity}
+          appActivityEvents={{ status: "failed" }}
+          durationMs={VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS}
+          onSeek={vi.fn()}
+        />,
+      );
+    });
+    const appSection = container.querySelector(
+      '[data-browser-diagnostics-section="app"]',
+    );
+    act(() => appSection?.querySelector("button")?.click());
+
+    expect(appSection?.textContent).toContain(
+      "App activity could not be loaded.",
+    );
+    expect(appSection?.textContent).not.toContain("No app activity");
+    expect(
+      container
+        .querySelector('[data-browser-diagnostics-section="issues"]')
+        ?.querySelector("button")?.textContent,
+    ).toBe(`Issues${listedIssueCount}`);
+  });
+
+  it("leaves out the app section when the recording has no app activity", () => {
+    act(() => {
+      root.render(
+        <BrowserDiagnosticsPanel
+          diagnostics={VIEWER_PREVIEW_BROWSER_DIAGNOSTICS}
+          durationMs={VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS}
+          onSeek={vi.fn()}
+        />,
+      );
+    });
+    expect(
+      container.querySelector('[data-browser-diagnostics-section="app"]'),
+    ).toBeNull();
   });
 
   it("renders the structured timeline before the diagnostic streams", () => {

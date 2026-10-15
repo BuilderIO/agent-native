@@ -63,4 +63,64 @@ describe("staged dataset action factories", () => {
       ownerEmail: "ada@example.com",
     });
   });
+
+  describe("query consistency", () => {
+    const meta = (updatedAt: number) => ({
+      id: "ds-1",
+      name: "records",
+      rowCount: 2,
+      updatedAt,
+    });
+    const query = (runtime: ReturnType<typeof createRuntime>) =>
+      createStagedDatasetActions({
+        appId: "analytics",
+        getOwnerEmail: () => "ada@example.com",
+        runtime,
+      }).query.run({ datasetId: "ds-1" });
+
+    it("answers when the dataset is unchanged after the rows are read", async () => {
+      const runtime = createRuntime();
+      runtime.getMeta.mockResolvedValue(meta(100));
+
+      await expect(query(runtime)).resolves.toMatchObject({ rowCount: 1 });
+      expect(runtime.getMeta).toHaveBeenCalledTimes(2);
+    });
+
+    it("reports an eviction between the metadata and row reads instead of an empty result", async () => {
+      const runtime = createRuntime();
+      runtime.getMeta
+        .mockResolvedValueOnce(meta(100))
+        .mockResolvedValueOnce(null as never);
+      runtime.getRows.mockResolvedValue([]);
+
+      await expect(query(runtime)).rejects.toThrow(
+        /evicted or replaced while it was being read/,
+      );
+      expect(runtime.aggregate).not.toHaveBeenCalled();
+    });
+
+    it("treats a different row count at the same timestamp as a replacement", async () => {
+      const runtime = createRuntime();
+      runtime.getMeta
+        .mockResolvedValueOnce(meta(100))
+        .mockResolvedValueOnce({ ...meta(100), rowCount: 9 });
+
+      await expect(query(runtime)).rejects.toThrow(
+        /evicted or replaced while it was being read/,
+      );
+      expect(runtime.aggregate).not.toHaveBeenCalled();
+    });
+
+    it("reports a re-stage between the reads instead of mixing versions", async () => {
+      const runtime = createRuntime();
+      runtime.getMeta
+        .mockResolvedValueOnce(meta(100))
+        .mockResolvedValueOnce(meta(200));
+
+      await expect(query(runtime)).rejects.toThrow(
+        /evicted or replaced while it was being read/,
+      );
+      expect(runtime.aggregate).not.toHaveBeenCalled();
+    });
+  });
 });

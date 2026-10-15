@@ -6,7 +6,9 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
 import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { noteJobFrontmatterWrite } from "../jobs/frontmatter-loss.js";
 import {
@@ -402,7 +404,6 @@ export interface EffectiveResourceContext {
   layers: EffectiveResourceLayer[];
 }
 
-let _initPromise: Promise<void> | undefined;
 let _lastScratchCleanupAt = 0;
 
 const AGENT_SCRATCH_TTL_MS = 24 * 60 * 60 * 1000;
@@ -1147,21 +1148,7 @@ function scheduleExpiredAgentScratchCleanup(client: DbExec): void {
     });
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = retainRequestDbPoolScope(
-      _doEnsureTable().catch((err) => {
-        _initPromise = undefined;
-        throw err;
-      }),
-    );
-  }
-  return _initPromise;
-}
-
-async function _doEnsureTable(): Promise<void> {
-  const client = getDbExec();
-  const createSql = `
+const RESOURCES_CREATE_SQL = `
     CREATE TABLE IF NOT EXISTS resources (
       id TEXT PRIMARY KEY,
       path TEXT NOT NULL,
@@ -1182,69 +1169,115 @@ async function _doEnsureTable(): Promise<void> {
     )
   `;
 
-  {
-    await ensureTableExists("resources", createSql);
-    const pgColumns: Array<[string, string]> = [
-      ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
-      ["visibility", "TEXT NOT NULL DEFAULT 'workspace'"],
-      ["thread_id", "TEXT"],
-      ["run_id", "TEXT"],
-      ["expires_at", "BIGINT"],
-      ["metadata", "TEXT"],
-    ];
-    for (const [col, def] of pgColumns) {
-      await ensureColumnExists(
-        "resources",
-        col,
-        `ALTER TABLE resources ADD COLUMN IF NOT EXISTS ${col} ${def}`,
-      );
-    }
-  }
+export const resourcesStore = defineStore({
+  id: "resources",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists("resources", RESOURCES_CREATE_SQL);
+        const pgColumns: Array<[string, string]> = [
+          ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
+          ["visibility", "TEXT NOT NULL DEFAULT 'workspace'"],
+          ["thread_id", "TEXT"],
+          ["run_id", "TEXT"],
+          ["expires_at", "BIGINT"],
+          ["metadata", "TEXT"],
+        ];
+        for (const [col, def] of pgColumns) {
+          await ensureColumnExists(
+            "resources",
+            col,
+            `ALTER TABLE resources ADD COLUMN IF NOT EXISTS ${col} ${def}`,
+          );
+        }
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: () =>
+        widenIntColumnsToBigInt("resources", [
+          "created_at",
+          "updated_at",
+          "expires_at",
+        ]),
+    },
+    {
+      name: "visibility-expires-index",
+      run: async () => {
+        await ensureIndexExists(
+          "resources_visibility_expires_idx",
+          `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
+        ).catch((err) => {
+          // At release, fail so the ledger never records an index that was not built.
+          if (isMigrationAuthorizedRuntime()) throw err;
+          // An index is an optimization, not a correctness requirement: a
+          // concurrent creator or a permissions edge must not fail table init and
+          // take the app down with it. The scan it avoids is slow, not wrong — but
+          // say so, because "silently slow forever" is the outcome nobody notices.
+          // coercion-ok: absence of an index degrades latency, never correctness
+          console.warn(
+            "[resources] could not ensure resources_visibility_expires_idx; scratch cleanup will full-scan:",
+            (err as Error)?.message ?? err,
+          );
+        });
+      },
+    },
+    {
+      name: "path-pattern-index",
+      run: async () => {
+        // The (path, owner) unique index uses the default operator class, which a
+        // prefix LIKE cannot use under a non-C collation; the trigger dispatcher
+        // reads jobs/ by prefix every few seconds.
+        //
+        // NOT built CONCURRENTLY: this ensure path runs at release over the pooled
+        // Neon endpoint, where a transaction-pooled connection returns from
+        // `CREATE INDEX CONCURRENTLY` without creating anything (see the matching
+        // note in chat-threads/store.ts). A plain build is the form that lands.
+        await ensureIndexExists(
+          "resources_path_pattern_idx",
+          `CREATE INDEX IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
+        ).catch((err) => {
+          if (isMigrationAuthorizedRuntime()) throw err;
+          // coercion-ok: absence of an index degrades latency, never correctness
+          console.warn(
+            "[resources] could not ensure resources_path_pattern_idx; prefix reads such as the jobs/ fingerprint will full-scan:",
+            (err as Error)?.message ?? err,
+          );
+        });
+      },
+    },
+  ],
+});
 
-  await widenIntColumnsToBigInt("resources", [
-    "created_at",
-    "updated_at",
-    "expires_at",
-  ]);
+let _defaultResourcesSeed: Promise<void> | undefined;
+let _sharedLearnSharedMigration: Promise<void> | undefined;
 
-  await ensureIndexExists(
-    "resources_visibility_expires_idx",
-    `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
+export async function ensureTable(): Promise<void> {
+  await resourcesStore.ready();
+  // Kept out of the store ledger: the seed's marker is versioned by
+  // RESOURCE_SEED_VERSION so a bump re-seeds, which a one-time ledger entry
+  // would never do.
+  _defaultResourcesSeed ??= retainRequestDbPoolScope(
+    seedDefaultResources(getDbExec()),
   ).catch((err) => {
-    // An index is an optimization, not a correctness requirement: a
-    // concurrent creator or a permissions edge must not fail table init and
-    // take the app down with it. The scan it avoids is slow, not wrong — but
-    // say so, because "silently slow forever" is the outcome nobody notices.
-    // coercion-ok: absence of an index degrades latency, never correctness
-    console.warn(
-      "[resources] could not ensure resources_visibility_expires_idx; scratch cleanup will full-scan:",
-      (err as Error)?.message ?? err,
-    );
+    _defaultResourcesSeed = undefined;
+    throw err;
   });
+  await _defaultResourcesSeed;
+  // Also kept out of the ledger: it has its own durable marker, and a failure
+  // must leave resources usable and retry in a later process.
+  _sharedLearnSharedMigration ??= retainRequestDbPoolScope(
+    migrateSharedLearnSharedDefault(getDbExec()),
+  );
+  await _sharedLearnSharedMigration;
+}
 
-  // The (path, owner) unique index uses the default operator class, which a
-  // prefix LIKE cannot use under a non-C collation; the trigger dispatcher
-  // reads jobs/ by prefix every few seconds.
-  //
-  // NOT built CONCURRENTLY: this ensure path runs at release over the pooled
-  // Neon endpoint, where a transaction-pooled connection returns from
-  // `CREATE INDEX CONCURRENTLY` without creating anything (see the matching
-  // note in chat-threads/store.ts). A plain build is the form that lands.
-  await ensureIndexExists(
-    "resources_path_pattern_idx",
-    `CREATE INDEX IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
-  ).catch((err) => {
-    // coercion-ok: absence of an index degrades latency, never correctness
-    console.warn(
-      "[resources] could not ensure resources_path_pattern_idx; prefix reads such as the jobs/ fingerprint will full-scan:",
-      (err as Error)?.message ?? err,
-    );
-  });
-
-  // Migrate both shipped paths without touching edited copies. The legacy
-  // path wins duplicate-name resolution in existing workspaces.
-  // This marker stays separate from the shared seed version so it cannot
-  // resurrect deleted defaults or rerun personal seeding.
+// Migrate both shipped paths without touching edited copies. The legacy
+// path wins duplicate-name resolution in existing workspaces.
+// This marker stays separate from the shared seed version so it cannot
+// resurrect deleted defaults or rerun personal seeding.
+async function migrateSharedLearnSharedDefault(client: DbExec): Promise<void> {
   try {
     if (!(await alreadySeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY))) {
       let migrationComplete = true;
@@ -1278,11 +1311,13 @@ async function _doEnsureTable(): Promise<void> {
       (err as Error)?.message ?? err,
     );
   }
+}
 
+async function seedDefaultResources(client: DbExec): Promise<void> {
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid
   // race conditions).
   //
-  // Guarded by a durable marker: `_doEnsureTable` runs once per PROCESS, which on
+  // Guarded by a durable marker: this seed used to run once per PROCESS, which on
   // serverless is once per cold start, so this block was issuing ~10 writes and
   // 2 migration scans per container to insert rows that had existed since day
   // one (53,785 of them in one production sample). The marker makes it once per

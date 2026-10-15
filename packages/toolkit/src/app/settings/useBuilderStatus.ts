@@ -1410,6 +1410,7 @@ export function useBuilderConnectFlow(
               reason: result.code,
               source: clickTrackingSource,
               flow: trackedFlow,
+              connect_url_kind: "provision",
             });
           }
           if (statusReadFailed) return;

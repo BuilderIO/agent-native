@@ -47,8 +47,11 @@ import {
   type MotionEasingVariable,
 } from "../shared/motion-easing.js";
 import {
+  assertMotionHtmlSourceTargets,
   applyMotionHtmlSourceEdit,
+  instrumentMotionHtmlPreviewSource,
   MotionHtmlSourceError,
+  removeUnversionedManagedMotionStyle,
   readMotionHtmlSource,
 } from "../shared/motion-html-source.js";
 import {
@@ -552,7 +555,18 @@ export default defineAction({
   description:
     "Apply one Motion timeline to its Design source and return the timeline id " +
     "and compiled source hash, preserving omitted Text, audio, saved-style, " +
-    "and native Figma style data.",
+    "and native style data. On inline HTML or React JSX, a supported static " +
+    "CSS animation is adopted on write: Motion moves its animation " +
+    "declarations and @keyframes into the managed CSS while preserving " +
+    "unrelated declarations. React imports one lossless static JSX <style> " +
+    "text or string/template literal with no substitutions when its animation " +
+    "uses one static id selector matching one JSX host. JSX <style> CSS is " +
+    "global, so this relies on the normal document-unique id contract. Dynamic " +
+    "style elements and unresolved style props fail closed. This does not " +
+    "import external CSS, JSX style-prop animations/transitions, or JavaScript " +
+    "runtime animations such as GSAP, Web Animations API calls, or Alpine " +
+    "x-transition directives; unsupported CSS " +
+    "is left unchanged and fails closed.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     fileId: z
@@ -580,6 +594,7 @@ export default defineAction({
         connectionId: z.string().min(1),
         modulePath: z.string().min(1),
         moduleVersionHash: z.string().regex(/^[a-f0-9]{64}$/i),
+        timelineVersionHash: z.string().regex(/^[a-f0-9]{64}$/i),
         renderedNodeIds: z.array(z.string()).max(2048).optional(),
       })
       .strict()
@@ -587,7 +602,9 @@ export default defineAction({
       .describe(
         "Local React/JSX or linked HTML source snapshot from the Vite dev preview. The source " +
           "module path and SHA-256 hash are checked against the selected " +
-          "localhost file before writeback. renderedNodeIds is an optional " +
+          "localhost file before writeback. timelineVersionHash must still " +
+          "match that preview version so dirty edits cannot overwrite code " +
+          "changed since the timeline was opened. renderedNodeIds is an optional " +
           "legacy hint and is not used to authorize targets; target identity " +
           "is resolved from the live React or HTML source.",
       ),
@@ -907,6 +924,12 @@ export default defineAction({
           { errorCode: "motion_local_source_stale_preview", statusCode: 409 },
         );
       }
+      if (localSourceInput.timelineVersionHash !== live.versionHash) {
+        fail(
+          "The React or HTML Motion source changed after the timeline was loaded. Refresh Motion before saving so code edits are not overwritten.",
+          { errorCode: "motion_local_source_stale_timeline", statusCode: 409 },
+        );
+      }
       currentContent = live.content;
       baseVersionHash = live.versionHash;
       localBridgeVersionHash = live.versionHash;
@@ -933,15 +956,52 @@ export default defineAction({
     );
     const currentReactRead =
       localSourceLocation && !isLocalHtmlSource
-        ? readMotionReactSource(currentContent)
+        ? readMotionReactSource(currentContent, localSourceLocation.filePath)
         : null;
     if (currentReactRead?.status === "invalid") {
       failMotionReactSourceError(currentReactRead.error);
     }
-    const currentHtmlRead = isLocalHtmlSource
-      ? readMotionHtmlSource(currentContent)
-      : null;
-    if (currentHtmlRead?.status === "invalid") {
+    const currentHtmlRead =
+      (isLocalHtmlSource && localSourceLocation) || isInlineHtml
+        ? readMotionHtmlSource(
+            currentContent,
+            localSourceLocation?.filePath ?? file.filename,
+          )
+        : null;
+    const legacyInlineMotionCss =
+      isInlineHtml &&
+      currentHtmlRead?.status === "invalid" &&
+      currentHtmlRead.error.code === "invalid-managed-style"
+        ? extractManagedMotionCss(currentContent)
+        : null;
+    const isLegacyInlineManagedMotion = Boolean(
+      legacyInlineMotionCss &&
+      decodeMotionCodeMetadata(legacyInlineMotionCss).status === "absent",
+    );
+    let inlineHtmlSourceForWrite = currentContent;
+    let legacyAuthoredTracks: MotionTrack[] = [];
+    if (isLegacyInlineManagedMotion) {
+      try {
+        inlineHtmlSourceForWrite =
+          removeUnversionedManagedMotionStyle(currentContent);
+      } catch (error) {
+        if (error instanceof MotionHtmlSourceError) {
+          failMotionHtmlSourceError(error);
+        }
+        throw error;
+      }
+      const legacySourceRead = readMotionHtmlSource(
+        inlineHtmlSourceForWrite,
+        file.filename,
+      );
+      if (legacySourceRead.status === "invalid") {
+        failMotionHtmlSourceError(legacySourceRead.error);
+      }
+      if (legacySourceRead.status === "valid") {
+        legacyAuthoredTracks = legacySourceRead.document?.tracks ?? [];
+      }
+    }
+    if (currentHtmlRead?.status === "invalid" && !isLegacyInlineManagedMotion) {
       failMotionHtmlSourceError(currentHtmlRead.error);
     }
     const currentTextRead = isInlineHtml
@@ -1116,7 +1176,34 @@ export default defineAction({
       }
     }
 
-    const inputTracks = tracks as MotionTrack[];
+    const requestedTracks = tracks as MotionTrack[];
+    const requestedTrackKeys = new Set(
+      requestedTracks.map((track) =>
+        motionTrackKey(track.targetNodeId, track.property),
+      ),
+    );
+    const overlappingLegacyAuthoredTrack = legacyAuthoredTracks.find((track) =>
+      requestedTrackKeys.has(
+        motionTrackKey(track.targetNodeId, track.property),
+      ),
+    );
+    if (overlappingLegacyAuthoredTrack) {
+      failMotionHtmlSourceError(
+        new MotionHtmlSourceError(
+          "unsupported-authored-motion",
+          `Legacy managed Motion and authored HTML CSS both define the ${overlappingLegacyAuthoredTrack.property} track on target "${overlappingLegacyAuthoredTrack.targetNodeId}". Remove one source animation before saving.`,
+        ),
+      );
+    }
+    const inputTracks = [
+      ...requestedTracks,
+      ...legacyAuthoredTracks.filter(
+        (track) =>
+          !requestedTrackKeys.has(
+            motionTrackKey(track.targetNodeId, track.property),
+          ),
+      ),
+    ];
 
     if (
       inputTracks.length === 0 &&
@@ -1126,7 +1213,7 @@ export default defineAction({
       nativeStyles.length === 0
     ) {
       fail(
-        "A timeline with no CSS tracks must contain a Text animation, a saved Motion style, or a native Figma style.",
+        "A timeline with no CSS tracks must contain a Text animation, a saved Motion style, or a native style instance.",
         {
           errorCode: "motion_text_source_required",
           statusCode: 422,
@@ -1212,6 +1299,38 @@ export default defineAction({
       updatedAt: now,
     };
 
+    if (isInlineHtml && !canPatchManagedMotionCss(currentContent)) {
+      fail(
+        `${MOTION_SOURCE_WRITE_UNAVAILABLE}: Motion code writes currently work only in inline HTML designs.`,
+        {
+          errorCode: MOTION_SOURCE_WRITE_UNAVAILABLE,
+          statusCode: 422,
+        },
+      );
+    }
+    if (isLegacyInlineManagedMotion) {
+      try {
+        assertMotionHtmlSourceTargets({
+          source: currentContent,
+          sourceFilePath: file.filename,
+          targetNodeIds: [
+            ...new Set([
+              ...typedTracks.map((track) => track.targetNodeId),
+              ...nativeStyles.map((style) => style.targetNodeId),
+              ...(runtimeTextDocument?.animations.map(
+                (animation) => animation.targetNodeId,
+              ) ?? []),
+            ]),
+          ],
+        });
+      } catch (error) {
+        if (error instanceof MotionHtmlSourceError) {
+          failMotionHtmlSourceError(error);
+        }
+        throw error;
+      }
+    }
+
     let reactSourceEdit: ReturnType<typeof applyMotionReactSourceEdit> | null =
       null;
     let htmlSourceEdit: ReturnType<typeof applyMotionHtmlSourceEdit> | null =
@@ -1267,6 +1386,35 @@ export default defineAction({
         throw new Error("Motion source adapter did not return an edit.");
       }
       compiled = { css: sourceEdit.css, hash: sourceEdit.hash };
+    } else if (isInlineHtml) {
+      try {
+        const preview = instrumentMotionHtmlPreviewSource({
+          source: inlineHtmlSourceForWrite,
+          sourceFilePath: file.filename,
+        });
+        htmlSourceEdit = applyMotionHtmlSourceEdit({
+          currentSource: inlineHtmlSourceForWrite,
+          expectedSource: inlineHtmlSourceForWrite,
+          preview: { sourceHash: preview.sourceHash },
+          sourceFilePath: file.filename,
+          timeline: sourceTimeline,
+          textDocument: runtimeTextDocument,
+          easingVariables,
+          audioClips: sourceAudioClips,
+        });
+      } catch (error) {
+        if (error instanceof MotionHtmlSourceError) {
+          failMotionHtmlSourceError(error);
+        }
+        if (error instanceof MotionNativeStyleRuntimeError) {
+          fail(error.message, {
+            errorCode: `motion_native_style_${error.code.replace(/-/g, "_")}`,
+            statusCode: 422,
+          });
+        }
+        throw error;
+      }
+      compiled = { css: htmlSourceEdit.css, hash: htmlSourceEdit.hash };
     } else {
       try {
         compiled = compileMotionCode(sourceTimeline, {

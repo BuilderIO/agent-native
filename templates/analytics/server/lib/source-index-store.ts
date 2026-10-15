@@ -19,6 +19,13 @@ export type SourceIndexFreshness = {
   stale: boolean;
 };
 
+export type SourceIndexSourcesFreshness = {
+  sourceCount: number;
+  unknownTimestampCount: number;
+  staleSourceCount: number;
+  fresh: boolean;
+};
+
 export function sourceIndexFreshness(
   generatedAt: string,
   now = Date.now(),
@@ -35,6 +42,37 @@ export function sourceIndexFreshness(
     ageDays,
     staleAfterDays: SOURCE_INDEX_STALE_AFTER_DAYS,
     stale: ageDays >= SOURCE_INDEX_STALE_AFTER_DAYS,
+  };
+}
+
+export function sourceIndexSourcesFreshness(
+  bundle: SourceIndexBundle,
+  now = Date.now(),
+): SourceIndexSourcesFreshness {
+  let unknownTimestampCount = 0;
+  let staleSourceCount = 0;
+  const activeSources = bundle.sources.filter(
+    (source) => source.status !== "deprecated",
+  );
+
+  for (const source of activeSources) {
+    if (!source.generatedAt) {
+      unknownTimestampCount += 1;
+      continue;
+    }
+    if (sourceIndexFreshness(source.generatedAt, now).stale) {
+      staleSourceCount += 1;
+    }
+  }
+
+  return {
+    sourceCount: activeSources.length,
+    unknownTimestampCount,
+    staleSourceCount,
+    fresh:
+      activeSources.length > 0 &&
+      unknownTimestampCount === 0 &&
+      staleSourceCount === 0,
   };
 }
 
@@ -166,16 +204,12 @@ export function mergeSourceIndexBundles(
     ...source,
     id: sourceIdMap.get(source.id) ?? source.id,
     sourceKind: source.sourceKind ?? sourceKind(update, source.id),
-    generatedAt: source.generatedAt ?? update.generatedAt,
+    status: "active" as const,
   }));
   const replacedSourceIds = new Set(updatedSources.map((source) => source.id));
-  const preservedSources = current.sources
-    .filter((source) => !replacedSourceIds.has(source.id))
-    .map((source) => ({
-      ...source,
-      generatedAt: source.generatedAt ?? current.generatedAt,
-    }));
-  const sources = [...preservedSources, ...updatedSources];
+  const preservedSources = current.sources.filter(
+    (source) => !replacedSourceIds.has(source.id),
+  );
   const preservedEntries = current.entries.filter(
     (entry) => !replacedSourceIds.has(entry.source),
   );
@@ -197,6 +231,14 @@ export function mergeSourceIndexBundles(
       )
       .map((source) => source.id),
   );
+  const sources = [
+    ...preservedSources.map((source) =>
+      retiredDbtSourceIds.has(source.id)
+        ? { ...source, status: "deprecated" as const }
+        : source,
+    ),
+    ...updatedSources,
+  ];
   const retainedEntries = preservedEntries.map((entry) =>
     retiredDbtSourceIds.has(entry.source)
       ? { ...entry, status: "deprecated" as const }
@@ -224,12 +266,15 @@ export function mergeSourceIndexBundles(
       return { ...entry, id, source };
     }),
   ];
-  const generatedAt = sources.reduce((latest, source) => {
-    const sourceGeneratedAt = source.generatedAt ?? update.generatedAt;
-    return Date.parse(sourceGeneratedAt) > Date.parse(latest)
-      ? sourceGeneratedAt
-      : latest;
-  }, current.generatedAt);
+  const generatedAt = [
+    current.generatedAt,
+    update.generatedAt,
+    ...sources.flatMap((source) =>
+      source.generatedAt ? [source.generatedAt] : [],
+    ),
+  ].reduce((latest, candidate) =>
+    Date.parse(candidate) > Date.parse(latest) ? candidate : latest,
+  );
   // Existing scan counts describe the entire old bundle, so they cannot be
   // combined accurately after replacing only one source.
   const merged: SourceIndexBundle = {
@@ -293,12 +338,12 @@ export function sourceIndexDictionaryEntries(
   );
 
   return bundle.entries.map((entry: SourceIndexEntry) => {
-    const entryGeneratedAt =
-      generatedAtBySource.get(entry.source) ?? bundle.generatedAt;
-    const entryFreshness =
-      entryGeneratedAt === bundle.generatedAt
+    const entryGeneratedAt = generatedAtBySource.get(entry.source);
+    const entryFreshness = entryGeneratedAt
+      ? entryGeneratedAt === bundle.generatedAt
         ? freshness
-        : sourceIndexFreshness(entryGeneratedAt, now);
+        : sourceIndexFreshness(entryGeneratedAt, now)
+      : null;
 
     return {
       id: `index-${entry.id}`,
@@ -334,11 +379,13 @@ export function sourceIndexDictionaryEntries(
         : {}),
       sourcePath: entry.sourcePath ?? "",
       sourceRevision: entry.sourceRevision ?? "",
-      sourceIndexGeneratedAt: entryGeneratedAt,
+      ...(entryGeneratedAt ? { sourceIndexGeneratedAt: entryGeneratedAt } : {}),
       sourceIndexSources: sourceRevisions,
-      sourceIndexAgeDays: entryFreshness.ageDays,
-      sourceIndexStaleAfterDays: entryFreshness.staleAfterDays,
-      sourceIndexStale: entryFreshness.stale,
+      ...(entryFreshness ? { sourceIndexAgeDays: entryFreshness.ageDays } : {}),
+      sourceIndexStaleAfterDays:
+        entryFreshness?.staleAfterDays ?? freshness.staleAfterDays,
+      sourceIndexStale: entryFreshness?.stale ?? true,
+      sourceIndexFreshnessUnknown: entryFreshness === null,
       sourceIndex: true,
       approved: false,
       aiGenerated: true,

@@ -912,6 +912,46 @@ describe("provider API runtime", () => {
     expect(headers).not.toHaveProperty("Authorization");
   });
 
+  it("drops method-override headers so a GET cannot be tunneled to a write", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "CLAY_PUBLIC_API_KEY" ? "clay-test-example-key" : null,
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["clay"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "clay",
+      path: "/me",
+      headers: {
+        "X-HTTP-Method-Override": "DELETE",
+        "x-http-method": "DELETE",
+        "X-Method-Override": "DELETE",
+        "X-Request-Id": "keep-me",
+      },
+    });
+
+    const headers = (fetchMock.mock.calls.at(-1)?.[1]?.headers ?? {}) as Record<
+      string,
+      string
+    >;
+    const names = Object.keys(headers).map((name) => name.toLowerCase());
+    expect(names).not.toContain("x-http-method-override");
+    expect(names).not.toContain("x-http-method");
+    expect(names).not.toContain("x-method-override");
+    expect(names).toContain("x-request-id");
+  });
+
   it("prefers Figma OAuth and falls back to a scoped PAT", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     fetchMock.mockImplementation(

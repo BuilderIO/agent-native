@@ -269,6 +269,22 @@ que se va y otra que aparece. Las aprobaciones de "Permitir siempre" siguen al
 nombre de la herramienta, así que se mantienen cuando ese mismo nombre pasa a
 significar algo nuevo.
 
+Establece `revision` en una entrada para evitarlo: las aprobaciones de una sola
+vez y "Permitir siempre" registran la revisión para la que se dieron, y una
+revisión distinta vuelve a preguntar al usuario.
+Un controlador personalizado de "Permitir siempre" debe pasar el `askId` de la
+aprobación a `set-tool-approval-policy` como `approvalId`; sin él, la concesión
+solo cubre las entradas que no tienen revisión.
+
+Una llamada a una herramienta que la conversación usó o cargó antes, pero que esta
+ejecución ya no tiene, falla con `Error: Tool no longer available` en lugar de
+`Unknown tool`, y una ejecución que empieza después de que desaparecieran
+herramientas cargadas le indica al modelo cuáles. Si el usuario había aprobado esa
+llamada, la ejecución se detiene en lugar de dejar que el modelo continúe sin
+ella. En el chat, el callback también recibe `threadId`, `requestedTurnId` e
+`internalContinuation`, de modo que una app que quiera un único conjunto de
+herramientas para todo un turno pueda mantener su propia instantánea.
+
 Estas entradas son herramientas nativas solo para el bucle del agente. Igual que
 las herramientas MCP de quien llama, no son accesibles desde `run-code` ni
 `tool-orchestration`.

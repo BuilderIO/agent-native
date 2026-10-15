@@ -8,7 +8,7 @@ import { dispatchActions } from "../actions/index.js";
 import type { DispatchConfig } from "../config.js";
 import { dispatchAccessDescriptor } from "../shared/app-roles.js";
 
-defineAppRoles(dispatchAccessDescriptor);
+defineAppRoles(dispatchAccessDescriptor, { allowOrgAdmins: true });
 
 registerPackageActions(dispatchActions);
 

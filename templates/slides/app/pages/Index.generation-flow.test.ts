@@ -37,8 +37,10 @@ describe("new deck generation flow", () => {
     expect(source).toContain("<LazyChunkErrorBoundary");
   });
 
-  it("opens the generating editor before persistence and dynamic questions", () => {
-    const persistIndex = flow.indexOf("await ensureDeckPersisted(deck.id)");
+  it("persists prompt context before opening the generating editor", () => {
+    const persistIndex = flow.indexOf(
+      "persisted = await ensureDeckPersisted(deckId)",
+    );
     const openEditorIndex = flow.indexOf(
       "generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}",
     );
@@ -46,7 +48,7 @@ describe("new deck generation flow", () => {
 
     expect(persistIndex).toBeGreaterThan(-1);
     expect(openEditorIndex).toBeGreaterThan(-1);
-    expect(openEditorIndex).toBeLessThan(persistIndex);
+    expect(persistIndex).toBeLessThan(openEditorIndex);
     expect(flow).toContain(
       "generation_attempt_id=${encodeURIComponent(generationAttemptId)}",
     );
@@ -56,8 +58,14 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("recoverFromGenerationSetupFailure");
   });
 
-  it("defers new empty deck persistence until generation setup is ready", () => {
+  it("persists new decks before context setup and preserves source import ordering", () => {
     const createIndex = flow.indexOf("deck = createDeck(undefined, {");
+    const initialContextIndex = flow.indexOf(
+      "generationContext: { ...initialGenerationContext }",
+    );
+    const initialPersistenceIndex = flow.indexOf(
+      "persisted = await ensureDeckPersisted(deckId)",
+    );
     const validationIndex = flow.indexOf("validateUploadedDeckImport(");
     const hydrationIndex = flow.indexOf("await hydrateReferenceDocuments(");
     const contextLoadIndex = flow.indexOf(
@@ -67,12 +75,8 @@ describe("new deck generation flow", () => {
       "await ensureDeckPersisted(deck.id)",
     );
     const sourceImportIndex = flow.indexOf("await importUploadedDeckIntoDeck(");
-    const contextIndex = flow.indexOf(
-      "updateDeck(deckId, { generationContext:",
-    );
-    const latePersistenceIndex = flow.indexOf(
-      "const persisted = await ensureDeckPersisted(deckId)",
-      contextIndex,
+    const finalContextPersistenceIndex = flow.indexOf(
+      "await persistDeckGenerationContext(deckId, generationContext)",
     );
 
     expect(createIndex).toBeGreaterThan(-1);
@@ -82,15 +86,16 @@ describe("new deck generation flow", () => {
     expect(flow.slice(createIndex, createIndex + 260)).toContain(
       "undoableCreation: false",
     );
-    expect(validationIndex).toBeGreaterThan(createIndex);
+    expect(initialContextIndex).toBeGreaterThan(createIndex);
+    expect(initialContextIndex).toBeLessThan(initialPersistenceIndex);
+    expect(initialPersistenceIndex).toBeLessThan(hydrationIndex);
+    expect(validationIndex).toBeGreaterThan(initialPersistenceIndex);
     expect(validationIndex).toBeLessThan(hydrationIndex);
-    expect(contextIndex).toBeGreaterThan(hydrationIndex);
     expect(hydrationIndex).toBeLessThan(sourcePersistenceIndex);
     expect(contextLoadIndex).toBeLessThan(sourcePersistenceIndex);
-    expect(latePersistenceIndex).toBeGreaterThan(contextIndex);
     expect(sourcePersistenceIndex).toBeGreaterThan(-1);
     expect(sourceImportIndex).toBeGreaterThan(sourcePersistenceIndex);
-    expect(sourceImportIndex).toBeLessThan(contextIndex);
+    expect(sourceImportIndex).toBeLessThan(finalContextPersistenceIndex);
     expect(flow).toContain("if (sourceImprovementRequest)");
   });
 

@@ -110,6 +110,7 @@ const syntheticData = vi.hoisted(() => {
         {
           id: "fixture_warehouse",
           contentFingerprint: "a".repeat(64),
+          generatedAt,
         },
       ],
       entries: [
@@ -176,6 +177,22 @@ const syntheticData = vi.hoisted(() => {
           table: "fixture_warehouse.monthly_workspace_users_by_role",
           columnsUsed: "month_start, organization_id, role_code, user_count",
           sourcePath: "fixtures/models/monthly_workspace_users_by_role.sql",
+        },
+        {
+          id: "fixture-generated-monthly-workspace-membership",
+          metric: "Monthly Workspace Membership",
+          definition:
+            "Monthly aggregate of workspace membership counts, with one row per month and workspace.",
+          source: "fixture_warehouse",
+          sourceKind: "dbt",
+          entryType: "model",
+          status: "active",
+          semanticScope: "membership",
+          grain: "One row per month per workspace",
+          primaryEntity: "workspace membership aggregate",
+          table: "fixture_warehouse.monthly_workspace_memberships",
+          columnsUsed: "month, workspace_id, member_count",
+          sourcePath: "fixtures/models/monthly_workspace_memberships.sql",
         },
         {
           id: "fixture-product-activity-events",
@@ -256,8 +273,13 @@ const storage = vi.hoisted(() => ({
     const includeAliasedRoster =
       syntheticData.activeCaseId ===
       "aliased-membership-keys-preserve-roster-grain";
+    const includeAggregateOnlyMembership =
+      syntheticData.activeCaseId === "aggregate-only-membership-abstains";
     const entries = bundle.entries
       .filter((entry) => {
+        if (includeAggregateOnlyMembership) {
+          return entry.id === "fixture-generated-monthly-workspace-membership";
+        }
         if (includeAliasedRoster) {
           return entry.id === "fixture-aliased-workspace-member-roster";
         }
@@ -283,6 +305,14 @@ const storage = vi.hoisted(() => ({
     return {
       ...bundle,
       entries,
+      scanSummary: includeAggregateOnlyMembership
+        ? {
+            unsafeEntriesOmitted: 0,
+            unsafeFieldsOmitted: 0,
+            truncatedFields: 0,
+            unresolvedTrackingCallSites: 0,
+          }
+        : bundle.scanSummary,
     };
   }),
   listOrgSettings: vi.fn(async (orgId: string, prefix: string) => {
@@ -290,6 +320,9 @@ const storage = vi.hoisted(() => ({
       throw new Error("Synthetic fixture received an unexpected org scope.");
     }
     if (prefix !== "data-dict-") return {};
+    if (syntheticData.activeCaseId === "aggregate-only-membership-abstains") {
+      return {};
+    }
     if (
       syntheticData.activeCaseId ===
       "aliased-membership-keys-preserve-roster-grain"
@@ -382,12 +415,12 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v21";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v24";
 const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
 const APPROVED_STALE_INDEX_CASE_ID =
   "approved-stale-generated-entry-yields-to-current-roster";
 const STALE_INDEX_GENERATED_AT = "2000-01-01T00:00:00.000Z";
-const BASELINE_GIT_REVISION = "8961aeb5a901eb8be8e821c10b957fa9203796c7";
+const BASELINE_GIT_REVISION = "757e1dd35809cce59999f5e54762151c00750a6b";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
@@ -408,7 +441,7 @@ const IDENTITY: EvalProductionIdentity = {
 type SyntheticCase = {
   id: string;
   prompt: string;
-  expectedTable: string;
+  expectedTable: string | null;
 };
 
 const SYNTHETIC_CASES: readonly SyntheticCase[] = [
@@ -509,6 +542,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     expectedTable: "fixture_warehouse.workspace_membership_bridge",
   },
   {
+    id: "aggregate-only-membership-abstains",
+    prompt:
+      "Workspace membership. Metadata only; do not report live counts or values.",
+    expectedTable: null,
+  },
+  {
     id: "aliased-membership-keys-preserve-roster-grain",
     prompt:
       "Find the catalog reference for a current workspace member roster with role detail. Metadata only; do not report live counts or values.",
@@ -564,10 +603,13 @@ type SafeReasonCode =
   | "candidate_missing"
   | "production_path_failed"
   | "find_data_missing"
+  | "find_data_multiple_calls"
   | "unexpected_action"
   | "action_failed"
   | "usage_missing"
-  | "guard_not_applied";
+  | "guard_not_applied"
+  | "no_match_expected"
+  | "unexpected_match";
 
 type EvalPhase = "before" | "after";
 
@@ -625,10 +667,13 @@ const SAFE_REASON_CODES = new Set<SafeReasonCode>([
   "candidate_missing",
   "production_path_failed",
   "find_data_missing",
+  "find_data_multiple_calls",
   "unexpected_action",
   "action_failed",
   "usage_missing",
   "guard_not_applied",
+  "no_match_expected",
+  "unexpected_match",
 ]);
 
 function requestedEvalPhase(requested: string | undefined): EvalPhase {
@@ -735,6 +780,8 @@ const SOURCE_FILES = [
   new URL("../../server/lib/data-dictionary-context.ts", import.meta.url),
   new URL("../../server/lib/source-index-store.ts", import.meta.url),
   new URL("../../server/lib/source-index-schema.ts", import.meta.url),
+  new URL("../../scripts/build-source-index.ts", import.meta.url),
+  new URL("../../scripts/sigma-source-index.ts", import.meta.url),
   new URL("../../server/plugins/agent-chat.ts", import.meta.url),
   new URL(
     "../../../../packages/core/src/agent/production-agent.ts",
@@ -908,8 +955,9 @@ function getToolResult(output: AgentRunOutput): Record<string, unknown> | null {
 
 function expectedCandidateRank(
   output: AgentRunOutput,
-  expectedTable: string,
+  expectedTable: string | null,
 ): number | null {
+  if (expectedTable === null) return null;
   const result = getToolResult(output);
   const candidates = result?.results;
   if (!Array.isArray(candidates)) return null;
@@ -930,6 +978,60 @@ function actionCounts(output: AgentRunOutput) {
       .length,
     failedActionCalls: details.filter((call) => call.isError === true).length,
   };
+}
+
+function hasCompleteEmptyDictionarySearch(
+  findDataCallCount: number,
+  result: Record<string, unknown> | null,
+): boolean {
+  if (findDataCallCount !== 1 || !result || !Array.isArray(result.results)) {
+    return false;
+  }
+  const coverage = result.sourceIndexScanCoverage;
+  const freshness = result.sourceIndexFreshness;
+  const sourcesFreshness = result.sourceIndexSourcesFreshness;
+  const coverageFields = [
+    "unsafeEntriesOmitted",
+    "unsafeFieldsOmitted",
+    "truncatedFields",
+    "unresolvedTrackingCallSites",
+  ] as const;
+  const completeCoverage =
+    coverage !== null &&
+    typeof coverage === "object" &&
+    !Array.isArray(coverage) &&
+    coverageFields.every((field) => coverage[field] === 0);
+  const freshIndex =
+    freshness !== null &&
+    typeof freshness === "object" &&
+    !Array.isArray(freshness) &&
+    Number.isSafeInteger(freshness.ageDays) &&
+    freshness.ageDays >= 0 &&
+    Number.isSafeInteger(freshness.staleAfterDays) &&
+    freshness.staleAfterDays > freshness.ageDays &&
+    freshness.stale === false;
+  const freshSources =
+    sourcesFreshness !== null &&
+    typeof sourcesFreshness === "object" &&
+    !Array.isArray(sourcesFreshness) &&
+    Number.isSafeInteger(sourcesFreshness.sourceCount) &&
+    Number(sourcesFreshness.sourceCount) > 0 &&
+    sourcesFreshness.unknownTimestampCount === 0 &&
+    sourcesFreshness.staleSourceCount === 0 &&
+    sourcesFreshness.fresh === true;
+  return (
+    result.results.length === 0 &&
+    result.sourceIndexStatus === "available" &&
+    Number.isSafeInteger(result.searchedDictionaryEntryCount) &&
+    Number(result.searchedDictionaryEntryCount) > 0 &&
+    result.truncated === false &&
+    result.nextPage === null &&
+    result.dictionarySearchTruncated === false &&
+    result.dictionarySearchStatus === "available" &&
+    completeCoverage &&
+    freshIndex &&
+    freshSources
+  );
 }
 
 function reasonForRun(
@@ -953,6 +1055,7 @@ function reasonForRun(
   if (counts.findDataCalls === 0) return "find_data_missing";
   if (counts.otherActionCalls > 0) return "unexpected_action";
   if (counts.failedActionCalls > 0) return "action_failed";
+  if (counts.findDataCalls !== 1) return "find_data_multiple_calls";
   if (!output.usage?.usageReported || !receipt.usageCaptured) {
     return "usage_missing";
   }
@@ -961,6 +1064,17 @@ function reasonForRun(
     !receipt.finalResponseGuardApplied
   ) {
     return "guard_not_applied";
+  }
+  if (testCase.expectedTable === null) {
+    const result = getToolResult(output);
+    const candidates = result?.results;
+    if (!Array.isArray(candidates)) {
+      return "candidate_missing";
+    }
+    if (candidates.length > 0) return "unexpected_match";
+    return hasCompleteEmptyDictionarySearch(counts.findDataCalls, result)
+      ? "no_match_expected"
+      : "candidate_missing";
   }
   if (rank === null) return "candidate_missing";
   return rank === 1 ? "rank_1" : "ranked_below_1";
@@ -978,21 +1092,25 @@ function evalCaseFor(testCase: SyntheticCase, capture: Capture): Eval {
       capture.output = output;
       return output;
     },
-    generateScore: (output) =>
-      expectedCandidateRank(output, testCase.expectedTable) === 1 ? 1 : 0,
+    generateScore: (output) => {
+      const reason = reasonForRun(testCase, output, capture.receipt!);
+      return ["rank_1", "no_match_expected"].includes(reason) ? 1 : 0;
+    },
     generateReason: ({ run }) => {
+      const reason = reasonForRun(testCase, run, capture.receipt!);
+      if (reason !== "candidate_missing") return reason;
       const rank = expectedCandidateRank(run, testCase.expectedTable);
-      return rank === 1
-        ? "rank_1"
-        : rank === null
-          ? "candidate_missing"
-          : "ranked_below_1";
+      return rank === null ? "candidate_missing" : "ranked_below_1";
     },
   };
   const pathScorer: Scorer<AgentRunOutput> = {
     name: "synthetic-production-path-integrity",
     generateScore: (output) =>
-      reasonForRun(testCase, output, capture.receipt!) === "rank_1" ? 1 : 0,
+      ["rank_1", "no_match_expected"].includes(
+        reasonForRun(testCase, output, capture.receipt!),
+      )
+        ? 1
+        : 0,
     generateReason: ({ run }) => reasonForRun(testCase, run, capture.receipt!),
   };
   return {
@@ -1078,11 +1196,15 @@ async function runOnce(testCase: SyntheticCase) {
   const { invalidateSourceIndexCache } =
     await import("../../server/lib/source-index-store.js");
   syntheticData.activeCaseId = testCase.id;
-  syntheticData.sourceIndexBundle.generatedAt =
+  const generatedAt =
     testCase.id === STALE_INDEX_CASE_ID ||
     testCase.id === APPROVED_STALE_INDEX_CASE_ID
       ? STALE_INDEX_GENERATED_AT
       : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  syntheticData.sourceIndexBundle.generatedAt = generatedAt;
+  for (const source of syntheticData.sourceIndexBundle.sources) {
+    source.generatedAt = generatedAt;
+  }
   invalidateSourceIndexCache(IDENTITY.orgId);
   const context = resolveProductionEvalContext(IDENTITY);
   const productionChatPath = context.productionChatPath;
@@ -1142,7 +1264,8 @@ async function makeRows(
           ? rank
           : null;
         const successful =
-          reasonCode === "rank_1" && report.results[0]?.passed === true;
+          ["rank_1", "no_match_expected"].includes(reasonCode) &&
+          report.results[0]?.passed === true;
         rows.push({
           case_id: testCase.id,
           phase,
@@ -1224,6 +1347,160 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     vi.clearAllMocks();
   });
 
+  it("only scores abstention after one complete, unpaginated dictionary search", () => {
+    const completeEmptyResult = {
+      results: [],
+      sourceIndexStatus: "available",
+      searchedDictionaryEntryCount: 7,
+      truncated: false,
+      nextPage: null,
+      dictionarySearchTruncated: false,
+      dictionarySearchStatus: "available",
+      sourceIndexScanCoverage: {
+        unsafeEntriesOmitted: 0,
+        unsafeFieldsOmitted: 0,
+        truncatedFields: 0,
+        unresolvedTrackingCallSites: 0,
+      },
+      sourceIndexFreshness: {
+        ageDays: 2,
+        staleAfterDays: 90,
+        stale: false,
+      },
+      sourceIndexSourcesFreshness: {
+        sourceCount: 2,
+        unknownTimestampCount: 0,
+        staleSourceCount: 0,
+        fresh: true,
+      },
+    };
+
+    expect(hasCompleteEmptyDictionarySearch(1, completeEmptyResult)).toBe(true);
+    expect(hasCompleteEmptyDictionarySearch(2, completeEmptyResult)).toBe(
+      false,
+    );
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        truncated: true,
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        nextPage: "next-page",
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        dictionarySearchTruncated: true,
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        dictionarySearchStatus: "unavailable",
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexScanCoverage: {
+          ...completeEmptyResult.sourceIndexScanCoverage,
+          unsafeEntriesOmitted: 1,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexScanCoverage: null,
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexFreshness: {
+          ...completeEmptyResult.sourceIndexFreshness,
+          stale: true,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexFreshness: null,
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        searchedDictionaryEntryCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexSourcesFreshness: {
+          ...completeEmptyResult.sourceIndexSourcesFreshness,
+          staleSourceCount: 1,
+          fresh: false,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexSourcesFreshness: {
+          ...completeEmptyResult.sourceIndexSourcesFreshness,
+          unknownTimestampCount: 1,
+          fresh: false,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexSourcesFreshness: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("fails a ranked eval that invokes find-data more than once", () => {
+    const output = {
+      ok: true,
+      toolCallDetails: [
+        {
+          name: "find-data",
+          result: JSON.stringify({
+            results: [{ table: SYNTHETIC_CASES[0]!.expectedTable }],
+          }),
+        },
+        { name: "find-data", result: "{}" },
+      ],
+      usage: { usageReported: true },
+    } as unknown as AgentRunOutput;
+    const receipt: EvalProductionPathReceipt = {
+      productionAgentLoopInvoked: true,
+      requestPreparationInvoked: true,
+      systemPromptBuilt: true,
+      finalResponseGuardInstalled: true,
+      finalResponseGuardApplied: true,
+      usageCaptured: true,
+      prefetchStatus: "ok",
+      ownerEmail: IDENTITY.ownerEmail,
+      orgId: IDENTITY.orgId,
+      initialToolNames: ["find-data"],
+      availableActionNames: ["find-data"],
+      readOnlyActionNames: ["find-data"],
+    };
+
+    expect(reasonForRun(SYNTHETIC_CASES[0]!, output, receipt)).toBe(
+      "find_data_multiple_calls",
+    );
+  });
+
   it("keeps harness cases synthetic and writes only the approved CSV schema", async () => {
     expect(SYNTHETIC_CASES.map(({ id }) => id)).toEqual([
       "current-organization-role-roster",
@@ -1242,6 +1519,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "negated-counts-preserve-role-detail",
       "monthly-organization-user-count",
       "workspace-membership-prefers-row-grain",
+      "aggregate-only-membership-abstains",
       "aliased-membership-keys-preserve-roster-grain",
       "monthly-workspace-users-by-role",
       "bare-active-members-map-to-membership",
@@ -1319,14 +1597,15 @@ describe("Analytics synthetic production-path retrieval harness", () => {
           }),
         ),
       ).toEqual(
-        SYNTHETIC_CASES.flatMap(({ id }) =>
+        SYNTHETIC_CASES.flatMap(({ id, expectedTable }) =>
           [1, 2].map((run) => ({
             case_id: id,
             run,
             score: 1,
-            reason_code: "rank_1",
-            expected_rank: 1,
-            hit_at_5: true,
+            reason_code:
+              expectedTable === null ? "no_match_expected" : "rank_1",
+            expected_rank: expectedTable === null ? null : 1,
+            hit_at_5: expectedTable !== null,
           })),
         ),
       );
@@ -1394,6 +1673,37 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       expect(getToolResult(output)?.guidance).toContain(
         "1 entry was omitted by safety checks; 2 fields were omitted by safety checks; 3 fields were truncated; 4 tracking call sites have unresolved event names",
       );
+    }
+  }, 120_000);
+
+  it("reports the aggregate-only membership reference as an unsupported roster", async () => {
+    const testCase = SYNTHETIC_CASES.find(
+      ({ id }) => id === "aggregate-only-membership-abstains",
+    );
+    expect(testCase).toBeDefined();
+    const { output } = await runOnce(testCase!);
+    expect(output.ok).toBe(true);
+    const result = getToolResult(output);
+    expect(result).toMatchObject({
+      sourceIndexStatus: "available",
+      searchedDictionaryEntryCount: 1,
+    });
+    if (phase === "before") {
+      expect(result?.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            table: "fixture_warehouse.monthly_workspace_memberships",
+          }),
+        ]),
+      );
+    } else {
+      expect(result?.sourceIndexSourcesFreshness).toEqual({
+        sourceCount: 1,
+        unknownTimestampCount: 0,
+        staleSourceCount: 0,
+        fresh: true,
+      });
+      expect(result?.results).toEqual([]);
     }
   }, 120_000);
 

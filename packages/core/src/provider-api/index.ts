@@ -602,6 +602,8 @@ const MAX_MAX_BYTES = 4 * 1024 * 1024;
 const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024;
 const FETCH_ALL_PAGES_MAX = 50;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+// The method-override headers are blocked because approval gates decide on the
+// request's `method`: a GET carrying one could be tunneled to a write.
 const BLOCKED_OUTBOUND_HEADERS = new Set([
   "connection",
   "content-length",
@@ -621,6 +623,9 @@ const BLOCKED_OUTBOUND_HEADERS = new Set([
   "x-forwarded-for",
   "x-forwarded-host",
   "x-forwarded-proto",
+  "x-http-method",
+  "x-http-method-override",
+  "x-method-override",
 ]);
 
 const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {

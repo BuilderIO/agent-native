@@ -270,6 +270,22 @@ erscheint, das geht, und ein anderes, das hinzukommt. „Immer erlauben“-Freig
 folgen dem Tool-Namen und gelten deshalb weiter, wenn derselbe Name später
 etwas Neues bedeutet.
 
+Setze `revision` an einem Eintrag, um das zu verhindern: Einmalgenehmigungen und
+„Immer erlauben“ halten die Revision fest, für die sie erteilt wurden, und eine
+andere Revision fragt den Benutzer erneut.
+Ein eigener „Immer erlauben“-Handler sollte die `askId` der Genehmigung als
+`approvalId` an `set-tool-approval-policy` übergeben; ohne sie gilt die Freigabe
+nur für Einträge ohne Revision.
+
+Ein Aufruf eines Tools, das die Unterhaltung zuvor verwendet oder geladen hat,
+das dieser Lauf aber nicht mehr hat, schlägt mit `Error: Tool no longer available`
+statt mit `Unknown tool` fehl, und ein Lauf, der startet, nachdem geladene Tools
+verschwunden sind, teilt dem Modell mit, welche. Hatte der Benutzer diesen Aufruf
+genehmigt, hält der Lauf an, statt das Modell ohne ihn weitermachen zu lassen.
+Für den Chat erhält der Callback außerdem `threadId`, `requestedTurnId` und
+`internalContinuation`, sodass eine App, die für einen ganzen Turn ein festes
+Tool-Set möchte, ihren eigenen Snapshot führen kann.
+
 Diese Einträge sind native Tools ausschließlich für die Agent-Schleife. Wie die
 MCP-Tools des Aufrufers sind sie aus `run-code` oder `tool-orchestration` nicht
 erreichbar.

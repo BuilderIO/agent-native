@@ -191,10 +191,8 @@ describe("resolvePastedSvgInsertionOptions", () => {
       targetFileId: "screen-1",
     });
 
-    expect(options).toMatchObject({
-      placement: "inside",
-      stripRootPosition: true,
-    });
+    expect(options).toMatchObject({ placement: "inside" });
+    expect(options.stripRootPosition).toBeUndefined();
     expect(options.targetSelectors).toContain(selector);
     expect(options.positions).toBeUndefined();
   });
@@ -214,7 +212,7 @@ describe("resolvePastedSvgInsertionOptions", () => {
     });
   });
 
-  it("places an SVG after a selected leaf", () => {
+  it("places an SVG at the paste point after a selected leaf", () => {
     const selector = '[data-agent-native-node-id="caption"]';
     const options = resolvePastedSvgInsertionOptions({
       activeFileId: "screen-1",
@@ -225,12 +223,11 @@ describe("resolvePastedSvgInsertionOptions", () => {
       targetFileId: "screen-1",
     });
 
-    expect(options).toMatchObject({
+    expect(options).toEqual({
       targetSelectors: [selector],
       placement: "after",
-      stripRootPosition: true,
+      positions: [{ x: 320, y: 240, space: "visual" }],
     });
-    expect(options.positions).toBeUndefined();
   });
 
   it("uses the paste point instead of the scalar selection for multiple targets", () => {
@@ -266,6 +263,24 @@ describe("resolvePastedSvgInsertionOptions", () => {
 });
 
 describe("runPastedSvgLayer", () => {
+  it("keeps a nested pasted SVG positioned above positioned siblings", () => {
+    stubDomParser();
+    const fixture = pastedSvgArgs();
+
+    expect(
+      runPastedSvgLayer(fixture.args, '<svg width="10" height="12"></svg>'),
+    ).toBe(true);
+
+    expect(insertClonedHtmlLayersMock).toHaveBeenCalledWith(
+      FRAME_CONTENT,
+      [expect.stringContaining("position:absolute;width:10px;height:12px;")],
+      expect.objectContaining({ placement: "inside" }),
+    );
+    expect(insertClonedHtmlLayersMock.mock.calls[0]?.[2]).not.toHaveProperty(
+      "stripRootPosition",
+    );
+  });
+
   it("reports when an active SVG write is refused", () => {
     stubDomParser();
     const fixture = pastedSvgArgs();

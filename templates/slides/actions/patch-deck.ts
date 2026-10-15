@@ -1301,6 +1301,42 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
   );
 }
 
+// Replay is safe only where an op sets end state by id or is CAS-guarded. A
+// content-replacing patch-slide qualifies only with its own baseContentHash:
+// the agent path sends no revision, and edits resolve against stored content,
+// so an unhashed occurrence-based edit would re-apply to another match on replay.
+function patchDeckRetrySafe(input: {
+  operations?: readonly unknown[];
+}): boolean {
+  if (!Array.isArray(input.operations)) return false;
+  return input.operations.every((raw) => {
+    const operation = raw as {
+      op?: unknown;
+      slideId?: unknown;
+      edits?: unknown;
+      baseContentHash?: unknown;
+      fields?: { content?: unknown };
+    };
+    switch (operation.op) {
+      case "patch-slide":
+        return (
+          (operation.edits === undefined &&
+            operation.fields?.content === undefined) ||
+          typeof operation.baseContentHash === "string"
+        );
+      // applyOperation skips an add-slide whose slideId already exists.
+      case "add-slide":
+        return typeof operation.slideId === "string";
+      case "delete-slide":
+      case "reorder-slides":
+      case "patch-deck-fields":
+        return true;
+      default:
+        return false;
+    }
+  });
+}
+
 export default defineAction({
   title: "Patch Slides deck",
   description:
@@ -1372,6 +1408,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  retrySafe: patchDeckRetrySafe,
   run: async (
     {
       deckId,

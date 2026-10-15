@@ -6,6 +6,7 @@ const messages = {
     includeLast: "Inclure les derniers",
     whatIsThis: "Qu'est-ce que c'est ?",
     off: "Désactivé",
+    none: "Aucun",
     custom: "Personnalisé…",
     customLabel: "Durée personnalisée",
     customAmount: "Durée",
@@ -17,6 +18,25 @@ const messages = {
     customErrorInvalid: "Saisissez un nombre entier de secondes ou de minutes.",
     customErrorTooLong: "Limitez-la à 5 min maximum.",
     turnOnRewind: "Activer Rewind",
+    turnOffRewind: "Désactiver",
+    turnOffRewindFailed:
+      "Impossible de désactiver Rewind. Arrêtez l'enregistrement et réessayez.",
+    turnOnRewindFailed: "Impossible d’activer Rewind. Réessayez.",
+    turnOnRewindPermissionFailed:
+      "Autorisez l’enregistrement de l’écran pour Clips dans Réglages Système > Confidentialité et sécurité > Enregistrement de l’écran et de l’audio système, puis redémarrez Clips et réessayez.",
+    turnOnRewindUnsupported:
+      "La capture d’écran de Rewind est disponible uniquement sur macOS.",
+    turnOnRewindNoSpace:
+      "L’espace disque disponible ne suffit pas pour démarrer Rewind. Libérez de l’espace et réessayez.",
+    turnOnRewindStopClip: "Arrêtez le Clip en cours avant d’activer Rewind.",
+    turnOnRewindStorageFailed:
+      "Impossible d’accéder au stockage de Rewind. Vérifiez l’espace disque et les autorisations du dossier, puis réessayez.",
+    rewindConsentTitle: "Activer Rewind ?",
+    rewindConsentBody:
+      "Clips enregistre continuellement votre écran et le conserve sur cet appareil. Les agents reçoivent des extraits de texte, et la vidéo n’est partagée qu’après votre accord.",
+    rewindConsentCancel: "Pas maintenant",
+    rewindConsentConfirm: "Activer Rewind",
+    rewindConsentBusy: "Activation de Rewind…",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
       "Désactivé par défaut. L’historique de l’écran reste sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",
@@ -2313,9 +2333,15 @@ const messages = {
     issues: "Problèmes",
     consoleSource: "Console",
     networkSource: "Réseau",
+    appSource: "Activité de l’app",
+    appEvent: "Événement",
+    appData: "Données",
+    appFailureSummary: "{{count}} échecs de l’app",
+    appUnavailable: "Impossible de charger l’activité de l’app.",
     consoleCount: "Console {{count}}",
     networkCount: "Réseau {{count}}",
     afterRecording: "Après l’enregistrement",
+    beforeRecording: "Avant l’enregistrement",
     seekToTime: "Aller à {{time}}",
     occurrences: "Occurrences",
     message: "Message",
@@ -2327,6 +2353,7 @@ const messages = {
     noIssuesTitle: "Aucun problème de navigateur détecté",
     noConsoleTitle: "Aucun événement de console",
     noNetworkTitle: "Aucune requête réseau",
+    noAppTitle: "Aucune activité de l’app",
     capturedDescription:
       "Les diagnostics ont été capturés pour cet enregistrement.",
   },

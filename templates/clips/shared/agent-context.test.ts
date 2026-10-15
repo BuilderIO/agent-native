@@ -156,6 +156,9 @@ describe("agent clip context helpers", () => {
     expect(urls.transcriptUrl).toBe(
       "https://clips.example.com/app/api/agent-transcript.json?id=rec+1&agent_access=tok",
     );
+    expect(urls.appActivityUrl).toBe(
+      "https://clips.example.com/app/api/agent-app-activity.json?id=rec+1&agent_access=tok",
+    );
     expect(urls.frameUrlTemplate).toBe(
       "https://clips.example.com/app/api/agent-frame.jpg?id=rec+1&agent_access=tok&atMs={timestampMs}",
     );

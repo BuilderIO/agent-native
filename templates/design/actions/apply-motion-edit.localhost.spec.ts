@@ -214,6 +214,7 @@ const request = {
     connectionId: "connection-1",
     modulePath: "app/routes/home.tsx",
     moduleVersionHash: bridgeVersionHash,
+    timelineVersionHash: bridgeVersionHash,
     renderedNodeIds: ["hero"],
   },
   tracks: [
@@ -326,6 +327,45 @@ describe("apply-motion-edit localhost React source", () => {
     });
   });
 
+  it("rejects ambiguous localhost source metadata before a Motion write", async () => {
+    mocks.fileChain.limit.mockResolvedValueOnce([
+      {
+        id: "screen-1",
+        designId: "design-1",
+        filename: "localhost-home.html",
+        fileType: "html",
+        content: "http://localhost:5173/home",
+        updatedAt: "2026-10-11T00:00:00.000Z",
+        designData: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "connection-1",
+          screenMetadata: {
+            "screen-1": {
+              sourceType: "localhost",
+              connectionId: "connection-1",
+              sourceFile: "app/routes/home.tsx",
+            },
+          },
+          localhostScreens: {
+            "screen-1": {
+              sourceType: "localhost",
+              connectionId: "connection-1",
+              sourceFile: "app/routes/legacy-home.tsx",
+            },
+          },
+        }),
+      },
+    ]);
+
+    await expect(action.run(request)).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: "motion_local_source_ambiguous_source_file",
+    });
+    expect(mocks.readLocal).not.toHaveBeenCalled();
+    expect(mocks.writeLocal).not.toHaveBeenCalled();
+    expect(mocks.insertedRows).toHaveLength(0);
+  });
+
   it("writes versioned Motion source to the linked HTML route", async () => {
     const htmlSourcePath = "pages/home.html";
     const htmlSource = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
@@ -383,6 +423,7 @@ describe("apply-motion-edit localhost React source", () => {
         ...request.localSource,
         modulePath: htmlSourcePath,
         moduleVersionHash: htmlVersionHash,
+        timelineVersionHash: htmlVersionHash,
       },
     });
 
@@ -466,6 +507,7 @@ describe("apply-motion-edit localhost React source", () => {
       localSource: {
         ...request.localSource,
         moduleVersionHash: pathSourceHash,
+        timelineVersionHash: pathSourceHash,
       },
       tracks: [],
       nativeStyles: [nativePathStyle],
@@ -494,6 +536,7 @@ describe("apply-motion-edit localhost React source", () => {
       localSource: {
         ...request.localSource,
         moduleVersionHash: managedStyleVersionHash,
+        timelineVersionHash: managedStyleVersionHash,
       },
       tracks: [],
     });
@@ -521,6 +564,23 @@ describe("apply-motion-edit localhost React source", () => {
         },
       }),
     ).rejects.toMatchObject({ statusCode: 409 });
+    expect(mocks.writeLocal).not.toHaveBeenCalled();
+    expect(mocks.insertedRows).toHaveLength(0);
+  });
+
+  it("rejects a stale source-backed timeline before writing newer code", async () => {
+    await expect(
+      action.run({
+        ...request,
+        localSource: {
+          ...request.localSource,
+          timelineVersionHash: "d".repeat(64),
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "motion_local_source_stale_timeline",
+    });
     expect(mocks.writeLocal).not.toHaveBeenCalled();
     expect(mocks.insertedRows).toHaveLength(0);
   });

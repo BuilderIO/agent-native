@@ -790,6 +790,15 @@ describe("add-slide", () => {
       expect(updateFn).not.toHaveBeenCalled();
     });
 
+    it("lets a blank slide through once the real slides reach the target", async () => {
+      deckData.slides = withBlanks(0, 2);
+      deckData.generationContext = { targetSlideCount: 2 };
+
+      await action.run({ ...input, content: blank }, { caller: "tool" });
+
+      expect(JSON.parse(updatedFields!.data as string).slides).toHaveLength(3);
+    });
+
     it("validates targetSlideCountOverride against the same real count as the cap", async () => {
       deckData.slides = withBlanks(2, 1);
       deckData.generationContext = { targetSlideCount: 2 };

@@ -29,6 +29,7 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../db/index.js";
+import { contextClipIdForFootage } from "../../../lib/context-footage.js";
 import {
   isHeldForRedaction,
   REDACTION_HOLD_MESSAGE,
@@ -63,6 +64,7 @@ type ThumbnailRecording = {
   organizationId?: string | null;
   password?: string | null;
   sharePasswordVersion?: string | null;
+  trashedAt?: string | null;
   updatedAt?: string | null;
   visibility?: string | null;
 };
@@ -95,10 +97,11 @@ function renewProtectedMediaCookie(
   recordingId: string,
   password: string | null | undefined,
   sharePasswordVersion: string | null | undefined,
+  scopeId: string = recordingId,
 ): void {
   const token = signShortLivedToken({
     resourceId: getRecordingAccessTokenResourceId(
-      recordingId,
+      scopeId,
       password,
       sharePasswordVersion,
     ),
@@ -226,12 +229,16 @@ async function fetchThumbnail(sourceUrl: string): Promise<Response> {
 }
 
 async function loadRecording(recordingId: string, event: H3Event) {
-  const access = await resolveAccess("recording", recordingId);
-  let recording = (access?.resource as ThumbnailRecording | undefined) ?? null;
+  // Earlier-screen-time footage is served under its Clip's access, expiry,
+  // redaction, Trash, and password rules, never its own row's.
+  const clipId = await contextClipIdForFootage(recordingId);
+  const gateId = clipId ?? recordingId;
+  const access = await resolveAccess("recording", gateId);
+  let gate = (access?.resource as ThumbnailRecording | undefined) ?? null;
   const role = access?.role ?? null;
   const session = await getSession(event).catch(() => null);
 
-  if (!recording) {
+  if (!gate) {
     const [row] = await getDb()
       .select({
         id: schema.recordings.id,
@@ -243,11 +250,12 @@ async function loadRecording(recordingId: string, event: H3Event) {
         organizationId: schema.recordings.organizationId,
         password: schema.recordings.password,
         sharePasswordVersion: schema.recordings.sharePasswordVersion,
+        trashedAt: schema.recordings.trashedAt,
         updatedAt: schema.recordings.updatedAt,
         visibility: schema.recordings.visibility,
       })
       .from(schema.recordings)
-      .where(eq(schema.recordings.id, recordingId))
+      .where(eq(schema.recordings.id, gateId))
       .limit(1);
 
     if (!row) return { error: "Not found", status: 404 } as const;
@@ -264,10 +272,38 @@ async function loadRecording(recordingId: string, event: H3Event) {
       return { error: "Not found", status: 404 } as const;
     }
 
-    recording = row;
+    gate = row;
   }
 
-  return { recording, role } as const;
+  if (!clipId) return { recording: gate, role, gateId } as const;
+
+  if (gate.trashedAt && role !== "owner") {
+    return { error: "Not found", status: 404 } as const;
+  }
+  const [footage] = await getDb()
+    .select({
+      thumbnailUrl: schema.recordings.thumbnailUrl,
+      animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      trashedAt: schema.recordings.trashedAt,
+    })
+    .from(schema.recordings)
+    .where(eq(schema.recordings.id, recordingId))
+    .limit(1);
+  if (!footage || footage.trashedAt) {
+    return { error: "Not found", status: 404 } as const;
+  }
+
+  return {
+    recording: {
+      ...gate,
+      id: recordingId,
+      thumbnailUrl: footage.thumbnailUrl,
+      animatedThumbnailUrl: footage.animatedThumbnailUrl,
+      baseImageUrl: null,
+    },
+    role,
+    gateId,
+  } as const;
 }
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -329,7 +365,7 @@ export default defineEventHandler(async (event: H3Event) => {
         const queryToken = typeof query.t === "string" ? query.t : "";
         const cookieToken = getCookie(event, cookieName(recordingId)) ?? "";
         const scopedRecordingId = getRecordingAccessTokenResourceId(
-          recordingId,
+          loaded.gateId,
           recording.password,
           recording.sharePasswordVersion,
         );
@@ -350,6 +386,7 @@ export default defineEventHandler(async (event: H3Event) => {
           recordingId,
           recording.password,
           recording.sharePasswordVersion,
+          loaded.gateId,
         );
       }
 

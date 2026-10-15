@@ -801,6 +801,8 @@ const messages = {
       "スライドを作成できませんでした。チャットで詳細を確認して、もう一度お試しください。",
     generationOutcomeUnresolved:
       "スライドが作成されたか確認できません。再試行する前にデッキを確認してください。",
+    generationOutcomeUnresolvedWithSlides:
+      "スライドの作成が完了したか確認できませんでした。続行する前に、ここに表示されているスライドを確認してください。",
     partialGenerationFailed:
       "スライドを最後まで作成できませんでした。続ける前に、作成済みのスライドと最初のリクエストを確認してください。",
     originalPrompt: "入力した内容",

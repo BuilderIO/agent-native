@@ -232,6 +232,111 @@ function serializeMarqueeHostSelection(
       .map(([screenId, groups]) => [screenId, groups]),
   ]);
 }
+
+interface MarqueeHostSelectionSnapshot {
+  activeId: string | null;
+  selectedElementScreenId: string | null;
+  selectedLayerSelectorGroupsByScreen: Record<string, string[][]>;
+}
+
+interface MarqueeHostSelectionEcho {
+  additive: boolean;
+  selection: Array<{ screenId: string; info: ElementInfo }>;
+}
+
+interface MarqueeLocalSelectionEcho {
+  selectedDraftIds: string[];
+  selectedIds: string[];
+}
+
+function copyMarqueeHostSelectionSnapshot(
+  snapshot: MarqueeHostSelectionSnapshot,
+): MarqueeHostSelectionSnapshot {
+  return {
+    ...snapshot,
+    selectedLayerSelectorGroupsByScreen: Object.fromEntries(
+      Object.entries(snapshot.selectedLayerSelectorGroupsByScreen).map(
+        ([screenId, groups]) => [screenId, groups.map((group) => [...group])],
+      ),
+    ),
+  };
+}
+
+function marqueeHostSelectionMatchesEcho(
+  echo: MarqueeHostSelectionEcho,
+  base: MarqueeHostSelectionSnapshot,
+  current: MarqueeHostSelectionSnapshot,
+): boolean {
+  // Parent echoes may land after mouseup; unrelated host changes still cancel.
+  const screenIds = new Set(echo.selection.map((item) => item.screenId));
+  const primary = echo.selection[echo.selection.length - 1];
+  const expectedActiveId = primary?.screenId ?? base.activeId;
+  const expectedSelectedElementScreenId =
+    screenIds.size === 1 ? primary?.screenId : null;
+  if (
+    current.activeId !== expectedActiveId ||
+    current.selectedElementScreenId !== expectedSelectedElementScreenId
+  ) {
+    return false;
+  }
+
+  const expectedGroups: Array<
+    | { screenId: string; exact: string[] }
+    | { screenId: string; selector: string }
+  > = [];
+  if (echo.additive) {
+    for (const [screenId, groups] of Object.entries(
+      base.selectedLayerSelectorGroupsByScreen,
+    )) {
+      for (const group of groups)
+        expectedGroups.push({ screenId, exact: group });
+    }
+  }
+  for (const item of echo.selection) {
+    const selector = item.info.selector;
+    if (!selector) return false;
+    const alreadySelected = expectedGroups.some(
+      (group) =>
+        group.screenId === item.screenId &&
+        ("exact" in group
+          ? group.exact.includes(selector)
+          : group.selector === selector),
+    );
+    if (!alreadySelected)
+      expectedGroups.push({ screenId: item.screenId, selector });
+  }
+
+  const actualGroups = Object.entries(
+    current.selectedLayerSelectorGroupsByScreen,
+  ).flatMap(([screenId, groups]) =>
+    groups.map((group) => ({ screenId, group })),
+  );
+  if (actualGroups.length !== expectedGroups.length) return false;
+
+  const matchedIndexes = new Set<number>();
+  return expectedGroups.every((expected) => {
+    const index = actualGroups.findIndex(
+      ({ screenId, group }, candidateIndex) => {
+        if (
+          matchedIndexes.has(candidateIndex) ||
+          screenId !== expected.screenId
+        )
+          return false;
+        if ("exact" in expected) {
+          return (
+            group.length === expected.exact.length &&
+            expected.exact.every((selector) => group.includes(selector))
+          );
+        }
+        return group.includes(expected.selector);
+      },
+    );
+    if (index < 0) return false;
+    matchedIndexes.add(index);
+    return true;
+  });
+}
+
 const SELECTABLE_RECTS_REPLY_TIMEOUT_MS = 2_000;
 const HIT_TEST_PREVIEW_TIMEOUT_MS = 250;
 const HIT_TEST_PREVIEW_LATE_RESULT_GRACE_MS = 250;
@@ -1259,6 +1364,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     selectedElementScreenIdRef.current = selectedElementScreenId;
   }, [selectedElementScreenId]);
   const marqueeHostSelectionRevisionRef = useRef("");
+  const marqueeHostSelectionSnapshotRef = useRef<MarqueeHostSelectionSnapshot>({
+    activeId: activeId ?? null,
+    selectedElementScreenId: selectedElementScreenId ?? null,
+    selectedLayerSelectorGroupsByScreen,
+  });
+  marqueeHostSelectionSnapshotRef.current = {
+    activeId: activeId ?? null,
+    selectedElementScreenId: selectedElementScreenId ?? null,
+    selectedLayerSelectorGroupsByScreen,
+  };
   marqueeHostSelectionRevisionRef.current = serializeMarqueeHostSelection(
     activeId,
     selectedElementScreenId,
@@ -6042,6 +6157,40 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const baseSelectedIds = [
         ...(selectedScreenIds ?? selectedIdsRef.current),
       ];
+      const baseHostSelection = copyMarqueeHostSelectionSnapshot(
+        marqueeHostSelectionSnapshotRef.current,
+      );
+      const expectedHostSelectionEchoes: MarqueeHostSelectionEcho[] = [];
+      const expectedLocalSelectionEchoes: MarqueeLocalSelectionEcho[] = [];
+      const emitLayerMarqueeSelection = (
+        selection: Array<{ screenId: string; info: ElementInfo }>,
+        intent: ElementSelectionIntent,
+      ) => {
+        if (!intent.cancelled) {
+          expectedHostSelectionEchoes.push({
+            additive: intent.additive === true || intent.shiftKey === true,
+            selection,
+          });
+          expectedLocalSelectionEchoes.push({
+            selectedIds: [...selectedIdsRef.current],
+            selectedDraftIds: [...selectedDraftIdsRef.current],
+          });
+        }
+        onLayerMarqueeSelectionChange?.(selection, intent);
+      };
+      const isCurrentSelectionMarqueeEcho = () =>
+        expectedLocalSelectionEchoes.some(
+          (echo) =>
+            sameIds(echo.selectedIds, selectedIdsRef.current) &&
+            sameIds(echo.selectedDraftIds, selectedDraftIdsRef.current),
+        ) &&
+        expectedHostSelectionEchoes.some((echo) =>
+          marqueeHostSelectionMatchesEcho(
+            echo,
+            baseHostSelection,
+            marqueeHostSelectionSnapshotRef.current,
+          ),
+        );
       const marqueeToken = ++marqueeLifecycleRef.current;
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
@@ -6117,7 +6266,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             selectedScreenIds.includes(id),
           );
         }
-        onLayerMarqueeSelectionChange?.(selection, intent);
+        emitLayerMarqueeSelection(selection, intent);
       };
       const collectForIntersectedScreens = (hitIds: string[]) => {
         const newIds = hitIds.filter(
@@ -6176,7 +6325,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           ctrlKey,
         });
         updateSelectedDraftIds(() => []);
-        onLayerMarqueeSelectionChange?.([], {
+        emitLayerMarqueeSelection([], {
           source: "marquee",
           additive: false,
           shiftKey: false,
@@ -6184,7 +6333,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         });
         lastLayerSelectionSignature = "";
       } else {
-        onLayerMarqueeSelectionChange?.([], {
+        emitLayerMarqueeSelection([], {
           source: "marquee",
           additive: true,
           shiftKey: true,
@@ -6290,7 +6439,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               marqueeSelectedScreenIds: [],
             });
             updateSelectedDraftIds(() => []);
-            onLayerMarqueeSelectionChange?.([], {
+            emitLayerMarqueeSelection([], {
               source: "marquee",
               additive: false,
               shiftKey: false,
@@ -6308,7 +6457,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 )
                   return;
                 const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
-                if (currentSelectionRevision !== releasedSelectionRevision) {
+                if (
+                  currentSelectionRevision !== releasedSelectionRevision &&
+                  !isCurrentSelectionMarqueeEcho()
+                ) {
                   onLayerMarqueeSelectionChange?.([], {
                     source: "marquee",
                     cancelled: true,
@@ -6357,7 +6509,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   return;
                 }
                 const refreshedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
-                if (refreshedSelectionRevision !== releasedSelectionRevision) {
+                if (
+                  refreshedSelectionRevision !== releasedSelectionRevision &&
+                  !isCurrentSelectionMarqueeEcho()
+                ) {
                   onLayerMarqueeSelectionChange?.([], {
                     source: "marquee",
                     cancelled: true,
@@ -15097,7 +15252,6 @@ function GroupSelectionBox({
       chromeSettling={chromeSettling}
       showRotate={!!onStartRotate}
       handlesEnabled={handlesEnabled}
-      filled
       onStartDrag={onStartDrag}
       onStartResize={onStartResize}
       onStartRotate={onStartRotate ?? (() => {})}
