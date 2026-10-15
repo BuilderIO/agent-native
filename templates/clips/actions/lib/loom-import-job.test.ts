@@ -365,6 +365,63 @@ describe("runLoomImportJob", () => {
     expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
   });
 
+  it("keeps a transient verification read failure reusable instead of marking a mismatch", async () => {
+    const videoUrl = "https://clips.example.com/clips/rec_transient.mp4";
+    mockSelectRows.queue.push([
+      {
+        id: "rec_transient",
+        durationMs: 5_000,
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_transient",
+        status: "processing",
+        failureCode: null,
+        storageMode: "hosted",
+        videoUrl: null,
+        videoSizeBytes: 0,
+        videoFormat: "mp4",
+        createdAt: "2020-01-01T00:00:00.000Z",
+      },
+    ]);
+    mockResolveClipsVideoStorage.mockResolvedValue({
+      mode: "hosted",
+      provider: { upload: mockHostedUpload },
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 10,
+      maxClipDurationMs: 60_000,
+    });
+    mockDownloadLoomVideo.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/mp4",
+      sizeBytes: 3,
+      sourceUrl: "https://cdn.loom.com/sessions/transcoded/x.mp4",
+    });
+    mockHostedUpload.mockResolvedValue({
+      url: videoUrl,
+      provider: "clips-hosted",
+      id: "asset_transient",
+    });
+    mockVerifyHostedClipMedia.mockRejectedValue(new Error("read timed out"));
+
+    await expect(
+      runLoomImportJob({
+        recordingId: "rec_transient",
+        ownerEmail: "owner@example.com",
+        claimId: "claim_transient",
+      }),
+    ).resolves.toMatchObject({ status: "failed" });
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "loom_import_failed",
+      }),
+    );
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ failureCode: "media_verification_failed" }),
+    );
+  });
+
   it("renews its claim during media work and refuses ready after lease loss", async () => {
     vi.useFakeTimers();
     mockSelectRows.queue.push([

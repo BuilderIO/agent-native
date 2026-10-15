@@ -274,7 +274,7 @@ export async function runLoomImportJob({
   let media: Awaited<ReturnType<typeof downloadLoomVideo>> | null = null;
   let upload: Awaited<ReturnType<typeof uploadFile>> | null = null;
   let resolvedStorageMode = recording.storageMode;
-  let uploadVerified = false;
+  let uploadSizeMismatch = false;
 
   // An upload that never reached recordings.videoUrl is invisible to the
   // reaper, which would leave the object stored and the reservation held.
@@ -465,13 +465,13 @@ export async function runLoomImportJob({
             verifiedBytes !== media?.sizeBytes ||
             verifiedBytes > storage.maxClipBytes
           ) {
+            uploadSizeMismatch = true;
             // guard:allow-bare-error — invariant: the provider's verified object size must match the downloaded bytes before consumption.
             throw new Error(
               "Hosted Clips media size does not match the downloaded file.",
             );
           }
           videoSizeBytes = verifiedBytes;
-          uploadVerified = true;
           const [persisted] = await db
             .update(schema.recordings)
             .set({
@@ -724,13 +724,13 @@ export async function runLoomImportJob({
     if (lease.failureReason) {
       return { status: "failed", failureReason: lease.failureReason };
     }
-    // An object that never matched the downloaded bytes must not be reused by
-    // an in-place retry; the distinct code is how the retry tells it apart.
+    // Only a confirmed size mismatch marks the object unusable; a transient read
+    // failure leaves a complete upload the retry may still reuse and re-verify.
     return failLoomImport(
       recordingId,
       err instanceof Error ? err.message : String(err),
       claimId,
-      linked && !uploadVerified
+      linked && uploadSizeMismatch
         ? "media_verification_failed"
         : "loom_import_failed",
     );
