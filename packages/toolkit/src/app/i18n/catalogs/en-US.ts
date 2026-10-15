@@ -674,6 +674,10 @@ const messages = {
     "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
   "errorMessages.requestTooLarge":
     "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
+  "errorMessages.capabilityUnavailable":
+    "We couldn't send your message right now. Please try again shortly.",
+  "errorMessages.capabilityUnsupported":
+    "This app can't safely retry your saved prompt yet. Update the app, then try again.",
   "errorMessages.runInterrupted": "The agent stopped before finishing.",
   "errorMessages.runFailed": "The agent run failed.",
   "errorMessages.runUnverified":

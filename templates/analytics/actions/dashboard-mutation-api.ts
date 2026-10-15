@@ -977,7 +977,16 @@ export function applyDashboardMutationOperations(
         case "removePanels": {
           const ids = uniqueStrings(op.panelIds);
           const panels = panelsFromConfig(config);
-          for (const id of ids) requirePanel(panels, id);
+          for (const id of ids) {
+            // A remove replayed after its first attempt committed finds the
+            // panel gone; say so, so the model checks instead of retrying.
+            if (findPanelIndex(panels, id) < 0) {
+              fail(
+                `${missingPanelHelp(panels, id)} If an earlier attempt already removed it, the dashboard is already in the requested state; confirm with get-sql-dashboard instead of retrying.`,
+                { errorCode: "dashboard_panel_not_found", statusCode: 404 },
+              );
+            }
+          }
           config.panels = panels.filter(
             (panel) => !ids.includes(panelId(panel)),
           );

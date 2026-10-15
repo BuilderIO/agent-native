@@ -1054,6 +1054,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "a newer sidebar Screen selection survives failed Screen deletion settlement",
     "Select All Screens survives failed Screen deletion settlement",
     "marquee selection persists and deletes Screens after a prior layer selection",
+    "deleting two selected Screens is one undo step that restores both with their content, position and order",
     "deep-select marquee over a Screen deletes only the child",
     "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
     "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
@@ -1251,7 +1252,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     DESIGN_E2E_REGRESSION_SHARDS.flatMap((shard) =>
       resolveDesignE2ERegressionPinsForShard(shard),
     ).length,
-    40,
+    84,
     "the title manifest must retain every fixed regression pin",
   );
 });

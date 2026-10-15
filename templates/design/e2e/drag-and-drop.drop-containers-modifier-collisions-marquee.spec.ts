@@ -105,8 +105,12 @@ test.describe("drop containers", () => {
         top: `${held.y - 300}px`,
         width: "100px",
         height: "60px",
-        background: "rgb(168, 85, 247)",
+        background: styleOf(before.get("mover")).background,
       });
+      await expect(app.node("mover")).toHaveCSS(
+        "background-color",
+        "rgb(168, 85, 247)",
+      );
       expectOnlyChanged(before, after, ["mover"]);
       expect(await app.designRect("mover")).toEqual(held);
       expect(
@@ -167,8 +171,7 @@ test.describe("modifier collisions", () => {
 });
 
 test.describe("marquee", () => {
-  // fixme: product bug: With two layers selected, the selection size badge reads '120 × 80' (Box B alone) instead of the 120 × 240 union. showSizeBadge(el)
-  test.fixme("dragging from empty canvas marquee-selects the elements it covers", async ({
+  test("dragging from empty canvas marquee-selects the elements it covers", async ({
     app,
   }) => {
     const id = await openSeeded(app, STACKED_BOXES);

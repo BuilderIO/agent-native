@@ -2599,6 +2599,7 @@ function SqlDashboardPageContent({
         dashboard.filters.length > 0 && (
           <DashboardFilterBar
             filters={dashboard.filters}
+            defaultView={defaultView}
             onSaveView={canEdit ? handleSaveView : undefined}
           />
         )}

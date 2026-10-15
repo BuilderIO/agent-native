@@ -182,7 +182,11 @@ import {
   type RecorderStopResult,
   type RestartHandoff,
 } from "./lib/recorder";
-import { RECORDER_DISCARD_EVENT } from "./lib/recorder-events";
+import {
+  RECORDER_DISCARD_EVENT,
+  parseRecorderStopPayload,
+  recorderStopPayloadTargetsRecording,
+} from "./lib/recorder-events";
 import { notifyRecordingFailure } from "./lib/recording-failure-notifications";
 import { clearResolvedFinalizationError } from "./lib/recording-finalization-state";
 import {
@@ -223,6 +227,7 @@ import {
 } from "./lib/recording-shortcut-stop";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
+import { getRewindStartErrorKind } from "./lib/rewind-start-error";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
 import {
   initialDesktopSettingsTab,
@@ -1180,6 +1185,8 @@ export function App({
   ] = useState<Record<string, RewindMeetingHistoryAvailability>>({});
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
+  const recorderRef = useRef<RecorderHandle | null>(recorder);
+  recorderRef.current = recorder;
   const recordingStartAttemptRef = useRef<RecordingStartAttempt | null>(null);
   const captureStartedDuringStartRef = useRef(false);
   const [recordingStartPending, setRecordingStartPending] = useState(false);
@@ -1202,7 +1209,13 @@ export function App({
     loadRecentLookbackSeconds,
   );
   const [lookbackNotice, setLookbackNotice] = useState<string | null>(null);
-  const [rewindConsentPending, setRewindConsentPending] = useState(false);
+  const [lookbackRewindConsentOpen, setLookbackRewindConsentOpen] =
+    useState(false);
+  const [lookbackRewindConsentBusy, setLookbackRewindConsentBusy] =
+    useState(false);
+  const [lookbackRewindConsentError, setLookbackRewindConsentError] = useState<
+    string | null
+  >(null);
   // The context request for the current recording. It keeps its own target so
   // a later cancel removes the item from the server that created it.
   const lookbackContextRef = useRef<{
@@ -1844,12 +1857,43 @@ export function App({
     saveRecentLookbackSeconds(nextRecent);
   }
 
-  // The consent dialog mounts only on the settings surface, so the Rewind
-  // button here opens that surface on the Rewind tab with the dialog already open.
   function openRewindConsent() {
-    setInitialSettingsTab("rewind");
-    setRewindConsentPending(true);
-    setPopoverView("settings");
+    setLookbackRewindConsentError(null);
+    setLookbackRewindConsentOpen(true);
+  }
+
+  async function turnOnRewindFromLookback() {
+    setLookbackRewindConsentBusy(true);
+    setLookbackRewindConsentError(null);
+    try {
+      await invoke<ScreenMemoryStatus>("screen_memory_start");
+      setLookbackRewindConsentOpen(false);
+    } catch (err) {
+      console.error("[clips-tray] turn on rewind failed:", err);
+      const messageKey = {
+        permission: "lookbackContext.turnOnRewindPermissionFailed",
+        unsupported: "lookbackContext.turnOnRewindUnsupported",
+        diskSpace: "lookbackContext.turnOnRewindNoSpace",
+        recording: "lookbackContext.turnOnRewindStopClip",
+        storage: "lookbackContext.turnOnRewindStorageFailed",
+        unknown: "lookbackContext.turnOnRewindFailed",
+      } as const;
+      setLookbackRewindConsentError(
+        t(messageKey[getRewindStartErrorKind(err)]),
+      );
+    } finally {
+      setLookbackRewindConsentBusy(false);
+    }
+  }
+
+  // Stopping capture is refused while a clip is recording, so a failure here
+  // is reported instead of leaving the row claiming Rewind is off.
+  function turnOffRewind() {
+    if (!featureConfig) return;
+    void invoke<ScreenMemoryStatus>("screen_memory_stop").catch((err) => {
+      console.error("[clips-tray] turn off rewind failed:", err);
+      setLookbackNotice(t("lookbackContext.turnOffRewindFailed"));
+    });
   }
 
   function lookbackTarget() {
@@ -2716,15 +2760,75 @@ export function App({
   const recordingFlowGateRef = useRef(false);
   const recordingStopFinalizingRef = useRef(false);
   const restartInFlightRef = useRef(false);
+  const pendingRestartStopRef = useRef<Set<string | null>>(new Set());
   const restartCancelledRef = useRef(false);
   const recordingCancelInFlightRef = useRef(false);
   const sessionRecordingIdRef = useRef<string | null>(null);
+  const sessionCaptureIdentityRef = useRef<string | null>(null);
+  const recorderStopListenerPromiseRef = useRef<Promise<() => void> | null>(
+    null,
+  );
   const recordedWithoutStorageRef = useRef(false);
   // The record-first list a capture belongs to, fixed when capture starts.
   const recordFirstKeyAtStartRef = useRef<string | null>(null);
   const finishRecordingStopRef = useRef<
     (handle: RecorderHandle, recordingId?: string | null) => Promise<void>
   >(async () => {});
+
+  function ensureRecorderStopListener() {
+    if (!recorderStopListenerPromiseRef.current) {
+      recorderStopListenerPromiseRef.current = listen<unknown>(
+        "clips:recorder-stop",
+        (event) => {
+          if (
+            recordingStopFinalizingRef.current ||
+            recordingCancelInFlightRef.current
+          )
+            return;
+          const stopPayload = parseRecorderStopPayload(event.payload);
+          if (stopPayload.kind === "invalid") return;
+          const sourceRecordingId =
+            stopPayload.kind === "tagged" ? stopPayload.recordingId : null;
+          if (
+            !recorderStopPayloadTargetsRecording(
+              stopPayload,
+              sessionCaptureIdentityRef.current,
+            )
+          )
+            return;
+          if (restartInFlightRef.current) {
+            pendingRestartStopRef.current.add(sourceRecordingId);
+            return;
+          }
+          const activeRecorder = recorderRef.current;
+          if (!activeRecorder) return;
+          void finishRecordingStopRef.current(
+            activeRecorder,
+            sessionRecordingIdRef.current,
+          );
+        },
+      ).catch((error) => {
+        recorderStopListenerPromiseRef.current = null;
+        throw error;
+      });
+    }
+    return recorderStopListenerPromiseRef.current;
+  }
+
+  useEffect(
+    () => () => {
+      void recorderStopListenerPromiseRef.current
+        ?.then((unlisten) => unlisten())
+        .catch((error) => {
+          console.warn(
+            "[clips-popover] recorder stop listener cleanup failed:",
+            error,
+          );
+        });
+    },
+    [],
+  );
+
   const recordingInFlight =
     isRecording || recordingFlowActive || recordingStartPending;
   useLayoutEffect(() => {
@@ -3275,6 +3379,7 @@ export function App({
     bubbleStreamTransferredToRecorder.current = false;
     bubbleStreamRef.current = null;
     recordingFlowGateRef.current = false;
+    recorderRef.current = null;
     (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
       false;
     setRecordingFlowActive(false);
@@ -3744,13 +3849,27 @@ export function App({
     let parkPopoverTimer: number | null = null;
     try {
       sessionRecordingIdRef.current = null;
-      unlistenStartupStop = await listen("clips:recorder-stop", () => {
-        stopRequestedDuringStart = true;
-        if (!captureStartRequestedDuringStart) {
-          attempt.cancel();
-          emit("clips:countdown-cancel").catch(() => {});
-        }
-      });
+      sessionCaptureIdentityRef.current = null;
+      unlistenStartupStop = await listen<unknown>(
+        "clips:recorder-stop",
+        (event) => {
+          const stopPayload = parseRecorderStopPayload(event.payload);
+          if (stopPayload.kind === "invalid") return;
+          if (
+            !recorderStopPayloadTargetsRecording(
+              stopPayload,
+              sessionCaptureIdentityRef.current,
+            )
+          )
+            return;
+          stopRequestedDuringStart = true;
+          if (!captureStartRequestedDuringStart) {
+            attempt.cancel();
+            emit("clips:countdown-cancel").catch(() => {});
+          }
+        },
+      );
+      await ensureRecorderStopListener();
       stopAllMicMeters();
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
@@ -3801,7 +3920,10 @@ export function App({
           pendingTranscriptionTeardown:
             options?.resumeCapture?.transcriptionTornDown ?? null,
           signal: attempt.signal,
-          onCaptureStartRequested: (recordingId) => {
+          onCaptureIdentityAvailable: (captureIdentity) => {
+            sessionCaptureIdentityRef.current = captureIdentity;
+          },
+          onCaptureStartRequested: (recordingId, captureIdentity) => {
             console.log(
               `[recording-start-latency] click to capture request ${Math.round(performance.now() - recordingClickAt)}ms`,
             );
@@ -3810,6 +3932,7 @@ export function App({
               captureStartedDuringStartRef.current = true;
             }
             sessionRecordingIdRef.current = recordingId;
+            sessionCaptureIdentityRef.current = captureIdentity ?? recordingId;
           },
         },
         audioCue,
@@ -3891,6 +4014,7 @@ export function App({
     }
 
     if (handle) {
+      recorderRef.current = handle;
       setRecorder(handle);
       requestLookbackForRecording(
         effectiveLookbackSeconds({
@@ -4114,24 +4238,11 @@ export function App({
       listen<{ recordingId?: string | null }>(
         "clips:recorder-session",
         (event) => {
-          sessionRecordingIdRef.current = event.payload?.recordingId ?? null;
+          const recordingId = event.payload?.recordingId ?? null;
+          sessionRecordingIdRef.current = recordingId;
+          sessionCaptureIdentityRef.current = recordingId;
         },
       ),
-    );
-    track(
-      listen("clips:recorder-stop", async () => {
-        if (
-          cancelled ||
-          restartInFlightRef.current ||
-          recordingStopFinalizingRef.current ||
-          recordingCancelInFlightRef.current
-        )
-          return;
-        void finishRecordingStopRef.current(
-          recorder,
-          sessionRecordingIdRef.current,
-        );
-      }),
     );
     track(
       listen(RECORDER_DISCARD_EVENT, async () => {
@@ -4168,6 +4279,7 @@ export function App({
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
             recordingFlowGateRef.current = false;
+            recorderRef.current = null;
             setRecorder(null);
             setRecordingFlowActive(false);
             setBubbleSessionEpoch((epoch) => epoch + 1);
@@ -4185,10 +4297,14 @@ export function App({
           return;
         if (restartInFlightRef.current) return;
         restartInFlightRef.current = true;
+        pendingRestartStopRef.current = new Set();
         restartCancelledRef.current = false;
         let handoff: RestartHandoff | null = null;
+        let restartedRecorder: RecorderHandle | null = null;
+        let oldRecorderWasDiscarded = false;
         try {
           handoff = await recorder.discardForRestart();
+          oldRecorderWasDiscarded = true;
           removeLookbackContext();
           if (cancelled) return;
           if (restartCancelledRef.current) {
@@ -4199,6 +4315,7 @@ export function App({
             ).clipsForceAlive = false;
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
+            recorderRef.current = null;
             setRecorder(null);
             setRecordingFlowActive(false);
             setBubbleSessionEpoch((epoch) => epoch + 1);
@@ -4206,17 +4323,38 @@ export function App({
             return;
           }
           setRecordingChromeEpoch((epoch) => epoch + 1);
+          recorderRef.current = null;
           setRecorder(null);
-          const restarted = await handleStartRecordingRef.current({
+          restartedRecorder = await handleStartRecordingRef.current({
             resumeCapture: handoff,
           });
-          if (restarted) handoff = null;
+          if (restartedRecorder) handoff = null;
         } catch (err) {
           console.error("[clips-popover] restart failed:", err);
           setRecError(err instanceof Error ? err.message : String(err));
         } finally {
           if (handoff) stopRestartHandoff(handoff);
           restartInFlightRef.current = false;
+          const pendingStops = pendingRestartStopRef.current;
+          pendingRestartStopRef.current = new Set();
+          const currentCaptureIdentity = sessionCaptureIdentityRef.current;
+          const stopRestartedRecorder = [...pendingStops].some(
+            (recordingId) =>
+              recordingId === null || recordingId === currentCaptureIdentity,
+          );
+          if (stopRestartedRecorder) {
+            const handleToStop =
+              restartedRecorder ??
+              (!oldRecorderWasDiscarded && !restartCancelledRef.current
+                ? recorder
+                : null);
+            if (handleToStop) {
+              void finishRecordingStopRef.current(
+                handleToStop,
+                sessionRecordingIdRef.current,
+              );
+            }
+          }
         }
       }),
     );
@@ -4605,8 +4743,6 @@ export function App({
           onCopyRewindAgentPrompt={copyRewindAgentPrompt}
           onOpenRewindDocs={openRewindDocs}
           onOpenMemory={() => setPopoverView("memory")}
-          rewindConsentPending={rewindConsentPending}
-          onRewindConsentHandled={() => setRewindConsentPending(false)}
           onCancel={() => setPopoverView("recorder")}
         />
       </div>
@@ -4719,6 +4855,18 @@ export function App({
 
   return (
     <div className="app app-recorder" ref={appRef}>
+      <RewindConsentDialog
+        open={lookbackRewindConsentOpen}
+        onOpenChange={(open) => {
+          setLookbackRewindConsentOpen(open);
+          if (!open) setLookbackRewindConsentError(null);
+        }}
+        busy={lookbackRewindConsentBusy}
+        disabled={!featureConfig}
+        error={lookbackRewindConsentError}
+        onConfirm={() => void turnOnRewindFromLookback()}
+      />
+
       {micOffConfirmOpen ? (
         <MicOffConfirmation
           onBack={closeMicOffConfirmation}
@@ -4828,6 +4976,7 @@ export function App({
               disabled={isRecording || recordingStartPending}
               onSecondsChange={chooseLookbackSeconds}
               onTurnOnRewind={openRewindConsent}
+              onTurnOffRewind={turnOffRewind}
             />
           ) : null}
         </div>
@@ -6228,6 +6377,66 @@ function formatStorageBytes(bytes: number): string {
   return `${Math.max(1, Math.round(mb))} MB`;
 }
 
+function RewindConsentDialog({
+  open,
+  onOpenChange,
+  busy,
+  disabled = false,
+  error,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  busy: boolean;
+  disabled?: boolean;
+  error?: string | null;
+  onConfirm: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <UiAlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (busy && !nextOpen) return;
+        onOpenChange(nextOpen);
+      }}
+    >
+      <UiAlertDialogContent className="max-w-md">
+        <UiAlertDialogHeader>
+          <UiAlertDialogTitle>
+            {t("lookbackContext.rewindConsentTitle")}
+          </UiAlertDialogTitle>
+          <UiAlertDialogDescription>
+            {t("lookbackContext.rewindConsentBody")}
+          </UiAlertDialogDescription>
+        </UiAlertDialogHeader>
+        {error ? (
+          <Alert variant="destructive" className="p-2 text-xs">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        <UiAlertDialogFooter>
+          <UiAlertDialogCancel disabled={busy}>
+            {t("lookbackContext.rewindConsentCancel")}
+          </UiAlertDialogCancel>
+          <UiAlertDialogAction
+            disabled={busy || disabled}
+            onClick={(event) => {
+              event.preventDefault();
+              onConfirm();
+            }}
+          >
+            {busy
+              ? t("lookbackContext.rewindConsentBusy")
+              : t("lookbackContext.rewindConsentConfirm")}
+          </UiAlertDialogAction>
+        </UiAlertDialogFooter>
+      </UiAlertDialogContent>
+    </UiAlertDialog>
+  );
+}
+
 function Setup({
   surface = "settings",
   initialSettingsTab,
@@ -6266,8 +6475,6 @@ function Setup({
   onCopyRewindAgentPrompt,
   onOpenRewindDocs,
   onOpenMemory,
-  rewindConsentPending = false,
-  onRewindConsentHandled,
   onCancel,
   onSignOut,
 }: {
@@ -6311,10 +6518,6 @@ function Setup({
   onCopyRewindAgentPrompt: () => void;
   onOpenRewindDocs: () => void;
   onOpenMemory?: () => void;
-  // Set when the popover's Turn on Rewind button opened this surface. Setup
-  // opens the Rewind consent dialog once and then reports it handled.
-  rewindConsentPending?: boolean;
-  onRewindConsentHandled?: () => void;
   onCancel?: () => void;
   onSignOut?: () => void;
 }) {
@@ -6344,13 +6547,6 @@ function Setup({
     featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG;
   const [screenMemory, setScreenMemory] = useState(observedScreenMemory);
   const [rewindConsentOpen, setRewindConsentOpen] = useState(false);
-
-  useEffect(() => {
-    if (!rewindConsentPending) return;
-    setSettingsTab("rewind");
-    setRewindConsentOpen(true);
-    onRewindConsentHandled?.();
-  }, [rewindConsentPending]);
   const screenMemoryRef = useRef(observedScreenMemory);
   const screenMemoryMutationRef = useRef(0);
   const screenMemoryMutationVersionRef = useRef(0);
@@ -7584,36 +7780,18 @@ function Setup({
               because the agent-handoff path uploads an approved range. A
               consent screen is the one place a comforting simplification is
               indistinguishable from a lie. */}
-          <UiAlertDialog
+          <RewindConsentDialog
             open={rewindConsentOpen}
             onOpenChange={setRewindConsentOpen}
-          >
-            <UiAlertDialogContent className="max-w-md">
-              <UiAlertDialogHeader>
-                <UiAlertDialogTitle>Turn on Rewind?</UiAlertDialogTitle>
-                <UiAlertDialogDescription>
-                  Clips will continuously record your screen and keep it on this
-                  device. Agents get text excerpts, and video is shared only
-                  when you approve it.
-                </UiAlertDialogDescription>
-              </UiAlertDialogHeader>
-              <UiAlertDialogFooter>
-                <UiAlertDialogCancel>Not now</UiAlertDialogCancel>
-                <UiAlertDialogAction
-                  disabled={screenMemoryConfigBusy || !featureConfig}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    void setScreenMemoryConfig({
-                      enabled: true,
-                      paused: false,
-                    }).finally(() => setRewindConsentOpen(false));
-                  }}
-                >
-                  {screenMemoryConfigBusy ? "Turning on…" : "Turn on Rewind"}
-                </UiAlertDialogAction>
-              </UiAlertDialogFooter>
-            </UiAlertDialogContent>
-          </UiAlertDialog>
+            busy={screenMemoryConfigBusy}
+            disabled={!featureConfig}
+            onConfirm={() => {
+              void setScreenMemoryConfig({
+                enabled: true,
+                paused: false,
+              }).finally(() => setRewindConsentOpen(false));
+            }}
+          />
           <SettingsRow
             label="Rewind"
             description="Keeps a rolling record of your recent screen on this device"

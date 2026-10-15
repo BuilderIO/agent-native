@@ -1,3 +1,4 @@
+import { friendlyTokenName } from "@agent-native/core/brand-kit";
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
 import {
   useActionMutation,
@@ -6,33 +7,42 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { parseCssColorExtended } from "@shared/color-utils";
 import {
+  DESIGN_TOKEN_GROUPS,
+  groupDesignTokens,
+  tokenGroupForType,
+  type DesignToken,
+  type DesignTokenGroup,
+  type DesignTokenGroupName,
+  type DesignTokenType,
+} from "@shared/design-token-types";
+import {
   IconBorderRadius,
   IconBrush,
   IconChevronDown,
   IconChevronRight,
   IconDownload,
-  IconFileText,
-  IconFolder,
   IconLetterCase,
   IconPalette,
   IconPlus,
   IconSearch,
   IconShadow,
   IconSpacingHorizontal,
-  IconUpload,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { LeftPanelHeader } from "@/components/design/editor/LeftPanelHeader";
 import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -52,24 +62,10 @@ import {
 } from "./LayersPanel";
 import { TokenColorPicker } from "./TokenColorPicker";
 
-interface DesignToken {
-  name: string;
-  cssVar: string;
-  value: string;
-  type: "color" | "typography" | "spacing" | "radius" | "shadow" | "other";
-  source: string;
-  isTweakOverride?: boolean;
-}
-
-interface TokenGroup {
-  type: DesignToken["type"];
-  tokens: DesignToken[];
-}
-
 interface IndexDesignTokensResult {
   designId: string;
   tokenCount: number;
-  groups: TokenGroup[];
+  groups: DesignTokenGroup[];
   tokens: DesignToken[];
 }
 
@@ -196,11 +192,11 @@ export function normalizeCssVarName(raw: string): string {
   return trimmed.startsWith("--") ? trimmed : `--${trimmed}`;
 }
 
-function typeLabel(type: DesignToken["type"]): {
+function groupLabel(group: DesignTokenGroupName): {
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
 } {
-  switch (type) {
+  switch (group) {
     case "color":
       return { label: "Colors", Icon: IconPalette };
     case "typography":
@@ -216,8 +212,38 @@ function typeLabel(type: DesignToken["type"]): {
   }
 }
 
-function TokenTypeIcon({ type }: { type: DesignToken["type"] }) {
-  const { Icon } = typeLabel(type);
+function TokenLeadingVisual({
+  type,
+  value,
+  name,
+  onColorCommit,
+}: {
+  type: DesignTokenType;
+  value: string;
+  /** Given for saved tokens: their swatch opens a color picker. */
+  name?: string;
+  onColorCommit?: (value: string) => Promise<void>;
+}) {
+  if (type === "color" && isColorValue(value)) {
+    return (
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        {name && onColorCommit && parseCssColorExtended(value) ? (
+          <TokenColorPicker
+            name={name}
+            value={value}
+            onCommit={onColorCommit}
+          />
+        ) : (
+          <span
+            className="size-4 rounded-[3px] ring-1 ring-inset ring-border"
+            style={{ backgroundColor: value }}
+            aria-hidden
+          />
+        )}
+      </span>
+    );
+  }
+  const { Icon } = groupLabel(tokenGroupForType(type));
   return <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />;
 }
 
@@ -243,7 +269,6 @@ function TokenRow({
   onColorCommit,
 }: TokenRowProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const showSwatch = token.type === "color" && isColorValue(token.value);
 
   useEffect(() => {
     if (editing) {
@@ -264,27 +289,12 @@ function TokenRow({
     >
       <LayerRowIndentSlots count={layerRowIndentCount(1)} />
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        {showSwatch ? (
-          parseCssColorExtended(token.value) ? (
-            <span className="flex size-4 shrink-0 items-center justify-center">
-              <TokenColorPicker
-                name={token.name}
-                value={token.value}
-                onCommit={(value) => onColorCommit(token.cssVar, value)}
-              />
-            </span>
-          ) : (
-            <span className="flex size-4 shrink-0 items-center justify-center">
-              <span
-                className="size-4 rounded-[3px] ring-1 ring-inset ring-border"
-                style={{ backgroundColor: token.value }}
-                aria-hidden
-              />
-            </span>
-          )
-        ) : (
-          <TokenTypeIcon type={token.type} />
-        )}
+        <TokenLeadingVisual
+          type={token.type}
+          value={token.value}
+          name={token.name}
+          onColorCommit={(value) => onColorCommit(token.cssVar, value)}
+        />
         <button
           type="button"
           className="min-w-0 flex-1 cursor-default truncate bg-transparent p-0 text-left font-normal leading-4 text-foreground"
@@ -324,28 +334,30 @@ function TokenRow({
 }
 
 interface TokenGroupSectionProps {
-  group: TokenGroup;
+  section: DesignTokenGroup;
   editingKey: string | null;
   editDraft: string;
   onStartEdit: (cssVar: string, currentValue: string) => void;
   onDraftChange: (v: string) => void;
   onCommit: () => void;
   onCancelEdit: () => void;
+  draftRow?: React.ReactNode;
   onColorCommit: (cssVar: string, value: string) => Promise<void>;
 }
 
 function TokenGroupSection({
-  group,
+  section,
   editingKey,
   editDraft,
   onStartEdit,
   onDraftChange,
   onCommit,
   onCancelEdit,
+  draftRow,
   onColorCommit,
 }: TokenGroupSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const { label, Icon } = typeLabel(group.type);
+  const { label, Icon } = groupLabel(section.group);
 
   return (
     <div>
@@ -381,349 +393,356 @@ function TokenGroupSection({
         </span>
       </button>
 
-      {!collapsed &&
-        group.tokens.map((token) => (
-          <TokenRow
-            key={token.cssVar}
-            token={token}
-            editing={editingKey === token.cssVar}
-            editDraft={editDraft}
-            onDraftChange={onDraftChange}
-            onCommit={onCommit}
-            onStartEdit={() => onStartEdit(token.cssVar, token.value)}
-            onCancelEdit={onCancelEdit}
-            onColorCommit={onColorCommit}
-          />
-        ))}
+      {(!collapsed || draftRow) && (
+        <div>
+          {draftRow}
+          {!collapsed &&
+            section.tokens.map((token) => (
+              <TokenRow
+                key={token.cssVar}
+                token={token}
+                editing={editingKey === token.cssVar}
+                editDraft={editDraft}
+                onDraftChange={onDraftChange}
+                onCommit={onCommit}
+                onStartEdit={() => onStartEdit(token.cssVar, token.value)}
+                onCancelEdit={onCancelEdit}
+                onColorCommit={onColorCommit}
+              />
+            ))}
+        </div>
+      )}
     </div>
   );
 }
 
-type ImportMode = "menu" | "text";
+const TOKEN_MENU_CONTENT_CLASS = "rounded-[10px] p-0";
+const TOKEN_MENU_ITEM_CLASS = "rounded-md px-2 py-1 text-sm leading-5";
+const TOKEN_MENU_SEPARATOR_CLASS = "mx-0 my-0 bg-border";
 
-const DEFAULT_TOKEN_VAR = "--my-token";
-// guard:allow-raw-color — default value for a new token input, not UI styling
-const DEFAULT_TOKEN_VALUE = "#000000";
-
-function HeaderIconPopover({
+function HeaderMenuTrigger({
   label,
   icon,
-  open,
-  onOpenChange,
-  children,
+  disabled,
 }: {
   label: string;
   icon: React.ReactNode;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  children: React.ReactNode;
+  disabled?: boolean;
 }) {
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8 cursor-pointer rounded-md text-foreground"
-              aria-label={label}
-            >
-              {icon}
-            </Button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{label}</TooltipContent>
-      </Tooltip>
-      <PopoverContent align="end" className="w-72 p-2 text-[12px]">
-        {children}
-      </PopoverContent>
-    </Popover>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 cursor-pointer rounded-md text-foreground"
+            aria-label={label}
+            disabled={disabled}
+          >
+            {icon}
+          </Button>
+        </DropdownMenuTrigger>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
-function AddTokenPopover({
-  onAdd,
+type MenuTokenType = Exclude<DesignTokenType, "motion" | "other">;
+
+const TOKEN_TYPE_MENU: MenuTokenType[][] = [
+  ["color"],
+  ["font-family", "font-weight", "font-size", "line-height", "letter-spacing"],
+  ["spacing", "container", "breakpoint", "radius"],
+  ["shadow", "opacity"],
+];
+
+function tokenTypeLabelKey(type: MenuTokenType): string {
+  return `designEditor.tokens.types.${type.replace(/-(\w)/g, (_, c: string) => c.toUpperCase())}`;
+}
+
+const DRAFT_DEFAULT_VALUES: Record<MenuTokenType, string> = {
+  color: "#000000", // guard:allow-raw-color — starter token value, not UI styling
+  "font-family": "Inter, sans-serif",
+  "font-weight": "400",
+  "font-size": "16px",
+  "line-height": "1.5",
+  "letter-spacing": "0em",
+  spacing: "16px",
+  container: "1200px",
+  breakpoint: "768px",
+  radius: "8px",
+  shadow: "0 1px 2px rgb(0 0 0 / 0.1)", // guard:allow-raw-color — starter shadow value
+  opacity: "0.5",
+};
+
+interface TokenDraft {
+  type: MenuTokenType;
+  cssVar: string;
+  value: string;
+}
+
+function nextDraftCssVar(type: MenuTokenType, taken: Set<string>): string {
+  let n = 1;
+  while (taken.has(`--${type}-${n}`)) n += 1;
+  return `--${type}-${n}`;
+}
+
+function AddTokenMenu({
+  onPick,
+  disabled,
 }: {
-  onAdd: (cssVar: string, value: string) => void;
+  onPick: (type: MenuTokenType) => void;
+  /** Until the token list has loaded, a draft's default name could collide. */
+  disabled: boolean;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const [cssVar, setCssVar] = useState(DEFAULT_TOKEN_VAR);
-  const [value, setValue] = useState(DEFAULT_TOKEN_VALUE);
+  const label = t("designEditor.tokens.newToken");
+  const pickedTypeRef = useRef<MenuTokenType | null>(null);
+  return (
+    <DropdownMenu>
+      <HeaderMenuTrigger
+        label={label}
+        icon={<IconPlus className="size-4" />}
+        disabled={disabled}
+      />
+      <DropdownMenuContent
+        align="end"
+        className={cn("w-[220px]", TOKEN_MENU_CONTENT_CLASS)}
+        // The menu keeps focus trapped until its close animation ends, so the
+        // draft row is started only here; starting it from onSelect mounts the
+        // row while focus is still trapped and its value input never focuses.
+        onCloseAutoFocus={(event) => {
+          const type = pickedTypeRef.current;
+          if (!type) return;
+          pickedTypeRef.current = null;
+          event.preventDefault();
+          onPick(type);
+        }}
+      >
+        {TOKEN_TYPE_MENU.map((section, index) => (
+          <div key={section[0]}>
+            {index > 0 && (
+              <DropdownMenuSeparator className={TOKEN_MENU_SEPARATOR_CLASS} />
+            )}
+            {section.map((type) => (
+              <DropdownMenuItem
+                key={type}
+                className={TOKEN_MENU_ITEM_CLASS}
+                onSelect={() => {
+                  pickedTypeRef.current = type;
+                }}
+              >
+                {t(tokenTypeLabelKey(type))}
+              </DropdownMenuItem>
+            ))}
+          </div>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
-  const reset = () => {
-    setCssVar(DEFAULT_TOKEN_VAR);
-    setValue(DEFAULT_TOKEN_VALUE);
+function DraftTokenRow({
+  draft,
+  onChange,
+  onCommit,
+  onDiscard,
+}: {
+  draft: TokenDraft;
+  onChange: (draft: TokenDraft) => void;
+  onCommit: () => void;
+  onDiscard: () => void;
+}) {
+  const t = useT();
+  const valueRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    valueRef.current?.focus();
+    valueRef.current?.select();
+  }, [draft.type]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") onCommit();
+    if (event.key === "Escape") onDiscard();
   };
 
   return (
-    <HeaderIconPopover
-      label={t("designEditor.tokens.newToken")}
-      icon={<IconPlus className="size-4" />}
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
-        if (!nextOpen) reset();
+    <div
+      className={cn(
+        "rounded-[4px] bg-[var(--design-editor-selection-color)] text-foreground",
+        LAYER_ROW_GEOMETRY_CLASS,
+      )}
+      onBlur={(event) => {
+        if (
+          !document.hasFocus() ||
+          event.currentTarget.contains(event.relatedTarget as Node | null)
+        ) {
+          return;
+        }
+        onCommit();
       }}
     >
-      <div className="space-y-2 p-1">
-        <div className="space-y-1">
-          <label className="text-[10px] font-medium text-muted-foreground">
-            {t("designEditor.tokens.cssVar")}
-          </label>
-          <Input
-            value={cssVar}
-            onChange={(e) => setCssVar(e.target.value)}
-            className="h-6 font-mono !text-[11px] md:!text-[11px]"
-            placeholder={DEFAULT_TOKEN_VAR}
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-medium text-muted-foreground">
-            {t("designEditor.tokens.value")}
-          </label>
-          <Input
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            className="h-6 font-mono !text-[11px] md:!text-[11px]"
-            // guard:allow-raw-color — example value in an input placeholder, not UI styling
-            placeholder="#3B82F6"
-          />
-        </div>
-        <Button
-          type="button"
-          className="h-7 w-full cursor-pointer !text-[11px]"
-          onClick={() => {
-            onAdd(normalizeCssVarName(cssVar), value.trim());
-            setOpen(false);
-            reset();
-          }}
-          disabled={!cssVar.trim() || !value.trim()}
-        >
-          {t("designEditor.tokens.add")}
-        </Button>
+      <LayerRowIndentSlots count={layerRowIndentCount(1)} />
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <TokenLeadingVisual type={draft.type} value={draft.value} />
+        <Input
+          aria-label={t("designEditor.tokens.cssVar")}
+          value={draft.cssVar}
+          onChange={(e) => onChange({ ...draft, cssVar: e.target.value })}
+          onKeyDown={handleKeyDown}
+          className="h-6 min-w-0 flex-1 px-1 py-0 font-mono !text-[11px] md:!text-[11px]"
+        />
+        <Input
+          ref={valueRef}
+          aria-label={t("designEditor.tokens.value")}
+          value={draft.value}
+          onChange={(e) => onChange({ ...draft, value: e.target.value })}
+          onKeyDown={handleKeyDown}
+          className="h-6 w-24 px-1 py-0 font-mono !text-[11px] md:!text-[11px]"
+        />
       </div>
-    </HeaderIconPopover>
+    </div>
   );
 }
 
-interface ImportTokensPopoverProps {
-  onImportFiles: (
-    files: TokenImportFile[],
-    omittedFileCount: number,
-    readFailureCount: number,
-  ) => Promise<ImportDesignTokensResult>;
-  onImportText: (text: string) => Promise<ImportDesignTokensResult>;
-  onImportCurrentDesign: () => Promise<ImportDesignTokensResult>;
+type TokenImportRequest =
+  | {
+      source: "files";
+      files: TokenImportFile[];
+      omittedFileCount: number;
+      readFailureCount: number;
+    }
+  | { source: "paste"; text: string }
+  | { source: "current-design" };
+
+interface ImportTokensMenuProps {
+  onImport: (request: TokenImportRequest) => Promise<ImportDesignTokensResult>;
   isPending: boolean;
 }
 
-function ImportTokensPopover({
-  onImportFiles,
-  onImportText,
-  onImportCurrentDesign,
-  isPending,
-}: ImportTokensPopoverProps) {
+const DTCG_ACCEPT = ".json,.tokens";
+const CSS_OR_TAILWIND_ACCEPT =
+  ".css,.scss,.less,.js,.cjs,.mjs,.jsx,.ts,.tsx,.html,.htm,.md,.mdx,.txt";
+
+function ImportTokensMenu({ onImport, isPending }: ImportTokensMenuProps) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<ImportMode>("menu");
-  const [text, setText] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const runImport = async (
-    importer: () => Promise<ImportDesignTokensResult>,
+    request: TokenImportRequest | (() => Promise<TokenImportRequest>),
   ) => {
-    setStatus(t("designEditor.tokens.importing"));
+    const id = toast.loading(t("designEditor.tokens.importing"));
     try {
-      const result = await importer();
+      const result = await onImport(
+        typeof request === "function" ? await request() : request,
+      );
       const status = getTokenImportStatus(result);
-      setStatus(status.values ? t(status.key, status.values) : t(status.key));
+      const message = status.values
+        ? t(status.key, status.values)
+        : t(status.key);
       if (result.importedCount > 0) {
-        setText("");
+        toast.success(message, { id });
+      } else {
+        toast.error(message, { id });
       }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      toast.error(
+        t("designEditor.tokens.importFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+        { id },
+      );
     }
+  };
+
+  // One hidden input serves both file items, so `accept` is set on the node
+  // right before click() rather than rendered as a prop.
+  const pickFiles = (accept: string) => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    input.accept = accept;
+    input.click();
+  };
+
+  const pasteFromClipboard = async () => {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      toast.error(t("designEditor.tokens.clipboardBlocked"));
+      return;
+    }
+    if (!text.trim()) {
+      toast.error(t("designEditor.tokens.clipboardEmpty"));
+      return;
+    }
+    void runImport({ source: "paste", text });
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = snapshotImportFiles(event.currentTarget);
     if (files.length === 0) return;
-    void runImport(async () => {
-      const imported = await readImportFiles(files);
-      return onImportFiles(
-        imported.files,
-        imported.omittedFileCount,
-        imported.readFailureCount,
-      );
-    });
+    void runImport(async () => ({
+      source: "files",
+      ...(await readImportFiles(files)),
+    }));
   };
 
   return (
-    <HeaderIconPopover
-      label={t("designEditor.tokens.import")}
-      icon={<IconDownload className="size-4" />}
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
-        if (!nextOpen) {
-          setMode("menu");
-          setStatus(null);
-          setText("");
-        }
-      }}
-    >
-      {mode === "menu" ? (
-        <div className="space-y-0.5">
-          <TokenCreateOption
-            icon={<IconUpload className="size-3.5" />}
-            title="Import a set from text"
-            description="Paste CSS variables, theme notes, or token JSON."
-            onClick={() => setMode("text")}
+    <>
+      <DropdownMenu>
+        <HeaderMenuTrigger
+          label={t("designEditor.tokens.import")}
+          icon={<IconDownload className="size-4" />}
+        />
+        <DropdownMenuContent
+          align="end"
+          className={cn("w-[240px]", TOKEN_MENU_CONTENT_CLASS)}
+        >
+          <DropdownMenuItem
+            className={TOKEN_MENU_ITEM_CLASS}
             disabled={isPending}
-          />
-          <TokenCreateOption
-            icon={<IconFileText className="size-3.5" />}
-            title="Import from a file"
-            description="Read colors, spacing, and type from selected files."
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isPending}
-          />
-          <TokenCreateOption
-            icon={<IconFolder className="size-3.5" />}
-            title="Import from a folder"
-            description="Scan a small source folder for token definitions."
-            onClick={() => folderInputRef.current?.click()}
-            disabled={isPending}
-          />
-          <TokenCreateOption
-            icon={<IconPalette className="size-3.5" />}
-            title="Import from current design"
-            description="Extract reusable tokens already used on the canvas."
-            onClick={() => void runImport(onImportCurrentDesign)}
-            disabled={isPending}
-          />
-        </div>
-      ) : (
-        <div className="space-y-2 p-1">
-          <TokenCreateBackButton onClick={() => setMode("menu")} />
-          <p className="text-[10px] leading-snug text-muted-foreground">
-            Paste a token set from CSS, JSON, Tailwind config, or design notes.
-          </p>
-          <Textarea
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            placeholder={t("designEditor.tokens.pastePlaceholder")}
-            className="min-h-24 resize-none font-mono !text-[11px]"
-          />
-          <Button
-            type="button"
-            className="h-7 w-full cursor-pointer !text-[11px]"
-            disabled={isPending || !text.trim()}
-            onClick={() => void runImport(() => onImportText(text))}
+            onSelect={() => pickFiles(DTCG_ACCEPT)}
           >
-            {t("designEditor.tokens.importPasted")}
-          </Button>
-        </div>
-      )}
-
+            {t("designEditor.tokens.importDtcg")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className={TOKEN_MENU_ITEM_CLASS}
+            disabled={isPending}
+            onSelect={() => pickFiles(CSS_OR_TAILWIND_ACCEPT)}
+          >
+            {t("designEditor.tokens.importCssOrTailwind")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className={TOKEN_MENU_ITEM_CLASS}
+            disabled={isPending}
+            onSelect={() => void pasteFromClipboard()}
+          >
+            {t("designEditor.tokens.importClipboard")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className={TOKEN_MENU_SEPARATOR_CLASS} />
+          <DropdownMenuItem
+            className={TOKEN_MENU_ITEM_CLASS}
+            disabled={isPending}
+            onSelect={() => void runImport({ source: "current-design" })}
+          >
+            {t("designEditor.tokens.importFromDesign")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <input
         ref={fileInputRef}
         type="file"
         multiple
-        accept={TOKEN_IMPORT_ACCEPT}
         className="hidden"
         onChange={handleFileChange}
       />
-      <input
-        ref={folderInputRef}
-        type="file"
-        multiple
-        accept={TOKEN_IMPORT_ACCEPT}
-        className="hidden"
-        onChange={handleFileChange}
-        {...({ directory: "", webkitdirectory: "" } as Record<string, string>)}
-      />
-
-      {status && (
-        <p
-          className="mt-2 px-1 text-[10px] leading-snug text-muted-foreground"
-          role="status"
-          aria-live="polite"
-        >
-          {status}
-        </p>
-      )}
-    </HeaderIconPopover>
+    </>
   );
 }
-
-function TokenCreateBackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="mb-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
-    >
-      Back
-    </button>
-  );
-}
-
-function TokenCreateOption({
-  icon,
-  title,
-  description,
-  onClick,
-  disabled,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="group flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/70 text-muted-foreground transition-colors group-hover:border-border group-hover:bg-muted">
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium leading-tight text-foreground">
-          {title}
-        </span>
-        <span className="mt-0.5 line-clamp-1 text-[11px] leading-snug text-muted-foreground">
-          {description}
-        </span>
-      </span>
-    </button>
-  );
-}
-
-const TOKEN_IMPORT_ACCEPT = [
-  ".css",
-  ".scss",
-  ".less",
-  ".html",
-  ".htm",
-  ".json",
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".md",
-  ".mdx",
-  ".txt",
-].join(",");
 
 export function snapshotImportFiles(
   input: Pick<HTMLInputElement, "files" | "value">,
@@ -805,6 +824,8 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     { designId },
   );
 
+  const queryClient = useQueryClient();
+  const tokensQueryKey = ["action", "index-design-tokens", { designId }];
   const applyMutation = useActionMutation("apply-design-token-edit");
   const importMutation = useActionMutation("import-design-tokens");
 
@@ -816,6 +837,15 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const [tokenDraft, setTokenDraftState] = useState<TokenDraft | null>(null);
+  const tokenDraftRef = useRef<TokenDraft | null>(null);
+
+  // The draft row commits on blur, and Enter/Escape also unmount it; the ref
+  // makes the first of those win so a discarded draft is never saved.
+  const setTokenDraft = (draft: TokenDraft | null) => {
+    tokenDraftRef.current = draft;
+    setTokenDraftState(draft);
+  };
 
   const startEdit = (cssVar: string, currentValue: string) => {
     setEditingKey(cssVar);
@@ -827,12 +857,23 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     setEditDraft("");
   };
 
-  const applyTokenEdit = (cssVar: string, value: string) => {
+  const applyTokenEdit = (
+    cssVar: string,
+    value: string,
+    options?: { type?: DesignTokenType; onError?: (error: Error) => void },
+  ) => {
     const requestDesignId = designId;
-    applyMutation.mutate(
-      { designId, edits: [{ cssVar, value }] },
-      {
-        onSuccess: (result) => {
+    const type = options?.type;
+    // mutateAsync, not mutate(vars, callbacks): per-call callbacks only fire
+    // for the latest call, so an earlier save failing while a newer one is in
+    // flight would skip its rollback.
+    applyMutation
+      .mutateAsync({
+        designId,
+        edits: [{ cssVar, value, ...(type ? { type } : {}) }],
+      })
+      .then(
+        (result) => {
           if (designIdRef.current !== requestDesignId) return;
           void refetch();
           const r = result as { resolvedCssVars?: Record<string, string> };
@@ -840,8 +881,13 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
             onTokensApplied(r.resolvedCssVars);
           }
         },
-      },
-    );
+        (error: unknown) => {
+          if (designIdRef.current !== requestDesignId) return;
+          options?.onError?.(
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        },
+      );
   };
 
   const commitTokenColor = async (cssVar: string, value: string) => {
@@ -868,14 +914,95 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     applyTokenEdit(cssVar, value);
   };
 
-  const handleNewToken = (cssVar: string, value: string) => {
-    applyTokenEdit(cssVar, value);
+  const startTokenDraft = (type: MenuTokenType) => {
+    const taken = new Set((data?.tokens ?? []).map((token) => token.cssVar));
+    setSearch("");
+    setSearchOpen(false);
+    setTokenDraft({
+      type,
+      cssVar: nextDraftCssVar(type, taken),
+      value: DRAFT_DEFAULT_VALUES[type],
+    });
   };
 
-  const handleImportSuccess = (
-    result: ImportDesignTokensResult,
-    requestDesignId: string,
-  ) => {
+  const commitTokenDraft = () => {
+    const draft = tokenDraftRef.current;
+    if (!draft) return;
+    setTokenDraft(null);
+    const value = draft.value.trim();
+    if (!draft.cssVar.trim() || !value) return;
+    const cssVar = normalizeCssVarName(draft.cssVar);
+    const pending: DesignToken = {
+      name: friendlyTokenName(cssVar),
+      cssVar,
+      value,
+      type: draft.type,
+      source: "Tweaks",
+    };
+    // Patch the current list rather than restoring a snapshot on failure: a
+    // snapshot would also undo any save that landed after this one started.
+    const updateTokens = (update: (tokens: DesignToken[]) => DesignToken[]) =>
+      queryClient.setQueryData<IndexDesignTokensResult>(
+        tokensQueryKey,
+        (current) => {
+          if (!current) return current;
+          const tokens = update(current.tokens);
+          return {
+            ...current,
+            tokenCount: tokens.length,
+            groups: groupDesignTokens(tokens),
+            tokens,
+          };
+        },
+      );
+    void queryClient.cancelQueries({ queryKey: tokensQueryKey, exact: true });
+    updateTokens((tokens) => [
+      ...tokens.filter((token) => token.cssVar !== cssVar),
+      pending,
+    ]);
+    applyTokenEdit(cssVar, value, {
+      type: draft.type,
+      onError: (error) => {
+        updateTokens((tokens) =>
+          tokens.filter((token) => token.cssVar !== cssVar),
+        );
+        void refetch();
+        // A newer draft may be open by now; keep it rather than its edits.
+        if (!tokenDraftRef.current) setTokenDraft(draft);
+        toast.error(
+          t("designEditor.tokens.addFailed", { message: error.message }),
+        );
+      },
+    });
+  };
+
+  const importTokens = async (
+    request: TokenImportRequest,
+  ): Promise<ImportDesignTokensResult> => {
+    if (request.source === "files" && request.files.length === 0) {
+      return createEmptyFilesImportResult(
+        designId,
+        request.omittedFileCount,
+        request.readFailureCount,
+      );
+    }
+    const requestDesignId = designId;
+    const response = (await importMutation.mutateAsync(
+      request.source === "files"
+        ? { designId, source: "files", files: request.files }
+        : { designId, ...request },
+    )) as ImportDesignTokensResult;
+    // Files the browser skipped or could not read never reach the server, so
+    // their counts are added to its result for the status message.
+    const result =
+      request.source === "files"
+        ? {
+            ...response,
+            omittedFileCount:
+              (response.omittedFileCount ?? 0) + request.omittedFileCount,
+            readFailureCount: request.readFailureCount,
+          }
+        : response;
     if (designIdRef.current !== requestDesignId) return result;
     void refetch();
     if (result.resolvedCssVars && onTokensApplied) {
@@ -884,73 +1011,39 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     return result;
   };
 
-  const importFiles = async (
-    files: TokenImportFile[],
-    clientOmittedFileCount: number,
-    clientReadFailureCount: number,
-  ) => {
-    if (files.length === 0) {
-      return createEmptyFilesImportResult(
-        designId,
-        clientOmittedFileCount,
-        clientReadFailureCount,
-      );
-    }
-
-    const requestDesignId = designId;
-    const result = (await importMutation.mutateAsync({
-      designId,
-      source: "files",
-      files,
-    })) as ImportDesignTokensResult;
-    return handleImportSuccess(
-      {
-        ...result,
-        omittedFileCount:
-          (result.omittedFileCount ?? 0) + clientOmittedFileCount,
-        readFailureCount: clientReadFailureCount,
-      },
-      requestDesignId,
-    );
-  };
-
-  const importText = async (text: string) => {
-    const requestDesignId = designId;
-    const result = (await importMutation.mutateAsync({
-      designId,
-      source: "paste",
-      text,
-    })) as ImportDesignTokensResult;
-    return handleImportSuccess(result, requestDesignId);
-  };
-
-  const importCurrentDesign = async () => {
-    const requestDesignId = designId;
-    const result = (await importMutation.mutateAsync({
-      designId,
-      source: "current-design",
-    })) as ImportDesignTokensResult;
-    return handleImportSuccess(result, requestDesignId);
-  };
-
   const tokenCount = data?.tokenCount ?? 0;
   const showSearch = searchOpen || Boolean(search.trim());
   const query = search.trim().toLowerCase();
-  const allGroups = data?.groups;
+  const indexedGroups = data?.groups;
+  const draftGroup = tokenDraft ? tokenGroupForType(tokenDraft.type) : null;
+  const allGroups = useMemo(() => {
+    const indexed = indexedGroups ?? [];
+    if (
+      !draftGroup ||
+      indexed.some((section) => section.group === draftGroup)
+    ) {
+      return indexed;
+    }
+    return DESIGN_TOKEN_GROUPS.flatMap((group) =>
+      group === draftGroup
+        ? [{ group, tokens: [] }]
+        : indexed.filter((section) => section.group === group),
+    );
+  }, [indexedGroups, draftGroup]);
   const groups = useMemo(() => {
-    if (!allGroups || !query) return allGroups ?? [];
+    if (!query) return allGroups;
     return allGroups
-      .map((group) => ({
-        ...group,
-        tokens: group.tokens.filter((token) =>
+      .map((section) => ({
+        ...section,
+        tokens: section.tokens.filter((token) =>
           [token.name, token.cssVar, token.value].some((field) =>
             field.toLowerCase().includes(query),
           ),
         ),
       }))
-      .filter((group) => group.tokens.length > 0);
+      .filter((section) => section.tokens.length > 0);
   }, [allGroups, query]);
-  const hasTokens = (allGroups?.length ?? 0) > 0;
+  const hasTokens = allGroups.length > 0;
   const focusSearch = () => {
     setSearchOpen(true);
     window.requestAnimationFrame(() => searchInputRef.current?.focus());
@@ -977,13 +1070,11 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
           </TooltipTrigger>
           <TooltipContent>{t("designEditor.tokens.search")}</TooltipContent>
         </Tooltip>
-        <ImportTokensPopover
-          onImportFiles={importFiles}
-          onImportText={importText}
-          onImportCurrentDesign={importCurrentDesign}
+        <ImportTokensMenu
+          onImport={importTokens}
           isPending={importMutation.isPending}
         />
-        <AddTokenPopover onAdd={handleNewToken} />
+        <AddTokenMenu onPick={startTokenDraft} disabled={!data} />
       </LeftPanelHeader>
 
       {showSearch && (
@@ -1036,16 +1127,26 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
 
         {!isLoading && groups.length > 0 && (
           <div className="px-1.5">
-            {groups.map((group) => (
+            {groups.map((section) => (
               <TokenGroupSection
-                key={group.type}
-                group={group}
+                key={section.group}
+                section={section}
                 editingKey={editingKey}
                 editDraft={editDraft}
                 onStartEdit={startEdit}
                 onDraftChange={setEditDraft}
                 onCommit={commitEdit}
                 onCancelEdit={cancelEdit}
+                draftRow={
+                  tokenDraft && section.group === draftGroup ? (
+                    <DraftTokenRow
+                      draft={tokenDraft}
+                      onChange={setTokenDraft}
+                      onCommit={commitTokenDraft}
+                      onDiscard={() => setTokenDraft(null)}
+                    />
+                  ) : undefined
+                }
                 onColorCommit={commitTokenColor}
               />
             ))}

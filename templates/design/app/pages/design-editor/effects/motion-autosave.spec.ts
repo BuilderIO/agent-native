@@ -53,6 +53,7 @@ function createArgs(
     getScreenContent: () => "<html></html>",
     id: "design-1",
     ...refs,
+    motionFileActivationEpochRef: { current: 0 },
     motionAutosavePending: false,
     motionAutosaveRevision: 7,
     motionDefaultEase: "ease",
@@ -70,8 +71,18 @@ function createArgs(
     ],
     motionTextDocument: null,
     motionTracksDirty: true,
+    motionSourceVersionHashRef: { current: "a".repeat(64) },
+    motionSourceVersionCapturedRef: { current: true },
+    motionSourceConflictRef: { current: false },
+    motionSourceConflictMessage:
+      "Motion source changed while unsaved timeline edits exist.",
+    motionReloadFromSourceLabel: "Reload from code",
     queryClient: {
-      invalidateQueries: vi.fn(),
+      getQueryCache: () => ({
+        find: vi.fn(() => ({ isActive: () => true })),
+      }),
+      invalidateQueries: vi.fn().mockResolvedValue(undefined),
+      refetchQueries: vi.fn().mockResolvedValue(undefined),
     } as unknown as MotionAutosaveArgs["queryClient"],
     requestLocalhostWrite: vi.fn(
       () => "opened" as const,
@@ -194,7 +205,7 @@ describe("runMotionAutosave", () => {
     });
   });
 
-  it("saves React Text animation through the localhost source proof", () => {
+  it("keeps the first empty-timeline source version if the preview advances", () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", globalThis);
     const refs = {
@@ -247,13 +258,15 @@ describe("runMotionAutosave", () => {
           dataAttributes: {
             "data-agent-native-node-id": targetNodeId,
             "data-agent-native-motion-source-file": "src/Card.tsx",
-            "data-agent-native-motion-source-hash": "a".repeat(64),
+            "data-agent-native-motion-source-hash": "b".repeat(64),
           },
         },
       ],
     } as unknown as MotionAutosaveArgs["activeCodeLayerProjection"];
     args.motionTracks = [];
     args.motionTextDocument = textDocument;
+    args.motionSourceVersionHashRef.current = "a".repeat(64);
+    args.motionSourceVersionCapturedRef.current = true;
     args.applyMotionEdit = applyMotionEdit;
 
     runMotionAutosave(args);
@@ -264,7 +277,8 @@ describe("runMotionAutosave", () => {
       localSource: {
         connectionId: "connection-1",
         modulePath: "src/Card.tsx",
-        moduleVersionHash: "a".repeat(64),
+        moduleVersionHash: "b".repeat(64),
+        timelineVersionHash: "a".repeat(64),
         renderedNodeIds: [targetNodeId],
       },
       tracks: [],
@@ -345,6 +359,7 @@ describe("runMotionAutosave", () => {
       updatedAt: "2026-10-11T00:00:01.000Z",
       compiledHash: "compiled-native-style",
       contentPatched: true,
+      versionHash: "b".repeat(64),
     });
 
     expect(applyFileContentUpdate).toHaveBeenCalledOnce();
@@ -353,6 +368,9 @@ describe("runMotionAutosave", () => {
     );
     expect(applyFileContentUpdate.mock.calls[0]?.[1]).toContain(
       "agent-native-motion-source",
+    );
+    expect(args.setMotionHydrationFingerprint).toHaveBeenCalledWith(
+      expect.stringContaining("b".repeat(64)),
     );
   });
 
@@ -613,6 +631,9 @@ describe("runMotionAutosave", () => {
     args.requestLocalhostWrite = requestLocalhostWrite;
 
     runMotionAutosave(args);
+    expect(removeMotionTimeline.mock.calls[0]?.[0]).toMatchObject({
+      timelineVersionHash: "a".repeat(64),
+    });
 
     const firstCall = removeMotionTimeline.mock.calls[0] as unknown as [
       unknown,
@@ -629,6 +650,289 @@ describe("runMotionAutosave", () => {
 
     expect(removeMotionTimeline).toHaveBeenCalledTimes(2);
     expect(removeMotionTimeline.mock.calls[1]?.[0]).toBe(originalInput);
+  });
+
+  it("blocks stale-timeline retries until the user reloads the current source", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", globalThis);
+    const refs = {
+      lastScheduledMotionAutosaveFileVersionRef: { current: null },
+      lastScheduledMotionAutosaveRevisionRef: { current: 0 },
+      motionAutosaveRevisionRef: { current: 7 },
+      motionAutosaveTimerRef: { current: null },
+      motionAutosaveFlushRef: { current: null },
+      previousMotionFileIdRef: { current: "file-1" },
+      lastLocalContentRef: { current: null },
+      latestActiveContentRef: { current: null },
+      motionAutosaveFailedRevisionRef: { current: null },
+    } as unknown as Pick<
+      MotionAutosaveArgs,
+      | "lastScheduledMotionAutosaveFileVersionRef"
+      | "lastScheduledMotionAutosaveRevisionRef"
+      | "motionAutosaveRevisionRef"
+      | "motionAutosaveTimerRef"
+      | "motionAutosaveFlushRef"
+      | "previousMotionFileIdRef"
+      | "lastLocalContentRef"
+      | "latestActiveContentRef"
+      | "motionAutosaveFailedRevisionRef"
+    >;
+    const args = createArgs("revision-1", refs);
+    args.activeCanvasSourceType = "localhost";
+    args.activeCodeLayerProjection = {
+      source: { connectionId: "connection-1" },
+      nodes: [
+        {
+          dataAttributes: {
+            "data-agent-native-node-id": "node-1",
+            "data-agent-native-motion-source-file": "src/Card.tsx",
+            "data-agent-native-motion-source-hash": "b".repeat(64),
+          },
+        },
+      ],
+    } as unknown as MotionAutosaveArgs["activeCodeLayerProjection"];
+    args.motionSourceVersionHashRef.current = "a".repeat(64);
+    args.motionSourceVersionCapturedRef.current = true;
+    const applyMotionEdit = vi.fn();
+    args.applyMotionEdit =
+      applyMotionEdit as unknown as MotionAutosaveArgs["applyMotionEdit"];
+
+    runMotionAutosave(args);
+    vi.advanceTimersByTime(500);
+    const firstCall = applyMotionEdit.mock.calls[0] as unknown as [
+      unknown,
+      { onError: (error: unknown) => void },
+    ];
+    firstCall[1].onError(
+      Object.assign(new Error("Motion source is stale."), {
+        errorCode: "motion_local_source_stale_timeline",
+      }),
+    );
+
+    expect(args.motionSourceConflictRef.current).toBe(true);
+    expect(toast.error).toHaveBeenCalledWith(
+      args.motionSourceConflictMessage,
+      expect.objectContaining({
+        duration: Number.POSITIVE_INFINITY,
+        action: expect.objectContaining({
+          label: "Reload from code",
+          onClick: expect.any(Function),
+        }),
+      }),
+    );
+
+    args.motionAutosaveRevision = 8;
+    refs.motionAutosaveRevisionRef.current = 8;
+    runMotionAutosave(args);
+    vi.advanceTimersByTime(500);
+    expect(applyMotionEdit).toHaveBeenCalledOnce();
+
+    const toastOptions = vi.mocked(toast.error).mock.calls[0]?.[1] as {
+      action?: { onClick: () => void | Promise<void> };
+    };
+    await toastOptions.action?.onClick();
+
+    expect(args.queryClient.refetchQueries).toHaveBeenCalledWith(
+      {
+        queryKey: [
+          "action",
+          "get-motion-timeline",
+          { designId: "design-1", sourceRef: "file-1" },
+        ],
+        exact: true,
+        type: "active",
+      },
+      { throwOnError: true },
+    );
+    expect(args.motionSourceConflictRef.current).toBe(false);
+    expect(args.setMotionHydrationFingerprint).toHaveBeenCalledWith(null);
+    expect(args.setMotionTracksDirty).toHaveBeenCalledWith(false);
+  });
+
+  it("does not apply a stale-source conflict from a previous screen", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", globalThis);
+    const refs = {
+      lastScheduledMotionAutosaveFileVersionRef: { current: null },
+      lastScheduledMotionAutosaveRevisionRef: { current: 0 },
+      motionAutosaveRevisionRef: { current: 7 },
+      motionAutosaveTimerRef: { current: null },
+      motionAutosaveFlushRef: { current: null },
+      previousMotionFileIdRef: { current: "file-1" },
+      lastLocalContentRef: { current: null },
+      latestActiveContentRef: { current: null },
+      motionAutosaveFailedRevisionRef: { current: null },
+    } as unknown as Pick<
+      MotionAutosaveArgs,
+      | "lastScheduledMotionAutosaveFileVersionRef"
+      | "lastScheduledMotionAutosaveRevisionRef"
+      | "motionAutosaveRevisionRef"
+      | "motionAutosaveTimerRef"
+      | "motionAutosaveFlushRef"
+      | "previousMotionFileIdRef"
+      | "lastLocalContentRef"
+      | "latestActiveContentRef"
+      | "motionAutosaveFailedRevisionRef"
+    >;
+    const args = createArgs("revision-1", refs);
+    args.activeCanvasSourceType = "localhost";
+    args.activeCodeLayerProjection = {
+      source: { connectionId: "connection-1" },
+      nodes: [
+        {
+          dataAttributes: {
+            "data-agent-native-node-id": "node-1",
+            "data-agent-native-motion-source-file": "src/Card.tsx",
+            "data-agent-native-motion-source-hash": "b".repeat(64),
+          },
+        },
+      ],
+    } as unknown as MotionAutosaveArgs["activeCodeLayerProjection"];
+    args.motionSourceVersionHashRef.current = "a".repeat(64);
+    args.motionSourceVersionCapturedRef.current = true;
+    const applyMotionEdit = vi.fn();
+    args.applyMotionEdit =
+      applyMotionEdit as unknown as MotionAutosaveArgs["applyMotionEdit"];
+
+    runMotionAutosave(args);
+    vi.advanceTimersByTime(500);
+    const firstCall = applyMotionEdit.mock.calls[0] as unknown as [
+      unknown,
+      { onError: (error: unknown) => void },
+    ];
+    refs.previousMotionFileIdRef.current = "file-2";
+    firstCall[1].onError(
+      Object.assign(new Error("Motion source is stale."), {
+        errorCode: "motion_local_source_stale_timeline",
+      }),
+    );
+
+    expect(args.motionSourceConflictRef.current).toBe(false);
+    expect(args.motionAutosaveFailedRevisionRef.current).toBeNull();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("ignores a late source conflict from an earlier activation of the same file", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", globalThis);
+    const refs = {
+      lastScheduledMotionAutosaveFileVersionRef: { current: null },
+      lastScheduledMotionAutosaveRevisionRef: { current: 0 },
+      motionAutosaveRevisionRef: { current: 7 },
+      motionAutosaveTimerRef: { current: null },
+      motionAutosaveFlushRef: { current: null },
+      previousMotionFileIdRef: { current: "file-1" },
+      lastLocalContentRef: { current: null },
+      latestActiveContentRef: { current: null },
+      motionAutosaveFailedRevisionRef: { current: null },
+    } as unknown as Pick<
+      MotionAutosaveArgs,
+      | "lastScheduledMotionAutosaveFileVersionRef"
+      | "lastScheduledMotionAutosaveRevisionRef"
+      | "motionAutosaveRevisionRef"
+      | "motionAutosaveTimerRef"
+      | "motionAutosaveFlushRef"
+      | "previousMotionFileIdRef"
+      | "lastLocalContentRef"
+      | "latestActiveContentRef"
+      | "motionAutosaveFailedRevisionRef"
+    >;
+    const args = createArgs("revision-1", refs);
+    const applyMotionEdit = vi.fn();
+    args.applyMotionEdit =
+      applyMotionEdit as unknown as MotionAutosaveArgs["applyMotionEdit"];
+
+    runMotionAutosave(args);
+    vi.advanceTimersByTime(500);
+    const firstCall = applyMotionEdit.mock.calls[0] as unknown as [
+      unknown,
+      { onError: (error: unknown) => void },
+    ];
+
+    args.motionFileActivationEpochRef.current += 2;
+    firstCall[1].onError(
+      Object.assign(new Error("Motion source is stale."), {
+        errorCode: "motion_local_source_stale_timeline",
+      }),
+    );
+
+    expect(refs.previousMotionFileIdRef.current).toBe("file-1");
+    expect(args.motionSourceConflictRef.current).toBe(false);
+    expect(refs.motionAutosaveFailedRevisionRef.current).toBeNull();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("keeps the stale-source conflict until a fresh timeline fetch succeeds", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", globalThis);
+    const refs = {
+      lastScheduledMotionAutosaveFileVersionRef: { current: null },
+      lastScheduledMotionAutosaveRevisionRef: { current: 0 },
+      motionAutosaveRevisionRef: { current: 7 },
+      motionAutosaveTimerRef: { current: null },
+      motionAutosaveFlushRef: { current: null },
+      previousMotionFileIdRef: { current: "file-1" },
+      lastLocalContentRef: { current: null },
+      latestActiveContentRef: { current: null },
+      motionAutosaveFailedRevisionRef: { current: null },
+    } as unknown as Pick<
+      MotionAutosaveArgs,
+      | "lastScheduledMotionAutosaveFileVersionRef"
+      | "lastScheduledMotionAutosaveRevisionRef"
+      | "motionAutosaveRevisionRef"
+      | "motionAutosaveTimerRef"
+      | "motionAutosaveFlushRef"
+      | "previousMotionFileIdRef"
+      | "lastLocalContentRef"
+      | "latestActiveContentRef"
+      | "motionAutosaveFailedRevisionRef"
+    >;
+    const args = createArgs("revision-1", refs);
+    args.activeCanvasSourceType = "localhost";
+    args.activeCodeLayerProjection = {
+      source: { connectionId: "connection-1" },
+      nodes: [
+        {
+          dataAttributes: {
+            "data-agent-native-node-id": "node-1",
+            "data-agent-native-motion-source-file": "src/Card.tsx",
+            "data-agent-native-motion-source-hash": "b".repeat(64),
+          },
+        },
+      ],
+    } as unknown as MotionAutosaveArgs["activeCodeLayerProjection"];
+    args.motionSourceVersionHashRef.current = "a".repeat(64);
+    args.motionSourceVersionCapturedRef.current = true;
+    const applyMotionEdit = vi.fn();
+    args.applyMotionEdit =
+      applyMotionEdit as unknown as MotionAutosaveArgs["applyMotionEdit"];
+    const refetchQueries = vi.fn().mockRejectedValue(new Error("Offline."));
+    (
+      args.queryClient as unknown as {
+        refetchQueries: typeof refetchQueries;
+      }
+    ).refetchQueries = refetchQueries;
+
+    runMotionAutosave(args);
+    vi.advanceTimersByTime(500);
+    const firstCall = applyMotionEdit.mock.calls[0] as unknown as [
+      unknown,
+      { onError: (error: unknown) => void },
+    ];
+    firstCall[1].onError(
+      Object.assign(new Error("Motion source is stale."), {
+        errorCode: "motion_local_source_stale_timeline",
+      }),
+    );
+    const toastOptions = vi.mocked(toast.error).mock.calls[0]?.[1] as {
+      action?: { onClick: () => void | Promise<void> };
+    };
+    await toastOptions.action?.onClick();
+
+    expect(args.motionSourceConflictRef.current).toBe(true);
+    expect(args.setMotionHydrationFingerprint).not.toHaveBeenCalled();
+    expect(args.setMotionTracksDirty).not.toHaveBeenCalledWith(false);
+    expect(toast.error).toHaveBeenLastCalledWith("Offline.");
   });
 
   it("waits for timeline removal before saving newer motion against a fresh timeline", () => {
@@ -708,5 +1012,59 @@ describe("runMotionAutosave", () => {
     expect(applyMotionEdit.mock.calls[0]?.[0]).toMatchObject({
       timelineId: undefined,
     });
+  });
+
+  it("does not write local source without a captured timeline version", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", globalThis);
+    const refs = {
+      lastScheduledMotionAutosaveFileVersionRef: { current: null },
+      lastScheduledMotionAutosaveRevisionRef: { current: 0 },
+      motionAutosaveRevisionRef: { current: 7 },
+      motionAutosaveTimerRef: { current: null },
+      motionAutosaveFlushRef: { current: null },
+      previousMotionFileIdRef: { current: "file-1" },
+      lastLocalContentRef: { current: null },
+      latestActiveContentRef: { current: null },
+      motionAutosaveFailedRevisionRef: { current: null },
+    } as unknown as Pick<
+      MotionAutosaveArgs,
+      | "lastScheduledMotionAutosaveFileVersionRef"
+      | "lastScheduledMotionAutosaveRevisionRef"
+      | "motionAutosaveRevisionRef"
+      | "motionAutosaveTimerRef"
+      | "motionAutosaveFlushRef"
+      | "previousMotionFileIdRef"
+      | "lastLocalContentRef"
+      | "latestActiveContentRef"
+      | "motionAutosaveFailedRevisionRef"
+    >;
+    const args = createArgs("revision-1", refs);
+    args.activeCanvasSourceType = "localhost";
+    args.motionSourceVersionHashRef.current = null;
+    args.motionSourceVersionCapturedRef.current = false;
+    args.activeCodeLayerProjection = {
+      source: { connectionId: "connection-1" },
+      nodes: [
+        {
+          dataAttributes: {
+            "data-agent-native-node-id": "node-1",
+            "data-agent-native-motion-source-file": "src/Card.tsx",
+            "data-agent-native-motion-source-hash": "a".repeat(64),
+          },
+        },
+      ],
+    } as unknown as MotionAutosaveArgs["activeCodeLayerProjection"];
+    const applyMotionEdit = vi.fn();
+    args.applyMotionEdit =
+      applyMotionEdit as unknown as MotionAutosaveArgs["applyMotionEdit"];
+
+    runMotionAutosave(args);
+    vi.advanceTimersByTime(500);
+
+    expect(applyMotionEdit).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      args.sourceWriteUnavailableMessage,
+    );
   });
 });

@@ -480,6 +480,9 @@ export default defineAction({
   },
   // SQL validation (<=10s) plus panel verification (<=18s) plus store I/O.
   timeoutMs: 45_000,
+  // A replayed insert or duplicate fails on the existing id, a replayed remove
+  // fails on the missing id, and every move, patch, and filter default is an end state.
+  retrySafe: true,
   run: async (args, actionContext) => {
     const code = nonEmptyCode(args.code);
     const requestedOperations = nonEmptyOperations(args.operations);

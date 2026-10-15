@@ -25,12 +25,13 @@ const queryState = vi.hoisted(() => ({
   },
 }));
 
-const labState = vi.hoisted(() => ({ enabled: true }));
 const sessionState = vi.hoisted(() => ({ authenticated: true }));
 const queryOptions = vi.hoisted(() => ({
   current: undefined as
     | {
+        input?: unknown;
         enabled?: boolean;
+        refetchOnWindowFocus?: boolean;
         refetchInterval?: (query: {
           state: { data?: { items: unknown[] } };
         }) => number | false;
@@ -53,10 +54,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
   useActionQuery: (
     _action: string,
-    _input: unknown,
+    input: unknown,
     options?: { enabled?: boolean },
   ) => {
-    queryOptions.current = options;
+    queryOptions.current = { ...options, input };
     return queryState.current;
   },
   useActionMutation: (action: string) => ({
@@ -73,10 +74,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
-}));
-
-vi.mock("@agent-native/core/client/labs", () => ({
-  useLabState: () => ({ enabled: labState.enabled }),
 }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({
@@ -382,7 +379,7 @@ describe("RecordingContextPanel", () => {
 });
 
 // The Transcript tab renders this section above the transcript; it owns the
-// lab and item gate, so these cases pin what the tab shows.
+// item gate, so these cases pin what the tab shows.
 describe("RecordingContextSection", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -394,7 +391,6 @@ describe("RecordingContextSection", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    labState.enabled = true;
     sessionState.authenticated = true;
     queryOptions.current = undefined;
     syncOptions.current = undefined;
@@ -408,19 +404,25 @@ describe("RecordingContextSection", () => {
   function render(
     recordingId: string | undefined = "rec_1",
     pathname = "/r/rec_1",
+    accessToken?: string,
+    canManage = true,
   ) {
     act(() =>
       root.render(
         <MemoryRouter key={pathname} initialEntries={[pathname]}>
           <QueryClientProvider client={queryClient}>
-            <RecordingContextSection recordingId={recordingId} />
+            <RecordingContextSection
+              recordingId={recordingId}
+              canManage={canManage}
+              accessToken={accessToken}
+            />
           </QueryClientProvider>
         </MemoryRouter>,
       ),
     );
   }
 
-  it("renders the panel when the lab is on and the clip has items", () => {
+  it("renders the panel when the clip has items", () => {
     setQuery({
       isSuccess: true,
       isPending: false,
@@ -436,19 +438,217 @@ describe("RecordingContextSection", () => {
     );
   });
 
-  it("renders nothing and does not query when the lab is off, even with items", () => {
-    labState.enabled = false;
+  it("shows a viewer the context without remove or edit controls", () => {
     setQuery({
       isSuccess: true,
       isPending: false,
       data: { items: [item({})] },
     });
+    act(() =>
+      root.render(
+        <MemoryRouter initialEntries={["/r/rec_1"]}>
+          <QueryClientProvider client={queryClient}>
+            <RecordingContextSection recordingId="rec_1" canManage={false} />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      ),
+    );
+    expect(container.textContent).toContain("Screen before recording");
+    expect(container.querySelector("video")).not.toBeNull();
+    expect(container.textContent).not.toContain("Remove earlier screen time");
+    expect(container.textContent).not.toContain(
+      "Edit the window in Clips Desktop.",
+    );
+  });
+
+  it("passes the unlocked Clip token to context metadata and footage playback", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [item({})] },
+    });
+    render("rec_1", "/share/share-id", "signed-token");
+
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: "signed-token",
+    });
+    expect(container.querySelector("video")?.getAttribute("src")).toBe(
+      "/api/video/media_1?t=signed-token",
+    );
+  });
+
+  it("renders nothing for a clip without items", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [] },
+    });
     render();
     expect(container.innerHTML).toBe("");
-    expect(queryOptions.current?.enabled).toBe(false);
-    expect((syncOptions.current as { realtime?: unknown }).realtime).toBe(
-      undefined,
+    expect(queryOptions.current?.enabled).toBe(true);
+    expect(queryOptions.current?.refetchOnWindowFocus).toBe(true);
+  });
+
+  it("renders nothing when a trashed Clip answers a viewer 404 recording_not_found", () => {
+    setQuery({
+      isError: true,
+      isPending: false,
+      error: Object.assign(new Error("not found"), {
+        status: 404,
+        errorCode: "recording_not_found",
+      }),
+    });
+    render();
+
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("shows the load-failed state when listing context fails without items", () => {
+    setQuery({
+      isError: true,
+      isPending: false,
+      error: new Error("list failed"),
+    });
+    render();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't load earlier screen time.",
     );
+  });
+
+  it("does not poll an unclaimed pending item from a public share view", () => {
+    const pending = item({ status: "pending", mediaRecordingId: null });
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [pending] },
+    });
+    render("rec_1", "/share/share-id", undefined, false);
+
+    expect(
+      queryOptions.current?.refetchInterval?.({
+        state: { data: { items: [pending] } },
+      }),
+    ).toBe(false);
+
+    render("rec_1", "/r/rec_1", undefined, true);
+    expect(
+      queryOptions.current?.refetchInterval?.({
+        state: { data: { items: [pending] } },
+      }),
+    ).toBe(3000);
+  });
+
+  it("keeps the first access token in the query key when a fresh one arrives", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [item({})] },
+    });
+    const renderWith = (token: string) =>
+      act(() =>
+        root.render(
+          <MemoryRouter initialEntries={["/share/s"]}>
+            <QueryClientProvider client={queryClient}>
+              <RecordingContextSection
+                recordingId="rec_1"
+                canManage={false}
+                accessToken={token}
+              />
+            </QueryClientProvider>
+          </MemoryRouter>,
+        ),
+      );
+    renderWith("token-1");
+    renderWith("token-2");
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: "token-1",
+    });
+  });
+
+  it("rotates the pinned access token after expiry or a share-scope change", () => {
+    const now = Date.now();
+    const nowSeconds = Math.floor(now / 1000);
+    const makeToken = (resourceId: string, exp: number) =>
+      `${btoa(JSON.stringify({ resourceId, exp }))}.signature`;
+    const firstToken = makeToken("rec_1:access:old", nowSeconds + 120);
+    const renewedToken = makeToken("rec_1:access:old", nowSeconds + 3600);
+    const changedScopeToken = makeToken("rec_1:access:new", nowSeconds + 3600);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [item({})] },
+    });
+    const renderWith = (token: string) =>
+      act(() =>
+        root.render(
+          <MemoryRouter initialEntries={["/share/s"]}>
+            <QueryClientProvider client={queryClient}>
+              <RecordingContextSection
+                recordingId="rec_1"
+                canManage={false}
+                accessToken={token}
+              />
+            </QueryClientProvider>
+          </MemoryRouter>,
+        ),
+      );
+
+    renderWith(firstToken);
+    renderWith(renewedToken);
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: firstToken,
+    });
+
+    clock.mockReturnValue(now + 60_000);
+    renderWith(renewedToken);
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: renewedToken,
+    });
+
+    renderWith(changedScopeToken);
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: changedScopeToken,
+    });
+    clock.mockRestore();
+  });
+
+  it("keeps a valid pinned token when a malformed token arrives", () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const validToken = `${btoa(JSON.stringify({ resourceId: "rec_1:access", exp: nowSeconds + 3600 }))}.signature`;
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [item({})] },
+    });
+    const renderWith = (token: string) =>
+      act(() =>
+        root.render(
+          <MemoryRouter initialEntries={["/share/s"]}>
+            <QueryClientProvider client={queryClient}>
+              <RecordingContextSection
+                recordingId="rec_1"
+                canManage={false}
+                accessToken={token}
+              />
+            </QueryClientProvider>
+          </MemoryRouter>,
+        ),
+      );
+
+    renderWith(validToken);
+    renderWith("malformed-token");
+
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: validToken,
+    });
   });
 
   it("refreshes only this clip's context when the desktop changes it", () => {

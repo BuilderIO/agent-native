@@ -367,5 +367,16 @@ describe("Analytics first-request baseline", () => {
     expect(
       LAZY_TOOLS.filter((name) => initialToolNames.includes(name)),
     ).toEqual([]);
+
+    const sigmaTools = ["list-sigma-workbooks", "inspect-sigma-workbook"];
+    const sigmaFound = searchToolRegistry(leanRegistry, {
+      names: sigmaTools,
+    });
+    expect(
+      sigmaFound.results
+        .filter((result) => result.callable)
+        .map((result) => result.name)
+        .sort(),
+    ).toEqual([...sigmaTools].sort());
   });
 });

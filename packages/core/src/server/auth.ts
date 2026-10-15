@@ -19,11 +19,11 @@ import {
   newOrgSelection,
   ORG_SELECTION_COOKIE,
 } from "../org/request-org-cache.js";
-import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
-  WORKSPACE_APP_ACCESS_UNAVAILABLE,
-  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
-} from "../org/workspace-app-access.js";
+  isWorkspaceAppAccessUnavailable,
+  workspaceAppAccessUnavailableBody,
+} from "../org/workspace-app-access-outcome.js";
+import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
@@ -99,7 +99,7 @@ function toWebRequest(event: H3Event): Request {
 type H3App = H3AppShim;
 import { getDbExec, describeDbError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
@@ -1923,39 +1923,40 @@ export function isExpectedAuthFailure(error: unknown): boolean {
   return EXPECTED_AUTH_FAILURE_PATTERNS.some((re) => re.test(msg));
 }
 
-let _sessionInitPromise: Promise<void> | undefined;
 let sessionMaxAge = DEFAULT_MAX_AGE;
 
-export async function ensureSessionTable(): Promise<void> {
-  if (!_sessionInitPromise) {
-    const _sessionInitPromiseWithRequestDbPoolScope = (async () => {
-      const createSql = `
+export const authSessionsStore = defineStore({
+  id: "auth_sessions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
           CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             email TEXT,
             created_at BIGINT NOT NULL
           )
         `;
-
-      {
         await ensureTableExists("sessions", createSql);
         await ensureColumnExists(
           "sessions",
           "email",
           `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS email TEXT`,
         );
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
         await widenIntColumnsToBigInt("sessions", ["created_at"]);
-        return;
-      }
-    })().catch((err) => {
-      _sessionInitPromise = undefined;
-      throw err;
-    });
-    _sessionInitPromise = retainRequestDbPoolScope(
-      _sessionInitPromiseWithRequestDbPoolScope,
-    );
-  }
-  return _sessionInitPromise;
+      },
+    },
+  ],
+});
+
+export function ensureSessionTable(): Promise<void> {
+  return authSessionsStore.ready();
 }
 
 async function retryIfSessionsMissing<T>(op: () => Promise<T>): Promise<T> {
@@ -1965,7 +1966,7 @@ async function retryIfSessionsMissing<T>(op: () => Promise<T>): Promise<T> {
     if (e?.code !== "42P01") throw e;
     const msg = String(e?.message ?? "");
     if (!msg.includes("sessions")) throw e;
-    _sessionInitPromise = undefined;
+    authSessionsStore.reset();
     await ensureSessionTable();
     return await op();
   }
@@ -4306,9 +4307,9 @@ function createAuthGuardFn(
           email: session.email,
           orgId: session.orgId,
         });
-        if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+        if (isWorkspaceAppAccessUnavailable(workspaceAppAccess)) {
           setResponseStatus(event, 503);
-          return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
+          return workspaceAppAccessUnavailableBody(workspaceAppAccess);
         }
         if (workspaceAppAccess === false) {
           setResponseStatus(event, 403);

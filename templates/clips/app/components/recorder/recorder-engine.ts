@@ -49,6 +49,7 @@ import {
   putRecordingBackupMeta,
   updateRecordingBackupMeta,
   verifyServerCopy,
+  type LocalRecorderPlatform,
   type RecordingBackupMeta,
 } from "@/lib/recording-backup";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
@@ -513,6 +514,7 @@ export class RecorderEngine {
   private backupDetails: {
     ownerEmail: string | null;
     title: string | null;
+    recordingPlatform?: LocalRecorderPlatform | null;
     createdAt: string;
   } | null = null;
   private localOnly = false;
@@ -809,6 +811,7 @@ export class RecorderEngine {
     hasAudio: boolean;
     hasCamera: boolean;
     ownerEmail: string | null;
+    recordingPlatform: LocalRecorderPlatform | null;
     whole: boolean;
   } | null {
     const meta = this.lastFinalizeMeta;
@@ -823,6 +826,7 @@ export class RecorderEngine {
       hasAudio: meta.hasAudio,
       hasCamera: meta.hasCamera,
       ownerEmail: this.backupDetails?.ownerEmail ?? null,
+      recordingPlatform: this.backupDetails?.recordingPlatform ?? null,
       whole: this.captureComplete,
     };
   }
@@ -1113,6 +1117,7 @@ export class RecorderEngine {
   setBackupDetails(details: {
     ownerEmail: string | null;
     title: string | null;
+    recordingPlatform?: LocalRecorderPlatform | null;
   }): void {
     this.backupDetails = { ...details, createdAt: new Date().toISOString() };
   }

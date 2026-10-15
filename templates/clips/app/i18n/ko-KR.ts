@@ -4,6 +4,7 @@ const messages = {
     includeLast: "마지막 구간 포함",
     whatIsThis: "이것은 무엇입니까?",
     off: "끔",
+    none: "없음",
     custom: "사용자 지정…",
     customLabel: "사용자 지정 길이",
     customAmount: "길이",
@@ -15,6 +16,25 @@ const messages = {
     customErrorInvalid: "초 또는 분 단위의 정수를 입력하세요.",
     customErrorTooLong: "5분 이하로 입력하세요.",
     turnOnRewind: "Rewind 켜기",
+    turnOffRewind: "끄기",
+    turnOffRewindFailed:
+      "Rewind를 끌 수 없습니다. 녹화를 중지한 후 다시 시도하세요.",
+    turnOnRewindFailed: "Rewind를 켤 수 없습니다. 다시 시도해 주세요.",
+    turnOnRewindPermissionFailed:
+      "시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹음에서 Clips의 화면 녹화를 허용한 뒤, Clips를 재시동하고 다시 시도하세요.",
+    turnOnRewindUnsupported:
+      "Rewind 화면 녹화는 macOS에서만 사용할 수 있습니다.",
+    turnOnRewindNoSpace:
+      "Rewind를 시작하기에 디스크 공간이 부족합니다. 공간을 확보한 후 다시 시도하세요.",
+    turnOnRewindStopClip: "Rewind를 켜기 전에 현재 Clip을 중지하세요.",
+    turnOnRewindStorageFailed:
+      "Rewind 저장 공간에 접근할 수 없습니다. 디스크 공간과 폴더 권한을 확인한 후 다시 시도하세요.",
+    rewindConsentTitle: "Rewind를 켤까요?",
+    rewindConsentBody:
+      "Clips는 화면을 계속 녹화해 이 기기에 보관합니다. 에이전트에는 텍스트 발췌가 제공되며, 동영상은 사용자가 승인한 경우에만 공유됩니다.",
+    rewindConsentCancel: "나중에",
+    rewindConsentConfirm: "Rewind 켜기",
+    rewindConsentBusy: "Rewind 켜는 중…",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
       "기본적으로 꺼져 있습니다. 화면 기록은 녹화에 포함하거나 공유 요청을 승인할 때까지 이 기기에 보관됩니다.",

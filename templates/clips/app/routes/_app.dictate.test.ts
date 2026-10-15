@@ -76,6 +76,17 @@ describe("dictate page composition", () => {
     expect(routeSource).toContain("actionErrorMessage(error)");
     expect(routeSource).toContain('t("dictateRoute.cleanupComplete")');
     expect(routeSource).toContain('t("dictateRoute.cleanupFailed")');
+    expect(routeSource).toContain('"update-dictation"');
+    expect(routeSource).toContain("cleanedText: null");
+    expect(routeSource).toContain('>("update-dictation", {');
+    expect(routeSource).toContain("expectedCleanupVersion,");
+    expect(routeSource).toContain(
+      "onClick: () => handleRestoreCleanup(result.cleanupVersion)",
+    );
+    expect(routeSource).toContain('t("dictateRoute.cleanupRestoreFailed")');
+    expect(routeSource).toContain('t("dictateRoute.undoCleanup")');
+    expect(routeSource).toContain('t("dictateRoute.restoreOriginal")');
+    expect(routeSource).toContain('t("dictateRoute.cleanupRestored")');
     expect(routeSource).not.toContain("function FilterTabs");
     expect(routeSource).not.toContain("grid-cols-12");
     expect(routeSource).not.toContain("<DayGroupedCard");
@@ -127,6 +138,8 @@ describe("dictate page composition", () => {
     expect(routeSource).toContain(
       "const displayText = dictation.cleanedText || dictation.fullText;",
     );
+    expect(routeSource).toContain('t("dictateRoute.original")');
+    expect(routeSource).toContain('t("dictateRoute.cleaned")');
     expect(routeSource).not.toContain("setView(");
     expect(routeSource).not.toContain("md:grid-cols-2");
     expect(routeSource).not.toContain('t("dictateRoute.cleanupHint")');

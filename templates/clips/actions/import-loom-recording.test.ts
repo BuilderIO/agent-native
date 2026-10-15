@@ -46,6 +46,7 @@ const mocks = vi.hoisted(() => ({
   isCandidateDirectVideoUrl: vi.fn(),
   queueBuilderMediaCompression: vi.fn(),
   dispatchPostFinalizeJob: vi.fn(),
+  trackRecordingCreated: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -109,6 +110,10 @@ vi.mock("../server/db/index.js", () => ({
 vi.mock("../server/lib/builder-media-compression.js", () => ({
   queueBuilderMediaCompression: (...args: unknown[]) =>
     mocks.queueBuilderMediaCompression(...args),
+}));
+vi.mock("../server/lib/recording-created.js", () => ({
+  trackRecordingCreated: (...args: unknown[]) =>
+    mocks.trackRecordingCreated(...args),
 }));
 vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
   dispatchPostFinalizeJob: (...args: unknown[]) =>
@@ -1152,6 +1157,13 @@ describe("Loom imports", () => {
     });
 
     expect(result).toMatchObject({ status: "waiting_storage" });
+    expect(mocks.trackRecordingCreated).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        recordingId: "recording-loom",
+        platform: "import",
+        source: "import",
+      }),
+    );
     const recording = insertValues.mock.calls[0]?.[0] as
       | Record<string, unknown>
       | undefined;
@@ -1238,5 +1250,7 @@ describe("Loom imports", () => {
       kind: "loom-import",
       requireAccepted: true,
     });
+    // Restarting an existing row in place is not a new recording.
+    expect(mocks.trackRecordingCreated).not.toHaveBeenCalled();
   });
 });

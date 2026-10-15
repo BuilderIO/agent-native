@@ -57,6 +57,11 @@ const RECORDINGS_DDL = `
     id TEXT PRIMARY KEY,
     owner_email TEXT NOT NULL,
     visibility TEXT NOT NULL DEFAULT 'private',
+    password TEXT,
+    share_password_version TEXT,
+    expires_at TEXT,
+    trashed_at TEXT,
+    edits_json TEXT NOT NULL DEFAULT '{}',
     source_app_name TEXT,
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT ''
@@ -90,6 +95,11 @@ export interface SeedRecordingOptions {
   id: string;
   ownerEmail?: string;
   visibility?: string;
+  password?: string | null;
+  sharePasswordVersion?: string | null;
+  expiresAt?: string | null;
+  trashedAt?: string | null;
+  editsJson?: string;
   sourceAppName?: string | null;
   createdAt?: string;
 }
@@ -99,11 +109,16 @@ export async function seedRecording(
   options: SeedRecordingOptions,
 ): Promise<void> {
   await client.query(
-    `INSERT INTO recordings (id, owner_email, visibility, source_app_name, created_at) VALUES ($1, $2, $3, $4, $5)`,
+    `INSERT INTO recordings (id, owner_email, visibility, password, share_password_version, expires_at, trashed_at, edits_json, source_app_name, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       options.id,
       options.ownerEmail ?? "owner@example.com",
       options.visibility ?? "private",
+      options.password ?? null,
+      options.sharePasswordVersion ?? null,
+      options.expiresAt ?? null,
+      options.trashedAt ?? null,
+      options.editsJson ?? "{}",
       options.sourceAppName ?? null,
       options.createdAt ?? RECORDING_CREATED_AT,
     ],
@@ -132,6 +147,7 @@ export interface SeedContextItemOptions {
   mediaRecordingId?: string | null;
   pendingMediaRecordingId?: string | null;
   capturedDeviceId?: string | null;
+  error?: string | null;
   createdAt?: string;
 }
 
@@ -147,8 +163,8 @@ export async function seedContextItem(
     `INSERT INTO recording_context_items (
        id, recording_id, requested_seconds, original_started_at, original_ended_at,
        started_at, ended_at, status, media_recording_id, pending_media_recording_id,
-       captured_device_id, created_at, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)`,
+       captured_device_id, error, created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)`,
     [
       options.id,
       options.recordingId ?? "rec_1",
@@ -161,6 +177,7 @@ export async function seedContextItem(
       options.mediaRecordingId ?? null,
       options.pendingMediaRecordingId ?? null,
       options.capturedDeviceId ?? null,
+      options.error ?? null,
       options.createdAt ?? "2026-10-01T12:00:01.000Z",
     ],
   );

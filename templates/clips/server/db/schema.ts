@@ -9,9 +9,8 @@ import {
   uniqueIndex,
   index,
   sql,
-  bigint,
 } from "@agent-native/core/db/schema";
-import { boolean, check } from "drizzle-orm/pg-core";
+import { bigint, boolean, check } from "drizzle-orm/pg-core";
 
 export const organizationSettings = table("organization_settings", {
   organizationId: text("organization_id").primaryKey(),

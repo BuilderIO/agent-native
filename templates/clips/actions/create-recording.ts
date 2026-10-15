@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { createError } from "h3";
 
 import { getDb, schema } from "../server/db/index.js";
+import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   hostedStorageAuthFailure,
   normalizeRecordingFailureCode,
@@ -41,6 +42,9 @@ import {
 import { DEFAULT_RECORDING_TITLE } from "../shared/title-source.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
+
+/** The `sourceAppName` the native mobile app (packages/mobile-app) sends. */
+const MOBILE_APP_SOURCE_NAME = "Agent-Native Mobile";
 
 export function classifyInitialUploadFailure(
   error: unknown,
@@ -157,6 +161,14 @@ export default defineAction({
       folderId: args.folderId,
     });
 
+    // The native mobile app names itself but sends no platform; read it from
+    // that name so its rows and events are not left "unknown".
+    const recordingPlatform =
+      args.recordingPlatform ??
+      (args.sourceAppName?.trim() === MOBILE_APP_SOURCE_NAME
+        ? "mobile"
+        : undefined);
+
     await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
     const storage = await resolveClipsVideoStorage({
@@ -201,7 +213,7 @@ export default defineAction({
         title,
         titleSource,
         sourceAppName: args.sourceAppName?.trim() || null,
-        recordingPlatform: args.recordingPlatform ?? "unknown",
+        recordingPlatform: recordingPlatform ?? "unknown",
         sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
         status: "uploading",
         uploadProgress: 0,
@@ -220,6 +232,24 @@ export default defineAction({
       await releaseHostedReservation();
       throw error;
     }
+
+    trackRecordingCreated({
+      recordingId: id,
+      userId: ownerEmail,
+      platform: recordingPlatform,
+      // The desktop app, extension and native mobile app only create rows
+      // from their recorders, and builds already installed send no source.
+      source:
+        args.recordingSource ??
+        (args.recordingPlatform === "desktop" ||
+        args.recordingPlatform === "extension" ||
+        args.sourceAppName?.trim() === MOBILE_APP_SOURCE_NAME
+          ? "recorder"
+          : undefined),
+      attemptId: args.recordingAttemptId,
+      hasAudio: args.hasAudio ?? true,
+      hasCamera: args.hasCamera ?? false,
+    });
 
     try {
       await writeAppState("refresh-signal", { ts: Date.now() });
@@ -283,7 +313,7 @@ export default defineAction({
       trackRecordingFailure({
         recordingId: id,
         userId: ownerEmail,
-        platform: args.recordingPlatform,
+        platform: recordingPlatform,
         ...failure,
       });
       await writeAppState(`recording-upload-${id}`, {

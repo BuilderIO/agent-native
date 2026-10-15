@@ -15,6 +15,7 @@ import {
   readRecoverableRecordingBackup,
   updateRecordingBackupMeta,
   verifyServerCopy,
+  type LocalRecorderPlatform,
   type LocalRecordingState,
   type RecordingBackupMeta,
 } from "./recording-backup";
@@ -248,6 +249,7 @@ export interface LocalUploadOptions {
     title?: string | null;
     /** The account that recorded it; the stored copy's owner wins. */
     ownerEmail?: string | null;
+    recordingPlatform?: LocalRecorderPlatform | null;
     /** False when the recorder never delivered its final chunk. */
     whole?: boolean;
   };
@@ -319,6 +321,8 @@ export async function uploadLocalRecording(
           ...stored?.meta,
           ...memorySource,
           ownerEmail: stored?.meta.ownerEmail ?? memorySource.ownerEmail,
+          recordingPlatform:
+            stored?.meta.recordingPlatform ?? memorySource.recordingPlatform,
           recordingId: localId,
           localOnly: stored?.meta.localOnly ?? true,
           bytes: memorySource.blob.size,
@@ -554,7 +558,11 @@ async function createAndUpload(
         expectedOwnerEmail: meta.ownerEmail,
         title: meta.title ?? undefined,
         titleSource: meta.title ? "context" : undefined,
-        recordingPlatform: "web",
+        // Absent rather than a guess: the server stores and reports it as
+        // "unknown", and the schema only accepts real recorder platforms.
+        recordingPlatform: meta.recordingPlatform ?? undefined,
+        recordingSource: "local_copy_upload",
+        recordingAttemptId: meta.recordingId,
         hasAudio: meta.hasAudio,
         hasCamera: meta.hasCamera,
         width: meta.width,

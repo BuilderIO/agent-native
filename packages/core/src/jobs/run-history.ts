@@ -10,7 +10,7 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { emit as emitBusEvent, registerEvent } from "../event-bus/index.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
@@ -190,43 +190,43 @@ export async function runAutomationRunMigrations(
   })(nitroApp);
 }
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS ${TABLE} (
-          id TEXT PRIMARY KEY,
-          owner TEXT NOT NULL,
-          automation TEXT NOT NULL,
+export const automationRunHistoryStore = defineStore({
+  id: "automation_run_history",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS ${TABLE} (
+            id TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            automation TEXT NOT NULL,
             path TEXT NOT NULL,
             scope TEXT,
             org_id TEXT,
             app_id TEXT,
             run_id TEXT,
-          thread_id TEXT,
-          status TEXT NOT NULL DEFAULT 'running',
-          started_at BIGINT NOT NULL,
-          finished_at BIGINT,
-          error TEXT,
-          error_code TEXT,
-          notification_email TEXT,
-          failure_alerted BIGINT NOT NULL DEFAULT 0,
-          failure_alert_state TEXT,
-          failure_alert_attempts BIGINT NOT NULL DEFAULT 0,
-          failure_alert_next_attempt_at BIGINT,
-          failure_alert_claimed_at BIGINT,
-          failure_alert_provider TEXT,
-          failure_alert_first_attempt_at BIGINT,
-          failure_alert_unsubscribe_token TEXT,
-          claimed_at BIGINT,
-          dispatch_pending BIGINT NOT NULL DEFAULT 0
-        )
-      `;
-      const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_owner_automation ON ${TABLE} (owner, automation, started_at)`;
+            thread_id TEXT,
+            status TEXT NOT NULL DEFAULT 'running',
+            started_at BIGINT NOT NULL,
+            finished_at BIGINT,
+            error TEXT,
+            error_code TEXT,
+            notification_email TEXT,
+            failure_alerted BIGINT NOT NULL DEFAULT 0,
+            failure_alert_state TEXT,
+            failure_alert_attempts BIGINT NOT NULL DEFAULT 0,
+            failure_alert_next_attempt_at BIGINT,
+            failure_alert_claimed_at BIGINT,
+            failure_alert_provider TEXT,
+            failure_alert_first_attempt_at BIGINT,
+            failure_alert_unsubscribe_token TEXT,
+            claimed_at BIGINT,
+            dispatch_pending BIGINT NOT NULL DEFAULT 0
+          )
+        `;
+        const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_owner_automation ON ${TABLE} (owner, automation, started_at)`;
 
-      {
         await ensureTableExists(TABLE, createSql);
         await ensureColumnExists(
           TABLE,
@@ -289,15 +289,13 @@ export async function ensureTable(): Promise<void> {
           `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS failure_alert_unsubscribe_token TEXT`,
         );
         await ensureIndexExists(`idx_${TABLE}_owner_automation`, indexSql);
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return automationRunHistoryStore.ready();
 }
 
 function toRun(row: Record<string, unknown>, now: number): AutomationRun {
