@@ -25,10 +25,19 @@ export function normalizeMarkdownHardBreaks(markdown: string): string {
     .join("\n");
 }
 
+function isUnicodeScalarValue(codePoint: number): boolean {
+  return (
+    codePoint > 0 &&
+    codePoint <= 0x10ffff &&
+    (codePoint < 0xd800 || codePoint > 0xdfff)
+  );
+}
+
+// A single replace pass, so "&amp;lt;" decodes to the literal text "&lt;".
 export function decodeCommonHtmlEntities(value: string): string {
   return value.replace(
-    /&(amp|lt|gt|quot|apos|#39|nbsp);/g,
-    (match, entity: string) => {
+    /&(?:(amp|lt|gt|quot|apos|nbsp)|#(\d+)|#[xX]([0-9a-fA-F]+));/g,
+    (match, entity?: string, decimal?: string, hex?: string) => {
       switch (entity) {
         case "amp":
           return "&";
@@ -39,13 +48,17 @@ export function decodeCommonHtmlEntities(value: string): string {
         case "quot":
           return '"';
         case "apos":
-        case "#39":
           return "'";
         case "nbsp":
           return " ";
-        default:
-          return match;
       }
+      const codePoint =
+        decimal !== undefined
+          ? Number.parseInt(decimal, 10)
+          : Number.parseInt(hex ?? "", 16);
+      return isUnicodeScalarValue(codePoint)
+        ? String.fromCodePoint(codePoint)
+        : match;
     },
   );
 }

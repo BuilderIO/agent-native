@@ -49,6 +49,31 @@ describe("decodeCommonHtmlEntities", () => {
       ),
     ).toBe("A&B <tag> \"hi\" 'ok' a b");
   });
+
+  it("decodes decimal and hex numeric entities", () => {
+    expect(
+      decodeCommonHtmlEntities(
+        "I&#39;ve &#8220;done&#8221; it &#x2014; &#X1F600;",
+      ),
+    ).toBe("I've “done” it — \u{1F600}");
+    expect(decodeCommonHtmlEntities("it&#x27;s &#xe9;t&#xE9;")).toBe(
+      "it's été",
+    );
+  });
+
+  it("decodes double-escaped text only one level", () => {
+    expect(
+      decodeCommonHtmlEntities("write &amp;lt;div&amp;gt; &amp;amp; &amp;#39;"),
+    ).toBe("write &lt;div&gt; &amp; &#39;");
+  });
+
+  it("leaves unknown entities and invalid code points as written", () => {
+    expect(
+      decodeCommonHtmlEntities(
+        "&copy; &#0; &#xD800; &#1114112; &#x110000; &amp &#39",
+      ),
+    ).toBe("&copy; &#0; &#xD800; &#1114112; &#x110000; &amp &#39");
+  });
 });
 
 describe("renderInlineMarkdown", () => {
