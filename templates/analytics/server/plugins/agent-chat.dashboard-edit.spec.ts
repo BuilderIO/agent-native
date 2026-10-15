@@ -726,20 +726,18 @@ describe("realDataFinalGuard dashboard edits", () => {
     // The sidebar appends every chat context item to the message, and the
     // dashboard page publishes the open dashboard as one
     // (use-dashboard-chat-context).
+    const dashboardPageItem = [
+      "## Dashboard: Product signups",
+      "The user currently has this Analytics dashboard selected: Product signups.",
+      "Dashboard id: product-signups",
+      "Dashboard kind: sql",
+      "Panel count: 6",
+      "User can edit: yes",
+      "Current URL: /adhoc/product-signups",
+      "Use the Analytics dashboard actions to inspect, edit, or restore this dashboard.",
+    ].join("\n");
     const onDashboardPage = (message: string) =>
-      appendAgentChatContextToMessage(
-        message,
-        [
-          "## Dashboard: Product signups",
-          "The user currently has this Analytics dashboard selected: Product signups.",
-          "Dashboard id: product-signups",
-          "Dashboard kind: sql",
-          "Panel count: 6",
-          "User can edit: yes",
-          "Current URL: /adhoc/product-signups",
-          "Use the Analytics dashboard actions to inspect, edit, or restore this dashboard.",
-        ].join("\n"),
-      );
+      appendAgentChatContextToMessage(message, dashboardPageItem);
     const markerTurns = [
       {
         userText:
@@ -859,6 +857,32 @@ describe("realDataFinalGuard dashboard edits", () => {
       expect(result?.retryMessage).toContain(
         "dashboard construction/template-clone",
       );
+    });
+
+    it("judges a panel-editor request as it does off the dashboard page", () => {
+      const ask = "Signups by plan";
+      const panelRequest =
+        'The user wants to add a new panel to SQL dashboard "product-signups". REAL_DATA_REQUIRED: run at least one real data-source query action for this panel.';
+      const judge = (userText: string) =>
+        realDataFinalGuard(guardContext({ userText, draftText: "On it." }));
+      const offPage = judge(appendAgentChatContextToMessage(ask, panelRequest));
+
+      expect(offPage?.retryMessage ?? "").not.toContain(
+        "dashboard construction/template-clone",
+      );
+      expect([
+        // As the panel editor submits it: the sidebar wraps it in the page's items.
+        judge(
+          onDashboardPage(appendAgentChatContextToMessage(ask, panelRequest)),
+        ),
+        // Staged in the composer, it shares one block with the page's items.
+        judge(
+          appendAgentChatContextToMessage(
+            ask,
+            `${dashboardPageItem}\n\n## Active app context\n${panelRequest}`,
+          ),
+        ),
+      ]).toEqual([offPage, offPage]);
     });
   });
 

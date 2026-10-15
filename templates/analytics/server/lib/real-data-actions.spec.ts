@@ -233,6 +233,35 @@ describe("analytics data request classification", () => {
     ).toBe(true);
   });
 
+  it("reads only the REAL_DATA_REQUIRED item when it shares the composer's context block", () => {
+    const dashboardItem =
+      "## Dashboard: Product signups\nUser can edit: yes\nUse the Analytics dashboard actions to inspect, edit, or restore this dashboard.";
+    const panelItem =
+      '## Active app context\nThe user wants to add a new panel to SQL dashboard "product-signups". REAL_DATA_REQUIRED: query before presenting numbers.';
+    const ask = "Signups by plan";
+    const staged = appendAgentChatContextToMessage(
+      ask,
+      `${dashboardItem}\n\n${panelItem}`,
+    );
+
+    expect(stripInjectedAnalyticsGuardContext(staged)).toBe(
+      `${ask}\n\n${panelItem}`,
+    );
+    expect(looksLikeDashboardConstructionRequest(staged)).toBe(false);
+  });
+
+  it("keeps the whole REAL_DATA_REQUIRED context an app sends, including its own headings", () => {
+    const rerun =
+      "This is a re-run of a legacy saved analysis. REAL_DATA_REQUIRED: query before saving.\n\nInstructions:\n\n## Steps\nCount signups by plan.";
+    const ask = "Re-run Signups by plan";
+
+    expect(
+      stripInjectedAnalyticsGuardContext(
+        appendAgentChatContextToMessage(ask, rerun),
+      ),
+    ).toBe(`${ask}\n\n${rerun}`);
+  });
+
   it("does not treat GitHub Actions workflow migrations as analytics requests", () => {
     const text =
       '<attachment name="workflow.yml">\n' +

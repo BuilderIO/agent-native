@@ -441,6 +441,17 @@ function hasRunCodeCorpusWorkflowAttempt(content: string | undefined): boolean {
   );
 }
 
+// The composer sends every context item in one block as a `## title` section,
+// so a request staged there shares the block with the page's own items. A
+// context that does not open with a section is one item an app sent whole, and
+// headings inside it (analysis instructions) are not item boundaries.
+function requestContextItems(context: string): string[] {
+  const items = context.startsWith("## ")
+    ? context.split(/\n\n(?=## )/)
+    : [context];
+  return items.filter((item) => item.includes(REAL_DATA_REQUIRED_MARKER));
+}
+
 export function stripInjectedAnalyticsGuardContext(text: string): string {
   // Chat context rides along on every message (on a dashboard page it names
   // the open dashboard and says the user can edit it), so it says nothing about
@@ -448,9 +459,7 @@ export function stripInjectedAnalyticsGuardContext(text: string): string {
   // re-run dialogs are the exception: they send the request itself as context,
   // marked REAL_DATA_REQUIRED.
   const { message, context } = splitAgentChatContextFromMessage(text);
-  let requestText = context.includes(REAL_DATA_REQUIRED_MARKER)
-    ? text
-    : message;
+  let requestText = [message, ...requestContextItems(context)].join("\n\n");
   for (const tag of INJECTED_CONTEXT_BLOCKS) {
     requestText = requestText.replace(
       new RegExp(`\\n*<${tag}>[\\s\\S]*?<\\/${tag}>`, "gi"),
