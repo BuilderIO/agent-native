@@ -27,8 +27,10 @@ export function otherViewerCount(
  * Gives the page's saves one toast, replaced in place from "Saving…" to
  * "Saved" with Undo, naming what the save changed when the caller passes
  * `changes`. Only the newest save on the open dashboard updates it, and it
- * offers Undo only when a save it covers changed the dashboard.
- * `onUndo` must be stable; the toast calls it after later renders.
+ * offers Undo only when a save it covers changed the dashboard, even if the
+ * newest one then failed. `onUndo` gets the version that write left, so a
+ * newer save by someone else makes the undo fail instead of taking their
+ * change back. It must be stable; the toast calls it after later renders.
  */
 export function useDashboardSaveFeedback({
   dashboardId,
@@ -39,7 +41,7 @@ export function useDashboardSaveFeedback({
   dashboardId: string | undefined;
   shared: boolean;
   otherViewers: number;
-  onUndo: () => void;
+  onUndo: (savedUpdatedAt: string) => void;
 }) {
   const t = useT();
   // Read when a save lands, which can be renders after it started.
@@ -52,7 +54,9 @@ export function useDashboardSaveFeedback({
   // The open toast covers saves from `firstCoveredSaveRef` (0 when none is
   // pending) through the newest.
   const firstCoveredSaveRef = useRef(0);
-  const newestWriteRef = useRef(0);
+  const newestWriteRef = useRef<{ save: number; updatedAt: string } | null>(
+    null,
+  );
 
   // Undo restores the open dashboard's newest revision, so a toast must not
   // outlive its dashboard, and a save that lands after leaving it must not
@@ -67,7 +71,7 @@ export function useDashboardSaveFeedback({
   }, [dashboardId]);
 
   return useCallback(
-    <T extends { changed: boolean }>(
+    <T extends { changed: boolean; updatedAt?: string }>(
       save: Promise<T>,
       changes?: DashboardChange[] | null,
     ): Promise<T> => {
@@ -84,39 +88,42 @@ export function useDashboardSaveFeedback({
           : t("dashboardSaveStatus.saving"),
         { id: toastId },
       );
+      // Runs once the newest save settles, whether or not it succeeded.
+      const settle = (named: DashboardChange[] | null | undefined) => {
+        const write = newestWriteRef.current;
+        const wrote = !!write && write.save >= firstCoveredSaveRef.current;
+        firstCoveredSaveRef.current = 0;
+        if (!write || !wrote) {
+          toast.dismiss(toastId);
+          return;
+        }
+        const viewers = otherViewersRef.current;
+        toast.success(savedToastTitle(t, shared, named), {
+          id: toastId,
+          description:
+            viewers === 1
+              ? t("dashboardSaveStatus.oneOtherViewer")
+              : viewers > 1
+                ? t("dashboardSaveStatus.otherViewers", { count: viewers })
+                : undefined,
+          action: {
+            label: t("dashboard.undo"),
+            onClick: () => onUndo(write.updatedAt),
+          },
+          duration: 6000,
+        });
+      };
       save.then(
-        ({ changed }) => {
-          if (changed) {
-            newestWriteRef.current = Math.max(
-              newestWriteRef.current,
-              saveNumber,
-            );
+        ({ changed, updatedAt }) => {
+          if (changed && updatedAt) {
+            newestWriteRef.current = { save: saveNumber, updatedAt };
           }
-          if (!isNewest()) return;
-          const wrote = newestWriteRef.current >= firstCoveredSaveRef.current;
-          firstCoveredSaveRef.current = 0;
-          if (!wrote) {
-            toast.dismiss(toastId);
-            return;
-          }
-          const viewers = otherViewersRef.current;
-          toast.success(savedToastTitle(t, shared, changes), {
-            id: toastId,
-            description:
-              viewers === 1
-                ? t("dashboardSaveStatus.oneOtherViewer")
-                : viewers > 1
-                  ? t("dashboardSaveStatus.otherViewers", { count: viewers })
-                  : undefined,
-            action: { label: t("dashboard.undo"), onClick: onUndo },
-            duration: 6000,
-          });
+          if (isNewest()) settle(changes);
         },
         () => {
-          // The caller reports the failure itself; only the pending toast goes.
-          if (!isNewest()) return;
-          firstCoveredSaveRef.current = 0;
-          toast.dismiss(toastId);
+          // The caller reports the failure itself. These changes didn't
+          // land, so a toast for an earlier write doesn't name them.
+          if (isNewest()) settle(null);
         },
       );
       return save;

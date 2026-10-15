@@ -3,9 +3,22 @@ import { describe, expect, it } from "vitest";
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
+  releaseDashboardAdoptionHold,
   shouldShowDashboardLoadError,
   shouldAdoptDashboardQueryResult,
 } from "./dashboard-sync";
+
+describe("releaseDashboardAdoptionHold", () => {
+  it("gives up a failed save's hold but keeps another dashboard's", () => {
+    const hold = createDashboardAdoptionHold({
+      dashboardId: "b",
+      currentUpdatedAt: "2026-10-15T00:00:00.000Z",
+    });
+    expect(releaseDashboardAdoptionHold(hold, "b")).toBeNull();
+    expect(releaseDashboardAdoptionHold(hold, "a")).toBe(hold);
+    expect(releaseDashboardAdoptionHold(null, "a")).toBeNull();
+  });
+});
 
 describe("dashboard sync adoption", () => {
   it("shows a retryable load error when the first dashboard request fails", () => {
