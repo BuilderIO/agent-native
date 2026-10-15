@@ -157,6 +157,7 @@ describe("list-recording-context", () => {
       status: "pending",
       mediaRecordingId: null,
       waitingForDevice: true,
+      processingClaimFresh: false,
     });
     expect(items[0]).not.toHaveProperty("error");
     expect(items[0]).not.toHaveProperty("capturedDeviceId");

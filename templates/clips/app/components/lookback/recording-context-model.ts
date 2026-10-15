@@ -20,6 +20,8 @@ export interface RecordingContextItem {
   // Share viewers receive only this state, never the desktop's device ID.
   capturedDeviceId?: string | null;
   waitingForDevice?: boolean;
+  // Calculated by the server so share viewers stop polling stale claims.
+  processingClaimFresh?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -49,7 +51,10 @@ export function hasUnfinishedContextItems(
     (item) =>
       isContextItemUnfinished(item) &&
       !isWaitingOnOtherDevice(item) &&
-      (item.status !== "pending" || canPollUnclaimedPending),
+      (item.status !== "pending" || canPollUnclaimedPending) &&
+      (item.status !== "processing" ||
+        canPollUnclaimedPending ||
+        item.processingClaimFresh === true),
   );
 }
 

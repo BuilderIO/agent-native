@@ -9,6 +9,7 @@ import {
   isHeldForRedaction,
   REDACTION_HOLD_MESSAGE,
 } from "../server/lib/pending-redactions.js";
+import { staleProcessingCutoff } from "../server/lib/recording-context.js";
 import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import { getRecordingAccessTokenResourceId } from "../server/lib/share-password.js";
 
@@ -108,6 +109,7 @@ export default defineAction({
         mediaRecordingId: sql<
           string | null
         >`case when ${schema.recordingContextItems.status} = 'ready' then ${schema.recordingContextItems.mediaRecordingId} else null end`,
+        processingClaimFresh: sql<boolean>`case when ${schema.recordingContextItems.status} = 'processing' then ${schema.recordingContextItems.updatedAt} >= ${staleProcessingCutoff()} else false end`,
         waitingForDevice: sql<boolean>`${schema.recordingContextItems.capturedDeviceId} is not null`,
       })
       .from(schema.recordingContextItems)

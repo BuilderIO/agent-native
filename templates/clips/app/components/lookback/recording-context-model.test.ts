@@ -103,10 +103,26 @@ describe("recording context model", () => {
     ).toBe(false);
     expect(
       hasUnfinishedContextItems(
-        [item({ status: "processing", mediaRecordingId: null })],
+        [
+          item({
+            status: "processing",
+            mediaRecordingId: null,
+            processingClaimFresh: true,
+          }),
+        ],
         false,
       ),
     ).toBe(true);
+  });
+
+  it("stops share-viewer polling when a processing claim becomes stale", () => {
+    const staleProcessing = item({
+      status: "processing",
+      mediaRecordingId: null,
+      processingClaimFresh: false,
+    });
+    expect(hasUnfinishedContextItems([staleProcessing], false)).toBe(false);
+    expect(hasUnfinishedContextItems([staleProcessing], true)).toBe(true);
   });
 
   it("uses the safe waiting state for viewers without a device ID", () => {
