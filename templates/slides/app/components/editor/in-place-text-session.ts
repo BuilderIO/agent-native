@@ -3562,25 +3562,91 @@ export function startInPlaceTextSession(
     else placeCaret(range.startContainer, range.startOffset);
     const caret = selectionRange();
     if (!caret || !data) return;
-    const insertion = data === " " && emptyLineAtCaret(caret) ? "\u00a0" : data;
     const node = caret.startContainer;
     if (node instanceof Text) {
       let offset = caret.startOffset;
+      let filledPlaceholder = false;
       const flags = placeholderFlags(node);
       for (const candidate of [offset - 1, offset]) {
         if (!isSessionPlaceholder(node, candidate, flags)) continue;
         node.deleteData(candidate, 1);
         if (candidate < offset) offset--;
+        filledPlaceholder = true;
         break;
       }
-      node.insertData(offset, insertion);
-      placeCaret(node, offset + insertion.length);
+      node.insertData(offset, data);
+      if (filledPlaceholder) leaveEndedStyle(node);
+      placeCaret(node, offset + data.length);
       return;
     }
-    const text = document.createTextNode(insertion);
+    const text = document.createTextNode(data);
     editorCreatedTextNodes.add(text);
     caret.insertNode(text);
-    placeCaret(text, insertion.length);
+    placeCaret(text, data.length);
+  }
+
+  /**
+   * Chrome's rule for the spaces around typed text: one that nothing visible
+   * follows, that starts the line, or that sits beside another space must be
+   * an nbsp or it collapses; the rest stay plain.
+   */
+  function rebalanceWhitespace(text: Text, from: number, to: number) {
+    const isSpace = (char: string | undefined) =>
+      char === " " || char === "\u00a0";
+    const { data } = text;
+    let start = from;
+    while (start > 0 && isSpace(data[start - 1])) start--;
+    let end = to;
+    while (end < data.length && isSpace(data[end])) end++;
+    if (!Array.from(data.slice(start, end)).some(isSpace)) return;
+    const parent = text.parentElement;
+    if (
+      !parent ||
+      /^(?:pre|pre-wrap|break-spaces)$/.test(
+        window.getComputedStyle(parent).whiteSpace,
+      )
+    ) {
+      return;
+    }
+    const line = nearestLineBox(text, el);
+    for (let at = start; at < end; at++) {
+      if (!isSpace(data[at])) continue;
+      let stop = at;
+      while (stop < end && isSpace(data[stop])) stop++;
+      const before = document.createRange();
+      before.setStart(text, at);
+      before.collapse(true);
+      const startsLine = !hasRenderedContent(
+        linePrefix(line, before).cloneContents(),
+      );
+      const endsLine = !visibleAfterOnLine(text, stop, line);
+      for (let index = at; index < stop; index++) {
+        const plain = (stop - 1 - index) % 2 === 0 ? !endsLine : endsLine;
+        const char = plain && !(startsLine && index === at) ? " " : "\u00a0";
+        if (data[index] !== char) text.replaceData(index, 1, char);
+      }
+      at = stop;
+    }
+  }
+
+  /** Whether anything but placeholders follows `offset` on its line, up to a `<br>`. */
+  function visibleAfterOnLine(text: Text, offset: number, line: HTMLElement) {
+    // Source whitespace collapses; an nbsp does not.
+    const visible = /[^\u200b \t\n\r\f]/;
+    if (visible.test(text.data.slice(offset))) return true;
+    const walker = document.createTreeWalker(
+      lineRest(text, line),
+      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    );
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node instanceof Element) {
+        if (node.tagName === "BR") return false;
+        if (node.matches(RENDERED_ELEMENTS)) return true;
+      } else if (visible.test((node as Text).data)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** `<br>` plus, when nothing follows it, a placeholder that keeps the new line open. */
@@ -3621,6 +3687,12 @@ export function startInPlaceTextSession(
   /** Splits `block` at the caret into itself and a same-attribute sibling. */
   function splitBlock(block: HTMLElement, caret: Range) {
     const { startContainer, startOffset } = caret;
+    // Extracting the tail clones each inline ancestor of the caret.
+    let clonedAncestors = 0;
+    for (let node: Node | null = startContainer; node && node !== block; ) {
+      if (node instanceof Element) clonedAncestors++;
+      node = node.parentNode;
+    }
     const tail = document.createRange();
     tail.setStart(startContainer, startOffset);
     tail.setEnd(block, block.childNodes.length);
@@ -3640,7 +3712,22 @@ export function startInPlaceTextSession(
     const [first, offset] = textPoint(clone, 0);
     // Text that only starts inside a nested list is not this line's text.
     if (hasRenderedContent(clone) && nearestBlock(first, el) === clone) {
-      placeCaret(first, offset);
+      // The split's own copies of the inline ancestors are not content.
+      const copies: HTMLElement[] = [];
+      for (
+        let copy = clone.firstChild;
+        copy instanceof HTMLElement && copies.length < clonedAncestors;
+        copy = copy.firstChild
+      ) {
+        copies.push(copy);
+      }
+      for (const copy of copies.reverse()) {
+        if (!copy.textContent && !copy.firstElementChild && !isBlock(copy)) {
+          copy.remove();
+        }
+      }
+      const [start, startAt] = textPoint(clone, 0);
+      placeCaret(start, startAt);
       return;
     }
     // Typing on the new line continues the inline style the caret was in.
@@ -4580,21 +4667,6 @@ export function startInPlaceTextSession(
     return prefix;
   }
 
-  function emptyLineAtCaret(caret: Range) {
-    const line = nearestLineBox(caret.startContainer, el);
-    const prefix = linePrefix(line, caret);
-    const suffix = document.createRange();
-    suffix.setStart(caret.startContainer, caret.startOffset);
-    suffix.setEnd(line, line.childNodes.length);
-    const hasContent = (fragment: DocumentFragment) =>
-      !!fragment.textContent?.replaceAll(ZERO_WIDTH_SPACE, "") ||
-      fragment.querySelector("img,svg,video,canvas,picture,iframe,input,hr") !==
-        null;
-    return (
-      !hasContent(prefix.cloneContents()) && !hasContent(suffix.cloneContents())
-    );
-  }
-
   function hasLineBreakBefore(block: HTMLElement, caret: Range) {
     const before = document.createRange();
     before.selectNodeContents(block);
@@ -5356,6 +5428,75 @@ export function startInPlaceTextSession(
     );
   }
 
+  /** The bare URL a line prefix ends in, followed by one typed space when `spaced`. */
+  function bareUrlAt(typed: string, spaced: boolean) {
+    const found = (
+      spaced
+        ? /(?:^|\s)(https?:\/\/[^\s<>]+)\s$/
+        : /(?:^|\s)(https?:\/\/[^\s<>]+)$/
+    ).exec(typed)?.[1];
+    const url = found && trimUrlEnd(found);
+    return url && URL.canParse(url) ? url : null;
+  }
+
+  /** Links `url` inside the prefix; text already in a link keeps its href. */
+  function linkUrlInPrefix(
+    block: HTMLElement,
+    prefix: Range,
+    url: string,
+    currentSelection: TextOffsets,
+  ) {
+    const raw = prefix.toString();
+    const typed = raw
+      .replaceAll(ZERO_WIDTH_SPACE, "")
+      .replaceAll("\u00a0", " ");
+    const base = textOffset(block, prefix.startContainer, prefix.startOffset);
+    const start = typed.lastIndexOf(url);
+    const range = document.createRange();
+    range.setStart(...textPoint(block, base + visibleOffset(raw, start)));
+    range.setEnd(
+      ...textPoint(block, base + visibleOffset(raw, start + url.length)),
+    );
+    if (
+      Array.from(block.querySelectorAll("a")).some((link) =>
+        range.intersectsNode(link),
+      )
+    ) {
+      return false;
+    }
+    const selection = window.getSelection();
+    if (!selection) return false;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const linked = setInlineTextLink(el, url).scope === "selection";
+    selectOffsets(currentSelection, true);
+    return linked;
+  }
+
+  /** Enter ends a bare URL at the caret the way a typed space does. */
+  function autolinkBeforeEnter() {
+    const caret = selectionRange();
+    if (!caret?.collapsed) return;
+    const { startContainer: node, startOffset: offset } = caret;
+    const last = node instanceof Text ? node : node.childNodes[offset - 1];
+    if (!last) return;
+    const line = nearestLineBox(last, el);
+    const after =
+      (node instanceof Text ? node.data.slice(offset) : "") +
+      lineRest(last, line).textContent;
+    if (/^\S/.test(after.replaceAll(ZERO_WIDTH_SPACE, ""))) return;
+    const block = commandBlock(node);
+    const prefix = linePrefix(block, caret);
+    const url = bareUrlAt(
+      prefix
+        .toString()
+        .replaceAll(ZERO_WIDTH_SPACE, "")
+        .replaceAll("\u00a0", " "),
+      false,
+    );
+    if (url) linkUrlInPrefix(block, prefix, url, selectionOffsets(true));
+  }
+
   function applyMarkdownShortcut() {
     const caret = selectionRange();
     if (!caret?.collapsed) return;
@@ -5365,34 +5506,10 @@ export function startInPlaceTextSession(
     const typed = raw
       .replaceAll(ZERO_WIDTH_SPACE, "")
       .replaceAll("\u00a0", " ");
-    const typedUrl = /(?:^|\s)(https?:\/\/[^\s<>]+)\s$/.exec(typed)?.[1];
-    const url = typedUrl && trimUrlEnd(typedUrl);
-    const caretParent =
-      caret.startContainer instanceof Element
-        ? caret.startContainer
-        : caret.startContainer.parentElement;
-    if (url && URL.canParse(url) && !caretParent?.closest("a")) {
+    const url = bareUrlAt(typed, true);
+    if (url) {
       const currentSelection = selectionOffsets(true);
-      command(() => {
-        const base = textOffset(
-          block,
-          prefix.startContainer,
-          prefix.startOffset,
-        );
-        const start = typed.lastIndexOf(url);
-        const range = document.createRange();
-        range.setStart(...textPoint(block, base + visibleOffset(raw, start)));
-        range.setEnd(
-          ...textPoint(block, base + visibleOffset(raw, start + url.length)),
-        );
-        const selection = window.getSelection();
-        if (!selection) return false;
-        selection.removeAllRanges();
-        selection.addRange(range);
-        const linked = setInlineTextLink(el, url).scope === "selection";
-        if (linked) selectOffsets(currentSelection, true);
-        return linked;
-      });
+      command(() => linkUrlInPrefix(block, prefix, url, currentSelection));
       return;
     }
     const bullet = /^[-*+] $/.test(typed);
@@ -5415,7 +5532,7 @@ export function startInPlaceTextSession(
           typed,
         );
     const strike = /~~([^~\n]+)~~$/.exec(typed);
-    const code = /`([^`\n]+)`$/.exec(typed);
+    const code = /(?<!`)`([^`\n]+)`$/.exec(typed);
     const kind = ordered
       ? "orderedList"
       : divider
@@ -5635,6 +5752,48 @@ export function startInPlaceTextSession(
     );
     if (points && intact) select(points[0], points[1], offsets.backward);
     else if (range) selectOffsets(offsets);
+  }
+
+  /**
+   * Turning bold or italic off at the end of its run nests an override inside
+   * the run. Once text is typed there, moving the override after the run
+   * renders the same and keeps the run from covering what follows. Before that
+   * the placeholder has to stay inside, or Chrome moves the caret back out.
+   * Only a run that carries nothing but the style can be left this way.
+   */
+  function leaveEndedStyle(pending: Text) {
+    const override = pending.parentElement;
+    const owner = override?.parentElement;
+    if (
+      !override?.matches("span[data-slide-inline-style]") ||
+      !owner ||
+      owner === el ||
+      !/^(?:B|STRONG|I|EM|SPAN)$/.test(owner.tagName)
+    ) {
+      return;
+    }
+    const declared = Array.from(owner.style);
+    const formatOnly =
+      declared.every(
+        (property) => property === "font-weight" || property === "font-style",
+      ) &&
+      Array.from(owner.attributes).every(
+        (attribute) =>
+          attribute.name === "style" ||
+          attribute.name === "data-slide-inline-style",
+      );
+    if (!formatOnly || (owner.tagName === "SPAN" && !declared.length)) return;
+    const trailing = Array.from(owner.childNodes)
+      .slice(Array.from(owner.childNodes).indexOf(override) + 1)
+      .every((node) => node instanceof Text && !node.data);
+    if (!trailing) return;
+    const look = () => {
+      const { fontWeight, fontStyle } = window.getComputedStyle(override);
+      return `${fontWeight}/${fontStyle}`;
+    };
+    const before = look();
+    owner.after(override);
+    if (look() !== before) owner.append(override);
   }
 
   function styleCommand(apply: () => InlineTextStyleApplication) {
@@ -5881,7 +6040,10 @@ export function startInPlaceTextSession(
       const target =
         (type === "insertReplacementText" ? targetRange(event) : null) ?? range;
       if (!target) return;
-      edit("typing", () => insertText(data, target));
+      edit("typing", () => {
+        insertText(data, target);
+        rebalanceTypedText(data.length);
+      });
       if (shouldCheckMarkdownShortcut(data)) {
         applyMarkdownShortcut();
       }
@@ -5901,7 +6063,10 @@ export function startInPlaceTextSession(
     event.preventDefault();
     if (!range) return;
     if (type === "insertParagraph") {
-      edit("command", () => insertParagraph(range));
+      edit("command", () => {
+        autolinkBeforeEnter();
+        insertParagraph(selectionRange() ?? range);
+      });
     } else if (type === "insertLineBreak") {
       edit("command", () => insertLineBreak(range));
     } else if (PASTE_INPUTS.has(type)) {
@@ -5965,6 +6130,19 @@ export function startInPlaceTextSession(
     }
   }
 
+  /**
+   * Typed text settles the spaces beside it. Chrome alone leaves an nbsp at
+   * the start of a node it split off at an inline boundary.
+   */
+  function rebalanceTypedText(length: number) {
+    const caret = selectionRange();
+    const text = caret?.startContainer;
+    if (!caret?.collapsed || !(text instanceof Text)) return;
+    const to = caret.startOffset;
+    rebalanceWhitespace(text, to - length, to);
+    placeCaret(text, to);
+  }
+
   function onInput(event: Event) {
     const input = event as InputEvent;
     const pendingShortcutPrefix = pendingNullDataShortcutPrefix;
@@ -5982,6 +6160,14 @@ export function startInPlaceTextSession(
           )))
     ) {
       applyMarkdownShortcut();
+    }
+    if (
+      input.inputType === "insertText" &&
+      !input.isComposing &&
+      input.data &&
+      /\S/.test(input.data)
+    ) {
+      rebalanceTypedText(input.data.length);
     }
     // Replacing the node would cancel an IME composition, or move the live
     // Range Chrome drops a dragged selection at.
