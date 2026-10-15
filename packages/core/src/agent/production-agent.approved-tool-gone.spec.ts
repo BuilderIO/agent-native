@@ -78,7 +78,11 @@ function testEngine() {
   return { engine, stream, messages };
 }
 
-async function approve(threadId: string, actions: Record<string, ActionEntry>) {
+async function approve(
+  threadId: string,
+  actions: Record<string, ActionEntry>,
+  structuredHistory: AgentChatStructuredMessage[] = pausedTurn,
+) {
   const { engine, stream, messages } = testEngine();
   const handler = createProductionAgentHandler({
     systemPrompt: "Test",
@@ -98,7 +102,7 @@ async function approve(threadId: string, actions: Record<string, ActionEntry>) {
               message: "Approved",
               threadId,
               turnId: `${threadId}-turn`,
-              structuredHistory: pausedTurn,
+              structuredHistory,
               approvedToolCalls: [toolCallCacheKey("send-email", EMAIL)],
             }),
           }),
@@ -172,6 +176,42 @@ describe("an approved call", () => {
     expect(continuedResult).not.toHaveProperty("approvalAskId");
     expect(events).not.toContainEqual(
       expect.objectContaining({ errorCode: "tool_unavailable" }),
+    );
+  });
+
+  it("does not execute an approved action when its paused result is not resumable", async () => {
+    consumeApproval.mockClear();
+    const sendEmail = vi.fn(async () => "Sent email receipt-1");
+    const structuredHistory = [
+      pausedTurn[0]!,
+      pausedTurn[1]!,
+      { ...pausedTurn[2]!, role: "system" },
+    ] as unknown as AgentChatStructuredMessage[];
+
+    const { stream, events } = await approve(
+      "thread-unresumable-result",
+      {
+        "send-email": {
+          tool: {
+            description: "Send an email",
+            parameters: { type: "object", properties: {} },
+          },
+          readOnly: false,
+          needsApproval: true,
+          run: sendEmail,
+        },
+      },
+      structuredHistory,
+    );
+
+    expect(consumeApproval).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "approved_tool_call_result_missing",
+      }),
     );
   });
 });

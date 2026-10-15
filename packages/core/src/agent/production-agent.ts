@@ -13843,6 +13843,33 @@ export function createProductionAgentHandler(
             return;
           }
           if (exactApprovedToolCall && approvedToolCallsForExecution) {
+            let pausedResult:
+              | Extract<EngineContentPart, { type: "tool-result" }>
+              | undefined;
+            if (!isBackgroundWorker) {
+              const pausedResults = agentLoopOpts.messages.flatMap((message) =>
+                message.content.filter(
+                  (part) =>
+                    part.type === "tool-result" &&
+                    part.toolCallId === exactApprovedToolCall.callId &&
+                    part.approvalPause === true,
+                ),
+              );
+              if (pausedResults.length !== 1) {
+                send({
+                  type: "error",
+                  error: "The agent run failed.",
+                  errorCode: "approved_tool_call_result_missing",
+                  recoverable: false,
+                });
+                return;
+              }
+              const [candidate] = pausedResults;
+              if (candidate?.type !== "tool-result") {
+                throw new Error("Approved tool result changed unexpectedly.");
+              }
+              pausedResult = candidate;
+            }
             send({
               type: "activity",
               label: `Running approved ${exactApprovedToolCall.name} action`,
@@ -13878,28 +13905,8 @@ export function createProductionAgentHandler(
               return;
             }
             if (isBackgroundWorker) return;
-
-            const pausedResults = agentLoopOpts.messages.flatMap((message) =>
-              message.content.filter(
-                (part) =>
-                  part.type === "tool-result" &&
-                  part.toolCallId === exactApprovedToolCall.callId &&
-                  part.approvalPause === true,
-              ),
-            );
-            if (pausedResults.length !== 1) {
-              send({
-                type: "error",
-                error:
-                  "The approved action ran, but its result could not be restored to chat history.",
-                errorCode: "approved_tool_call_result_missing",
-                recoverable: false,
-              });
-              return;
-            }
-            const [pausedResult] = pausedResults;
-            if (pausedResult?.type !== "tool-result") {
-              throw new Error("Approved tool result changed unexpectedly.");
+            if (!pausedResult) {
+              throw new Error("Approved tool result was not validated.");
             }
             pausedResult.content = approvedExecution.output;
             if (approvedExecution.status === "failed") {
