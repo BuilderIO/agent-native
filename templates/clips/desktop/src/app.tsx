@@ -127,6 +127,10 @@ import {
   captureSetupForMode,
   normalizeCaptureSetup,
 } from "./lib/capture-mode";
+import {
+  hostedClipDurationLimitMs,
+  reachedClipDurationLimit,
+} from "./lib/clip-duration-limit";
 import { callClipsActionFor } from "./lib/clips-action";
 import {
   authTokenStorageKey,
@@ -519,18 +523,23 @@ const VIDEO_STORAGE_PROBE_TIMEOUT_MS = Math.max(10_000, 5000 * 4);
 async function hasConfiguredVideoStorage(
   serverUrl: string,
   account: string | null,
-): Promise<FileUploadStatusProbe> {
+): Promise<{
+  probe: FileUploadStatusProbe;
+  maxClipDurationMs: number | null;
+}> {
   const controller = new AbortController();
   const timeout = window.setTimeout(
     () => controller.abort(),
     VIDEO_STORAGE_PROBE_TIMEOUT_MS,
   );
   let probe: FileUploadStatusProbe = "unavailable";
+  let maxClipDurationMs: number | null = null;
   try {
     const status = await callClipsActionFor<{
       configured: boolean;
       mode: "own" | "hosted" | "none";
       hostedRemaining: number;
+      maxClipDurationMs: number;
     }>(
       { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
       "get-video-storage-status",
@@ -545,10 +554,14 @@ async function hasConfiguredVideoStorage(
       !Number.isSafeInteger(status.hostedRemaining) ||
       status.hostedRemaining < 0 ||
       status.configured !== (status.mode !== "none") ||
-      (status.mode === "hosted" && status.hostedRemaining < 1)
+      (status.mode === "hosted" &&
+        (status.hostedRemaining < 1 ||
+          !Number.isFinite(status.maxClipDurationMs) ||
+          status.maxClipDurationMs < 0))
     ) {
       throw new Error("Video storage status response is invalid");
     }
+    maxClipDurationMs = hostedClipDurationLimitMs(status);
     if (status.mode === "own") {
       probe = "configured";
       if (account)
@@ -564,7 +577,7 @@ async function hasConfiguredVideoStorage(
   } finally {
     window.clearTimeout(timeout);
   }
-  return probe;
+  return { probe, maxClipDurationMs };
 }
 
 function videoStorageConfiguredKey(serverUrl: string, account: string): string {
@@ -1312,8 +1325,11 @@ export function App({
 
   const videoStorageIdentity = `${originForServer(serverUrl)}|${signedInAs ?? ""}`;
   const videoStorageIdentityRef = useRef(videoStorageIdentity);
+  // Hosted per-clip cap from the last storage probe; null for own storage.
+  const hostedClipLimitMsRef = useRef<number | null>(null);
   useEffect(() => {
     videoStorageIdentityRef.current = videoStorageIdentity;
+    hostedClipLimitMsRef.current = null;
     setVideoStorageStatus(
       signedInAs &&
         loadBool(videoStorageConfiguredKey(serverUrl, signedInAs), false)
@@ -1324,17 +1340,22 @@ export function App({
 
   const refreshVideoStorageStatus = useCallback(async () => {
     if (authStatus !== "authed" || localRecordingMode !== "off") {
+      hostedClipLimitMsRef.current = null;
       setVideoStorageStatus("configured");
       return true;
     }
 
     const probedIdentity = videoStorageIdentity;
-    const probe = await hasConfiguredVideoStorage(serverUrl, signedInAs);
+    const { probe, maxClipDurationMs } = await hasConfiguredVideoStorage(
+      serverUrl,
+      signedInAs,
+    );
     if (videoStorageIdentityRef.current !== probedIdentity) return false;
     if (probe === "unavailable") {
       setVideoStorageStatus("unavailable");
       return false;
     }
+    hostedClipLimitMsRef.current = maxClipDurationMs;
     setVideoStorageStatus(probe);
     return probe === "configured";
   }, [
@@ -1383,6 +1404,29 @@ export function App({
     refreshVideoStorageStatus,
     videoStorageStatus,
   ]);
+
+  // Mirrors the web recorder: a hosted take stops itself at the clip cap
+  // instead of failing the upload past the server's size limit.
+  useEffect(() => {
+    if (!recorder) return;
+    let stopRequested = false;
+    const unlisten = listen<{ paused: boolean; elapsedMs: number }>(
+      "clips:recorder-state",
+      (ev) => {
+        if (
+          stopRequested ||
+          !reachedClipDurationLimit(ev.payload, hostedClipLimitMsRef.current)
+        ) {
+          return;
+        }
+        stopRequested = true;
+        emit("clips:recorder-stop").catch(() => {});
+      },
+    );
+    return () => {
+      void unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, [recorder]);
 
   useEffect(() => {
     return installDesktopVoiceDictation({
