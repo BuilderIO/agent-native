@@ -56,6 +56,72 @@ describe("createAnthropicEngine", () => {
     expect(engine.capabilities).toMatchObject(ANTHROPIC_CAPABILITIES);
   });
 
+  async function captureClientOptions(
+    config: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const clientOptions: Record<string, unknown>[] = [];
+    const mockStream = {
+      [Symbol.asyncIterator]: async function* () {},
+      finalMessage: vi.fn().mockResolvedValue({
+        content: [{ type: "text", text: "ok" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+    };
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: vi.fn().mockReturnValue(mockStream) };
+        constructor(options: Record<string, unknown>) {
+          clientOptions.push(options);
+        }
+      },
+    }));
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+    await collectEvents(
+      freshCreate(config).stream({
+        model: ANTHROPIC_DEFAULT_MODEL,
+        systemPrompt: "",
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        tools: [],
+        abortSignal: new AbortController().signal,
+      }),
+    );
+    vi.doUnmock("@anthropic-ai/sdk");
+    expect(clientOptions).toHaveLength(1);
+    return clientOptions[0];
+  }
+
+  it("sends a non-deployment key to Anthropic, not a host-injected ANTHROPIC_BASE_URL", async () => {
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://gateway.example.invalid");
+    const options = await captureClientOptions({ apiKey: "user-key" });
+    expect(options.baseURL).toBe("https://api.anthropic.com");
+  });
+
+  it("lets the deployment's own key follow the deployment ANTHROPIC_BASE_URL", async () => {
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://proxy.example.invalid");
+    // Deployment credential eligibility depends on the runtime (production
+    // flags, database), so pin it rather than inherit the test machine's.
+    vi.doMock(
+      "../../server/credential-provider.js",
+      async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import("../../server/credential-provider.js")
+        >()),
+        readDeployCredentialEnv: (key: string) =>
+          key === "ANTHROPIC_API_KEY" ? "deployment-key" : undefined,
+      }),
+    );
+    try {
+      const options = await captureClientOptions({});
+      expect(options.apiKey).toBe("deployment-key");
+      expect(options.baseURL).toBeUndefined();
+    } finally {
+      vi.doUnmock("../../server/credential-provider.js");
+    }
+  });
+
   it("stream emits text-delta events from SDK chunks", async () => {
     const finalMsg = {
       content: [{ type: "text", text: "Hello, world!" }],
@@ -597,6 +663,20 @@ describe("createAnthropicEngine", () => {
       budget_tokens: 8_000,
     });
     expect(requestParams.output_config).toBeUndefined();
+  });
+
+  it("uses adaptive thinking for Claude Haiku 5.5", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-haiku-5-5",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(requestParams.thinking).toEqual({ type: "adaptive" });
+    expect(requestParams.output_config).toEqual({ effort: "high" });
+    expect(requestParams.temperature).toBeUndefined();
   });
 
   it("does not enable thinking by default for a non-reasoning model", async () => {

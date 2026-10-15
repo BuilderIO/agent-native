@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../server/lib/app-roles.js", () => ({
+  requireFormsPermission: () => undefined,
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
+  getRequestUserEmail: () => "owner@example.com",
+  getRequestOrgId: () => undefined,
+}));
+
 const state = vi.hoisted(() => ({
   response: { formId: "form_1" } as { formId: string } | null,
 }));

@@ -17,10 +17,13 @@ vi.mock("../feature-flags/store.js", () => mocks);
 
 import { _resetLabRegistryForTests, registerLabs } from "./registry.js";
 import {
+  getUserLabEnabled,
   getUserLabState,
+  getUserLabStates,
   getUserLabs,
   normalizeLabValues,
   setUserLab,
+  setUserLabStates,
 } from "./store.js";
 
 beforeEach(() => {
@@ -89,10 +92,7 @@ describe("user labs", () => {
 
     await expect(
       setUserLab("alice@example.com", "clips.meetings", true),
-    ).resolves.toEqual({
-      "clips.editor": true,
-      "clips.meetings": true,
-    });
+    ).resolves.toEqual({ "clips.editor": true, "clips.meetings": true });
     expect(mocks.mutateUserSetting).toHaveBeenCalledWith(
       "alice@example.com",
       "labs",
@@ -131,10 +131,7 @@ describe("user labs", () => {
 
     await expect(
       setUserLab("alice@example.com", "clips.editor", true),
-    ).resolves.toEqual({
-      "clips.editor": true,
-      "clips.meetings": true,
-    });
+    ).resolves.toEqual({ "clips.editor": true, "clips.meetings": true });
   });
 
   it("merges legacy opt-ins when both setting keys exist", async () => {
@@ -205,6 +202,60 @@ describe("user labs", () => {
     expect(mocks.getSetting).not.toHaveBeenCalled();
   });
 
+  it("isolates a corrupt choice to its own lab and lets targeted reads continue", async () => {
+    registerLabs([{ key: "clips.optional", defaultEnabled: true }]);
+    mocks.getUserSetting.mockImplementation(async (_email, key) =>
+      key === "labs" ? { "clips.meetings": "false" } : null,
+    );
+
+    await expect(getUserLabStates("alice@example.com")).resolves.toEqual({
+      "clips.editor": { enabled: false, source: "default", mixed: false },
+      "clips.optional": { enabled: true, source: "default", mixed: false },
+      "clips.meetings": { error: "invalid-choice" },
+    });
+    await expect(
+      getUserLabEnabled("alice@example.com", "clips.optional"),
+    ).resolves.toBe(true);
+    await expect(
+      getUserLabEnabled("alice@example.com", "clips.meetings"),
+    ).rejects.toThrow("Invalid saved lab choice: clips.meetings");
+    await expect(getUserLabs("alice@example.com")).rejects.toThrow(
+      "Invalid saved lab choice: clips.meetings",
+    );
+  });
+
+  it("lets a valid choice save while preserving a separate corrupt value", async () => {
+    mocks.getUserSetting.mockImplementation(async (_email, key) =>
+      key === "labs" ? { "clips.meetings": "false" } : null,
+    );
+    mocks.mutateUserSetting.mockImplementation(async (_email, _key, updater) =>
+      updater({ "clips.meetings": "false" }),
+    );
+
+    await expect(
+      setUserLab("alice@example.com", "clips.editor", true),
+    ).resolves.toEqual({ "clips.editor": true });
+    await expect(
+      setUserLabStates("alice@example.com", "clips.editor", true),
+    ).resolves.toEqual({
+      "clips.editor": { enabled: true, source: "choice", mixed: false },
+      "clips.meetings": { error: "invalid-choice" },
+    });
+  });
+
+  it("repairs a corrupt choice when the user sets that lab explicitly", async () => {
+    mocks.getUserSetting.mockImplementation(async (_email, key) =>
+      key === "labs" ? { "clips.meetings": "false" } : null,
+    );
+    mocks.mutateUserSetting.mockImplementation(async (_email, _key, updater) =>
+      updater({ "clips.meetings": "false" }),
+    );
+
+    await expect(
+      setUserLab("alice@example.com", "clips.meetings", true),
+    ).resolves.toEqual({ "clips.editor": false, "clips.meetings": true });
+  });
+
   it("rejects malformed Lab setting objects instead of treating them as absent", async () => {
     mocks.getUserSetting.mockImplementation(async (_email, key) =>
       key === "labs" ? ("broken" as unknown as Record<string, unknown>) : null,
@@ -223,13 +274,13 @@ describe("user labs", () => {
       getUserLabState("alice@example.com", "design.builder", {
         orgId: "org-1",
       }),
-    ).rejects.toThrow("Invalid legacy feature flag rules: builder");
+    ).rejects.toThrow("Could not resolve saved lab state: design.builder");
     mocks.getOrgSetting.mockRejectedValue(new SyntaxError("invalid JSON"));
     await expect(
       getUserLabState("alice@example.com", "design.builder", {
         orgId: "org-1",
       }),
-    ).rejects.toThrow("invalid JSON");
+    ).rejects.toThrow("Could not resolve saved lab state: design.builder");
   });
 
   it("returns effective inherited values for other Labs after a save", async () => {
@@ -255,7 +306,7 @@ describe("user labs", () => {
     });
   });
 
-  it("rejects unreadable inherited state before persisting a choice", async () => {
+  it("keeps a valid choice writable when another lab's inherited state is unreadable", async () => {
     registerLabs([{ key: "design.builder", legacyFlagKeys: ["builder"] }]);
     let persisted = false;
     mocks.getUserSetting.mockResolvedValue(null);
@@ -269,8 +320,8 @@ describe("user labs", () => {
     );
     await expect(
       setUserLab("alice@example.com", "clips.editor", true, { orgId: "org-1" }),
-    ).rejects.toThrow("invalid JSON");
-    expect(persisted).toBe(false);
+    ).resolves.toEqual({ "clips.editor": true, "clips.meetings": false });
+    expect(persisted).toBe(true);
   });
 
   it("returns the persisted attempt without a fallible read after the write", async () => {

@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 // @vitest-environment happy-dom
 import {
@@ -11,13 +12,18 @@ import {
 } from "@testing-library/react";
 import {
   type ComponentProps,
-  type ReactElement,
   type ReactNode,
   useImperativeHandle,
 } from "react";
 import { createPortal } from "react-dom";
 import { renderToString } from "react-dom/server";
-import { Link, MemoryRouter, useMatch } from "react-router";
+import {
+  Link,
+  MemoryRouter,
+  useLocation,
+  useMatch,
+  useNavigate,
+} from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type PromptPopover from "@/components/editor/PromptDialog";
@@ -30,6 +36,21 @@ const systemFlag = vi.hoisted(() => ({
 }));
 const suggestionQuery = vi.hoisted(() => ({
   enabled: undefined as boolean | undefined,
+  pending: false,
+  retrying: false,
+  unavailable: false,
+  cachedReady: false,
+  profileRole: "design",
+  profileFetching: false,
+  profileError: false,
+  profileScope: null as readonly unknown[] | null,
+  options: null as {
+    queryKeyScope?: readonly unknown[];
+    staleTime?: unknown;
+    refetchOnMount?: unknown;
+    refetchOnWindowFocus?: unknown;
+    refetchOnReconnect?: unknown;
+  } | null,
 }));
 const inactiveHomeQueries = vi.hoisted(() => ({
   workspaceDefaultsEnabled: true,
@@ -94,7 +115,6 @@ const {
   referenceProps,
   signedIn,
   agentEngine,
-  fetchAgentEngineConfiguredState,
   agentSubmit,
   callAction,
   contextOptions,
@@ -116,8 +136,13 @@ const {
   promptProps: vi.fn(),
   referenceProps: vi.fn(),
   signedIn: { value: true, unreachable: false },
-  agentEngine: { state: "configured", missing: false },
-  fetchAgentEngineConfiguredState: vi.fn(),
+  agentEngine: {
+    state: "configured",
+    missing: false,
+    get canChat() {
+      return this.state === "configured" && !this.missing;
+    },
+  },
   agentSubmit: vi.fn(),
   callAction: vi.fn().mockResolvedValue(undefined),
   contextOptions: vi.fn(),
@@ -142,6 +167,16 @@ const {
         id: "suggestion-1",
         label: "Build a pitch",
         prompt: "Create a pitch deck for a new product.",
+      },
+      {
+        id: "suggestion-2",
+        label: "Plan a roadmap",
+        prompt: "Create a roadmap presentation for a product team.",
+      },
+      {
+        id: "suggestion-3",
+        label: "Review the quarter",
+        prompt: "Create a clear quarterly business review deck.",
       },
     ],
   },
@@ -189,7 +224,6 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
       availableModels: [],
       isLoading: false,
     }),
-    fetchAgentEngineConfiguredState,
   };
 });
 vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
@@ -212,7 +246,7 @@ vi.mock(
       <div data-testid="builder-setup-card" data-bounce-pulse={bouncePulse}>
         <h3>Connect AI</h3>
         <button type="button" onClick={onConnected}>
-          Connect Builder.io
+          Use Builder.io
         </button>
         <a href="/settings/keys">Custom keys</a>
       </div>
@@ -226,16 +260,84 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (
     name: string,
     _args: unknown,
-    options?: { enabled?: boolean },
+    options?: {
+      enabled?: boolean;
+      queryKeyScope?: readonly unknown[];
+      staleTime?: unknown;
+      refetchOnMount?: unknown;
+      refetchOnWindowFocus?: unknown;
+      refetchOnReconnect?: unknown;
+    },
   ) => {
+    if (name === "get-user-profile") {
+      suggestionQuery.profileScope = options?.queryKeyScope ?? null;
+      const enabled = options?.enabled !== false;
+      return {
+        data:
+          enabled && !suggestionQuery.profileError
+            ? { onboardingRole: suggestionQuery.profileRole }
+            : undefined,
+        isLoading: enabled && suggestionQuery.profileFetching,
+        isFetching: enabled && suggestionQuery.profileFetching,
+        isSuccess:
+          enabled &&
+          !suggestionQuery.profileError &&
+          !suggestionQuery.profileFetching,
+        isError: enabled && suggestionQuery.profileError,
+      };
+    }
     if (name === "generate-home-suggestions") {
       suggestionQuery.enabled = options?.enabled;
+      suggestionQuery.options = options ?? null;
+      if (suggestionQuery.retrying && options?.enabled !== false) {
+        return {
+          data: { status: "unavailable", suggestions: [] },
+          isLoading: false,
+          isFetching: true,
+          isError: true,
+        };
+      }
+      if (suggestionQuery.pending && options?.enabled !== false) {
+        return {
+          data: undefined,
+          isLoading: true,
+          isFetching: true,
+          isError: false,
+        };
+      }
+      if (suggestionQuery.unavailable && options?.enabled !== false) {
+        return {
+          data: {
+            status: "unavailable",
+            reason: "timeout",
+            suggestions: [],
+          },
+          isLoading: false,
+          isFetching: false,
+          isError: false,
+        };
+      }
+      if (options?.enabled === false && !suggestionQuery.cachedReady) {
+        return {
+          data: undefined,
+          isLoading: false,
+          isFetching: false,
+          isError: false,
+        };
+      }
       return {
         data:
           options?.enabled === false
-            ? undefined
+            ? {
+                status: "ready",
+                suggestions: homeSuggestions.value.map((suggestion) => ({
+                  ...suggestion,
+                  label: `Cached ${suggestion.label}`,
+                })),
+              }
             : { status: "ready", suggestions: homeSuggestions.value },
         isLoading: false,
+        isFetching: false,
         isError: false,
       };
     }
@@ -244,7 +346,15 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   getBrowserTabId: () => "home-test",
   deleteClientAppState: vi.fn().mockResolvedValue(undefined),
   useSession: () => ({
-    session: signedIn.value ? { user: { email: "home@example.test" } } : null,
+    session: signedIn.value
+      ? {
+          authUserId: "viewer-a",
+          userId: "viewer-a",
+          email: "home@example.test",
+          orgId: "org-a",
+          user: { email: "home@example.test" },
+        }
+      : null,
     status: signedIn.unreachable
       ? "unavailable"
       : signedIn.value
@@ -398,12 +508,14 @@ vi.mock("@/components/editor/PromptDialog", () => ({
     }));
     if (!props.open) return null;
     return (
-      <textarea
-        aria-label="Presentation prompt"
-        value={props.initialText ?? ""}
-        readOnly
-        disabled={props.disabled}
-      />
+      <>
+        <textarea
+          aria-label="Presentation prompt"
+          value={props.initialText ?? ""}
+          readOnly
+          disabled={props.disabled}
+        />
+      </>
     );
   },
 }));
@@ -417,6 +529,24 @@ import Index from "./Index";
 
 function ActiveIndex() {
   return <Index active={useMatch("/home") !== null} />;
+}
+
+function HistoryControls() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <div data-testid="history-path">{location.pathname}</div>
+      <div data-testid="history-url">
+        {location.pathname}
+        {location.search}
+      </div>
+      <div data-testid="history-state">{JSON.stringify(location.state)}</div>
+      <button type="button" onClick={() => navigate(-1)}>
+        Browser back
+      </button>
+    </>
+  );
 }
 
 const ownDeck = {
@@ -454,6 +584,7 @@ function renderHome(
         <Link to="/templates">Open templates</Link>
         <Link to="/home">Back home</Link>
       </nav>
+      <HistoryControls />
       <TooltipProvider>
         <ActiveIndex />
       </TooltipProvider>
@@ -467,11 +598,33 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(deckIdFromPathname).mockReset();
   agentSubmit.mockReset().mockResolvedValue({ delivered: true });
+  callAction.mockReset().mockImplementation(async (action: string) => {
+    if (action === "get-deck-reference-context") {
+      return {
+        agentContext: "Loaded reference deck context",
+        designSystemId: null,
+        linkedDesignSystemStatus: "none",
+      };
+    }
+    if (action === "get-design-system") {
+      return { agentContext: "Loaded design system context" };
+    }
+    return undefined;
+  });
   contextSelection.value = { designSystemId: null, references: [] };
   automaticReferenceDeck.value = null;
   systemFlag.enabled = true;
   systemFlag.status = "ready";
   suggestionQuery.enabled = undefined;
+  suggestionQuery.pending = false;
+  suggestionQuery.retrying = false;
+  suggestionQuery.unavailable = false;
+  suggestionQuery.cachedReady = false;
+  suggestionQuery.profileRole = "design";
+  suggestionQuery.profileFetching = false;
+  suggestionQuery.profileError = false;
+  suggestionQuery.profileScope = null;
+  suggestionQuery.options = null;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
   inactiveHomeQueries.templateLibraryEnabled = true;
   defaultDesignSystems.systems = [];
@@ -484,14 +637,21 @@ beforeEach(() => {
   signedIn.unreachable = false;
   agentEngine.state = "configured";
   agentEngine.missing = false;
-  fetchAgentEngineConfiguredState.mockImplementation(async () =>
-    agentEngine.state === "unknown" ? "unavailable" : agentEngine.state,
-  );
   homeSuggestions.value = [
     {
       id: "suggestion-1",
       label: "Build a pitch",
       prompt: "Create a pitch deck for a new product.",
+    },
+    {
+      id: "suggestion-2",
+      label: "Plan a roadmap",
+      prompt: "Create a roadmap presentation for a product team.",
+    },
+    {
+      id: "suggestion-3",
+      label: "Review the quarter",
+      prompt: "Create a clear quarterly business review deck.",
     },
   ];
   headerActions.current = null;
@@ -680,6 +840,7 @@ describe("Slides prompt-led home", () => {
     });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
     const attachments = { commit: vi.fn(), discard: vi.fn(), attachments: [] };
+    const onLocalSubmit = vi.fn();
 
     await act(async () => {
       expect(
@@ -690,11 +851,13 @@ describe("Slides prompt-led home", () => {
           {
             slidesContext: { designSystemId: null, references: [] },
             contextItems: [],
+            onLocalSubmit,
           },
         ),
       ).toBe("retain");
     });
 
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
     expect(referenceProps.mock.lastCall![0].open).toBe(false);
     expect(updateDeck).toHaveBeenCalledWith(
@@ -707,6 +870,381 @@ describe("Slides prompt-led home", () => {
       }),
     );
     expect(attachments.commit).toHaveBeenCalledOnce();
+  });
+
+  it("returns home without refilling the submitted prompt after generation", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const submittedPrompt = "Create a product overview";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        submittedPrompt,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("history-path").textContent).toBe(
+        "/deck/new-deck",
+      ),
+    );
+    expect(
+      JSON.parse(screen.getByTestId("history-state").textContent!),
+    ).toEqual({ generationOriginalPrompt: submittedPrompt });
+    expect(screen.getByTestId("history-url").textContent).not.toContain(
+      submittedPrompt,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("history-path").textContent).toBe("/home"),
+    );
+    expect(screen.getByTestId("history-state").textContent).toBe("null");
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
+      ).value,
+    ).not.toBe(submittedPrompt);
+  });
+
+  it("includes optional media-search fallback in the submitted agent context", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "Create a product overview",
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const submittedContext = agentSubmit.mock.calls[0][1] as string;
+    expect(submittedContext).toContain(
+      "Image and logo lookup with search-images or search-logos is optional enrichment.",
+    );
+    expect(submittedContext).toContain(
+      "If a provider is unconfigured or unavailable, the search returns no matches, or the action fails, continue with a useful deck",
+    );
+    expect(submittedContext).toContain(
+      "Do not stop generation or retry the lookup in a loop.",
+    );
+  });
+
+  it("gives an explicitly selected target system priority over a reference deck's linked system", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    defaultDesignSystems.systems = [{ id: "system-b", title: "System B" }];
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "get-design-system") {
+        return { title: "System B", agentContext: "System B tokens." };
+      }
+      if (action === "get-deck-reference-context") {
+        return {
+          designSystemId: "system-a",
+          linkedDesignSystemStatus: "available",
+          agentContext: [
+            "## Reference Deck — Visual Language",
+            "### Linked design system (reference default)",
+            "System A tokens apply only when no separate target system is selected.",
+            "### Patterns",
+            "Untrusted sample HTML for composition.",
+          ].join("\n"),
+        };
+      }
+      return undefined;
+    });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: "system-b", references: [] },
+          contextItems: [
+            {
+              key: "system:system-b",
+              title: "System B",
+              context: "System B tokens.",
+              status: "ready" as const,
+            },
+          ],
+        },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const generationContext = agentSubmit.mock.calls[0][1] as string;
+    expect(generationContext).toContain(
+      "Use design system system-b for visual tokens",
+    );
+    expect(generationContext).toContain("System B tokens.");
+    expect(generationContext).toContain(
+      "System A tokens apply only when no separate target system is selected.",
+    );
+    expect(generationContext).toContain(
+      "controls its tokens and slide defaults, overriding styles inferred from references",
+    );
+    expect(generationContext).toContain(
+      "Untrusted sample HTML for composition.",
+    );
+    expect(generationContext).not.toContain(
+      "Follow its measured visual language as the styling source of truth",
+    );
+  });
+
+  it("uses a reference deck's linked system before measured styling when no target system is selected", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    callAction.mockResolvedValue({
+      designSystemId: "system-a",
+      linkedDesignSystemStatus: "available",
+      agentContext: [
+        "## Reference Deck — Visual Language",
+        "No separate target system is selected. Linked system A controls tokens and slide defaults.",
+        "### Patterns",
+        "Untrusted sample HTML for composition.",
+      ].join("\n"),
+    });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const generationContext = agentSubmit.mock.calls[0][1] as string;
+    expect(generationContext).toContain(
+      "The reference deck's readable linked design system controls tokens and slide defaults",
+    );
+    expect(generationContext).toContain(
+      "Do not call `get-workspace-defaults` or apply a workspace default",
+    );
+    expect(generationContext).toContain(
+      "Linked system A controls tokens and slide defaults.",
+    );
+    expect(generationContext).toContain(
+      "Untrusted sample HTML for composition.",
+    );
+    expect(generationContext).not.toContain(
+      "Follow its measured visual language as the styling source of truth",
+    );
+  });
+
+  it("uses measured reference styling when the linked system is unavailable", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    callAction.mockResolvedValue({
+      designSystemId: "system-a",
+      linkedDesignSystemStatus: "unavailable",
+      agentContext: [
+        "## Reference Deck — Visual Language",
+        "### Linked design system (unavailable)",
+        "Use the readable samples' measured visual language as fallback.",
+        "### Patterns",
+        "Untrusted sample HTML for composition.",
+      ].join("\n"),
+    });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const generationContext = agentSubmit.mock.calls[0][1] as string;
+    expect(generationContext).toContain(
+      "No target or readable linked design system was selected. Because the reference deck was read successfully, use its measured visual language",
+    );
+    expect(generationContext).not.toContain(
+      "The reference deck's readable linked design system controls tokens",
+    );
+  });
+
+  it("does not infer reference styling when the reference deck failed to load", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "get-deck-reference-context") {
+        throw new Error("temporary reference read failure");
+      }
+      return undefined;
+    });
+    const deleteDeck = vi.fn();
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck,
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`;
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(prompt, [], {
+        commit: vi.fn(),
+        discard: vi.fn(),
+        attachments: [],
+      });
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
+      description: "home.generationContextUnavailableDescription",
+    });
+  });
+
+  it("restores the prompt when the selected design system returns no context", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    callAction.mockImplementation(async (action: string) => {
+      return undefined;
+    });
+    const deleteDeck = vi.fn();
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted,
+      deleteDeck,
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation using my selected design system";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: "system-a", references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(callAction).toHaveBeenCalledWith(
+      "get-design-system",
+      { id: "system-a" },
+      { method: "GET" },
+    );
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(ensureDeckPersisted).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
+      description: "home.generationContextUnavailableDescription",
+    });
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-pptx",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("asks users to wait when their selected Builder design system is indexing", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "get-design-system") {
+        return {
+          agentContext: "Selected design system context",
+          builder: { docCount: 0, tokenValues: {} },
+        };
+      }
+      return undefined;
+    });
+    const deleteDeck = vi.fn();
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck,
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Create a deck with my selected design system";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: "system-a", references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
+      description: "designSystemSetup.sourceIndexingDescription",
+    });
   });
 
   it("explains an unreadable attachment instead of showing the raw send-failure code", async () => {
@@ -790,6 +1328,12 @@ describe("Slides prompt-led home", () => {
     expect(agentSubmit.mock.calls[0][1]).toContain(
       "Do not restore a workspace default",
     );
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "For a requested slide count, compare the realSlideCount returned by every add-slide result (slideCount only if realSlideCount is absent)",
+    );
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "If add-slide returns errorCode target_slide_count_reached, re-read get-deck once",
+    );
     expect(agentSubmit.mock.calls[0][1]).toContain("A restrained visual style");
     expect(agentSubmit.mock.calls[0][2]).toMatchObject({
       model: "test-model",
@@ -804,6 +1348,23 @@ describe("Slides prompt-led home", () => {
           contextItems,
         }),
       }),
+    );
+    const acceptedEvent = vi
+      .mocked(trackEvent)
+      .mock.calls.find(([name]) => name === "generation_request_accepted");
+    expect(acceptedEvent).toBeDefined();
+    const acceptedTiming = acceptedEvent?.[1];
+    expect(acceptedTiming).toMatchObject({
+      started_at_ms: expect.any(Number),
+      ended_at_ms: expect.any(Number),
+      duration_ms: expect.any(Number),
+    });
+    expect(acceptedTiming?.ended_at_ms).toBeGreaterThanOrEqual(
+      acceptedTiming?.started_at_ms as number,
+    );
+    expect(acceptedTiming?.duration_ms).toBe(
+      (acceptedTiming?.ended_at_ms as number) -
+        (acceptedTiming?.started_at_ms as number),
     );
     expect(commit).toHaveBeenCalledOnce();
   });
@@ -895,6 +1456,394 @@ describe("Slides prompt-led home", () => {
     );
   });
 
+  it("restores the prompt when saving a source deck rejects", async () => {
+    const uploadedFile = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    const ensureDeckPersisted = vi
+      .fn()
+      .mockRejectedValue(new Error("Storage unavailable"));
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "Improve this presentation",
+        [uploadedFile],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: "Improve this presentation",
+      }),
+    );
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
+      description: "home.generationStartFailedDescription",
+    });
+  });
+
+  it("preserves a partial source deck when PDF import reports skipped images", async () => {
+    const uploadedFile = {
+      path: "/uploads/source.pdf",
+      originalName: "source.pdf",
+      filename: "source.pdf",
+      type: "application/pdf",
+      size: 32,
+    };
+    callAction.mockResolvedValue({
+      imported: true,
+      deckId: "new-deck",
+      slideCount: 3,
+      imagesSkipped: 1,
+    });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck,
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedFile],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(callAction).toHaveBeenCalledWith(
+      "import-file",
+      {
+        filePath: uploadedFile.path,
+        format: "pdf",
+        deckId: "new-deck",
+        importIntoDeck: true,
+      },
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    );
+    expect(deleteDeck).not.toHaveBeenCalled();
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("removes an empty source deck when import reports no slides", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "import-pptx") {
+        return { imported: true, deckId: "new-deck", slideCount: 0 };
+      }
+      if (action === "get-deck-reference-context") {
+        return {
+          agentContext: "Loaded reference deck context",
+          designSystemId: null,
+          linkedDesignSystemStatus: "none",
+        };
+      }
+      if (action === "get-design-system") {
+        return { agentContext: "Loaded design system context" };
+      }
+      return undefined;
+    });
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("removes an imported source deck if the agent cannot accept the prompt", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "import-pptx") {
+        return { imported: true, deckId: "new-deck", slideCount: 3 };
+      }
+      if (action === "get-deck-reference-context") {
+        return {
+          agentContext: "Loaded reference deck context",
+          designSystemId: null,
+          linkedDesignSystemStatus: "none",
+        };
+      }
+      if (action === "get-design-system") {
+        return { agentContext: "Loaded design system context" };
+      }
+      return undefined;
+    });
+    agentSubmit.mockResolvedValueOnce({
+      delivered: false,
+      reason: "agent_unavailable",
+    });
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(agentSubmit).toHaveBeenCalledOnce();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+  });
+
+  it("checks attached references before importing source slides", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    const unreadableReference = {
+      path: "/uploads/notes.docx",
+      originalName: "notes.docx",
+      filename: "notes.docx",
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      size: 32,
+    };
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "import-pptx") {
+        return {
+          imported: true,
+          deckId: "new-deck",
+          slideCount: 3,
+          imagesSkipped: 0,
+        };
+      }
+      if (action === "import-file") {
+        throw new Error("could not read the attached notes");
+      }
+      return undefined;
+    });
+    const deleteDeck = vi.fn();
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource, unreadableReference],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(callAction).toHaveBeenCalledWith(
+      "import-file",
+      expect.objectContaining({ filePath: unreadableReference.path }),
+      expect.anything(),
+    );
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-pptx",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(ensureDeckPersisted).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("removes the empty deck when source upload validation fails", async () => {
+    const sourceDecks = [
+      {
+        path: "/uploads/source.pptx",
+        originalName: "source.pptx",
+        filename: "source.pptx",
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        size: 32,
+      },
+      {
+        path: "/uploads/another-source.pdf",
+        originalName: "another-source.pdf",
+        filename: "another-source.pdf",
+        type: "application/pdf",
+        size: 32,
+      },
+    ];
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        sourceDecks,
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(ensureDeckPersisted).not.toHaveBeenCalled();
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-pptx",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-file",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps a source deck when the import action fails after it starts", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "import-pptx") {
+        throw new Error("The import stopped before returning a result.");
+      }
+      return undefined;
+    });
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(ensureDeckPersisted).toHaveBeenCalledWith("new-deck");
+    expect(callAction).toHaveBeenCalledWith(
+      "import-pptx",
+      { filePath: uploadedSource.path, deckId: "new-deck" },
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    );
+    expect(deleteDeck).not.toHaveBeenCalled();
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
   it("starts from a prompt deck link and keeps other composer references", async () => {
     localStorage.setItem(
       "slides:recent-references",
@@ -938,10 +1887,8 @@ describe("Slides prompt-led home", () => {
       deleteDeck: vi.fn(),
     });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
-    await waitFor(() =>
-      expect(contextOptions.mock.lastCall![0].defaultReferenceDeck?.id).toBe(
-        "shared",
-      ),
+    expect(contextOptions.mock.lastCall![0]).not.toHaveProperty(
+      "defaultReferenceDeck",
     );
     const attachments = {
       commit: vi.fn(),
@@ -1124,56 +2071,31 @@ describe("Slides prompt-led home", () => {
     );
   });
 
-  it("opens the file picker without a provider and preserves the mounted composer after cancel", async () => {
+  it("keeps the attached setup card and composer mounted without a provider", async () => {
     agentEngine.state = "missing";
     agentEngine.missing = true;
     renderHome();
     const prompt = await screen.findByRole("textbox", {
       name: "Presentation prompt",
     });
-    const picker = vi
-      .spyOn(HTMLInputElement.prototype, "click")
-      .mockImplementation(() => {});
-    fireEvent.click(
-      screen.getByRole("button", { name: "home.importMenu.import" }),
-    );
-    expect(picker).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("dialog")).toBeNull();
-    fireEvent.change(screen.getByLabelText("editorToolbar.importFile"), {
-      target: { files: [] },
-    });
-    picker.mockRestore();
-    expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
-      prompt,
-    );
-    expect(promptProps.mock.lastCall![0].disabled).toBe(false);
-    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
-    expect(createDeck).not.toHaveBeenCalled();
-  });
-  it("uses the shared Builder setup card and keeps the composer interactive", async () => {
-    agentEngine.state = "missing";
-    agentEngine.missing = true;
-    const missing = renderHome();
-    const prompt = await screen.findByRole("textbox", {
-      name: "Presentation prompt",
-    });
     expect(screen.getByRole("heading", { name: "Connect AI" })).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Connect Builder.io" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use Builder.io" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "Connect AI" })).toHaveLength(
+      1,
+    );
     expect(
       screen.getByRole("link", { name: "Custom keys" }).getAttribute("href"),
     ).toBe("/settings/keys");
     expect((prompt as HTMLTextAreaElement).disabled).toBe(false);
-    expect(promptProps).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        disabled: false,
-        showModelSelector: false,
-        modelStatusChecksEnabled: false,
-        onBeforeSubmit: expect.any(Function),
-        onSkip: expect.any(Function),
-      }),
-    );
+    expect(promptProps.mock.lastCall![0]).toMatchObject({
+      disabled: false,
+      requireAgentEngine: true,
+      showMissingApiKeySetup: false,
+      showModelSelector: false,
+      modelStatusChecksEnabled: false,
+    });
+    expect(promptProps.mock.lastCall![0].onBeforeSubmit).toBeUndefined();
+
     fireEvent.pointerDown(
       document.querySelector("[data-slides-home-composer]")!,
       { button: 0, ctrlKey: false },
@@ -1183,133 +2105,16 @@ describe("Slides prompt-led home", () => {
         .getByTestId("builder-setup-card")
         .getAttribute("data-bounce-pulse"),
     ).toBe("1");
-
-    const attachments = {
-      commit: vi.fn(),
-      discard: vi.fn(),
-      attachments: [],
-    };
-    let submitResult: unknown;
-    await act(async () => {
-      submitResult = await promptProps.mock.lastCall![0].onSubmit(
-        "Build a presentation",
-        [],
-        attachments,
-      );
-    });
-    expect(submitResult).toBe("retain");
+    expect(createDeck).not.toHaveBeenCalled();
     expect(agentSubmit).not.toHaveBeenCalled();
-    expect(createDeck).not.toHaveBeenCalled();
-
-    missing.unmount();
-    agentEngine.state = "configured";
-    agentEngine.missing = false;
-    renderHome();
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-    expect(screen.queryByTestId("builder-setup-card")).toBeNull();
-    expect(promptProps).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        disabled: false,
-        showModelSelector: true,
-        modelStatusChecksEnabled: true,
-      }),
-    );
   });
 
-  const submittedDraft = {
-    text: "Make a pitch deck",
-    referenceKeys: [],
-    attachmentIds: ["file-1"],
-  };
-
-  it("sends the held-back draft once after AI setup becomes ready", async () => {
-    agentEngine.state = "missing";
-    agentEngine.missing = true;
-    submitDraft.mockClear();
-    getDraftSnapshot.mockReturnValue({ ...submittedDraft });
-    const home = renderHome();
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-
-    let canSubmit: unknown;
-    await act(async () => {
-      canSubmit =
-        await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
-    });
-    expect(canSubmit).toBe(false);
-    expect(submitDraft).not.toHaveBeenCalled();
-
-    agentEngine.state = "configured";
-    agentEngine.missing = false;
-    await act(async () => home.rerenderHome());
-    await act(async () => home.rerenderHome());
-
-    expect(submitDraft).toHaveBeenCalledOnce();
-    expect(createDeck).not.toHaveBeenCalled();
-  });
-
-  it("leaves a draft edited while connecting in the composer instead of sending it", async () => {
-    agentEngine.state = "missing";
-    agentEngine.missing = true;
-    submitDraft.mockClear();
-    getDraftSnapshot.mockReturnValue({
-      ...submittedDraft,
-      text: "Make a pitch deck for investors, and also a roadmap",
-    });
-    const home = renderHome();
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-    await act(async () => {
-      await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
-    });
-
-    agentEngine.state = "configured";
-    agentEngine.missing = false;
-    await act(async () => home.rerenderHome());
-    await act(async () => home.rerenderHome());
-
-    expect(submitDraft).not.toHaveBeenCalled();
-  });
-
-  it("leaves a draft whose attachments changed while connecting in the composer", async () => {
-    agentEngine.state = "missing";
-    agentEngine.missing = true;
-    submitDraft.mockClear();
-    getDraftSnapshot.mockReturnValue({
-      ...submittedDraft,
-      attachmentIds: ["file-1", "file-2"],
-    });
-    const home = renderHome();
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-    await act(async () => {
-      await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
-    });
-
-    agentEngine.state = "configured";
-    agentEngine.missing = false;
-    await act(async () => home.rerenderHome());
-    await act(async () => home.rerenderHome());
-
-    expect(submitDraft).not.toHaveBeenCalled();
-  });
-
-  it("does not send a draft nobody tried to send when setup becomes ready", async () => {
-    agentEngine.state = "missing";
-    agentEngine.missing = true;
-    submitDraft.mockClear();
-    const home = renderHome();
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-
-    agentEngine.state = "configured";
-    agentEngine.missing = false;
-    await act(async () => home.rerenderHome());
-
-    expect(submitDraft).not.toHaveBeenCalled();
-  });
-
-  it("keeps the composer interactive while checking and offers retry if status is unavailable", async () => {
+  it("keeps unknown and unavailable states editable without a checking state", async () => {
     agentEngine.state = "unknown";
     agentEngine.missing = false;
-    renderHome();
+    const home = renderHome();
     expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText(/checking ai/i)).toBeNull();
     expect(
       (
         screen.getByRole("textbox", {
@@ -1317,75 +2122,76 @@ describe("Slides prompt-led home", () => {
         }) as HTMLTextAreaElement
       ).disabled,
     ).toBe(false);
-    expect(promptProps.mock.lastCall![0].disabled).toBe(false);
-    expect(promptProps.mock.lastCall![0].onBeforeSubmit).toEqual(
-      expect.any(Function),
-    );
-    let canSubmit = true;
-    await act(async () => {
-      canSubmit = await promptProps.mock.lastCall![0].onBeforeSubmit();
-    });
-    expect(canSubmit).toBe(false);
-    expect(screen.getByRole("status").textContent).toContain(
-      "providerStatusUnavailable",
-    );
+    expect(promptProps.mock.lastCall![0].requireAgentEngine).toBe(true);
+    expect(promptProps.mock.lastCall![0].onBeforeSubmit).toBeUndefined();
 
-    cleanup();
     agentEngine.state = "unavailable";
-    renderHome();
-    const dispatch = vi.spyOn(window, "dispatchEvent");
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-engine:configured-changed" }),
-    );
-  });
-
-  it("keeps the setup card visible when a preflight fails after missing status is known", async () => {
-    agentEngine.state = "missing";
-    agentEngine.missing = true;
-    renderHome();
-    expect(screen.getByRole("heading", { name: "Connect AI" })).toBeTruthy();
-    fetchAgentEngineConfiguredState.mockRejectedValueOnce(
-      new Error("temporary failure"),
-    );
-
-    let canSubmit = true;
-    await act(async () => {
-      canSubmit = await promptProps.mock.lastCall![0].onBeforeSubmit();
-    });
-
-    expect(canSubmit).toBe(false);
-    expect(screen.getByRole("heading", { name: "Connect AI" })).toBeTruthy();
-    expect(screen.queryByText("providerStatusUnavailable")).toBeNull();
-  });
-
-  it("ignores a stale readiness check after the provider hook reports configured", async () => {
-    agentEngine.state = "unknown";
-    agentEngine.missing = false;
-    const home = renderHome();
-    let resolveStatus: (state: "missing") => void = () => {};
-    fetchAgentEngineConfiguredState.mockReturnValueOnce(
-      new Promise<"missing">((resolve) => {
-        resolveStatus = resolve;
-      }),
-    );
-    let preflight = Promise.resolve(false);
-    await act(async () => {
-      preflight = promptProps.mock.lastCall![0].onBeforeSubmit();
-    });
-
-    agentEngine.state = "configured";
     await act(async () => home.rerenderHome());
-    await act(async () => resolveStatus("missing"));
-
-    expect(await preflight).toBe(true);
-    expect(screen.queryByTestId("builder-setup-card")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
+      ).disabled,
+    ).toBe(false);
   });
 
-  it("preserves an explicit Templates choice made while decks are loading", async () => {
+  it("shows both tabs while loading, then defaults to Recent when decks are available", async () => {
     const home = renderHome({ loading: true });
-    const templates = screen.getByRole("tab", { name: "Templates" });
-    fireEvent.click(templates);
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
+    expect(
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+
+    useDecks.mockReturnValue({
+      decks: [ownDeck],
+      loading: false,
+      loadError: false,
+      deckListRefreshing: false,
+      reloadDecks,
+      createDeck,
+      catchUpStaleDeckList: vi.fn(),
+    });
+    await act(async () => home.rerenderHome());
+
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(window.localStorage.getItem("slides-home-library-tab")).toBe(
+      "recent",
+    );
+    expect(window.localStorage.getItem("slides-home-has-recents")).toBe("true");
+
+    home.unmount();
+    renderHome({ decks: [ownDeck] });
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("restores cached recents immediately while the deck list loads", () => {
+    window.localStorage.setItem("slides-home-has-recents", "true");
+    renderHome({ loading: true });
+
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
+  });
+
+  it("restores a saved Templates choice before the deck list finishes loading", async () => {
+    window.localStorage.setItem("slides-home-library-tab", "templates");
+    const home = renderHome({ loading: true });
+    expect(
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
 
     useDecks.mockReturnValue({
       decks: [ownDeck],
@@ -1403,19 +2209,18 @@ describe("Slides prompt-led home", () => {
         .getByRole("tab", { name: "Templates" })
         .getAttribute("aria-selected"),
     ).toBe("true");
-    expect(localStorage.getItem("slides:home-library-tab")).toBe("templates");
-
-    home.unmount();
-    renderHome({ decks: [ownDeck] });
-    expect(
-      screen
-        .getByRole("tab", { name: "Templates" })
-        .getAttribute("aria-selected"),
-    ).toBe("true");
+    expect(window.localStorage.getItem("slides-home-has-recents")).toBe("true");
   });
 
-  it("does not server-render the home library before restoring its saved tab", () => {
-    localStorage.setItem("slides:home-library-tab", "recent");
+  it("keeps the Recent skeleton available when its tab opens during loading", () => {
+    window.localStorage.setItem("slides-home-library-tab", "recent");
+    renderHome({ loading: true });
+
+    const recentPanel = screen.getByRole("tabpanel", { name: "Recent" });
+    expect(recentPanel.querySelector('[aria-busy="true"]')).toBeTruthy();
+  });
+
+  it("does not server-render the home library", () => {
     const markup = renderToString(
       <MemoryRouter initialEntries={["/home"]}>
         <TooltipProvider>
@@ -1427,21 +2232,39 @@ describe("Slides prompt-led home", () => {
     expect(markup).not.toContain("agent-prompt-home-library");
   });
 
-  it("remembers the automatic Recent selection across home opens", () => {
+  it("renders ready suggestions before effects snapshot them", () => {
+    const markup = renderToString(
+      <MemoryRouter initialEntries={["/home"]}>
+        <TooltipProvider>
+          <ActiveIndex />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain('aria-label="home.suggestedPrompts"');
+  });
+
+  it("shows both tabs and defaults to Templates without accessible decks", () => {
     const home = renderHome({ decks: [ownDeck] });
     expect(
       screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
     ).toBe("true");
-    expect(localStorage.getItem("slides:home-library-tab")).toBe("recent");
 
     home.unmount();
-    renderHome({ decks: [], loading: true });
+    renderHome({ decks: [] });
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
     expect(
-      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
     ).toBe("true");
+    expect(window.localStorage.getItem("slides-home-has-recents")).toBe(
+      "false",
+    );
   });
 
-  it("keeps the composer as the focal point and shows both library tabs without accessible work", async () => {
+  it("keeps the composer as the focal point and shows both tabs without accessible work", async () => {
     renderHome({ decks: [] });
     expect(
       screen.getByRole("heading", {
@@ -1472,16 +2295,6 @@ describe("Slides prompt-led home", () => {
     document.dispatchEvent(slash);
     expect(slash.defaultPrevented).toBe(false);
     mountedHeader.unmount();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Recent" }), {
-      button: 0,
-      ctrlKey: false,
-    });
-    expect(
-      screen.queryByRole("button", { name: "home.showAllDecks" }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "home.showMineDecks" }),
-    ).toBeNull();
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Templates" }), {
       button: 0,
       ctrlKey: false,
@@ -1500,19 +2313,15 @@ describe("Slides prompt-led home", () => {
       screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
     ).toBe("true");
     expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
+    expect(screen.getByText("Shared presentation")).toBeTruthy();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
   });
 
   it("keeps the recent panel available while searching a shared-only home", async () => {
     renderHome({ decks: [sharedDeck] });
-    const header = render(
-      (headerActions.current as ReactElement<{ search: ReactNode }>).props
-        .search,
-    );
-    fireEvent.change(
-      header.getAllByRole("searchbox", { name: "Search decks" })[0]!,
-      { target: { value: "shared" } },
-    );
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search decks" }), {
+      target: { value: "shared" },
+    });
     expect(
       await screen.findByRole("tabpanel", { name: "Recent" }),
     ).toBeTruthy();
@@ -1522,7 +2331,6 @@ describe("Slides prompt-led home", () => {
       ctrlKey: false,
     });
     expect(screen.getByRole("tabpanel", { name: "Templates" })).toBeTruthy();
-    header.unmount();
   });
 
   it("defaults to recents when the unfiltered owned collection has content", async () => {
@@ -1593,10 +2401,262 @@ describe("Slides prompt-led home", () => {
     expect(createDeck).not.toHaveBeenCalled();
   });
 
-  it("pauses home suggestions while the retained Home route is inactive", async () => {
+  it("holds the suggestion slot while loading and keeps the first result", async () => {
+    suggestionQuery.pending = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const bar = screen.getByLabelText("home.suggestedPrompts");
+    expect(bar.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+
+    suggestionQuery.pending = false;
+    rerenderHome();
+    await screen.findByRole("button", { name: "Build a pitch" });
+    expect(suggestionQuery.enabled).toBe(false);
+
+    homeSuggestions.value = [
+      {
+        id: "suggestion-2",
+        label: "Changed after load",
+        prompt: "Create a different deck.",
+      },
+    ];
+    rerenderHome();
+    expect(screen.getByRole("button", { name: "Build a pitch" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Changed after load" }),
+    ).toBeNull();
+  });
+
+  it("loads suggestions after the profile lookup fails", async () => {
+    suggestionQuery.profileError = true;
+    suggestionQuery.pending = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const bar = screen.getByLabelText("home.suggestedPrompts");
+    expect(suggestionQuery.enabled).toBe(true);
+    expect(suggestionQuery.options?.queryKeyScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a", null]),
+    ]);
+    expect(bar.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+
+    suggestionQuery.pending = false;
+    rerenderHome();
+
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+
+    suggestionQuery.profileError = false;
+    suggestionQuery.profileRole = "product";
+    homeSuggestions.value = [
+      {
+        id: "recovered-product-suggestion",
+        label: "Plan a product launch",
+        prompt: "Create a launch plan for a new product feature.",
+      },
+    ];
+    rerenderHome();
+
+    expect(screen.getByRole("button", { name: "Build a pitch" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Plan a product launch" }),
+    ).toBeNull();
+    expect(suggestionQuery.enabled).toBe(false);
+  });
+
+  it("keeps suggestions stable during profile refreshes and role changes", async () => {
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("button", { name: "Build a pitch" });
+
+    expect(suggestionQuery.profileScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a"]),
+    ]);
+    expect(suggestionQuery.options?.queryKeyScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a", "design"]),
+    ]);
+
+    suggestionQuery.profileFetching = true;
+    rerenderHome();
+    expect(screen.getByRole("button", { name: "Build a pitch" })).toBeTruthy();
+    expect(
+      screen.getByLabelText("home.suggestedPrompts").getAttribute("aria-busy"),
+    ).not.toBe("true");
+
+    homeSuggestions.value = [
+      {
+        id: "product-suggestion-1",
+        label: "Plan a product launch",
+        prompt: "Create a launch plan for a new product feature.",
+      },
+      {
+        id: "product-suggestion-2",
+        label: "Map the customer journey",
+        prompt: "Create a customer journey map for product onboarding.",
+      },
+      {
+        id: "product-suggestion-3",
+        label: "Review product metrics",
+        prompt: "Create a product metrics review for the leadership team.",
+      },
+    ];
+    suggestionQuery.profileRole = "product";
+    suggestionQuery.profileFetching = false;
+    rerenderHome();
+
+    expect(screen.getByRole("button", { name: "Build a pitch" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Plan a product launch" }),
+    ).toBeNull();
+    expect(suggestionQuery.enabled).toBe(false);
+    expect(suggestionQuery.options?.queryKeyScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a", "product"]),
+    ]);
+  });
+
+  it("keeps the suggestion slot while readiness recovers", async () => {
+    agentEngine.state = "unavailable";
+    agentEngine.missing = false;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    expect(
+      screen
+        .getByLabelText("home.suggestedPrompts")
+        .querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+    expect(suggestionQuery.enabled).toBe(false);
+
+    agentEngine.state = "configured";
+    rerenderHome();
+
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeNull();
+    expect(suggestionQuery.enabled).toBe(false);
+  });
+
+  it("keeps unavailable suggestions stable until the next home load", async () => {
+    suggestionQuery.unavailable = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    expect(
+      screen.getByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeTruthy();
+    expect(suggestionQuery.enabled).toBe(false);
+
+    const staleTime = suggestionQuery.options?.staleTime as (
+      query: never,
+    ) => number;
+    const refetchOnMount = suggestionQuery.options?.refetchOnMount as (
+      query: never,
+    ) => boolean;
+    const refetchOnWindowFocus = suggestionQuery.options
+      ?.refetchOnWindowFocus as (query: never) => boolean;
+    const refetchOnReconnect = suggestionQuery.options?.refetchOnReconnect as (
+      query: never,
+    ) => boolean;
+    const unavailable = {
+      state: { data: { status: "unavailable", suggestions: [] } },
+    } as never;
+    const ready = {
+      state: {
+        data: {
+          status: "ready",
+          suggestions: [
+            { id: "one", label: "One", prompt: "One" },
+            { id: "two", label: "Two", prompt: "Two" },
+            { id: "three", label: "Three", prompt: "Three" },
+          ],
+        },
+      },
+    } as never;
+    expect(staleTime(unavailable)).toBe(0);
+    expect(refetchOnMount(unavailable)).toBe(true);
+    expect(refetchOnWindowFocus(unavailable)).toBe(true);
+    expect(refetchOnReconnect(unavailable)).toBe(true);
+    expect(staleTime(ready)).toBe(Number.POSITIVE_INFINITY);
+    expect(refetchOnMount(ready)).toBe(false);
+    expect(refetchOnWindowFocus(ready)).toBe(false);
+    expect(refetchOnReconnect(ready)).toBe(false);
+
+    suggestionQuery.unavailable = false;
+    rerenderHome();
+    expect(
+      screen.getByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeTruthy();
+    expect(suggestionQuery.enabled).toBe(false);
+
+    // A fresh home load retries unavailable data and can choose a new sample.
+    cleanup();
+    renderHome();
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+  });
+
+  it("shows the skeleton while retrying a cached unavailable result", async () => {
+    suggestionQuery.retrying = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const bar = screen.getByLabelText("home.suggestedPrompts");
+    expect(bar.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+    expect(
+      screen.queryByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeNull();
+
+    suggestionQuery.retrying = false;
+    rerenderHome();
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeNull();
+  });
+
+  it("waits for readiness before snapshotting cached generated suggestions", async () => {
+    agentEngine.state = "unknown";
+    suggestionQuery.cachedReady = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const bar = screen.getByLabelText("home.suggestedPrompts");
+    expect(bar.getAttribute("aria-busy")).toBe("true");
+    expect(
+      screen.queryByRole("button", { name: "Cached Build a pitch" }),
+    ).toBeNull();
+
+    suggestionQuery.cachedReady = false;
+    agentEngine.state = "configured";
+    rerenderHome();
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Cached Build a pitch" }),
+    ).toBeNull();
+  });
+
+  it("keeps the home suggestion sample when the retained route becomes inactive", async () => {
     renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
-    expect(suggestionQuery.enabled).toBe(true);
+    expect(suggestionQuery.enabled).toBe(false);
     expect(systemFlag.query).toHaveBeenLastCalledWith(true);
     expect(inactiveHomeQueries.workspaceDefaultsEnabled).toBe(true);
     expect(inactiveHomeQueries.templateLibraryEnabled).toBe(true);
@@ -1614,7 +2674,7 @@ describe("Slides prompt-led home", () => {
     expect(promptProps.mock.lastCall![0].active).toBe(false);
 
     fireEvent.click(screen.getByRole("link", { name: "Back home" }));
-    await waitFor(() => expect(suggestionQuery.enabled).toBe(true));
+    await waitFor(() => expect(suggestionQuery.enabled).toBe(false));
     expect(systemFlag.query).toHaveBeenLastCalledWith(true);
     expect(inactiveHomeQueries.workspaceDefaultsEnabled).toBe(true);
     expect(inactiveHomeQueries.templateLibraryEnabled).toBe(true);
@@ -1632,6 +2692,9 @@ describe("Slides prompt-led home", () => {
     });
     expect(promptProps.mock.lastCall![0].open).toBe(false);
     expect(referenceProps.mock.lastCall![0].open).toBe(true);
+    expect(referenceProps.mock.lastCall![0]).not.toHaveProperty(
+      "defaultReferenceDeckId",
+    );
 
     fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
     await waitFor(() =>
@@ -1670,7 +2733,7 @@ describe("Slides prompt-led home", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "gates model controls and suggestions while keeping the prompt path available for $state (missing=$missing)",
+    "reserves suggestions while gating model controls for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       agentEngine.state = state;
       agentEngine.missing = missing;
@@ -1680,19 +2743,33 @@ describe("Slides prompt-led home", () => {
         disabled: false,
         showModelSelector: ready,
         modelStatusChecksEnabled: ready,
-        onBeforeSubmit: expect.any(Function),
+        requireAgentEngine: true,
+        showMissingApiKeySetup: false,
       });
+      expect(promptProps.mock.lastCall![0].onBeforeSubmit).toBeUndefined();
       expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
-      expect(Boolean(screen.queryByLabelText("home.suggestedPrompts"))).toBe(
-        ready,
+      const suggestionBar = screen.queryByLabelText("home.suggestedPrompts");
+      const loading = !ready;
+      expect(Boolean(suggestionBar)).toBe(true);
+      expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBe(
+        loading ? "true" : null,
       );
       expect(
         Boolean(screen.queryByRole("button", { name: "Build a pitch" })),
       ).toBe(ready);
       expect(
-        screen.queryByRole("button", { name: "Create a product pitch deck" }),
+        screen.queryByRole("button", {
+          name: "Create a product pitch deck",
+        }),
       ).toBeNull();
-      expect(suggestionQuery.enabled).toBe(ready);
+      if (ready) {
+        expect(
+          screen.getByRole<HTMLButtonElement>("button", {
+            name: "Build a pitch",
+          }).disabled,
+        ).toBe(false);
+      }
+      expect(suggestionQuery.enabled).toBe(false);
     },
   );
 
@@ -1919,6 +2996,67 @@ describe("Slides prompt-led home", () => {
     );
     expect(agentSubmit.mock.calls[0][1]).not.toContain(
       "Automatic recent-deck context",
+    );
+  });
+
+  it("keeps selected deck context when a retry's automatic marker shares its id", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    const prompt = `Use this as a style reference: ${window.location.origin}/deck/own`;
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        { source: "slides" as const, id: "shared", title: "Shared deck" },
+      ],
+    };
+    const contextItems = [
+      {
+        key: "slides:shared:",
+        title: "Shared deck",
+        context: "Explicitly selected deck context",
+        status: "ready" as const,
+      },
+    ];
+    renderHome(
+      {
+        decks: [ownDeck, sharedDeck],
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+      },
+      {
+        retryPrompt: prompt,
+        retryReferenceSelection: {
+          automaticReferenceDeckId: "shared",
+          referenceDeckId: "shared",
+          referenceDeckIdSource: "selection",
+          composerContext,
+          contextItems,
+        },
+      },
+    );
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        { slidesContext: composerContext, contextItems },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "Explicitly selected deck context",
+    );
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
+      expect.objectContaining({
+        generationContext: expect.objectContaining({
+          referenceDeckId: null,
+          composerContext,
+          contextItems,
+        }),
+      }),
     );
   });
 
@@ -2290,7 +3428,7 @@ describe("Slides prompt-led home", () => {
     expect(savedSelection).not.toHaveProperty("referenceDeckId");
   });
 
-  it("restores the generation-failure draft and model on the inline home", async () => {
+  it("restores a failed deck's prompt on Home without automatically generating", async () => {
     const modelSelection = {
       model: "test-model",
       engine: "builder",
@@ -2316,6 +3454,7 @@ describe("Slides prompt-led home", () => {
     );
     expect(promptProps.mock.lastCall![0].open).toBe(true);
     expect(createDeck).not.toHaveBeenCalled();
+    expect(agentSubmit).not.toHaveBeenCalled();
   });
 
   it("restores the saved sign-in draft and model without automatically generating", async () => {
@@ -2426,6 +3565,54 @@ describe("Slides prompt-led home", () => {
           composerContext,
           contextItems,
         }),
+      }),
+    );
+  });
+
+  it("removes a legacy automatic reference from a saved sign-in prompt", async () => {
+    signedIn.value = false;
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        {
+          source: "slides" as const,
+          id: "recent-deck",
+          title: "Recent deck",
+        },
+        {
+          source: "website" as const,
+          id: "https://example.com",
+          title: "Example",
+          url: "https://example.com",
+        },
+      ],
+    };
+    sessionStorage.setItem("slides:pending-deck-prompt", "Continue");
+    sessionStorage.setItem(
+      "slides:pending-deck-reference-selection",
+      JSON.stringify({
+        automaticReferenceDeckId: "recent-deck",
+        composerContext,
+        contextItems: [
+          { key: "slides:recent-deck:", title: "Recent deck", context: "" },
+          {
+            key: "website:https://example.com:",
+            title: "Example",
+            context: "",
+          },
+        ],
+      }),
+    );
+
+    signedIn.value = true;
+    home.rerenderHome();
+
+    await waitFor(() =>
+      expect(contextOptions.mock.lastCall?.[0].initialSelection).toEqual({
+        designSystemId: null,
+        references: [composerContext.references[1]],
       }),
     );
   });

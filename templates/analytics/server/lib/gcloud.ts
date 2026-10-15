@@ -1,9 +1,15 @@
+import { getRequestContext } from "@agent-native/core/server";
+
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
   requireRequestCredentialContext,
   scopedCredentialCacheKey,
 } from "./credentials-context";
+import {
+  resolveBigQueryOAuthCredential,
+  type AnalyticsProviderCredential,
+} from "./provider-credentials";
 import { signRs256Jwt } from "./sign-jwt";
 
 async function getProjectId(): Promise<string> {
@@ -18,6 +24,14 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE = 120;
 
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+type RequestValueCache<T> = WeakMap<object, Map<string, Promise<T>>>;
+
+const bigQueryProjectIdByRequest: RequestValueCache<string | undefined> =
+  new WeakMap();
+const bigQueryOAuthCredentialByRequest: RequestValueCache<AnalyticsProviderCredential | null> =
+  new WeakMap();
+const bigQueryServiceAccountByRequest: RequestValueCache<string | undefined> =
+  new WeakMap();
 
 const GOOGLE_REQUEST_MAX_ATTEMPTS = 4;
 const GOOGLE_REQUEST_TIMEOUT_MS = 30_000;
@@ -74,9 +88,66 @@ function retryDelayMs(attempt: number): number {
   return GOOGLE_REQUEST_RETRY_DELAY_MS * 2 ** (attempt - 1);
 }
 
-async function waitForGoogleRetry(attempt: number): Promise<void> {
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, retryDelayMs(attempt));
+function throwIfSignalAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException("The operation was aborted", "AbortError");
+  }
+}
+
+export function raceWithAbort<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted)
+    return Promise.reject(
+      new DOMException("The operation was aborted", "AbortError"),
+    );
+
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", abort);
+    const abort = () => {
+      cleanup();
+      reject(new DOMException("The operation was aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+    if (signal.aborted) abort();
+  });
+}
+
+async function waitForGoogleRetry(
+  attempt: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!signal) {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, retryDelayMs(attempt));
+    });
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const finish = () => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    };
+    const abort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      reject(new DOMException("The operation was aborted", "AbortError"));
+    };
+    const timer = setTimeout(finish, retryDelayMs(attempt));
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
   });
 }
 
@@ -84,10 +155,12 @@ export async function fetchGoogleWithRetry(
   url: string,
   init: RequestInit,
   operation: string,
+  signal?: AbortSignal,
 ): Promise<Response> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= GOOGLE_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    throwIfSignalAborted(signal);
     const controller = new AbortController();
     let timedOut = false;
     const timeout = setTimeout(() => {
@@ -98,18 +171,21 @@ export async function fetchGoogleWithRetry(
     try {
       const response = await fetch(url, {
         ...init,
-        signal: controller.signal,
+        signal: signal
+          ? AbortSignal.any([controller.signal, signal])
+          : controller.signal,
       });
       if (
         isRetryableGoogleStatus(response.status) &&
         attempt < GOOGLE_REQUEST_MAX_ATTEMPTS
       ) {
-        await waitForGoogleRetry(attempt);
+        await waitForGoogleRetry(attempt, signal);
         continue;
       }
       return response;
     } catch (error) {
       lastError = error;
+      throwIfSignalAborted(signal);
       if (
         attempt >= GOOGLE_REQUEST_MAX_ATTEMPTS ||
         !isRetryableGoogleError(error, timedOut)
@@ -119,7 +195,7 @@ export async function fetchGoogleWithRetry(
           error,
         );
       }
-      await waitForGoogleRetry(attempt);
+      await waitForGoogleRetry(attempt, signal);
     } finally {
       clearTimeout(timeout);
     }
@@ -131,13 +207,13 @@ export async function fetchGoogleWithRetry(
   );
 }
 
-async function getServiceAccountCredentials() {
+async function getServiceAccountCredentials(signal?: AbortSignal) {
   const ctx = requireRequestCredentialContext(
     "GOOGLE_APPLICATION_CREDENTIALS_JSON",
   );
-  const credsJson = await resolveCredential(
-    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-    ctx,
+  const credsJson = await raceWithAbort(
+    resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
+    signal,
   );
   if (!credsJson) {
     throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured");
@@ -180,14 +256,16 @@ async function getServiceAccountCredentials() {
   };
 }
 
-export async function getAccessToken(): Promise<string> {
+export async function getAccessToken(signal?: AbortSignal): Promise<string> {
+  throwIfSignalAborted(signal);
   const tokenKey = credentialCacheScope("GOOGLE_APPLICATION_CREDENTIALS_JSON");
   const cachedToken = tokenCache.get(tokenKey);
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
     return cachedToken.token;
   }
 
-  const creds = await getServiceAccountCredentials();
+  const creds = await getServiceAccountCredentials(signal);
+  throwIfSignalAborted(signal);
   const now = Math.floor(Date.now() / 1000);
 
   const jwtPayload = {
@@ -217,6 +295,7 @@ export async function getAccessToken(): Promise<string> {
       }),
     },
     "OAuth token exchange",
+    signal,
   );
 
   if (!res.ok) {
@@ -234,6 +313,98 @@ export async function getAccessToken(): Promise<string> {
   });
 
   return data.access_token;
+}
+
+export async function getBigQueryAccessToken(
+  options: {
+    signal?: AbortSignal;
+    projectId?: string;
+    oauthCredential?: AnalyticsProviderCredential | null;
+    preferServiceAccount?: boolean;
+  } = {},
+): Promise<string> {
+  const { signal } = options;
+  const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
+  const requestContext = getRequestContext();
+  const cacheScope = credentialCacheScope("BIGQUERY_PROJECT_ID", ctx);
+  const projectId =
+    options.projectId ??
+    (await raceWithAbort(
+      requestContext
+        ? getRequestMemoizedPromise(
+            bigQueryProjectIdByRequest,
+            requestContext,
+            cacheScope,
+            () => resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+          )
+        : resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+      signal,
+    ));
+  throwIfSignalAborted(signal);
+  if (!projectId) throw new Error("BIGQUERY_PROJECT_ID not configured");
+
+  let oauthCredential = options.oauthCredential;
+  if (oauthCredential === undefined && options.preferServiceAccount) {
+    const serviceAccountScope = credentialCacheScope(
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      ctx,
+    );
+    const serviceAccountJson = await raceWithAbort(
+      requestContext
+        ? getRequestMemoizedPromise(
+            bigQueryServiceAccountByRequest,
+            requestContext,
+            serviceAccountScope,
+            () => resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
+          )
+        : resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
+      signal,
+    );
+    if (serviceAccountJson) return getAccessToken(signal);
+  }
+
+  if (oauthCredential === undefined) {
+    oauthCredential = await raceWithAbort(
+      requestContext
+        ? getRequestMemoizedPromise(
+            bigQueryOAuthCredentialByRequest,
+            requestContext,
+            cacheScope,
+            () => resolveBigQueryOAuthCredential(ctx),
+          )
+        : resolveBigQueryOAuthCredential(ctx),
+      signal,
+    );
+  }
+  if (oauthCredential) return oauthCredential.value;
+
+  return getAccessToken(signal);
+}
+
+function getRequestMemoizedPromise<T>(
+  cache: RequestValueCache<T>,
+  requestContext: object,
+  cacheScope: string,
+  resolve: () => Promise<T>,
+): Promise<T> {
+  let values = cache.get(requestContext);
+  if (!values) {
+    values = new Map();
+    cache.set(requestContext, values);
+  }
+
+  const cached = values.get(cacheScope);
+  if (cached) return cached;
+
+  const pending = resolve();
+  values.set(cacheScope, pending);
+  void pending.catch(() => {
+    if (values?.get(cacheScope) === pending) values.delete(cacheScope);
+    if (values?.size === 0 && cache.get(requestContext) === values) {
+      cache.delete(requestContext);
+    }
+  });
+  return pending;
 }
 
 function cacheSet(key: string, data: unknown) {

@@ -1,3 +1,4 @@
+import { parseBase64DataUrl } from "@agent-native/core/shared";
 import {
   estimateAttachmentBodyBytes,
   MAX_ESTIMATED_BODY_BYTES,
@@ -36,7 +37,8 @@ export function isMissingUploadProviderError(
     lower.includes("no object storage is connected") ||
     lower.includes("no file upload provider") ||
     lower.includes("registerfileuploadprovider") ||
-    lower.includes("connect builder.io")
+    lower.includes("connect builder.io") ||
+    lower.includes("use builder.io")
   );
 }
 
@@ -112,7 +114,7 @@ export function buildImageDropAgentPayload(args: {
   if (!inlineDataUrl) {
     throw new Error(
       args.upload.error ||
-        "Image upload failed. Connect Builder.io (free) or configure your own S3-compatible storage keys.",
+        "Image upload failed. Use Builder.io (free) or configure your own S3-compatible storage keys.",
     );
   }
 
@@ -144,14 +146,12 @@ export function canInlineImageFile(file: File): boolean {
 }
 
 export function canInlineImageDataUrl(dataUrl: string): boolean {
-  const match = /^data:(image\/[^;]+);base64,(.*)$/is.exec(dataUrl);
-  const mediaType = match?.[1]?.trim().toLowerCase();
+  const parsed = parseBase64DataUrl(dataUrl);
   return Boolean(
-    match &&
-    mediaType &&
-    mediaType !== "image/svg+xml" &&
-    match[2].length + `data:${mediaType};base64,`.length <=
-      MAX_INLINE_IMAGE_BASE64_CHARS,
+    parsed &&
+    parsed.mediaType.startsWith("image/") &&
+    parsed.mediaType !== "image/svg+xml" &&
+    dataUrl.length <= MAX_INLINE_IMAGE_BASE64_CHARS,
   );
 }
 

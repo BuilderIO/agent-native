@@ -36,6 +36,7 @@ import { createRunner, RunError, type HostFunctions } from "run";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
   getRequestContext,
   getRequestRunContext,
@@ -149,8 +150,8 @@ export function createRunCodeEntry(
         "    Supports stageAs/saveToFile/fetchAllPages; use cursorBodyPath for POST-body pagination.",
         "    Example: `const data = await providerFetch('<provider-id>', '/records', { query: { limit: 100 } });`",
         "  - `providerRequest(provider, path, init?)` — same authenticated call, but returns the full provider-api envelope with request, response status/headers, truncation, and body metadata.",
-        "  - `providerFetchAll(provider, path, init?)` — generic pagination helper for cursor, page, and offset APIs. Pass `pagination: { itemsPath, cursorPath or nextCursorPath, cursorParam or cursorBodyPath, pageParam, offsetParam, pageSize, maxPages }`. Returns `{ items, pages, pageCount, itemCount, hasMore, lastCursor, stoppedReason }`.",
-        "  - `providerSearchAll(provider, path, init?, options?)` — streaming search helper for broad provider corpora such as transcripts, messages, tickets, issues, notes, events, or documents. Use this before hand-written loops when searching many provider records for terms/phrases/regexes or proving absence. Pass the same `pagination` config as `providerFetchAll`, plus options like `{ query, queries, terms, regex, textPaths, idPaths, metadataPaths, maxHits }`. Returns structured hits with item ids, paths, snippets, page/item indexes, and coverage fields (`pageCount`, `itemCount`, `hasMore`, `stoppedReason`).",
+        "  - `providerFetchAll(provider, path, init?)` — generic pagination helper for cursor, page, and offset APIs, for a cohort already narrowed by a server-side filter (not for finding one entity or topic). Pass `pagination: { itemsPath, cursorPath or nextCursorPath, cursorParam or cursorBodyPath, pageParam, offsetParam, pageSize, maxPages }`. Returns `{ items, pages, pageCount, itemCount, hasMore, lastCursor, stoppedReason }`.",
+        "  - `providerSearchAll(provider, path, init?, options?)` — streaming search helper for broad provider corpora such as transcripts, messages, tickets, issues, notes, events, or documents. Use this before hand-written loops when a bounded cohort must be searched for terms/phrases/regexes or an absence claim needs proof; if the provider has a search or semantic tool for the question, use that first. Pass the same `pagination` config as `providerFetchAll`, plus options like `{ query, queries, terms, regex, textPaths, idPaths, metadataPaths, maxHits }`. Returns structured hits with item ids, paths, snippets, page/item indexes, and coverage fields (`pageCount`, `itemCount`, `hasMore`, `stoppedReason`).",
         "  - `webFetch(url, init?)` — outbound HTTP request via the web-request action.",
         "    Returns `{ status, body }` where body is the response text. Supports responseMode, extract, includeLinks, search, maxChars, and saveToFile.",
         "    Example: `const { body } = await webFetch('https://api.example.com/data', { responseMode: 'raw' });`",
@@ -730,8 +731,28 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
 
     if (callBudget) callBudget.count += 1;
     usedTools.add(toolName);
+    let servicePrincipalRefusedError:
+      | typeof import("../org/service-principal-guard.js").ServicePrincipalRefusedError
+      | undefined;
     try {
-      const run = () => entry.run(childArgs, options.context);
+      const context = options.context;
+      if (context && parseServiceIdentityEmail(context.userEmail)) {
+        const guard = await import("../org/service-principal-guard.js");
+        servicePrincipalRefusedError = guard.ServicePrincipalRefusedError;
+        await guard.enforceServicePrincipalActionGrant({
+          email: context.userEmail,
+          orgId: context.orgId,
+          actionName: toolName,
+          caller: context.caller,
+        });
+      }
+      // Name the child, not `run-code`: a service principal's grant is checked
+      // against the action actually being run.
+      const run = () =>
+        entry.run(
+          childArgs,
+          options.context && { ...options.context, actionName: toolName },
+        );
       const result =
         options.context?.credentialScope === "org"
           ? await runWithRequestContext(
@@ -748,6 +769,13 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
           : await run();
       return formatBridgeResult(result);
     } catch (error) {
+      if (error instanceof BridgeInvocationError) throw error;
+      if (
+        servicePrincipalRefusedError &&
+        error instanceof servicePrincipalRefusedError
+      ) {
+        throw new BridgeInvocationError(error.statusCode, error.message);
+      }
       throw new BridgeInvocationError(
         500,
         error instanceof Error ? error.message : String(error),
@@ -1375,6 +1403,9 @@ async function providerFetch(provider, apiPath, init = {}) {
     if (typeof r.status === "number" && r.status >= 400) {
       const detail = typeof r.text === "string" ? r.text : JSON.stringify(r.json ?? "");
       throw new Error(\`Provider request failed (\${r.status}): \${String(detail).slice(0, 500)}\`);
+    }
+    if (r.truncated === true) {
+      throw new Error("Provider response was cut at the response size limit, so its body is incomplete. Request smaller pages or add a server-side filter; use providerRequest() to inspect the partial body.");
     }
     return r.json !== undefined ? r.json : r.text;
   }

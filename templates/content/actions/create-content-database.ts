@@ -1,4 +1,8 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import {
+  ActionContractError,
+  defineAction,
+  embedApp,
+} from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
@@ -21,6 +25,10 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import {
+  lockDocumentMetadataDatabase,
+  nextDocumentMetadataUpdatedAt,
+} from "../server/lib/document-metadata-updated-at.js";
 import type {
   ContentDatabaseResponse,
   CreateDatabaseRequest,
@@ -370,7 +378,7 @@ export async function createContentDatabaseRecord(
   } = {},
 ): Promise<string> {
   const db = options.db ?? getDb();
-  const now = new Date().toISOString();
+  let now = new Date().toISOString();
   const actor = requireDocumentRequestActor();
   let title = args.title?.trim() || "";
 
@@ -386,7 +394,39 @@ export async function createContentDatabaseRecord(
   }> = [];
 
   if (documentId) {
+    const preflight = await assertDocumentEditorAccess(db, documentId);
+    const lockedDatabaseId = await lockDocumentMetadataDatabase({
+      db,
+      documentId,
+      ownerEmail: preflight.ownerEmail,
+    });
+    await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, documentId),
+          eq(schema.documents.ownerEmail, preflight.ownerEmail),
+        ),
+      )
+      .for("update");
     const document = await assertDocumentEditorAccess(db, documentId);
+    if (
+      document.ownerEmail !== preflight.ownerEmail ||
+      document.spaceId !== preflight.spaceId
+    ) {
+      throw new ActionContractError(
+        "The document's conversion scope changed. Read it again and retry.",
+        { errorCode: "DOCUMENT_CONVERSION_SCOPE_CHANGED", statusCode: 409 },
+      );
+    }
+    now = await nextDocumentMetadataUpdatedAt({
+      db,
+      documentId,
+      ownerEmail: document.ownerEmail,
+      currentUpdatedAt: document.updatedAt,
+      lockedDatabaseId,
+    });
     ownerEmail = document.ownerEmail as string;
     orgId = (document.orgId as string | null) ?? null;
     spaceId = (document.spaceId as string | null) ?? spaceId;

@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
+import type { BUILDER_MODEL_CONFIG } from "@agent-native/core/agent/model-config";
 import {
   resolveGeminiApiKey,
   resolveHasBuilderGatewayCredential,
@@ -7,7 +8,10 @@ import {
 import type { GeneratedSlide } from "@shared/api";
 import { z } from "zod";
 
-const BUILDER_MODEL = "gpt-5-6-luna";
+// Typed against the Builder catalog so a retired id fails typecheck instead of
+// every generation call.
+const BUILDER_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
+  "gpt-6-luna";
 const GEMINI_MODEL = "gemini-2.0-flash";
 
 export default defineAction({
@@ -87,7 +91,7 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
         throw (
           builderError ??
           new Error(
-            "Slides outline generation needs Builder.io Connect (free tier available) or a Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY).",
+            "Slides outline generation needs Builder.io (free tier available) or a Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY).",
           )
         );
       }

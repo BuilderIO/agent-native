@@ -8,6 +8,7 @@ import {
 import type { H3Event } from "h3";
 import {
   getHeader,
+  getQuery,
   getRequestIP,
   setResponseHeader,
   setResponseStatus,
@@ -16,6 +17,11 @@ import {
 import { ActionContractError } from "../action.js";
 import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
+import {
+  base64ByteLength,
+  isBase64,
+  parseBase64DataUrl,
+} from "../shared/data-url.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
@@ -203,8 +209,12 @@ export function isSignedBuilderConnectState(
 export function isBuilderConnectCallbackUrlAllowed(
   candidate: string,
   event: H3Event,
+  callbackOriginOverride?: string,
 ): boolean {
-  const callbackOrigin = getBuilderConnectCallbackOrigin(event);
+  const callbackOrigin = getBuilderConnectCallbackOrigin(
+    event,
+    callbackOriginOverride,
+  );
   if (
     !callbackOrigin ||
     !isAllowedOAuthRedirectUri(candidate, event, callbackOrigin)
@@ -233,14 +243,25 @@ export function isBuilderConnectCallbackUrlAllowed(
 export function resolveBuilderConnectCallbackUrl(
   event: H3Event,
   state?: string,
+  callbackOriginOverride?: string,
 ): string | null {
   const stateSuffix = state ? `?state=${encodeURIComponent(state)}` : "";
-  const callbackOrigin = getBuilderConnectCallbackOrigin(event);
+  const callbackOrigin = getBuilderConnectCallbackOrigin(
+    event,
+    callbackOriginOverride,
+  );
   if (!callbackOrigin) return null;
   const withBase = `${callbackOrigin}${getAppBasePath()}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
-  if (isBuilderConnectCallbackUrlAllowed(withBase, event)) return withBase;
+  if (
+    isBuilderConnectCallbackUrlAllowed(withBase, event, callbackOriginOverride)
+  ) {
+    return withBase;
+  }
   const root = `${callbackOrigin}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
-  if (root !== withBase && isBuilderConnectCallbackUrlAllowed(root, event)) {
+  if (
+    root !== withBase &&
+    isBuilderConnectCallbackUrlAllowed(root, event, callbackOriginOverride)
+  ) {
     return root;
   }
   return null;
@@ -600,6 +621,9 @@ export const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM =
 export const BUILDER_AGENT_NATIVE_APP_PARAM = "agentNativeApp";
 export const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
 export const BUILDER_CONNECT_MODE_PARAM = "_an_mode";
+export const BUILDER_PREVIEW_ORIGIN_HEADER = "x-agent-native-preview-origin";
+const BUILDER_PREVIEW_ORIGIN_PARAM = "_an_preview_origin";
+const BUILDER_PREVIEW_ORIGIN_SIGNATURE_PARAM = "_an_preview_origin_signature";
 export const BUILDER_AGENT_NATIVE_PROVISION_MODE = "agent-native";
 export const BUILDER_PROVISIONING_TOKEN_PARAM = "_an_provision";
 export const BUILDER_CONNECT_ATTEMPT_PARAM = "_an_connect_attempt";
@@ -1349,7 +1373,17 @@ function isConfiguredBuilderRequestHost(event: H3Event, host: string): boolean {
   return isConfiguredAppOrigin(`${proto}://${host}`);
 }
 
-function getBuilderConnectCallbackOrigin(event: H3Event): string | null {
+function getBuilderConnectCallbackOrigin(
+  event: H3Event,
+  originOverride?: string,
+): string | null {
+  if (originOverride) {
+    return isAllowedBuilderConnectOrigin(originOverride)
+      ? originOverride
+      : null;
+  }
+  const signedPreviewOrigin = getSignedBuilderPreviewOriginFromEvent(event);
+  if (signedPreviewOrigin) return signedPreviewOrigin;
   const requestHost = firstHeaderValue(readEventHeader(event, "host"));
   const headerHost = getBuilderRequestHost(event);
   if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
@@ -1370,6 +1404,148 @@ function getBuilderConnectCallbackOrigin(event: H3Event): string | null {
   return configuredOrigin;
 }
 
+function isAllowedBuilderConnectOrigin(origin: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    // coercion-ok: a malformed callback origin is explicitly rejected.
+    return false;
+  }
+  if (
+    url.origin !== origin ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    return false;
+  }
+  if (isTrustedBuilderRequestHost(url.host)) {
+    return (
+      url.protocol === "https:" ||
+      (url.protocol === "http:" && process.env.NODE_ENV !== "production")
+    );
+  }
+  return isConfiguredAppOrigin(origin);
+}
+
+function normalizeBuilderPreviewOrigin(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (
+      url.origin !== value ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" &&
+        !(url.protocol === "http:" && process.env.NODE_ENV !== "production"))
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    // coercion-ok: a malformed preview origin is not an allowed origin.
+    return null;
+  }
+}
+
+function getSameOriginBuilderPreviewOrigin(event: H3Event): string | null {
+  const rawOrigin = firstHeaderValue(
+    readEventHeader(event, BUILDER_PREVIEW_ORIGIN_HEADER),
+  );
+  if (!rawOrigin || readEventHeader(event, "sec-fetch-site") === "cross-site") {
+    return null;
+  }
+  const origin = normalizeBuilderPreviewOrigin(rawOrigin);
+  if (!origin || !isTrustedBuilderRequestHost(new URL(origin).host)) {
+    return null;
+  }
+
+  const requestHost = firstHeaderValue(readEventHeader(event, "host"));
+  if (
+    !requestHost ||
+    (!isLoopbackBuilderRequestHost(requestHost) &&
+      requestHost.toLowerCase() !== new URL(origin).host.toLowerCase())
+  ) {
+    return null;
+  }
+
+  const fetchSite = readEventHeader(event, "sec-fetch-site");
+  const requestOrigin = firstHeaderValue(readEventHeader(event, "origin"));
+  if (fetchSite === "same-origin" || requestOrigin === origin) return origin;
+  const referer = firstHeaderValue(readEventHeader(event, "referer"));
+  if (!referer) return null;
+  try {
+    return new URL(referer).origin === origin ? origin : null;
+  } catch {
+    // coercion-ok: an unreadable Referer cannot authorize a preview origin.
+    return null;
+  }
+}
+
+function signBuilderPreviewOrigin(origin: string): string {
+  return createHmac("sha256", builderConnectStateSigningKeys()[0]!)
+    .update(`builder-connect-preview-origin\0${origin}`)
+    .digest("base64url");
+}
+
+function getSignedBuilderPreviewOriginFromEvent(event: H3Event): string | null {
+  const query = getQuery(event) as Record<string, unknown>;
+  const rawOrigin = query[BUILDER_PREVIEW_ORIGIN_PARAM];
+  const signature = query[BUILDER_PREVIEW_ORIGIN_SIGNATURE_PARAM];
+  if (typeof rawOrigin !== "string" || typeof signature !== "string") {
+    return null;
+  }
+  const origin = normalizeBuilderPreviewOrigin(rawOrigin);
+  if (!origin || !isTrustedBuilderRequestHost(new URL(origin).host)) {
+    return null;
+  }
+  const requestHost = firstHeaderValue(readEventHeader(event, "host"));
+  if (
+    !requestHost ||
+    (!isLoopbackBuilderRequestHost(requestHost) &&
+      requestHost.toLowerCase() !== new URL(origin).host.toLowerCase())
+  ) {
+    return null;
+  }
+  return builderConnectStateSigningKeys().some((key) =>
+    safeEqualText(
+      createHmac("sha256", key)
+        .update(`builder-connect-preview-origin\0${origin}`)
+        .digest("base64url"),
+      signature,
+    ),
+  )
+    ? origin
+    : null;
+}
+
+function addSignedBuilderPreviewOrigin(url: string, origin: string): string {
+  const parsed = new URL(url);
+  parsed.searchParams.set(BUILDER_PREVIEW_ORIGIN_PARAM, origin);
+  parsed.searchParams.set(
+    BUILDER_PREVIEW_ORIGIN_SIGNATURE_PARAM,
+    signBuilderPreviewOrigin(origin),
+  );
+  return parsed.toString();
+}
+
+export function getBuilderConnectCallbackOriginFromUrl(
+  callbackUrl: string,
+): string | null {
+  try {
+    const origin = new URL(callbackUrl).origin;
+    return isAllowedBuilderConnectOrigin(origin) ? origin : null;
+  } catch {
+    // coercion-ok: a malformed stored callback URL must fail verification.
+    return null;
+  }
+}
+
 function isRejectedDirectBuilderCloudHost(
   requestHost: string | undefined,
   resolvedHost: string | undefined,
@@ -1383,6 +1559,8 @@ function getConfiguredBuilderFallbackOrigin(event: H3Event): string | null {
 }
 
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {
+  const signedPreviewOrigin = getSignedBuilderPreviewOriginFromEvent(event);
+  if (signedPreviewOrigin) return signedPreviewOrigin;
   const requestHost = firstHeaderValue(readEventHeader(event, "host"));
   const headerHost = getBuilderRequestHost(event);
   if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
@@ -1465,7 +1643,17 @@ function parseOptionalEnvBoolean(
 export function getBuilderBrowserStatusForEvent(
   event: H3Event,
 ): BuilderBrowserStatus {
-  return getBuilderBrowserStatus(getBuilderBrowserOriginForEvent(event));
+  const previewOrigin = getSameOriginBuilderPreviewOrigin(event);
+  const status = getBuilderBrowserStatus(
+    previewOrigin ?? getBuilderBrowserOriginForEvent(event),
+  );
+  if (previewOrigin && status.connectUrl) {
+    status.connectUrl = addSignedBuilderPreviewOrigin(
+      status.connectUrl,
+      previewOrigin,
+    );
+  }
+  return status;
 }
 
 export const BUILDER_ENV_KEYS = [
@@ -1897,7 +2085,6 @@ export interface BuilderAgentUploadAttachment {
   name: string;
   dataUrl: string;
   text?: string;
-  size: number;
   id: string;
 }
 
@@ -1908,6 +2095,10 @@ export interface BuilderAgentUrlAttachment {
 
 export type BuilderAgentAttachment =
   | BuilderAgentUploadAttachment
+  | BuilderAgentUrlAttachment;
+
+export type BuilderAgentWireAttachment =
+  | (BuilderAgentUploadAttachment & { size: number })
   | BuilderAgentUrlAttachment;
 
 export interface RunBuilderAgentArgs {
@@ -1934,62 +2125,72 @@ const BUILDER_AGENT_UPLOAD_CONTENT_TYPES = new Set<
   "text/plain",
 ]);
 
+function invalidAttachment(message: string): ActionContractError {
+  return new ActionContractError(message, {
+    errorCode: "invalid_attachment",
+    statusCode: 400,
+  });
+}
+
 export function normalizeBuilderAgentAttachments(
   attachments: BuilderAgentAttachment[] | undefined,
-): BuilderAgentAttachment[] | undefined {
+): BuilderAgentWireAttachment[] | undefined {
   if (!attachments || attachments.length === 0) return undefined;
 
-  const normalized = attachments.map((attachment) => {
+  return attachments.map((attachment): BuilderAgentWireAttachment => {
     if (attachment.type === "url") {
       let url: URL;
       try {
         url = new URL(attachment.value);
       } catch {
-        throw new Error("Builder attachment URL is malformed");
+        throw invalidAttachment("Builder attachment URL is malformed");
       }
       if (url.protocol !== "https:" && url.protocol !== "http:") {
-        throw new Error("Builder attachment URL must use http or https");
+        throw invalidAttachment(
+          "Builder attachment URL must use http or https",
+        );
       }
       return attachment;
     }
 
     if (!BUILDER_AGENT_UPLOAD_CONTENT_TYPES.has(attachment.contentType)) {
-      throw new Error(
+      throw invalidAttachment(
         `Unsupported Builder attachment content type: ${attachment.contentType}`,
       );
     }
     if (!attachment.name.trim() || !attachment.id.trim()) {
-      throw new Error("Builder upload attachments require a name and id");
+      throw invalidAttachment(
+        "Builder upload attachments require a name and id",
+      );
     }
-    if (!Number.isInteger(attachment.size) || attachment.size < 0) {
-      throw new Error("Builder attachment size must be a non-negative integer");
-    }
+
+    let size: number;
     if (
       attachment.contentType === "text/plain" ||
       attachment.contentType === "application/json"
     ) {
       if (attachment.text === undefined || attachment.dataUrl !== "") {
-        throw new Error(
+        throw invalidAttachment(
           "Text and JSON Builder attachments require text and an empty dataUrl",
         );
       }
-      if (Buffer.byteLength(attachment.text, "utf8") !== attachment.size) {
-        throw new Error(
-          "Builder attachment size does not match its text content",
+      size = Buffer.byteLength(attachment.text, "utf8");
+    } else {
+      const dataUrl = parseBase64DataUrl(attachment.dataUrl);
+      if (!dataUrl || dataUrl.mediaType !== attachment.contentType) {
+        throw invalidAttachment(
+          "Image and PDF Builder attachments require a matching base64 dataUrl",
         );
       }
-    } else if (
-      !attachment.dataUrl.startsWith(`data:${attachment.contentType};base64,`)
-    ) {
-      throw new Error(
-        "Image and PDF Builder attachments require a matching base64 dataUrl",
-      );
+      if (!isBase64(dataUrl.data)) {
+        throw invalidAttachment(
+          "Image and PDF Builder attachments require valid base64 data",
+        );
+      }
+      size = base64ByteLength(dataUrl.data);
     }
-
-    return attachment;
+    return { ...attachment, size };
   });
-
-  return normalized;
 }
 
 export function normalizeBuilderAgentContext(
@@ -2131,7 +2332,7 @@ async function resolveBuilderApiAuthorization(
   });
   if (!authorization) {
     throw new ActionContractError(
-      "Builder.io is not connected. Connect Builder.io in Settings.",
+      "Builder.io is not connected. Sign in to Builder.io in Settings to continue.",
       { errorCode: "builder_not_connected", statusCode: 400 },
     );
   }
@@ -2299,6 +2500,8 @@ function parseBuilderAccountProvisioningResponse(
 export async function provisionBuilderAccount(input: {
   email: string;
   name?: string;
+  agentNativeApp?: string;
+  agentNativeTemplate?: string;
 }): Promise<BuilderRelayCredentials> {
   const email = input.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
@@ -2306,14 +2509,23 @@ export async function provisionBuilderAccount(input: {
   }
   const name =
     input.name?.trim().slice(0, 120) || email.slice(0, email.indexOf("@"));
+  const agentNativeApp = cleanTrackingParam(input.agentNativeApp);
+  const agentNativeTemplate = cleanTrackingParam(input.agentNativeTemplate);
+  const version =
+    agentNativeApp || agentNativeTemplate
+      ? "agent-native-account-v2"
+      : "agent-native-account-v1";
   const timestamp = String(Date.now());
   const requestId = randomBytes(32).toString("base64url");
   const signaturePayload = [
-    "agent-native-account-v1",
+    version,
     timestamp,
     requestId,
     email,
     name,
+    ...(version === "agent-native-account-v2"
+      ? [agentNativeApp ?? "", agentNativeTemplate ?? ""]
+      : []),
   ].join("\n");
   const signature = createHmac("sha256", builderAccountProvisioningSecret())
     .update(signaturePayload)
@@ -2324,12 +2536,17 @@ export async function provisionBuilderAccount(input: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-agent-native-account-version": "agent-native-account-v1",
+        "x-agent-native-account-version": version,
         "x-agent-native-account-timestamp": timestamp,
         "x-agent-native-account-request-id": requestId,
         "x-agent-native-account-signature": signature,
       },
-      body: JSON.stringify({ email, name }),
+      body: JSON.stringify({
+        email,
+        name,
+        ...(agentNativeApp ? { agentNativeApp } : {}),
+        ...(agentNativeTemplate ? { agentNativeTemplate } : {}),
+      }),
     },
     "account provisioning",
   );

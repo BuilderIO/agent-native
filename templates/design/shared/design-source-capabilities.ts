@@ -65,7 +65,7 @@ export const INLINE_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
   captureSnapshot: available(),
   captureState: available(),
   indexComponents: unavailable(
-    "Connect Builder (free tier available) to index real components",
+    "Use Builder.io (free tier available) to index real components",
   ),
   indexTokens: available(),
   writeTokens: unavailable("Token source write-back requires a real app"),
@@ -107,7 +107,9 @@ export const LOCALHOST_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
   indexTokens: available(),
   writeTokens: planned("Token write-back lands with bridge hardening"),
   previewMotion: available(),
-  writeMotion: available(),
+  writeMotion: available(
+    "Version-checked Motion writes are supported only for proven localhost React/JSX targets after explicit user consent; other localhost formats are unsupported",
+  ),
   branch: unavailable("Branching requires a connected Builder app"),
   deployPreview: unavailable("Deploy previews require a connected Builder app"),
   deploy: unavailable("Deploy requires a connected Builder app"),
@@ -115,13 +117,13 @@ export const LOCALHOST_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
 
 export const FUSION_DISCONNECTED_CAPABILITIES: DesignSourceCapabilities = {
   readFile: planned(
-    "Connect Builder (free tier available) to enable file reads on fusion sources",
+    "Use Builder.io (free tier available) to enable file reads on fusion sources",
   ),
   writeFile: unavailable(
-    "Connect Builder (free tier available) to enable source writes",
+    "Use Builder.io (free tier available) to enable source writes",
   ),
   applyEdit: unavailable(
-    "Connect Builder (free tier available) to enable source edits",
+    "Use Builder.io (free tier available) to enable source edits",
   ),
   resolveNodeToFile: available(),
   previewPatch: available(),
@@ -129,23 +131,23 @@ export const FUSION_DISCONNECTED_CAPABILITIES: DesignSourceCapabilities = {
   captureSnapshot: available(),
   captureState: available(),
   indexComponents: unavailable(
-    "Connect Builder (free tier available) to index real components",
+    "Use Builder.io (free tier available) to index real components",
   ),
   indexTokens: available(),
   writeTokens: unavailable(
-    "Connect Builder (free tier available) to enable token write-back",
+    "Use Builder.io (free tier available) to enable token write-back",
   ),
   previewMotion: available(),
   writeMotion: planned(
     "Motion write-back to real source requires bridge hardening",
   ),
   branch: unavailable(
-    "Connect Builder (free tier available) to create branches",
+    "Use Builder.io (free tier available) to create branches",
   ),
   deployPreview: unavailable(
-    "Connect Builder (free tier available) to deploy previews",
+    "Use Builder.io (free tier available) to deploy previews",
   ),
-  deploy: unavailable("Connect Builder (free tier available) to deploy"),
+  deploy: unavailable("Use Builder.io (free tier available) to deploy"),
 };
 
 export const FUSION_CONNECTED_CAPABILITIES: DesignSourceCapabilities = {

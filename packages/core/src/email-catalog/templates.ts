@@ -5,6 +5,8 @@ import {
   type EmailTemplateApp,
 } from "../server/email-template.js";
 import {
+  renderAccessGrantedEmail,
+  renderAccessRequestedEmail,
   renderBuilderCreditLimitEmail,
   renderChangeEmailConfirmationEmail,
   renderChangeEmailVerificationEmail,
@@ -15,6 +17,8 @@ import {
   renderVerifySignupEmail,
   resolveEmailApp,
   resolveEmailBrandApp,
+  type RenderAccessGrantedEmailArgs,
+  type RenderAccessRequestedEmailArgs,
   type RenderBuilderCreditLimitEmailArgs,
   type RenderChangeEmailConfirmationArgs,
   type RenderChangeEmailVerificationArgs,
@@ -36,6 +40,8 @@ export const CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID =
   "core.change-email-verification";
 export const CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID = "core.builder-credit-limit";
 export const CORE_RESOURCE_SHARED_EMAIL_ID = "core.resource-shared";
+export const CORE_ACCESS_REQUESTED_EMAIL_ID = "core.access-requested";
+export const CORE_ACCESS_GRANTED_EMAIL_ID = "core.access-granted";
 
 /**
  * Data each framework email is rendered from, keyed by catalog id. An
@@ -51,6 +57,8 @@ export interface CoreTransactionalEmailArgs {
   [CORE_INVITE_EMAIL_ID]: RenderInviteEmailArgs;
   [CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID]: RenderBuilderCreditLimitEmailArgs;
   [CORE_RESOURCE_SHARED_EMAIL_ID]: RenderResourceSharedEmailArgs;
+  [CORE_ACCESS_REQUESTED_EMAIL_ID]: RenderAccessRequestedEmailArgs;
+  [CORE_ACCESS_GRANTED_EMAIL_ID]: RenderAccessGrantedEmailArgs;
 }
 
 export type CoreTransactionalEmailId = keyof CoreTransactionalEmailArgs;
@@ -107,6 +115,14 @@ const CORE_EMAIL_DEFAULTS: {
   },
   [CORE_RESOURCE_SHARED_EMAIL_ID]: {
     render: (args) => renderResourceSharedEmail(args),
+    app: (args) => args.app,
+  },
+  [CORE_ACCESS_REQUESTED_EMAIL_ID]: {
+    render: (args) => renderAccessRequestedEmail(args),
+    app: (args) => args.app,
+  },
+  [CORE_ACCESS_GRANTED_EMAIL_ID]: {
+    render: (args) => renderAccessGrantedEmail(args),
     app: (args) => args.app,
   },
 };

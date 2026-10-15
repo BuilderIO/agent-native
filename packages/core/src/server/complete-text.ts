@@ -98,9 +98,14 @@ function contentText(parts: readonly EngineContentPart[]): string {
 function createCompletionAbortSignal(
   signal: AbortSignal | undefined,
   timeoutMs: number | undefined,
-): { signal: AbortSignal; cleanup: () => void } {
+): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  getTimeoutError: () => EngineError | undefined;
+} {
   const controller = new AbortController();
   const cleanupFns: Array<() => void> = [];
+  let timeoutError: EngineError | undefined;
 
   if (signal) {
     if (signal.aborted) {
@@ -114,15 +119,18 @@ function createCompletionAbortSignal(
 
   if (timeoutMs !== undefined) {
     const timeout = setTimeout(() => {
-      controller.abort(
-        new Error(`completeText timed out after ${timeoutMs}ms`),
+      timeoutError = new EngineError(
+        `completeText timed out after ${timeoutMs}ms`,
+        { errorCode: "complete_text_timeout" },
       );
+      controller.abort(timeoutError);
     }, timeoutMs);
     cleanupFns.push(() => clearTimeout(timeout));
   }
 
   return {
     signal: controller.signal,
+    getTimeoutError: () => timeoutError,
     cleanup: () => {
       for (const cleanup of cleanupFns) cleanup();
     },
@@ -135,14 +143,10 @@ async function resolveCompletionApiKey(
   if (options.apiKey) {
     return { apiKey: options.apiKey, apiKeyEnvVar: undefined };
   }
-  try {
-    return await resolveOwnerEngineApiKey({
-      engineOption: options.engine,
-      ownerEmail: getRequestUserEmail(),
-    });
-  } catch {
-    return { apiKey: undefined, apiKeyEnvVar: undefined };
-  }
+  return resolveOwnerEngineApiKey({
+    engineOption: options.engine,
+    ownerEmail: getRequestUserEmail(),
+  });
 }
 
 export async function completeText(
@@ -168,10 +172,11 @@ export async function completeText(
     (await getStoredModelForEngine(engine, { appId: options.appId })) ??
     engine.defaultModel;
   const model = normalizeModelForEngine(engine, modelCandidate);
-  const { signal, cleanup } = createCompletionAbortSignal(
+  const completionAbort = createCompletionAbortSignal(
     options.signal,
     options.timeoutMs,
   );
+  const { signal } = completionAbort;
 
   let streamedText = "";
   let finalContent: EngineContentPart[] | undefined;
@@ -215,9 +220,16 @@ export async function completeText(
         stopReason = event.reason;
       }
     }
+  } catch (error) {
+    const timeoutError = completionAbort.getTimeoutError();
+    if (timeoutError) throw timeoutError;
+    throw error;
   } finally {
-    cleanup();
+    completionAbort.cleanup();
   }
+
+  const timeoutError = completionAbort.getTimeoutError();
+  if (timeoutError) throw timeoutError;
 
   const content = finalContent ?? [{ type: "text", text: streamedText }];
   return {

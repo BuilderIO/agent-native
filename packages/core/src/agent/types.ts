@@ -165,6 +165,12 @@ export function tryNormalizeAgentActionScope(
 export type AgentChatStructuredContentPart =
   | { type: "text"; text: string }
   | {
+      type: "image-reference";
+      url: string;
+      mediaType?: string;
+      name?: string;
+    }
+  | {
       type: "tool-call";
       id?: string;
       toolCallId?: string;
@@ -172,6 +178,8 @@ export type AgentChatStructuredContentPart =
       toolName?: string;
       input?: unknown;
       args?: unknown;
+      approvalKey?: string;
+      approvalAskId?: string;
     }
   | {
       type: "tool-result";
@@ -180,6 +188,8 @@ export type AgentChatStructuredContentPart =
       toolInput?: string;
       content: string;
       isError?: boolean;
+      approvalPause?: boolean;
+      approvalAskId?: string;
     };
 
 export interface AgentChatStructuredMessage {
@@ -288,11 +298,16 @@ export interface AgentChatRequest {
   displayMessage?: string;
   history?: AgentMessage[];
   structuredHistory?: AgentChatStructuredMessage[];
+  loadedSkillSlugs?: string[];
   references?: AgentChatReference[];
   threadId?: string;
   parentId?: string | null;
   attachments?: AgentChatAttachment[];
   internalContinuation?: boolean;
+  /** The time-limit stop this request continues, in the same turn. */
+  autoContinueOfRunId?: string;
+  /** The stopped run a person chose to continue, in the same turn. */
+  continueOfRunId?: string;
   __backgroundRun?: {
     runId: string;
     turnId?: string;
@@ -327,6 +342,12 @@ export interface AgentChatRequest {
         orgId: string | null;
         mode: "default";
       };
+  /**
+   * Names of the request-scoped additional actions the turn started with,
+   * carried across authenticated durable background dispatches so a
+   * continuation keeps the same tool set. Deleted from client requests.
+   */
+  __resolvedAdditionalActionNames?: string[];
   turnId?: string;
   /** Turn metadata the client forwards; read only for the keys it names. */
   metadata?: Record<string, unknown>;
@@ -340,6 +361,7 @@ export interface AgentChatRequest {
   harness?: AgentChatHarnessRequest;
   trackInRunsTray?: boolean;
   approvedToolCalls?: string[];
+  approvedToolCallAskIds?: string[];
   skipPendingSelectionContext?: boolean;
 }
 
@@ -387,16 +409,30 @@ export type AgentChatEvent =
         | "max_tokens"
         | "stop_sequence"
         | "error";
+      errorCode?: string;
     }
-  | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
+  | {
+      type: "tool_start";
+      tool: string;
+      id?: string;
+      input: AgentToolInput;
+      inputFingerprint?: string;
+      inputStoredFingerprint?: string;
+    }
   | {
       type: "tool_done";
       tool: string;
       id?: string;
       input?: AgentToolInput;
+      inputFingerprint?: string;
+      inputStoredFingerprint?: string;
       result: string;
       isError?: boolean;
+      errorCode?: string;
       completedSideEffect?: boolean;
+      /** False marks current completed events; absence is reserved for older journals. */
+      approvalPause?: boolean;
+      outcomeUnknown?: true;
       replayed?: true;
       fileMutation?: AgentFileMutationProof;
       artifacts?: ArtifactReceipt[];

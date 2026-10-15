@@ -11,6 +11,8 @@ import {
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { PACKAGED_TEMPLATE_EXCLUDE } from "../packages/core/src/cli/template-layer.ts";
+
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(scriptDir, "..");
 const sourceRoot = join(rootDir, "templates", "chat");
@@ -46,7 +48,7 @@ mkdirSync(targetRoot, { recursive: true });
 
 for (const trackedPath of trackedFiles) {
   const relativePath = relative("templates/chat", trackedPath);
-  if (/\.(?:spec|test)\.(?:ts|tsx)$/.test(relativePath)) continue;
+  if (PACKAGED_TEMPLATE_EXCLUDE.test(relativePath)) continue;
   const sourcePath = join(rootDir, trackedPath);
   const targetPath = join(targetRoot, relativePath);
   const stat = lstatSync(sourcePath);

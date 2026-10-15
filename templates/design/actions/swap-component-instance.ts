@@ -1,5 +1,5 @@
 /**
- * swap-component-instance — Figma's "Swap instance".
+ * swap-component-instance — replace a selected instance with another component.
  *
  * DESIGN NOTE — mapping onto this codebase's data model: there is no
  * separate component "definition"/template anywhere here (see
@@ -8,9 +8,8 @@
  * `data-agent-native-component="Name"` annotation. "Swap to component B"
  * therefore means: find an existing instance of B somewhere in the design
  * (any screen), copy ITS current markup in as a replacement for the selected
- * instance of A, and carry over whichever `data-agent-native-prop-*`
- * overrides the selected instance had that B's own instances also declare
- * (Figma's "preserve same-named overrides").
+ * instance of A, and carry over `data-agent-native-prop-*` overrides that are
+ * shared by both components.
  *
  * Scope decisions, deliberately conservative:
  * - Requires at least one existing instance of the target component
@@ -231,7 +230,7 @@ async function persistEdit(file: {
 export default defineAction({
   description:
     "Swap a component instance for a different component from elsewhere in " +
-    "the design (Figma's Swap instance). Replaces the selected instance's " +
+    "the design. Replaces the selected instance's " +
     "markup with a copy of another existing instance of targetComponentName, " +
     "carrying over data-agent-native-prop-* overrides whose prop name exists " +
     "on both components. x-data (Alpine state) is not merged — the swapped-in " +

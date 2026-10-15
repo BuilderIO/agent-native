@@ -8,7 +8,12 @@ import {
   layerRowIndentCount,
   LayersPanel,
   type LayersPanelHandle,
+  type LayersPanelNode,
 } from "./LayersPanel";
+
+(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -430,6 +435,103 @@ describe("LayersPanel search affordance", () => {
   });
 });
 
+describe("LayersPanel row identity", () => {
+  it("keeps existing rows and an in-progress rename mounted when a top layer is added", async () => {
+    const ref = createRef<LayersPanelHandle>();
+    const onRename = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    let layers: LayersPanelNode[] = Array.from({ length: 200 }, (_, index) => ({
+      id: `layer-${index}`,
+      name: `Layer ${index}`,
+      type: "element",
+    }));
+    const render = async () => {
+      await act(async () => {
+        root.render(
+          <LayersPanel
+            ref={ref}
+            layers={layers}
+            selectedIds={[]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+            onRename={onRename}
+          />,
+        );
+      });
+    };
+
+    try {
+      await render();
+      const existingRows = new Map(
+        Array.from(host.querySelectorAll<HTMLElement>('[role="treeitem"]')).map(
+          (row) => {
+            const id = row.querySelector<HTMLElement>("[data-layer-row-button]")
+              ?.dataset.layerNodeId;
+            if (!id) throw new Error("Layer row is missing its node id");
+            return [id, row] as const;
+          },
+        ),
+      );
+      expect(existingRows).toHaveProperty("size", 200);
+
+      await act(async () => {
+        expect(ref.current?.beginRename("layer-100")).toBe(true);
+      });
+      const renameInput = host.querySelector<HTMLInputElement>(
+        "input[data-layer-row-name]",
+      );
+      if (!renameInput) throw new Error("Rename input did not open");
+      await vi.waitFor(() => expect(document.activeElement).toBe(renameInput));
+
+      await act(async () => {
+        const setValue = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        if (!setValue) throw new Error("Input value setter is unavailable");
+        setValue.call(renameInput, "Unsaved layer name");
+        renameInput.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(renameInput.value).toBe("Unsaved layer name");
+
+      layers = [
+        ...layers,
+        { id: "new-layer", name: "New layer", type: "element" },
+      ];
+      await render();
+
+      const updatedRows = Array.from(
+        host.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+      );
+      expect(updatedRows).toHaveLength(201);
+      expect(
+        updatedRows[0]?.querySelector<HTMLElement>("[data-layer-row-button]")
+          ?.dataset.layerNodeId,
+      ).toBe("new-layer");
+      for (const [id, previousRow] of existingRows) {
+        expect(
+          previousRow.querySelector<HTMLElement>("[data-layer-row-button]")
+            ?.dataset.layerNodeId,
+        ).toBe(id);
+        expect(updatedRows).toContain(previousRow);
+      }
+      expect(host.querySelector("input[data-layer-row-name]")).toBe(
+        renameInput,
+      );
+      expect(document.activeElement).toBe(renameInput);
+      expect(renameInput.value).toBe("Unsaved layer name");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
 describe("LayersPanel collapse layers", () => {
   it.each([
     { selectedIds: ["group"], expected: ["frame"] },
@@ -493,7 +595,7 @@ describe("LayersPanel collapse layers", () => {
 });
 
 describe("LayersPanel row hierarchy", () => {
-  it("renders compact Figma-like density with one flex indent per level", async () => {
+  it("renders 32px rows with one 24px flex indent per level", async () => {
     expect([0, 1, 2, 7].map(layerRowIndentCount)).toEqual([1, 2, 3, 8]);
 
     const host = document.createElement("div");
@@ -531,7 +633,7 @@ describe("LayersPanel row hierarchy", () => {
     const panel = host.querySelector<HTMLElement>("[data-layers-panel]");
     expect(panel).not.toBeNull();
     expect(panel?.className).toContain("[--design-icon-size:12px]");
-    expect(panel?.className).toContain("[--design-row-height:24px]");
+    expect(panel?.className).not.toContain("--design-row-height");
     expect(panel?.className).toContain("text-[11px]");
 
     const rows = Array.from(
@@ -594,9 +696,17 @@ describe("LayersPanel row hierarchy", () => {
       ":scope > [data-layer-row-indents] > [data-layer-row-indent]",
     );
     expect(
-      Array.from(nestedIndents, (indent) => indent.classList.contains("w-3")),
-    ).toEqual([true, true, false]);
-    expect(nestedIndents[2]?.classList.contains("w-5")).toBe(true);
+      Array.from(nestedIndents, (indent) => indent.classList.contains("w-6")),
+    ).toEqual([true, true, true]);
+    expect(
+      Array.from(nestedIndents, (indent) =>
+        indent.classList.contains("justify-start"),
+      ),
+    ).toEqual([false, false, true]);
+    expect(rows.every((row) => row.classList.contains("pl-2.5"))).toBe(true);
+    expect(
+      rows.every((row) => row.classList.contains("[--design-icon-size:16px]")),
+    ).toBe(true);
 
     expect(
       Array.from(

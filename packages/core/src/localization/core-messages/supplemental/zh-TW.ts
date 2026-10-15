@@ -63,6 +63,21 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "無法建立權杖。",
   networkError: "網路錯誤。請再試一次。",
   urlTitle: "你的 MCP URL",
+  servicePrincipals: "服務主體",
+  principalUngoverned: "未治理",
+  principalActive: "啟用中",
+  principalSuspended: "已暫停",
+  principalRetired: "已停用",
+  principalUngovernedHint: "尚未設定擁有者或動作授權。",
+  principalOwner: "擁有者",
+  principalRisk: "風險",
+  riskLow: "低",
+  riskMedium: "中",
+  riskHigh: "高",
+  suspend: "暫停",
+  resume: "恢復",
+  couldNotUpdatePrincipal: "無法更新服務主體。",
+  containmentIncomplete: "已更新，但部分執行或權杖無法停止。請重試。",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {
@@ -85,6 +100,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "開啟完整連線頁面，為無法完成 OAuth 的用戶端建立權杖。",
   mcpOpenConnectPage: "開啟完整連線頁面",
+  mcpIdentityError: "無法載入此應用程式的連線資訊。",
+  mcpRetry: "重試",
   mcpConnect: mcpConnectMessages,
 };
 

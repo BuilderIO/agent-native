@@ -19,6 +19,26 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
+async function withNavigatorPlatform(
+  platform: string,
+  run: () => void | Promise<void>,
+) {
+  const ownDescriptor = Object.getOwnPropertyDescriptor(navigator, "platform");
+  Object.defineProperty(navigator, "platform", {
+    configurable: true,
+    value: platform,
+  });
+  try {
+    await run();
+  } finally {
+    if (ownDescriptor) {
+      Object.defineProperty(navigator, "platform", ownDescriptor);
+    } else {
+      Reflect.deleteProperty(navigator, "platform");
+    }
+  }
+}
+
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
@@ -301,74 +321,75 @@ it("keeps the active picker mounted when its preview collides with another swatc
   });
 });
 
-it("closes the idle picker before Undo and Redo reach the editor", async () => {
-  const onUndo = vi.fn();
-  const onRedo = vi.fn();
-  function Harness() {
-    useDesignHotkeys({ onUndo, onRedo });
-    return (
-      <TooltipProvider>
-        <SelectionColorsProperties
-          colors={[{ property: "color", value: "#dadada" }]}
-          elements={[]}
-          onColorChange={() => undefined}
-        />
-      </TooltipProvider>
-    );
-  }
-  await act(() => root.render(<Harness />));
-
-  const openPicker = async () => {
-    const showColors = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Show selection colors",
-    );
-    if (showColors) {
-      await act(() => showColors.click());
+it("closes the idle picker before Undo and Redo reach the editor", () =>
+  withNavigatorPlatform("MacIntel", async () => {
+    const onUndo = vi.fn();
+    const onRedo = vi.fn();
+    function Harness() {
+      useDesignHotkeys({ onUndo, onRedo });
+      return (
+        <TooltipProvider>
+          <SelectionColorsProperties
+            colors={[{ property: "color", value: "#dadada" }]}
+            elements={[]}
+            onColorChange={() => undefined}
+          />
+        </TooltipProvider>
+      );
     }
-    await act(() =>
-      container
-        .querySelector<HTMLButtonElement>('button[aria-label="#dadada"]')!
-        .click(),
+    await act(() => root.render(<Harness />));
+
+    const openPicker = async () => {
+      const showColors = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Show selection colors",
+      );
+      if (showColors) {
+        await act(() => showColors.click());
+      }
+      await act(() =>
+        container
+          .querySelector<HTMLButtonElement>('button[aria-label="#dadada"]')!
+          .click(),
+      );
+    };
+
+    await openPicker();
+    const undoInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Hex"]',
     );
-  };
+    expect(undoInput).not.toBeNull();
+    await act(() =>
+      undoInput!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "z",
+          metaKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(document.querySelector('input[aria-label="Hex"]')).toBeNull();
+    expect(onUndo).toHaveBeenCalledTimes(1);
 
-  await openPicker();
-  const undoInput = document.querySelector<HTMLInputElement>(
-    'input[aria-label="Hex"]',
-  );
-  expect(undoInput).not.toBeNull();
-  await act(() =>
-    undoInput!.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "z",
-        metaKey: true,
-        bubbles: true,
-        cancelable: true,
-      }),
-    ),
-  );
-  expect(document.querySelector('input[aria-label="Hex"]')).toBeNull();
-  expect(onUndo).toHaveBeenCalledTimes(1);
-
-  await openPicker();
-  const redoInput = document.querySelector<HTMLInputElement>(
-    'input[aria-label="Hex"]',
-  );
-  expect(redoInput).not.toBeNull();
-  await act(() =>
-    redoInput!.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "z",
-        metaKey: true,
-        shiftKey: true,
-        bubbles: true,
-        cancelable: true,
-      }),
-    ),
-  );
-  expect(document.querySelector('input[aria-label="Hex"]')).toBeNull();
-  expect(onRedo).toHaveBeenCalledTimes(1);
-});
+    await openPicker();
+    const redoInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Hex"]',
+    );
+    expect(redoInput).not.toBeNull();
+    await act(() =>
+      redoInput!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "z",
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(document.querySelector('input[aria-label="Hex"]')).toBeNull();
+    expect(onRedo).toHaveBeenCalledTimes(1);
+  }));
 
 it("cancels an active opacity drag without closing or late-committing it", async () => {
   const onColorChange = vi.fn();
@@ -407,20 +428,21 @@ it("cancels an active opacity drag without closing or late-committing it", async
         y: 0,
         left: 0,
         top: 0,
-        right: 100,
-        bottom: 14,
-        width: 100,
-        height: 14,
+        right: 116,
+        bottom: 16,
+        width: 116,
+        height: 16,
         toJSON: () => ({}),
       }) as DOMRect,
   });
-  const pointer = (type: string, clientX: number) =>
+  // The knob travels 8px inside each end of the track, so x = value + 8.
+  const pointer = (type: string, value: number) =>
     new PointerEvent(type, {
       bubbles: true,
       cancelable: true,
       pointerId: 11,
       pointerType: "mouse",
-      clientX,
+      clientX: value + 8,
     });
 
   await act(() => slider.dispatchEvent(pointer("pointerdown", 50)));

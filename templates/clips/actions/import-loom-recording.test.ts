@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   isCandidateDirectVideoUrl: vi.fn(),
   queueBuilderMediaCompression: vi.fn(),
   dispatchPostFinalizeJob: vi.fn(),
+  trackRecordingCreated: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -79,6 +80,10 @@ vi.mock("../server/db/index.js", () => ({
 vi.mock("../server/lib/builder-media-compression.js", () => ({
   queueBuilderMediaCompression: (...args: unknown[]) =>
     mocks.queueBuilderMediaCompression(...args),
+}));
+vi.mock("../server/lib/recording-created.js", () => ({
+  trackRecordingCreated: (...args: unknown[]) =>
+    mocks.trackRecordingCreated(...args),
 }));
 vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
   dispatchPostFinalizeJob: (...args: unknown[]) =>
@@ -330,7 +335,7 @@ describe("first imported recording transactional email", () => {
       status: "uploading",
       videoUrl: null,
       failureReason:
-        "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this import.",
+        "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage, then retry this import.",
       sourceAppName: "Video link",
       sourceWindowTitle: sourceUrl,
       thumbnailUrl: "https://media.example.com/old-thumbnail.jpg",
@@ -628,6 +633,13 @@ describe("Loom imports", () => {
     });
 
     expect(result).toMatchObject({ status: "waiting_storage" });
+    expect(mocks.trackRecordingCreated).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        recordingId: "recording-loom",
+        platform: "import",
+        source: "import",
+      }),
+    );
     const recording = insertValues.mock.calls[0]?.[0] as
       | Record<string, unknown>
       | undefined;
@@ -635,5 +647,82 @@ describe("Loom imports", () => {
     expect(
       Date.parse(String(recording?.uploadLeaseExpiresAt)) - before,
     ).toBeGreaterThanOrEqual(WAITING_STORAGE_LEASE_MS);
+  });
+
+  it("restarts an expired waiting Loom import in place once storage is connected", async () => {
+    const sourceUrl = "https://www.loom.com/share/abcDEF_123456";
+    const updateValues = vi.fn();
+    const existing = {
+      id: "recording-loom-expired",
+      organizationId: "org-1",
+      ownerEmail: "owner@example.com",
+      status: "failed",
+      videoUrl: null,
+      failureReason: WAITING_STORAGE_EXPIRED_REASON,
+      sourceAppName: "Loom",
+      sourceWindowTitle: sourceUrl,
+      thumbnailUrl: null,
+      editsJson: "{}",
+      title: "Parked Loom import",
+      titleSource: "upload",
+      spaceIds: "[]",
+      visibility: "private",
+      folderId: null,
+      description: "",
+      createdAt: "2026-09-30T00:00:00.000Z",
+    };
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn().mockResolvedValueOnce([existing]),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: (values: unknown) => {
+          updateValues(values);
+          return { where: vi.fn(async () => undefined) };
+        },
+      })),
+    } as any;
+    mocks.getDb.mockReturnValue(db);
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.hasRequestVideoStorage.mockResolvedValue(true);
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: "video",
+          html: "<iframe></iframe>",
+          title: "Demo",
+          duration: 5,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const result = await importLoomRecording.run({
+      url: sourceUrl,
+      recordingId: existing.id,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: existing.id,
+      status: "processing",
+    });
+    expect(updateValues).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "processing", failureReason: null }),
+    );
+    expect(mocks.dispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: existing.id,
+      kind: "loom-import",
+      requireAccepted: true,
+    });
+    // Restarting an existing row in place is not a new recording.
+    expect(mocks.trackRecordingCreated).not.toHaveBeenCalled();
   });
 });

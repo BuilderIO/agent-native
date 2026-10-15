@@ -7,10 +7,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
   uploadFile: vi.fn(async () => ({ url: "https://store.example/new.png" })),
+  getDefaultRecordingVisibility: vi.fn(
+    async (_orgId?: string, _userEmail?: string, explicit?: string) =>
+      explicit ?? "private",
+  ),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
+  fail: (message: string, options: Record<string, unknown> = {}): never => {
+    const error = new Error(message) as Error & Record<string, unknown>;
+    Object.assign(error, {
+      actionContractError: true,
+      errorCode: options.errorCode ?? "action_failed",
+      statusCode: options.statusCode ?? 400,
+    });
+    throw error;
+  },
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: async () => undefined,
@@ -20,7 +33,10 @@ vi.mock("@agent-native/core/file-upload", () => ({
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
-  getDefaultRecordingVisibility: async () => "private",
+  getDefaultRecordingVisibility: (...args: unknown[]) =>
+    mocks.getDefaultRecordingVisibility(
+      ...(args as [string?, string?, string?]),
+    ),
   nanoid: () => `id-${mocks.rows.length + 1}`,
   requireOrganizationAccess: async () => ({ organizationId: "org-1" }),
   stringifySpaceIds: () => "[]",
@@ -58,6 +74,7 @@ function run(args: Record<string, unknown> = {}) {
 beforeEach(() => {
   mocks.rows = [];
   mocks.uploadFile.mockClear();
+  mocks.getDefaultRecordingVisibility.mockClear();
 });
 
 describe("create-screenshot", () => {
@@ -65,5 +82,27 @@ describe("create-screenshot", () => {
     const result = await run();
     expect(result.imageUrl).toMatch(/^\/api\/thumbnail\//);
     expect(JSON.stringify(result)).not.toContain("store.example");
+  });
+
+  it("passes explicit visibility to the resolver", async () => {
+    await run({ visibility: "org" });
+
+    expect(mocks.getDefaultRecordingVisibility).toHaveBeenCalledWith(
+      "org-1",
+      "owner@example.com",
+      "org",
+    );
+    expect(mocks.rows[0]?.visibility).toBe("org");
+  });
+
+  it("returns a typed setup error when storage is not connected", async () => {
+    mocks.uploadFile.mockImplementationOnce(async () => null as any);
+
+    await expect(run()).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "storage_setup_required",
+      statusCode: 503,
+    });
+    expect(mocks.rows).toHaveLength(0);
   });
 });

@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { DeckSaveError } from "@/context/DeckContext";
+import { isDeckAccessLostStatus } from "@/lib/deck-access-lost";
 import { cn } from "@/lib/utils";
 
 export type ConflictChoice = "keep-mine" | "use-latest";
@@ -93,16 +94,22 @@ export function SaveStatusIndicator({
       : saveError?.status
         ? `HTTP ${saveError.status}`
         : undefined;
+    const accessLost =
+      !conflict && saveFailed && isDeckAccessLostStatus(saveError?.status);
     const label = conflict
       ? t("editorToolbar.conflictStatus")
-      : saveFailed
-        ? t("settings.saveFailed")
-        : t("raw.offline");
+      : accessLost
+        ? t("editorToolbar.accessLost")
+        : saveFailed
+          ? t("settings.saveFailed")
+          : t("raw.offline");
     const description = conflict
       ? t("editorToolbar.conflictStatusDescription")
-      : saveFailed
-        ? t("raw.saveFailedDescription")
-        : t("raw.saveReconnect");
+      : accessLost
+        ? t("editorToolbar.accessLostDescription")
+        : saveFailed
+          ? t("raw.saveFailedDescription")
+          : t("raw.saveReconnect");
 
     return (
       <>
@@ -111,7 +118,13 @@ export function SaveStatusIndicator({
           aria-live="polite"
           aria-label={`${label}. ${description}${errorDetail ? `. ${errorDetail}` : ""}`}
           data-save-status={
-            conflict ? "conflict" : saveFailed ? "failed" : "offline"
+            conflict
+              ? "conflict"
+              : accessLost
+                ? "access-lost"
+                : saveFailed
+                  ? "failed"
+                  : "offline"
           }
           data-save-error-status={saveError?.status}
           data-save-error-code={saveError?.errorCode}

@@ -3,7 +3,7 @@ import type { CaptureTitleResult } from "./recording-title";
 export const RECORDING_SESSION_EXPIRED = "SESSION_EXPIRED";
 export const RECORDING_SERVER_UNAVAILABLE = "SERVER_UNAVAILABLE";
 const STORAGE_SETUP_FAILURE_RE =
-  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|(?:connect|use) builder|s3-compatible/i;
 
 export type NativeRecordingVisibility = "private" | "org" | "public";
 

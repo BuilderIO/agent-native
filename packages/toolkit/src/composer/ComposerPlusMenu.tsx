@@ -2,6 +2,7 @@ import { useComposerRuntime } from "@assistant-ui/react";
 import { IconArrowLeft, IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
+import { uploadedSkillSlug } from "../skill-upload.js";
 import { Button } from "../ui/button.js";
 import { DropdownMenuGroup, DropdownMenuItem } from "../ui/dropdown-menu.js";
 import { Input } from "../ui/input.js";
@@ -133,12 +134,7 @@ export function useComposerDefaultActions({
     try {
       const content = await file.text();
       if (skillEpoch.current !== epoch) return;
-      const baseName = file.name.replace(/\.[^./]+$/, "");
-      setSkillUploadSlug(
-        slugifyName(
-          baseName.toLowerCase() === "skill" ? "uploaded-skill" : baseName,
-        ),
-      );
+      setSkillUploadSlug(uploadedSkillSlug(file.name, content));
       setSkillUploadContent(content);
       setSkillUploadFileName(file.name);
       setView("skill-upload");
@@ -181,6 +177,7 @@ export function useComposerDefaultActions({
             content: skillUploadContent,
             mimeType: "text/markdown",
             shared: false,
+            uniqueSkillPath: true,
           }),
         },
       );
@@ -465,7 +462,7 @@ export function useComposerDefaultActions({
               setMcpDialogOpen(open);
               if (!open) onRestoreFocus?.();
             }}
-            defaultScope="user"
+            defaultScope="org"
             canCreateOrgMcp={canCreateOrgMcp}
             hasOrg={Boolean(org?.orgId)}
             onCreateMcpServer={(args: unknown) => createMcp.mutateAsync(args)}

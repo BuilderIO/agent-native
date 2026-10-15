@@ -639,7 +639,7 @@ AGENT_NATIVE_REALTIME_TRANSPORT=hosted
 
 <Callout tone="warning">
 
-**在應用程式內連接 Builder 並不足夠。** 應用程式內的 Builder 連線會把憑證依使用者
+**在應用程式內使用 Builder.io 並不足夠。** 應用程式內的 Builder 連線會把憑證依使用者
 或依組織存放在應用程式的密鑰保管庫中。自我註冊會刻意忽略該憑證 —— 單一使用者的
 連線不應把整個部署的資料庫登記到恰好發出第一個請求的那個組織名下 —— 它只讀取部署
 層級的 `BUILDER_PRIVATE_KEY` 環境變數。一個顯示「Builder 已連接」但沒有該變數的

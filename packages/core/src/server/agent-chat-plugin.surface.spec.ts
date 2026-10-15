@@ -102,9 +102,10 @@ describe("lean production run policy", () => {
     const codeExecution =
       "<code-execution-mode>Sandboxed</code-execution-mode>";
 
-    expect(buildLeanRunPolicyPrompt(restriction, codeExecution)).toBe(
-      restriction + codeExecution,
-    );
+    const policy = buildLeanRunPolicyPrompt(restriction, codeExecution);
+
+    expect(policy.endsWith(restriction + codeExecution)).toBe(true);
+    expect(policy).toContain("emit them in the same step");
   });
 
   it("keeps resource-backed AGENTS.md in the lean system prompt", () => {
@@ -411,9 +412,19 @@ describe("request-scoped action surface", () => {
     expect(route).toContain("runWithRequestContext");
     expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");
     expect(route).toContain("{ userEmail: ownerEmail, orgId }");
-    expect(route).toContain("completeText({");
-    expect(route).toContain("appId: options?.appId");
-    expect(route).toContain('return { title: "" };');
+    expect(route).toContain("requireAgentChatAiSetup()");
+    expect(route.indexOf("const now = Date.now();")).toBeLessThan(
+      route.indexOf(
+        "const request = chatTitleRequestFromBody(await readBody(event));",
+      ),
+    );
+    expect(route.indexOf("const now = Date.now();")).toBeLessThan(
+      route.indexOf("requireAgentChatAiSetup()"),
+    );
+    expect(route).toContain(
+      "generateChatTitle({ ...request, appId: options?.appId })",
+    );
+    expect(route).toContain("setResponseStatus(event, 502);");
     expect(route).not.toContain("cleanMessage.trim().slice(0, 60)");
   });
 
@@ -1256,6 +1267,19 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
     expect(availabilityLine).not.toContain("`run-code`");
   });
 
+  it("puts the provider-side retrieval ladder before the scan guidance", () => {
+    const prompt = generateCorpusToolsPrompt({
+      "provider-api-request": noopTool,
+      "run-code": noopTool,
+    } as never);
+
+    const ladder = prompt.indexOf("Retrieval ladder");
+    const scan = prompt.indexOf("fetch every relevant page");
+    expect(ladder).toBeGreaterThan(-1);
+    expect(scan).toBeGreaterThan(ladder);
+    expect(prompt).toContain("native search, semantic, or MCP tool");
+  });
+
   it("includes every corpus tool name when the full set is registered", () => {
     const registry = {
       "provider-api-catalog": noopTool,
@@ -1315,10 +1339,10 @@ describe("delegated tool surfaces in dev", () => {
       return branch.slice(0, elseAt);
     };
 
-    expect(devBranch("const a2aActions = attachToolSearch(")).toContain(
+    expect(devBranch("const a2aRegisteredActions = devActive")).toContain(
       "...templateScripts,",
     );
-    expect(devBranch("const mcpActions = attachToolSearch(")).toContain(
+    expect(devBranch("const mcpRegisteredActions = devActiveMcp")).toContain(
       "...templateScripts,",
     );
 

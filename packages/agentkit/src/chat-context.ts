@@ -1,6 +1,7 @@
 const CONTEXT_BLOCK_PATTERN =
-  /(?:\n\n)?<context\b([^>]*)>([\s\S]*?)<\/context>\n?/gi;
-const UNCLOSED_CONTEXT_PATTERN = /(?:\n\n)?<context\b([^>]*)>([\s\S]*)$/i;
+  /(?:\n\n)?<context(?=[\s>])([^>]*)>([\s\S]*?)<\/context>\n?/gi;
+const UNCLOSED_CONTEXT_PATTERN =
+  /(?:\n\n)?<context(?=[\s>])([^>]*)>([\s\S]*)$/i;
 const STRAY_CONTEXT_CLOSE_PATTERN = /<\/context>/gi;
 const ENCODED_CONTEXT_ATTRIBUTE =
   /\bdata-agentkit-context-encoding=(['"])entities-v1\1/i;

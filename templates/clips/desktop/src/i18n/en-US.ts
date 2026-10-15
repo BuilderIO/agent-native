@@ -21,6 +21,7 @@ export const desktopRecoveryCopy = {
   exportFailed: "Export failed",
   localSaveFailed: "Save failed",
   uploadInterrupted: "Upload interrupted",
+  storageStatusUnavailable: "Couldn’t check whether video storage is ready.",
   reviewFiles: "Review recovery files",
   openLogs: "Open logs",
   lookupFailed: "Couldn’t check recovery files",

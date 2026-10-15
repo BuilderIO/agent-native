@@ -19,7 +19,9 @@ export {
   type AppConfig,
   type AppConfigInput,
 } from "../app-config/index.js";
+export { platformWaitUntil } from "./background-work.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
+export { isTestIdentity, testIdentitySql } from "./test-identity.js";
 export {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
@@ -86,11 +88,13 @@ export {
   type VerifyEmbedSessionTokenResult,
 } from "./embed-session.js";
 export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
+export { isCredentialMembershipUnavailable } from "./credential-membership-unavailable.js";
 export {
   mountAuthMiddleware,
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  isSessionResolutionUnavailable,
   getMcpOAuthBearerSession,
   logout,
   COOKIE_NAME,
@@ -132,6 +136,7 @@ export {
 export {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getBetterAuthUserIdForEmail,
   hasGoogleAuthIdentity,
   setBetterAuthSessionCookie,
 } from "./better-auth-instance.js";
@@ -179,6 +184,7 @@ export type { AgentActionScope } from "../agent/types.js";
 export {
   actionsToEngineTools,
   executeAgentToolCall,
+  filterInitialEngineTools,
   getJevContextCredentials,
   getOwnerActiveApiKey,
   getOwnerApiKeyForEngine,
@@ -279,8 +285,19 @@ export type { GoogleAuthMode } from "./google-auth-mode.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
+  loadResourcesForPrompt,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
+export type {
+  AgentChatAdditionalActionsDetails,
+  AgentChatAdditionalActionsExternalSurface,
+  AgentChatAdditionalActionsSurface,
+  ResolveAgentChatAdditionalActions,
+} from "./agent-chat/additional-actions.js";
+export {
+  buildFrameworkPrompts,
+  generateActionsPrompt,
+} from "./agent-chat/framework-prompts.js";
 export { refreshMcpManagerForPrincipal } from "./agent-chat/mcp-glue.js";
 export {
   AGENT_CHAT_STREAM_PATH,
@@ -471,6 +488,7 @@ export {
   type ResolvedFrameworkTools,
 } from "../framework-tools.js";
 export {
+  buildCompactSkillsSummary,
   registerPromptContextProvider,
   type PromptContextProvider,
   type PromptContextProviderContext,
@@ -484,6 +502,7 @@ export {
 } from "./action-routes.js";
 export {
   AGENT_RUN_OWNER_CONTEXT_KEY,
+  readBrowserSessionIdHeader,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -588,6 +607,7 @@ export {
   type OAuthOwnerResult,
   type OAuthSessionResult,
 } from "./google-oauth.js";
+export { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 
 export {
   buildWorkspaceProviderAuthorizationUrl,
@@ -754,6 +774,7 @@ export {
   requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
+  normalizeBuilderAgentAttachments,
   runBuilderAgent,
   type BuilderAgentAttachment,
   type BuilderAgentUploadAttachment,
@@ -833,6 +854,7 @@ export {
   type RecurringSweepContext,
   type RecurringSweepHandler,
 } from "../jobs/sweep-hooks.js";
+export { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 export {
   scheduledTriggerAvailability,
   type ScheduledTriggerAvailability,
@@ -842,6 +864,10 @@ export {
   getFirstPartyProdUrl,
   resolveAppRuntimeUrl,
 } from "./app-url.js";
+export {
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
+} from "./request-origin.js";
 export {
   getConfiguredAppBasePath,
   normalizeAppBasePath,

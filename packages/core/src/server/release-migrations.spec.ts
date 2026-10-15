@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => {
     runAutomationTriggerEventMigrations: vi.fn(async () => {}),
     runAutomationSchedulerHealthMigrations: vi.fn(async () => {}),
     runFrameworkSchemaEnsures: vi.fn(async () => {}),
+    ensureSharingAccessIndexes: vi.fn(async () => 0),
     order: [] as string[],
     identitySsoMigrations: [
       {
@@ -70,6 +71,10 @@ vi.mock("../db/client.js", () => ({
   isLocalDatabase: mocks.isLocalDatabase,
   getDatabaseUrl: mocks.getDatabaseUrl,
 }));
+vi.mock("../db/store-registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/store-registry.js")>()),
+  withStoreMigrationLock: (run: () => Promise<unknown>) => run(),
+}));
 vi.mock("../db/migrations.js", () => ({
   runMigrations: mocks.runMigrations,
 }));
@@ -107,6 +112,9 @@ vi.mock("./better-auth-migrations.js", () => ({
 }));
 vi.mock("./release-schema.js", () => ({
   runFrameworkSchemaEnsures: mocks.runFrameworkSchemaEnsures,
+}));
+vi.mock("../sharing/indexes.js", () => ({
+  ensureSharingAccessIndexes: mocks.ensureSharingAccessIndexes,
 }));
 
 import { DATABASE_IDENTITY_SETTING_KEY } from "./database-identity.js";

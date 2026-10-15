@@ -140,6 +140,7 @@ const DESIGN_EDIT_TOOLS = new Set([
   "detach-component-instance",
   "delete-file",
   "edit-design",
+  "fill-figma-paste-image",
   "generate-design",
   "hydrate-figma-paste-images",
   "insert-asset",
@@ -163,6 +164,7 @@ const DESIGN_FILE_TARGET_TOOLS = new Set([
   "delete-file",
   "detach-component-instance",
   "edit-design",
+  "fill-figma-paste-image",
   "hydrate-figma-paste-images",
   "insert-asset",
   "insert-design-native-asset",
@@ -325,7 +327,7 @@ When a user message begins with [Selection question], answer about the captured 
 
 When the user asks for a new design and the current navigation view is list, settings, design-systems, or otherwise has no designId, create a new design first. Do not reuse, delete screens from, or edit a previous design unless the user explicitly names that design or the current navigation state is an editor/present view with that designId.
 
-Every web design must be responsive. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Desktop is the default primary artboard: use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. After generation, inspect desktop and mobile screenshots and correct overflow or broken reflow before reporting completion.
+App and website UI is responsive by default when the user does not specify exact pixel dimensions. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Static artwork such as ads, banners, social posts, thumbnails, email headers, flyers, and posters uses one fixed canvas with no mobile or tablet frames, including on follow-up edits and resizes; each additional size or version is its own exact-size call. Honor exact pixel dimensions and platform presets in the original request. Desktop is the default primary artboard for responsive UI; use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. Keep each generation action prompt to one distinct exact size; make separate calls scoped to each screen when a request includes different sizes. For responsive UI, inspect desktop and mobile screenshots and correct overflow or broken reflow. For fixed artwork, inspect one screenshot at the requested canvas size.
 
 Treat explicit visual direction, requested content, named pages, and page counts as acceptance criteria. When the user asks for multiple distinct pages or states, call generate-screens with every requested page before generating their files; do not substitute responsive breakpoint frames for requested pages. Verify the saved design contains each requested page before reporting completion.
 
@@ -341,13 +343,13 @@ When open review feedback exists, call get-review-feedback and work one anchored
 
 When the user picks one direction from a set of presented variants, delete each unchosen variant screen at most once, then call get-design-snapshot exactly once for the kept screen's fileId and call edit-design on that same fileId. Use edit-design replace-file when expanding the placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not call generate-design after a variant pick unless the user explicitly asks to create a separate new screen.
 
-When the user asks to visually inspect or edit a running local app, use open-visual-edit. It registers the localhost bridge, creates or reuses the Design project, places URL-backed iframe screens, stores the active visual-edit context, and navigates to overview mode in one authenticated step. For follow-ups like adding a mobile viewport or another route state, reuse the current designId and connectionId and call open-visual-edit or add-localhost-screens with explicit routes/paths and viewport sizes.
+When the user asks to visually inspect or edit a running local app, use open-visual-edit. It registers the localhost bridge, creates or resumes the saved Design project for that connection, places URL-backed iframe screens, stores the active visual-edit context, and navigates to overview mode in one authenticated step. For follow-ups like adding a mobile viewport or another route state, reuse the current designId and connectionId when available and call open-visual-edit or add-localhost-screens with explicit routes/paths and viewport sizes. The action resumes the saved project for the same connection when designId is absent; set newDesign: true only when the user explicitly wants a separate project.
 
 Provider-specific Design actions are shortcuts, not limits. If a first-class action cannot express the exact GitHub endpoint, repository tree query, code search, issue or pull request query, request body, pagination mode, payload shape, metadata field, or API version needed, call provider-api-catalog and provider-api-docs as needed, then call provider-api-request against the real GitHub API. Use the raw provider API escape hatch instead of weakening the answer or claiming Design cannot do something the underlying GitHub API can do.
 
 Design's GitHub provider API uses the saved GITHUB_TOKEN secret when present. Never ask the user to paste tokens into chat. For large GitHub search results or repository scans, pass stageAs and pagination options to provider-api-request, then use query-staged-dataset to count, filter, group, or project the staged rows.
 
-Design's Figma integration uses the saved, user-scoped FIGMA_ACCESS_TOKEN secret; never ask for the token in chat or pass it as an action argument. Use import-figma-frame for a frame/layer link and import-figma-clipboard for Figma Cmd+C metadata. Current clipboard metadata includes exact selected node ids and supports multi-selection; if Figma changes that private field, fall back conservatively and recommend "Copy link to selection." Use provider-api-catalog/docs/request for open-ended reads of files, nodes, components, styles, images, comments, versions, and Enterprise variables. Figma REST cannot create arbitrary canvas frames/layers. For Design-to-Figma handoff use export-design-as-figma-svg / Copy as SVG, or Figma's official OAuth MCP write tools when they are actually connected. Never claim SVG preserves live text, auto-layout, components, variables, or prototype behavior; report the export/import fidelity caveats.
+Design's Figma integration uses the saved, user-scoped FIGMA_ACCESS_TOKEN secret; never ask for the token in chat or pass it as an action argument. Use import-figma-frame for a frame/layer link and import-figma-clipboard for Figma Cmd+C metadata. Current clipboard metadata includes exact selected node ids and supports multi-selection; if Figma changes that private field, fall back conservatively and recommend "Copy link to selection." Use provider-api-catalog/docs/request for open-ended reads of files, nodes, components, styles, images, comments, versions, and Enterprise variables. Figma REST cannot create arbitrary canvas frames/layers. For Design-to-Figma handoff use export-design-as-figma-svg / Copy as SVG, or Figma's official OAuth MCP write tools when they are actually connected. Never claim SVG preserves live text, auto-layout, components, variables, or prototype behavior; report the export/import conversion caveats.
 
 For raster image generation, use available first-party Assets MCP tools such as generate-asset instead of placeholders or generic stock-image descriptions. When the Assets picker returns selectedAsset/chooseAsset/chooseImage context while a design is open, call insert-asset with the chosen asset URL/id, then refine placement with normal Design edit tools if needed. Preserve Assets assetId, runId, and URLs verbatim.`,
 });

@@ -6,6 +6,7 @@ import {
   partitionTargetedWeighted,
   partitionWeighted,
   requiresFullCoreFastTests,
+  splitLargePackages,
 } from "./ci-test-lanes.ts";
 
 const pkgs = (...entries: Array<[string, number]>) =>
@@ -100,6 +101,7 @@ test("refuses lanes that skip or repeat a core shard", () => {
     lane: "lane",
     filters: "",
     packages,
+    packageShards: [],
     files: 1,
     coreShard,
     coreMode: coreShard ? "full" : "",
@@ -111,5 +113,84 @@ test("refuses lanes that skip or repeat a core shard", () => {
   assert.throws(
     () => assertFullCoverage([lane("1/3"), lane("2/3")], [], true),
     /missing or duplicated/,
+  );
+});
+
+test("shards a Vitest package heavier than a fair lane share", () => {
+  const rest = [
+    { name: "design", files: 900, shardable: true },
+    { name: "a", files: 300 },
+    { name: "b", files: 300 },
+  ];
+  const lanes = partitionWeighted(rest, 6, 900);
+  const designShards = lanes
+    .flatMap((lane) => lane.packageShards)
+    .filter((shard) => shard.name === "design")
+    .map((shard) => shard.shard)
+    .sort();
+  assert.deepEqual(designShards, ["1/3", "2/3", "3/3"]);
+  assert.ok(lanes.every((lane) => !lane.packages.includes("design")));
+  assert.ok(Math.max(...lanes.map((lane) => lane.files)) <= 450);
+  assertFullCoverage(lanes, rest, true);
+});
+
+test("keeps packages whole when they are unshardable or too small to split", () => {
+  assert.deepEqual(splitLargePackages([{ name: "custom", files: 900 }], 6, 0), [
+    { name: "custom", files: 900 },
+  ]);
+  assert.deepEqual(
+    splitLargePackages([{ name: "small", files: 150, shardable: true }], 8, 0),
+    [{ name: "small", files: 150 }],
+  );
+});
+
+test("shards a targeted package alongside changed core tests", () => {
+  const rest = [{ name: "design", files: 800, shardable: true }];
+  const lanes = partitionTargetedWeighted(rest, 4, 4, "changed", [
+    "src/a.test.ts",
+    "src/b.test.ts",
+    "src/c.test.ts",
+    "src/d.test.ts",
+  ]);
+  assert.equal(lanes.flatMap((lane) => lane.packageShards).length, 4);
+  assertFullCoverage(lanes, rest, true);
+});
+
+test("refuses lanes that skip, repeat, or also run a sharded package whole", () => {
+  const lane = (
+    packageShards: Array<{ name: string; shard: string }>,
+    packages: string[] = [],
+  ) => ({
+    lane: "lane",
+    filters: "",
+    packages,
+    packageShards,
+    files: 1,
+    coreShard: "",
+    coreMode: "" as const,
+  });
+  const expected = [{ name: "design" }];
+  assert.throws(
+    () =>
+      assertFullCoverage([lane([{ name: "design", shard: "1/2" }])], expected),
+    /design test shards are missing or duplicated/,
+  );
+  assert.throws(
+    () =>
+      assertFullCoverage(
+        [
+          lane([{ name: "design", shard: "1/2" }], ["design"]),
+          lane([{ name: "design", shard: "2/2" }]),
+        ],
+        expected,
+      ),
+    /design test shards are missing or duplicated/,
+  );
+  assertFullCoverage(
+    [
+      lane([{ name: "design", shard: "1/2" }]),
+      lane([{ name: "design", shard: "2/2" }]),
+    ],
+    expected,
   );
 });

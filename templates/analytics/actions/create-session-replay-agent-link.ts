@@ -28,4 +28,5 @@ export default defineAction({
     });
   },
   readOnly: true,
+  mcpTool: false,
 });

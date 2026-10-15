@@ -195,9 +195,6 @@ describe("meeting pill chat eligibility", () => {
       true,
     );
     expect(
-      chatProps.every((props) => props.providerStatusChecksEnabled === false),
-    ).toBe(true);
-    expect(
       activeComposerProps[activeComposerProps.length - 1]?.composerDisabled,
     ).toBe(true);
     expect(
@@ -207,6 +204,15 @@ describe("meeting pill chat eligibility", () => {
     expect(
       host.querySelectorAll(".pill-ask-provider-actions button"),
     ).toHaveLength(2);
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>(".pill-ask-provider-actions button")
+        ?.click(),
+    );
+    const { open } = await import("@tauri-apps/plugin-shell");
+    expect(open).toHaveBeenCalledWith(
+      "https://example.test/settings/integrations/builder?builderConnect=1",
+    );
 
     const onMessageCountChange = activeComposerProps[
       activeComposerProps.length - 1

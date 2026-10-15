@@ -1,4 +1,111 @@
+import { hashSlideContent } from "@shared/slide-fit";
+
 export type NewDeckGenerationPhase = "pending" | "started" | "abandoned";
+
+export type PartialGenerationFailureSlide = {
+  id: string;
+  content: string;
+  notes?: string;
+  layout?: string;
+  background?: string;
+  imageUrl?: string;
+  imagePrompt?: string;
+  excalidrawData?: string;
+  transition?: string;
+  transitionSpeed?: number;
+  animations?: unknown;
+  splitByParagraph?: boolean;
+  skipped?: boolean;
+};
+
+export function partialGenerationFailureSlidesFingerprint(
+  slides: readonly PartialGenerationFailureSlide[],
+): string {
+  return hashSlideContent(
+    JSON.stringify(
+      slides.map((slide) => [
+        slide.id,
+        slide.content,
+        slide.notes ?? "",
+        slide.layout ?? "content",
+        slide.background ?? null,
+        slide.imageUrl ?? null,
+        slide.imagePrompt ?? null,
+        slide.excalidrawData ?? null,
+        slide.transition ?? null,
+        slide.transitionSpeed ?? null,
+        slide.animations ?? null,
+        slide.splitByParagraph ?? null,
+        slide.skipped ?? false,
+      ]),
+    ),
+  );
+}
+
+export function shouldShowPartialGenerationFailure({
+  slideCount,
+  failureCode,
+  failureAttemptId,
+  attemptId,
+  failureSlidesFingerprint,
+  currentSlidesFingerprint,
+  generating,
+  waitingOnQuestions,
+}: {
+  slideCount: number;
+  failureCode: unknown;
+  failureAttemptId: unknown;
+  attemptId: string | null;
+  failureSlidesFingerprint: unknown;
+  currentSlidesFingerprint: string | null;
+  generating: boolean;
+  waitingOnQuestions: boolean;
+}): boolean {
+  return (
+    slideCount > 0 &&
+    typeof failureCode === "string" &&
+    failureCode !== "incomplete_output" &&
+    failureAttemptId === attemptId &&
+    typeof failureSlidesFingerprint === "string" &&
+    failureSlidesFingerprint === currentSlidesFingerprint &&
+    !generating &&
+    !waitingOnQuestions
+  );
+}
+
+export function shouldClearPartialGenerationFailure({
+  slideCount,
+  failureCode,
+  failureAttemptId,
+  attemptId,
+  failureSlidesFingerprint,
+  currentSlidesFingerprint,
+  generating,
+  waitingOnQuestions,
+  retryPending,
+}: {
+  slideCount: number;
+  failureCode: unknown;
+  failureAttemptId: unknown;
+  attemptId: string | null;
+  failureSlidesFingerprint: unknown;
+  currentSlidesFingerprint: string | null;
+  generating: boolean;
+  waitingOnQuestions: boolean;
+  retryPending: boolean;
+}): boolean {
+  return (
+    slideCount > 0 &&
+    typeof failureCode === "string" &&
+    failureCode !== "incomplete_output" &&
+    (failureAttemptId !== attemptId ||
+      typeof failureSlidesFingerprint !== "string" ||
+      failureSlidesFingerprint !== currentSlidesFingerprint) &&
+    !generating &&
+    !waitingOnQuestions &&
+    !retryPending
+  );
+}
 
 export const NEW_DECK_GENERATION_START_TIMEOUT_MS = 20_000;
 
@@ -38,11 +145,12 @@ export function shouldShowNewDeckGeneratingOverlay({
 }
 
 /**
- * A prompted deck whose generation recorded a failure, never started, or
- * whose run ended without a single slide shows the failure with Try again,
- * never an idle empty canvas that reads as "still working".
+ * Keep recovery controls visible when an empty prompted deck has a confirmed
+ * failure or a started run whose outcome could not be confirmed.
  */
-export function isNewDeckGenerationFailed({
+export type NewDeckGenerationRecoveryState = "failed" | "outcome_unresolved";
+
+export function getNewDeckGenerationRecoveryState({
   slideCount,
   hasGenerationContext,
   failureCode,
@@ -58,11 +166,21 @@ export function isNewDeckGenerationFailed({
   phase: NewDeckGenerationPhase;
   generating: boolean;
   waitingOnQuestions: boolean;
-}): boolean {
-  if (slideCount !== 0 || !hasGenerationContext) return false;
-  if (typeof failureCode === "string") return true;
-  if (isNewDeckCreation && phase === "abandoned") return true;
-  return phase === "started" && !generating && !waitingOnQuestions;
+}): NewDeckGenerationRecoveryState | null {
+  if (
+    slideCount !== 0 ||
+    !hasGenerationContext ||
+    generating ||
+    waitingOnQuestions
+  ) {
+    return null;
+  }
+  if (failureCode === "outcome_unresolved") return "outcome_unresolved";
+  if (typeof failureCode === "string") return "failed";
+  if (!isNewDeckCreation) return null;
+  if (phase === "abandoned") return "failed";
+  if (phase === "started") return "outcome_unresolved";
+  return null;
 }
 
 export function shouldShowNewDeckGeneratingProgress({

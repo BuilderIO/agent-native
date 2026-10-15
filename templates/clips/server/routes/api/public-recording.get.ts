@@ -1,7 +1,10 @@
 import {
   getSession,
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
   signScopedAgentAccessToken,
   signShortLivedToken,
+  verifyShortLivedToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -10,7 +13,6 @@ import {
   defineEventHandler,
   getHeader,
   getQuery,
-  getRequestURL,
   setResponseHeader,
   setResponseStatus,
   setCookie,
@@ -90,7 +92,7 @@ function isHttpsRequest(event: H3Event): boolean {
     if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
       return true;
     }
-    const requestUrl = getRequestURL(event);
+    const requestUrl = getForwardedRequestURL(event);
     if (requestUrl.protocol === "https:") return true;
     const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
     if (appUrl.startsWith("https://")) return true;
@@ -106,14 +108,20 @@ function setProtectedMediaAccessCookie(
   password: string | null | undefined,
   sharePasswordVersion: string | null | undefined,
 ): string {
-  const token = signShortLivedToken({
-    resourceId: getRecordingAccessTokenResourceId(
-      recordingId,
-      password,
-      sharePasswordVersion,
-    ),
-    ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
-  });
+  const resourceId = getRecordingAccessTokenResourceId(
+    recordingId,
+    password,
+    sharePasswordVersion,
+  );
+  // This helper runs only after the share or agent-access gate above.
+  const existingToken = getHeader(event, "x-clips-media-token") ?? "";
+  const token =
+    existingToken && verifyShortLivedToken(existingToken, resourceId).ok
+      ? existingToken
+      : signShortLivedToken({
+          resourceId,
+          ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
+        });
   const secure = isHttpsRequest(event);
   setCookie(event, protectedMediaCookieName(recordingId), token, {
     httpOnly: true,
@@ -442,7 +450,7 @@ export default defineEventHandler(async (event) => {
         : undefined;
   const agentContextUrl = canExposeAgentContext
     ? buildAgentApiUrls(recordingId, {
-        origin: getRequestURL(event).origin,
+        origin: getForwardedRequestOrigin(event),
         basePath: appBasePath(),
         token: agentToken,
       }).contextUrl
@@ -506,6 +514,7 @@ export default defineEventHandler(async (event) => {
         ? viewerScreenshotEditsJson(rec.editsJson)
         : rec.editsJson,
       videoUrl: playbackVideoUrl,
+      mediaAccessToken: protectedMediaToken,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,
       mediaUpdatedAt: rec.mediaUpdatedAt,

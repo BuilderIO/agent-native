@@ -128,7 +128,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth ist für diese Bereitstellung nicht konfiguriert.",
     googlePickerNeedsKeys:
-      "Google Picker benötigt GOOGLE_PICKER_API_KEY und GOOGLE_PICKER_APP_ID.",
+      "Die Dateiauswahl in Google Drive ist nicht eingerichtet. Du kannst weiterhin ein Dokument über seinen Link importieren.",
     imageUploadFailed: "Bildupload fehlgeschlagen",
     imageUploadNeedsBuilder:
       "Verbinde einen Objektspeicher, um Bilder hochzuladen: Verbinde Builder.io (kostenlos) oder füge eigene S3-kompatible Speicherschlüssel unter Einstellungen → Datei-Uploads hinzu.",
@@ -245,6 +245,7 @@ const messages = {
     importCompleteFile: "Datei aus {{fileName}} importiert.",
     backToDecks: "Zurück zu Decks",
     toggleSlideList: "Folienliste umschalten",
+    openInAgentNative: "In Agent-Native öffnen",
     designSystem: "Designsystem",
     usingDesignSystem: "{{title}} wird verwendet",
     usingLinkedDesignSystem: "Verknüpftes Designsystem wird verwendet",
@@ -259,6 +260,16 @@ const messages = {
     generateImage: "Bild generieren",
     assetLibrary: "Asset-Bibliothek",
     imageOptions: "Bildoptionen",
+    videoPlayback: "Videowiedergabe",
+    autoplayVideo: "Automatische Wiedergabe",
+    loopVideo: "Video wiederholen",
+    videoUploading: "Video wird hochgeladen…",
+    videoAdded: "Video hinzugefügt",
+    videoUploadFailed: "Video-Upload fehlgeschlagen",
+    videoUploadError: "Dieses Video konnte nicht hochgeladen werden.",
+    videoFormatUnsupported: "Es werden nur MP4- und WebM-Videos unterstützt.",
+    videoTooLarge: "Videos dürfen höchstens 50 MB groß sein.",
+    videoUploadNeedsBuilder: "Videospeicher ist nicht eingerichtet.",
     cropImage: "Bild zuschneiden",
     cropHandle: "Bild {{position}} zuschneiden",
     diagrams: "Diagramme",
@@ -269,10 +280,21 @@ const messages = {
     convertMermaidFailed: "Diagramm konnte nicht umgewandelt werden",
     removeExcalidrawCanvas: "Excalidraw-Zeichenfläche entfernen",
     transition: "Übergang",
-    transition_instant: "Sofort",
+    transition_none: "Keine",
+    transition_dissolve: "Auflösen",
     transition_fade: "Überblenden",
-    transition_slide: "Schieben",
-    transition_zoom: "Zoomen",
+    transition_slide_from_right: "Von rechts einschieben",
+    transition_slide_from_left: "Von links einschieben",
+    transition_flip: "Wenden",
+    transition_cube: "Würfel",
+    transition_gallery: "Galerie",
+    transition_panel: "Folienübergang",
+    transition_speed: "Tempo",
+    transition_slow: "Langsam",
+    transition_fast: "Schnell",
+    transition_seconds: "{{seconds}} Sek.",
+    transition_apply_all: "Auf alle Folien anwenden",
+    transition_play: "Übergang abspielen",
     aspectRatio: "Seitenverhältnis",
     setAspectRatio: "Deck auf {{ratio}} setzen",
     slideTools: "Folienwerkzeuge",
@@ -306,12 +328,15 @@ const messages = {
       "Öffnet direkt im Vollbild-Präsentationsmodus.",
     present: "Präsentieren",
     more: "Mehr",
-    importing: "Importiert...",
+    importing: "Wird importiert...",
     importFile: "Datei importieren",
     downloadBackup: "Backup herunterladen",
     conflictStatus: "Textkonflikt",
     conflictStatusDescription:
       "Prüfe den Textkonflikt, bevor du weitere Änderungen speicherst.",
+    accessLost: "Zugriff verloren",
+    accessLostDescription:
+      "Dein Zugriff auf diese Präsentation hat sich geändert. Deine Änderungen bleiben auf dem Bildschirm; versuche es erneut, sobald der Zugriff wiederhergestellt ist, oder lade ein Backup herunter.",
     reviewConflict: "Konflikt prüfen",
     conflictTitle: "Textkonflikt auf Folie {{number}}",
     conflictDescription:
@@ -360,6 +385,7 @@ const messages = {
     googleSlidesCreated: "In Google Slides geöffnet",
     googleSlidesCreatedHint:
       "Eine Kopie dieser Präsentation wurde in deinem Google Drive erstellt.",
+    googleSlidesGoTo: "In Google Slides öffnen",
     duplicateDeck: "Deck duplizieren",
   },
   share: {
@@ -446,7 +472,8 @@ const messages = {
     resolveThread: "Thread lösen",
     reopenThread: "Thread wieder öffnen",
     hideReplies: "Antworten ausblenden",
-    replyCount: "{{count}} Antworten",
+    replyCount_one: "{{count}} Antwort",
+    replyCount_other: "{{count}} Antworten",
     title: "Kommentare",
     addComment: "Kommentar hinzufügen",
     close: "Schließen",
@@ -585,7 +612,6 @@ const messages = {
     selectObject: "Objekt zum Animieren auswählen",
     addTransition: "Übergang hinzufügen",
     effect: "Effekt",
-    trigger: "Auslöser",
     onClick: "Bei Klick",
     byParagraph: "Nach Absatz",
     expand: "Übergang erweitern",
@@ -596,6 +622,13 @@ const messages = {
     clearAll: "Borrar todo",
     elements: "Elementos",
     autoFill: "Autorrellenar",
+    issueStalePath: "Dieses Objekt ist nicht mehr auf der Folie.",
+    issueMissingElement: "Dieses Objekt wurde auf der Folie nicht gefunden.",
+    issueDuplicate:
+      "Diese Einblendung überschneidet sich mit einer anderen auf der Folie.",
+    blocked:
+      "Entferne oder korrigiere die nicht auflösbare Einblendung, um zu speichern oder abzuspielen.",
+    changeNotApplied: "Diese Änderung wurde nicht übernommen.",
     noAnimatableElements:
       "No se detectaron elementos animables en esta diapositiva.",
   },
@@ -782,6 +815,15 @@ const messages = {
     exportFailed: "Error al exportar",
     agentRunFailed:
       "Der Agent-Lauf ist fehlgeschlagen, bevor Folien erstellt wurden. Prüfe die Details im Chat und versuche es erneut.",
+    generationFailed:
+      "Es wurden keine Folien erstellt. Prüfe die Details im Chat und versuche es erneut.",
+    generationOutcomeUnresolved:
+      "Wir konnten nicht bestätigen, ob Folien erstellt wurden. Prüfe das Deck, bevor du es erneut versuchst.",
+    partialGenerationFailed:
+      "Wir konnten deine Folien nicht fertigstellen. Sieh dir die vorhandenen Folien und deine ursprüngliche Anfrage an, bevor du fortfährst.",
+    originalPrompt: "Deine Anfrage",
+    backToHome: "Zurück zur Startseite",
+    checkedDeckTryAgain: "Deck geprüft. Erneut versuchen",
     deckHasNoSlides: "Dieses Deck enthält keine Folien.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -817,7 +859,7 @@ const messages = {
     sourceMixed: "Mehrere Quellen",
     sourceBuilder: "Builder-Intelligenz für Designsysteme",
     sourceIndexingDescription:
-      "Builder verarbeitet diese Quelle noch. Die Ergebnisse erscheinen hier, sobald sie bereit sind.",
+      "Dein Markenstil wird noch vorbereitet. Warte, bis er bereit ist, und versuche es dann erneut.",
     sourceIndexedDescription:
       "{{docs}} Dokumente · {{tokens}} Tokens indexiert",
     sourceIndexedDocsOnly: "{{docs}} Dokumente indexiert",
@@ -992,8 +1034,8 @@ const messages = {
           "Lies die angegebene Unternehmenswebsite und erstelle eine Präsentation über das Unternehmen. Melde Zugriffsfehler, statt Fakten zu erfinden.",
       },
     },
-    connectBuilderIo: "Builder.io verbinden",
-    connectingBuilder: "Builder.io wird verbunden…",
+    connectBuilderIo: "Builder.io verwenden",
+    connectingBuilder: "Builder.io wird eingerichtet…",
     recent: "Zuletzt verwendet",
     starters: {
       pitch: {
@@ -1028,13 +1070,19 @@ const messages = {
     generationStartFailed: "Deck-Generierung konnte nicht gestartet werden",
     generationStartFailedDescription:
       "Das neue Deck wurde nicht vollständig gespeichert, daher wurde der Agent nicht gegen ein fehlendes Deck gestartet. Dein Prompt wurde gespeichert, damit du es erneut versuchen kannst.",
+    generationContextUnavailableDescription:
+      "Der ausgewählte Markenstil oder die Referenzpräsentation konnte nicht geladen werden. Prüfe, ob du sie öffnen kannst und deine Internetverbindung funktioniert, und versuche es erneut.",
     showAllDecks: "Alle Decks anzeigen",
     all: "Alle",
     showMineDecks: "Von mir erstellte Decks anzeigen",
     mine: "Meine",
+    ownedByAnyone: "Beliebiger Eigentümer",
+    ownedByMe: "Mir gehörend",
+    sharedWithMe: "Mit mir geteilt",
     createDeckOrVisual: "Präsentation erstellen",
     noMineDecks: "Du hast noch keine Decks erstellt.",
     noDecksMatchSearch: "Keine Decks entsprechen deiner Suche.",
+    noDecksMatchFilter: "Keine Decks entsprechen dem aktuellen Filter.",
     deleteDeckTitle: "Deck löschen?",
     deleteDeckDescription:
       "Dadurch werden dieses Deck und alle Folien dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",

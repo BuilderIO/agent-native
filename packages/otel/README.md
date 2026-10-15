@@ -2,7 +2,13 @@
 
 OpenTelemetry SDK wiring for Agent-Native apps. It builds a meter provider and a tracer provider with OTLP exporters and registers them with `@agent-native/core` through `registerObservabilityProvider()`.
 
-It does nothing unless an OTLP endpoint is set, so apps can depend on it unconditionally.
+It does nothing unless an OTLP endpoint is set, so apps can depend on it unconditionally. Apps scaffolded from first-party templates already include it; to add it to another app:
+
+```sh
+pnpm add @agent-native/otel
+```
+
+Then start it from a server plugin:
 
 ```ts
 // server/plugins/otel.ts
@@ -27,4 +33,4 @@ Configuration uses the standard OpenTelemetry variables:
 | `OTEL_METRICS_EXPORTER` / `OTEL_TRACES_EXPORTER`           | `otlp` (default) or `none`; any other value fails startup          |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` (and per-signal overrides)   | `http/protobuf` only; any other value fails startup                |
 
-Metrics use cumulative temporality with a random `service.instance.id` per process, so each process is its own series. On serverless runtimes (Netlify, AWS Lambda, Vercel, Cloudflare), as `@agent-native/core` detects them, core force-flushes both providers on every response, capped at 2 seconds; elsewhere metrics export every 60 seconds.
+Metrics use cumulative temporality with a random `service.instance.id` per process, so each process is its own series. On serverless runtimes (Netlify, AWS Lambda, Vercel, Cloudflare), as `@agent-native/core` detects them, core force-flushes both providers after responses, capped at 2 seconds, with metrics exported at most once every 10 seconds per process; elsewhere metrics export every 60 seconds.

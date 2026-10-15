@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { createError } from "h3";
 
 import { getDb, schema } from "../server/db/index.js";
+import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   normalizeRecordingFailureCode,
   trackRecordingFailure,
@@ -29,6 +30,9 @@ import {
 } from "../server/lib/video-storage.js";
 import { DEFAULT_RECORDING_TITLE } from "../shared/title-source.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
+
+/** The `sourceAppName` the native mobile app (packages/mobile-app) sends. */
+const MOBILE_APP_SOURCE_NAME = "Agent-Native Mobile";
 import { validateRecordingScope } from "./lib/recording-scope.js";
 
 export function classifyInitialUploadFailure(error: unknown): {
@@ -48,6 +52,9 @@ export function classifyInitialUploadFailure(error: unknown): {
         : typeof error === "string"
           ? error
           : "";
+  const isSignedUrlFailure = /builder\.io signed-url request failed/i.test(
+    message,
+  );
   const messageStatus = /\b(?:failed|failure|error)\s*\((\d{3})\)/i.exec(
     message,
   )?.[1];
@@ -64,12 +71,13 @@ export function classifyInitialUploadFailure(error: unknown): {
       ? details.failureStage
       : "multipart_start";
   const failureCode = normalizeRecordingFailureCode(details.failureCode);
+  // A nested signed-URL response does not mean the account needs reauthorization.
   const storageSetupRequired =
     failureCode === "storage_setup_required" ||
     details.errorCode === "builder_oauth_reauthorization_required" ||
-    httpStatus === 401 ||
-    httpStatus === 403 ||
-    /credentials?[^.\n]*(?:not configured|missing)|not connected|reconnect builder(?:\.io)?|scope mismatch|missing its space id/i.test(
+    details.errorCode === "builder_credentials_rejected" ||
+    (!isSignedUrlFailure && (httpStatus === 401 || httpStatus === 403)) ||
+    /credentials?[^.\n]*(?:not configured|missing)|not connected|(?:reconnect|use) builder(?:\.io)?|scope mismatch|missing its space id/i.test(
       message,
     );
 
@@ -115,9 +123,10 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
+    const visibility = await getDefaultRecordingVisibility(
       organizationId,
       actionContext?.userEmail ?? ownerEmail,
+      args.visibility,
     );
 
     const spaceIds = await validateRecordingScope(db, {
@@ -126,6 +135,14 @@ export default defineAction({
       spaceIds: args.spaceIds ?? [],
       folderId: args.folderId,
     });
+
+    // The native mobile app names itself but sends no platform; read it from
+    // that name so its rows and events are not left "unknown".
+    const recordingPlatform =
+      args.recordingPlatform ??
+      (args.sourceAppName?.trim() === MOBILE_APP_SOURCE_NAME
+        ? "mobile"
+        : undefined);
 
     await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
@@ -138,19 +155,37 @@ export default defineAction({
       title,
       titleSource,
       sourceAppName: args.sourceAppName?.trim() || null,
-      recordingPlatform: args.recordingPlatform ?? "unknown",
+      recordingPlatform: recordingPlatform ?? "unknown",
       sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
       status: "uploading",
       uploadProgress: 0,
       uploadLeaseExpiresAt: uploadLeaseExpiry(),
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
-      visibility: args.visibility ?? defaultVisibility,
+      visibility,
       width: args.width ?? 0,
       height: args.height ?? 0,
       ownerEmail,
       createdAt: now,
       updatedAt: now,
+    });
+
+    trackRecordingCreated({
+      recordingId: id,
+      userId: ownerEmail,
+      platform: recordingPlatform,
+      // The desktop app, extension and native mobile app only create rows
+      // from their recorders, and builds already installed send no source.
+      source:
+        args.recordingSource ??
+        (args.recordingPlatform === "desktop" ||
+        args.recordingPlatform === "extension" ||
+        args.sourceAppName?.trim() === MOBILE_APP_SOURCE_NAME
+          ? "recorder"
+          : undefined),
+      attemptId: args.recordingAttemptId,
+      hasAudio: args.hasAudio ?? true,
+      hasCamera: args.hasCamera ?? false,
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
@@ -192,7 +227,7 @@ export default defineAction({
       trackRecordingFailure({
         recordingId: id,
         userId: ownerEmail,
-        platform: args.recordingPlatform,
+        platform: recordingPlatform,
         ...failure,
       });
       await writeAppState(`recording-upload-${id}`, {

@@ -464,7 +464,7 @@ const messages = {
       finishRecipientInput: "أكمل إضافة المستلم أو امسح النص قبل الإرسال.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
-        "Conecta Builder u otro motor de IA antes de usar Generar.",
+        "استخدم Builder.io (تتوفر فئة مجانية) أو محرك ذكاء اصطناعي آخر قبل استخدام «إنشاء».",
       couldNotUnsubscribe: "No se pudo cancelar la suscripción",
       unsubscribeSent: "Solicitud de baja enviada",
       draftQueued: "Borrador en cola.",
@@ -707,7 +707,7 @@ const messages = {
       connectJevToRunTriage: "اربط Jev لتشغيل الفرز",
       freeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
       jevAvailabilityFailed: "تعذّر التحقق مما إذا كان Jev متاحًا.",
-      connectBuilder: "ربط Builder.io",
+      connectBuilder: "استخدم Builder.io",
       addJevApiKey: "إضافة مفتاح API",
     },
     draftQueue: {

@@ -399,10 +399,6 @@
   }
 }
 
-.data-sources-layout {
-  container: data-sources / inline-size;
-}
-
 .dashboard-overview-layout {
   container: dashboard-overview / inline-size;
 }
@@ -413,35 +409,9 @@
   gap: 0.5rem;
 }
 
-.data-sources-toolbar {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.data-source-add-trigger {
-  width: 100%;
-  flex-shrink: 0;
-}
-
-.data-sources-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 0.5rem 2rem;
-  overflow: visible;
-  border-radius: 0.75rem;
-  background: transparent;
-  padding: 0.5rem;
-}
-
 .data-source-card {
   min-width: 0;
   container: data-source-card / inline-size;
-}
-
-.data-source-shared-badge {
-  display: none;
 }
 
 .data-source-inline-form {
@@ -454,17 +424,6 @@
   width: 100%;
 }
 
-@container data-sources (min-width: 640px) {
-  .data-sources-toolbar {
-    flex-direction: row;
-    align-items: center;
-  }
-
-  .data-source-add-trigger {
-    width: auto;
-  }
-}
-
 @container dashboard-overview (min-width: 640px) {
   .dashboard-overview-toolbar {
     flex-direction: row;
@@ -472,17 +431,7 @@
   }
 }
 
-@container data-sources (min-width: 768px) {
-  .data-sources-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @container data-source-card (min-width: 420px) {
-  .data-source-shared-badge {
-    display: inline-flex;
-  }
-
   .data-source-inline-form {
     flex-direction: row;
   }

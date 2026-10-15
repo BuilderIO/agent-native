@@ -13,6 +13,9 @@ import {
 const ROOT = process.cwd();
 const CORE = "@agent-native/core";
 const LANES = Math.max(1, Number(process.env.LANES || 5));
+// Each lane pays ~100 s of checkout and install, so a shard smaller than this
+// spends more time on setup than it saves.
+const MIN_SHARD_FILES = 100;
 
 const PACKAGE_PARENTS = ["packages", "templates"];
 const COMMUNITY_TEMPLATES_PARENT = "community-templates";
@@ -53,6 +56,19 @@ const SKIP_DIRS = new Set([
 interface Pkg {
   name: string;
   dir: string;
+  shardable: boolean;
+}
+
+interface WeightedPkg {
+  name: string;
+  files: number;
+  shardable?: boolean;
+}
+
+interface LaneItem {
+  name: string;
+  files: number;
+  shard?: string;
 }
 
 type PnpmWorkspace = {
@@ -91,7 +107,9 @@ function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
       throw new Error(`Duplicate workspace package name ${pj.name}`);
     }
     seen.add(pj.name);
-    out.push({ name: pj.name, dir });
+    // Only a bare Vitest script forwards `--shard` to the runner.
+    const shardable = /^vitest(\s|$)/.test(pj.scripts.test);
+    out.push({ name: pj.name, dir, shardable });
   }
   return out;
 }
@@ -177,13 +195,11 @@ function resolveTestPackages(all: Pkg[], filters: string[] | undefined): Pkg[] {
   return packages;
 }
 
-function weighPackages(pkgs: readonly Pkg[]): Array<{
-  name: string;
-  files: number;
-}> {
+function weighPackages(pkgs: readonly Pkg[]): WeightedPkg[] {
   return pkgs.map((pkg) => ({
     name: pkg.name,
     files: Math.max(1, countTestFiles(pkg.dir)),
+    shardable: pkg.shardable,
   }));
 }
 
@@ -291,10 +307,16 @@ function countTestFiles(dir: string): number {
   return n;
 }
 
+interface PackageShard {
+  name: string;
+  shard: string;
+}
+
 interface Lane {
   lane: string;
   filters: string;
   packages: string[];
+  packageShards: PackageShard[];
   files: number;
   coreShard: string;
   coreMode: "changed" | "full" | "";
@@ -314,18 +336,48 @@ function partition(pkgs: Pkg[], laneCount: number, core?: Pkg): Lane[] {
 }
 
 /**
+ * Split each shardable package heavier than a fair lane share into Vitest
+ * shards, so one large template no longer sets the floor for every lane.
+ */
+export function splitLargePackages(
+  pkgs: readonly WeightedPkg[],
+  laneCount: number,
+  coreFiles: number,
+): LaneItem[] {
+  const total = coreFiles + pkgs.reduce((sum, pkg) => sum + pkg.files, 0);
+  const fairShare = Math.max(1, Math.ceil(total / laneCount));
+  return pkgs.flatMap((pkg) => {
+    const count = pkg.shardable
+      ? Math.min(
+          laneCount,
+          Math.ceil(pkg.files / fairShare),
+          Math.floor(pkg.files / MIN_SHARD_FILES),
+        )
+      : 1;
+    if (count < 2) return [{ name: pkg.name, files: pkg.files }];
+    return Array.from({ length: count }, (_, index) => ({
+      name: pkg.name,
+      files: splitWeight(pkg.files, index, count),
+      shard: `${index + 1}/${count}`,
+    }));
+  });
+}
+
+/**
  * Balance packages across lanes by test file count, with core Vitest-sharded
- * across them. A package can't be split, so the heaviest packages may each
- * take a lane of their own while core shards across the rest; the plan with
- * the smallest largest lane wins. Stacking a core shard on top of Design made
- * one lane outrun the job timeout while the others finished early.
+ * across them. An unshardable package can't be split, so the heaviest items
+ * may each take a lane of their own while core shards across the rest; the
+ * plan with the smallest largest lane wins. Stacking a core shard on top of
+ * Design made one lane outrun the job timeout while the others finished early.
  */
 export function partitionWeighted(
-  pkgs: ReadonlyArray<{ name: string; files: number }>,
+  pkgs: readonly WeightedPkg[],
   laneCount: number,
   coreFiles: number | null,
 ): Lane[] {
-  const sorted = [...pkgs].sort((a, b) => b.files - a.files);
+  const sorted = splitLargePackages(pkgs, laneCount, coreFiles ?? 0).sort(
+    (a, b) => b.files - a.files,
+  );
   const maxSolo =
     coreFiles === null ? 0 : Math.min(laneCount - 1, sorted.length);
   let best: LaneBin[] | null = null;
@@ -337,7 +389,7 @@ export function partitionWeighted(
 }
 
 export function partitionTargetedWeighted(
-  pkgs: ReadonlyArray<{ name: string; files: number }>,
+  pkgs: readonly WeightedPkg[],
   laneCount: number,
   coreFiles: number,
   coreMode: "changed" | "full",
@@ -348,11 +400,13 @@ export function partitionTargetedWeighted(
   }
   if (coreFiles === 0) return partitionWeighted(pkgs, laneCount, null);
 
-  const sorted = [...pkgs].sort((a, b) => b.files - a.files);
+  const sorted = splitLargePackages(pkgs, laneCount, coreFiles).sort(
+    (a, b) => b.files - a.files,
+  );
   const coreShardCount = Math.min(laneCount, coreFiles);
   const count = Math.min(laneCount, Math.max(coreShardCount, sorted.length));
-  const bins = Array.from({ length: count }, (_, index) => ({
-    packages: [] as string[],
+  const bins: LaneBin[] = Array.from({ length: count }, (_, index) => ({
+    items: [],
     files:
       index < coreShardCount
         ? splitWeight(coreFiles, index, coreShardCount)
@@ -360,19 +414,19 @@ export function partitionTargetedWeighted(
     coreShard: index < coreShardCount ? `${index + 1}/${coreShardCount}` : "",
   }));
 
-  for (const pkg of sorted) {
+  for (const item of sorted) {
     const lightest = bins.reduce((best, bin) =>
       bin.files < best.files ? bin : best,
     );
-    lightest.packages.push(pkg.name);
-    lightest.files += pkg.files;
+    lightest.items.push(item);
+    lightest.files += item.files;
   }
 
   return toLanes(bins, coreMode);
 }
 
 interface LaneBin {
-  packages: string[];
+  items: LaneItem[];
   files: number;
   coreShard: string;
 }
@@ -382,7 +436,7 @@ function largestBin(bins: LaneBin[]): number {
 }
 
 function planBins(
-  sorted: ReadonlyArray<{ name: string; files: number }>,
+  sorted: readonly LaneItem[],
   laneCount: number,
   coreFiles: number | null,
   soloCount: number,
@@ -393,35 +447,54 @@ function planBins(
       ? laneCount - soloCount
       : Math.max(1, Math.min(laneCount, shared.length));
   const sharedBins: LaneBin[] = Array.from({ length: n }, (_, index) => ({
-    packages: [],
+    items: [],
     files: coreFiles !== null ? splitWeight(coreFiles, index, n) : 0,
     coreShard: coreFiles !== null ? `${index + 1}/${n}` : "",
   }));
-  for (const p of shared) {
+  for (const item of shared) {
     sharedBins.sort((a, b) => a.files - b.files);
-    sharedBins[0].packages.push(p.name);
-    sharedBins[0].files += p.files;
+    sharedBins[0].items.push(item);
+    sharedBins[0].files += item.files;
   }
   return [
     ...sorted
       .slice(0, soloCount)
-      .map((p) => ({ packages: [p.name], files: p.files, coreShard: "" })),
+      .map((item) => ({ items: [item], files: item.files, coreShard: "" })),
     ...sharedBins,
   ];
 }
 
 function toLanes(bins: LaneBin[], coreMode: "changed" | "full"): Lane[] {
   return bins
-    .filter((b) => b.packages.length > 0 || b.coreShard !== "")
+    .filter((b) => b.items.length > 0 || b.coreShard !== "")
     .sort((a, b) => b.files - a.files)
-    .map((b, i) => ({
-      lane: `lane-${i + 1}`,
-      filters: b.packages.map((p) => `--filter ${p}`).join(" "),
-      packages: b.packages,
-      files: b.files,
-      coreShard: b.coreShard,
-      coreMode: b.coreShard ? coreMode : "",
-    }));
+    .map((b, i) => {
+      const packages = b.items
+        .filter((item) => !item.shard)
+        .map((item) => item.name);
+      return {
+        lane: `lane-${i + 1}`,
+        filters: packages.map((p) => `--filter ${p}`).join(" "),
+        packages,
+        packageShards: b.items.flatMap((item) =>
+          item.shard ? [{ name: item.name, shard: item.shard }] : [],
+        ),
+        files: b.files,
+        coreShard: b.coreShard,
+        coreMode: b.coreShard ? coreMode : "",
+      };
+    });
+}
+
+function isCompleteShardSet(shards: readonly string[]): boolean {
+  const count = Number(shards[0]?.split("/")[1] ?? 0);
+  return (
+    count > 0 &&
+    shards.length === count &&
+    Array.from({ length: count }, (_, index) => `${index + 1}/${count}`).every(
+      (shard) => shards.includes(shard),
+    )
+  );
 }
 
 export function assertFullCoverage(
@@ -430,6 +503,7 @@ export function assertFullCoverage(
   core?: unknown,
 ): void {
   const covered = new Set<string>();
+  const packageShards = new Map<string, string[]>();
   for (const lane of lanes) {
     for (const name of lane.packages) {
       if (covered.has(name)) {
@@ -437,6 +511,15 @@ export function assertFullCoverage(
       }
       covered.add(name);
     }
+    for (const { name, shard } of lane.packageShards) {
+      packageShards.set(name, [...(packageShards.get(name) ?? []), shard]);
+    }
+  }
+  for (const [name, shards] of packageShards) {
+    if (covered.has(name) || !isCompleteShardSet(shards)) {
+      throw new Error(`Package ${name} test shards are missing or duplicated`);
+    }
+    covered.add(name);
   }
   const missing = expected
     .filter((p) => !covered.has(p.name))
@@ -445,20 +528,11 @@ export function assertFullCoverage(
     throw new Error(`Packages missing from all lanes: ${missing.join(", ")}`);
   }
 
-  if (core) {
-    const shards = lanes.map((lane) => lane.coreShard).filter(Boolean);
-    const shardCount = Number(shards[0]?.split("/")[1] ?? 0);
-    const expectedShards = Array.from(
-      { length: shardCount },
-      (_, index) => `${index + 1}/${shardCount}`,
-    );
-    if (
-      shardCount === 0 ||
-      shards.length !== shardCount ||
-      expectedShards.some((shard) => !shards.includes(shard))
-    ) {
-      throw new Error("Core test shards are missing or duplicated");
-    }
+  if (
+    core &&
+    !isCompleteShardSet(lanes.map((lane) => lane.coreShard).filter(Boolean))
+  ) {
+    throw new Error("Core test shards are missing or duplicated");
   }
 }
 
@@ -492,6 +566,7 @@ function summarize(
       (l) =>
         `| ${l.lane} | ${l.files} | ${[
           l.coreShard ? `${CORE} (${l.coreShard})` : "",
+          ...l.packageShards.map(({ name, shard }) => `${name} (${shard})`),
           ...l.packages,
         ]
           .filter(Boolean)

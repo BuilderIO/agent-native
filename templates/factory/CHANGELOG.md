@@ -3,6 +3,12 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-10
+
+### Improved
+
+- Factory automations can route grouped findings to a dedicated Slack channel.
+
 ## 2026-09-15
 
 ### Fixed

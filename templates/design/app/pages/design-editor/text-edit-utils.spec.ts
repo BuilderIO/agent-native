@@ -224,3 +224,35 @@ it("never settles early on a live session once the creation is abandoned", async
   await vi.advanceTimersByTimeAsync(5000);
   expect(onExhausted).toHaveBeenCalledExactlyOnceWith("active");
 });
+
+it("starts a keyboard text edit without the pointer settle delay", async () => {
+  vi.useFakeTimers();
+  const board = document.createElement("div");
+  board.dataset.boardSurfaceLayer = "";
+  const iframe = document.createElement("iframe");
+  iframe.dataset.designPreviewIframe = "";
+  board.append(iframe);
+  document.body.append(board);
+  const win = iframe.contentWindow!;
+  const post = vi.spyOn(win, "postMessage").mockImplementation((message) => {
+    if (message.type !== "agent-native:text-edit-status") return;
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: win,
+        data: {
+          type: "agent-native:text-edit-status-result",
+          correlationId: message.correlationId,
+          status: "not-editing",
+        },
+      }),
+    );
+  });
+  scheduleBeginTextEditForScreen("screen", "text", {
+    boardFileId: "screen",
+    reopenExisting: true,
+  });
+  await vi.advanceTimersByTimeAsync(20);
+  expect(
+    post.mock.calls.filter(([message]) => message.type === "begin-text-edit"),
+  ).toHaveLength(1);
+});

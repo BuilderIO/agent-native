@@ -38,6 +38,8 @@ export interface ImportResult {
   unresolvedImages?: number;
   unresolvedImageRefCount?: number;
   skippedEmbeddedImageCount?: number;
+  /** Names of .fig frames left out because their generated HTML was too large. */
+  skippedFrames?: string[];
   matchStatus?: "matched" | "ambiguous" | "none" | "error";
   rateLimitRetryAfter?: number;
   rateLimitPlanTier?: string;
@@ -94,6 +96,7 @@ export function figmaHydrationErrorMessage(
   error: unknown,
   fallbackMessage: string,
   forbiddenMessage: string,
+  fileUrlTokenMessage = fallbackMessage,
 ): string {
   const { result } = readFigmaImportFailure(error, fallbackMessage);
   const source = error as
@@ -107,6 +110,9 @@ export function figmaHydrationErrorMessage(
     source?.errorCode === "figma_request_failed" &&
     (source.statusCode === 403 || source.details?.figmaStatus === 403);
 
+  if (error instanceof Error && error.name === "FigmaFileUrlUsedAsTokenError") {
+    return fileUrlTokenMessage;
+  }
   if (isFigmaForbidden) return forbiddenMessage;
   return /internal server error/i.test(result.error)
     ? fallbackMessage
@@ -176,11 +182,12 @@ export function importResultNotification(
   options?: { fidelityWarnings?: string[] },
 ): ImportResultNotification {
   const title = importResultSummary(result, fallback);
+  const fidelityWarnings = options?.fidelityWarnings ?? [];
   const actionableWarnings = [
-    ...(result?.warnings ?? []).filter(
-      (warning) => !isGenericFigFormatCaveat(warning),
-    ),
-    ...(options?.fidelityWarnings ?? []),
+    ...(result?.warnings ?? [])
+      .filter((warning) => !isGenericFigFormatCaveat(warning))
+      .slice(0, Math.max(0, 3 - fidelityWarnings.length)),
+    ...fidelityWarnings,
   ].slice(0, 3);
 
   if (actionableWarnings.length === 0) {
@@ -252,6 +259,7 @@ export interface DesignClipboardScreenEntry {
   filename: string;
   fileType?: string;
   content: string;
+  sourceScreenId?: string;
   canvasFrame?: {
     x?: number;
     y?: number;
@@ -366,7 +374,10 @@ function validateDesignClipboardPayload(
       screen.filename.includes("/") ||
       screen.filename.includes("\\") ||
       !clipboardString(screen.content, MAX_CLIPBOARD_CONTENT_CHARS) ||
-      (screen.fileType !== undefined && !clipboardString(screen.fileType, 32))
+      (screen.fileType !== undefined &&
+        !clipboardString(screen.fileType, 32)) ||
+      (screen.sourceScreenId !== undefined &&
+        !clipboardString(screen.sourceScreenId))
     ) {
       return null;
     }

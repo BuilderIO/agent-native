@@ -1,5 +1,5 @@
 import { IconCornerDownRight, IconDots, IconTrash } from "@tabler/icons-react";
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import { Button } from "../ui/button.js";
 import {
@@ -25,6 +25,7 @@ export interface MessageQueueItem {
 export interface MessageQueueItemAction {
   id: string;
   label: ReactNode;
+  hint?: string;
   icon?: ReactNode;
   destructive?: boolean;
   disabled?: boolean;
@@ -33,8 +34,12 @@ export interface MessageQueueItemAction {
 
 export interface MessageQueueDrawerLabels {
   region: string;
+  /** @deprecated Use sendNow. */
   steer: string;
+  /** @deprecated Use sendNowHint. */
   steerHint: string;
+  sendNow?: string;
+  sendNowHint?: string;
   remove: string;
   moreActions: string;
 }
@@ -55,7 +60,6 @@ export interface MessageQueueDrawerProps {
   className?: string;
 }
 
-const RECESSED_QUEUE_MAX_HEIGHT_PX = 160;
 const RECESSED_QUEUE_VERTICAL_CHROME_PX = 10;
 
 function recessedQueueHeight(items: readonly MessageQueueItem[]): number {
@@ -66,7 +70,7 @@ function recessedQueueHeight(items: readonly MessageQueueItem[]): number {
       height + (item.images && item.images.length > 0 ? 56 : 36),
     RECESSED_QUEUE_VERTICAL_CHROME_PX,
   );
-  return Math.min(contentHeight, RECESSED_QUEUE_MAX_HEIGHT_PX);
+  return contentHeight;
 }
 
 export function MessageQueueDrawer({
@@ -82,6 +86,21 @@ export function MessageQueueDrawer({
 }: MessageQueueDrawerProps) {
   const recessed = variant === "recessed";
   const empty = items.length === 0;
+  const sendNow = labels.sendNow ?? labels.steer;
+  const sendNowHint = labels.sendNowHint ?? labels.steerHint;
+  const [openActionsItemId, setOpenActionsItemId] = useState<string | null>(
+    null,
+  );
+  useEffect(() => {
+    const hasOpenActionsItem =
+      items.length > 1 &&
+      items.some(
+        (item) =>
+          item.id === openActionsItemId &&
+          (getItemActions?.(item).length ?? 0) > 0,
+      );
+    if (!hasOpenActionsItem) setOpenActionsItemId(null);
+  }, [items, getItemActions, openActionsItemId]);
   if (empty && !recessed) return null;
 
   const recessedStyle = recessed
@@ -108,8 +127,10 @@ export function MessageQueueDrawer({
       >
         <ul
           className={cn(
-            "flex max-h-40 flex-col gap-0.5 overflow-y-auto py-1",
-            recessed && "h-full",
+            "flex flex-col",
+            recessed
+              ? "h-full gap-0 overflow-y-hidden py-0"
+              : "max-h-40 gap-0.5 overflow-y-auto py-1",
           )}
         >
           {items.map((item) => {
@@ -118,7 +139,10 @@ export function MessageQueueDrawer({
             return (
               <li
                 key={item.id}
-                className="group flex min-h-9 min-w-0 items-center gap-2 px-4 py-1.5 text-[13px] leading-4 animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-[var(--ease-collapse)] motion-reduce:animate-none"
+                className={cn(
+                  "group flex min-h-9 min-w-0 items-center gap-2 px-4 text-[13px] leading-4 animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-[var(--ease-collapse)] motion-reduce:animate-none",
+                  recessed ? "py-0.5" : "py-1.5",
+                )}
               >
                 <IconCornerDownRight
                   aria-hidden="true"
@@ -159,10 +183,10 @@ export function MessageQueueDrawer({
                             className="size-3.5"
                             strokeWidth={1.7}
                           />
-                          <span>{labels.steer}</span>
+                          <span>{sendNow}</span>
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>{labels.steerHint}</TooltipContent>
+                      <TooltipContent>{sendNowHint}</TooltipContent>
                     </Tooltip>
                   ) : null}
                   <Tooltip>
@@ -186,7 +210,14 @@ export function MessageQueueDrawer({
                     <TooltipContent>{labels.remove}</TooltipContent>
                   </Tooltip>
                   {items.length > 1 && actions.length > 0 ? (
-                    <DropdownMenu>
+                    <DropdownMenu
+                      open={openActionsItemId === item.id}
+                      onOpenChange={(open) =>
+                        setOpenActionsItemId((current) =>
+                          open ? item.id : current === item.id ? null : current,
+                        )
+                      }
+                    >
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <DropdownMenuTrigger asChild>
@@ -213,20 +244,35 @@ export function MessageQueueDrawer({
                         side="top"
                         sideOffset={4}
                       >
-                        {actions.map((action) => (
-                          <DropdownMenuItem
-                            key={action.id}
-                            disabled={disabled || action.disabled}
-                            onSelect={() => action.onSelect(item)}
-                            className={cn(
-                              action.destructive &&
-                                "text-destructive focus:text-destructive",
-                            )}
-                          >
-                            {action.icon}
-                            {action.label}
-                          </DropdownMenuItem>
-                        ))}
+                        {actions.map((action) => {
+                          const menuItem = (
+                            <DropdownMenuItem
+                              key={action.id}
+                              disabled={disabled || action.disabled}
+                              onSelect={() => action.onSelect(item)}
+                              className={cn(
+                                action.destructive &&
+                                  "text-destructive focus:text-destructive",
+                              )}
+                            >
+                              {action.icon}
+                              {action.label}
+                            </DropdownMenuItem>
+                          );
+
+                          return action.hint ? (
+                            <Tooltip key={action.id}>
+                              <TooltipTrigger asChild>
+                                {menuItem}
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                {action.hint}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            menuItem
+                          );
+                        })}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   ) : null}

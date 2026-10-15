@@ -1,4 +1,9 @@
-import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
+import {
+  MCP_APP_EXTENSION_ID,
+  MCP_APP_MIME_TYPE,
+  type ActionAuthorize,
+  type ActionRunContext,
+} from "../action.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { formatMcpConnectError, httpStatusFromError } from "./errors.js";
 import {
@@ -69,6 +74,17 @@ export interface McpClientManagerOptions {
   debug?: boolean;
   connectTimeoutMs?: number;
 }
+
+export interface McpToolCallOptions {
+  /** Identity and invocation source forwarded to the authorization callback. */
+  context?: ActionRunContext;
+  /** Fallback used by standalone action wrappers without a manager resolver. */
+  authorize?: ActionAuthorize<Record<string, unknown>>;
+}
+
+export type McpToolAuthorizationResolver = (
+  tool: McpTool,
+) => ActionAuthorize<Record<string, unknown>> | undefined;
 
 function sameServerConfig(a: McpServerConfig, b: McpServerConfig): boolean {
   const typeA = a.type ?? "stdio";
@@ -170,12 +186,22 @@ export class McpClientManager {
   private config: McpConfig | null;
   private sdk: SdkModules | null = null;
   private readonly listeners: Set<() => void> = new Set();
+  private resolveToolAuthorization?: McpToolAuthorizationResolver;
   private reconfigureQueue: Promise<unknown> = Promise.resolve();
 
   constructor(config: McpConfig | null, options: McpClientManagerOptions = {}) {
     this.config = config;
     this.debug = !!options.debug;
     this.connectTimeoutMs = options.connectTimeoutMs;
+  }
+
+  /**
+   * Install the app-owned authorization resolver used by every MCP tool-call
+   * surface. Passing `undefined` restores the backwards-compatible no-policy
+   * behavior.
+   */
+  setToolAuthorizationResolver(resolver?: McpToolAuthorizationResolver): void {
+    this.resolveToolAuthorization = resolver;
   }
 
   get enabled(): boolean {
@@ -416,10 +442,12 @@ export class McpClientManager {
     );
     let handshakeComplete = false;
     let callbackError: unknown;
+    let callbackErrorsAreHttp400 = true;
     const recordConnectionError: ErrorSink = (error) => {
       const message = formatMcpConnectError(error);
       entry.error = message;
       callbackError ??= error;
+      callbackErrorsAreHttp400 &&= httpStatusFromError(error) === 400;
       if (handshakeComplete) this.emitChange();
       if (this.debug) {
         console.warn(
@@ -439,7 +467,18 @@ export class McpClientManager {
         `MCP server ${entry.id} connect`,
         timeoutMs,
       );
-      if (callbackError) throw callbackError;
+      if (callbackError) {
+        // Auto-negotiation can report its rejected probe before fallback succeeds.
+        const negotiatedAfterProbe =
+          cfg.type === "http" &&
+          httpStatusFromError(callbackError) === 400 &&
+          callbackErrorsAreHttp400 &&
+          typeof client.getNegotiatedProtocolVersion === "function" &&
+          Boolean(client.getNegotiatedProtocolVersion());
+        if (!negotiatedAfterProbe) throw callbackError;
+        callbackError = undefined;
+        entry.error = undefined;
+      }
       const listed = await withConnectTimeout(
         Promise.resolve(client.listTools()),
         `MCP server ${entry.id} tools/list`,
@@ -691,12 +730,21 @@ export class McpClientManager {
     return [...(this.servers.get(serverId)?.tools ?? [])];
   }
 
+  /** The config the server's current tools were loaded from. */
+  getServerConfig(serverId: string): McpServerConfig | null {
+    return this.servers.get(serverId)?.config ?? null;
+  }
+
   hasServer(serverId: string): boolean {
     const entry = this.servers.get(serverId);
     return !!entry?.client && !entry.error;
   }
 
-  async callTool(prefixedName: string, args: unknown): Promise<unknown> {
+  async callTool(
+    prefixedName: string,
+    args: unknown,
+    options: McpToolCallOptions = {},
+  ): Promise<unknown> {
     const parsed = parseMcpToolName(prefixedName);
     if (!parsed) {
       throw new Error(
@@ -711,19 +759,47 @@ export class McpClientManager {
         }`,
       );
     }
-    return this.withExpiredSessionRetry(entry, (current) => {
+    const normalizedArgs =
+      args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+    // The expired-session retry replays this attempt on a reconnected entry
+    // whose tool metadata was reloaded, so authorization must run per attempt.
+    return this.withExpiredSessionRetry(entry, async (current) => {
       const known = current.tools.find((t) => t.name === prefixedName);
       if (!known) {
         throw new Error(
           `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
         );
       }
-      return current.client.callTool({
+      const client = current.client;
+      const authorize =
+        this.resolveToolAuthorization?.(known) ?? options.authorize;
+      if (authorize) {
+        const verdict = await authorize(normalizedArgs, options.context);
+        if (verdict === false) {
+          const error = new Error("Not authorized") as Error & {
+            statusCode: number;
+          };
+          error.name = "ForbiddenError";
+          error.statusCode = 403;
+          throw error;
+        }
+      }
+      const liveEntry = this.servers.get(parsed.serverId);
+      const liveTool = liveEntry?.tools.find(
+        (tool) => tool.name === prefixedName,
+      );
+      if (
+        liveEntry !== current ||
+        liveEntry.client !== client ||
+        liveTool !== known
+      ) {
+        throw new Error(
+          `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
+        );
+      }
+      return client.callTool({
         name: parsed.toolName,
-        arguments:
-          args && typeof args === "object"
-            ? (args as Record<string, unknown>)
-            : {},
+        arguments: normalizedArgs,
       });
     });
   }
@@ -945,11 +1021,13 @@ async function mintFirstPartyMcpIdentityToken(
   trust: { orgId: string; appId: string; url: string } | null,
 ): Promise<string | null> {
   if (!trust) return null;
-  const [{ getRequestOrgId, getRequestUserEmail }, { signA2AToken }] =
-    await Promise.all([
-      import("../server/request-context.js"),
-      import("../a2a/client.js"),
-    ]);
+  const [
+    { getRequestOrgId, getRequestUserEmail },
+    { getGlobalA2ASecret, signA2AOrganizationToken, signA2AToken },
+  ] = await Promise.all([
+    import("../server/request-context.js"),
+    import("../a2a/client.js"),
+  ]);
   const userEmail = getRequestUserEmail();
   const requestOrgId = getRequestOrgId();
   if (requestOrgId && requestOrgId !== trust.orgId) {
@@ -960,24 +1038,25 @@ async function mintFirstPartyMcpIdentityToken(
   if (!(await isFirstPartyTrustCached({ ...trust, orgId }))) return null;
 
   const { orgDomain, orgSecret } = await resolveOrgSigningContext(orgId);
-  const subject =
-    userEmail && requestOrgId
-      ? userEmail
-      : (await import("../mcp/connect-store.js")).serviceIdentityEmail(
-          "mcp-client",
-          orgId,
-        );
-
-  return signA2AToken(subject, orgDomain, orgSecret, {
+  if (!orgDomain?.trim()) return null;
+  const extraClaims = {
+    jti: randomJti(),
+    scope: "mcp-connect",
+    agent_native_first_party_mcp: true,
+  };
+  const audience = firstPartyMcpAudienceForUrl(trust.url);
+  if (userEmail && requestOrgId && getGlobalA2ASecret()) {
+    return signA2AToken(userEmail, orgDomain, undefined, {
+      expiresIn: "5m",
+      audience,
+      preferGlobalSecret: true,
+      extraClaims,
+    });
+  }
+  return signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
     expiresIn: "5m",
-    audience: firstPartyMcpAudienceForUrl(trust.url),
-    preferGlobalSecret: !orgSecret,
-    extraClaims: {
-      jti: randomJti(),
-      scope: "mcp-connect",
-      org_id: orgId,
-      agent_native_first_party_mcp: true,
-    },
+    audience,
+    extraClaims,
   });
 }
 

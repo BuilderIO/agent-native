@@ -32,12 +32,12 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
-import { STORAGE_SETUP_REQUIRED_REASON } from "../server/lib/video-storage.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
 import {
   decodeScreenshotDataUrl,
   MAX_SCREENSHOT_BYTES,
 } from "./lib/screenshot-image.js";
+import { failStorageSetupRequired } from "./lib/storage-setup-error.js";
 
 export { MAX_SCREENSHOT_BYTES } from "./lib/screenshot-image.js";
 
@@ -118,9 +118,10 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
+    const visibility = await getDefaultRecordingVisibility(
       organizationId,
       actionContext?.userEmail ?? ownerEmail,
+      args.visibility,
     );
 
     // The same check a new recording gets: the folder has to be the
@@ -145,7 +146,7 @@ export default defineAction({
     // fallback: image bytes never belong in an app table, so a deployment
     // without file storage cannot take screenshots at all.
     if (!uploaded?.url) {
-      throw new Error(STORAGE_SETUP_REQUIRED_REASON);
+      failStorageSetupRequired();
     }
     const imageUrl = uploaded.url;
 
@@ -175,7 +176,7 @@ export default defineAction({
       videoSizeBytes: bytes.byteLength,
       hasAudio: false,
       hasCamera: false,
-      visibility: args.visibility ?? defaultVisibility,
+      visibility,
       width: args.width,
       height: args.height,
       ownerEmail,

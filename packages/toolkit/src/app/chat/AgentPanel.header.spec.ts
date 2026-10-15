@@ -9,7 +9,7 @@ import {
 } from "@agent-native/toolkit/ui/dropdown-menu";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useHref, useLocation } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -64,6 +64,26 @@ describe("AgentPanel compatibility exports", () => {
     expect(LegacyAgentToggleButton).toBe(AgentToggleButton);
     expect(legacyFocusAgentChat).toBe(focusAgentChat);
     expect(legacyPreloadAgentChatSurface).toBe(preloadAgentChatSurface);
+  });
+
+  it("uses a stable-ref link in the full-view menu item", () => {
+    const source = readSource("src/app/chat/AgentPanel.tsx", "utf8").replace(
+      /\s+/g,
+      " ",
+    );
+
+    expect(source).toContain(
+      "<DropdownMenuItem asChild> <RouterSidebarLink to={fullViewAction.href}",
+    );
+    const linkStart = source.indexOf(
+      "<RouterSidebarLink to={fullViewAction.href}",
+    );
+    const linkEnd = source.indexOf("</RouterSidebarLink>", linkStart);
+    expect(linkStart).toBeGreaterThan(-1);
+    expect(linkEnd).toBeGreaterThan(linkStart);
+    const fullViewLink = source.slice(linkStart, linkEnd);
+    expect(fullViewLink).toContain('t("agentPanel.openFullView")');
+    expect(fullViewLink).not.toMatch(/<Icon|<svg/);
   });
 });
 
@@ -132,6 +152,18 @@ describe("AgentPanel fullscreen menu", () => {
       await act(async () => root.unmount());
       container.remove();
     }
+  });
+});
+
+describe("AgentPanel suggestion placement", () => {
+  it("forwards explicit placement and defaults to context chips", () => {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(
+      /suggestionPlacement=\{\s*assistantChatProps\.suggestionPlacement \?\? "context-chips"\s*\}/,
+    );
   });
 });
 
@@ -276,6 +308,18 @@ describe("AgentPanel header tab visibility", () => {
     ).toBe(true);
   });
 
+  it("keeps page chrome visible while a persisted thread is restoring", () => {
+    expect(shouldShowAgentPanelPageHeader([chatTab("main")], "main", 0)).toBe(
+      false,
+    );
+    expect(
+      shouldShowAgentPanelPageHeader([chatTab("main")], "main", 0, false, true),
+    ).toBe(true);
+    expect(
+      shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 0, true),
+    ).toBe(true);
+  });
+
   it("can keep the page history menu visible for an empty chat", () => {
     expect(
       shouldShowAgentPanelPageHeader([chatTab("main")], "main", 0, true),
@@ -304,6 +348,24 @@ describe("AgentPanel header tab visibility", () => {
     expect(shouldDefaultAgentChatSurfacePageHeader("page")).toBe(true);
     expect(shouldDefaultAgentChatSurfacePageHeader("panel")).toBe(false);
     expect(shouldDefaultAgentChatSurfacePageHeader(undefined)).toBe(false);
+  });
+
+  it("exposes page header composition without moving it into app chrome", () => {
+    const source = readSource("src/app/chat/AgentPanel.tsx", "utf8");
+
+    expect(source).toContain('data-agent-page-chat-header=""');
+    expect(source).toContain("pageHeaderLeadingSlot");
+    expect(source).toContain("pageToolbarSlot");
+    expect(source).toContain("activeTab?.label");
+    expect(source).toContain('data-agent-page-title-menu=""');
+    expect(source).toContain("<IconShare3 size={15}");
+    expect(source.indexOf("<IconShare3 size={15}")).toBeLessThan(
+      source.indexOf(
+        "{pageToolbarSlot}",
+        source.indexOf("triggerContent={<IconShare3"),
+      ),
+    );
+    expect(source).toContain("border-b border-border/70");
   });
 
   it("normalizes legacy and unknown modes back to chat", () => {
@@ -395,6 +457,45 @@ describe("AgentPanel settings navigation", () => {
     }
   });
 
+  it("keeps a settings request inside the mounted app path", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    let href = "";
+
+    function LocationProbe() {
+      const location = useLocation();
+      href = useHref(`${location.pathname}${location.hash}`);
+      return null;
+    }
+
+    try {
+      vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+      act(() => {
+        window.history.replaceState(null, "", "/dispatch/chat#llm");
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { basename: "/dispatch", initialEntries: ["/dispatch/chat#llm"] },
+            React.createElement(AgentPanelSettingsNavigation),
+            React.createElement(LocationProbe),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
+      });
+
+      expect(href).toBe("/dispatch/settings#llm");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      window.history.replaceState(null, "", "/");
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("routes a mounted settings request to an existing secret-specific hash", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -482,7 +583,7 @@ describe("AgentPanel settings navigation", () => {
     }
   });
 
-  it("preserves the app base path when opening settings", () => {
+  it("navigates with a router-local settings path", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root: Root = createRoot(container);
@@ -495,11 +596,10 @@ describe("AgentPanel settings navigation", () => {
 
     try {
       act(() => {
-        window.history.replaceState(null, "", "/dispatch/_agent-native/poll");
         root.render(
           React.createElement(
             MemoryRouter,
-            { initialEntries: ["/"] },
+            { initialEntries: ["/chat"] },
             React.createElement(AgentPanelSettingsNavigation),
             React.createElement(LocationProbe),
           ),
@@ -514,11 +614,10 @@ describe("AgentPanel settings navigation", () => {
         );
       });
 
-      expect(pathname).toBe("/dispatch/settings");
+      expect(pathname).toBe("/settings");
     } finally {
       act(() => root.unmount());
       container.remove();
-      window.history.replaceState(null, "", "/");
     }
   });
 
@@ -662,6 +761,28 @@ describe("AgentPanel Integrations link", () => {
     } finally {
       window.history.replaceState(null, "", "/");
     }
+  });
+
+  it("sits right after Open full view and shares its separator", () => {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const overflowMenu = source.slice(
+      source.indexOf("<DropdownMenu open="),
+      source.indexOf("const renderPageChatOverlay"),
+    );
+    const fullView = overflowMenu.lastIndexOf('t("agentPanel.openFullView")');
+    const integrations = overflowMenu.indexOf('t("agentPanel.integrations")');
+    const separator = overflowMenu.indexOf(
+      "<DropdownMenuSeparator />",
+      fullView,
+    );
+
+    expect(integrations).toBeGreaterThan(fullView);
+    expect(integrations).toBeLessThan(separator);
+    expect(overflowMenu).toContain(
+      "fullViewAction ||\n            integrationsHref ? (",
+    );
   });
 });
 
@@ -884,6 +1005,152 @@ describe("AgentPanel header overflow actions", () => {
     expect(secondEvent.preventDefault).not.toHaveBeenCalled();
     expect(openOverlay).toHaveBeenCalledOnce();
   });
+
+  it("keeps width and full-view actions out of the icon row", () => {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const sidebarSource = readSource("src/app/chat/AgentSidebar.tsx", {
+      encoding: "utf8",
+    });
+    const headerActions = source.slice(
+      source.indexOf("const renderHeaderActions"),
+      source.indexOf(
+        "<DropdownMenu open=",
+        source.indexOf("const renderHeaderActions"),
+      ),
+    );
+    const overflowMenu = source.slice(
+      source.indexOf("<DropdownMenu open="),
+      source.indexOf("const renderPageChatOverlay"),
+    );
+
+    expect(headerActions).not.toContain("IconArrowsHorizontal");
+    expect(headerActions).not.toContain("IconArrowsMaximize");
+    expect(overflowMenu).toContain("onSelect={wideDrawerAction}");
+    expect(overflowMenu).toContain(
+      "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
+    );
+    expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(3);
+    expect(source).toContain("event.preventDefault();");
+    expect(overflowMenu).toContain(
+      "toggleHistory,\n                    pendingHeaderOverlayRef",
+    );
+    expect(overflowMenu).toContain("onCloseAutoFocus");
+    expect(
+      overflowMenu.match(/closeHeaderMenuForOverlay/g)?.length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(overflowMenu).toContain('t("agentPanel.openFullView")');
+    expect(overflowMenu).toContain("<AgentPanelFullViewMenuItem");
+    expect(overflowMenu).toContain("activeTabId={activeTabId}");
+    expect(overflowMenu).toContain("onFullViewRequest={onFullViewRequest}");
+    expect(sidebarSource).toContain("onFullViewRequest={onFullscreenRequest}");
+    expect(overflowMenu).not.toContain("fullscreenHint");
+    expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
+  });
+
+  it("keeps the overflow menu scrollable within the viewport", () => {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const overflowMenu = source.slice(
+      source.indexOf("<DropdownMenu open="),
+      source.indexOf("const renderPageChatOverlay"),
+    );
+
+    expect(overflowMenu).toContain(
+      "max-h-[var(--radix-dropdown-menu-content-available-height)]",
+    );
+    expect(overflowMenu).toContain("overflow-y-auto");
+  });
+
+  it("offers sharing from the sidebar overflow for an active chat", () => {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const overflowMenu = source.slice(
+      source.indexOf("<DropdownMenu open="),
+      source.indexOf("const renderPageChatOverlay"),
+    );
+
+    expect(overflowMenu).toContain("<IconShare3");
+    expect(overflowMenu).toContain("setShareFromMenuOpen(true)");
+    expect(overflowMenu).not.toContain('trigger="label-icon"');
+    expect(overflowMenu).toContain("activeTabMessageCount <= 0");
+    expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
+    expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
+    expect(overflowMenu).toContain(
+      "setShareFromMenuOpen(true),\n                        pendingHeaderOverlayRef",
+    );
+  });
+
+  it("keeps chat headers persistent while switching app surfaces", () => {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain(
+      ".agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:0;pointer-events:none;",
+    );
+  });
+
+  it("supports a persistent two-state sidebar toggle", () => {
+    const source = readSource("src/app/chat/AgentSidebar.tsx", {
+      encoding: "utf8",
+    });
+    const panelSource = readSource("src/app/chat/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("if (open && !showWhenOpen) return null");
+    expect(source).toContain("aria-pressed={open}");
+    expect(source).toContain('data-state={open ? "open" : "closed"}');
+    expect(source).toContain(
+      "{icon ?? <IconLayoutSidebarRight size={18} aria-hidden />}",
+    );
+    expect(source).not.toContain("IconLayoutSidebarRightExpand");
+    expect(panelSource).toContain("{onCollapse && showCollapseButton && (");
+    expect(source).toContain("showCollapseButton={showCollapseButton}");
+  });
+
+  it("keeps host CLI tabs mounted while chat is active", () => {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain('(mode === "cli" || Boolean(renderCliTab))');
+    expect(source).toContain('active: mode === "cli" && id === activeCliTab');
+    expect(source).toContain("const [mountedCliTabs, setMountedCliTabs]");
+    expect(source).toContain(
+      "cliTabs.filter((id) => mountedCliTabs.includes(id))",
+    );
+    expect(source).toContain("previousDefaultModeRef.current === defaultMode");
+  });
+
+  it("only shows tabs for the active desktop surface", () => {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(/\{mode === "chat" &&\s+mainTabs\.map/);
+    expect(source).toMatch(/\{mode === "cli" &&\s+cliTabs\.map/);
+  });
+});
+
+describe("AgentSidebar wide drawer layout", () => {
+  it("does not reserve the drawer placeholder after the panel closes", () => {
+    const source = readSource("src/app/chat/AgentSidebar.tsx", {
+      encoding: "utf8",
+    });
+    const placeholderStart = source.indexOf("const drawerPlaceholder");
+    const placeholderEnd = source.indexOf("return (", placeholderStart);
+    const placeholder = source.slice(placeholderStart, placeholderEnd);
+
+    expect(placeholder).toContain(
+      "wideDrawerEnabled && !presentationMode && panelOpen ? (",
+    );
+    expect(placeholder).not.toContain("shouldRenderPanel");
+  });
 });
 
 describe("AgentChatSurface chrome defaults", () => {
@@ -904,7 +1171,6 @@ describe("AgentChatSurface chrome defaults", () => {
     expect(source).not.toContain("SettingsPanel");
     expect(source).not.toContain("allowSettingsMode");
     expect(source).not.toContain('mode === "settings"');
-    expect(source).toContain('pathname: appPath("/settings")');
   });
 
   it("mounts URL command sync for a full-page chat surface", () => {

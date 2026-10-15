@@ -1,12 +1,10 @@
-import { LLM_MISSING_CREDENTIALS_ERROR_CODE } from "../agent/engine/credential-errors.js";
-import { getOwnerActiveApiKey } from "../agent/production-agent.js";
 import {
   automationMatchesEventOwner,
   resolveAutomationExecutionIdentity,
   type AutomationExecutionIdentity,
 } from "../automations/service.js";
 import { isProductionServerlessFunctionRuntime } from "../db/client.js";
-import { subscribe, unsubscribe } from "../event-bus/index.js";
+import { subscribeAll, unsubscribe } from "../event-bus/index.js";
 import type { EventMeta } from "../event-bus/types.js";
 import {
   countAutomationCredentialState,
@@ -23,6 +21,7 @@ import {
 } from "../jobs/automation-outcome.js";
 import {
   BackgroundAutomationRunError,
+  checkBackgroundAutomationCredentials,
   isBackgroundAutomationRunActive,
   runBackgroundAutomation,
   type BackgroundAutomationContext,
@@ -40,12 +39,14 @@ import {
   type RecurringSweepContext,
 } from "../jobs/sweep-hooks.js";
 import {
+  resourceFingerprintAllOwners,
   resourceGetByPath,
-  resourceListAllOwners,
+  resourceListAllOwnersWithFingerprint,
   resourcePutIfCurrent,
   type Resource,
 } from "../resources/store.js";
 import { startIntervalJob } from "../server/interval-job.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import {
   AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE,
@@ -54,7 +55,6 @@ import {
   claimNextAutomationTriggerEvent,
   completeAutomationTriggerEvent,
   enqueueAutomationTriggerEvent,
-  ensureAutomationTriggerEventQueue,
   expireStaleAutomationTriggerEvents,
   expireAutomationTriggerEvent,
   failAutomationTriggerEvent,
@@ -102,7 +102,6 @@ export interface TriggerDispatcherDeps extends BackgroundAutomationDeps {
 
 export type AutomationWebhookTaskResult = "completed" | "retry";
 
-const _eventSubscriptions = new Map<string, string>();
 const _dispatchingTriggers = new Set<string>();
 const _drainingTriggers = new Map<string, Promise<boolean>>();
 const MAX_TRIGGER_PAYLOAD_PROMPT_CHARS = 4_000;
@@ -123,7 +122,37 @@ const DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS: AutomationTriggerQueueQueryOptions =
   {
     timeoutMs: DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS,
   };
+const EVENT_AUTOMATION_NAMES_TTL_MS = 60_000;
+// How long a cached "no automation" answer is trusted before a cheap
+// fingerprint read checks whether another instance changed jobs/.
+const EVENT_AUTOMATION_CHECK_INTERVAL_MS = 5_000;
+// The check sits in front of every event's dispatch, so it must fail fast and
+// then step aside: after a failure, events take the full read until this
+// passes, instead of each retrying a stalled query first.
+const EVENT_AUTOMATION_CHECK_TIMEOUT_MS = 2_000;
+let _eventAutomationCheckRetryAt = 0;
 let _deps: TriggerDispatcherDeps | null = null;
+let _anyEventSubscriptionId: string | null = null;
+// null = not loaded, or invalidated by a refresh. Never read as "no automations".
+// `fingerprint` describes exactly the rows `names` was read from, so a matching
+// fingerprint read proves `names` is current, even after an undo restores
+// earlier rows.
+let _eventAutomationNames: {
+  names: Set<string>;
+  loadedAt: number;
+  checkedAt: number;
+  fingerprint: string;
+} | null = null;
+let _inflightEventAutomationCheck: Promise<Set<string> | null> | null = null;
+let _eventAutomationScanCount = 0;
+// Bumped by each refresh so a read that started earlier cannot overwrite the
+// newer snapshot when it finishes later.
+let _eventAutomationGeneration = 0;
+let _inflightEventAutomationScan: {
+  generation: number;
+  seq: number;
+  scan: Promise<Resource[]>;
+} | null = null;
 let _triggerQueueWorkerStarted = false;
 // ponytail: warm-process backoff resets on cold start; persist only if cold churn warrants it.
 let _triggerQueueIdleBackoffMs = 0;
@@ -193,11 +222,15 @@ async function recordTriggerSkip(
   resource: Resource,
   status: "skipped" | "error",
   reason: string | undefined,
+  errorCode?: string,
 ): Promise<void> {
   await recordTriggerExecutionOutcome(resource, {
     lastCheck: new Date().toISOString(),
     lastStatus: status,
     lastError: reason,
+    ...(status === "error" && errorCode !== undefined
+      ? { lastErrorCode: errorCode }
+      : {}),
   });
 }
 
@@ -205,7 +238,7 @@ async function recordTriggerExecutionOutcome(
   resource: Resource,
   outcome: Pick<
     TriggerFrontmatter,
-    "lastCheck" | "lastStatus" | "lastError" | "lastRun"
+    "lastCheck" | "lastStatus" | "lastError" | "lastErrorCode" | "lastRun"
   >,
   /**
    * `failure` advances the consecutive-failure streak and may pause the
@@ -296,8 +329,16 @@ export async function initTriggerDispatcher(
 ): Promise<void> {
   _deps = deps;
   resetTriggerQueueWorkerBackoff();
-  await ensureAutomationTriggerEventQueue();
-  await refreshEventSubscriptions();
+  // Init runs in an un-awaited Nitro plugin, so on a serverless request
+  // function any query here outlives the response and the frozen instance
+  // thaws into a timeout. Automations load on the first emitted event instead.
+  _eventAutomationNames = null;
+  _inflightEventAutomationCheck = null;
+  _eventAutomationCheckRetryAt = 0;
+  _inflightEventAutomationScan = null;
+  _eventAutomationGeneration += 1;
+  if (_anyEventSubscriptionId) unsubscribe(_anyEventSubscriptionId);
+  _anyEventSubscriptionId = subscribeAll(handleAnyEvent);
   registerRecurringSweepHandler("automation-trigger-queue", async (context) => {
     await drainReadyTriggerQueue(context);
   });
@@ -650,35 +691,161 @@ async function drainReadyTriggerQueue(
   }
 }
 
+/**
+ * Every jobs scan also refreshes the cached event names, unless a refresh
+ * started after it did. One scan per generation is in flight at a time, so a
+ * burst of events shares it and same-generation scans cannot land out of order.
+ */
+function listEventAutomationResources(): Promise<Resource[]> {
+  const generation = _eventAutomationGeneration;
+  const inflight = _inflightEventAutomationScan;
+  if (inflight?.generation === generation) return inflight.scan;
+  const seq = ++_eventAutomationScanCount;
+  const scan = resourceListAllOwnersWithFingerprint("jobs/").then(
+    ({ resources, fingerprint }) => {
+      if (generation === _eventAutomationGeneration) {
+        _eventAutomationNames = {
+          names: eventAutomationNames(resources),
+          loadedAt: Date.now(),
+          checkedAt: Date.now(),
+          fingerprint,
+        };
+      }
+      return resources;
+    },
+  );
+  _inflightEventAutomationScan = { generation, seq, scan };
+  void scan
+    .finally(() => {
+      if (_inflightEventAutomationScan?.scan === scan) {
+        _inflightEventAutomationScan = null;
+      }
+    })
+    .catch(() => undefined);
+  return scan;
+}
+
+function eventAutomationNames(jobResources: Resource[]): Set<string> {
+  const names = new Set<string>();
+  for (const resource of jobResources) {
+    if (!resource.path.endsWith(".md")) continue;
+    const { meta } = parseTriggerFrontmatter(resource.content);
+    if (!jobBelongsToApp(meta, _deps?.appId)) continue;
+    if (meta.triggerType === "event" && meta.event && meta.enabled) {
+      names.add(meta.event);
+    }
+  }
+  return names;
+}
+
+function cachedEventAutomationNames(): Set<string> | null {
+  const cached = _eventAutomationNames;
+  return cached && Date.now() - cached.loadedAt < EVENT_AUTOMATION_NAMES_TTL_MS
+    ? cached.names
+    : null;
+}
+
+/** A jobs scan that began after scan number `seq` was handed out. */
+async function scanStartedAfter(seq: number): Promise<Resource[]> {
+  for (;;) {
+    const inflight = _inflightEventAutomationScan;
+    if (
+      !inflight ||
+      inflight.seq > seq ||
+      inflight.generation !== _eventAutomationGeneration
+    ) {
+      return listEventAutomationResources();
+    }
+    await inflight.scan.then(
+      () => undefined,
+      () => undefined,
+    );
+  }
+}
+
+/**
+ * Event names as of a fingerprint read made by this call. Rejects when jobs
+ * cannot be read.
+ */
+async function readCurrentEventAutomationNames(): Promise<Set<string>> {
+  for (;;) {
+    const generation = _eventAutomationGeneration;
+    const fingerprint = await resourceFingerprintAllOwners("jobs/");
+    // Counted after the read returns: a scan that began while it was running
+    // may have read jobs/ before a write the fingerprint already includes.
+    const scansBefore = _eventAutomationScanCount;
+    if (generation !== _eventAutomationGeneration) continue;
+    const cached = _eventAutomationNames;
+    if (cached?.fingerprint === fingerprint) {
+      // The fingerprint covers every row and local file the list was read
+      // from, so a match renews the list as much as a fresh read would.
+      cached.checkedAt = Date.now();
+      cached.loadedAt = cached.checkedAt;
+      return cached.names;
+    }
+    const names = eventAutomationNames(await scanStartedAfter(scansBefore));
+    if (generation !== _eventAutomationGeneration) continue;
+    return names;
+  }
+}
+
+/**
+ * Cached names, re-verified at most every few seconds. `null` means unknown
+ * (cold, expired, or the check failed), never "no automations".
+ */
+function checkedEventAutomationNames(): Promise<Set<string> | null> {
+  const cached = _eventAutomationNames;
+  const names = cachedEventAutomationNames();
+  if (!cached || !names) return Promise.resolve(null);
+  if (Date.now() - cached.checkedAt < EVENT_AUTOMATION_CHECK_INTERVAL_MS) {
+    return Promise.resolve(names);
+  }
+  if (Date.now() < _eventAutomationCheckRetryAt) return Promise.resolve(null);
+  _inflightEventAutomationCheck ??= checkEventAutomationFingerprint()
+    .catch((err: unknown) => {
+      _eventAutomationCheckRetryAt =
+        Date.now() + EVENT_AUTOMATION_CHECK_INTERVAL_MS;
+      console.warn(
+        "[triggers] Could not check cached event automations; reading them in full:",
+        err,
+      );
+      return null;
+    })
+    .finally(() => {
+      _inflightEventAutomationCheck = null;
+    });
+  return _inflightEventAutomationCheck;
+}
+
+/**
+ * One bounded fingerprint read: the cached names when jobs/ is unchanged, or
+ * `null` when it changed. The check never scans, so every event waiting on it
+ * waits for one short query; the event's own scan then reloads the names.
+ */
+async function checkEventAutomationFingerprint(): Promise<Set<string> | null> {
+  const generation = _eventAutomationGeneration;
+  const fingerprint = await resourceFingerprintAllOwners("jobs/", {
+    timeoutMs: EVENT_AUTOMATION_CHECK_TIMEOUT_MS,
+  });
+  const cached = _eventAutomationNames;
+  if (generation !== _eventAutomationGeneration) return null;
+  if (cached?.fingerprint !== fingerprint) return null;
+  // The fingerprint covers every row and local file the list was read from,
+  // so a match renews the list as much as a fresh read would.
+  cached.checkedAt = Date.now();
+  cached.loadedAt = cached.checkedAt;
+  return cached.names;
+}
+
+/**
+ * Reloads which events have automations, e.g. after one is defined or
+ * deleted. `false` means the load failed; the next event reads fresh.
+ */
 export async function refreshEventSubscriptions(): Promise<boolean> {
+  _eventAutomationGeneration += 1;
+  _eventAutomationNames = null;
   try {
-    const jobResources = await resourceListAllOwners("jobs/");
-    const eventNames = new Set<string>();
-
-    for (const resource of jobResources) {
-      if (!resource.path.endsWith(".md")) continue;
-      const { meta } = parseTriggerFrontmatter(resource.content);
-      if (!jobBelongsToApp(meta, _deps?.appId)) continue;
-      if (meta.triggerType === "event" && meta.event && meta.enabled) {
-        eventNames.add(meta.event);
-      }
-    }
-
-    for (const [eventName, subId] of [..._eventSubscriptions]) {
-      if (!eventNames.has(eventName)) {
-        unsubscribe(subId);
-        _eventSubscriptions.delete(eventName);
-      }
-    }
-
-    for (const eventName of eventNames) {
-      if (!_eventSubscriptions.has(eventName)) {
-        const subId = subscribe(eventName, (payload, eventMeta) =>
-          handleEvent(eventName, payload, eventMeta),
-        );
-        _eventSubscriptions.set(eventName, subId);
-      }
-    }
+    await listEventAutomationResources();
     return true;
   } catch (err) {
     console.error("[triggers] Failed to refresh event subscriptions:", err);
@@ -686,16 +853,58 @@ export async function refreshEventSubscriptions(): Promise<boolean> {
   }
 }
 
+/**
+ * Whether an enabled event automation in this app listens for `eventName`.
+ * Only a cached `true` is reused: callers act on `false` by discarding work
+ * (Mail advances its history cursor), so `false` is always backed by a
+ * fingerprint read made by this call. Rejects when automations cannot be read.
+ */
+export async function hasEventAutomation(eventName: string): Promise<boolean> {
+  if (cachedEventAutomationNames()?.has(eventName)) return true;
+  return (await readCurrentEventAutomationNames()).has(eventName);
+}
+
+/**
+ * A jobs scan that began after scan number `seq` and is still current when it
+ * finishes: an earlier scan, or one a refresh invalidated mid-flight, may
+ * predate a new automation.
+ */
+async function currentEventAutomationResources(
+  seq: number,
+): Promise<Resource[]> {
+  for (;;) {
+    const generation = _eventAutomationGeneration;
+    const jobResources = await scanStartedAfter(seq);
+    if (generation === _eventAutomationGeneration) return jobResources;
+  }
+}
+
+async function handleAnyEvent(
+  eventName: string,
+  payload: unknown,
+  eventMeta: EventMeta,
+): Promise<void> {
+  // Taken on arrival: a scan already running may have read jobs/ before an
+  // automation another instance just created, so the event must not reuse it.
+  const scansBeforeEvent = _eventAutomationScanCount;
+  // Unknown names cost no extra failure point: handleEvent's own scan reloads
+  // them.
+  if ((await checkedEventAutomationNames())?.has(eventName) === false) return;
+  await handleEvent(eventName, payload, eventMeta, scansBeforeEvent);
+}
+
 async function handleEvent(
   eventName: string,
   payload: unknown,
   eventMeta: EventMeta,
+  scansBeforeEvent: number,
 ): Promise<void> {
   const deps = _deps;
   if (!deps) return;
 
   try {
-    const jobResources = await resourceListAllOwners("jobs/");
+    const jobResources =
+      await currentEventAutomationResources(scansBeforeEvent);
     const matchingTriggers = jobResources.filter((resource) => {
       if (!resource.path.endsWith(".md")) return false;
       const { meta, body } = parseTriggerFrontmatter(resource.content);
@@ -708,22 +917,40 @@ async function handleEvent(
       );
     });
 
+    let enqueueFailures = 0;
+    let firstEnqueueError: unknown;
+    let firstFailedPath: string | undefined;
     for (const resource of matchingTriggers) {
-      await enqueueAutomationTriggerEvent({
-        triggerId: resource.id,
-        triggerOwner: resource.owner,
-        triggerPath: resource.path,
-        appId: deps.appId,
-        eventName,
-        eventId: eventMeta.eventId,
-        payload,
-        eventOwner: eventMeta.owner,
-        emittedAt: eventMeta.emittedAt,
-      });
+      try {
+        await enqueueAutomationTriggerEvent({
+          triggerId: resource.id,
+          triggerOwner: resource.owner,
+          triggerPath: resource.path,
+          appId: deps.appId,
+          eventName,
+          eventId: eventMeta.eventId,
+          payload,
+          eventOwner: eventMeta.owner,
+          emittedAt: eventMeta.emittedAt,
+        });
+      } catch (error) {
+        // One automation's queue write failing must not drop the event for the
+        // rest: attempt every match, then surface the failures once.
+        enqueueFailures += 1;
+        firstEnqueueError ??= error;
+        firstFailedPath ??= resource.path;
+        continue;
+      }
       resetTriggerQueueWorkerBackoff();
       if (!isProductionServerlessFunctionRuntime()) {
         void startTriggerDrain(resource.id);
       }
+    }
+    if (enqueueFailures > 0) {
+      throw new Error(
+        `Failed to queue event "${eventName}" for ${enqueueFailures} of ${matchingTriggers.length} matching automation(s); first failure at "${firstFailedPath ?? "unknown"}".`,
+        { cause: firstEnqueueError },
+      );
     }
   } catch (err) {
     console.error(`[triggers] Error handling event "${eventName}":`, err);
@@ -969,6 +1196,7 @@ async function dispatchQueuedAutomationEvent(
         resource,
         "error",
         "Could not verify the automation execution identity.",
+        "owner_unverifiable",
       );
       throw error;
     }
@@ -994,7 +1222,12 @@ async function dispatchQueuedAutomationEvent(
         );
         return "completed";
       }
-      await recordTriggerSkip(resource, "skipped", resolved.reason);
+      await recordTriggerSkip(
+        resource,
+        "error",
+        resolved.reason,
+        resolved.code,
+      );
       return "completed";
     }
     if (!automationMatchesEventOwner(resolved.identity, queued.eventOwner)) {
@@ -1003,34 +1236,49 @@ async function dispatchQueuedAutomationEvent(
     identity = resolved.identity;
   }
 
-  // The key only feeds the natural-language condition check; the run itself
-  // verifies the LLM credential before it starts a thread, with the same
-  // identity-aware check as interactive chat.
-  const apiKey =
-    (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
-  if (!apiKey && meta.condition?.trim()) {
-    await recordTriggerExecutionOutcome(
-      resource,
-      { lastCheck: new Date().toISOString() },
-      {
-        failure: {
-          code: LLM_MISSING_CREDENTIALS_ERROR_CODE,
-          message:
-            "No API key is available to evaluate this automation's condition.",
-          precondition: true,
-        },
-      },
+  // The condition check must see the same credential (owner key or Builder
+  // Gateway) the run itself would use, with the same identity-aware check as
+  // interactive chat — a raw provider API key is not how most owners are
+  // actually authorized to call a model.
+  let classifierEngine: BackgroundAutomationDeps["engine"];
+  let classifierModel: string | undefined;
+  if (meta.condition?.trim()) {
+    const credentialCheck = await checkBackgroundAutomationCredentials(
+      { ownerEmail: identity.userEmail, orgId: identity.orgId },
+      deps,
+      meta.model,
     );
-    return "completed";
+    if (!credentialCheck.ok) {
+      await recordTriggerExecutionOutcome(
+        resource,
+        { lastCheck: new Date().toISOString() },
+        { failure: credentialCheck.failure },
+      );
+      return "completed";
+    }
+    classifierEngine = credentialCheck.engine;
+    classifierModel = credentialCheck.model;
   }
 
   let matches: boolean;
   try {
-    matches = await evaluateCondition(
-      meta.condition,
-      queued.payload,
-      apiKey ?? "",
-      { deadlineAt: hardDeadlineAt },
+    matches = await runWithRequestContext(
+      { userEmail: identity.userEmail, orgId: identity.orgId },
+      () =>
+        evaluateCondition(
+          meta.condition,
+          queued.payload,
+          {
+            userEmail: identity.userEmail,
+            orgId: identity.orgId,
+            appId: deps.appId,
+          },
+          {
+            deadlineAt: hardDeadlineAt,
+            engine: classifierEngine,
+            resolvedModel: classifierModel,
+          },
+        ),
     );
   } catch (error) {
     const reason =
@@ -1103,13 +1351,22 @@ export async function dispatchAutomationWebhookTask(
   );
   if (!resolved.ok) throw new Error(resolved.reason);
   const identity = resolved.identity;
-  const apiKey =
-    (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
-  if (!apiKey && meta.condition?.trim()) {
-    throw new BackgroundAutomationRunError(
-      "No API key is available to evaluate this automation's condition.",
-      LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  let classifierEngine: BackgroundAutomationDeps["engine"];
+  let classifierModel: string | undefined;
+  if (meta.condition?.trim()) {
+    const credentialCheck = await checkBackgroundAutomationCredentials(
+      { ownerEmail: identity.userEmail, orgId: identity.orgId },
+      deps,
+      meta.model,
     );
+    if (!credentialCheck.ok) {
+      throw new BackgroundAutomationRunError(
+        credentialCheck.failure.message,
+        credentialCheck.failure.code,
+      );
+    }
+    classifierEngine = credentialCheck.engine;
+    classifierModel = credentialCheck.model;
   }
 
   if (isBackgroundAutomationRunActive(meta)) {
@@ -1117,10 +1374,19 @@ export async function dispatchAutomationWebhookTask(
   }
   let matches: boolean;
   try {
-    matches = await evaluateCondition(
-      meta.condition,
-      task.payload,
-      apiKey ?? "",
+    matches = await runWithRequestContext(
+      { userEmail: identity.userEmail, orgId: identity.orgId },
+      () =>
+        evaluateCondition(
+          meta.condition,
+          task.payload,
+          {
+            userEmail: identity.userEmail,
+            orgId: identity.orgId,
+            appId: deps.appId,
+          },
+          { engine: classifierEngine, resolvedModel: classifierModel },
+        ),
     );
   } catch (err) {
     const reason =
@@ -1191,11 +1457,16 @@ async function dispatchAgentic(
     );
     return true;
   }
+  if (isBackgroundAutomationRunActive(latestTrigger.meta)) return false;
   const runningMeta: TriggerFrontmatter = {
     ...latestTrigger.meta,
     lastRun: now.toISOString(),
     lastStatus: "running",
     lastError: undefined,
+    // Event firings must not inherit a scheduler firing's recovery identity.
+    lastHistoryId: undefined,
+    lastRunManual: undefined,
+    lastRunAdvanceSchedule: undefined,
   };
   const claimed = await resourcePutIfCurrent({
     owner: resource.owner,
@@ -1204,6 +1475,9 @@ async function dispatchAgentic(
       lastRun: runningMeta.lastRun,
       lastStatus: "running",
       lastError: undefined,
+      lastHistoryId: runningMeta.lastHistoryId,
+      lastRunManual: runningMeta.lastRunManual,
+      lastRunAdvanceSchedule: runningMeta.lastRunAdvanceSchedule,
     }),
     expectedId: latest.id,
     expectedUpdatedAt: latest.updatedAt,
@@ -1251,7 +1525,7 @@ async function dispatchAgentic(
       : undefined;
 
   try {
-    await runBackgroundAutomation(
+    const result = await runBackgroundAutomation(
       {
         automation,
         ownerEmail: jobUserEmail,
@@ -1282,10 +1556,10 @@ async function dispatchAgentic(
     );
 
     await recordTriggerExecutionOutcome(latest, {
-      lastStatus: "success",
-      lastError: undefined,
+      lastStatus: result.status,
+      lastError: result.status === "skipped" ? result.reason : undefined,
     });
-    console.log(`[triggers] "${triggerName}" completed successfully`);
+    console.log(`[triggers] "${triggerName}" ${result.status}`);
     return true;
   } catch (err) {
     const failure = classifyAutomationFailure(err);

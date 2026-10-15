@@ -63,7 +63,7 @@ describe("index-design-system-with-builder", () => {
       new FeatureNotConfiguredError({
         requiredCredential: "BUILDER_PRIVATE_KEY",
         message:
-          "Connect Builder.io (free tier available) before indexing a design system from Figma or code.",
+          "Use Builder.io (free tier available) before indexing a design system from Figma or code.",
         builderConnectUrl: "/_agent-native/builder/connect",
       }),
     );
@@ -77,7 +77,7 @@ describe("index-design-system-with-builder", () => {
       errorCode: "builder_not_configured",
       statusCode: 412,
       message:
-        "Connect Builder.io (free tier available) before indexing a design system from Figma or code.",
+        "Use Builder.io (free tier available) before indexing a design system from Figma or code.",
       details: { builderConnectUrl: "/_agent-native/builder/connect" },
     });
   });

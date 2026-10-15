@@ -56,6 +56,7 @@ interface ActiveCapture {
   commitFn: PendingTextHostCommitFn | null;
   retryTimer: number | null;
   teardown: Array<{ run: () => void; kind: TeardownKind; done: boolean }>;
+  onSettled?: (outcome: "accepted" | "failed") => void;
 }
 
 let active: ActiveCapture | null = null;
@@ -192,7 +193,7 @@ function attemptHostCommit(record: ActiveCapture): void {
     error = caught;
   }
   if (committed) {
-    settleHostCommit(record);
+    settleHostCommit(record, "accepted");
     return;
   }
   const delay = HOST_COMMIT_RETRY_DELAYS_MS[record.commitAttempts];
@@ -204,16 +205,84 @@ function attemptHostCommit(record: ActiveCapture): void {
     }, delay);
     return;
   }
-  settleHostCommit(record);
+  settleHostCommit(record, "failed");
   reportUnwrittenText(record, error, commitFn ? "commit-failed" : "no-writer");
 }
 
-function settleHostCommit(record: ActiveCapture): void {
+function settleHostCommit(
+  record: ActiveCapture,
+  outcome?: "accepted" | "failed",
+): void {
   hostCommitQueue.delete(record);
   if (record.retryTimer !== null && typeof window !== "undefined") {
     window.clearTimeout(record.retryTimer);
   }
   record.retryTimer = null;
+  if (outcome) record.onSettled?.(outcome);
+}
+
+export function cancelPendingTextHostCommit(
+  owner: OwnerIdentity,
+  nodeId: string,
+): void {
+  for (const record of [...hostCommitQueue]) {
+    if (record.owner !== owner || record.nodeId !== nodeId) continue;
+    hostCommitQueue.delete(record);
+    if (record.retryTimer !== null && typeof window !== "undefined") {
+      window.clearTimeout(record.retryTimer);
+    }
+    record.retryTimer = null;
+  }
+}
+
+export function queuePendingTextHostCommit(
+  owner: OwnerIdentity,
+  nodeId: string,
+  text: string,
+  onSettled?: (outcome: "accepted" | "failed") => void,
+): boolean {
+  if (!owner || !nodeId || !text) return false;
+  const existing = [...hostCommitQueue].find(
+    (record) => record.owner === owner && record.nodeId === nodeId,
+  );
+  if (existing) {
+    existing.onSettled = onSettled;
+    if (existing.buffer !== text) {
+      existing.buffer = text;
+      existing.commitAttempts = 0;
+      if (existing.retryTimer !== null && typeof window !== "undefined") {
+        window.clearTimeout(existing.retryTimer);
+      }
+      existing.retryTimer = null;
+      existing.commitFn = hostCommit;
+      attemptHostCommit(existing);
+    }
+    return true;
+  }
+  const record: ActiveCapture = {
+    token: nextToken++,
+    owner,
+    nodeId,
+    buffer: text,
+    intercepting: false,
+    handedOff: false,
+    interceptUntil: 0,
+    pendingBegin: null,
+    commitOnBegin: true,
+    deliveryPosted: false,
+    deliveryFallbackArmed: false,
+    committing: true,
+    commitAttempts: 0,
+    teardownRun: false,
+    timers: [],
+    commitFn: hostCommit,
+    retryTimer: null,
+    teardown: [],
+    onSettled,
+  };
+  hostCommitQueue.add(record);
+  attemptHostCommit(record);
+  return true;
 }
 
 function reportUnwrittenText(
@@ -379,7 +448,7 @@ export function registerPendingTextHostCommit(
     if (hostCommit === commit) hostCommit = null;
     for (const record of [...hostCommitQueue]) {
       if (record.commitFn !== commit) continue;
-      settleHostCommit(record);
+      settleHostCommit(record, "failed");
       reportUnwrittenText(record, null, "writer-unregistered");
     }
   };

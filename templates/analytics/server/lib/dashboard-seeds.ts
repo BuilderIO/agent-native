@@ -6,6 +6,7 @@ import firstPartyTemplateTrafficSeed from "../../seeds/dashboards/agent-native-t
 import googleAnalyticsSeed from "../../seeds/dashboards/google-analytics.json" with { type: "json" };
 import nodeExporterFullSeed from "../../seeds/dashboards/node-exporter-full.json" with { type: "json" };
 import skillsCliFunnelSeed from "../../seeds/dashboards/skills-cli-funnel.json" with { type: "json" };
+import { isSafeDashboardId } from "./dashboard-id";
 
 const shippedSeeds: Record<string, Record<string, unknown>> = {
   "agent-native-templates-first-party": firstPartyTemplateTrafficSeed as Record<
@@ -22,6 +23,7 @@ function cloneSeed(seed: Record<string, unknown>): Record<string, unknown> {
 }
 
 export function loadDashboardSeed(id: string): Record<string, unknown> | null {
+  if (!isSafeDashboardId(id)) return null;
   const shipped = shippedSeeds[id];
   if (shipped) return cloneSeed(shipped);
 

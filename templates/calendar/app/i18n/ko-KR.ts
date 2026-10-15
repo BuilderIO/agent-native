@@ -234,7 +234,7 @@ export default {
     eventRulesConnectJev: "초대 규칙을 실행하려면 Jev를 연결하세요",
     eventRulesFreeBuilderOrApiKey:
       "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
-    eventRulesConnectBuilder: "Builder.io 연결",
+    eventRulesConnectBuilder: "Builder.io 사용",
     eventRulesAddJevApiKey: "API 키 추가",
     eventRulesTabRules: "규칙",
     eventRulesHelpLabel: "초대 규칙 프롬프트 안내",
@@ -765,6 +765,7 @@ export default {
     },
   },
   calendarView: {
+    resizeAllDaySection: "종일 섹션 크기 조정",
     addWorkingLocation: "근무 위치 추가",
     addTitleBeforeCreate: "이벤트를 만들기 전에 제목을 추가하세요",
     calendarSettingsLoading:
@@ -954,6 +955,8 @@ export default {
     occurrences: "회",
     reviewInvite: "초대 검토",
     reviewProposedTime: "제안된 시간 검토",
+    newTimeProposedBy: "{{name}}님이 새 시간을 제안했습니다",
+    reviewTimeProposals: "시간 제안 검토",
     responseAwaitingCount: "{{count}}명 대기 중",
     responseMaybeCount: "{{count}}명 미정",
     responseNoCount: "{{count}}명 아니요",

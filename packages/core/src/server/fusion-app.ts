@@ -64,7 +64,7 @@ async function resolveFusionAuth(
   });
   if (!authorization) {
     throw new Error(
-      "Builder.io is not connected. Connect Builder.io in Settings.",
+      "Builder.io is not connected. Sign in to Builder.io in Settings to continue.",
     );
   }
   if (authorization.source === "legacy" && !authorization.legacyPublicKey) {
@@ -155,7 +155,15 @@ export async function getBuilderCreditUsage(): Promise<BuilderCreditUsage | null
     return builderCreditUsageUnavailable();
   }
   if (!response.ok) return builderCreditUsageUnavailable(response.status);
-  return builderCreditUsageSchema.parse(await response.json());
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    return builderCreditUsageUnavailable(response.status);
+  }
+  const parsed = builderCreditUsageSchema.safeParse(payload);
+  if (!parsed.success) return builderCreditUsageUnavailable(response.status);
+  return parsed.data;
 }
 
 export async function getBuilderReferralInfo(): Promise<BuilderReferralInfo | null> {

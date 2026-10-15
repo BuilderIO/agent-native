@@ -16,6 +16,7 @@ import {
 import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
 import { getSetting } from "../settings/store.js";
 import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
+import { track } from "../tracking/registry.js";
 import { canUpdateAgentAppModelDefaultSettings } from "./app-model-defaults.js";
 
 export const DEFAULT_AGENT_ENGINE_SETTING_KEY = "agent-engine";
@@ -179,13 +180,14 @@ async function writeScopedRow(
 
 /**
  * Save the default for the authority's scope. Validate the engine first; this
- * only stores it and records the change.
+ * stores only that scope and records the change.
  */
 export async function writeDefaultAgentEngineSelection(
   authority: Extract<DefaultAgentEngineAuthority, { allowed: true }>,
   selection: DefaultAgentEngineSelection,
   meta: DefaultAgentEngineChangeMeta,
 ): Promise<void> {
+  const previous = await readDefaultAgentEngineSettingDetailed(authority);
   await writeScopedRow(authority, {
     engine: selection.engine,
     model: selection.model,
@@ -200,6 +202,22 @@ export async function writeDefaultAgentEngineSelection(
     operation: "set",
     selection,
   });
+  track(
+    "llm_default_model_changed",
+    {
+      engine: selection.engine,
+      model: selection.model,
+      ...(typeof previous.value?.engine === "string"
+        ? { previous_engine: previous.value.engine }
+        : {}),
+      ...(typeof previous.value?.model === "string"
+        ? { previous_model: previous.value.model }
+        : {}),
+      scope: authority.scope,
+      operation: "set",
+    },
+    { userId: authority.userEmail },
+  );
 }
 
 /**
@@ -210,6 +228,7 @@ export async function clearDefaultAgentEngineSelection(
   authority: Extract<DefaultAgentEngineAuthority, { allowed: true }>,
   meta: DefaultAgentEngineChangeMeta,
 ): Promise<void> {
+  const previous = await readDefaultAgentEngineSettingDetailed(authority);
   await writeScopedRow(authority, {
     cleared: true,
     updatedAt: Date.now(),
@@ -222,6 +241,20 @@ export async function clearDefaultAgentEngineSelection(
     status: "success",
     operation: "clear",
   });
+  track(
+    "llm_default_model_changed",
+    {
+      ...(typeof previous.value?.engine === "string"
+        ? { previous_engine: previous.value.engine }
+        : {}),
+      ...(typeof previous.value?.model === "string"
+        ? { previous_model: previous.value.model }
+        : {}),
+      scope: authority.scope,
+      operation: "reset",
+    },
+    { userId: authority.userEmail },
+  );
 }
 
 /** Record a refused change so owners and admins can see who tried. */

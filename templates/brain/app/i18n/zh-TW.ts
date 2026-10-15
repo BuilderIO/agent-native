@@ -398,6 +398,16 @@ const messages = {
     initialUpdatedAfter: "初始更新後",
     granolaDescription:
       "Granola Enterprise API 會回傳 Team-space 筆記；私人筆記不在 API 範圍內。",
+    zoomMeetingIds: "已核准的週期性會議系列",
+    zoomMeetingIdsDescription:
+      "必填。每行一個 Zoom 會議 ID，對應主持人已同意加入的週期性會議系列（可包含空格）。每次會議的 ID 保持不變。",
+    zoomLookbackDays: "回溯天數",
+    invalidZoomMeetingIds:
+      "無效的 Zoom 會議 ID：{{entries}}。請使用會議邀請中的號碼，例如 123 4567 8901。",
+    zoomDescription:
+      "Brain 每小時僅從已核准的系列匯入逐字稿。Zoom 帳戶中的其他會議絕不會被下載。變更清單會重新掃描回溯期間。",
+    zoomAdminOnly:
+      "只有組織擁有者和管理員可以變更 Zoom 設定。你仍然可以重新命名此來源。",
     approvedRepositories: "核准的儲存庫",
     githubRepositoriesDescription:
       "Brain 使用工作區 GitHub 憑證從這些儲存庫匯入有界問題和 pull request 脈絡。",
@@ -611,6 +621,7 @@ const messages = {
     defaultTitle: {
       slack: "Slack 知識管道",
       granola: "Granola 團隊筆記",
+      zoom: "Zoom 會議逐字稿",
       github: "GitHub 產品儲存庫",
       clips: "Clips 出口",
       generic: "通用轉錄 Webhook",

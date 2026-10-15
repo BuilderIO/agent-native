@@ -48,7 +48,7 @@ function createMockDb() {
 
       if (
         rawSql.includes(
-          "WHERE owner_email = ? AND owner_scope = ? AND idempotency_key = ?",
+          "WHERE owner_email IS NOT DISTINCT FROM ? AND owner_scope = ? AND idempotency_key = ?",
         )
       ) {
         const rows = (tables["a2a_tasks"] || []).filter(
@@ -243,6 +243,66 @@ describe("task-store (SQL)", () => {
         task: { id: first.task.id },
       });
       expect(tables.a2a_tasks).toHaveLength(1);
+    });
+
+    it("reuses organization-scoped tasks without assigning a user owner", async () => {
+      const { createOrReuseTask } = await loadStore();
+      const first = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        null,
+        "__a2a_org_id__:org-acme",
+        "v1:stable-org-message",
+      );
+      const duplicate = await createOrReuseTask(
+        makeMessage("Retry"),
+        undefined,
+        undefined,
+        null,
+        "__a2a_org_id__:org-acme",
+        "v1:stable-org-message",
+      );
+      const otherOrganization = await createOrReuseTask(
+        makeMessage("Other organization"),
+        undefined,
+        undefined,
+        null,
+        "__a2a_org_id__:org-other",
+        "v1:stable-org-message",
+      );
+
+      expect(first.reused).toBe(false);
+      expect(duplicate).toMatchObject({
+        reused: true,
+        task: { id: first.task.id, ownerEmail: null },
+      });
+      expect(otherOrganization.reused).toBe(false);
+      expect(otherOrganization.task.id).not.toBe(first.task.id);
+    });
+
+    it("does not reuse tasks for an unauthenticated caller", async () => {
+      const { createOrReuseTask } = await loadStore();
+      const first = await createOrReuseTask(
+        makeMessage("Hello"),
+        undefined,
+        undefined,
+        null,
+        null,
+        "v1:anonymous-message",
+      );
+      const second = await createOrReuseTask(
+        makeMessage("Retry"),
+        undefined,
+        undefined,
+        null,
+        null,
+        "v1:anonymous-message",
+      );
+
+      expect(first.reused).toBe(false);
+      expect(second.reused).toBe(false);
+      expect(second.task.id).not.toBe(first.task.id);
     });
 
     it("keeps the same key independent across authenticated owners", async () => {

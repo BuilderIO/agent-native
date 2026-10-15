@@ -28,6 +28,11 @@ import type {
 import { data, redirect, useLoaderData } from "react-router";
 
 import { VisualEditor } from "@/components/editor/VisualEditor";
+import {
+  HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS,
+  privateDocumentRedirectScript,
+  privateLinkRedirectStarted,
+} from "@/lib/private-link-redirect";
 
 import { getDb, schema } from "../../server/db";
 import {
@@ -93,7 +98,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const userEmail = getRequestUserEmail();
   if (userEmail) {
     const access = await resolveAccess("document", id);
-    if (access) throw redirect(withBase(`/page/${id}`));
+    if (access) throw redirect(withBase(`/page/${encodeURIComponent(id)}`));
   }
 
   const [doc] = await getDb()
@@ -330,13 +335,24 @@ function PrivateDocumentNotice({
   origin?: string;
 }) {
   const t = useT();
+  const pageHref = id
+    ? `${basePath ?? ""}/page/${encodeURIComponent(id)}`
+    : null;
   useEffect(() => {
-    if (!id) return;
-    window.location.replace(`${basePath ?? ""}/page/${id}`);
-  }, [id, basePath]);
+    if (!pageHref || privateLinkRedirectStarted()) return;
+    window.location.replace(pageHref);
+  }, [pageHref]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
+      {pageHref ? (
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: privateDocumentRedirectScript(pageHref),
+          }}
+        />
+      ) : null}
       {id ? (
         <AgentReadableDocumentDiscovery
           document={{ id }}
@@ -345,7 +361,9 @@ function PrivateDocumentNotice({
           accessState="authentication-required"
         />
       ) : null}
-      <section className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
+      <section
+        className={`mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center ${HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS}`}
+      >
         <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground">
           <IconLock size={22} />
         </div>

@@ -1,8 +1,7 @@
 import {
   alphaToOpacity,
   parseCssColor,
-  rgbaToCss,
-  withColorOpacity,
+  withCssColorOpacity,
 } from "@shared/color-utils";
 
 import { DesignColorPicker, type DesignPaintType } from "../inspector";
@@ -23,11 +22,11 @@ export function gradientSolidFallback(gradient: string): string {
   const parsed = parseGradientLayer(gradient);
   const stop = parsed?.stops[0];
   const color = stop ? parseCssColor(stop.color) : null;
-  if (!color) return "#000000"; // guard:allow-raw-color — concrete paint for an unreadable gradient.
+  if (!stop || !color) return "#000000"; // guard:allow-raw-color — concrete paint for an unreadable gradient.
   const opacity =
-    ((stop?.opacity ?? alphaToOpacity(color.a)) * (parsed?.opacity ?? 100)) /
+    ((stop.opacity ?? alphaToOpacity(color.a)) * (parsed?.opacity ?? 100)) /
     100;
-  return rgbaToCss(withColorOpacity(color, opacity));
+  return withCssColorOpacity(stop.color, opacity) ?? "#000000"; // guard:allow-raw-color — concrete paint for an unreadable gradient.
 }
 
 export function PaintInput({

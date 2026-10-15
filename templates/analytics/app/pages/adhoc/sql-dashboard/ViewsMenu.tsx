@@ -5,7 +5,7 @@ import {
   IconTrash,
   IconLayoutGrid,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -20,7 +20,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -47,7 +49,7 @@ import {
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
 
-import { FILTER_PARAM_PREFIX } from "./DashboardFilterBar";
+import { FILTER_PARAM_PREFIX } from "./filter-vars";
 
 interface ViewsMenuProps {
   dashboardId: string;
@@ -98,8 +100,10 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
+  const [setAsDefault, setSetAsDefault] = useState(false);
   const [savingView, setSavingView] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DashboardView | null>(null);
+  const defaultCheckboxId = useId();
 
   const currentFilters = useMemo(
     () => extractCurrentFilters(searchParams),
@@ -141,16 +145,18 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
         id: slugify(name),
         name,
         filters: currentFilters,
+        isDefault: setAsDefault,
       });
       setViewName("");
+      setSetAsDefault(false);
       setSaveDialogOpen(false);
     } catch (error) {
       toast.error(
-        t("sqlDashboard.saveFailedWithMessage", {
+        t("sqlDashboard.saveViewFailedWithMessage", {
           message:
             error instanceof Error
               ? error.message
-              : t("sqlDashboard.saveFailed"),
+              : t("sqlDashboard.saveViewFailed"),
         }),
       );
     } finally {
@@ -206,7 +212,14 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
                   applyView(v);
                 }}
               >
-                <span className="truncate flex-1">{v.name}</span>
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <span className="truncate">{v.name}</span>
+                  {v.isDefault && (
+                    <Badge variant="secondary" className="shrink-0">
+                      {t("sqlDashboard.defaultView")}
+                    </Badge>
+                  )}
+                </span>
                 {canEdit ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -250,7 +263,16 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={canEdit && saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+      <Dialog
+        open={canEdit && saveDialogOpen}
+        onOpenChange={(open) => {
+          setSaveDialogOpen(open);
+          if (!open) {
+            setViewName("");
+            setSetAsDefault(false);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>{t("sqlDashboard.saveView")}</DialogTitle>
@@ -265,6 +287,17 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
               }}
               autoFocus
             />
+            <label
+              htmlFor={defaultCheckboxId}
+              className="mt-3 flex cursor-pointer items-center gap-2 text-sm"
+            >
+              <Checkbox
+                id={defaultCheckboxId}
+                checked={setAsDefault}
+                onCheckedChange={(checked) => setSetAsDefault(checked === true)}
+              />
+              <span>{t("sqlDashboard.setAsDefault")}</span>
+            </label>
             {Object.keys(currentFilters).length === 0 && (
               <p className="mt-2 text-xs text-muted-foreground">
                 {t("sqlDashboard.noActiveFilters")}
@@ -275,7 +308,11 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSaveDialogOpen(false)}
+              onClick={() => {
+                setSaveDialogOpen(false);
+                setViewName("");
+                setSetAsDefault(false);
+              }}
               disabled={savingView}
             >
               {t("sidebar.cancel")}

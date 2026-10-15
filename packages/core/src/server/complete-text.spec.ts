@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  resolveOwnerEngineApiKey: vi.fn(),
+}));
+
+vi.mock("../agent/production-agent.js", () => ({
+  resolveOwnerEngineApiKey: mocks.resolveOwnerEngineApiKey,
+}));
 
 import type {
   AgentEngine,
@@ -26,6 +34,20 @@ function createFakeEngine(
 }
 
 describe("completeText", () => {
+  it("preserves failures while resolving the active engine setting", async () => {
+    const error = new Error("Unable to read the active agent engine setting");
+    mocks.resolveOwnerEngineApiKey.mockRejectedValueOnce(error);
+
+    await expect(
+      completeText({
+        engine: createFakeEngine(async function* () {
+          yield { type: "stop", reason: "end_turn" };
+        }),
+        input: "Summarize this.",
+      }),
+    ).rejects.toBe(error);
+  });
+
   it("runs one tool-free engine call and returns final assistant text", async () => {
     const calls: EngineStreamOptions[] = [];
     const engine = createFakeEngine(async function* (opts) {
@@ -140,6 +162,56 @@ describe("completeText", () => {
       message: "quota exceeded",
       errorCode: "credits-limit-monthly",
       statusCode: 402,
+    });
+  });
+
+  it("labels its own timeout with a stable error code", async () => {
+    const engine = createFakeEngine(async function* (opts) {
+      await new Promise<never>((_resolve, reject) => {
+        opts.abortSignal.addEventListener(
+          "abort",
+          () => reject(opts.abortSignal.reason),
+          { once: true },
+        );
+      });
+    });
+
+    await expect(
+      completeText({
+        engine,
+        input: "Try.",
+        apiKey: "test-key",
+        timeoutMs: 1,
+      }),
+    ).rejects.toMatchObject({
+      name: "EngineError",
+      message: "completeText timed out after 1ms",
+      errorCode: "complete_text_timeout",
+    });
+  });
+
+  it("rejects partial output when the stream ends normally after timeout", async () => {
+    const engine = createFakeEngine(async function* (opts) {
+      const aborted = new Promise<void>((resolve) => {
+        opts.abortSignal.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
+      });
+      yield { type: "text-delta", text: "partial" };
+      await aborted;
+    });
+
+    await expect(
+      completeText({
+        engine,
+        input: "Try.",
+        apiKey: "test-key",
+        timeoutMs: 1,
+      }),
+    ).rejects.toMatchObject({
+      name: "EngineError",
+      message: "completeText timed out after 1ms",
+      errorCode: "complete_text_timeout",
     });
   });
 

@@ -9,6 +9,10 @@ export function isLabEnabled(
   lab: Pick<LabDefinition, "key" | "defaultEnabled">,
 ): boolean {
   const value = values[lab.key];
+  if (value && typeof value === "object") {
+    if ("error" in value) return false;
+    if ("enabled" in value) return value.enabled === true;
+  }
   return value === undefined ? lab.defaultEnabled === true : value === true;
 }
 
@@ -49,9 +53,19 @@ export const CLIPS_RESILIENT_RECORDING = defineLab({
   ],
 });
 
+export const CLIPS_LOOKBACK_CONTEXT = defineLab({
+  key: "clips.lookback-context",
+  displayName: "Include earlier screen time",
+  description:
+    "Attach up to five minutes of screen time from before a recording as passive context.",
+  defaultEnabled: true,
+  keywords: "rewind lookback context history earlier screen before recording",
+});
+
 export const CLIPS_LABS = defineLabs([
   CLIPS_VIDEO_EDITING,
   CLIPS_MEETINGS,
   CLIPS_WISPRFLOW,
   CLIPS_RESILIENT_RECORDING,
+  CLIPS_LOOKBACK_CONTEXT,
 ]);

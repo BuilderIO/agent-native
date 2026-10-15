@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { readDesignEditorSource } from "../../pages/design-editor/read-design-editor-source";
 import { installExtensionRequest } from "./DesignExtensionsPanel";
 
 describe("installExtensionRequest — duplicate-install race", () => {
@@ -174,13 +175,7 @@ describe("Design extension creation — LLM readiness gate", () => {
 
 describe("AssetLibraryPanel source — screen-local drop coordinates", () => {
   it("receives the DesignEditor screen-point resolver", () => {
-    const source = readFileSync(
-      path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        "../../pages/DesignEditor.tsx",
-      ),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     expect(source).toMatch(
       /<AssetLibraryPanel[\s\S]*?resolveScreenPoint=\{resolveAssetScreenPoint\}/,
     );

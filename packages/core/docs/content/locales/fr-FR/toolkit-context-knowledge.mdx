@@ -10,3 +10,5 @@ Core conserve l'état applicatif, l'accès limité et le moteur Context X-Ray. T
 Le moteur Context X-Ray reste dans Core. Utilisez la présentation Toolkit pour afficher un contexte cohérent, mais gardez état et décisions d'accès dans Core et les actions. [Context awareness](/docs/context-awareness) expose navigation, sélection et objet actif à l'agent ; [Resources](/docs/toolkit-resources) couvre fichiers et pièces jointes.
 
 Le contexte ne remplace jamais les contrôles d'accès. Préservez les vérifications de ressources et de secrets avant de récupérer des connaissances fournisseur.
+
+Toolkit exporte le panneau prêt à l’emploi depuis @agent-native/toolkit/app/context-xray. L’application fournit le manifeste, l’état optimiste des épingles et retraits, et les callbacks ; le panneau ne charge pas les données et n’appelle pas les actions.

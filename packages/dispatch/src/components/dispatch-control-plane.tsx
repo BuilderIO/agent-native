@@ -123,6 +123,7 @@ function CommandPanel() {
         </div>
         <PromptBar mode="inline" className="contents">
           <PromptComposer
+            requireAgentEngine
             availableModels={availableModels}
             draftScope={draftScope}
             modelListLoading={modelListLoading}

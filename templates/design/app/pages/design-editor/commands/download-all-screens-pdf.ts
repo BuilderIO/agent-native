@@ -4,6 +4,11 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { measureNaturalDocumentHeight } from "@/components/design/design-canvas/content-size-report";
+import {
+  browserDesignExportErrorType,
+  trackBrowserDesignExported,
+  type BrowserDesignExportContext,
+} from "@/lib/design-export-tracking";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type { RasterPdfPage } from "@/pages/design-editor/export-capture";
 import {
@@ -15,7 +20,6 @@ import { createExportSnapshotFrame } from "@/pages/design-editor/export-snapshot
 import type { ExportSnapshotSource } from "@/pages/design-editor/export-snapshot-frame";
 import {
   PngCaptureError,
-  cropCanvasToRect,
   renderExportDocumentCanvas,
 } from "@/pages/design-editor/png-export-render";
 
@@ -23,6 +27,8 @@ export interface DownloadAllScreensPdfArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
+  /** Join keys for the `design_exported` this command reports. */
+  exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
   overviewScreens: OverviewScreen[];
   prepareScreenForExport: (screenId: string) => void;
@@ -194,6 +200,7 @@ export async function runDownloadAllScreensPdf({
   activeCanvasSourceType,
   canEditDesign,
   canvasFrameGeometryById,
+  exportTracking,
   fallbackExportName,
   overviewScreens,
   prepareScreenForExport,
@@ -211,7 +218,6 @@ export async function runDownloadAllScreensPdf({
   setPngExporting(true);
   let requestedScreenId: string | null = null;
   try {
-    const html2canvas = (await import("html2canvas")).default;
     const pages: RasterPdfPage[] = [];
     for (const screen of overviewScreens) {
       requestedScreenId = screen.id;
@@ -297,22 +303,14 @@ export async function runDownloadAllScreensPdf({
           doc,
           iframe,
           exportScale: PDF_MIN_PRINT_RASTER_SCALE,
-          render: html2canvas,
-        });
-        const view = doc.defaultView;
-        const viewportCanvas = cropCanvasToRect(
-          rendered.canvas,
-          {
-            x: view?.scrollX ?? 0,
-            y: view?.scrollY ?? 0,
+          cropRect: {
+            x: doc.defaultView?.scrollX ?? 0,
+            y: doc.defaultView?.scrollY ?? 0,
             width: Math.max(1, iframe.clientWidth),
             height: Math.max(1, iframe.clientHeight),
           },
-          rendered.scale,
-        );
-        const dataUrl = (viewportCanvas ?? rendered.canvas).toDataURL(
-          "image/png",
-        );
+        });
+        const dataUrl = rendered.canvas.toDataURL("image/png");
         pages.push({ dataUrl, width: pageWidth, height: pageHeight });
       } finally {
         if (iframe && priorInlineHeight !== null) {
@@ -326,14 +324,20 @@ export async function runDownloadAllScreensPdf({
     const pdf = await createMultiPageRasterPdf(pages);
     triggerBlobDownload(pdf, fallbackExportName("pdf", "all-screens"));
     toast.success(t("designEditor.toasts.pdfAllScreensDownloaded"));
+    trackBrowserDesignExported("pdf_all_screens", {
+      ...exportTracking,
+      status: "completed",
+      screenCount: overviewScreens.length,
+    });
   } catch (error) {
+    trackBrowserDesignExported("pdf_all_screens", {
+      ...exportTracking,
+      status: "failed",
+      errorType: browserDesignExportErrorType(error),
+      screenCount: overviewScreens.length,
+    });
     console.error("All-screens PDF export failed:", error);
-    showRasterCaptureError(
-      error instanceof PngCaptureError
-        ? error
-        : new PngCaptureError("blob-failed"),
-      "pdf",
-    );
+    showRasterCaptureError(error, "pdf");
   } finally {
     if (requestedScreenId !== null) releaseScreenFromExport();
     pngExportingRef.current = false;

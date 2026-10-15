@@ -1,4 +1,13 @@
-import { motionEaseToCss } from "./motion-easing";
+import {
+  assertValidMotionEasingVariables,
+  isMotionEaseVariableReference,
+  motionEaseToCss,
+  motionEaseVariableId,
+  motionEaseVariableName,
+  motionEaseVariableToken,
+  resolveMotionEase,
+} from "./motion-easing";
+import type { MotionEasingVariable } from "./motion-easing";
 import type {
   MotionEase,
   MotionKeyframe,
@@ -9,7 +18,14 @@ import type {
 import {
   MOTION_DEFAULT_PLAYBACK_MODE,
   getMotionTrackTiming,
+  formatMotionPosition,
+  isMotionPathSegmentV1,
+  motionPathCubicPoints,
+  motionPathSegmentLength,
+  motionTimelineDurationForTracks,
+  parseMotionPosition,
   readTimelinePlaybackMode,
+  type MotionPathPoint,
 } from "./motion-timeline";
 
 export interface CompileResult {
@@ -17,12 +33,37 @@ export interface CompileResult {
   hash: string;
 }
 
-export function compile(timeline: MotionTimeline): CompileResult {
-  const { tracks, durationMs, defaultEase } = timeline;
+export class MotionCssSourceParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MotionCssSourceParseError";
+  }
+}
+
+export interface MotionCompileOptions {
+  easingVariables?: readonly MotionEasingVariable[];
+}
+
+export function compile(
+  timeline: MotionTimeline,
+  options: MotionCompileOptions = {},
+): CompileResult {
+  const { defaultEase } = timeline;
+  const tracks = timeline.tracks.filter((track) => track.enabled !== false);
+  const easingVariables = options.easingVariables ?? [];
+  assertValidMotionEasingVariables(easingVariables);
   assertSafeMotionCssToken(defaultEase, "defaultEase");
+  assertMotionEase(defaultEase, "defaultEase", easingVariables);
+  const easingVariablesCss = compileEasingVariables(easingVariables);
+  const durationMs = motionTimelineDurationForTracks(
+    timeline.durationMs,
+    tracks,
+  );
 
   if (!tracks || tracks.length === 0) {
-    const css = reducedMotionBlock([]);
+    const css = [easingVariablesCss, reducedMotionBlock([])]
+      .filter(Boolean)
+      .join("\n\n");
     return { css, hash: djb2(css) };
   }
 
@@ -41,6 +82,7 @@ export function compile(timeline: MotionTimeline): CompileResult {
       fillModes: string[];
       delays: string[];
       hasDelay: boolean;
+      pathDeclarations?: string[];
     }
   >();
 
@@ -57,12 +99,30 @@ export function compile(timeline: MotionTimeline): CompileResult {
     const sortedKeyframes = [...keyframes].sort((a, b) => a.t - b.t);
 
     const name = animationName(targetNodeId, property);
-    kfBlocks.push(keyframesBlock(name, property, sortedKeyframes, defaultEase));
+    const spatialPath = compileSpatialPath(property, sortedKeyframes);
+    kfBlocks.push(
+      property === "path-trim"
+        ? pathTrimKeyframesBlock(
+            name,
+            sortedKeyframes,
+            defaultEase,
+            easingVariables,
+          )
+        : keyframesBlock(
+            name,
+            spatialPath ? "offset-distance" : property,
+            sortedKeyframes,
+            defaultEase,
+            spatialPath?.keyframeValues,
+            easingVariables,
+          ),
+    );
 
     const timing = getMotionTrackTiming(track, durationMs);
     const dur = formatDuration(timing.durationMs);
     const ease = sortedKeyframes[0]?.ease ?? defaultEase;
     assertSafeMotionCssToken(ease, "track ease");
+    assertMotionEase(ease, "track ease", easingVariables);
     const targetRule = rulesByTarget.get(targetNodeId) ?? {
       names: [],
       durations: [],
@@ -70,12 +130,21 @@ export function compile(timeline: MotionTimeline): CompileResult {
       fillModes: [],
       delays: [],
       hasDelay: false,
+      pathDeclarations: [],
     };
     targetRule.names.push(name);
     targetRule.durations.push(dur);
-    targetRule.timings.push(cssEase(ease));
+    targetRule.timings.push(cssEase(ease, easingVariables));
     targetRule.fillModes.push("both");
     targetRule.delays.push(formatDuration(timing.startMs));
+    if (spatialPath) {
+      targetRule.pathDeclarations!.push(
+        `  offset-path: path("${spatialPath.pathData}");`,
+        "  offset-anchor: 0px 0px;",
+        "  offset-rotate: 0deg;",
+        `  translate: ${spatialPath.baseValue};`,
+      );
+    }
     if (timing.startMs > 0) targetRule.hasDelay = true;
     rulesByTarget.set(targetNodeId, targetRule);
   }
@@ -85,6 +154,7 @@ export function compile(timeline: MotionTimeline): CompileResult {
   );
   const ruleBlocks = sortedTargets.map(([targetNodeId, rule]) => {
     const lines = [
+      ...(rule.pathDeclarations ?? []),
       `  animation-name: ${rule.names.join(", ")};`,
       `  animation-duration: ${rule.durations.join(", ")};`,
       `  animation-timing-function: ${rule.timings.join(", ")};`,
@@ -115,6 +185,7 @@ export function compile(timeline: MotionTimeline): CompileResult {
   });
 
   const css = [
+    ...(easingVariablesCss ? [easingVariablesCss] : []),
     ...kfBlocks,
     ...ruleBlocks,
     reducedMotionBlock(sortedTargets.map(([targetNodeId]) => targetNodeId)),
@@ -139,10 +210,21 @@ export function parse(css: string): MotionTrack[] {
     if (body === null) continue;
 
     const info = rules.byName.get(fullName);
+    const keyframes =
+      decoded.property === "translate" && info?.offsetPath
+        ? parseSpatialPathKeyframes(body, info)
+        : decoded.property === "path-trim"
+          ? parsePathTrimKeyframeBody(body)
+          : parseKeyframeBody(body, decoded.property);
+    if (!keyframes) {
+      throw new MotionCssSourceParseError(
+        `Motion CSS for "${decoded.targetNodeId}" contains a path animation that cannot be read losslessly.`,
+      );
+    }
     const track: MotionTrack = {
       targetNodeId: info?.targetNodeId ?? decoded.targetNodeId,
       property: decoded.property,
-      keyframes: parseKeyframeBody(body, decoded.property),
+      keyframes,
     };
     if (info?.delayMs !== undefined && info.delayMs > 0) {
       track.delayMs = info.delayMs;
@@ -282,30 +364,145 @@ function keyframesBlock(
   property: string,
   keyframes: MotionKeyframe[],
   defaultEase: MotionEase,
+  values?: string[],
+  easingVariables: readonly MotionEasingVariable[] = [],
 ): string {
   const sorted = [...keyframes].sort((a, b) => a.t - b.t);
-  const stops = sorted.map((kf) => {
+  const stops = sorted.map((kf, index) => {
     const pct = formatPercent(kf.t);
     const ease = kf.ease ?? defaultEase;
     assertSafeMotionCssToken(kf.value, "keyframe value");
     assertSafeMotionCssToken(ease, "keyframe ease");
+    assertMotionEase(ease, "keyframe ease", easingVariables);
     return (
       `  ${pct} {\n` +
-      `    ${property}: ${kf.value};\n` +
-      `    animation-timing-function: ${cssEase(ease)};\n` +
+      `    ${property}: ${values?.[index] ?? kf.value};\n` +
+      `    animation-timing-function: ${cssEase(ease, easingVariables)};\n` +
       `  }`
     );
   });
   return `@keyframes ${name} {\n${stops.join("\n")}\n}`;
 }
 
-function cssEase(ease: MotionEase): string {
+function pathTrimKeyframesBlock(
+  name: string,
+  keyframes: MotionKeyframe[],
+  defaultEase: MotionEase,
+  easingVariables: readonly MotionEasingVariable[],
+): string {
+  const sorted = [...keyframes].sort((a, b) => a.t - b.t);
+  const stops = sorted.map((keyframe) => {
+    const value = parsePathTrimValue(keyframe.value);
+    if (!value) {
+      throw new Error(
+        'Motion Path trim values must be two percentages between 0 and 100, formatted as "start% end%".',
+      );
+    }
+    const pct = formatPercent(keyframe.t);
+    const ease = keyframe.ease ?? defaultEase;
+    assertSafeMotionCssToken(keyframe.value, "Path trim keyframe value");
+    assertSafeMotionCssToken(ease, "keyframe ease");
+    assertMotionEase(ease, "keyframe ease", easingVariables);
+    const length =
+      value.end >= value.start
+        ? value.end - value.start
+        : 100 - value.start + value.end;
+    return (
+      `  ${pct} {\n` +
+      `    --an-motion-path-trim: ${keyframe.value};\n` +
+      `    stroke-dasharray: ${formatPathTrimNumber(length)} ${formatPathTrimNumber(100 - length)};\n` +
+      `    stroke-dashoffset: ${formatPathTrimNumber(-value.start)};\n` +
+      `    animation-timing-function: ${cssEase(ease, easingVariables)};\n` +
+      `  }`
+    );
+  });
+  return `@keyframes ${name} {\n${stops.join("\n")}\n}`;
+}
+
+function parsePathTrimKeyframeBody(body: string): MotionKeyframe[] | null {
+  const frames: MotionKeyframe[] = [];
+  const stopRe = /([\d.]+%|from|to)\s*\{([^}]*)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = stopRe.exec(body)) !== null) {
+    const content = match[2];
+    const valueMatch = /^\s*--an-motion-path-trim\s*:\s*([^;]+)\s*;/m.exec(
+      content,
+    );
+    if (!valueMatch || !parsePathTrimValue(valueMatch[1]!.trim())) return null;
+    const pct = match[1];
+    const t = pct === "from" ? 0 : pct === "to" ? 1 : parseFloat(pct) / 100;
+    const easeMatch = content.match(/animation-timing-function\s*:\s*([^;]+)/);
+    frames.push({
+      t,
+      value: valueMatch[1]!.trim(),
+      ...(easeMatch ? { ease: easeMatch[1]!.trim() as MotionEase } : {}),
+    });
+  }
+  return frames.length > 0 ? frames : null;
+}
+
+function parsePathTrimValue(
+  value: string,
+): { start: number; end: number } | null {
+  const match =
+    /^\s*((?:\d+(?:\.\d*)?|\.\d+))%\s+((?:\d+(?:\.\d*)?|\.\d+))%\s*$/.exec(
+      value,
+    );
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  if (start < 0 || start > 100 || end < 0 || end > 100) return null;
+  return { start, end };
+}
+
+function formatPathTrimNumber(value: number): string {
+  return String(Math.round(value * 1000) / 1000);
+}
+
+function cssEase(
+  ease: MotionEase,
+  easingVariables: readonly MotionEasingVariable[] = [],
+): string {
   const raw = String(ease);
-  const converted = motionEaseToCss(raw);
+  if (isMotionEaseVariableReference(raw)) {
+    const id = motionEaseVariableId(raw);
+    if (id === null) {
+      throw new Error(`Invalid motion easing variable reference: "${raw}".`);
+    }
+    resolveMotionEase(raw, easingVariables);
+    return motionEaseVariableToken(id);
+  }
+  const converted = motionEaseToCss(resolveMotionEase(raw, easingVariables));
   if (converted !== raw) {
     assertSafeMotionCssToken(converted, "compiled spring ease");
   }
   return converted;
+}
+
+function assertMotionEase(
+  ease: MotionEase,
+  field: string,
+  easingVariables: readonly MotionEasingVariable[],
+): void {
+  try {
+    resolveMotionEase(ease, easingVariables);
+  } catch (error) {
+    throw new Error(
+      `Invalid ${field}: it is not a valid timing function. ${error instanceof Error ? error.message : "Unsupported timing function."}`,
+    );
+  }
+}
+
+function compileEasingVariables(
+  variables: readonly MotionEasingVariable[],
+): string {
+  if (variables.length === 0) return "";
+  const declarations = variables.map((variable) => {
+    const value = motionEaseToCss(variable.value);
+    assertSafeMotionCssToken(value, `easing variable "${variable.id}"`);
+    return `  ${motionEaseVariableName(variable.id)}: ${value};`;
+  });
+  return `:root {\n${declarations.join("\n")}\n}`;
 }
 
 function reducedMotionBlock(targetNodeIds: string[]): string {
@@ -350,6 +547,8 @@ interface ParsedAnimationRuleEntry {
   targetNodeId: string;
   delayMs?: number;
   durationMs?: number;
+  offsetPath?: string;
+  translate?: string;
 }
 
 interface ParsedAnimationRules {
@@ -389,6 +588,12 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
     if (!match) return [];
     return match[1].split(",").map((part) => part.trim());
   };
+  const declarationOf = (body: string, prop: string): string | undefined => {
+    const match = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`, "i").exec(
+      body,
+    );
+    return match?.[1]?.trim();
+  };
 
   while ((m = ruleRe.exec(css)) !== null) {
     const targetNodeId = unescAttr(m[1]);
@@ -409,6 +614,10 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
     names.forEach((name, index) => {
       if (!name) return;
       const entry: ParsedAnimationRuleEntry = { targetNodeId };
+      const offsetPath = declarationOf(body, "offset-path");
+      const translate = declarationOf(body, "translate");
+      if (offsetPath) entry.offsetPath = offsetPath;
+      if (translate) entry.translate = translate;
       const duration = parseCssTimeMs(durations[index] ?? durations[0] ?? "");
       if (duration !== null) entry.durationMs = duration;
       const delay = parseCssTimeMs(delays[index] ?? delays[0] ?? "");
@@ -457,6 +666,210 @@ function parseKeyframeBody(body: string, property: string): MotionKeyframe[] {
   }
 
   return frames;
+}
+
+interface CompiledSpatialPath {
+  baseValue: string;
+  pathData: string;
+  keyframeValues: string[];
+}
+
+function compileSpatialPath(
+  property: string,
+  keyframes: MotionKeyframe[],
+): CompiledSpatialPath | null {
+  const hasSpatialPath = keyframes.some((keyframe) => keyframe.motionPath);
+  if (!hasSpatialPath) return null;
+  if (property !== "translate") {
+    throw new Error(
+      'Cubic motion paths are only supported for the "translate" Position property.',
+    );
+  }
+  if (keyframes.length < 2) {
+    throw new Error(
+      "Cubic motion paths require at least two Position keyframes.",
+    );
+  }
+  if (keyframes[keyframes.length - 1]?.motionPath) {
+    throw new Error(
+      "The final Position keyframe cannot own an outgoing motion path.",
+    );
+  }
+
+  const positions = keyframes.map((keyframe) => {
+    if (keyframe.motionPath && !isMotionPathSegmentV1(keyframe.motionPath)) {
+      throw new Error(
+        "Position motion paths must use the version 1 cubic format.",
+      );
+    }
+    const position = parseMotionPosition(keyframe.value);
+    if (!position) {
+      throw new Error(
+        "Cubic Position motion paths require finite px values or unitless zero; calc(), percentages, and other units are not supported.",
+      );
+    }
+    return position;
+  });
+  const first = positions[0]!;
+  const pathCommands = [`M 0 0`];
+  const segmentLengths: number[] = [];
+  const segmentPoints: ReturnType<typeof motionPathCubicPoints>[] = [];
+  for (let index = 0; index < keyframes.length - 1; index += 1) {
+    const points = motionPathCubicPoints(
+      positions[index]!,
+      positions[index + 1]!,
+      keyframes[index]!.motionPath,
+    );
+    segmentPoints.push(points);
+    segmentLengths.push(motionPathSegmentLength(points));
+    const relative = (point: MotionPathPoint) => ({
+      x: point.x - first.x,
+      y: point.y - first.y,
+    });
+    const control1 = relative(points.control1);
+    const control2 = relative(points.control2);
+    const end = relative(points.end);
+    pathCommands.push(
+      `C ${formatPathNumber(control1.x)} ${formatPathNumber(control1.y)} ` +
+        `${formatPathNumber(control2.x)} ${formatPathNumber(control2.y)} ` +
+        `${formatPathNumber(end.x)} ${formatPathNumber(end.y)}`,
+    );
+  }
+
+  const totalLength = segmentLengths.reduce((sum, length) => sum + length, 0);
+  let distance = 0;
+  const keyframeValues = ["0%"];
+  for (let index = 0; index < segmentLengths.length; index += 1) {
+    distance += segmentLengths[index]!;
+    keyframeValues.push(
+      totalLength > 0
+        ? `${formatPathNumber((distance / totalLength) * 100)}%`
+        : "0%",
+    );
+  }
+
+  return {
+    baseValue: formatMotionPosition(first),
+    pathData: pathCommands.join(" "),
+    keyframeValues,
+  };
+}
+
+function formatPathNumber(value: number): string {
+  const rounded = Math.round(value * 10000) / 10000;
+  return (Object.is(rounded, -0) ? 0 : rounded).toString();
+}
+
+interface ParsedPathCubic {
+  start: MotionPathPoint;
+  control1: MotionPathPoint;
+  control2: MotionPathPoint;
+  end: MotionPathPoint;
+}
+
+function parseSpatialPathKeyframes(
+  body: string,
+  info: ParsedAnimationRuleEntry,
+): MotionKeyframe[] | null {
+  if (!info.offsetPath || !info.translate) return null;
+  const pathMatch = /^path\((['"])([\s\S]*)\1\)$/i.exec(info.offsetPath);
+  if (!pathMatch) return null;
+  const baseValue = parseMotionPosition(info.translate);
+  if (!baseValue) return null;
+  const segments = parseCubicPath(pathMatch[2]!);
+  if (!segments || segments.length === 0) return null;
+
+  const rawFrames = parseKeyframeBody(body, "offset-distance");
+  if (rawFrames.length !== segments.length + 1) return null;
+  const lengths = segments.map((segment) => motionPathSegmentLength(segment));
+  const totalLength = lengths.reduce((sum, length) => sum + length, 0);
+  let cumulative = 0;
+  const frames: MotionKeyframe[] = [];
+  for (let index = 0; index < rawFrames.length; index += 1) {
+    const rawDistance = /^([+-]?(?:\d+\.?\d*|\.\d+))%$/.exec(
+      rawFrames[index]!.value,
+    );
+    const expectedDistance =
+      totalLength > 0 ? (cumulative / totalLength) * 100 : 0;
+    if (
+      !rawDistance ||
+      Math.abs(Number(rawDistance[1]) - expectedDistance) > 0.02
+    ) {
+      return null;
+    }
+    const position =
+      index === 0 ? segments[0]!.start : segments[index - 1]!.end;
+    const frame: MotionKeyframe = {
+      t: rawFrames[index]!.t,
+      value: formatMotionPosition({
+        x: baseValue.x + position.x,
+        y: baseValue.y + position.y,
+      }),
+      ...(rawFrames[index]!.ease !== undefined
+        ? { ease: rawFrames[index]!.ease }
+        : {}),
+    };
+    if (index < segments.length) {
+      const segment = segments[index]!;
+      const dx = segment.end.x - segment.start.x;
+      const dy = segment.end.y - segment.start.y;
+      const control1 = {
+        x: segment.control1.x - segment.start.x,
+        y: segment.control1.y - segment.start.y,
+      };
+      const control2 = {
+        x: segment.control2.x - segment.end.x,
+        y: segment.control2.y - segment.end.y,
+      };
+      if (
+        Math.hypot(control1.x - dx / 3, control1.y - dy / 3) > 0.0001 ||
+        Math.hypot(control2.x + dx / 3, control2.y + dy / 3) > 0.0001
+      ) {
+        frame.motionPath = {
+          version: 1,
+          type: "cubic",
+          control1,
+          control2,
+        };
+      }
+    }
+    frames.push(frame);
+    if (index < lengths.length) cumulative += lengths[index]!;
+  }
+  return frames;
+}
+
+function parseCubicPath(pathData: string): ParsedPathCubic[] | null {
+  const tokens = pathData.trim().split(/\s+/);
+  if (tokens[0] !== "M" || tokens.length < 3) return null;
+  const number = (token: string | undefined) => {
+    if (!token || !/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(token)) return null;
+    const value = Number(token);
+    return Number.isFinite(value) ? value : null;
+  };
+  let cursor: MotionPathPoint = {
+    x: number(tokens[1]!) ?? Number.NaN,
+    y: number(tokens[2]!) ?? Number.NaN,
+  };
+  if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y)) return null;
+  const segments: ParsedPathCubic[] = [];
+  let index = 3;
+  while (index < tokens.length) {
+    if (tokens[index] !== "C" || index + 6 >= tokens.length) return null;
+    const values = tokens.slice(index + 1, index + 7).map(number);
+    if (values.some((value) => value === null)) return null;
+    const [x1, y1, x2, y2, x, y] = values as number[];
+    const end = { x, y };
+    segments.push({
+      start: cursor,
+      control1: { x: x1, y: y1 },
+      control2: { x: x2, y: y2 },
+      end,
+    });
+    cursor = end;
+    index += 7;
+  }
+  return segments;
 }
 
 function escapeRegExp(value: string): string {

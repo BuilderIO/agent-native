@@ -81,7 +81,7 @@ describe("set-workspace-connection-grant action cards", () => {
         kind: "workspace-connection",
         title: "Example workspace",
         detail: "mail",
-        url: "/integrations",
+        url: "/settings/integrations",
       },
     });
     expect(action.chatUI?.renderer).toBe(ACTION_CHAT_UI_RECORD_CHANGE_RENDERER);

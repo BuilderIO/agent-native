@@ -60,7 +60,14 @@ export default defineEventHandler(async (event) => {
             ctx,
           );
           const project = await resolveCredential("BIGQUERY_PROJECT_ID", ctx);
-          if (!creds || !project)
+          const oauthCredential = creds
+            ? null
+            : await resolveAnalyticsProviderCredential({
+                provider: "bigquery",
+                keys: [],
+                ctx,
+              });
+          if ((!creds && !oauthCredential) || !project)
             return { ok: false, error: "Missing credentials" };
           const { runQuery } = await import("../../lib/bigquery");
           await runQuery("SELECT 1 AS test");

@@ -52,16 +52,24 @@ import {
 } from "../server/plans.js";
 import {
   agentPlanIncrementalContentPatchesSchema,
+  assertPlanContentAuthoringInput,
   applyPlanContentPatches,
   findBlock,
+  getPlanContentValidationMessage,
   planContentPatchesSchema,
-  planContentSchema,
+  storedPlanContentSchema,
   type PlanBlock,
   type PlanContent,
   type PlanContentPatch,
 } from "../shared/plan-content.js";
 
 const CONTENT_PATCH_EXCERPT_LIMIT = 520;
+
+function failInvalidPlanContent(error: unknown): never {
+  const message = getPlanContentValidationMessage(error);
+  if (message === null) throw error;
+  fail(message, { errorCode: "invalid_plan_content", statusCode: 422 });
+}
 
 function compactExcerpt(value: unknown, limit = CONTENT_PATCH_EXCERPT_LIMIT) {
   const text =
@@ -199,7 +207,7 @@ function isCanvasReviewMarkupRequest(args: {
   status?: string;
   currentFocus?: string;
   html?: string;
-  content?: PlanContent;
+  content?: unknown;
   contentPatches: PlanContentPatch[];
   markdown?: string;
   sections: unknown[];
@@ -258,7 +266,7 @@ function isExistingCommentStatusUpdateRequest(args: {
   status?: string;
   currentFocus?: string;
   html?: string;
-  content?: PlanContent;
+  content?: unknown;
   contentPatches: PlanContentPatch[];
   markdown?: string;
   sections: unknown[];
@@ -551,7 +559,7 @@ const updateVisualPlanSchema = z.object({
     .describe(
       "Legacy-only standalone HTML. Allowed only while the current plan has no structured content. Structured plans reject this field because it would shadow blocks, inline editing, and MDX round-trip. Never use it for new plans.",
     ),
-  content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  content: z.unknown().optional().describe(CONTENT_DESCRIPTION),
   contentPatches: planContentPatchesSchema
     .optional()
     .default([])
@@ -603,6 +611,8 @@ export default defineAction({
   description:
     "Update an Agent-Native Plan's structured content blocks, prototype screens, visual fidelity, sections, comments, or status. For an existing plan, use small contentPatches such as append-block, update-rich-text, or a text patch; do not resend the full document for an incremental edit. When a user asks for higher fidelity on an existing plan, update that same plan in place: use set-visual-render-mode with design and provide polished screen HTML/CSS in the same call instead of creating a duplicate plan or only toggling the viewer-local clean style. Use a full replacement only for an explicit broad rebuild. Works on plans and recaps alike when you have editor access; with viewer access (common on PR recaps published by CI) only comment-only calls succeed - to change a recap you cannot edit, publish a replacement with create-visual-recap instead of retrying this call.",
   schema: updateVisualPlanSchema,
+  changeResource: (input) =>
+    input.planId ? { resourceType: "plan", resourceId: input.planId } : null,
   agentInputSchema: agentUpdateVisualPlanSchema,
   publicAgent: {
     expose: true,
@@ -701,8 +711,7 @@ export default defineAction({
     );
     const isDestructiveStructuredWrite =
       args.content !== undefined || hasReplaceBlocksPatch;
-    let nextContent =
-      args.content !== undefined ? normalizePlanContent(args.content) : null;
+    let nextContent: PlanContent | null = null;
     let surfaceWarnings: string[] = [];
     let versionAtLoad: string | null = null;
     let bundleAtLoad: Awaited<ReturnType<typeof loadPlanBundle>> | null = null;
@@ -748,6 +757,27 @@ export default defineAction({
       versionAtLoad = args.expectedUpdatedAt;
     }
 
+    if (args.content !== undefined) {
+      try {
+        nextContent = normalizePlanContent(args.content as PlanContent, {
+          allowStoredLegacyDefaults: true,
+        });
+        if (!nextContent) {
+          fail("Full plan content must be a structured object.", {
+            errorCode: "invalid_plan_content",
+            statusCode: 422,
+          });
+        }
+        assertPlanContentAuthoringInput(
+          args.content,
+          nextContent,
+          bundleAtLoad?.plan.content,
+        );
+      } catch (error) {
+        failInvalidPlanContent(error);
+      }
+    }
+
     if (args.content === undefined && args.contentPatches.length > 0) {
       if (!bundleAtLoad?.plan.content) {
         fail(
@@ -755,13 +785,17 @@ export default defineAction({
           { errorCode: "plan_not_structured", statusCode: 422 },
         );
       }
-      nextContent = applyPlanContentPatches(
-        bundleAtLoad.plan.content,
-        args.contentPatches,
-      );
+      try {
+        nextContent = applyPlanContentPatches(
+          bundleAtLoad.plan.content,
+          args.contentPatches,
+        );
+      } catch (error) {
+        failInvalidPlanContent(error);
+      }
     }
     const normalizedContentAtLoad = bundleAtLoad?.plan.content
-      ? planContentSchema.parse(bundleAtLoad.plan.content)
+      ? storedPlanContentSchema.parse(bundleAtLoad.plan.content)
       : null;
     if (
       isDestructiveStructuredWrite &&

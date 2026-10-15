@@ -15,7 +15,7 @@ const LLM_REJECTED_CREDENTIAL_ERROR_CODES = new Set([
 ]);
 
 export const LLM_MISSING_CREDENTIALS_MESSAGE =
-  "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.";
+  "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.";
 
 export const GATEWAY_UNAVAILABLE_VISITOR_MESSAGE =
   "AI features aren't available on this site right now.";
@@ -75,7 +75,7 @@ export function formatLlmCredentialErrorMessage(options?: {
   if (options?.visitorFacing) return GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
   const agentName = options?.agentName?.trim();
   if (agentName) {
-    return `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.`;
+    return `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.`;
   }
   return LLM_MISSING_CREDENTIALS_MESSAGE;
 }

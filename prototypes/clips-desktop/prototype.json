@@ -1,0 +1,22 @@
+{
+  "template": "clips",
+  "tokens": [
+    "templates/clips/desktop/src/tailwind.css",
+    "templates/clips/desktop/src/styles.css"
+  ],
+  "figma": {
+    "file": "oJQ7t9q4e8oHzLZKuki7k1",
+    "page": "Clips",
+    "pageId": "14:25",
+    "sections": {
+      "Clips desktop · Screens": "2844:373",
+      "Tray popover": "2868:2526",
+      "Countdown": "2868:2681",
+      "Recording": "2868:2750",
+      "Paused · hover": "2868:2825",
+      "Recording saved": "2868:2911",
+      "Clips desktop · Menus": "2844:374",
+      "Clips · Parts": "2844:375"
+    }
+  }
+}

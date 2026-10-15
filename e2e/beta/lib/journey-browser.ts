@@ -31,6 +31,30 @@ export const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
 } as const;
 
+const COMPATIBILITY_HEADER = "X-Agent-Native-Client-Compatibility";
+
+/**
+ * An app that declares a client compatibility version (Content, Slides)
+ * answers a frontend action request that lacks it with 409
+ * client_build_mismatch, and a real tab reloads into the bundle that sends
+ * it. This harness has no bundle, so it takes the version the server names
+ * and retries once, as that reload would. Returns the version to retry with,
+ * or null when the response is not that refusal or a retry cannot change it.
+ */
+export function compatibilityToAdopt(
+  status: number,
+  headers: Record<string, string>,
+  sent: string | undefined,
+): string | null {
+  if (status !== 409 || headers["x-agent-native-client-mismatch"] !== "1") {
+    return null;
+  }
+  const required = headers["x-agent-native-client-compatibility"]?.trim();
+  return required && required !== sent ? required : null;
+}
+
+const adoptedCompatibility = new Map<string, string>();
+
 /** `e2e-<run id>-<label>-<random>`: unique per attempt, greppable in the data. */
 export function journeyToken(label: string): string {
   const run = process.env.GITHUB_RUN_ID ?? `local-${Date.now().toString(36)}`;
@@ -71,20 +95,34 @@ export async function callAction(
 ): Promise<ActionCall> {
   const method = options.method ?? "GET";
   const url = `${origin}/_agent-native/actions/${name}`;
-  const requestOptions = {
-    headers: ACTION_HEADERS,
-    timeout: options.timeoutMs ?? 60_000,
-    ...(options.data ? { data: options.data } : {}),
-    ...(options.params ? { params: options.params } : {}),
+  const send = (compatibility: string | undefined) => {
+    const requestOptions = {
+      headers: compatibility
+        ? { ...ACTION_HEADERS, [COMPATIBILITY_HEADER]: compatibility }
+        : ACTION_HEADERS,
+      timeout: options.timeoutMs ?? 60_000,
+      ...(options.data ? { data: options.data } : {}),
+      ...(options.params ? { params: options.params } : {}),
+    };
+    return method === "GET"
+      ? request.get(url, requestOptions)
+      : method === "POST"
+        ? request.post(url, requestOptions)
+        : request.delete(url, requestOptions);
   };
   let response;
   try {
-    response =
-      method === "GET"
-        ? await request.get(url, requestOptions)
-        : method === "POST"
-          ? await request.post(url, requestOptions)
-          : await request.delete(url, requestOptions);
+    const sent = adoptedCompatibility.get(origin);
+    response = await send(sent);
+    const adopt = compatibilityToAdopt(
+      response.status(),
+      response.headers(),
+      sent,
+    );
+    if (adopt) {
+      adoptedCompatibility.set(origin, adopt);
+      response = await send(adopt);
+    }
   } catch (error) {
     throw new Error(
       `${method} ${url} never completed: ${error instanceof Error ? error.message : String(error)}`,
@@ -172,31 +210,42 @@ export async function probeFromPage(
   page: Page,
   paths: readonly string[],
 ): Promise<ApiProbe[]> {
-  const raw = await page.evaluate(async (list) => {
-    const out: { path: string; status: number; text: string }[] = [];
-    for (const path of list) {
-      const response = await fetch(path, {
-        credentials: "same-origin",
-        headers: { accept: "application/json", "X-Agent-Native-Frontend": "1" },
-      });
-      out.push({
-        path,
-        status: response.status,
-        text: (await response.text()).slice(0, 50_000),
-      });
-    }
-    return out;
-  }, paths);
-  return raw.map((entry) => {
+  const fetchInPage = (path: string, compatibility: string | undefined) =>
+    page.evaluate(
+      async ([target, header, value]) => {
+        const response = await fetch(target, {
+          credentials: "same-origin",
+          headers: {
+            accept: "application/json",
+            "X-Agent-Native-Frontend": "1",
+            ...(value ? { [header]: value } : {}),
+          },
+        });
+        return {
+          path: target,
+          status: response.status,
+          headers: Object.fromEntries(response.headers.entries()),
+          text: (await response.text()).slice(0, 50_000),
+        };
+      },
+      [path, COMPATIBILITY_HEADER, compatibility] as const,
+    );
+  const raw = [];
+  for (const path of paths) {
+    const first = await fetchInPage(path, undefined);
+    const adopt = compatibilityToAdopt(first.status, first.headers, undefined);
+    raw.push(adopt ? await fetchInPage(path, adopt) : first);
+  }
+  return raw.map(({ path, status, text }) => {
     let json: unknown;
     let parsed = true;
     try {
-      json = JSON.parse(entry.text);
+      json = JSON.parse(text);
     } catch {
       // coercion-ok: `parsed` records that the body was not JSON; callers read it.
       parsed = false;
     }
-    return { ...entry, json, parsed };
+    return { path, status, text, json, parsed };
   });
 }
 

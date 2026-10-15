@@ -285,10 +285,11 @@ export function resolveRealtimeVoiceLanguage(
 
 export function realtimeVoiceReasoningEffort(
   intelligence: RealtimeVoiceIntelligence,
+  protocol?: RealtimeVoiceProtocol,
 ): "minimal" | "low" | "medium" {
   if (intelligence === "balanced") return "low";
   if (intelligence === "deep") return "medium";
-  return "minimal";
+  return protocol === "live" ? "low" : "minimal";
 }
 
 export function createRealtimeVoicePreferenceUpdate(
@@ -306,7 +307,10 @@ export function createRealtimeVoicePreferenceUpdate(
         delegation: {
           responses: {
             reasoning: {
-              effort: realtimeVoiceReasoningEffort(preferences.intelligence),
+              effort: realtimeVoiceReasoningEffort(
+                preferences.intelligence,
+                options.protocol,
+              ),
             },
           },
         },
@@ -1327,10 +1331,10 @@ function voiceCopy(t: ComposerTranslate): RealtimeVoiceModeCopy {
     }),
     setupDescription: t("agentChat.voiceMode.setupDescription", {
       defaultValue:
-        "Connect Builder.io to use managed voice with free credits, or add your own keys.",
+        "Use Builder.io for managed voice with free credits, or add your own keys.",
     }),
     connectBuilder: t("agentChat.voiceMode.connectBuilder", {
-      defaultValue: "Connect Builder.io",
+      defaultValue: "Use Builder.io",
     }),
     useOpenAiKey: t("agentChat.voiceMode.useOpenAiKey", {
       defaultValue: "Add your own keys",

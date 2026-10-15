@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   applyOptimisticImagePreview,
+  captureCropTransitionAnimations,
   captureSlideImageUploadProvenance,
   captureOptimisticImagePreview,
   createPlaceholderImageTarget,
@@ -17,6 +18,7 @@ import {
   swapImageSourcesInPlace,
   replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
+  restoreCropTransitionAnimations,
   registerSlideImageUploadProvenance,
   stripOptimisticImagePreviews,
   takeSlideImageUploadProvenance,
@@ -32,6 +34,49 @@ function firstImage(html: string): HTMLImageElement | null {
 }
 
 describe("slide image replacement", () => {
+  it("captures crop animations safely without the Web Animations API", () => {
+    const root = document.createElement("div");
+    const image = document.createElement("img");
+    Object.defineProperty(image, "getAnimations", { value: undefined });
+    root.append(image);
+
+    expect(captureCropTransitionAnimations(root)).toEqual([]);
+  });
+
+  it("reports when a captured crop transition cannot be restored", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-pptx-image" data-slide-object-id="image-1"><img></div>';
+    const image = root.querySelector("img")!;
+    Object.defineProperty(image, "animate", {
+      configurable: true,
+      value: () => {
+        throw new Error("Web Animations API failed");
+      },
+    });
+    const cancel = vi.fn();
+    const originalAnimation = { cancel } as unknown as Animation;
+
+    const restored = restoreCropTransitionAnimations(root, [
+      {
+        kind: "transition",
+        animation: originalAnimation,
+        animationId: "fmd-crop-transition-opacity",
+        objectId: "image-1",
+        targetKind: "image",
+        currentTime: 250,
+        playbackRate: 1,
+        playState: "running",
+        property: "opacity",
+        keyframes: [{ opacity: 0 }, { opacity: 1 }],
+        timing: { duration: 1000 },
+      },
+    ]);
+
+    expect(restored).toBe(false);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it("swaps hosted sources without replacing a live transformed image", () => {
     const previousContent =
       '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
@@ -259,6 +304,44 @@ describe("slide image replacement", () => {
     expect(image?.getAttribute("style")).toContain("top: 87px");
     expect(image?.getAttribute("style")).toContain("width: 512px");
     expect(image?.getAttribute("style")).toContain("height: 300px");
+  });
+
+  it("restores a cropped pending image inside its crop viewport", () => {
+    const preview = {
+      previewSrc: "blob:cropped",
+      replaceSrc: null,
+      alt: "photo.png",
+      objectId: "cropped-object",
+    };
+    const croppedContent = `<div class="fmd-slide"><div class="fmd-pptx-image" data-pptx-element-kind="image" data-slide-object-id="cropped-object" style="position: absolute; left: 100px; top: 90px; width: 320px; height: 180px;"><div class="fmd-image-crop-viewport" style="position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden;"><img src="blob:cropped" alt="photo.png" style="position: absolute; left: -20%; top: -10%; width: 150%; height: 120%; max-width: none; max-height: none; margin: 0;"></div></div></div>`;
+    const editedPreview = captureOptimisticImagePreview(
+      croppedContent,
+      preview,
+    );
+    const persisted = stripOptimisticImagePreviews(croppedContent, [
+      editedPreview,
+    ]);
+    const completed = replaceOptimisticImagePreview(
+      applyOptimisticImagePreview(persisted, editedPreview),
+      preview.previewSrc,
+      "/uploads/photo.png",
+    );
+    const doc = new DOMParser().parseFromString(completed, "text/html");
+    const frame = doc.querySelector<HTMLElement>(
+      '.fmd-pptx-image[data-slide-object-id="cropped-object"]',
+    );
+    const viewport = frame?.querySelector<HTMLElement>(
+      ".fmd-image-crop-viewport",
+    );
+    const image = viewport?.querySelector<HTMLImageElement>("img");
+
+    expect(frame?.style.width).toBe("320px");
+    expect(image?.getAttribute("src")).toBe("/uploads/photo.png");
+    expect(image?.style.left).toBe("-20%");
+    expect(image?.style.top).toBe("-10%");
+    expect(image?.style.width).toBe("150%");
+    expect(image?.style.height).toBe("120%");
+    expect(doc.querySelector(".fmd-slide > img")).toBeNull();
   });
 
   it("keeps placeholder uploads resolvable after edited content is persisted", () => {

@@ -97,6 +97,16 @@ describe("builderFileUploadProvider", () => {
     });
   });
 
+  it("treats a missing Builder asset as already deleted", async () => {
+    fetchMock.mockResolvedValue(errorResponse(404));
+
+    await expect(
+      builderFileUploadProvider.delete!({
+        url: "https://cdn.builder.io/api/v1/file/assets%2Fmissing.bin",
+      }),
+    ).resolves.toBe(true);
+  });
+
   it("deletes Builder assets with OAuth without legacy API key fields", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "<OAUTH_TOKEN_EXAMPLE>",
@@ -298,7 +308,7 @@ describe("builderFileUploadProvider", () => {
     );
   });
 
-  it("reports a 401 after a real refresh instead of retrying forever", async () => {
+  it("marks a 401 after a real refresh as rejected Builder credentials", async () => {
     resolveBuilderApiAuthorizationMock
       .mockResolvedValueOnce("Bearer revoked-token")
       .mockResolvedValueOnce("Bearer also-refused");
@@ -310,7 +320,10 @@ describe("builderFileUploadProvider", () => {
         "video/webm",
         1024,
       ),
-    ).rejects.toMatchObject({ status: 401 });
+    ).rejects.toMatchObject({
+      status: 401,
+      errorCode: "builder_credentials_rejected",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -324,6 +337,30 @@ describe("builderFileUploadProvider", () => {
         1024,
       ),
     ).rejects.toMatchObject({ status: 401 });
+    expect(resolveBuilderApiAuthorizationMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks a rejected Builder key as a persistent authorization failure", async () => {
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-rejected-key",
+      publicKey: "public-key",
+    });
+    resolveBuilderApiAuthorizationMock.mockResolvedValue(
+      "Bearer btk-rejected-key",
+    );
+    fetchMock.mockResolvedValue(errorResponse(401, "Unauthorized"));
+
+    await expect(
+      builderFileUploadProvider.resumable!.startSession(
+        "rec.webm",
+        "video/webm",
+        1024,
+      ),
+    ).rejects.toMatchObject({
+      status: 401,
+      errorCode: "builder_credentials_rejected",
+    });
     expect(resolveBuilderApiAuthorizationMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

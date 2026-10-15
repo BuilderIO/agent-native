@@ -1,0 +1,102 @@
+name: Mirror CI Postgres images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mirror-ci-postgres-fallback.yml"
+  schedule:
+    - cron: "17 8 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: mirror-ci-postgres-fallback
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Mirror Postgres service images
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      packages: write
+    steps:
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      # Stage each Docker Official Images tag and validate it before promotion.
+      - name: Mirror Postgres tags
+        run: |
+          set -euo pipefail
+          docker buildx version
+          source_repository="docker.io/library/postgres"
+          mirror_repository="ghcr.io/builderio/agent-native-ci-postgres-fallback"
+          digest_from_inspect() {
+            awk '$1 == "Digest:" && !digest { digest = $2 } END { print digest }'
+          }
+          declare -A verified_digests=()
+
+          for tag in 17-alpine 18-alpine; do
+            source_image="$source_repository:$tag"
+            staging_image="$mirror_repository:staging-$tag"
+            mirror_image="$mirror_repository:$tag"
+            source_inspect="$(docker buildx imagetools inspect "$source_image")"
+            source_digest="$(printf '%s\n' "$source_inspect" | digest_from_inspect)"
+            if [[ -z "$source_digest" ]]; then
+              echo "::error::could not resolve the upstream digest for $source_image"
+              exit 1
+            fi
+            sleep 2
+
+            for attempt in 1 2 3 4 5; do
+              if docker buildx imagetools create --tag "$staging_image" "$source_image"; then
+                break
+              fi
+              if [[ "$attempt" -eq 5 ]]; then
+                echo "::error::could not mirror $source_image after 5 attempts"
+                exit 1
+              fi
+              sleep $((attempt * 10))
+            done
+
+            staging_inspect="$(docker buildx imagetools inspect "$staging_image")"
+            staging_digest="$(printf '%s\n' "$staging_inspect" | digest_from_inspect)"
+            if [[ "$source_digest" != "$staging_digest" ]]; then
+              echo "::error::digest mismatch for $tag: source=$source_digest staging=$staging_digest"
+              exit 1
+            fi
+            docker buildx imagetools create --tag "$mirror_image" "$staging_image"
+            mirror_inspect="$(docker buildx imagetools inspect "$mirror_image")"
+            mirror_digest="$(printf '%s\n' "$mirror_inspect" | digest_from_inspect)"
+            if [[ "$source_digest" != "$mirror_digest" ]]; then
+              echo "::error::digest mismatch after promoting $tag: source=$source_digest mirror=$mirror_digest"
+              exit 1
+            fi
+            verified_digests["$tag"]="$mirror_digest"
+            echo "Promoted verified $source_image at $mirror_digest"
+            sleep 2
+          done
+
+          # Reauthenticate with the linked repository's token to verify pull
+          # access independently of the publish session.
+          docker logout ghcr.io
+          printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for tag in 17-alpine 18-alpine; do
+            mirror_image="$mirror_repository:$tag"
+            read_inspect="$(docker buildx imagetools inspect "$mirror_image")"
+            read_digest="$(printf '%s\n' "$read_inspect" | digest_from_inspect)"
+            expected_digest="${verified_digests[$tag]}"
+            if [[ -z "$read_digest" || "$read_digest" != "$expected_digest" ]]; then
+              echo "::error::authenticated pull for $mirror_image returned $read_digest, expected $expected_digest"
+              exit 1
+            fi
+            echo "Authenticated GHCR pull verified for $mirror_image at $read_digest"
+          done
+        env:
+          GHCR_READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}

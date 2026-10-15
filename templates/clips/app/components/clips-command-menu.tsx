@@ -167,6 +167,11 @@ function RecordingSearchResults({
                 {formatSearchSnippet(hit.snippet ?? hit.description)}
               </span>
             ) : null}
+            {hit.trashedAt ? (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {t("navigation.trash")}
+              </span>
+            ) : null}
           </span>
           {hit.matchPanel ? (
             <span className="shrink-0 text-xs text-muted-foreground">

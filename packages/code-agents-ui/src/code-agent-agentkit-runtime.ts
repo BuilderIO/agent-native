@@ -263,9 +263,7 @@ export function createCodeAgentAgentKitRuntime(
       },
       async startTurn(input): Promise<AgentChatRuntimeTurn> {
         if (options.isChatBlocked?.()) {
-          throw new Error(
-            "Connect Builder.io or add custom keys before chatting.",
-          );
+          throw new Error("Use Builder.io or add custom keys before chatting.");
         }
         const transcriptBeforeTurn =
           await options.controller.transcript(sessionId);

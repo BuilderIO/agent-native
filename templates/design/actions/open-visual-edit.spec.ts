@@ -1,5 +1,3 @@
-import crypto from "node:crypto";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -14,6 +12,12 @@ const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   navigateRun: vi.fn(),
   runWithRequestContext: vi.fn(),
+  readAppState: vi.fn(),
+  resolveAccess: vi.fn(),
+  roleSatisfies: vi.fn(
+    (role: string, minimum: string) =>
+      minimum === "editor" && ["editor", "admin", "owner"].includes(role),
+  ),
   writeAppState: vi.fn(),
   designData: null as string | null,
   designFiles: [] as Array<{ id: string; filename: string; fileType: string }>,
@@ -28,6 +32,7 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  readAppState: mocks.readAppState,
   writeAppState: mocks.writeAppState,
 }));
 
@@ -55,6 +60,8 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+  resolveAccess: mocks.resolveAccess,
+  roleSatisfies: mocks.roleSatisfies,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -122,18 +129,14 @@ vi.mock("./navigate.js", () => ({
   },
 }));
 
+vi.mock("./motion-localhost-relay.js", () => ({
+  ensureMotionLocalhostRelayChain: vi.fn(),
+  motionLocalhostRelayIdentity: vi.fn(),
+}));
+
 import action, {
-  localVisualEditBridgePrincipal,
   localVisualEditWorkspacePrincipal,
 } from "./open-visual-edit.js";
-
-function bridgeAttestationSignature(bridgeToken: string, challenge: string) {
-  return crypto
-    .createHmac("sha256", bridgeToken)
-    .update("agent-native-design-preview-attestation-v1\0")
-    .update(challenge)
-    .digest("hex");
-}
 
 describe("open-visual-edit", () => {
   it("allows the public Design page to call the action without a session", () => {
@@ -183,6 +186,11 @@ describe("open-visual-edit", () => {
         }
       },
     );
+    mocks.readAppState.mockReset().mockResolvedValue(null);
+    mocks.resolveAccess.mockReset().mockResolvedValue({
+      role: "owner",
+      resource: { id: "design_existing" },
+    });
     mocks.writeAppState.mockReset();
     mocks.designData = null;
     mocks.designFiles = [];
@@ -249,6 +257,195 @@ describe("open-visual-edit", () => {
     expect(result.connectionId).toBe("localhost_canonical");
     expect(result.bridgeToken).toBe("stored-write-token");
     expect(result.previewToken).toBe("stored-preview-token");
+  });
+
+  it("reuses the saved visual-edit project for the matching connection", async () => {
+    mocks.readAppState.mockResolvedValue({
+      designId: "design_existing",
+      connectionId: "localhost_canonical",
+      devServerUrl: "http://localhost:5173",
+    });
+
+    const result = await action.run({
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      paths: ["/settings"],
+      navigate: false,
+    });
+
+    expect(mocks.readAppState).toHaveBeenCalledWith("visual-edit");
+    expect(mocks.resolveAccess).toHaveBeenCalledWith(
+      "design",
+      "design_existing",
+    );
+    expect(mocks.createDesignRun).not.toHaveBeenCalled();
+    expect(mocks.addLocalhostScreensRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: "design_existing",
+        connectionId: "localhost_canonical",
+      }),
+      undefined,
+    );
+    expect(result.designId).toBe("design_existing");
+    expect(result.createdDesign).toBe(false);
+  });
+
+  it("creates a new project when the saved design is no longer available", async () => {
+    mocks.readAppState.mockResolvedValue({
+      designId: "design_deleted",
+      connectionId: "localhost_canonical",
+      devServerUrl: "http://localhost:5173",
+    });
+    mocks.resolveAccess.mockResolvedValue(null);
+
+    const result = await action.run({
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      paths: ["/settings"],
+      navigate: false,
+    });
+
+    expect(mocks.resolveAccess).toHaveBeenCalledWith(
+      "design",
+      "design_deleted",
+    );
+    expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+    expect(mocks.addLocalhostScreensRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: "design_created",
+        connectionId: "localhost_canonical",
+      }),
+      undefined,
+    );
+    expect(result).toMatchObject({
+      designId: "design_created",
+      createdDesign: true,
+    });
+  });
+
+  it.each(["viewer", "commenter"] as const)(
+    "creates a new project when the saved design has %s access",
+    async (role) => {
+      mocks.readAppState.mockResolvedValue({
+        designId: "design_read_only",
+        connectionId: "localhost_canonical",
+        devServerUrl: "http://localhost:5173",
+      });
+      mocks.resolveAccess.mockResolvedValue({
+        role,
+        resource: { id: "design_read_only" },
+      });
+
+      const result = await action.run({
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        paths: ["/settings"],
+        navigate: false,
+      });
+
+      expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+      expect(mocks.addLocalhostScreensRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          designId: "design_created",
+          connectionId: "localhost_canonical",
+        }),
+        undefined,
+      );
+      expect(result).toMatchObject({
+        designId: "design_created",
+        createdDesign: true,
+      });
+    },
+  );
+
+  it("creates the design without the parent's context, so the action is not recorded twice", async () => {
+    await action.run(
+      {
+        newDesign: true,
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        paths: ["/"],
+        navigate: false,
+      },
+      {
+        caller: "tool",
+        actionName: "open-visual-edit",
+        userEmail: "owner@example.test",
+      } as never,
+    );
+
+    expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+    expect(mocks.createDesignRun.mock.calls[0]).toHaveLength(1);
+    expect(mocks.createDesignRun.mock.calls[0]?.[0]).toMatchObject({
+      creationMethod: "import_url",
+    });
+  });
+
+  it("creates a separate project when newDesign is explicit", async () => {
+    mocks.readAppState.mockResolvedValue({
+      designId: "design_existing",
+      connectionId: "localhost_canonical",
+    });
+
+    const result = await action.run({
+      newDesign: true,
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      paths: ["/"],
+      navigate: false,
+    });
+
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+    expect(result.designId).toBe("design_created");
+    expect(result.createdDesign).toBe(true);
+  });
+
+  it("rejects conflicting existing and new project targets", async () => {
+    await expect(
+      action.run({
+        designId: "design_existing",
+        newDesign: true,
+        devServerUrl: "http://localhost:5173",
+      }),
+    ).rejects.toThrow(/Choose an existing designId or newDesign/);
+
+    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse the saved project for another connection", async () => {
+    mocks.readAppState.mockResolvedValue({
+      designId: "design_existing",
+      connectionId: "localhost_another",
+    });
+
+    const result = await action.run({
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      paths: ["/"],
+      navigate: false,
+    });
+
+    expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+    expect(result.designId).toBe("design_created");
+  });
+
+  it("fails when the saved visual-edit context cannot identify a project", async () => {
+    mocks.readAppState.mockResolvedValue({
+      connectionId: "localhost_canonical",
+    });
+
+    await expect(
+      action.run({
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        paths: ["/"],
+        navigate: false,
+      }),
+    ).rejects.toThrow(/saved Visual Edit context is unreadable/);
+
+    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+    expect(mocks.createDesignRun).not.toHaveBeenCalled();
   });
 
   it("puts the bridge start command in the message, which MCP callers see instead of the full result", async () => {
@@ -753,6 +950,75 @@ describe("open-visual-edit", () => {
     expect(result.embedStartUrl).toBe(
       "/_agent-native/embed/start?ticket=visual-edit-example-ticket",
     );
+    expect(result.bridgeToken).toBeUndefined();
+    expect(result.previewToken).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("stored-write-token");
+    expect(JSON.stringify(result)).not.toContain("stored-preview-token");
+    expect(result.message).not.toContain("AGENT_NATIVE_BRIDGE_TOKEN");
+  });
+
+  it.each([
+    ["WebMCP", { caller: "webmcp" }],
+    ["MCP widget", { caller: "mcp-widget" }],
+    ["MCP widget write", { caller: "mcp-widget-write" }],
+    [
+      "browser HTTP",
+      {
+        caller: "http",
+        requestHeaders: new Headers({ origin: "https://design.example.com" }),
+      },
+    ],
+  ])(
+    "redacts bridge credentials from %s action results",
+    async (_name, ctx) => {
+      const result = await action.run(
+        {
+          designId: "design_1",
+          devServerUrl: "http://localhost:5173",
+          paths: ["/"],
+          navigate: false,
+        },
+        ctx as never,
+      );
+
+      expect(result.bridgeToken).toBeUndefined();
+      expect(result.previewToken).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain("stored-write-token");
+      expect(JSON.stringify(result)).not.toContain("stored-preview-token");
+      expect(result.message).not.toContain("AGENT_NATIVE_BRIDGE_TOKEN");
+    },
+  );
+
+  it("redacts bridge credential fields nested in browser action results", async () => {
+    mocks.addLocalhostScreensRun.mockResolvedValueOnce({
+      screenCount: 1,
+      screens: [
+        {
+          id: "screen_1",
+          metadata: {
+            bridgeToken: "nested-bridge-token",
+            previewToken: "nested-preview-token",
+            title: "Home",
+          },
+        },
+      ],
+      placedFrames: [{ fileId: "screen_1" }],
+    });
+
+    const result = await action.run(
+      {
+        designId: "design_1",
+        devServerUrl: "http://localhost:5173",
+        paths: ["/"],
+        navigate: false,
+      },
+      { caller: "frontend" } as never,
+    );
+
+    const browserResult = JSON.stringify(result);
+    expect(browserResult).not.toContain("nested-bridge-token");
+    expect(browserResult).not.toContain("nested-preview-token");
+    expect(browserResult).toContain('"title":"Home"');
   });
 
   it("uses a non-account workspace principal for the signed-out local skill entry", async () => {
@@ -797,6 +1063,8 @@ describe("open-visual-edit", () => {
     expect(result.embedStartUrl).toBe(
       "/_agent-native/embed/start?ticket=visual-edit-example-ticket",
     );
+    expect(result.bridgeToken).toBe("stored-write-token");
+    expect(result.previewToken).toBe("stored-preview-token");
     expect(mocks.getRequestUserEmail()).toBeUndefined();
   });
 
@@ -824,7 +1092,7 @@ describe("open-visual-edit", () => {
     expect(mocks.createEmbedSessionTicket).not.toHaveBeenCalled();
   });
 
-  it("allows signed-out page WebMCP bootstrap for loopback apps", async () => {
+  it("reuses a saved connection for signed-out page WebMCP without bridge credentials", async () => {
     mocks.getRequestUserEmail.mockReturnValue(undefined);
     const capability = `capability:visual-edit-bootstrap:${"b".repeat(32)}`;
     mocks.getRequestAuthCapability.mockReturnValue(capability);
@@ -833,20 +1101,6 @@ describe("open-visual-edit", () => {
         devServerUrl: "http://localhost:5173",
         bridgeUrl: "http://127.0.0.1:7331",
         rootPath: "/tmp/app",
-        bridgeToken: "bridge-token",
-        bridgeAttestation: {
-          challenge: "b".repeat(32),
-          signature: bridgeAttestationSignature("bridge-token", "b".repeat(32)),
-          previewToken: "preview:bridge-token",
-          manifest: {
-            source: "agent-native-design-connect",
-            sourceType: "localhost",
-            localOnly: true,
-            devServerUrl: "http://localhost:5173",
-            bridgeUrl: "http://127.0.0.1:7331",
-            rootPath: "/tmp/app",
-          },
-        },
         paths: ["/"],
         navigate: false,
       },
@@ -864,103 +1118,90 @@ describe("open-visual-edit", () => {
 
     expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        userEmail: localVisualEditBridgePrincipal("bridge-token"),
+        userEmail: localVisualEditWorkspacePrincipal("/tmp/app"),
       }),
       expect.any(Function),
     );
     expect(result.designId).toBe("design_created");
+    expect(result.bridgeToken).toBeUndefined();
+    expect(result.previewToken).toBeUndefined();
+    expect(result.message).not.toContain("stored-write-token");
   });
 
-  it("rejects a page bootstrap when the browser-observed bridge does not match", async () => {
-    mocks.getRequestUserEmail.mockReturnValue(undefined);
-    mocks.getRequestAuthCapability.mockReturnValue(
-      `capability:visual-edit-bootstrap:${"c".repeat(32)}`,
-    );
+  it.each([
+    ["frontend", { caller: "frontend" }],
+    ["WebMCP", { caller: "webmcp" }],
+    ["MCP widget", { caller: "mcp-widget" }],
+    ["MCP widget write", { caller: "mcp-widget-write" }],
+    [
+      "browser HTTP",
+      {
+        caller: "http",
+        requestHeaders: new Headers({ origin: "https://design.example.com" }),
+      },
+    ],
+  ])(
+    "rejects bridge credentials from %s callers before touching local Design data",
+    async (_name, ctx) => {
+      mocks.getRequestUserEmail.mockReturnValue(undefined);
+      mocks.getRequestAuthCapability.mockReturnValue(
+        `capability:visual-edit-bootstrap:${"d".repeat(32)}`,
+      );
 
+      await expect(
+        action.run(
+          {
+            devServerUrl: "http://localhost:5173",
+            bridgeToken: "browser-bridge-token",
+            previewToken: "browser-preview-token",
+            paths: ["/"],
+            navigate: false,
+          },
+          {
+            actionName: "open-visual-edit",
+            ...ctx,
+            userEmail: undefined,
+            orgId: null,
+            requestHeaders: new Headers({
+              origin: "https://design.example.com",
+              "sec-fetch-site": "same-origin",
+            }),
+          },
+        ),
+      ).rejects.toThrow(/cannot include bridge credentials/);
+
+      expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+      expect(mocks.createDesignRun).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects nested bridge credentials from browser route metadata", async () => {
     await expect(
       action.run(
         {
           devServerUrl: "http://localhost:5173",
-          bridgeUrl: "http://127.0.0.1:7331",
-          bridgeToken: "bridge-token",
-          bridgeAttestation: {
-            challenge: "c".repeat(32),
-            signature: bridgeAttestationSignature(
-              "bridge-token",
-              "c".repeat(32),
-            ),
-            previewToken: "preview:bridge-token",
-            manifest: {
-              source: "agent-native-design-connect",
-              sourceType: "localhost",
-              localOnly: true,
-              devServerUrl: "http://localhost:4173",
-              bridgeUrl: "http://127.0.0.1:7331",
-              rootPath: "/tmp/app",
-            },
+          routeManifest: {
+            routes: [
+              {
+                path: "/",
+                metadata: { previewToken: "nested-preview-token" },
+              },
+            ],
           },
-          paths: ["/"],
-          navigate: false,
-        },
-        {
-          actionName: "open-visual-edit",
-          caller: "webmcp",
-          userEmail: undefined,
-          orgId: null,
-          requestHeaders: new Headers({
-            origin: "https://design.example.com",
-            "sec-fetch-site": "same-origin",
-          }),
-        },
-      ),
-    ).rejects.toThrow(/does not match the visual-edit target/);
-
-    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
-  });
-
-  it("rejects a forged signed-out bridge attestation", async () => {
-    mocks.getRequestUserEmail.mockReturnValue(undefined);
-    const challenge = "d".repeat(32);
-    mocks.getRequestAuthCapability.mockReturnValue(
-      `capability:visual-edit-bootstrap:${challenge}`,
-    );
-
-    await expect(
-      action.run(
-        {
-          devServerUrl: "http://localhost:5173",
-          bridgeUrl: "http://127.0.0.1:7331",
-          bridgeToken: "bridge-token",
-          bridgeAttestation: {
-            challenge,
-            signature: "0".repeat(64),
-            previewToken: "preview:bridge-token",
-            manifest: {
-              source: "agent-native-design-connect",
-              sourceType: "localhost",
-              localOnly: true,
-              devServerUrl: "http://localhost:5173",
-              bridgeUrl: "http://127.0.0.1:7331",
-              rootPath: "/tmp/app",
-            },
-          },
-          paths: ["/"],
           navigate: false,
         },
         {
           actionName: "open-visual-edit",
           caller: "frontend",
-          userEmail: undefined,
-          orgId: null,
           requestHeaders: new Headers({
             origin: "https://design.example.com",
-            "sec-fetch-site": "same-origin",
           }),
         },
       ),
-    ).rejects.toThrow(/could not prove the local bridge/);
+    ).rejects.toThrow(/cannot include bridge credentials/);
 
     expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+    expect(mocks.createDesignRun).not.toHaveBeenCalled();
   });
 
   it("rejects a signed-out CLI caller for a non-loopback target", async () => {

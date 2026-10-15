@@ -78,6 +78,7 @@ vi.mock(
   },
 );
 
+import { SESSION_REPLAY_BLOCK_ATTRIBUTE } from "@agent-native/core/client/session-replay-privacy";
 import {
   AGENT_NATIVE_EMBED_MESSAGE_TYPES,
   AGENT_NATIVE_EMBED_PROTOCOL,
@@ -291,6 +292,29 @@ describe("McpAppRenderer security helpers", () => {
     );
   });
 
+  it("blocks the frame from replays once the app fails on its own", async () => {
+    vi.useFakeTimers();
+    const payload = mcpAppPayload({
+      resourceHtml: "<!doctype html><html><body>Jane Doe's notes</body></html>",
+      openUrl: "https://plan.agent-native.com/plans/plan-123",
+    });
+
+    await act(async () => {
+      root.render(React.createElement(McpAppRenderer, { app: payload }));
+    });
+
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.hasAttribute(SESSION_REPLAY_BLOCK_ATTRIBUTE)).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(MCP_APP_INITIALIZE_TIMEOUT_MS + 1);
+    });
+
+    expect(container.querySelector(".agent-mcp-app__error-box")).toBeTruthy();
+    expect(container.querySelector("iframe")).toBe(iframe);
+    expect(iframe?.hasAttribute(SESSION_REPLAY_BLOCK_ATTRIBUTE)).toBe(true);
+  });
+
   it("initializes the v2 bridge and proxies MCP tool listing and calls through the app API", async () => {
     appBridgeHarness.enabled = true;
     const callTool = vi.fn(async () => ({
@@ -391,9 +415,17 @@ describe("McpAppRenderer security helpers", () => {
     expect(result).toEqual({
       content: [{ type: "text", text: "tool result" }],
     });
-    expect(callTool).toHaveBeenCalledWith("mcp__apps__inspect", {
-      id: "item-1",
-    });
+    expect(callTool).toHaveBeenCalledWith(
+      "mcp__apps__inspect",
+      { id: "item-1" },
+      {
+        context: {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          orgId: "acme",
+        },
+      },
+    );
     expect(endpoints).toEqual([
       "/_agent-native/mcp/apps/list-tools",
       "/_agent-native/mcp/apps/call-tool",

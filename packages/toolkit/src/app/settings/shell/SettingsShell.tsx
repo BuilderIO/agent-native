@@ -10,7 +10,7 @@ import {
 } from "@agent-native/core/client/changelog/use-changelog-seen";
 import { useFeatureFlags } from "@agent-native/core/client/feature-flags/use-feature-flag";
 import { useT } from "@agent-native/core/client/i18n";
-import { useLabs } from "@agent-native/core/client/labs/use-lab";
+import { useLabStates } from "@agent-native/core/client/labs/use-lab";
 import { useOrg } from "@agent-native/core/client/org";
 import { STANDARD_APP_ROUTES } from "@agent-native/core/navigation";
 import {
@@ -349,7 +349,16 @@ function SettingsShellContent({
   const { location, go } = navigator;
 
   const { data: org } = useOrg();
-  const labs = useLabs();
+  const labStates = useLabStates();
+  const labs = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(labStates).flatMap(([key, state]) =>
+          "error" in state ? [] : [[key, state.enabled]],
+        ),
+      ),
+    [labStates],
+  );
   const flags = useFeatureFlags();
   const identity = resolveSettingsAppIdentity({
     appId: appIdProp,
@@ -366,9 +375,10 @@ function SettingsShellContent({
       soloDeploymentAdmin: org?.soloDeploymentAdmin === true,
       appId: identity.appId,
       labs,
+      labStates,
       flags,
     };
-  }, [flags, identity.appId, labs, org]);
+  }, [flags, identity.appId, labStates, labs, org]);
 
   const registered = useSyncExternalStore(
     subscribeSettingsPages,

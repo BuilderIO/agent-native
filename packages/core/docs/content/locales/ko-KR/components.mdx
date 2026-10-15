@@ -18,7 +18,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 ```
 
 기본 `@agent-native/core` 패키지에서 UI 구성 요소를 가져오지 마십시오. 사용
@@ -612,7 +612,7 @@ const collab = useCollaborativeDoc({
 전체 패널에는 소품이 필요하지 않습니다:
 
 ```tsx
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 
 <ResourcesPanel />;
 ```
@@ -624,6 +624,8 @@ import { useState } from "react";
 import {
   ResourceEditor,
   ResourceTree,
+} from "@agent-native/toolkit/app/resources";
+import {
   useResource,
   useResourceTree,
   useUpdateResource,
@@ -662,16 +664,16 @@ function WorkspaceResources() {
 
 ## 기타 공개 UI {#other-ui}
 
-| 지역        | APIs                                              | 가져오기 경로                             |
-| ----------- | ------------------------------------------------- | ----------------------------------------- |
-| 공유        | `<ShareButton>`, `<ShareDialog>`                  | `@agent-native/core/client/sharing`       |
-| Sharing UI  | `<VisibilityBadge>`                               | `@agent-native/toolkit/sharing`           |
-| 알림        | `<NotificationsBell>`                             | `@agent-native/core/client/notifications` |
-| 진행상황    | `<RunsTray>`, 진행 후크 및 유형                   | `@agent-native/core/client/progress`      |
-| 온보딩      | `useOnboarding()`, 온보딩 패널 후크               | `@agent-native/core/client/onboarding`    |
-| 관측성      | `<ObservabilityDashboard>`, `<ThumbsFeedback>`    | `@agent-native/toolkit/app/observability` |
-| 자원        | `<ResourcesPanel>`, `<ResourceTree>`, 리소스 후크 | `@agent-native/core/client/resources`     |
-| 리치 에디터 | `<SharedRichEditor>`, 슬래시 명령, 블록 노드 후크 | `@agent-native/toolkit/editor`            |
+| 지역            | APIs                                              | 가져오기 경로                                                               |
+| --------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
+| 공유            | `<ShareButton>`, `<ShareDialog>`                  | `@agent-native/toolkit/app/sharing`                                         |
+| Sharing UI      | `<VisibilityBadge>`                               | `@agent-native/toolkit/sharing`                                             |
+| 알림            | `<NotificationsBell>`                             | `@agent-native/toolkit/app/notifications`                                   |
+| 실행 레지스트리 | `<RunsTray>`, 실행 유형 및 서버 레지스트리 함수   | `@agent-native/toolkit/app/progress + @agent-native/core/progress`          |
+| 온보딩          | `useOnboarding()`, 온보딩 패널 후크               | `@agent-native/core/client/onboarding`                                      |
+| 관측성          | `<ObservabilityDashboard>`, `<ThumbsFeedback>`    | `@agent-native/toolkit/app/observability`                                   |
+| 자원            | `<ResourcesPanel>`, `<ResourceTree>`, 리소스 후크 | `@agent-native/toolkit/app/resources + @agent-native/core/client/resources` |
+| 리치 에디터     | `<SharedRichEditor>`, 슬래시 명령, 블록 노드 후크 | `@agent-native/toolkit/editor`                                              |
 
 ## 일회성 텍스트 완성 {#one-off-text-completion}
 

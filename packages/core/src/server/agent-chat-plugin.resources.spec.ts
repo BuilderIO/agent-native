@@ -1,4 +1,4 @@
-import { createApp } from "h3";
+import { createApp, H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -24,6 +24,38 @@ const mocks = vi.hoisted(() => ({
 const routeHarness = vi.hoisted(() => ({
   initPromises: [] as Promise<void>[],
 }));
+
+const threadStoreMocks = vi.hoisted(() => ({
+  forkThread: vi.fn(),
+  mutateThreadQueuedMessages: vi.fn(),
+  resolveThreadAccess: vi.fn(),
+  updateThreadData: vi.fn(),
+}));
+
+const setupGateMocks = vi.hoisted(() => ({
+  requireAgentChatAiSetup: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
+const handlerHarness = vi.hoisted(() => ({
+  options: [] as Array<{
+    actions: Record<string, unknown>;
+    systemPrompt: (event: unknown) => Promise<string>;
+  }>,
+}));
+
+vi.mock("../agent/production-agent.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../agent/production-agent.js")>();
+  return {
+    ...actual,
+    createProductionAgentHandler: (
+      options: Parameters<typeof actual.createProductionAgentHandler>[0],
+    ) => {
+      handlerHarness.options.push(options as never);
+      return actual.createProductionAgentHandler(options);
+    },
+  };
+});
 
 function runtimeSkillsFromBundle(bundle: { skills?: Record<string, any> }) {
   return Object.values(bundle.skills ?? {}).filter(
@@ -88,9 +120,31 @@ vi.mock("./auth.js", async (importOriginal) => ({
   getSession: (...args: any[]) => mocks.getSession(...args),
 }));
 
+vi.mock("../chat-threads/store.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../chat-threads/store.js")>();
+  return {
+    ...actual,
+    forkThread: (...args: any[]) => threadStoreMocks.forkThread(...args),
+    mutateThreadQueuedMessages: (...args: any[]) =>
+      threadStoreMocks.mutateThreadQueuedMessages(...args),
+    resolveThreadAccess: (...args: any[]) =>
+      threadStoreMocks.resolveThreadAccess(...args),
+    updateThreadData: (...args: any[]) =>
+      threadStoreMocks.updateThreadData(...args),
+  };
+});
+
+vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./agent-chat-ai-setup.js")>()),
+  requireAgentChatAiSetup: (...args: unknown[]) =>
+    setupGateMocks.requireAgentChatAiSetup(...args),
+}));
+
 import {
   createAgentChatPlugin,
   loadResourcesForPrompt,
+  type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 import {
   promptResourceManifestSections,
@@ -222,6 +276,11 @@ function meta(id: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   routeHarness.initPromises.length = 0;
+  handlerHarness.options.length = 0;
+  threadStoreMocks.mutateThreadQueuedMessages.mockReset();
+  threadStoreMocks.resolveThreadAccess.mockReset();
+  threadStoreMocks.updateThreadData.mockReset();
+  threadStoreMocks.updateThreadData.mockResolvedValue(true);
   mocks.getSession.mockResolvedValue(null);
   mocks.loadAgentsBundle.mockResolvedValue({
     workspaceAgentsMd: "",
@@ -343,13 +402,544 @@ async function fetchWithRequestContext(
   h3App: ReturnType<typeof createApp>,
   path: string,
   context: { userEmail?: string; orgId?: string; orgScope?: "personal" },
+  init?: RequestInit,
 ) {
   return runWithRequestContext(context, () =>
-    h3App.fetch(new Request(`http://example.test${path}`)),
+    h3App.fetch(new Request(`http://example.test${path}`, init)),
   );
 }
 
+describe("agent chat queued-message route", () => {
+  it("rejects data URL attachment references before durable queue mutation", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-queued-data-url";
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: {
+            type: "append",
+            message: {
+              id: "queued-data-url",
+              threadId,
+              text: "Inspect this image",
+              createdAt: new Date().toISOString(),
+              requestAttachments: [
+                {
+                  type: "image",
+                  name: "screen.png",
+                  url: "data:image/png;base64,iVBORw==",
+                },
+              ],
+            },
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid queue mutation" });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
+  it("requires AI setup before claiming a queued prompt for dispatch", async () => {
+    const h3App = await mountResourceRoutes();
+    const setupRequired = Object.assign(new Error("Connect AI first"), {
+      statusCode: 403,
+      data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+    });
+    setupGateMocks.requireAgentChatAiSetup.mockRejectedValueOnce(setupRequired);
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "thread-claim-gate",
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/thread-claim-gate/queued",
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: {
+            type: "claim",
+            messageId: "queued-claim-gate",
+            claimId: "claim-gate",
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(403);
+    expect(setupGateMocks.requireAgentChatAiSetup).toHaveBeenCalledOnce();
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
+  it("returns a typed conflict when a claimed queue item was removed", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-claim-race";
+    const messageId = "queued-claim-race";
+    const mutation = {
+      type: "claim",
+      messageId,
+      claimId: "claim-race",
+    };
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    threadStoreMocks.mutateThreadQueuedMessages.mockRejectedValueOnce(
+      new Error(`Unknown queued message: ${messageId}`),
+    );
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mutation }),
+      },
+    );
+
+    const responseBody = await response.json();
+    expect(response.status, JSON.stringify(responseBody)).toBe(409);
+    expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalled();
+    expect(responseBody).toEqual({
+      error: `Unknown queued message: ${messageId}`,
+      code: "queued_message_missing",
+      retryable: false,
+    });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
+      threadId,
+      mutation,
+    );
+  });
+});
+
+describe("agent chat thread save route", () => {
+  const thread = {
+    id: "thread-save",
+    scope: null,
+    threadData: JSON.stringify({ messages: [] }),
+    messageCount: 0,
+    title: "Thread",
+    preview: "",
+  };
+
+  it("rejects invalid inner threadData JSON before saving", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData: "{invalid" }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid threadData JSON",
+    });
+    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it("rejects inline image bytes in a client snapshot before saving", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const threadData = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "inline-image-message",
+            role: "user",
+            content: [{ type: "text", text: "Inspect this" }],
+            attachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                data: "data:image/png;base64,INLINE_THREAD_SNAPSHOT_BYTES",
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData, messageCount: 1 }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid threadData JSON",
+      code: "inline_attachment_data_not_persistable",
+      retryable: false,
+    });
+    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it("returns a typed error for an invalid fork snapshot", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}/fork`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          source: { threadData: "{invalid", messageCount: 1 },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid threadData JSON",
+      code: "invalid_thread_data",
+      retryable: false,
+    });
+    expect(threadStoreMocks.forkThread).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["JSON null", "null"],
+    ["a JSON array", "[]"],
+    ["a JSON string", '"invalid"'],
+    ["an empty body", ""],
+  ])("rejects %s before reading thread fields", async (_label, body) => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body,
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid request body" });
+    expect(threadStoreMocks.resolveThreadAccess).not.toHaveBeenCalled();
+    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["nonnumeric", "2"],
+    ["null", null],
+    ["negative", -1],
+    ["fractional", 1.5],
+    ["unsafe", Number.MAX_SAFE_INTEGER + 1],
+  ])(
+    "rejects a %s message count before saving",
+    async (_label, messageCount) => {
+      const h3App = await mountResourceRoutes();
+      threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+      mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+      const response = await fetchWithRequestContext(
+        h3App,
+        `/_agent-native/agent-chat/threads/${thread.id}`,
+        { userEmail: "user@example.test" },
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageCount }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "Invalid request body" });
+      expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves threadData for the metadata-only empty-string save sentinel", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          threadData: "",
+          title: "New title",
+          preview: "New preview",
+          messageCount: 2,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(threadStoreMocks.updateThreadData).toHaveBeenCalledWith(
+      thread.id,
+      thread.threadData,
+      "New title",
+      "New preview",
+      2,
+      expect.objectContaining({
+        preserveCurrentTitleAndPreview: false,
+      }),
+    );
+  });
+
+  it("preserves server metadata when saving a snapshot delta", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadData = JSON.stringify({
+      messages: [],
+      agentKit: { _snapshotDelta: true, messages: [] },
+    });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData, messageCount: 0 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(threadStoreMocks.updateThreadData).toHaveBeenCalledWith(
+      thread.id,
+      threadData,
+      thread.title,
+      thread.preview,
+      0,
+      expect.objectContaining({ preserveCurrentTitleAndPreview: true }),
+    );
+  });
+
+  it("returns 404 when the thread disappears before the save reaches storage", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    threadStoreMocks.updateThreadData.mockResolvedValue(false);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData: JSON.stringify({ messages: [] }) }),
+      },
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Thread not found" });
+    expect(threadStoreMocks.updateThreadData).toHaveBeenCalledOnce();
+    expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalledOnce();
+  });
+});
+
 describe("agent chat resource route organization scopes", () => {
+  it("prefers the most recently updated resource skill when names repeat", async () => {
+    const h3App = await mountResourceRoutes();
+    const candidates = [
+      {
+        id: "repeat_slash_skill_canonical",
+        path: "skills/repeat-skill/SKILL.md",
+        owner: "user@example.test",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content: "---\nname: repeat-skill\ndescription: Older\n---\n# Older",
+      },
+      {
+        id: "repeat_slash_skill_suffixed",
+        path: "skills/repeat-skill-2/SKILL.md",
+        owner: "user@example.test",
+        mimeType: "text/markdown",
+        updatedAt: 2000,
+        content: "---\nname: repeat-skill\ndescription: Newest\n---\n# Newest",
+      },
+    ];
+    for (const candidate of candidates) {
+      resourcesById.set(candidate.id, candidate);
+    }
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" } as any);
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "user@example.test" },
+    );
+    const result = (await response.json()) as {
+      skills: Array<{
+        name: string;
+        description?: string;
+        path: string;
+        source: string;
+      }>;
+    };
+
+    expect(
+      result.skills.filter((skill) => skill.name === "repeat-skill"),
+    ).toEqual([
+      {
+        name: "repeat-skill",
+        description: "Newest",
+        path: "skills/repeat-skill-2/SKILL.md",
+        source: "resource",
+      },
+    ]);
+  });
+
+  it("uses the same owner and recency order as the prompt skill catalog", async () => {
+    const candidates = [
+      {
+        id: "catalog-priority-canonical",
+        path: "skills/catalog-priority/SKILL.md",
+        owner: "user@example.test",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: catalog-priority\ndescription: Older canonical version.\n---\n# Older",
+      },
+      {
+        id: "catalog-priority-suffixed",
+        path: "skills/catalog-priority-2/SKILL.md",
+        owner: "user@example.test",
+        mimeType: "text/markdown",
+        updatedAt: 2000,
+        content:
+          "---\nname: catalog-priority\ndescription: Newer personal version.\n---\n# Newer personal",
+      },
+      {
+        id: "catalog-priority-organization",
+        path: "skills/organization-copy/SKILL.md",
+        owner: "__organization__:org-1",
+        mimeType: "text/markdown",
+        updatedAt: 3000,
+        content:
+          "---\nname: catalog-priority\ndescription: Newer organization version.\n---\n# Organization",
+      },
+      {
+        id: "catalog-priority-shared",
+        path: "skills/shared-copy/SKILL.md",
+        owner: "__shared__",
+        mimeType: "text/markdown",
+        updatedAt: 4000,
+        content:
+          "---\nname: catalog-priority\ndescription: Newer shared version.\n---\n# Shared",
+      },
+      {
+        id: "organization-priority-organization",
+        path: "skills/organization-priority/SKILL.md",
+        owner: "__organization__:org-1",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: organization-priority\ndescription: Organization version.\n---\n# Organization",
+      },
+      {
+        id: "organization-priority-shared",
+        path: "skills/organization-priority-shared/SKILL.md",
+        owner: "__shared__",
+        mimeType: "text/markdown",
+        updatedAt: 4000,
+        content:
+          "---\nname: organization-priority\ndescription: Newer shared version.\n---\n# Shared",
+      },
+    ];
+    for (const candidate of candidates) {
+      resourcesById.set(candidate.id, candidate);
+    }
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" } as any);
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+    const h3App = await mountResourceRoutes({
+      resolveOrgId: () => "org-1",
+    });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "user@example.test", orgId: "org-1" },
+    );
+    const result = (await response.json()) as {
+      skills: Array<{
+        name: string;
+        description?: string;
+        path: string;
+        source: string;
+      }>;
+    };
+
+    expect(
+      result.skills.filter((skill) => skill.name === "catalog-priority"),
+    ).toEqual([
+      {
+        name: "catalog-priority",
+        description: "Newer personal version.",
+        path: "skills/catalog-priority-2/SKILL.md",
+        source: "resource",
+      },
+    ]);
+    expect(
+      result.skills.filter((skill) => skill.name === "organization-priority"),
+    ).toEqual([
+      {
+        name: "organization-priority",
+        description: "Organization version.",
+        path: "skills/organization-priority/SKILL.md",
+        source: "resource",
+      },
+    ]);
+  });
+
   it("keeps Lab-gated bundled skills out of the slash picker for disabled users", async () => {
     const h3App = await mountResourceRoutes();
     const creativeSkill = {
@@ -442,7 +1032,7 @@ describe("agent chat resource route organization scopes", () => {
 
   it("inherits the active request organization when no resolver is configured", async () => {
     const h3App = await mountResourceRoutes();
-    expect(mocks.resourceListAllOwners).toHaveBeenCalledWith("jobs/");
+    expect(mocks.resourceListAllOwners).not.toHaveBeenCalledWith("jobs/");
     const resourceList = mocks.resourceList.getMockImplementation()!;
     const resourceListContexts: Array<{
       orgId: string | undefined;
@@ -788,6 +1378,19 @@ describe("promptResourceManifestSections", () => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it("requires approval before shared memory writes in the compact prompt", async () => {
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).toContain("Keep setup findings personal");
+    expect(prompt).toContain(
+      "shared LEARNINGS.md or organization-memory writes require approval",
+    );
+    expect(prompt).toContain('"Remember this" alone is not approval');
+    expect(prompt).not.toContain(
+      "Save durable team facts and routing conventions to shared LEARNINGS.md",
+    );
+  });
+
   it("fails the prompt build when Lab-gated skill state cannot be read", async () => {
     const failure = new Error("Labs settings unavailable");
     mocks.getRuntimeSkillsForUser.mockRejectedValueOnce(failure);
@@ -926,21 +1529,23 @@ describe("loadResourcesForPrompt", () => {
   });
 
   it("assembles the same inherited workspace context for every app without sync writes", async () => {
-    const analyticsPrompt = await loadResourcesForPrompt(
-      "user@example.test",
-      false,
-      "analytics",
+    const analyticsPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () => loadResourcesForPrompt("user@example.test", false, "analytics"),
     );
-    const mailPrompt = await loadResourcesForPrompt(
-      "user@example.test",
-      false,
-      "mail",
+    const mailPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () => loadResourcesForPrompt("user@example.test", false, "mail"),
     );
 
     expect(analyticsPrompt).toBe(mailPrompt);
     expect(mocks.resourcePut).not.toHaveBeenCalled();
-    expect(mocks.discoverAgents).toHaveBeenCalledWith("analytics");
-    expect(mocks.discoverAgents).toHaveBeenCalledWith("mail");
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("analytics", {
+      includePersonalAgents: true,
+    });
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("mail", {
+      includePersonalAgents: true,
+    });
 
     expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
       "__workspace__",
@@ -1169,7 +1774,7 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain("<skills-summary>");
     expect(prompt).toContain("Prefer concise updates.");
     expect(prompt).toContain(
-      'Read with `docs-search --slug "skill-deep-review"` before starting a task it applies to; reuse that page for subsequent steps in this turn.',
+      'Read with `docs-search --slug "skill-deep-review"` before starting a task it applies to; reuse that page for the rest of the conversation.',
     );
     expect(prompt).toContain("do not repeat an equivalent docs-search lookup");
     expect(prompt).toContain("Do not use MCP resource reads for these skills.");
@@ -1425,5 +2030,106 @@ describe("loadResourcesForPrompt", () => {
     );
     expect(prompt).toContain("truncated after 30,000 characters");
     expect(prompt.length).toBeLessThan(hugeMemory.length);
+  });
+});
+
+describe("compact skills summary and the request registry", () => {
+  const deepReviewBundle = {
+    workspaceAgentsMd: "",
+    agentsMd: "",
+    skills: {
+      "deep-review": {
+        meta: {
+          name: "deep-review",
+          description: "Use when reviewing risky changes.",
+          scope: "both",
+        },
+        content: "---\nname: deep-review\n---\n# Deep Review",
+        dir: ".agents/skills/deep-review",
+        extraFiles: [],
+      },
+    },
+  };
+
+  async function mountLeanHandler(
+    frameworkTools: AgentChatPluginOptions["frameworkTools"],
+  ) {
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools,
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({ h3App: createApp(), hooks: { hook: vi.fn() } });
+    await routeHarness.initPromises.at(-1);
+    const handler = handlerHarness.options[0];
+    if (!handler) throw new Error("Lean agent handler was not created");
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    mocks.loadAgentsBundle.mockResolvedValue(deepReviewBundle);
+    const systemPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () =>
+        handler.systemPrompt(
+          new H3Event(new Request("https://app.example.test/chat")),
+        ),
+    );
+    return { registry: handler.actions, systemPrompt };
+  }
+
+  function toolsNamedBySkillsSummary(systemPrompt: string): string[] {
+    const summary =
+      /<skills-summary>[\s\S]*<\/skills-summary>/.exec(systemPrompt)?.[0] ?? "";
+    return [...summary.matchAll(/`([a-z][a-z0-9-]*) --(?:slug|query)/g)].map(
+      (match) => match[1]!,
+    );
+  }
+
+  it("gives the lean hosted registry every tool the skills summary names", async () => {
+    const { registry, systemPrompt } = await mountLeanHandler({
+      preset: "minimal",
+      docs: true,
+    });
+
+    const named = toolsNamedBySkillsSummary(systemPrompt);
+    expect(named).toContain("docs-search");
+    for (const name of named) expect(registry).toHaveProperty(name);
+    // Only the skill reader joins the lean first request.
+    expect(registry).not.toHaveProperty("framework-search");
+    // The lean prompt omits the compact framework prompt, so it carries the
+    // batching rule itself.
+    expect(systemPrompt).toContain("emit them in the same step");
+  });
+
+  it("drops the skills summary when the registry has no skill-read tool", async () => {
+    const { registry, systemPrompt } = await mountLeanHandler("minimal");
+
+    expect(registry).not.toHaveProperty("docs-search");
+    expect(systemPrompt).not.toContain("<skills-summary>");
+  });
+
+  it("names the skill-read tool the caller passes, and drops the summary for null", async () => {
+    mocks.loadAgentsBundle.mockResolvedValue(deepReviewBundle);
+
+    const renamed = await loadResourcesForPrompt(
+      "user@example.test",
+      true,
+      undefined,
+      undefined,
+      { skillReadTool: "read-skill" },
+    );
+    expect(renamed).toContain(
+      'Read with `read-skill --slug "skill-deep-review"`',
+    );
+    expect(renamed).not.toContain("docs-search");
+
+    const absent = await loadResourcesForPrompt(
+      "user@example.test",
+      true,
+      undefined,
+      undefined,
+      { skillReadTool: null },
+    );
+    expect(absent).not.toContain("<skills-summary>");
+    expect(absent).not.toContain("deep-review");
   });
 });

@@ -1,37 +1,220 @@
 ---
 title: "Render"
-description: "Deploy an Agent-Native app to Render with Nitro's render-com preset."
-search: "Render deployment Nitro preset Node.js"
+description: "Deploy a standalone Agent-Native app to Render as a Node.js web service."
+search: "Render deployment standalone app Nitro render_com preset web service Git build command start command production migrate"
 ---
-
-<!-- i18n-copy-ignore: only the build command changed; the localized pages are pointer stubs that link to these English build steps and carry no command text. -->
 
 # Render
 
-Use Nitro's `render-com` preset to build an output for a Render web service.
+<Badge label="Beta" color="orange" icon="rocket" />
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "render-com" } })],
-});
-```
+Render hosts your app as a web service, so there is no server to set up or keep
+running. Render runs the same Node.js server described in the
+[Node.js guide](/docs/node-js), builds it from your Git repository, and gives
+the app a public address with HTTPS.
 
-Build the app and use Render's normal web service workflow to run the output:
+This guide walks through deploying one standalone app from scratch. You will
+create the app and push it to a Git repository, give it a production database
+and an auth secret, prepare the database, and then create a Render web service
+that builds and runs it.
+
+<Callout tone="info">
+
+Node.js `22.22+` is required.
+
+</Callout>
+
+You also need a Render account and a repository on GitHub, GitLab, or Bitbucket.
+Run the commands in this guide on your own computer. Render builds and runs the
+app from your repository.
+
+## Step 1: Create the app
+
+Create your new standalone app. The example below creates an app from the Chat
+template, but you can start from any template. Move into the app's folder and
+install its dependencies. `corepack enable` turns on the `pnpm` version the app
+expects, so you do not need to install `pnpm` yourself.
 
 ```bash
-pnpm build
-node .output/server/index.mjs
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-Set `DATABASE_URL`, `BETTER_AUTH_SECRET`, and any app secrets in Render's
-environment configuration. Use a persistent PostgreSQL database instead of local
-files.
+Replace `my-app` with your own app name if you like. The rest of this guide
+assumes you are inside the app's folder.
 
-See [Nitro's Render provider guide](https://nitro.build/deploy/providers/render)
-for the current provider workflow.
+Render builds the app from a Git repository, so push the app's folder to a new
+repository on GitHub, GitLab, or Bitbucket before you continue. Commit the
+`pnpm-lock.yaml` file too, because the build installs the exact versions it
+lists.
+
+<Callout tone="info">
+
+If these commands fail with peer dependency errors, an outdated copy of a
+package in your npx cache may be the cause. Run `npx clear-npx-cache` to clear
+the cache, then run the commands again.
+
+</Callout>
+
+## Step 2: Configure environment secrets
+
+The app reads its production settings from environment variables:
+
+| Variable             | Required | Purpose                                              |
+| -------------------- | -------- | ---------------------------------------------------- |
+| `DATABASE_URL`       | Yes      | Connects the app to its PostgreSQL database          |
+| `BETTER_AUTH_SECRET` | Yes      | Signs user sessions                                  |
+| `BETTER_AUTH_URL`    | No       | Sets the public address people use to reach your app |
+
+The exports below make the following commands work in this shell. Before
+deploying, save these same variables in your host's project or service
+environment settings. Step 4 shows how to save them in Render.
+
+### Database URL
+
+During local development the app stores data in a local database when
+`DATABASE_URL` is unset. A deployed app needs a real PostgreSQL database that
+keeps its data between deploys. Render replaces the service's files on every
+deploy and restart, so the database must live outside the web service. Copy the
+connection string from your provider and export it:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+The [database provider guides](/docs/neon) show where to find the connection
+string for each provider. Render Postgres also works. Use its external
+connection string here, and its internal connection string in the web service's
+settings.
+
+<Callout tone="warning">
+
+Select a persistent PostgreSQL provider: Neon, Supabase, Amazon RDS, etc.
+
+</Callout>
+
+### Auth secret
+
+Generate this once and keep it stable across deploys.
+
+The app uses `BETTER_AUTH_SECRET` to sign user sessions. If it changes, every
+signed-in user is signed out. The command below generates a random value:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Save the generated value somewhere safe, such as a password manager. Use the
+same value every time you deploy.
+
+### Public URL
+
+Optional. Set it when using a custom domain, reverse proxy, or an auth/OAuth flow
+that needs a fixed public origin.
+
+`BETTER_AUTH_URL` is the public address people use to reach your app. Without
+it, the app works out its address from each incoming request. That is usually
+fine on the address Render gives you, but set it when you connect a custom
+domain so sign-in links and OAuth redirects use that domain.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Step 3: Migrate
+
+Migrations create and update the tables the app needs in your database. Run
+this before the first deploy:
+
+```bash
+pnpm migrate:production
+```
+
+The command runs on your computer and connects to the production database with
+the `DATABASE_URL` you exported in Step 2. Run it again after you upgrade the
+app, before you deploy the new version.
+
+On a paid Render instance, you can set the service's **Pre-Deploy Command** to
+`pnpm migrate:production` instead. Render then runs the migrations before each
+deploy goes live. The Pre-Deploy Command is not available on the Free instance
+type.
+
+## Step 4: Create the web service
+
+In the Render dashboard, create a new **Web Service** and connect the
+repository from Step 1. Use these settings:
+
+| Setting       | Value                                                                                     |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| Language      | `Node`                                                                                    |
+| Branch        | The branch you deploy from, such as `main`                                                |
+| Build Command | `corepack enable && pnpm install --frozen-lockfile && NITRO_PRESET=render_com pnpm build` |
+| Start Command | `node .output/server/index.mjs`                                                           |
+
+The Build Command turns on the app's `pnpm` version, installs the dependencies
+listed in `pnpm-lock.yaml`, and builds the app. `NITRO_PRESET=render_com` builds
+the same Node.js server as the Node.js guide, set up to serve its own static
+files. The Start Command runs that server. Render tells the server which port to
+use through the `PORT` environment variable, and the server reads it
+automatically.
+
+Under **Environment Variables**, add `DATABASE_URL` and `BETTER_AUTH_SECRET`
+with the values you exported in Step 2. If you set `BETTER_AUTH_URL`, add it
+the same way.
+
+Render picks the Node.js version from a `NODE_VERSION` environment variable, a
+`.node-version` or `.nvmrc` file, or the `engines` field in `package.json`, in
+that order. New services default to a version that meets the requirement above.
+To pin a version, add `NODE_VERSION`, for example with the value `24`.
+
+## Step 5: Deploy
+
+<Steps>
+
+### Choose an instance type
+
+Pick the instance type for the web service. The Free instance type works for
+trying the app out. Choose a paid instance type if the app needs to answer
+right away or you want to use the Pre-Deploy Command from Step 3.
+
+### Create the web service
+
+Create the web service. Render builds the app from your repository and starts
+it. The first build takes a few minutes, and you can follow it in the
+service's logs.
+
+### Open the app
+
+When the deploy finishes, the dashboard shows the app's address, which ends in
+`onrender.com`. Open it and create the first account.
+
+</Steps>
+
+On the Free instance type, Render pauses the service after 15 minutes without
+traffic. The next visit then waits about a minute while the service starts
+again.
+
+## Deploy updates
+
+Render deploys again every time you push to the branch you chose in Step 4. To
+ship a new version, run the migrations first, then push:
+
+```bash
+pnpm migrate:production
+
+git push
+```
+
+The service settings and saved variables stay in place, so you do not need to
+repeat Step 4.
 
 ## What's next
 
-- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
-- [**Node.js**](/docs/node-js) - the default runtime
-- [**Koyeb**](/docs/koyeb) - another managed Node.js target
+- [**Node.js**](/docs/node-js) - run the same server on a machine you manage
+- [**Deployment Environment Variables**](/docs/deployment-environment-variables) - the full list of production settings
+- [**Deployment**](/docs/deployment) - compare hosting targets and prerequisites

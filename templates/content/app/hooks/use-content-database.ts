@@ -53,6 +53,7 @@ import type {
   SubmitContentDatabaseFormRequest,
   SubmitContentDatabaseFormResponse,
   SuggestSourceJoinKeyResponse,
+  UpdateDatabaseItemRequest,
   UpdateContentDatabasePersonalViewRequest,
   ValidateBuilderSourceExecutionRequest,
   DocumentPropertyRelationTarget,
@@ -769,7 +770,16 @@ export function useContentDatabase(
       meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
-  const page = tableQuery ? pageQuery.data : undefined;
+  const pageRead = tableQuery
+    ? contentDatabaseItemsPageReadState(
+        pageQuery.data,
+        pageQuery.isPlaceholderData,
+        pageQuery.isError,
+      )
+    : undefined;
+  const page = pageRead?.page;
+  const baseFailed = baseQuery.isError && baseQuery.data === undefined;
+  const pageFailed = Boolean(tableQuery) && pageRead?.failed === true;
   const data =
     page &&
     baseQuery.data &&
@@ -787,11 +797,42 @@ export function useContentDatabase(
   return {
     ...baseQuery,
     data,
+    // Whether `data` holds the requested rows or a read failed. A sorted or
+    // filtered view reads its own rows; until that read first answers, `data`
+    // holds the base read's rows in stored order.
+    itemsSettled:
+      baseQuery.isError ||
+      (tableQuery
+        ? pageRead?.settled === true || (page !== undefined && !!baseQuery.data)
+        : baseQuery.data !== undefined),
+    // No rows for the requested view could be read. After a failed sorted or
+    // filtered read, `data` still holds the base read's rows in stored order;
+    // they are not this view's rows and must not draw as them.
+    itemsFailed: baseFailed || pageFailed,
+    retryItems: () =>
+      Promise.all([
+        baseFailed ? baseQuery.refetch() : null,
+        pageFailed ? pageQuery.refetch() : null,
+      ]),
+    itemsRetrying: baseQuery.isFetching || pageQuery.isFetching,
     isLoading: tableQuery ? pageQuery.isLoading && !data : baseQuery.isLoading,
     isFetching: tableQuery ? pageQuery.isFetching : baseQuery.isFetching,
     isError: tableQuery ? pageQuery.isError : baseQuery.isError,
     error: tableQuery ? pageQuery.error : baseQuery.error,
     refetch: tableQuery ? pageQuery.refetch : baseQuery.refetch,
+  };
+}
+
+export function contentDatabaseItemsPageReadState<T>(
+  data: T | undefined,
+  isPlaceholderData: boolean,
+  isError: boolean,
+) {
+  const page = isPlaceholderData ? undefined : data;
+  return {
+    page,
+    failed: isError && page === undefined,
+    settled: isError || page !== undefined,
   };
 }
 
@@ -1006,6 +1047,30 @@ export function useAddDatabaseItem(documentId: string) {
             applyOptimisticItemToContentDatabase(current, data.createdItem!),
         );
       }
+      void queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      void queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(documentId),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: data.receipt.target.databaseId,
+      });
+    },
+  });
+}
+
+export function useUpdateDatabaseItem(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseRowMutationResult,
+    UpdateDatabaseItemRequest
+  >("update-database-item", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (data) => {
       void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
@@ -1298,6 +1363,35 @@ export function useContentDatabasePersonalView(
   );
 }
 
+// Every save of one database's personal view is keyed under this prefix, so a
+// save that settles can tell whether another one is still in flight.
+export function contentPersonalViewSaveKey(databaseId: string | null) {
+  return ["content-personal-view-save", databaseId] as const;
+}
+
+/**
+ * Once the last in-flight save of a database's personal view settles, reads
+ * that view and the Files tree it orders again. The tree is not keyed by the
+ * view, and a read during a save can still see the view from before it.
+ */
+export function refreshAfterPersonalViewSave(
+  queryClient: QueryClient,
+  databaseId: string,
+) {
+  // The save calling this is still counted while it settles.
+  if (
+    queryClient.isMutating({
+      mutationKey: contentPersonalViewSaveKey(databaseId),
+    }) > 1
+  ) {
+    return;
+  }
+  void queryClient.invalidateQueries({
+    queryKey: ["action", "get-content-database-personal-view", { databaseId }],
+  });
+  invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
+}
+
 export function useUpdateContentDatabasePersonalView(
   databaseId: string | null,
 ) {
@@ -1306,6 +1400,7 @@ export function useUpdateContentDatabasePersonalView(
     ContentDatabasePersonalViewResponse,
     UpdateContentDatabasePersonalViewRequest
   >("update-content-database-personal-view", {
+    mutationKey: [...contentPersonalViewSaveKey(databaseId), "overrides"],
     skipActionQueryInvalidation: true,
     onMutate: async (variables) => {
       if (!databaseId) return undefined;
@@ -1339,14 +1434,7 @@ export function useUpdateContentDatabasePersonalView(
       );
     },
     onSettled: () => {
-      if (!databaseId) return;
-      void queryClient.invalidateQueries({
-        queryKey: [
-          "action",
-          "get-content-database-personal-view",
-          { databaseId },
-        ],
-      });
+      if (databaseId) refreshAfterPersonalViewSave(queryClient, databaseId);
     },
   });
 }

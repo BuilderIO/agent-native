@@ -50,7 +50,7 @@ type AlertPeriod = "day" | "month";
 type AlertChannel = "in-app" | "email";
 
 interface UsageBilling {
-  unit: "usd" | "builder-credits" | "mixed";
+  unit: "usd" | "builder-credits" | "mixed" | "unknown";
   label: string;
   hardCostMarginMultiplier?: number;
   creditsPerUsd?: number;
@@ -204,6 +204,7 @@ function usageAmount(
   builderCredits?: number,
   estimatedBuilderCredits?: number,
 ): number {
+  if (billing.unit === "unknown") return 0;
   if (billing.unit !== "usd") {
     if (
       typeof builderCredits === "number" ||
@@ -230,6 +231,7 @@ function formatCost(
   otherCostCents?: number,
   includeOtherUsd = true,
 ): string {
+  if (billing.unit === "unknown") return "—";
   if (billing.unit !== "usd") {
     const parts: string[] = [];
     const actual = builderCredits ?? 0;
@@ -334,11 +336,13 @@ function Trend({
     .join(" ");
   const area = `${line} L 100,100 L 0,100 Z`;
   const axisLabel =
-    billing.unit === "usd"
-      ? "USD"
-      : t("agentChat.usage.builderCredits", {
-          defaultValue: "Builder credits",
-        });
+    billing.unit === "unknown"
+      ? t("agentChat.settings.usage.unclassifiedUsage")
+      : billing.unit === "usd"
+        ? "USD"
+        : t("agentChat.usage.builderCredits", {
+            defaultValue: "Builder credits",
+          });
   const axisTicks = [max, max / 2, 0];
 
   return (
@@ -469,11 +473,13 @@ function DriverList({
             ? t("agentChat.usage.driverCreditsAndUsd", {
                 defaultValue: "Builder credits / USD",
               })
-            : billing.unit === "builder-credits"
-              ? t("agentChat.usage.builderCredits", {
-                  defaultValue: "Builder credits",
-                })
-              : "Spend"}
+            : billing.unit === "unknown"
+              ? t("agentChat.settings.usage.unclassifiedUsage")
+              : billing.unit === "builder-credits"
+                ? t("agentChat.usage.builderCredits", {
+                    defaultValue: "Builder credits",
+                  })
+                : "Spend"}
         </span>
       </div>
       {rows.length === 0 ? (
@@ -1186,7 +1192,9 @@ export function UsageSection({
                     ? t("agentChat.usage.builderCredits", {
                         defaultValue: "Builder credits",
                       })
-                    : billing.label
+                    : billing.unit === "unknown"
+                      ? t("agentChat.settings.usage.unclassifiedUsage")
+                      : billing.label
               }
               value={formatCost(
                 t,

@@ -28,7 +28,7 @@ Cuando se ejecuta cualquier acción **mutante** (cualquier cosa que no sea un `G
 - **Acción**: el nombre de la acción (por ejemplo, `delete-recording`).
 - **Actor**: `agent`, `human` o `system`, más el correo electrónico del actor, completado **incluso para llamadas de agentes**, por lo que obtienes "el agente, que actúa para alice@,...".
 - **Ejecutar vínculo**: el agente `threadId` / `turnId` que activó la llamada (una llamada de herramienta), por lo que una mutación se remonta al turno exacto del agente.
-- **Superficie**: `tool` (agente), `frontend`, `http`, `cli`, `mcp` o `a2a`.
+- **Superficie**: `tool` (agente), `frontend`, `http`, `cli`, `mcp`, `webmcp` o `a2a`. Son protocolos para agentes, así que una llamada por `mcp`, `webmcp` o `a2a` se registra como `agent` actuando en tu nombre, no como tú.
 - **Resultado**: `success`, `error` (con un código de error) o `denied` (bloqueado por una puerta de aprobación humana).
 - **Entradas**: los argumentos de llamada, con valores en forma de credencial [redacted](#privacy).
 - **Objetivo y propietario**: el recurso que cambió la acción, utilizado para [scope reads](#reading).
@@ -91,6 +91,21 @@ const { data } = useActionQuery("list-audit-events", {
 ```
 
 El agente puede realizar la misma acción: preguntarle "¿qué cambiaste en esta grabación?" y responde desde el rastro.
+
+## Exportar a un SIEM (OCSF) {#ocsf}
+
+**`export-audit-ocsf`** devuelve el rastro de la organización como eventos OCSF 1.9.0 API Activity ([OCSF](https://schema.ocsf.io), `class_uid` 6003), del más antiguo al más reciente, para que un SIEM los extraiga de forma programada. Solo para propietarios y administradores; lee los mismos eventos `org` y `admins` que el registro de auditoría de la organización, nunca las filas privadas de nadie.
+
+| Entrada  | Significado                                                                    |
+| -------- | ------------------------------------------------------------------------------ |
+| `since`  | Solo eventos desde esta marca de tiempo ISO 8601 o estos ms epoch (inclusive). |
+| `until`  | Solo eventos anteriores a esta marca de tiempo ISO 8601 o a estos ms epoch.    |
+| `cursor` | El `nextCursor` de la página anterior.                                         |
+| `limit`  | Eventos por página, hasta 500 (por defecto 100).                               |
+
+Devuelve `{ events, hasMore, nextCursor }`. Guarde cada `nextCursor` devuelto y envíelo en la siguiente extracción, incluso cuando `events` esté vacío; las páginas vacías avanzan el marcador ready. El cursor vuelve a leer una ventana de solapamiento de cinco minutos para detectar escrituras tardías; deduplique entre extracciones mediante `metadata.uid`. Los últimos cinco segundos se retienen para que una fila escrita tarde nunca se omita.
+
+Cada evento asigna `status` a `status_id` (`success` es Success; `error` y `denied` son Failure, y `denied` añade además `action_id` Denied y un `severity_id` mayor), el actor a `actor.user` (un principal de servicio es de tipo Service), la acción a `api.operation` y el destino a `resources`. Los identificadores de ejecución, tarea, tarea principal, hilo, turno y aplicación no tienen campo OCSF y van bajo `unmapped`. Los argumentos de la llamada nunca se exportan.
 
 ## Privacidad y retención {#privacy}
 

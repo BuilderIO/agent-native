@@ -11,6 +11,7 @@ import {
 } from "./credential-provider.js";
 import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
 import { getRequestOrgId } from "./request-context.js";
+import { isTestIdentity } from "./test-identity.js";
 
 export type EmailProvider = "resend" | "sendgrid" | "dev";
 
@@ -40,6 +41,7 @@ export interface SendEmailArgs {
   from?: string;
   fromName?: string;
   cc?: string | string[];
+  bcc?: string | string[];
   replyTo?: string;
   appSender?: { name: string; slug: string; replyTo?: string };
   inReplyTo?: string;
@@ -52,7 +54,23 @@ export interface SendEmailArgs {
   app?: string;
   orgId?: string;
   signal?: AbortSignal;
+  /**
+   * Account-access mail: sign-in links, verification, password reset, org
+   * invitations. Delivered to test identities too, since they must still be
+   * able to sign in. Otherwise every recipient line drops its test
+   * identities, and a send left with no `to` or `cc` recipient is suppressed.
+   */
+  authCritical?: boolean;
 }
+
+export type SendEmailResult =
+  | {
+      status: "sent";
+      provider: EmailProvider;
+      /** Test identities dropped from the recipient lines; absent when none. */
+      suppressed?: string[];
+    }
+  | { status: "suppressed"; reason: "test-identity" };
 
 let cachedAgentNativeLogo: Buffer | undefined;
 
@@ -388,7 +406,8 @@ async function deliverEmail(
       html: args.html,
       text: args.text,
     };
-    if (args.cc) payload.cc = Array.isArray(args.cc) ? args.cc : [args.cc];
+    if (args.cc) payload.cc = recipientList(args.cc);
+    if (args.bcc) payload.bcc = recipientList(args.bcc);
     if (replyTo) payload.reply_to = replyTo;
     if (attachments?.length) {
       payload.attachments = attachments.map((a) => ({
@@ -445,8 +464,10 @@ async function deliverEmail(
       to: [{ email: args.to }],
     };
     if (args.cc) {
-      const ccList = Array.isArray(args.cc) ? args.cc : [args.cc];
-      personalization.cc = ccList.map((email) => ({ email }));
+      personalization.cc = recipientList(args.cc).map((email) => ({ email }));
+    }
+    if (args.bcc) {
+      personalization.bcc = recipientList(args.bcc).map((email) => ({ email }));
     }
 
     const sgPayload: Record<string, unknown> = {
@@ -535,10 +556,35 @@ async function deliverEmail(
   return { provider, from };
 }
 
+function recipientList(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
 async function sendEmailWithSignal(
-  args: SendEmailArgs,
+  requested: SendEmailArgs,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<SendEmailResult> {
+  const suppressed = requested.authCritical
+    ? []
+    : [
+        requested.to,
+        ...recipientList(requested.cc),
+        ...recipientList(requested.bcc),
+      ].filter((address) => isTestIdentity(address));
+  const deliverable = (value: string | string[] | undefined) =>
+    recipientList(value).filter((address) => !suppressed.includes(address));
+  const cc = deliverable(requested.cc);
+  const bcc = deliverable(requested.bcc);
+  // A send addressed to a test identity still reaches its real cc, promoted
+  // to `to`. Never a bcc: the rest of the bcc line would see that address.
+  const to = deliverable(requested.to)[0] ?? cc.shift();
+  const args: SendEmailArgs = {
+    ...requested,
+    to: to ?? requested.to,
+    cc: cc.length ? cc : undefined,
+    bcc: bcc.length ? bcc : undefined,
+  };
   const baseRecord = {
     templateId: args.templateId,
     app: args.app ?? getAppConfig().app.slug ?? "unknown",
@@ -550,6 +596,34 @@ async function sendEmailWithSignal(
       ? truncateForLog(redactSensitiveEmailBodyContent(args.text))
       : undefined,
   };
+  const dropped = [
+    ...suppressed.map((recipient) => ({
+      recipient,
+      error: "suppressed: test identity",
+    })),
+    ...(to
+      ? []
+      : bcc.map((recipient) => ({
+          recipient,
+          error: "suppressed: no recipient left outside bcc",
+        }))),
+  ];
+  if (dropped.length) {
+    console.info(
+      `[agent-native:email] suppressed: test identity, ${dropped.length} recipient(s)${to ? "" : ", whole send"} (${args.templateId ?? "untemplated"})`,
+    );
+  }
+  for (const { recipient, error } of dropped) {
+    await recordEmailSend({
+      ...baseRecord,
+      recipient,
+      sender: args.from ?? "unknown",
+      status: "suppressed",
+      error,
+      provider: "none",
+    });
+  }
+  if (!to) return { status: "suppressed", reason: "test-identity" };
   let outcome: DeliveryOutcome | undefined;
   try {
     outcome = await deliverEmail(args, signal);
@@ -581,9 +655,14 @@ async function sendEmailWithSignal(
     responseStatus: outcome.responseStatus,
     responseBody: outcome.responseBody,
   });
+  return {
+    status: "sent",
+    provider: outcome.provider,
+    ...(suppressed.length ? { suppressed } : {}),
+  };
 }
 
-export async function sendEmail(args: SendEmailArgs): Promise<void> {
+export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   if (
     args.idempotencyKey !== undefined &&
     (!args.idempotencyKey ||
@@ -608,7 +687,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
   const timeoutError = new Error(`Email send timed out after ${timeoutMs}ms`);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.race([
+    return await Promise.race([
       sendEmailWithSignal(args, signal),
       new Promise<never>((_, reject) => {
         timeout = setTimeout(() => {

@@ -227,7 +227,7 @@ export default {
     eventRulesConnectJev: "连接 Jev 以运行邀请规则",
     eventRulesFreeBuilderOrApiKey:
       "通过 Builder.io 免费使用，或添加 API 密钥。",
-    eventRulesConnectBuilder: "连接 Builder.io",
+    eventRulesConnectBuilder: "使用 Builder.io",
     eventRulesAddJevApiKey: "添加 API 密钥",
     eventRulesTabRules: "规则",
     eventRulesHelpLabel: "了解邀请规则提示",
@@ -727,6 +727,7 @@ export default {
     },
   },
   calendarView: {
+    resizeAllDaySection: "调整全天区域大小",
     addWorkingLocation: "添加工作地点",
     addTitleBeforeCreate: "创建事件前请添加标题",
     calendarSettingsLoading: "日历设置仍在加载。请稍后再试。",
@@ -911,6 +912,8 @@ export default {
     occurrences: "次",
     reviewInvite: "审核邀请",
     reviewProposedTime: "查看建议时间",
+    newTimeProposedBy: "{{name}} 提出了新的时间",
+    reviewTimeProposals: "查看时间建议",
     responseAwaitingCount: "{{count}} 等待中",
     responseMaybeCount: "{{count}} 可能",
     responseNoCount: "{{count}} 否",

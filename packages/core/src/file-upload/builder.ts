@@ -26,12 +26,27 @@ function makeBody(bytes: Uint8Array, mimeType: string): BodyInit {
     : (bytes as unknown as BodyInit);
 }
 
+// Builder's `/api/v1/upload` endpoint sniffs these two Content-Types as a
+// JSON-bodied request (its legacy `{ image: "data:..." }` upload shape)
+// instead of raw file bytes, so it responds 400 "No image specified" for any
+// real `application/json` or `text/plain` file — even though every other
+// mimetype in `UPLOAD_ALLOWED_MIME_PREFIXES` (csv, pdf, zip, docs, video,
+// octet-stream, other text/* subtypes) uploads through it without issue. The
+// signed-URL flow PUTs raw bytes straight to GCS, so it never hits that
+// body-sniffing path.
+function builderMisparsesContentTypeAsJsonBody(mimeType: string): boolean {
+  const normalized = mimeType.toLowerCase();
+  return normalized === "application/json" || normalized === "text/plain";
+}
+
 function shouldUseSignedUrlUpload(
   bytes: Uint8Array,
   mimeType: string,
 ): boolean {
   return (
-    bytes.byteLength > LARGE_FILE_THRESHOLD_BYTES || /^video\//i.test(mimeType)
+    bytes.byteLength > LARGE_FILE_THRESHOLD_BYTES ||
+    /^video\//i.test(mimeType) ||
+    builderMisparsesContentTypeAsJsonBody(mimeType)
   );
 }
 
@@ -68,6 +83,14 @@ async function assertOk(res: Response, label: string): Promise<void> {
 
 type AssetAuthorization = { authorization: string; apiKey?: string };
 
+function confirmedBuilderAuthorizationFailure(error: unknown): Error {
+  const cause = error instanceof Error ? error : new Error(String(error));
+  return Object.assign(new Error(cause.message, { cause }), {
+    status: 401,
+    errorCode: "builder_credentials_rejected",
+  });
+}
+
 /**
  * Run a Builder asset API call, and on a 401 refresh the OAuth access token
  * once and retry. A token can be revoked or rotated before its stated
@@ -86,13 +109,23 @@ async function withAssetAuthorization<T>(
     const refreshed = await assetAuthorization({ forceRefresh: true });
     // The same token again (no refresh token, a key credential) would only
     // repeat the 401; report the original refusal instead.
-    if (refreshed.authorization === auth.authorization) throw error;
+    if (refreshed.authorization === auth.authorization) {
+      if (auth.apiKey) throw confirmedBuilderAuthorizationFailure(error);
+      throw error;
+    }
     held.auth = refreshed;
-    return run(refreshed);
+    try {
+      return await run(refreshed);
+    } catch (retryError) {
+      if ((retryError as { status?: unknown } | null)?.status !== 401) {
+        throw retryError;
+      }
+      throw confirmedBuilderAuthorizationFailure(retryError);
+    }
   }
 }
 
-async function uploadLargeFileViaSignedUrl(
+async function uploadViaSignedUrl(
   input: FileUploadInput,
   held: { auth?: AssetAuthorization },
   bareMimeType: string,
@@ -102,7 +135,7 @@ async function uploadLargeFileViaSignedUrl(
   const mb = (bytes.byteLength / (1024 * 1024)).toFixed(1);
 
   console.log(
-    `[builder-upload] large-file path: ${name} ${mb}MB ${bareMimeType}`,
+    `[builder-upload] signed-url path: ${name} ${mb}MB ${bareMimeType}`,
   );
 
   console.log(`[builder-upload] step 1: requesting signed URL`);
@@ -285,13 +318,13 @@ async function assetAuthorization(
   const publicKey = credentials.publicKey?.trim();
   if (!privateKey || !publicKey) {
     throw new Error(
-      "Builder personal access token connection is missing its space id. Reconnect Builder.io to continue.",
+      "Builder personal access token connection is missing its space id. Sign in to Builder.io again to continue.",
     );
   }
   const authorized = authorization.replace(/^Bearer\s+/i, "").trim();
   if (privateKey !== authorized) {
     throw new Error(
-      "Builder credential scope mismatch: the connection holding the upload space is not the one authorized for this request. Reconnect Builder.io to continue.",
+      "Builder credential scope mismatch: the connection holding the upload space is not the one authorized for this request. Sign in to Builder.io again to continue.",
     );
   }
   return { authorization, apiKey: publicKey };
@@ -323,7 +356,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
     const mb = (bytes.byteLength / (1024 * 1024)).toFixed(1);
 
     if (shouldUseSignedUrlUpload(bytes, bareMimeType)) {
-      return uploadLargeFileViaSignedUrl(input, held, bareMimeType, bytes);
+      return uploadViaSignedUrl(input, held, bareMimeType, bytes);
     }
 
     console.log(
@@ -394,7 +427,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
       headers: { Authorization: authorization.authorization },
     });
     if (response.ok) return true;
-    if (response.status === 404) return false;
+    if (response.status === 404) return true;
     await assertOk(response, "Builder.io asset delete failed");
     return false;
   },

@@ -52,6 +52,14 @@ const CSS_PROPERTY_NAMES: Record<InlineTextStyleKey, string> = {
 };
 
 const INLINE_STYLE_SPAN = "span[data-slide-inline-style]";
+const INLINE_TEXT_BLOCKS =
+  "address,article,aside,blockquote,dd,div,dl,dt,figcaption,figure,footer,h1,h2,h3,h4,h5,h6,header,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
+const INLINE_LAYOUT_DISPLAYS = new Set([
+  "flex",
+  "grid",
+  "inline-flex",
+  "inline-grid",
+]);
 
 const DECORATION_LINE: Record<"underline" | "strike", string> = {
   underline: "underline",
@@ -86,11 +94,15 @@ function elementAttributesMatch(a: Element, b: Element) {
   );
 }
 
-export function normalizeInlineTextSpans(editable: HTMLElement) {
-  const spans = Array.from(
-    editable.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
-  );
-  for (const span of spans.reverse()) {
+function normalizeInlineTextSpanScope(
+  editable: HTMLElement,
+  scope: HTMLElement,
+) {
+  const spans = () =>
+    Array.from(
+      scope.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
+    ).filter((span) => inlineTextNormalizationScope(editable, span) === scope);
+  for (const span of spans().reverse()) {
     if (!span.isConnected) continue;
     if (!span.textContent && span.children.length === 0) {
       span.remove();
@@ -104,13 +116,12 @@ export function normalizeInlineTextSpans(editable: HTMLElement) {
   let merged = true;
   while (merged) {
     merged = false;
-    for (const span of Array.from(
-      editable.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
-    )) {
+    for (const span of spans()) {
       const next = span.nextSibling;
       if (
         next instanceof HTMLSpanElement &&
         next.matches(INLINE_STYLE_SPAN) &&
+        inlineTextNormalizationScope(editable, next) === scope &&
         elementAttributesMatch(span, next)
       ) {
         span.append(...Array.from(next.childNodes));
@@ -119,6 +130,39 @@ export function normalizeInlineTextSpans(editable: HTMLElement) {
       }
     }
   }
+}
+
+function inlineTextNormalizationScope(editable: HTMLElement, node: Node) {
+  const element = node instanceof Element ? node : node.parentElement;
+  const block = element?.closest<HTMLElement>(INLINE_TEXT_BLOCKS) ?? editable;
+  if (INLINE_LAYOUT_DISPLAYS.has(getComputedStyle(block).display)) {
+    return (
+      Array.from(block.children).find(
+        (child) => child === node || child.contains(node),
+      ) ?? null
+    );
+  }
+  return block;
+}
+
+export function normalizeInlineTextSpans(
+  editable: HTMLElement,
+  selectedText?: readonly Text[],
+) {
+  const scopes = new Set<HTMLElement>();
+  if (selectedText) {
+    for (const text of selectedText) {
+      const scope = inlineTextNormalizationScope(editable, text);
+      if (scope instanceof HTMLElement) scopes.add(scope);
+    }
+  } else {
+    const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const scope = inlineTextNormalizationScope(editable, node);
+      if (scope instanceof HTMLElement) scopes.add(scope);
+    }
+  }
+  for (const scope of scopes) normalizeInlineTextSpanScope(editable, scope);
 }
 
 export function getEditableTextRange(
@@ -220,7 +264,7 @@ function styleSelectedText(
   const texts = splitSelectedText(editable, range);
   if (texts.length === 0) return { scope: "selection", range };
   style(texts);
-  normalizeInlineTextSpans(editable);
+  normalizeInlineTextSpans(editable, texts);
 
   const last = texts[texts.length - 1];
   const nextRange = document.createRange();
@@ -319,10 +363,91 @@ function clearOwnDecorationLine(element: HTMLElement, line: string) {
   if (element.style.length === 0) element.removeAttribute("style");
 }
 
+function setInlineTextFormat(
+  editable: HTMLElement,
+  format: InlineTextFormat,
+  texts: Text[],
+  on: boolean,
+) {
+  if (on && texts.every((text) => isFormatActive(text, format, editable)))
+    return;
+  if (format === "code") {
+    if (on) {
+      texts.splice(0, texts.length, ...wrapSelectedCode(editable, texts));
+      return;
+    }
+    for (const text of texts) {
+      const code = text.parentElement?.closest("code");
+      if (!code || !editable.contains(code) || text.parentNode !== code) {
+        if (code && editable.contains(code)) removeCodeFromText(code, text);
+        continue;
+      }
+      const children = Array.from(code.childNodes);
+      const selectedIndex = children.indexOf(text);
+      if (selectedIndex < 0) continue;
+      const replacement = document.createDocumentFragment();
+      const before = children.slice(0, selectedIndex);
+      const after = children.slice(selectedIndex + 1);
+      if (before.length) {
+        const wrapper = code.cloneNode(false) as HTMLElement;
+        wrapper.append(...before);
+        replacement.append(wrapper);
+      }
+      replacement.append(text);
+      if (after.length) {
+        const wrapper = code.cloneNode(false) as HTMLElement;
+        wrapper.append(...after);
+        replacement.append(wrapper);
+      }
+      code.replaceWith(replacement);
+    }
+    return;
+  }
+  if (format === "underline" || format === "strike") {
+    if (!on) {
+      removeDecorationLine(editable, texts, format);
+      return;
+    }
+    for (const text of texts) {
+      setOwnDecorationLine(
+        innermostStyleSpan(text),
+        DECORATION_LINE[format],
+        true,
+      );
+    }
+    return;
+  }
+  const [property, onValue, offValue] = FORMAT_DECLARATION[format];
+  for (const text of texts) {
+    const wasActive = isFormatActive(text, format, editable);
+    const span = innermostStyleSpan(text);
+    if (on && !wasActive) {
+      span.style.setProperty(property, onValue);
+    } else if (!on && wasActive) {
+      span.style.removeProperty(property);
+      if (isFormatActive(text, format, editable)) {
+        span.style.setProperty(property, offValue);
+      }
+    }
+    if (span.style.length === 0) span.removeAttribute("style");
+  }
+}
+
+export function applyInlineTextFormat(
+  editable: HTMLElement,
+  format: InlineTextFormat,
+  selection: Selection | null = window.getSelection(),
+): InlineTextStyleApplication {
+  return styleSelectedText(editable, selection, (texts) =>
+    setInlineTextFormat(editable, format, texts, true),
+  );
+}
+
 const DECORATION_LOOK = [
   "text-decoration-color",
   "text-decoration-style",
   "text-decoration-thickness",
+  "text-underline-offset",
 ] as const;
 
 function removeDecorationLine(
@@ -387,61 +512,7 @@ export function toggleInlineTextFormat(
 ): InlineTextStyleApplication {
   return styleSelectedText(editable, selection, (texts) => {
     const on = !texts.every((text) => isFormatActive(text, format, editable));
-    if (format === "code") {
-      if (on) {
-        texts.splice(0, texts.length, ...wrapSelectedCode(editable, texts));
-        return;
-      }
-      for (const text of texts) {
-        const code = text.parentElement?.closest("code");
-        if (!code || !editable.contains(code) || text.parentNode !== code) {
-          if (code && editable.contains(code)) removeCodeFromText(code, text);
-          continue;
-        }
-        const children = Array.from(code.childNodes);
-        const selectedIndex = children.indexOf(text);
-        if (selectedIndex < 0) continue;
-        const replacement = document.createDocumentFragment();
-        const before = children.slice(0, selectedIndex);
-        const after = children.slice(selectedIndex + 1);
-        if (before.length) {
-          const wrapper = code.cloneNode(false) as HTMLElement;
-          wrapper.append(...before);
-          replacement.append(wrapper);
-        }
-        replacement.append(text);
-        if (after.length) {
-          const wrapper = code.cloneNode(false) as HTMLElement;
-          wrapper.append(...after);
-          replacement.append(wrapper);
-        }
-        code.replaceWith(replacement);
-      }
-      return;
-    }
-    if (format === "underline" || format === "strike") {
-      if (!on) {
-        removeDecorationLine(editable, texts, format);
-        return;
-      }
-      for (const text of texts) {
-        setOwnDecorationLine(
-          innermostStyleSpan(text),
-          DECORATION_LINE[format],
-          true,
-        );
-      }
-      return;
-    }
-    const [property, onValue, offValue] = FORMAT_DECLARATION[format];
-    for (const text of texts) {
-      const span = innermostStyleSpan(text);
-      span.style.removeProperty(property);
-      if (isFormatActive(text, format, editable) !== on) {
-        span.style.setProperty(property, on ? onValue : offValue);
-      }
-      if (span.style.length === 0) span.removeAttribute("style");
-    }
+    setInlineTextFormat(editable, format, texts, on);
   });
 }
 
@@ -764,6 +835,9 @@ const SLIDE_CLIPBOARD_LAYOUT_STYLE_PROPERTIES = [
   "z-index",
   "transform",
   "transform-origin",
+  "translate",
+  "rotate",
+  "scale",
 ] as const;
 
 function hasSlideClipboardText(element: Element): boolean {

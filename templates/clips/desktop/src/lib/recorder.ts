@@ -6,6 +6,7 @@ import {
   waitForReadyRecordingAfterFinalizeError,
 } from "../../../shared/finalize-recovery";
 import { classifyUploadResponseError } from "../../../shared/recording-core";
+import { desktopRecoveryCopy } from "../i18n/en-US";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
@@ -37,7 +38,10 @@ import {
   stageRecordFirstFile,
   type RecordFirstFile,
 } from "./record-first";
-import { RECORDER_DISCARD_EVENT } from "./recorder-events";
+import {
+  RECORDER_DISCARD_EVENT,
+  recorderStopTargetsRecording,
+} from "./recorder-events";
 import {
   buildCreateRecordingRequestHeaders,
   buildCreateRecordingRequestBody,
@@ -239,7 +243,11 @@ export interface StartParams {
   preAcquiredAudioStream?: MediaStream | null;
   preAcquiredCaptureSuspension?: RewindCaptureSuspensionLease | null;
   pendingTranscriptionTeardown?: Promise<void> | null;
-  onCaptureStartRequested?: (recordingId: string | null) => void;
+  onCaptureIdentityAvailable?: (captureIdentity: string) => void;
+  onCaptureStartRequested?: (
+    recordingId: string | null,
+    captureIdentity?: string | null,
+  ) => void;
 }
 
 const REWIND_CLIP_ORIGINS_KEY = "clips.rewindClipOrigins.v1";
@@ -1064,7 +1072,9 @@ async function postBackupChunk(
       new Error(
         responseError.isHtml
           ? `Chunk upload returned an HTML error response (${res.status}).`
-          : `Upload retry failed (${res.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
+          : responseError.errorCode === "video_storage_status_unavailable"
+            ? desktopRecoveryCopy.storageStatusUnavailable
+            : `Upload retry failed (${res.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
       ),
       {
         status: responseError.status,
@@ -2563,6 +2573,7 @@ async function prepareCountdownEventWaiter(signal?: AbortSignal): Promise<{
     resolveEvent = resolve;
     rejectEvent = reject;
   });
+  void event.catch(() => {});
   let timer: ReturnType<typeof setTimeout> | null = null;
   const unlistens: UnlistenFn[] = [];
   let done = false;
@@ -2774,22 +2785,29 @@ async function publishFinalizingResult(params: {
   });
 }
 
-function abortCreatedRecordingOnCountdownCancel(
+function abortCreatedRecordingOnStartFailure(
   err: unknown,
   recordingPromise: Promise<{ id: string }>,
   serverUrl: string,
   authToken?: string,
 ) {
-  if (!isCountdownCancelledError(err)) return;
+  const wasCancelled = isCountdownCancelledError(err);
+  const diagnostics = wasCancelled
+    ? { failureCode: "user_cancelled" }
+    : uploadFailureDiagnostics(err);
   void recordingPromise
     .then((recording) =>
       abortRecordingUpload(
         serverUrl,
         recording.id,
-        "Recording cancelled during countdown",
-        "user_cancelled",
-        undefined,
-        undefined,
+        wasCancelled
+          ? "Recording cancelled during countdown"
+          : err instanceof Error
+            ? err.message
+            : String(err),
+        diagnostics.failureCode,
+        diagnostics.failureStage,
+        diagnostics.httpStatus,
         authToken,
       ),
     )
@@ -2936,6 +2954,13 @@ async function tryStartRewindFullscreenRecording(
   let transcriptionCapture: TranscriptionCapture | null = null;
   let transcriptionAborted = false;
   let transcriptFailureSaved = false;
+  let countdownFailed = false;
+  let countdownFailure: unknown;
+  const startupId = crypto.randomUUID();
+  const assertStartupActive = () => {
+    throwIfRecordingStartAborted(params.signal);
+    if (countdownFailed) throw countdownFailure;
+  };
   const saveTranscriptFailure = async (
     failureReason: string,
   ): Promise<boolean> => {
@@ -2971,6 +2996,10 @@ async function tryStartRewindFullscreenRecording(
       void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
     }
   };
+  const countdownController = new AbortController();
+  const countdownSignal = params.signal
+    ? AbortSignal.any([params.signal, countdownController.signal])
+    : countdownController.signal;
   const recordingPromise = localOnly
     ? Promise.resolve<{ id: string; uploadMode: UploadMode }>({
         id: folderName,
@@ -2999,11 +3028,12 @@ async function tryStartRewindFullscreenRecording(
     const recording = await prepareRewindRecordingStart({
       async prepare() {
         const preparedRecording = await recordingPromise;
-        throwIfRecordingStartAborted(params.signal);
+        assertStartupActive();
         id = preparedRecording.id;
         uploadMode = preparedRecording.uploadMode ?? "buffered";
         await guardRecordingStart(
           invoke<RewindClipBackendStatus>("rewind_clip_prepare", {
+            startupId,
             artifactLabel: id,
             serverUrl: localOnly ? null : params.serverUrl,
             recordingId: localOnly ? null : id,
@@ -3013,17 +3043,33 @@ async function tryStartRewindFullscreenRecording(
             includeSystemAudio,
             hasCamera: wantsCamera,
           }),
-          { signal: params.signal },
+          {
+            signal: countdownSignal,
+            onLateResolve: () => {
+              void invoke("rewind_clip_cancel", { startupId }).catch(() => {});
+            },
+          },
         );
+        assertStartupActive();
         await startRewindTranscription();
+        assertStartupActive();
         return preparedRecording;
       },
       async countdown() {
-        await runRecordingCountdown(true, params.signal);
-        console.log("[rewind-latency] countdown completed");
+        try {
+          await runRecordingCountdown(true, countdownSignal);
+          console.log("[rewind-latency] countdown completed");
+        } catch (err) {
+          countdownFailed = true;
+          countdownFailure = err;
+          throw err;
+        }
+      },
+      cancelCountdown() {
+        countdownController.abort();
       },
       async beforeActivate() {
-        await audioCue.playBeforeCapture();
+        await audioCue.playBeforeCapture(params.signal);
       },
       async activate(preparedRecording) {
         throwIfRecordingStartAborted(params.signal);
@@ -3061,10 +3107,10 @@ async function tryStartRewindFullscreenRecording(
       ?.cancel()
       .catch(() => {});
     if (id) forgetRewindClipOrigin(id);
-    await invoke("rewind_clip_cancel").catch(() => {});
+    await invoke("rewind_clip_cancel", { startupId }).catch(() => {});
     audioCue.cleanup();
-    if (!localOnly) {
-      abortCreatedRecordingOnCountdownCancel(
+    if (!localOnly && (!id || isCountdownCancelledError(err))) {
+      abortCreatedRecordingOnStartFailure(
         err,
         recordingPromise,
         params.serverUrl,
@@ -3136,7 +3182,7 @@ async function tryStartRewindFullscreenRecording(
       .catch((err) => {
         console.warn("[clips-recorder] transcription cancel failed:", err);
       });
-    await invoke("rewind_clip_cancel").catch(() => {});
+    await invoke("rewind_clip_cancel", { startupId }).catch(() => {});
     audioCue.cleanup();
     if (forRestart) {
       await invoke("hide_recording_chrome").catch(() => {});
@@ -3348,7 +3394,8 @@ async function tryStartRewindFullscreenRecording(
         !(pauseQueue?.getDesiredPaused() ?? pausedAt !== null),
       ),
     ),
-    listen("clips:recorder-stop", () => {
+    listen("clips:recorder-stop", (event) => {
+      if (!recorderStopTargetsRecording(event.payload, id)) return;
       void handle.stop().catch((error) => {
         console.error("[clips-recorder] Rewind handle.stop() threw:", error);
       });
@@ -3393,6 +3440,7 @@ async function startNativeFullscreenRecording(
   console.log("[clips-recorder] using native macOS capture");
   const localRecordingMode = params.localRecordingMode ?? "off";
   const localOnly = localRecordingMode !== "off";
+  const includeCameraOverlay = wantsCamera && localRecordingMode !== "separate";
   const localFolderName = localOnly ? createLocalRecordingFolderName() : "";
   const streamCleanups: Array<() => void> = [() => audioCue.cleanup()];
   let id = "";
@@ -3404,8 +3452,14 @@ async function startNativeFullscreenRecording(
   let captureRegion: RegionCaptureRect | null = null;
   let transcriptionCapture: TranscriptionCapture | null = null;
   let countdownPromise: Promise<void> | null = null;
+  const countdownController = new AbortController();
+  const countdownSignal = params.signal
+    ? AbortSignal.any([params.signal, countdownController.signal])
+    : countdownController.signal;
+  let startupFailed = false;
   const assertStartupActive = () => {
     throwIfRecordingStartAborted(params.signal);
+    if (startupFailed) throw new RecordingStartCancelledError();
   };
   let startedAt = 0;
   let nativeTranscriptFailureSaved = false;
@@ -3496,26 +3550,32 @@ async function startNativeFullscreenRecording(
       bubbleCaptureExcluded = true;
     }
 
+    countdownPromise = runRecordingCountdown(true, countdownSignal);
+    void countdownPromise.catch(() => {
+      startupFailed = true;
+    });
     console.log(
       localOnly
         ? "[clips-recorder] preparing native local recording"
         : "[clips-recorder] preparing native recording",
     );
-    const captureAudioParams = {
+    const captureParams = {
       includeAudio: wantsAudio,
       captureSystemAudio: wantsSystemAudio,
+      includeCameraOverlay,
       micDeviceId: params.micId || null,
       micDeviceLabel,
       captureRegion,
     };
     const warmMic = async (recordingId: string) => {
       assertStartupActive();
+      params.onCaptureIdentityAvailable?.(recordingId);
       // An IPC timeout does not stop native work. Fail the startup on timeout;
       // never let begin race a warm invoke that is still creating its stream.
       await guardRecordingStart(
         invoke("native_fullscreen_recording_warm", {
           recordingId,
-          ...captureAudioParams,
+          ...captureParams,
         }),
         { signal: params.signal },
       );
@@ -3524,11 +3584,14 @@ async function startNativeFullscreenRecording(
     const clickStartedAt = Date.now();
     if (localOnly) {
       id = localFolderName;
-      const warmStartedAt = Date.now();
-      await warmMic(id);
-      console.log(
-        `[clips-recorder] native warm durations: warmMs=${Date.now() - warmStartedAt}`,
-      );
+      const warmPromise = (async () => {
+        const warmStartedAt = Date.now();
+        await warmMic(id);
+        console.log(
+          `[clips-recorder] native warm durations: warmMs=${Date.now() - warmStartedAt}`,
+        );
+      })();
+      await Promise.all([countdownPromise, warmPromise]);
     } else {
       const captureTitlePromise = captureTitleForRecording({
         mode: params.mode,
@@ -3561,8 +3624,7 @@ async function startNativeFullscreenRecording(
       const warmAndId = planNativeFullscreenWarmOverlap({
         createRecording: async () => {
           const createRes = await recordingPromise;
-          uploadMode = createRes.uploadMode;
-          id = createRes.id;
+          assertStartupActive();
           return createRes;
         },
         startTranscription: async () => {
@@ -3586,23 +3648,33 @@ async function startNativeFullscreenRecording(
           }
         },
       });
-      const createRes = await warmAndId;
+      let createRes: Awaited<typeof warmAndId>;
+      try {
+        [, createRes] = await Promise.all([countdownPromise, warmAndId]);
+      } catch (err) {
+        abortCreatedRecordingOnStartFailure(
+          err,
+          recordingPromise,
+          params.serverUrl,
+          params.authToken,
+        );
+        throw err;
+      }
       id = createRes.id;
       uploadMode = createRes.uploadMode ?? uploadMode;
     }
 
-    countdownPromise = runRecordingCountdown(true, params.signal);
     await countdownPromise;
     await audioCue.playBeforeCapture();
     assertStartupActive();
     const beginStartedAt = Date.now();
     const beginPromise = invoke("native_fullscreen_recording_begin", {
       recordingId: id,
-      ...captureAudioParams,
+      ...captureParams,
       localOnly,
       hasCamera: wantsCamera,
     });
-    params.onCaptureStartRequested?.(localOnly ? null : id || null);
+    params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     await guardRecordingStart(beginPromise, { signal: params.signal });
     assertStartupActive();
     console.log(
@@ -3631,7 +3703,9 @@ async function startNativeFullscreenRecording(
     }).catch(() => {});
     localCameraExport?.start(2_000);
   } catch (err) {
+    startupFailed = true;
     if (countdownPromise) {
+      countdownController.abort();
       await emit("clips:countdown-cancel").catch(() => {});
       await countdownPromise.catch(() => {});
     }
@@ -4075,7 +4149,8 @@ async function startNativeFullscreenRecording(
         !(pauseQueue?.getDesiredPaused() ?? pausedAt !== null),
       );
     }),
-    listen("clips:recorder-stop", () => {
+    listen("clips:recorder-stop", (event) => {
+      if (!recorderStopTargetsRecording(event.payload, id)) return;
       console.log("[clips-recorder] native stop event received");
       handle.stop().catch((err) => {
         console.error("[clips-recorder] native handle.stop() threw:", err);
@@ -4736,7 +4811,8 @@ async function startRecordingInner(
             emitState(true);
           }
         }),
-        listen("clips:recorder-stop", () => {
+        listen("clips:recorder-stop", (event) => {
+          if (!recorderStopTargetsRecording(event.payload, id)) return;
           console.log("[clips-recorder] local stop event received");
           if (startedAt === 0) {
             cancelRequestedDuringStartup = true;
@@ -5176,7 +5252,8 @@ async function startRecordingInner(
           }
         }
       }),
-      listen("clips:recorder-stop", () => {
+      listen("clips:recorder-stop", (event) => {
+        if (!recorderStopTargetsRecording(event.payload, id)) return;
         console.log("[clips-recorder] stop event received");
         if (!handle) {
           cancelRequestedDuringStartup = true;
@@ -5516,7 +5593,10 @@ async function startRecordingInner(
                   new Error(
                     responseError.isHtml
                       ? `Chunk upload returned an HTML error response (${finalRes.status}).`
-                      : `Finalize failed (${finalRes.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
+                      : responseError.errorCode ===
+                          "video_storage_status_unavailable"
+                        ? desktopRecoveryCopy.storageStatusUnavailable
+                        : `Finalize failed (${finalRes.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
                   ),
                   {
                     status: responseError.status,

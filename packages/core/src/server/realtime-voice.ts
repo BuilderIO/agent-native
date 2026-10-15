@@ -18,7 +18,10 @@ import {
   sanitizeToolErrorText,
   sanitizeToolErrorValue,
 } from "../agent/tool-error-redaction.js";
-import { TOOL_SEARCH_ACTION_NAME } from "../agent/tool-search.js";
+import {
+  isTargetedToolSearch,
+  TOOL_SEARCH_ACTION_NAME,
+} from "../agent/tool-search.js";
 import { parseAcceptLanguage } from "../localization/server.js";
 import { getSession } from "./auth.js";
 import {
@@ -80,7 +83,6 @@ const REALTIME_VOICE_BUILT_INS = new Set([
   "cedar",
 ]);
 const REALTIME_VOICE_REASONING_EFFORT = {
-  instant: "minimal",
   balanced: "low",
   deep: "medium",
 } as const;
@@ -191,8 +193,12 @@ export function resolveRealtimeVoiceLanguagePreference(
 
 export function resolveRealtimeVoiceReasoningEffort(
   value: string | null | undefined,
+  protocol: "live" | "realtime" = "live",
 ): "minimal" | "low" | "medium" {
   const normalized = value?.trim().toLowerCase();
+  if (normalized === "instant") {
+    return protocol === "realtime" ? "minimal" : "low";
+  }
   return normalized &&
     Object.prototype.hasOwnProperty.call(
       REALTIME_VOICE_REASONING_EFFORT,
@@ -428,12 +434,10 @@ function grantDiscoveredRealtimeTools(input: {
   initialAllowedNames: ReadonlySet<string>;
   capability: RealtimeToolCapability;
 }): RealtimeFunctionTool[] {
-  const query = input.request.args.query;
   if (
     input.request.name !== TOOL_SEARCH_ACTION_NAME ||
     input.result.status !== "completed" ||
-    typeof query !== "string" ||
-    !query.trim()
+    !isTargetedToolSearch(input.request.args)
   ) {
     return [];
   }
@@ -596,7 +600,7 @@ function createSessionHandler(
           setResponseStatus(event, 409);
           return {
             error: gatewayLaneUnavailableMessage(
-              "Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice.",
+              "Use Builder.io (free tier available) or configure an OpenAI API key to use realtime voice.",
             ),
             code: "realtime_voice_setup_required",
           };
@@ -607,22 +611,23 @@ function createSessionHandler(
           readSafeHeader(event, "x-agent-native-realtime-language"),
           readSafeHeader(event, "accept-language"),
         );
-        const reasoningEffort = resolveRealtimeVoiceReasoningEffort(
-          readSafeHeader(event, "x-agent-native-realtime-intelligence"),
-        );
-        const voice = resolveRealtimeVoicePreference(
-          readSafeHeader(event, "x-agent-native-realtime-voice"),
-          configuredIdentifier(options.voice, DEFAULT_VOICE),
-        );
+        const protocol = readSafeHeader(event, REALTIME_VOICE_PROTOCOL_HEADER);
         const configuredModel = configuredIdentifier(
           options.model,
           DEFAULT_MODEL,
         );
         const model =
-          readSafeHeader(event, REALTIME_VOICE_PROTOCOL_HEADER) ===
-            "realtime" && configuredModel === DEFAULT_MODEL
+          protocol === "realtime" && configuredModel === DEFAULT_MODEL
             ? LEGACY_MODEL
             : configuredModel;
+        const reasoningEffort = resolveRealtimeVoiceReasoningEffort(
+          readSafeHeader(event, "x-agent-native-realtime-intelligence"),
+          model === DEFAULT_MODEL ? "live" : "realtime",
+        );
+        const voice = resolveRealtimeVoicePreference(
+          readSafeHeader(event, "x-agent-native-realtime-voice"),
+          configuredIdentifier(options.voice, DEFAULT_VOICE),
+        );
         const sessionBase =
           model === DEFAULT_MODEL
             ? {

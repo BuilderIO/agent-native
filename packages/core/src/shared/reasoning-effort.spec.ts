@@ -37,6 +37,16 @@ describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
     expect(supportsClaudeAdaptiveThinking("claude-opus-5-5")).toBe(true);
   });
 
+  it("supports adaptive xhigh reasoning for Claude Haiku 5.5", () => {
+    expect(getReasoningEffortOptionsForModel("claude-haiku-5-5")).toContain(
+      "xhigh",
+    );
+    expect(supportsClaudeAdaptiveThinking("claude-haiku-5-5")).toBe(true);
+    expect(
+      getReasoningEffortOptionsForModel("anthropic/claude-haiku-5.5"),
+    ).toContain("xhigh");
+  });
+
   it("includes xhigh for claude-opus-4-8", () => {
     const opts = getReasoningEffortOptionsForModel("claude-opus-4-8");
     expect(opts).toContain("xhigh");
@@ -189,6 +199,7 @@ describe("allowsSamplingParams", () => {
   it("blocks sampling on the Claude families that removed it", () => {
     for (const model of [
       "claude-sonnet-5",
+      "claude-haiku-5-5",
       "claude-opus-4-7",
       "claude-opus-4-8",
       "claude-opus-5",

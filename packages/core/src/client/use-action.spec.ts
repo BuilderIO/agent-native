@@ -18,6 +18,7 @@ import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
   callAction,
+  callActionBlob,
   callActionWithRetry,
   computePageHidden,
   defaultActionQueryRetry,
@@ -230,6 +231,34 @@ describe("callAction", () => {
     });
     expect(replace).toHaveBeenCalledWith(
       "https://content.example/page/one?__an_build=server-build",
+    );
+  });
+
+  it("attributes the response to the route template the request started on", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
+    const location = { pathname: "/sessions/rec_42", href: "" };
+    vi.stubGlobal("window", {
+      location,
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "" },
+          detail: { id: "detail", parentId: "root", path: "sessions/:id" },
+        },
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        location.pathname = "/sessions";
+        return jsonResponse({ ok: true }, { status: 200 });
+      }),
+    );
+
+    await callAction("list-plans", {}, { method: "GET" });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({ route: "/sessions/:id" }),
     );
   });
 
@@ -541,6 +570,31 @@ describe("callAction", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
       "X-Agent-Native-Browser-Tab": expect.any(String),
     });
+  });
+
+  it("returns binary action responses through the shared action transport", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Blob(["png-bytes"], { type: "image/png" }), {
+        headers: { "Content-Type": "image/png" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const blob = await callActionBlob("list-plans", {}, { method: "GET" });
+
+    expect(blob.type).toBe("image/png");
+    await expect(blob.text()).resolves.toBe("png-bytes");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/list-plans",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          "X-Agent-Native-Frontend": "1",
+          "X-Agent-Native-Browser-Tab": expect.any(String),
+        }),
+        cache: "no-store",
+      }),
+    );
   });
 
   it("passes scoped capability headers through imperative action calls", async () => {

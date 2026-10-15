@@ -11,6 +11,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -1552,4 +1553,5 @@ export default defineAction({
       view: "editor",
     };
   },
+  changeResource: (p, result) => designChangeResource(p.designId, result),
 });

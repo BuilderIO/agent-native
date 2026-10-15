@@ -31,6 +31,8 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      CONTENT_PARITY_OWNER_EMAIL: ${{ secrets.CONTENT_PARITY_OWNER_EMAIL }}
+      CONTENT_PARITY_ORG_ID: ${{ secrets.CONTENT_PARITY_ORG_ID }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -58,10 +60,12 @@ jobs:
           set -euo pipefail
 
           suite="${{ inputs.suite || 'all' }}"
-          echo "## Gated evals" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Requested suite: \`$suite\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Gated evals"
+            echo ""
+            echo "Requested suite: \`$suite\`"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
           wants() {
             [[ "$suite" == "all" || "$suite" == "$1" ]]
@@ -74,6 +78,23 @@ jobs:
           const fs = require("fs");
           const [title, file, summaryPath] = process.argv.slice(2);
           const data = JSON.parse(fs.readFileSync(file, "utf8"));
+          if (!data.report) {
+            const detail = typeof data.error === "string"
+              ? data.error
+              : typeof data.error?.message === "string"
+                ? data.error.message
+                : "The eval output did not include a report.";
+            const lines = [
+              `### ${title}`,
+              "",
+              "Status: FAIL",
+              "",
+              `Error: ${detail}`,
+              "",
+            ];
+            fs.appendFileSync(summaryPath, lines.join("\n") + "\n");
+            process.exit(0);
+          }
           const report = data.report ?? { total: 0, passed: 0, failed: 0, skipped: 0, results: [] };
           const skipped = report.skipped ?? report.results.filter((row) => row.status === "skipped").length;
           const executed = report.total - skipped;
@@ -100,18 +121,74 @@ jobs:
           }
 
           if wants content-parity; then
-            echo "Running Content parity eval suite"
-            if [[ -n "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${OPENROUTER_API_KEY:-}" ]]; then
-              export CONTENT_PARITY_EVALS=1
+            echo "Checking Content parity eval prerequisites"
+            if [[ -z "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${OPENROUTER_API_KEY:-}" ]]; then
+              skip_reason="no model provider secret is configured"
+            elif [[ -z "${CONTENT_PARITY_OWNER_EMAIL:-}" || -z "${CONTENT_PARITY_ORG_ID:-}" ]]; then
+              skip_reason="explicit production eval owner and organization secrets are not configured"
+            elif [[ ! -f templates/content/evals/production-context.ts ]]; then
+              skip_reason="Content does not provide evals/production-context.ts"
             else
-              unset CONTENT_PARITY_EVALS || true
-              echo "Content parity provider secrets are not configured; suite should report skipped rows."
+              skip_reason=""
             fi
-            (
-              cd templates/content
-              ./node_modules/.bin/agent-native eval parity --json
-            ) | tee content-parity-evals.json
-            append_eval_summary "Content parity" content-parity-evals.json
+
+            if [[ -n "$skip_reason" ]]; then
+              unset CONTENT_PARITY_EVALS || true
+              {
+                echo "### Content parity"
+                echo ""
+                echo "Status: SKIPPED"
+                echo ""
+                echo "Reason: $skip_reason."
+                echo ""
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              export CONTENT_PARITY_EVALS=1
+              set +e
+              (
+                cd templates/content
+                ./node_modules/.bin/agent-native eval parity \
+                  --owner-email "$CONTENT_PARITY_OWNER_EMAIL" \
+                  --org-id "$CONTENT_PARITY_ORG_ID" \
+                  --json
+              ) | tee content-parity-evals.json
+              eval_status=$?
+              if [[ -s content-parity-evals.json ]]; then
+                append_eval_summary "Content parity" content-parity-evals.json
+                summary_status=$?
+              else
+                summary_status=1
+              fi
+              set -e
+
+              if [[ "$summary_status" -ne 0 ]]; then
+                {
+                  echo "### Content parity"
+                  echo ""
+                  echo "Status: FAIL"
+                  echo ""
+                  echo "The eval command did not produce a usable JSON report; see the step logs."
+                  echo ""
+                } >> "$GITHUB_STEP_SUMMARY"
+                if [[ "$eval_status" -eq 0 ]]; then
+                  eval_status="$summary_status"
+                fi
+              fi
+              if node - content-parity-evals.json >/dev/null 2>&1 <<'NODE'
+          const fs = require("fs");
+          const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          if (data.ok !== true || !data.report) process.exit(1);
+          NODE
+              then
+                :
+              elif [[ "$eval_status" -eq 0 ]]; then
+                eval_status=1
+              fi
+
+              if [[ "$eval_status" -ne 0 ]]; then
+                exit "$eval_status"
+              fi
+            fi
           fi
 
           if wants brain; then

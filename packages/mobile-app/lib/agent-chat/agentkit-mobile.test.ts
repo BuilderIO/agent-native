@@ -102,6 +102,9 @@ describe("mobile AgentKit adapter", () => {
       '{"type":"text","text":"Hello from AgentKit"}\n' + '{"type":"done"}\n';
     expoFetchMock.mockImplementation(async (input: unknown) => {
       const url = String(input);
+      if (url.includes("/_agent-native/agent-engine/status")) {
+        return Response.json({ configured: true, chatEligible: true });
+      }
       if (url.includes("/threads/")) return new Response(null, { status: 404 });
       return new Response(responseBody, {
         status: 200,
@@ -192,7 +195,7 @@ describe("mobile AgentKit adapter", () => {
       type: "error",
       errorCode: "builder_auth_error",
       error:
-        "Error: Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
+        "Error: Builder rejected the connected credentials. Sign in to Builder.io again (free tier available) in Settings, then retry.",
     });
     expect(mobileAgentKitEventToWireEvent(event)?.error).not.toContain(
       "secret-token-123",
@@ -405,6 +408,9 @@ describe("mobile AgentKit adapter", () => {
     expoFetchMock.mockImplementation(
       async (input: unknown, init?: RequestInit) => {
         const url = String(input);
+        if (url.includes("/_agent-native/agent-engine/status")) {
+          return Response.json({ configured: true, chatEligible: true });
+        }
         if (url.endsWith("/_agent-native/file-upload")) {
           const file = (init?.body as FormData).get("file") as File;
           return Response.json(
@@ -516,7 +522,7 @@ describe("mobile AgentKit adapter", () => {
     getSessionTokenMock.mockResolvedValue("test-session-token");
     expoFetchMock.mockClear();
     const guidance =
-      "No object storage is connected. Connect Builder.io or add S3-compatible storage in Settings → File uploads.";
+      "No object storage is connected. Use Builder.io's managed storage (free) or add your own S3-compatible storage keys in Settings → File uploads.";
     expoFetchMock.mockResolvedValue(
       Response.json({ error: guidance }, { status: 503 }),
     );
@@ -649,7 +655,7 @@ describe("mobile AgentKit adapter", () => {
 
     expect(agentKitThreadToMobileTurnState(thread)).toMatchObject({
       error:
-        "Error: Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
+        "Error: Builder rejected the connected credentials. Sign in to Builder.io again (free tier available) in Settings, then retry.",
       errorCode: "builder_auth_error",
     });
   });

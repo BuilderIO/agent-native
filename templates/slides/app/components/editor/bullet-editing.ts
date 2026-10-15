@@ -154,7 +154,7 @@ export function isBulletRow(el: HTMLElement): boolean {
     return false;
   }
   const first = el.firstElementChild;
-  return !!first && isBulletMarker(first);
+  return first?.tagName === "SPAN" && isBulletMarker(first);
 }
 
 /** A typed `- ` prefix can look like a marker while it is still inside a span. */
@@ -171,7 +171,10 @@ export function isMarkdownBulletPrefixInMarker(
     .toString()
     .replaceAll(ZERO_WIDTH_SPACE, "")
     .replaceAll("\u00a0", " ");
-  return /^[-*+] ?$/.test(typed) && marker.textContent === typed;
+  const markerText = (marker.textContent ?? "")
+    .replaceAll(ZERO_WIDTH_SPACE, "")
+    .replaceAll("\u00a0", " ");
+  return /^(?:[-*+] |--- ?|\*\*\* ?)$/.test(typed) && markerText === typed;
 }
 
 /** Count the styled bullet rows directly inside a container. */

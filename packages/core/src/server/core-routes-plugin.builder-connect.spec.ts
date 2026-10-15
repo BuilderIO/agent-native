@@ -210,7 +210,7 @@ describe("Builder connection scope", () => {
         "personal",
       ),
     ).resolves.toMatchObject({
-      deny: "Owners and admins connect Builder.io for the organization.",
+      deny: "Owners and admins set up Builder.io for the organization.",
     });
   });
 
@@ -309,7 +309,7 @@ describe("resolveBuilderCallbackWrite", () => {
   it("refuses every scope once the connector has left the flow's organization", () => {
     for (const scope of ["org", "personal", null] as const) {
       expect(write(scope, null)).toEqual({
-        deny: "You're no longer a member of the organization this Builder.io connection started in. Restart it from Settings.",
+        deny: "You're no longer a member of the organization this Builder.io setup started in. Start it again from Settings.",
       });
     }
   });
@@ -323,7 +323,7 @@ describe("resolveBuilderCallbackWrite", () => {
 
   it("refuses a personal grant for someone who became an owner or admin", () => {
     expect(write("personal", "admin")).toEqual({
-      deny: "Owners and admins connect Builder.io for the organization.",
+      deny: "Owners and admins set up Builder.io for the organization.",
     });
   });
 

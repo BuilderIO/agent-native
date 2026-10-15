@@ -13,7 +13,7 @@ import {
 } from "./zoom-gesture";
 
 describe("zoomFactorForWheelDelta", () => {
-  it("zooms one mouse notch by exactly one Figma-sized step", () => {
+  it("zooms one mouse notch by exactly one configured step", () => {
     expect(zoomFactorForWheelDelta(-MOUSE_WHEEL_NOTCH_PX, false)).toBeCloseTo(
       ZOOM_STEP_PER_NOTCH,
       6,
@@ -113,7 +113,7 @@ describe("accumulateZoomFactor", () => {
     );
   });
 
-  it("moves one real mouse notch by a Figma-sized step on every platform", () => {
+  it("moves one real mouse notch by a configured step on every platform", () => {
     const notches = [
       { deltaY: -66.7, ctrlKey: true, metaKey: false },
       { deltaY: -240, ctrlKey: true, metaKey: false },

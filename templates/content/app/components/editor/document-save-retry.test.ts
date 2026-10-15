@@ -12,6 +12,7 @@ const pending = {
 };
 const live = {
   ...pending,
+  active: true,
   canEdit: true,
   title: "Page",
   content: "Local edit and peer edit",
@@ -69,6 +70,96 @@ describe("pending save retry", () => {
         contentObservationEpoch: 4,
       })?.content,
     ).toBe("Local edit and peer edit");
+  });
+
+  it("retries a save held for collaboration delivery with its authored base", () => {
+    expect(
+      pendingSaveRetrySnapshot(
+        {
+          contentPersisted: false,
+          outcome: "pending_collaboration_flush",
+          recoveryDraft: {
+            title: "Page",
+            content: "Local edit",
+            baseContent: "Original",
+            baseUpdatedAt: "2026-09-23T00:00:00.000Z",
+            baseRevision: "original-1",
+          },
+        },
+        pending,
+        live,
+      ),
+    ).toEqual({
+      title: "Page",
+      content: "Local edit",
+      contentBase: {
+        content: "Original",
+        updatedAt: "2026-09-23T00:00:00.000Z",
+        revision: "original-1",
+      },
+      titleBase: "Page",
+      contentObservationEpoch: 2,
+    });
+  });
+
+  it("keeps a title adopted from a peer while collaboration delivery is pending", () => {
+    const failed = {
+      contentPersisted: false,
+      outcome: "pending_collaboration_flush" as const,
+      recoveryDraft: {
+        title: "Page",
+        content: "Local edit",
+        baseContent: "Original",
+        baseUpdatedAt: "2026-09-23T00:00:00.000Z",
+        baseRevision: "original-1",
+      },
+    };
+    const renamed = {
+      ...live,
+      title: "Renamed elsewhere",
+      titleBase: "Renamed elsewhere",
+    };
+
+    expect(pendingSaveRetrySnapshot(failed, pending, renamed)).toEqual({
+      title: "Renamed elsewhere",
+      content: "Local edit",
+      contentBase: {
+        content: "Original",
+        updatedAt: "2026-09-23T00:00:00.000Z",
+        revision: "original-1",
+      },
+      titleBase: "Renamed elsewhere",
+      contentObservationEpoch: 2,
+    });
+  });
+
+  it("does not retry a pending save after its editor session becomes inactive", () => {
+    expect(
+      pendingSaveRetrySnapshot(
+        {
+          contentPersisted: false,
+          outcome: "pending_collaboration_flush",
+          recoveryDraft: {
+            title: "Page",
+            content: "Local edit",
+            baseContent: "Original",
+            baseRevision: "original-1",
+          },
+        },
+        pending,
+        { ...live, active: false },
+      ),
+    ).toBeNull();
+  });
+
+  it("does not retry a save abandoned by its editor session", () => {
+    expect(
+      pendingSaveRetrySnapshot(
+        { contentPersisted: false, outcome: "abandoned" },
+        pending,
+        live,
+      ),
+    ).toBeNull();
   });
 
   it.each(["before old result", "after old result"])(

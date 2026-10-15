@@ -4,7 +4,13 @@ import * as Y from "yjs";
 
 import { agentNativePath } from "../client/api-path.js";
 import { useAvatarUrl } from "../client/use-avatar.js";
-import { subscribeSyncEvents, type SyncEvent } from "../client/use-db-sync.js";
+import {
+  acquireCollabPollBoost,
+  noteCollabPollActivity,
+  registerCollabActivityResource,
+  subscribeSyncEvents,
+  type SyncEvent,
+} from "../client/use-db-sync.js";
 import {
   REALTIME_CAP_NO_AWARENESS,
   REALTIME_CAP_POLL_LIVE,
@@ -26,6 +32,7 @@ export interface UseCollaborativeDocOptions {
   baseUrl?: string;
   requestSource?: string;
   user?: CollabUser;
+  activityResource?: { resourceType: string; resourceId: string };
 }
 
 export type CollabInitializationErrorCategory =
@@ -52,6 +59,13 @@ export interface UseCollaborativeDocResult {
   initialization: CollabInitializationState;
   retry: () => void;
   requestSync: () => Promise<CollaborativeDocSyncResult>;
+  /**
+   * Sends every local edit the server has not yet acknowledged. Resolves `true`
+   * once none are outstanding and `false` when delivery failed (offline), so a
+   * caller that saves the same content elsewhere can wait until collaborators
+   * can already receive it through the document instead of inserting it twice.
+   */
+  flushUpdates: () => Promise<boolean>;
   activeUsers: CollabUser[];
   agentActive: boolean;
   agentPresent: boolean;
@@ -234,6 +248,9 @@ const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
 const requestSyncUnavailable = (): Promise<CollaborativeDocSyncResult> =>
   Promise.resolve({ status: "unavailable" });
 
+// Nothing is outstanding without a connection.
+const flushUpdatesUnavailable = (): Promise<boolean> => Promise.resolve(true);
+
 const DISPOSE_LINGER_MS = 1000;
 
 class CollabDocConnection {
@@ -263,6 +280,8 @@ class CollabDocConnection {
   private pollCycleCount = 0;
   private pollVersion = 0;
   private lastPolledVersion = 0;
+  private pollCursor: string | null = null;
+  private pollActivityBaselineReady = false;
   private stateVectorFetch: Promise<CollaborativeDocSyncResult> | null = null;
   private stateVectorAbortControllers = new Set<AbortController>();
   private sseActive = false;
@@ -272,6 +291,7 @@ class CollabDocConnection {
   private unsubscribeCollabEvents: (() => void) | null = null;
   private unsubscribeAwarenessEvents: (() => void) | null = null;
   private agentTimer: ReturnType<typeof setTimeout> | null = null;
+  private releaseCollabPollBoost: (() => void) | null = null;
 
   constructor(
     readonly docId: string,
@@ -479,15 +499,19 @@ class CollabDocConnection {
   ): void => {
     const users: CollabUser[] = [];
     let hasAgent = false;
+    let hasVisibleHuman = false;
     this.awareness.getStates().forEach((state, clientId) => {
       if (clientId === this.ydoc.clientID) return;
       if (state.user) {
         users.push(state.user as CollabUser);
         if ((state.user as CollabUser).email === "agent@system") {
           hasAgent = true;
+        } else if (state.visible !== false) {
+          hasVisibleHuman = true;
         }
       }
     });
+    this.setCollabPollBoost(hasVisibleHuman);
     const nextActiveUsers = dedupeCollabUsersByEmail(users);
     const activeUsers = collabUsersEqual(
       this.snapshot.activeUsers,
@@ -517,6 +541,19 @@ class CollabDocConnection {
     }
   };
 
+  // Presence is discovered by this connection's own ~12 s poll, which is also
+  // what ends the boost: a collaborator who leaves drops out of awareness after
+  // the server's 30 s row TTL.
+  private setCollabPollBoost(othersPresent: boolean): void {
+    const want = othersPresent && this.syncActive && !this.disposed;
+    if (want && !this.releaseCollabPollBoost) {
+      this.releaseCollabPollBoost = acquireCollabPollBoost();
+    } else if (!want && this.releaseCollabPollBoost) {
+      this.releaseCollabPollBoost();
+      this.releaseCollabPollBoost = null;
+    }
+  }
+
   private start(): void {
     this.fetchInitialState();
   }
@@ -534,7 +571,9 @@ class CollabDocConnection {
   }
 
   private fetchInitialState(): void {
-    fetch(`${this.baseUrl}/${this.docId}/state`).then(
+    fetch(`${this.baseUrl}/${this.docId}/state`, {
+      headers: { "X-Agent-Native-Poll-Baseline": "1" },
+    }).then(
       async (res) => {
         if (this.disposed) return;
         if (res.status === 404 || res.status === 403) {
@@ -547,11 +586,29 @@ class CollabDocConnection {
         }
         const data = (await res.json().catch(() => null)) as {
           state?: string;
+          activityBaseline?: {
+            status?: unknown;
+            version?: unknown;
+            cursor?: unknown;
+          };
         } | null;
         if (this.disposed) return;
         if (typeof data?.state !== "string" || data.state.length === 0) {
           this.markInitializationFailed("invalid-payload");
           return;
+        }
+        const baseline = data.activityBaseline;
+        if (
+          baseline?.status === "ready" &&
+          Number.isSafeInteger(baseline.version) &&
+          (baseline.version as number) >= 0 &&
+          typeof baseline.cursor === "string" &&
+          baseline.cursor.length > 0
+        ) {
+          this.pollVersion = baseline.version as number;
+          this.lastPolledVersion = baseline.version as number;
+          this.pollCursor = baseline.cursor;
+          this.pollActivityBaselineReady = true;
         }
         if (data.state) {
           try {
@@ -633,6 +690,22 @@ class CollabDocConnection {
     }
 
     return this.performStateVectorFetch();
+  };
+
+  flushUpdates = async (): Promise<boolean> => {
+    while (!this.disposed && this.pendingUpdates.length > 0) {
+      if (this.updateInFlight) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        continue;
+      }
+      if (this.flushTimer) {
+        clearTimeout(this.flushTimer);
+        this.flushTimer = null;
+      }
+      await this.flushPendingUpdates();
+      if (this.updateErrors > 0) return false;
+    }
+    return this.pendingUpdates.length === 0;
   };
 
   private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {
@@ -763,6 +836,7 @@ class CollabDocConnection {
   private stopSync(): void {
     if (!this.syncActive) return;
     this.syncActive = false;
+    this.setCollabPollBoost(false);
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
@@ -947,20 +1021,26 @@ class CollabDocConnection {
     this.flushPendingUpdates();
 
     try {
-      const res = await fetch(
-        agentNativePath(`/_agent-native/poll?since=${this.pollVersion}`),
-      );
+      const pollUrl = this.pollCursor
+        ? `/_agent-native/poll?cursor=${encodeURIComponent(this.pollCursor)}`
+        : `/_agent-native/poll?since=${this.pollVersion}`;
+      const res = await fetch(agentNativePath(pollUrl));
       if (!res.ok) throw new Error("HTTP " + res.status);
 
       const data = await res.json();
       if (!this.syncActive || this.disposed) return;
+      const hadActivityBaseline = this.pollActivityBaselineReady;
       const { version, events } = data as {
         version: number;
+        cursor?: string;
         events: Array<{
+          version: number;
           source: string;
           docId?: string;
           update?: string;
           requestSource?: string;
+          resourceType?: string;
+          resourceId?: string;
         }>;
       };
 
@@ -984,6 +1064,20 @@ class CollabDocConnection {
         }
       }
 
+      if (hadActivityBaseline) {
+        noteCollabPollActivity(events);
+      } else {
+        const reconciliation = await this.fetchStateVector();
+        if (reconciliation.status !== "synced") {
+          throw reconciliation.status === "failed"
+            ? reconciliation.error
+            : new Error(
+                "Could not reconcile state without an activity baseline",
+              );
+        }
+      }
+      this.pollActivityBaselineReady = true;
+      if (typeof data.cursor === "string") this.pollCursor = data.cursor;
       this.pollVersion = version;
       this.lastPolledVersion = version;
       this.pollCycleCount++;
@@ -1185,7 +1279,12 @@ export function useCollaborativeDoc(
     baseUrl = agentNativePath("/_agent-native/collab"),
     requestSource,
     user,
+    activityResource,
   } = options;
+  useEffect(() => {
+    if (!docId || !activityResource) return;
+    return registerCollabActivityResource(activityResource);
+  }, [activityResource?.resourceId, activityResource?.resourceType, docId]);
   const storedAvatarUrl = useAvatarUrl(user?.email);
   const resolvedUser = useMemo(() => {
     if (!user || !storedAvatarUrl || storedAvatarUrl === user.avatarUrl) {
@@ -1259,6 +1358,7 @@ export function useCollaborativeDoc(
         }
       : () => {},
     requestSync: conn ? conn.requestSync : requestSyncUnavailable,
+    flushUpdates: conn ? conn.flushUpdates : flushUpdatesUnavailable,
     activeUsers: snapshot.activeUsers,
     agentActive: snapshot.agentActive,
     agentPresent: snapshot.agentPresent,

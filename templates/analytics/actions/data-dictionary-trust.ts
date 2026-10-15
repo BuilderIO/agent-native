@@ -3,6 +3,6 @@ export function resolveDictionaryTrustDefaults(
   existing?: { approved?: boolean; aiGenerated?: boolean } | null,
 ) {
   const aiGenerated = args.aiGenerated ?? existing?.aiGenerated ?? false;
-  const approved = args.approved ?? existing?.approved ?? !aiGenerated;
+  const approved = args.approved ?? existing?.approved ?? false;
   return { approved, aiGenerated };
 }

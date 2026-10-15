@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   resolveSelectedExportElements: vi.fn(),
 }));
 
-vi.mock("html2canvas", () => ({ default: vi.fn() }));
 vi.mock("@/pages/design-editor/export-capture", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -169,6 +168,7 @@ describe("selected-layer PDF export from runtime snapshots", () => {
     expect(mocks.renderExportDocumentCanvas).toHaveBeenCalledWith(
       expect.objectContaining({
         doc: expect.any(Object),
+        cropRect: { x: 0, y: 0, width: 80, height: 40 },
         isolateSelectedElements: [expect.any(Object)],
       }),
     );

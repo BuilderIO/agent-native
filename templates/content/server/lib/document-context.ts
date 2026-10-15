@@ -11,6 +11,15 @@ export type DocumentContextPathEntry = {
   description: string;
 };
 
+type ContextDatabaseMembership = {
+  database: Pick<
+    typeof schema.contentDatabases.$inferSelect,
+    "id" | "documentId" | "title" | "systemRole"
+  >;
+  databaseDocumentDescription: string | null;
+  databaseDocumentDirectlyGranted: boolean;
+};
+
 async function canReadContextDocument(
   documentId: string,
   directlyGranted: boolean,
@@ -84,7 +93,13 @@ function ancestorChain(
 
 export async function getDocumentContextPath(
   document: Pick<typeof schema.documents.$inferSelect, "id" | "parentId">,
-  options: { databaseId?: string } = {},
+  options: {
+    databaseId?: string;
+    preloaded?: {
+      membership: ContextDatabaseMembership | null;
+      backingDatabaseExists: boolean;
+    };
+  } = {},
 ): Promise<DocumentContextPathEntry[]> {
   const db = getDb();
   const membershipClauses = [
@@ -96,40 +111,55 @@ export async function getDocumentContextPath(
       eq(schema.contentDatabaseItems.databaseId, options.databaseId),
     );
   }
-  const [ancestors, [membership], [backingDatabase]] = await Promise.all([
-    document.parentId ? ancestorChain(document) : Promise.resolve([]),
-    db
-      .select({
-        database: schema.contentDatabases,
-        databaseDocumentDescription: schema.documents.description,
-        databaseDocumentDirectlyGranted: directDocumentAccessSql(
+  const ancestorsPromise = document.parentId
+    ? ancestorChain(document)
+    : Promise.resolve([]);
+  const membershipPromise = options.preloaded
+    ? Promise.resolve(options.preloaded.membership)
+    : db
+        .select({
+          database: schema.contentDatabases,
+          databaseDocumentDescription: schema.documents.description,
+          databaseDocumentDirectlyGranted: directDocumentAccessSql(
+            schema.documents,
+            currentAccess(),
+          ),
+        })
+        .from(schema.contentDatabaseItems)
+        .innerJoin(
+          schema.contentDatabases,
+          eq(
+            schema.contentDatabases.id,
+            schema.contentDatabaseItems.databaseId,
+          ),
+        )
+        .leftJoin(
           schema.documents,
-          currentAccess(),
-        ),
-      })
-      .from(schema.contentDatabaseItems)
-      .innerJoin(
-        schema.contentDatabases,
-        eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
-      )
-      .leftJoin(
-        schema.documents,
-        eq(schema.documents.id, schema.contentDatabases.documentId),
-      )
-      .where(and(...membershipClauses))
-      .orderBy(
-        sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
-        asc(schema.contentDatabases.id),
-      ),
-    db
-      .select({ id: schema.contentDatabases.id })
-      .from(schema.contentDatabases)
-      .where(
-        and(
-          eq(schema.contentDatabases.documentId, document.id),
-          isNull(schema.contentDatabases.deletedAt),
-        ),
-      ),
+          eq(schema.documents.id, schema.contentDatabases.documentId),
+        )
+        .where(and(...membershipClauses))
+        .orderBy(
+          sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
+          asc(schema.contentDatabases.id),
+        )
+        .then((rows) => rows[0] ?? null);
+  const backingDatabasePromise =
+    options.preloaded !== undefined
+      ? Promise.resolve(options.preloaded.backingDatabaseExists)
+      : db
+          .select({ id: schema.contentDatabases.id })
+          .from(schema.contentDatabases)
+          .where(
+            and(
+              eq(schema.contentDatabases.documentId, document.id),
+              isNull(schema.contentDatabases.deletedAt),
+            ),
+          )
+          .then((rows) => rows.length > 0);
+  const [ancestors, membership, backingDatabaseExists] = await Promise.all([
+    ancestorsPromise,
+    membershipPromise,
+    backingDatabasePromise,
   ]);
 
   const path: DocumentContextPathEntry[] = [];
@@ -151,7 +181,7 @@ export async function getDocumentContextPath(
 
   if (
     membership &&
-    !(membership.database.systemRole && backingDatabase) &&
+    !(membership.database.systemRole && backingDatabaseExists) &&
     !path.some((entry) => entry.id === membership.database.id)
   ) {
     // The column is NOT NULL, so null means the database document is gone.

@@ -17,6 +17,11 @@ export interface SessionReplayConsoleEventPayload {
   level: SessionReplayConsoleLevel;
   source: SessionReplayConsoleSource;
   message: string;
+  /**
+   * On a `console` error: true for an exception Monitoring captured, false for
+   * a plain `console.error`. Older recorders leave it out.
+   */
+  exception?: boolean;
   args?: string[];
   stack?: string;
   url?: string;

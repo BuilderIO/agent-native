@@ -97,6 +97,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useId,
   useMemo,
   useRef,
 } from "react";
@@ -134,7 +135,7 @@ import { SettingsLoadingRow, SettingsSkeleton } from "./SettingsSkeleton.js";
 import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { StorageSettingsForm } from "./StorageSettingsForm.js";
 import { UsageSection } from "./UsageSection.js";
-import { useProviderKeySaveScope } from "./use-provider-key-save-scope.js";
+import { useCredentialSaveScope } from "./use-credential-save-scope.js";
 import {
   type BuilderConnectFlow,
   useBuilderConnectFlow,
@@ -145,6 +146,7 @@ import {
   useSettingsPanelController,
 } from "./useSettingsPanelController.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
+import { WhoField } from "./WhoField.js";
 const ManageButton = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof ToolkitButton>
@@ -285,7 +287,7 @@ function UseBuilderCard({
   credentialSource,
   trackingSource = "settings_panel_builder_card",
   trackingFlow = "connect_llm",
-  label = "Connect Builder.io",
+  label,
   subtitle = "Builder.io free credits to start - no API key needed.",
   dim,
   compact = false,
@@ -303,7 +305,9 @@ function UseBuilderCard({
   dim?: boolean;
   compact?: boolean;
 }) {
+  const t = useT();
   const isPage = useSettingsSurface() === "page";
+  const connectLabel = label ?? t("agentChat.setup.connectBuilder");
   const effectiveConnected = connected || builderFlow.configured;
   const effectiveOrgName = builderFlow.orgName ?? orgName;
   const effectiveCredentialSource =
@@ -350,7 +354,7 @@ function UseBuilderCard({
         {envManaged ? (
           <p className={cn("text-muted-foreground mt-1", bodyCls)}>
             {credentialSource === "env"
-              ? "Deployment fallback is available. Connect your own account to override it."
+              ? t("agentChat.settingsInfra.builderOverrideDescription")
               : "Using your connected Builder account. Deployment fallback is still available."}
           </p>
         ) : null}
@@ -387,7 +391,9 @@ function UseBuilderCard({
           disabled={builderFlow.connecting}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
         >
-          {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+          {builderFlow.connecting
+            ? t("agentChat.composer.connectingBuilder")
+            : connectLabel}
           {builderFlow.connecting ? (
             <IconLoader2 size={14} className="animate-spin" />
           ) : null}
@@ -421,7 +427,9 @@ function UseBuilderCard({
                 isPage ? "text-sm" : "text-[12px]",
               )}
             >
-              {builderFlow.connecting ? "Connecting Builder.io..." : label}
+              {builderFlow.connecting
+                ? t("agentChat.composer.connectingBuilder")
+                : connectLabel}
             </span>
             {builderFlow.connecting && (
               <IconLoader2
@@ -465,7 +473,9 @@ function UseBuilderCard({
             isPage ? "text-sm" : "text-[11px]",
           )}
         >
-          {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+          {builderFlow.connecting
+            ? t("agentChat.composer.connectingBuilder")
+            : connectLabel}
           {builderFlow.connecting ? (
             <IconLoader2 size={isPage ? 14 : 12} className="animate-spin" />
           ) : null}
@@ -574,11 +584,43 @@ function ManualSetupCard({
   );
 }
 
+const FRIENDLY_MODEL_NAMES: Record<string, string> = {
+  "z-ai/glm-5.2": "GLM 5.2",
+  "grok-code-fast": "Grok Code Fast",
+  "x-ai/grok-4.7": "Grok 4.7",
+  "x-ai/grok-build-0.1": "Grok Build 0.1",
+  "qwen3-coder": "Qwen3 Coder",
+  "qwen/qwen3-coder": "Qwen3 Coder",
+  "kimi-k2-5": "Kimi K2.5",
+  "moonshotai/kimi-k2.5": "Kimi K2.5",
+  "deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
+  "deepseek-v3-1": "DeepSeek v3.1",
+  "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek/deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
+  "deepseek/deepseek-chat-v3.1": "DeepSeek v3.1",
+  "z-ai-glm-4-5": "Z-AI GLM 4.5",
+  "z-ai-glm-5-1": "Z-AI GLM 5.1",
+  "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
+  "z-ai/glm-4.5": "GLM 4.5",
+  "z-ai/glm-5.1": "GLM 5.1",
+  "z-ai/glm-5.3-flash": "GLM 5.3 Flash",
+  "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
+  "google/gemini-3.8-flash": "Gemini 3.8 Flash",
+  "google/gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "google/gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+  "google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+};
+
 export function friendlyModelName(model: string): string {
-  if (model === "z-ai/glm-5.2") return "GLM 5.2";
+  const friendlyName = Object.hasOwn(FRIENDLY_MODEL_NAMES, model)
+    ? FRIENDLY_MODEL_NAMES[model]
+    : undefined;
+  if (friendlyName !== undefined) return friendlyName;
   const normalizedModel = model.replace(/^(?:anthropic|openai)\//, "");
-  const claude = normalizedModel.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
+  const undatedModel = normalizedModel.replace(/-\d{8,}$/, "");
+  const claude = undatedModel.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
@@ -1081,9 +1123,12 @@ function LLMSectionInner({
   const keyEntryVisible = !!envVar && !(envConfigured || settingsConfigured);
   const {
     scope: keySaveScope,
+    canChoose: canChooseKeyScope,
+    setScope: setKeySaveScope,
     roleUnavailable: keySaveRoleUnavailable,
     retry: retryKeySaveRole,
-  } = useProviderKeySaveScope();
+  } = useCredentialSaveScope();
+  const keyScopeId = useId();
 
   const handleFindOllamaModels = () => {
     setOllamaModelsLoading(true);
@@ -1339,7 +1384,7 @@ function LLMSectionInner({
                   credentialSource={credentialSource}
                   trackingSource="llm_settings"
                   trackingFlow="connect_llm"
-                  label="Connect Builder.io"
+                  label={t("agentChat.setup.connectBuilder")}
                   compact
                 />
               )}
@@ -1372,7 +1417,7 @@ function LLMSectionInner({
                       credentialSource={credentialSource}
                       trackingSource="llm_settings"
                       trackingFlow="connect_llm"
-                      label="Connect Builder.io"
+                      label={t("agentChat.setup.connectBuilder")}
                     />
                   ) : undefined
                 }
@@ -1748,6 +1793,17 @@ function LLMSectionInner({
                       </Button>
                     </div>
                   ) : null}
+                  {canChooseKeyScope &&
+                  keySaveScope &&
+                  (keyEntryVisible || endpointChanged) ? (
+                    <WhoField
+                      id={keyScopeId}
+                      choice
+                      scope={keySaveScope}
+                      disabled={saving}
+                      onChange={setKeySaveScope}
+                    />
+                  ) : null}
 
                   <div className="flex items-center gap-2">
                     <Button
@@ -1853,24 +1909,7 @@ function LLMSectionInner({
                     </p>
                   )}
                   {keySaveRoleUnavailable && (
-                    <div
-                      role="alert"
-                      className={cn(
-                        "flex flex-wrap items-center gap-1.5 text-destructive",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      <IconAlertCircle size={isPage ? 14 : 10} />
-                      {t("agentPanel.saveScopeRoleUnavailable")}
-                      <Button
-                        intent="neutral"
-                        emphasis="ghost"
-                        onClick={retryKeySaveRole}
-                        className="h-auto px-1 py-0 font-medium text-foreground underline underline-offset-2"
-                      >
-                        {t("agentChat.common.retry")}
-                      </Button>
-                    </div>
+                    <SaveScopeRoleAlert onRetry={retryKeySaveRole} />
                   )}
                   {providerSettingsError && (
                     <div
@@ -2504,6 +2543,31 @@ function AppModelDefaultsSectionInner({
   );
 }
 
+function SaveScopeRoleAlert({ onRetry }: { onRetry: () => void }) {
+  const t = useT();
+  const isPage = useSettingsSurface() === "page";
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "flex flex-wrap items-center gap-1.5 text-destructive",
+        isPage ? "text-xs" : "text-[10px]",
+      )}
+    >
+      <IconAlertCircle size={isPage ? 14 : 10} />
+      {t("agentPanel.saveScopeRoleUnavailable")}
+      <Button
+        intent="neutral"
+        emphasis="ghost"
+        onClick={onRetry}
+        className="h-auto px-1 py-0 font-medium text-foreground underline underline-offset-2"
+      >
+        {t("agentChat.common.retry")}
+      </Button>
+    </div>
+  );
+}
+
 export function EmailSectionInner({
   open,
   onToggle,
@@ -2527,6 +2591,14 @@ export function EmailSectionInner({
     "resend",
   );
   const [envLoaded, setEnvLoaded] = useState(false);
+  const {
+    scope: emailScope,
+    canChoose: canChooseEmailScope,
+    setScope: setEmailScope,
+    roleUnavailable: emailRoleUnavailable,
+    retry: retryEmailRole,
+  } = useCredentialSaveScope();
+  const emailScopeId = useId();
 
   useEffect(() => {
     fetch(agentNativePath("/_agent-native/env-status"))
@@ -2543,6 +2615,10 @@ export function EmailSectionInner({
   const fromConfigured =
     envKeys.find((k) => k.key === "EMAIL_FROM")?.configured ?? false;
   const anyConfigured = resendConfigured || sendgridConfigured;
+  const emailNeedsSave = !(
+    (emailProvider === "resend" ? resendConfigured : sendgridConfigured) &&
+    fromConfigured
+  );
 
   useEffect(() => {
     if (sendgridConfigured && !resendConfigured) {
@@ -2551,12 +2627,13 @@ export function EmailSectionInner({
   }, [resendConfigured, sendgridConfigured]);
 
   const save = async (vars: Array<{ key: string; value: string }>) => {
+    if (!emailScope) return;
     setSaving(true);
     try {
       const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vars }),
+        body: JSON.stringify({ vars, scope: emailScope }),
       });
       if (res.ok) {
         setSaved(true);
@@ -2613,6 +2690,18 @@ export function EmailSectionInner({
               setEmailProvider(value as "resend" | "sendgrid")
             }
           />
+          {canChooseEmailScope && emailScope && emailNeedsSave ? (
+            <WhoField
+              id={emailScopeId}
+              choice
+              scope={emailScope}
+              disabled={saving}
+              onChange={setEmailScope}
+            />
+          ) : null}
+          {emailRoleUnavailable && emailNeedsSave ? (
+            <SaveScopeRoleAlert onRetry={retryEmailRole} />
+          ) : null}
 
           {emailProvider === "resend" ? (
             <ManualSetupCard
@@ -2646,7 +2735,7 @@ export function EmailSectionInner({
                     intent="primary"
                     emphasis="solid"
                     onClick={saveResend}
-                    disabled={!resendKey.trim() || saving}
+                    disabled={!resendKey.trim() || saving || !emailScope}
                     className={emailBtnCls}
                   >
                     {saving ? (
@@ -2686,7 +2775,7 @@ export function EmailSectionInner({
                       intent="primary"
                       emphasis="solid"
                       onClick={saveResend}
-                      disabled={!fromAddr.trim() || saving}
+                      disabled={!fromAddr.trim() || saving || !emailScope}
                       className={emailBtnCls}
                     >
                       {saving ? (
@@ -2733,7 +2822,7 @@ export function EmailSectionInner({
                     intent="primary"
                     emphasis="solid"
                     onClick={saveSendgrid}
-                    disabled={!sendgridKey.trim() || saving}
+                    disabled={!sendgridKey.trim() || saving || !emailScope}
                     className={emailBtnCls}
                   >
                     {saving ? (
@@ -2773,7 +2862,7 @@ export function EmailSectionInner({
                       intent="primary"
                       emphasis="solid"
                       onClick={saveSendgrid}
-                      disabled={!fromAddr.trim() || saving}
+                      disabled={!fromAddr.trim() || saving || !emailScope}
                       className={emailBtnCls}
                     >
                       {saving ? (
@@ -3911,7 +4000,7 @@ function SettingsPanelContent({
                 trackingFlow="file_upload"
               />
               <ManualSetupCard
-                hint="Object storage keeps uploaded files durable and their URLs reusable throughout the thread. Connect Builder or use an S3-compatible bucket below."
+                hint={t("agentChat.settingsInfra.builderStorageHint")}
                 docsUrl={docsUrl("file-uploads", {
                   campaign: "onboarding",
                   content: "file_upload_settings",

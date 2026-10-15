@@ -49,6 +49,7 @@ import {
   putRecordingBackupMeta,
   updateRecordingBackupMeta,
   verifyServerCopy,
+  type LocalRecorderPlatform,
   type RecordingBackupMeta,
 } from "@/lib/recording-backup";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
@@ -512,6 +513,7 @@ export class RecorderEngine {
   private backupDetails: {
     ownerEmail: string | null;
     title: string | null;
+    recordingPlatform?: LocalRecorderPlatform | null;
     createdAt: string;
   } | null = null;
   private localOnly = false;
@@ -807,6 +809,7 @@ export class RecorderEngine {
     hasAudio: boolean;
     hasCamera: boolean;
     ownerEmail: string | null;
+    recordingPlatform: LocalRecorderPlatform | null;
     whole: boolean;
   } | null {
     const meta = this.lastFinalizeMeta;
@@ -821,6 +824,7 @@ export class RecorderEngine {
       hasAudio: meta.hasAudio,
       hasCamera: meta.hasCamera,
       ownerEmail: this.backupDetails?.ownerEmail ?? null,
+      recordingPlatform: this.backupDetails?.recordingPlatform ?? null,
       whole: this.captureComplete,
     };
   }
@@ -1109,6 +1113,7 @@ export class RecorderEngine {
   setBackupDetails(details: {
     ownerEmail: string | null;
     title: string | null;
+    recordingPlatform?: LocalRecorderPlatform | null;
   }): void {
     this.backupDetails = { ...details, createdAt: new Date().toISOString() };
   }
@@ -1783,7 +1788,7 @@ export class RecorderEngine {
     }
   }
 
-  async cancel(failureCode = "unknown"): Promise<void> {
+  async cancel(failureCode = "recording_interrupted"): Promise<void> {
     // Before the recorder stops: its final chunk arrives afterwards and must
     // not write a new copy behind the delete.
     this.discarded = true;
@@ -1837,7 +1842,7 @@ export class RecorderEngine {
             reason:
               failureCode === "user_cancelled"
                 ? "Recording cancelled by user"
-                : failureCode === "unknown"
+                : failureCode === "recording_interrupted"
                   ? "Recording interruption has unknown cause"
                   : failureCode === "storage_setup_required"
                     ? "Video storage is not connected yet"
@@ -2553,6 +2558,7 @@ export class RecorderEngine {
         {
           status: responseError.status,
           restartRequired,
+          errorCode: responseError.errorCode,
           failureCode,
           failureStage: responseError.failureStage,
         },

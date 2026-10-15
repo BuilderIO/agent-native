@@ -5,6 +5,7 @@ import {
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags/use-feature-flag";
 import { useT } from "@agent-native/core/client/i18n";
 import type { LabStates } from "@agent-native/core/client/labs/use-lab";
+import { useCustomKeyOnboardingAttemptLifecycle } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useActionQuery } from "@agent-native/core/client/use-action";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { CHATGPT_SUBSCRIPTION_LAB } from "@agent-native/core/labs/core-labs";
@@ -1058,6 +1059,7 @@ function RedesignedSettingsTabsPage(props: SettingsTabsPageProps) {
 }
 
 export function SettingsTabsPage(props: SettingsTabsPageProps) {
+  useCustomKeyOnboardingAttemptLifecycle();
   // No query client means no action surface to read the flag from, so the
   // flag fails closed exactly as it does for a signed-out viewer. It also
   // means the server's registered labs are unknown, so core labs stay hidden.

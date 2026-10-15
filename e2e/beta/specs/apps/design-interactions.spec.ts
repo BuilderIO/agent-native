@@ -647,9 +647,14 @@ async function addUrlBackedDropTarget(
     dataOperations: [
       {
         op: "set",
+        path: ["fusionUrl"],
+        value: URL_BACKED_TARGET_URL,
+      },
+      {
+        op: "set",
         path: ["screenMetadata", screenId],
         value: {
-          sourceType: "localhost",
+          sourceType: "fusion",
           previewState: "live",
           url: URL_BACKED_TARGET_URL,
           previewUrl: URL_BACKED_TARGET_URL,
@@ -1235,7 +1240,7 @@ test.describe("authenticated beta Design interactions", () => {
           timeout: 20_000,
         })
         .toMatchObject({
-          sourceType: "localhost",
+          sourceType: "fusion",
           previewState: "live",
           url: URL_BACKED_TARGET_URL,
           previewUrl: URL_BACKED_TARGET_URL,
@@ -1729,9 +1734,6 @@ test.describe("authenticated beta Design interactions", () => {
         '[data-inspector-layout="drag-paint-row"]',
       );
       await expect(rows).toHaveCount(2);
-      const initialRows = await rows.allTextContents();
-      expect(initialRows[0]).toMatch(/Image 1/);
-      expect(initialRows[1]).toMatch(/Radial gradient 2/);
 
       await fillSection(page)
         .locator('[data-inspector-layout="paint-row"]')
@@ -1818,8 +1820,6 @@ test.describe("authenticated beta Design interactions", () => {
       );
       await expect(reloadedRows).toHaveCount(3);
       const reloadedRowText = await reloadedRows.allTextContents();
-      expect(reloadedRowText[0]).toMatch(/Image 1/);
-      expect(reloadedRowText[1]).toMatch(/Radial gradient 2/);
       expect(reloadedRowText[2]).toMatch(/Linear gradient 3/);
     } catch (error) {
       primaryFailure = true;

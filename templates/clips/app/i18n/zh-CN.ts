@@ -1,11 +1,72 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "调整答案区域大小或关闭" },
+  lookbackContext: {
+    includeLast: "包含最近",
+    whatIsThis: "这是什么？",
+    off: "关",
+    none: "无",
+    custom: "自定义…",
+    customLabel: "自定义时长",
+    customAmount: "时长",
+    customUnit: "单位",
+    unitSeconds: "秒",
+    unitMinutes: "分钟",
+    customSave: "使用此时长",
+    customErrorEmpty: "请输入时长。",
+    customErrorInvalid: "请输入整数秒数或分钟数。",
+    customErrorTooLong: "请不超过 5 分钟。",
+    turnOnRewind: "开启 Rewind",
+    turnOffRewind: "关闭",
+    turnOffRewindFailed: "无法关闭 Rewind。请先停止录制，然后重试。",
+    rewindOffTitle: "开启 Rewind",
+    rewindOffBody:
+      "默认关闭。屏幕历史记录会保留在此设备上，直到你将其加入录制内容或批准共享请求。",
+    requestFailed: "无法包含更早的屏幕时间。录制将继续，但不包含这部分。",
+    localOnlyUnavailable: "仅本地录制不会保存更早的屏幕时间。",
+    saving: "正在保存录制前的 {{window}}…",
+    ready: "包含录制前的 {{window}}",
+    failed: "无法保存更早的屏幕时间",
+    unreadable: "无法检查更早的屏幕时间",
+    edit: "编辑",
+    editTitle: "更早的屏幕时间",
+    editSave: "保存",
+    editFailed: "无法保存时间窗口，请重试。",
+    previewPreparing: "正在准备预览…",
+    previewFailed: "无法准备预览。",
+    previewLabel: "更早的屏幕时间预览",
+    retry: "重试",
+    playSelection: "播放所选范围",
+    removeFailed: "无法删除已丢弃录制的更早屏幕时间。",
+    removeFailedAction: "无法移除更早的屏幕时间，请重试。",
+    removeAction: "移除更早的屏幕时间",
+    removeConfirmTitle: "要移除更早的屏幕时间吗？",
+    removeConfirmBody: "画面将移至废纸篓，剪辑不再包含这些画面。",
+    removeConfirm: "移除",
+    removed: "已移除更早的屏幕时间",
+    scrubberFromBefore: "从 {{offset}} 前开始",
+    scrubberFromStart: "从录制开始处",
+    scrubberToBefore: "到 {{offset}} 前",
+    scrubberToStart: "到录制开始处",
+    scrubberLength: "时长",
+    scrubberStartHandle: "窗口开始",
+    scrubberEndHandle: "窗口结束",
+    tab: "上下文",
+    label: "录制前的屏幕",
+    window: "录制前 {{start}}–{{end}}",
+    savingEarlierTime: "正在保存更早的屏幕时间…",
+    loadFailed: "无法加载更早的屏幕时间。",
+    empty: "此剪辑没有附加更早的屏幕时间。",
+    larger: "放大",
+    editHint: "请在 Clips Desktop 中编辑时间窗口。",
+    waitingOtherDevice: "正在等待录制此剪辑的设备",
+  },
   agentChat: {
     setup: {
-      connectBuilder: "连接 Builder.io",
+      connectBuilder: "使用 Builder.io",
       providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },
     common: { retry: "重试" },
+    onboarding: { skipForNow: "暂时跳过" },
   },
   timelineTrack: {
     helpOtherSide: "先点击那一段，再把红线向右拖。",
@@ -137,9 +198,12 @@ const messages = {
     expandSidebar: "展开侧边栏",
     collapseSidebar: "收起侧边栏",
     agentEmptyState: "我可以怎样帮助你处理录制？",
-    agentSuggestionSummary: "总结我最近的录制",
-    agentSuggestionPricing: "查找我提到价格的位置",
-    agentSuggestionFiller: "从这个剪辑中移除口头禅",
+    agentSuggestionSummary: "总结一段录制",
+    agentSuggestionPricing: "查找价格提及",
+    agentSuggestionFiller: "移除填充词",
+    agentScreenshotSuggestionSummary: "总结截图",
+    agentScreenshotSuggestionText: "查找截图中的文字",
+    agentScreenshotSuggestionCompare: "比较截图",
     createFolderError: "创建失败",
     folderCreated: "文件夹已创建",
     folderNamePlaceholder: "文件夹名称",
@@ -205,13 +269,14 @@ const messages = {
   recordingPage: {
     back: "后退",
     done: "完成",
+    backToClip: "返回剪辑",
     untitledClip: "无标题剪辑",
     recordingNotFound: "找不到录制",
     noAccess: "您可能无权访问此剪辑。",
     backToLibrary: "返回资料库",
     sharedWithYou: "与你共享",
     storageStillDisconnected: "存储仍未连接",
-    finishBuilderOrS3: "完成 Builder.io 弹出窗口或配置 S3 存储，然后重试。",
+    finishBuilderOrS3: "使用 Builder.io 存储，或配置 S3 兼容存储，然后重试。",
     loomImportResumed: "Loom 导入已恢复",
     clipUploadResumed: "剪辑上传已恢复",
     couldNotRetryLoom: "无法重试 Loom 导入",
@@ -231,6 +296,9 @@ const messages = {
     transcriptionCompleted: "转录完成",
     transcriptNotReady: "成绩单尚未准备好",
     tryAfterTranscription: "转录完成后重试。",
+    silenceTranscriptUnavailableTitle: "无法使用此转录文本来移除静音片段",
+    silenceTranscriptUnavailableDescription:
+      "尝试生成新的转录文本，然后再次移除静音片段。",
     titleGenerationQueued: "正在生成标题…",
     descriptionQueued: "正在生成描述…",
     chapterQueued: "正在生成章节…",
@@ -254,9 +322,9 @@ const messages = {
     savingWentWrong: "保存此剪辑时出现问题。",
     finishingClip: "正在完成您的剪辑...",
     loomSourcePreserved:
-      "Loom 源链接被保留。连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储，Clips 将重试保存自己的副本。",
+      "Loom 源链接已保留。使用 Builder.io 存储（免费套餐存储和 AI）或 S3 兼容存储，Clips 会重试保存自己的副本。",
     clipDataPreserved:
-      "Your clip data is still preserved.连接Builder.io或S3存储，Clips将自动上传。",
+      "剪辑数据已保留。使用 Builder.io 存储（免费套餐存储和 AI）或 S3 兼容存储，Clips 会自动上传。",
     details: "细节",
     importingLoom: "正在导入 Loom...",
     uploadingSavedClip: "正在上传保存的剪辑...",
@@ -292,6 +360,7 @@ const messages = {
     silenceWorking: "正在消除静音…",
     silenceCompleted: "静音消除完成",
     silenceFailed: "静音消除失败",
+    silenceEditsUnreadable: "无法读取已保存的编辑，因此未移除静音片段。",
     generatePrSummary: "生成公关摘要",
     generateSop: "生成SOP",
     generateSopTooltip:
@@ -323,7 +392,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "代理可读的剪辑上下文",
     agentInstructions:
-      "获取脚本的 agentContextUrl 和 JPEG 帧 URLs。获取帧 URLs 以查看屏幕，而不仅仅是阅读文字记录。",
+      "先打开 agentContextUrl。使用 apis.transcript 阅读完整转录，并将 recommendedFrames[].url（或带 atMs 的 apis.frame.urlTemplate）作为图像获取。请原样保留 id 和 agent_access。发生错误时，检查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，请说明此链接无法授予访问权限；对于私有剪辑，请让所有者在 Clips 分享菜单中选择 {{shareWithAgents}} 并发送生成的链接。如果转录可用但 failureKind=media，请说明无法获取存储的媒体，换链接无法解决。如果 failureKind=processing，请遵循 nextStep；这不表示剪辑缺失或链接无效。如果 failureKind=expired，请让所有者在分享菜单中延长或取消剪辑的过期时间并保存，然后选择 {{shareWithAgents}} 并发送新链接。",
     untitledClip: "无标题剪辑",
     incorrectPassword: "密码错误",
     passwordProtected: "该剪辑受密码保护",
@@ -370,13 +439,13 @@ const messages = {
     savingWentWrong: "保存此剪辑时出现问题。",
     finishingClip: "完成这个剪辑...",
     loomPreservedManage:
-      "Loom 源链接被保留。连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储，然后重试导入。",
+      "Loom 源链接已保留。使用 Builder.io 存储（免费套餐存储和 AI）或 S3 兼容存储，然后重试导入。",
     videoPreservedManage:
-      "视频被保留。连接Builder.io或S3存储，Clips将完成上传。",
+      "视频已保留。使用 Builder.io 存储（免费套餐存储和 AI）或 S3 兼容存储，Clips 会完成上传。",
     creatorNeedsStorage:
-      "创建者需要先连接存储才能完成此剪辑：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。",
+      "创建者需要使用 Builder.io 存储（免费套餐存储和 AI）或 S3 兼容存储，才能完成此剪辑。",
     signInStorage:
-      "如果这是您的剪辑，请在此处登录以连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储，并完成上传。",
+      "如果这是你的剪辑，请在此登录并使用 Builder.io 存储（免费套餐存储和 AI）或 S3 兼容存储，以完成上传。",
     uploadNotCompleteSession:
       "上传尚未完成。打开此剪辑的仪表板或要求创建者检查存储空间。",
     uploadNotCompleteSignIn:
@@ -507,8 +576,8 @@ const messages = {
     cleanupBuilderFailed:
       "即使 Builder.io 已连接，清理也无法完成。保留了本机转录本。",
     cleanupPaused:
-      "清理已暂停。请在“设置”中连接 AI：Builder.io（免费额度）或你自己的 LLM 密钥。",
-    builderNoResponse: "没有收到Builder的回复。允许弹出窗口并重试。",
+      "清理已暂停。请在“设置”中使用 Builder.io 提供 AI（免费额度），或添加你自己的 LLM 密钥。",
+    builderNoResponse: "没有收到 Builder 的回复，请重试。",
     saveFailed: "保存失败（{{status}}）",
     savedRetrying: "已保存。正在重试转录...",
     getGroqKey: "获取 Groq 密钥",
@@ -567,7 +636,7 @@ const messages = {
     openInCodex: "在 Codex 中打开",
     copyAgentPrompt: "复制代理提示",
     agentPrompt:
-      "获取这个 Clips 代理上下文 URL：{{agentContextUrl}}。使用 transcript.segments 读取语音上下文，获取 recommendedFrames 或帧 API URL 来查看屏幕，并在 browserDiagnostics 存在时检查经过脱敏的控制台日志和 fetch/XHR 请求元数据。",
+      "读取这个 Clips 代理上下文 URL：{{agentContextUrl}}。使用 apis.transcript 阅读完整转录，并将 recommendedFrames[].url（或带 atMs 的 apis.frame.urlTemplate）作为图像获取。请原样保留 id 和 agent_access。发生错误时，检查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，请说明此链接无法授予访问权限；对于私有剪辑，请让所有者在 Clips 分享菜单中选择 {{shareWithAgents}} 并发送生成的链接。如果转录可用但 failureKind=media，请说明无法获取存储的媒体，换链接无法解决。如果 failureKind=processing，请遵循 nextStep；这不表示剪辑缺失或链接无效。如果 failureKind=expired，请让所有者在分享菜单中延长或取消剪辑的过期时间并保存，然后选择 {{shareWithAgents}} 并发送新链接。报告问题时也请使用可用的 browserDiagnostics。",
     agentTokenDescription:
       "此剪辑未公开，因此提供供代理使用的临时只读链接。2 小时后过期。",
     agentPublicDescription: "供代理使用的只读链接。剪辑保持公开期间有效。",
@@ -719,6 +788,8 @@ const messages = {
     switchToNightly: "切换到 Nightly 构建",
     switchToStable: "切换到稳定版构建",
     retry: "重试",
+    mountError:
+      "Clips 无法找到其在此工作区中的路径。请联系工作区管理员检查应用挂载配置。",
     heroDescription:
       "用于屏幕、相机和屏幕+相机的菜单栏记录器。一键启动，可拖动相机气泡，停止时即时分享链接。",
     versionReleased: "版本 {{version}} — 发布 {{date}}",
@@ -775,6 +846,9 @@ const messages = {
     labMeetingsDescription: "试用自动会议捕获和转录功能。",
     labWisprFlow: "语音听写",
     labWisprFlowDescription: "显示或隐藏 Clips Desktop 中的语音听写。",
+    labLookbackContext: "包含更早的屏幕时间",
+    labLookbackContextDescription:
+      "将录制前最多五分钟的更早屏幕时间作为被动上下文附加到录制中。",
     uploadWorkspaceTitle: "当前工作区",
     uploadWorkspaceDescription:
       "选择 Clips 用于新录制内容（包括桌面上传）的工作区。",
@@ -1050,7 +1124,7 @@ const messages = {
     pickAtLeastTwo: "请选择至少 2 个录制进行拼接",
     videoUrlMissing: "一个或多个录制还没有可用的视频 URL",
     connectStorage:
-      "拼接录制前请连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。",
+      "拼接录制前，请使用 Builder.io 存储（免费套餐存储和 AI）或 S3 兼容存储。",
     created: "拼接录制已创建",
     failed: "拼接录制失败",
     noOtherRecordings: "没有其他可用录制。",
@@ -1279,6 +1353,10 @@ const messages = {
     burningRedactions: "正在将遮挡渲染进视频…",
     burningRedactionsPercent: "正在将遮挡渲染进视频… {{percent}}%",
     editFailed: "无法保存该编辑",
+    refreshFailed: "无法加载最新编辑内容。请重试后再进行编辑。",
+    autoSaveHint: "编辑内容会自动保存到此剪辑",
+    savingChanges: "正在保存更改…",
+    changesSaved: "更改已保存到此剪辑",
     nothingToRedo: "没有可重做的操作",
   },
   transcriptEditor: {
@@ -1314,6 +1392,14 @@ const messages = {
     agentTitle: "创建免费的 Clips 账号即可加入对话",
     genericTitle: "创建免费的 Clips 账号即可继续",
     description: "完成后，你会立即回到此剪辑。",
+    verificationPendingTitle: "验证你的电子邮箱",
+    verificationPendingCopy:
+      "我们已向 {{email}} 发送验证邮件。打开邮件以完成账号创建并返回此剪辑。",
+    resendVerification: "重新发送验证邮件",
+    resendingVerification: "正在发送验证邮件...",
+    verificationEmailResent: "已发送新的验证邮件。",
+    verificationEmailFailed:
+      "无法重新发送验证邮件。请重试，或使用电子邮件链接登录。",
     passwordsMismatch: "两次输入的密码不一致。",
     commentIntent: "评论",
     reactIntent: "添加回应",
@@ -1382,20 +1468,28 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "无法打开 Builder.io。如果此应用嵌入在聊天中，请在浏览器标签页中打开；否则请允许此网站显示弹出窗口，然后重试。",
-    builderConnectError: "无法连接到 Builder.io。请重试或联系支持团队。",
+      "无法打开 Builder.io。如果此应用嵌入在聊天中，请在浏览器标签页中打开；否则请重试。",
+    builderConnectError: "Builder.io 设置未完成。请重试，或选择 S3 兼容存储。",
+    builderConnectErrorAskAdmin:
+      "Builder.io 设置未完成。请重试，或请所有者或管理员设置存储。",
+    builderStatusReadError: "连接状态暂时不可用。请重试以再次检查。",
+    builderUploadGrantMissing:
+      "Builder.io 已连接 AI 服务，但此连接无法上传剪辑。请授予上传权限后重新连接 Builder.io，或向所有者或管理员寻求帮助。",
+    builderGrantAskAdmin:
+      "请所有者或管理员连接具有剪辑上传权限的 Builder.io 账户。",
+    statusUnavailable: "无法检查视频存储是否已就绪。",
     checkingBuilderConnection: "正在检查 Builder 连接…",
-    builderTimeout: "5 分钟内未收到 Builder 响应。请检查弹出窗口并重试。",
+    builderTimeout: "无法确认 Builder.io 存储已就绪，请重试。",
     builderConnected: "Builder.io 已连接",
     waitingForBuilder: "正在等待 Builder...",
     description:
       "使用 Builder.io 或兼容 S3 的存储来保存录制的视频。Builder.io 包含免费托管和 AI 额度。",
-    createBuilderAccount: "创建 Builder.io 账户",
+    createBuilderAccount: "使用 Builder.io",
     signInWithBuilderAccount: "使用 Builder.io 账户登录",
     free: "免费",
     whyPrompt: "为什么会看到这个？",
     whyDescription:
-      "Clips 是 100% 免费且开源的应用，所以你需要连接一种方式来存储剪辑。使用 Builder.io 可获得免费套餐存储和 AI，或使用 S3 兼容对象存储和你自己的 LLM 密钥。",
+      "Clips 是 100% 免费的开源应用，因此你需要一种方式来存储剪辑。使用 Builder.io 可获得免费套餐存储和 AI，也可以使用 S3 兼容对象存储和你自己的 LLM 密钥。",
   },
   captureInstall: {
     title: "Choose your recorder (已本地化)",
@@ -1696,6 +1790,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (已本地化)",
     recordingDownloadStarted: "Recording download started (已本地化)",
+    partialLocalCopyDownloadStarted:
+      "本地副本可能不完整。正在下载当前可用的录制数据。",
     backToLibrary: "Back to library (已本地化)",
     clipsRecorder: "Clips recorder (已本地化)",
     preparingSources: "Preparing sources… (已本地化)",
@@ -1724,9 +1820,9 @@ const messages = {
     storageConnectedReopeningRecorder:
       "存储空间已连接。正在重新打开录制工具...",
     connectStorageToFinish:
-      "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将完成保存。",
+      "在下一屏使用 Builder.io 存储（免费套餐存储和 AI），或配置 S3 兼容存储。Clips 会完成保存。",
     connectStorageToRetryLoom:
-      "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将重试导入。",
+      "在下一屏使用 Builder.io 存储（免费套餐存储和 AI），或配置 S3 兼容存储。Clips 会重试导入。",
     leaveConfirmTitle: "离开此录制？",
     leaveConfirmDescription:
       "此录制只存在于这个标签页中。除非先下载副本，否则离开后会被删除。",
@@ -1736,6 +1832,8 @@ const messages = {
     pendingStorageDescription: "连接存储后，Clips 会立即上传。",
     storageConnectedUploading: "存储已连接。正在上传你的录制…",
     downloadCopy: "下载副本",
+    localRecordingPreview: "本地录制预览",
+    localPreviewUnavailable: "本地预览不可用。你仍可下载副本。",
     localRecordingOpenElsewhere: "该录制仍在另一个 Clips 标签页中打开。",
     uploadWaitingForConnection: "上传已暂停。Clips 会自动重试。",
     uploadDidNotFinish: "上传未完成。",
@@ -1845,6 +1943,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (已本地化)",
     cleanupComplete: "听写已清理",
     cleanupFailed: "无法清理听写",
+    undoCleanup: "撤销",
+    restoreOriginal: "恢复原文",
+    cleanupRestored: "已恢复原始听写",
+    cleanupRestoreFailed: "无法恢复原始听写",
     startFirst: "把想法变成文字",
     recordOnDesktop: "在桌面端录制",
     emptyDesktopDescription:
@@ -2040,20 +2142,6 @@ const messages = {
     guideStartTitle: "Click Start notes (已本地化)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (已本地化)",
-  },
-  rewindExtension: {
-    title: "添加录制前的内容",
-    description:
-      "从本地 Rewind 中选择一段时间并添加到此剪辑开头。不会自动添加任何内容。",
-    progressLabel: "Rewind 历史处理进度",
-    privateFirstTitle: "先将此剪辑设为私密",
-    privateFirstDescription:
-      "本地 Rewind 历史可能包含你开始录制之前的内容。此操作会将剪辑设为私密。如果仍有人拥有直接访问权限，Clips 会在此停止，以便你先在共享设置中移除他们。",
-    makePrivateContinue: "设为私密并继续",
-    add30Seconds: "添加之前 30 秒",
-    add5Minutes: "添加之前 5 分钟",
-    add5MinutesDescription: "适合恢复较长说明的开头部分。",
-    privateReady: "此剪辑已设为私密。现在可以添加本地 Rewind 历史。",
   },
   browserDiagnostics: {
     debug: "调试",

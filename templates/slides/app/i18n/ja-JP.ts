@@ -127,7 +127,7 @@ const messages = {
     googleOAuthNotConfigured:
       "このデプロイではGoogle OAuthが設定されていません。",
     googlePickerNeedsKeys:
-      "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
+      "Google Drive のファイル選択は設定されていません。ドキュメントのリンクを貼り付ければインポートできます。",
     imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
       "画像をアップロードするにはオブジェクトストレージを接続してください。Builder.io（無料）を接続するか、設定 → ファイルアップロードで独自の S3 互換ストレージキーを追加してください。",
@@ -241,6 +241,7 @@ const messages = {
     importCompleteFile: "{{fileName}} からファイルをインポートしました。",
     backToDecks: "デッキに戻る",
     toggleSlideList: "スライド一覧を切り替え",
+    openInAgentNative: "Agent-Nativeで開く",
     designSystem: "デザインシステム",
     usingDesignSystem: "{{title}} を使用中",
     usingLinkedDesignSystem: "リンクされたデザインシステムを使用中",
@@ -255,6 +256,16 @@ const messages = {
     generateImage: "画像を生成",
     assetLibrary: "アセットライブラリ",
     imageOptions: "画像オプション",
+    videoPlayback: "動画再生",
+    autoplayVideo: "自動再生",
+    loopVideo: "動画をループ再生",
+    videoUploading: "動画をアップロード中…",
+    videoAdded: "動画を追加しました",
+    videoUploadFailed: "動画のアップロードに失敗しました",
+    videoUploadError: "この動画をアップロードできませんでした。",
+    videoFormatUnsupported: "対応形式は MP4 と WebM です。",
+    videoTooLarge: "動画のサイズは 50 MB 以下にしてください。",
+    videoUploadNeedsBuilder: "動画ストレージが設定されていません。",
     cropImage: "画像をトリミング",
     cropHandle: "画像の{{position}}をトリミング",
     diagrams: "図表",
@@ -265,10 +276,21 @@ const messages = {
     convertMermaidFailed: "図の変換に失敗しました",
     removeExcalidrawCanvas: "Excalidraw キャンバスを削除",
     transition: "トランジション",
-    transition_instant: "即時",
+    transition_none: "なし",
+    transition_dissolve: "ディゾルブ",
     transition_fade: "フェード",
-    transition_slide: "スライド",
-    transition_zoom: "ズーム",
+    transition_slide_from_right: "右からスライド",
+    transition_slide_from_left: "左からスライド",
+    transition_flip: "フリップ",
+    transition_cube: "キューブ",
+    transition_gallery: "ギャラリー",
+    transition_panel: "スライドの切り替え",
+    transition_speed: "速度",
+    transition_slow: "遅い",
+    transition_fast: "速い",
+    transition_seconds: "{{seconds}} 秒",
+    transition_apply_all: "すべてのスライドに適用",
+    transition_play: "切り替えを再生",
     aspectRatio: "アスペクト比",
     setAspectRatio: "デッキを {{ratio}} に設定",
     slideTools: "スライドツール",
@@ -308,6 +330,9 @@ const messages = {
     conflictStatus: "テキストの競合",
     conflictStatusDescription:
       "変更を保存する前に、競合しているテキストを確認してください。",
+    accessLost: "アクセス権を失いました",
+    accessLostDescription:
+      "このデッキへのアクセス権が変更されました。編集内容は画面に残っています。アクセスが復旧したら再試行するか、バックアップをダウンロードしてください。",
     reviewConflict: "競合を確認",
     conflictTitle: "スライド {{number}} でテキストが競合しています",
     conflictDescription:
@@ -356,6 +381,7 @@ const messages = {
     googleSlidesCreated: "Google Slides で開きました",
     googleSlidesCreatedHint:
       "このデッキのコピーを Google ドライブに作成しました。",
+    googleSlidesGoTo: "Google Slides で開く",
     duplicateDeck: "デッキを複製",
   },
   share: {
@@ -443,7 +469,8 @@ const messages = {
     resolveThread: "スレッドを解決",
     reopenThread: "スレッドを再開",
     hideReplies: "返信を非表示",
-    replyCount: "{{count}} 件の返信",
+    replyCount_one: "{{count}} 件の返信",
+    replyCount_other: "{{count}} 件の返信",
     title: "コメント",
     addComment: "コメントを追加",
     close: "閉じる",
@@ -582,7 +609,6 @@ const messages = {
     selectObject: "アニメーションするオブジェクトを選択",
     addTransition: "トランジションを追加",
     effect: "効果",
-    trigger: "トリガー",
     onClick: "クリック時",
     byParagraph: "段落ごと",
     expand: "トランジションを展開",
@@ -593,6 +619,13 @@ const messages = {
     clearAll: "全部清除",
     elements: "元素",
     autoFill: "自动填充",
+    issueStalePath: "このオブジェクトはスライド上にありません。",
+    issueMissingElement: "このオブジェクトがスライド上に見つかりません。",
+    issueDuplicate:
+      "このアニメーションは、スライド上の別のアニメーションと重なっています。",
+    blocked:
+      "解決できないアニメーションを削除するか修正すると、保存または再生できます。",
+    changeNotApplied: "この変更は適用されませんでした。",
     noAnimatableElements: "此幻灯片未检测到可动画元素。",
   },
   generateSlides: {
@@ -764,6 +797,15 @@ const messages = {
     exportFailed: "导出失败",
     agentRunFailed:
       "スライドを作成する前にエージェントの実行が失敗しました。チャットで詳細を確認して、もう一度お試しください。",
+    generationFailed:
+      "スライドを作成できませんでした。チャットで詳細を確認して、もう一度お試しください。",
+    generationOutcomeUnresolved:
+      "スライドが作成されたか確認できません。再試行する前にデッキを確認してください。",
+    partialGenerationFailed:
+      "スライドを最後まで作成できませんでした。続ける前に、作成済みのスライドと最初のリクエストを確認してください。",
+    originalPrompt: "入力した内容",
+    backToHome: "ホームに戻る",
+    checkedDeckTryAgain: "デッキを確認しました。再試行",
     deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
@@ -799,7 +841,7 @@ const messages = {
     sourceMixed: "複数のソース",
     sourceBuilder: "Builderデザインシステムインテリジェンス",
     sourceIndexingDescription:
-      "Builderはこのソースを処理中です。準備ができた結果はここに表示されます。",
+      "ブランドのスタイルを準備中です。準備ができるまで待ってから、もう一度お試しください。",
     sourceIndexedDescription:
       "{{docs}}件のドキュメント · {{tokens}}件のトークンをインデックス済み",
     sourceIndexedDocsOnly: "{{docs}}件のドキュメントをインデックス済み",
@@ -974,8 +1016,8 @@ const messages = {
           "指定された会社サイトを読み、会社についてのプレゼンテーションを作成してください。アクセスできない場合は事実を捏造せずに報告してください。",
       },
     },
-    connectBuilderIo: "Builder.io に接続",
-    connectingBuilder: "Builder.io に接続中…",
+    connectBuilderIo: "Builder.io を使う",
+    connectingBuilder: "Builder.io を設定中…",
     recent: "最近の項目",
     starters: {
       pitch: {
@@ -1010,13 +1052,19 @@ const messages = {
     generationStartFailed: "デッキ生成を開始できませんでした",
     generationStartFailedDescription:
       "新しいデッキの保存が完了しなかったため、存在しないデッキに対してエージェントを開始しませんでした。プロンプトは保存されたので再試行できます。",
+    generationContextUnavailableDescription:
+      "選択したブランドスタイルまたは参考プレゼンテーションを読み込めませんでした。開けることとインターネット接続を確認して、もう一度お試しください。",
     showAllDecks: "すべてのデッキを表示",
     all: "すべて",
     showMineDecks: "自分が作成したデッキを表示",
     mine: "自分",
+    ownedByAnyone: "所有者を問わない",
+    ownedByMe: "自分が所有",
+    sharedWithMe: "自分と共有",
     createDeckOrVisual: "プレゼンテーションを作成",
     noMineDecks: "自分が作成したデッキはまだありません。",
     noDecksMatchSearch: "検索に一致するデッキはありません。",
+    noDecksMatchFilter: "現在のフィルターに一致するデッキはありません。",
     deleteDeckTitle: "デッキを削除しますか？",
     deleteDeckDescription:
       "このデッキとすべてのスライドを完全に削除します。この操作は元に戻せません。",

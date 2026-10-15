@@ -4,11 +4,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetDb = vi.hoisted(() => vi.fn());
 const mockUserAgent = vi.hoisted(() => ({ value: "" }));
+const mockTrackClipEventForOwner = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getRequestHeader: () => mockUserAgent.value,
   getRequestIP: () => "203.0.113.7",
+}));
+
+vi.mock("./clip-funnel-tracking.js", () => ({
+  trackClipEventForOwner: (...args: unknown[]) =>
+    mockTrackClipEventForOwner(...args),
 }));
 
 vi.mock("./recordings.js", () => ({
@@ -34,7 +40,7 @@ vi.mock("../db/index.js", async () => {
 
 import { recordAgentView } from "./agent-views.js";
 
-function captureInsert() {
+function captureInsert(requestCount = 1) {
   const inserted: Record<string, unknown>[] = [];
   const conflictUpdates: Record<string, unknown>[] = [];
   mockGetDb.mockReturnValue({
@@ -42,10 +48,9 @@ function captureInsert() {
       values: (row: Record<string, unknown>) => {
         inserted.push(row);
         return {
-          onConflictDoUpdate: async (config: {
-            set: Record<string, unknown>;
-          }) => {
+          onConflictDoUpdate: (config: { set: Record<string, unknown> }) => {
             conflictUpdates.push(config.set);
+            return { returning: async () => [{ requestCount }] };
           },
         };
       },
@@ -58,6 +63,7 @@ describe("recordAgentView", () => {
   beforeEach(() => {
     mockGetDb.mockReset();
     mockUserAgent.value = "";
+    mockTrackClipEventForOwner.mockReset();
   });
 
   it("prefers the label the agent link was minted with over the user-agent", async () => {
@@ -100,5 +106,68 @@ describe("recordAgentView", () => {
     expect(rendered).toBe(
       'COALESCE(excluded.agent_label, "recording_agent_views"."agent_label")',
     );
+  });
+
+  describe("clip_agent_viewed", () => {
+    const event = {} as never;
+
+    it("fires once for the request that opens an agent session, keyed to the owner", async () => {
+      captureInsert(1);
+      mockUserAgent.value = "Claude-User/1.0";
+
+      await recordAgentView(event, "rec-1", {
+        ownerEmail: "owner@example.com",
+        viaScopedLink: true,
+      });
+
+      expect(mockTrackClipEventForOwner).toHaveBeenCalledExactlyOnceWith(
+        event,
+        "clip_agent_viewed",
+        "owner@example.com",
+        { output_id: "rec-1", agent_label: "Claude", via_scoped_link: true },
+      );
+    });
+
+    it("does not fire for later polls in the same agent session", async () => {
+      captureInsert(2);
+      mockUserAgent.value = "Claude-User/1.0";
+
+      await recordAgentView(event, "rec-1", {
+        ownerEmail: "owner@example.com",
+      });
+
+      expect(mockTrackClipEventForOwner).not.toHaveBeenCalled();
+    });
+
+    it("reports an unnamed agent as a null label and a public read as not scoped", async () => {
+      captureInsert(1);
+      mockUserAgent.value = "python-requests/2.32";
+
+      await recordAgentView(event, "rec-1", {
+        ownerEmail: "owner@example.com",
+      });
+
+      expect(mockTrackClipEventForOwner.mock.calls[0][3]).toEqual({
+        output_id: "rec-1",
+        agent_label: null,
+        via_scoped_link: false,
+      });
+    });
+
+    it("does not fire when the view could not be recorded", async () => {
+      mockGetDb.mockReturnValue({
+        insert: () => {
+          throw new Error("db down");
+        },
+      });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await expect(
+        recordAgentView(event, "rec-1", { ownerEmail: "owner@example.com" }),
+      ).resolves.toBeUndefined();
+
+      expect(mockTrackClipEventForOwner).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
   });
 });

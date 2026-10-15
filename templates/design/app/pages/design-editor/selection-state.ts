@@ -401,6 +401,17 @@ export function shouldLimitEditorChromeUntilContentReady(args: {
   );
 }
 
+export function shouldDisableExportsUntilCanvasFramesExist(args: {
+  canvasFrameCount: number;
+  generating: boolean;
+  pendingGenerationActive: boolean;
+}) {
+  return (
+    args.canvasFrameCount === 0 &&
+    (args.generating || args.pendingGenerationActive)
+  );
+}
+
 export function shouldEscapeToOverview(args: {
   activeTool: DesignTool;
   drawMode: boolean;
@@ -471,6 +482,86 @@ export function computeOverviewScreenPickSelectionIds(args: {
   return args.shiftKeyHeld ? args.currentSelectedLayerIds : [args.pickedId];
 }
 
+export function overviewScreenSelectionForPendingEcho(args: {
+  screenIds: string[];
+  pendingLayerId: string | null;
+  screenFileIds: ReadonlySet<string>;
+}): string[] {
+  const pendingLayerIsChild = Boolean(
+    args.pendingLayerId &&
+    !args.pendingLayerId.startsWith("__") &&
+    !args.screenFileIds.has(args.pendingLayerId),
+  );
+  return pendingLayerIsChild ? [] : args.screenIds;
+}
+
+export function updateExplicitOverviewScreenSelection(args: {
+  previousSelectedScreenIds: readonly string[];
+  selectedScreenIds: readonly string[];
+  currentExplicitScreenIds: readonly string[];
+  ownerDerivedScreenIds: ReadonlySet<string>;
+  additive: boolean;
+  marqueeSelectedScreenIds?: readonly string[];
+}): string[] {
+  const selectedScreenIds = [...new Set(args.selectedScreenIds)];
+  const selected = new Set(selectedScreenIds);
+  const explicit = args.currentExplicitScreenIds.filter(
+    (screenId, index, ids) =>
+      selected.has(screenId) && ids.indexOf(screenId) === index,
+  );
+  const previouslySelected = new Set(args.previousSelectedScreenIds);
+  for (const screenId of selectedScreenIds) {
+    if (
+      (!args.additive || !args.ownerDerivedScreenIds.has(screenId)) &&
+      (!args.additive || !previouslySelected.has(screenId)) &&
+      !explicit.includes(screenId)
+    ) {
+      explicit.push(screenId);
+    }
+  }
+  for (const screenId of args.marqueeSelectedScreenIds ?? []) {
+    if (selected.has(screenId) && !explicit.includes(screenId)) {
+      explicit.push(screenId);
+    }
+  }
+  return explicit;
+}
+
+export function applyExplicitOverviewScreenSelectionToggle(args: {
+  currentExplicitScreenIds: readonly string[];
+  screenId: string;
+  selected: boolean;
+}): string[] {
+  const explicit = [...new Set(args.currentExplicitScreenIds)];
+  if (!args.selected) {
+    return explicit.filter((screenId) => screenId !== args.screenId);
+  }
+  return explicit.includes(args.screenId)
+    ? explicit
+    : [...explicit, args.screenId];
+}
+
+export function explicitOverviewScreenSelectionForHistory(args: {
+  selection: GeometryHistorySelection;
+  screenFileIds: ReadonlySet<string>;
+}): string[] {
+  const { selection, screenFileIds } = args;
+  if (selection.explicitOverviewScreenIds !== undefined) {
+    return selection.explicitOverviewScreenIds.filter((screenId) =>
+      screenFileIds.has(screenId),
+    );
+  }
+  const restoresChildLayerSelection = selection.selectedLayerIds.some(
+    (layerId) =>
+      layerId && !layerId.startsWith("__") && !screenFileIds.has(layerId),
+  );
+  return restoresChildLayerSelection
+    ? []
+    : selection.overviewSelectedScreenIds.filter((screenId) =>
+        screenFileIds.has(screenId),
+      );
+}
+
 export function buildActiveFileNodeIdSet(
   projection: CodeLayerProjection,
 ): Set<string> {
@@ -496,7 +587,11 @@ export function selectionHistorySnapshotsEqual(
   return (
     a.activeFileId === b.activeFileId &&
     sameStringIds(a.overviewSelectedScreenIds, b.overviewSelectedScreenIds) &&
-    sameStringIds(a.selectedLayerIds, b.selectedLayerIds)
+    sameStringIds(a.selectedLayerIds, b.selectedLayerIds) &&
+    sameStringIds(
+      a.explicitOverviewScreenIds ?? [],
+      b.explicitOverviewScreenIds ?? [],
+    )
   );
 }
 

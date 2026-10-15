@@ -4,6 +4,27 @@ export {
   withShareLinkAttribution,
 } from "./share-link-attribution.js";
 export {
+  useAccessRequestDecisions,
+  useAccessRequestReview,
+  useResourceAccessRequests,
+  type AccessRequestDecisionFailure,
+  type AccessRequestDecisions,
+  type AccessRequestReview,
+  type AccessRequestReviewController,
+  type AccessRequestRole,
+  type ResourceAccessRequestsController,
+} from "./useAccessRequestReview.js";
+export {
+  useResourceAccessGate,
+  type ResourceAccessGateController,
+  type ResourceAccessGateOptions,
+  type ResourceAccessGateRequest,
+  type ResourceAccessRequestFailure,
+  type ResourceAccessGateRole,
+  type ResourceAccessGateState,
+  type ResourceAccessGateStatus,
+} from "./useResourceAccessGate.js";
+export {
   useShareButtonController,
   type ShareButtonController,
   type ShareButtonControllerOptions,

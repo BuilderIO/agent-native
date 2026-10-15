@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import {
@@ -32,6 +33,7 @@ function slugify(text: string): string {
 }
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.edit", "id"),
   description:
     "Update an existing form, including settings.completionMode (message, redirect, message_then_refresh, or refresh) and settings.completionRefreshSeconds, or settings.emailOnNewResponses to email the form owner when new responses arrive. " +
     "Only for edits to THAT form. A request describing a different form — another purpose, audience, or set of questions — is a new form: call create-form. A form open in <current-screen> is context, not a target: never reuse its id for a new form request, however recently you created it.",

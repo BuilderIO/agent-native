@@ -4,7 +4,8 @@ export type SuggestionStatus =
   | "accepted"
   | "rejected"
   | "stale"
-  | "superseded";
+  | "superseded"
+  | "withdrawn";
 export type SuggestionDecision = "accepted" | "rejected";
 export interface SuggestionOperation {
   id?: string;

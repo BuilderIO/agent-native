@@ -14,6 +14,7 @@ import { parseEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -99,9 +100,9 @@ const ImportLoomRecordingSchema = z.object({
 });
 
 const LOOM_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this Loom import.";
+  "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage, then retry this Loom import.";
 const DIRECT_VIDEO_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this import.";
+  "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage, then retry this import.";
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
@@ -229,11 +230,6 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       existingRecording?.organizationId ?? args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
-      organizationId,
-      actionContext?.userEmail ?? ownerEmail,
-    );
-
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
     const createdAt = existingRecording?.createdAt ?? now;
@@ -259,7 +255,12 @@ export default defineAction({
     const height = boundedDimension(oembed?.height ?? oembed?.thumbnail_height);
     const folderId = args.folderId ?? existingRecording?.folderId ?? null;
     const visibility =
-      args.visibility ?? existingRecording?.visibility ?? defaultVisibility;
+      args.visibility ??
+      existingRecording?.visibility ??
+      (await getDefaultRecordingVisibility(
+        organizationId,
+        actionContext?.userEmail ?? ownerEmail,
+      ));
     const titleSource = args.title
       ? "manual"
       : (existingRecording?.titleSource ?? "upload");
@@ -267,6 +268,16 @@ export default defineAction({
       parseEdits(existingRecording?.editsJson).thumbnail,
     );
 
+    // Each import path below inserts the row in exactly one branch.
+    const trackImportedRowCreated = () =>
+      trackRecordingCreated({
+        recordingId: id,
+        userId: ownerEmail,
+        platform: "import",
+        source: "import",
+        hasAudio: true,
+        hasCamera: false,
+      });
     const buildRecordingValues = (
       videoSizeBytes: number,
       videoFormat: "mp4" | "webm" = "mp4",
@@ -324,6 +335,7 @@ export default defineAction({
           ownerEmail,
           createdAt,
         });
+        trackImportedRowCreated();
       }
 
       await writeAppState(`recording-upload-${id}`, {
@@ -394,6 +406,7 @@ export default defineAction({
           ownerEmail,
           createdAt,
         });
+        trackImportedRowCreated();
       }
 
       await writeAppState(`recording-upload-${id}`, {
@@ -493,6 +506,7 @@ export default defineAction({
         ownerEmail,
         createdAt,
       });
+      trackImportedRowCreated();
     }
 
     await dispatchPostFinalizeJob({

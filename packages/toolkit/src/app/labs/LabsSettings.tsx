@@ -1,8 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type {
-  LabStates,
-  LabValues,
-} from "@agent-native/core/client/labs/use-lab";
+import type { LabStates } from "@agent-native/core/client/labs/use-lab";
 import {
   useActionMutation,
   useActionQuery,
@@ -25,6 +22,7 @@ interface LabsSettingsState {
   labs: readonly LabDefinition[];
   enabled: (lab: LabDefinition) => boolean;
   mixed: (lab: LabDefinition) => boolean;
+  hasError: (lab: LabDefinition) => boolean;
   toggle: (lab: LabDefinition, enabled: boolean) => void;
   /** Switches wait for the server's answer; they can't save before it. */
   disabled: boolean;
@@ -39,7 +37,7 @@ function hasOwn(values: LabStates, key: string): boolean {
 }
 
 /**
- * One source of truth for a labs list. Until `get-labs` answers (or when it
+ * One source of truth for a labs list. Until `get-lab-states` answers (or when it
  * fails) each lab shows its `defaultEnabled`, which is what the server applies
  * to anyone who never chose. A lab the server didn't register is hidden once
  * it answers, because `set-lab` would refuse it.
@@ -49,7 +47,7 @@ function useLabsSettingsState(
 ): LabsSettingsState {
   const valuesQuery = useActionQuery<LabStates>("get-lab-states" as never);
   const setLab = useActionMutation<
-    { key: string; enabled: boolean; values: LabValues },
+    { key: string; enabled: boolean; values: LabStates },
     { key: string; enabled: boolean }
   >("set-lab" as never);
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
@@ -68,6 +66,7 @@ function useLabsSettingsState(
             window.dispatchEvent(
               new CustomEvent("agent-engine:configured-changed"),
             );
+            void valuesQuery.refetch();
           },
           onError: () => {
             setFailedKey(key);
@@ -81,19 +80,33 @@ function useLabsSettingsState(
         },
       );
     },
-    [setLab],
+    [setLab, valuesQuery.refetch],
   );
 
   const visible = values ? labs.filter((lab) => hasOwn(values, lab.key)) : labs;
   return {
     labs: visible,
-    enabled: (lab) =>
-      overrides[lab.key] ??
-      (values
-        ? values[lab.key]?.enabled === true
-        : lab.defaultEnabled === true),
-    mixed: (lab) =>
-      overrides[lab.key] === undefined && values?.[lab.key]?.mixed === true,
+    enabled: (lab) => {
+      const override = overrides[lab.key];
+      if (override !== undefined) return override;
+      const state = values?.[lab.key];
+      return state
+        ? !("error" in state) && state.enabled
+        : !values && lab.defaultEnabled === true;
+    },
+    mixed: (lab) => {
+      const state = values?.[lab.key];
+      return (
+        overrides[lab.key] === undefined &&
+        state !== undefined &&
+        !("error" in state) &&
+        state.mixed
+      );
+    },
+    hasError: (lab) => {
+      const state = values?.[lab.key];
+      return state !== undefined && "error" in state;
+    },
     toggle,
     disabled: !values || setLab.isPending,
     loadFailed: !values && valuesQuery.isError,
@@ -129,6 +142,7 @@ function LabRows({ state }: { state: LabsSettingsState }) {
           ? t(lab.descriptionKey)
           : lab.description;
         const failed = state.failedLab?.key === lab.key;
+        const unreadable = state.hasError(lab);
         const mixed = state.mixed(lab);
         return (
           <SettingsRow
@@ -142,6 +156,10 @@ function LabRows({ state }: { state: LabsSettingsState }) {
                     lab: label,
                   })}
                 </span>
+              ) : unreadable ? (
+                <span role="alert" className="text-destructive">
+                  {t("agentChat.settingsShell.appGroup.labsReadError")}
+                </span>
               ) : mixed ? (
                 (lab.inheritedMixedDescription ?? description)
               ) : (
@@ -149,7 +167,7 @@ function LabRows({ state }: { state: LabsSettingsState }) {
               )
             }
             control={
-              mixed ? (
+              unreadable || mixed ? (
                 <div className="flex gap-2">
                   <Button
                     type="button"

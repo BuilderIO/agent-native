@@ -11,6 +11,7 @@ import {
   scanIdentityColumnsRegistered,
   scanLocalhostFallback,
   scanResourceActionAccess,
+  scanServerPluginDefaultExport,
   scanUnscopedCredentials,
   scanUnscopedQueries,
 } from "../guards/index.js";
@@ -60,6 +61,7 @@ export type GuardName =
   | "identity-columns-registered"
   | "resource-action-access"
   | "feature-dependencies"
+  | "server-plugin-default-export"
   | "migration-manifest";
 
 export const ALL_GUARD_NAMES: GuardName[] = [
@@ -75,6 +77,7 @@ export const ALL_GUARD_NAMES: GuardName[] = [
   "identity-columns-registered",
   "resource-action-access",
   "feature-dependencies",
+  "server-plugin-default-export",
   "migration-manifest",
 ];
 
@@ -224,6 +227,8 @@ function runGuard(
         ),
       };
     }
+    case "server-plugin-default-export":
+      return scanServerPluginDefaultExport({ root });
     case "migration-manifest": {
       const manifests =
         migrationManifests ?? loadMigrationManifestsForProject(root);

@@ -1,12 +1,5 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
-
-import { e2eBaseURL } from "./base-url";
-import { enterDirectMode, gotoEditor } from "./helpers";
+import { enterDirectMode } from "./helpers";
+import { expect, test } from "./rails";
 
 const EFFECTS_FIXTURE_HTML = `<!doctype html>
 <html data-agent-native-node-id="an-root">
@@ -86,61 +79,16 @@ const READ_GEOMETRY_SCRIPT = (nodeIds: readonly string[]) => {
   return out;
 };
 
-async function postAction(
-  request: APIRequestContext,
-  baseURL: string,
-  name: string,
-  input: Record<string, unknown>,
-): Promise<any> {
-  const response = await request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
-    {
-      data: input,
-      headers: { "Content-Type": "application/json" },
-      timeout: 60_000,
-    },
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `${name} failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return response.json();
-}
-
-async function createEffectsFixtureDesign(
-  page: Page,
-  baseURL: string,
-): Promise<{ designId: string; fileId: string }> {
-  const created = await postAction(page.request, baseURL, "create-design", {
-    title: "E2E Effects-Heavy Geometry",
-    projectType: "prototype",
-  });
-  const designId = String(
-    created?.id ?? created?.data?.id ?? created?.design?.id ?? "",
-  );
-  if (!designId) throw new Error("create-design did not return an id");
-  const file = await postAction(page.request, baseURL, "create-file", {
-    designId,
-    filename: "effects-fixture.html",
-    content: EFFECTS_FIXTURE_HTML,
-    fileType: "html",
-  });
-  const fileId = String(file?.id ?? "");
-  if (!fileId) throw new Error("create-file did not return an id");
-  return { designId, fileId };
-}
-
 test("effects-heavy screen renders identical geometry in the single-screen canvas and standalone", async ({
+  app,
   page,
   browser,
-}, workerInfo) => {
+}) => {
   test.setTimeout(120_000);
-  const baseURL =
-    (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
-  const { designId, fileId } = await createEffectsFixtureDesign(page, baseURL);
+  const designId = await app.seed(EFFECTS_FIXTURE_HTML);
+  const fileId = (await app.savedRecord(designId)).files[0].id;
 
-  await gotoEditor(page, designId);
+  await app.open(designId);
   await enterDirectMode(page, { screenId: fileId });
 
   const canvasIframe = page

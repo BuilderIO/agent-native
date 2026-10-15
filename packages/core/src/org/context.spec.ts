@@ -28,17 +28,21 @@ vi.mock("../application-state/store.js", () => ({
   appStatePut: (...args: any[]) => mockAppStatePut(...args),
 }));
 
+import { markVerifiedServiceIdentityForEvent } from "../server/request-context.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { setActiveOrgId } from "./active-org.js";
 import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
   getOrgContext,
   resolveOrgIdForEmail,
+  resolveActiveOrgIdForStorageCredential,
   resolveOrgIdForEmailViaEvent,
   createOrganization,
   bootstrapAdminOrganization,
   getOrgDomain,
   getOrgA2ASecret,
   getA2ASecretByDomain,
+  resolveA2AOrganizationCredentialsByDomain,
   isSoleOrgDomain,
   listOrgMembershipsForEvent,
   markActiveOrgSelectionChanged,
@@ -99,10 +103,17 @@ describe("getOrgContext", () => {
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
-  it("resolves an org service identity without a physical membership row", async () => {
+  it("resolves a verified service identity for an existing unlinked org", async () => {
     mockGetSession.mockResolvedValue({
       email: "svc-pr-recap@service.org-1",
       orgId: "org-1",
+    });
+    markVerifiedServiceIdentityForEvent(EVENT, {
+      userEmail: "svc-pr-recap@service.org-1",
+      orgId: "org-1",
+    });
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ identity_authority: null, identity_id: null }],
     });
 
     await expect(getOrgContext(EVENT)).resolves.toEqual({
@@ -111,7 +122,55 @@ describe("getOrgContext", () => {
       orgName: null,
       role: "member",
     });
-    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockExecute).toHaveBeenCalledOnce();
+    expect(mockExecute).toHaveBeenCalledWith({
+      sql: expect.stringContaining("FROM organizations"),
+      args: ["org-1"],
+    });
+  });
+
+  it("does not infer org membership from an unverified service-shaped email", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "svc-pr-recap@service.org-1",
+      orgId: "org-1",
+    });
+
+    await expect(getOrgContext(EVENT)).resolves.toEqual({
+      email: "svc-pr-recap@service.org-1",
+      orgId: null,
+      orgName: null,
+      role: null,
+    });
+    expect(mockExecute).toHaveBeenCalledWith({
+      sql: expect.stringContaining("FROM org_members"),
+      args: ["svc-pr-recap@service.org-1"],
+    });
+  });
+
+  it("denies a verified service identity for a federated org", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "svc-pr-recap@service.org-1",
+      orgId: "org-1",
+    });
+    markVerifiedServiceIdentityForEvent(EVENT, {
+      userEmail: "svc-pr-recap@service.org-1",
+      orgId: "org-1",
+    });
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          identity_authority: "https://identity.example.test",
+          identity_id: "org-upstream-1",
+        },
+      ],
+    });
+
+    await expect(getOrgContext(EVENT)).resolves.toEqual({
+      email: "svc-pr-recap@service.org-1",
+      orgId: null,
+      orgName: null,
+      role: null,
+    });
   });
 
   it("looks up memberships by LOWERCASED email", async () => {
@@ -1145,6 +1204,62 @@ describe("resolveOrgIdForEmail", () => {
   });
 });
 
+describe("resolveActiveOrgIdForStorageCredential", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue({ rows: [{ orgId: "active-org" }] });
+    mockGetUserSetting.mockResolvedValue({ orgId: "active-org" });
+  });
+
+  it("requires a fresh active selection backed by a current membership", async () => {
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgScope: "personal" },
+      async () => {
+        await expect(
+          resolveActiveOrgIdForStorageCredential("Alice@Example.com"),
+        ).resolves.toBe("active-org");
+      },
+    );
+
+    expect(mockExecute.mock.calls[0][0].sql).toContain(
+      "federation_removal_pending_at IS NULL",
+    );
+    expect(mockExecute.mock.calls[0][0].args).toEqual(["alice@example.com"]);
+    expect(mockGetUserSetting).toHaveBeenCalledWith(
+      "alice@example.com",
+      "active-org-id",
+      { bypassCache: true },
+    );
+  });
+
+  it.each([
+    ["no membership", [], { orgId: "active-org" }],
+    ["explicit Personal", [{ orgId: "active-org" }], { orgId: null }],
+    ["missing selection", [{ orgId: "active-org" }], null],
+    ["stale selection", [{ orgId: "other-org" }], { orgId: "active-org" }],
+  ])("returns no org for %s", async (_case, rows, setting) => {
+    mockExecute.mockResolvedValue({ rows });
+    mockGetUserSetting.mockResolvedValue(setting);
+
+    await expect(
+      resolveActiveOrgIdForStorageCredential("alice@example.com"),
+    ).resolves.toBeNull();
+  });
+
+  it("propagates membership and active-selection read failures", async () => {
+    mockExecute.mockRejectedValueOnce(new Error("membership read failed"));
+    await expect(
+      resolveActiveOrgIdForStorageCredential("alice@example.com"),
+    ).rejects.toThrow("membership read failed");
+
+    mockExecute.mockResolvedValueOnce({ rows: [{ orgId: "active-org" }] });
+    mockGetUserSetting.mockRejectedValueOnce(new Error("setting read failed"));
+    await expect(
+      resolveActiveOrgIdForStorageCredential("alice@example.com"),
+    ).rejects.toThrow("setting read failed");
+  });
+});
+
 describe("membership fallback ordering", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1426,9 +1541,9 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
     expect(await getOrgDomain("org1")).toBeNull();
   });
 
-  it("getOrgDomain returns null on DB error", async () => {
+  it("getOrgDomain preserves DB errors", async () => {
     mockExecute.mockRejectedValueOnce(new Error("boom"));
-    expect(await getOrgDomain("org1")).toBeNull();
+    await expect(getOrgDomain("org1")).rejects.toThrow("boom");
   });
 
   it("getOrgA2ASecret returns the secret or null", async () => {
@@ -1441,6 +1556,13 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
     expect(await getOrgA2ASecret("org1")).toBeNull();
   });
 
+  it("getOrgA2ASecret preserves DB errors", async () => {
+    mockExecute.mockRejectedValueOnce(new Error("secret lookup failed"));
+    await expect(getOrgA2ASecret("org1")).rejects.toThrow(
+      "secret lookup failed",
+    );
+  });
+
   it("getA2ASecretByDomain lowercases the domain in the lookup", async () => {
     queueSelect([{ a2a_secret: "byDomain" }]);
     const secret = await getA2ASecretByDomain("ACME.com");
@@ -1448,9 +1570,28 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
     expect(mockExecute.mock.calls[0][0].args).toEqual(["acme.com"]);
   });
 
-  it("getA2ASecretByDomain returns null on DB error", async () => {
+  it("getA2ASecretByDomain preserves DB errors", async () => {
     mockExecute.mockRejectedValueOnce(new Error("boom"));
-    expect(await getA2ASecretByDomain("acme.com")).toBeNull();
+    await expect(getA2ASecretByDomain("acme.com")).rejects.toThrow("boom");
+  });
+
+  it("resolves org credentials with normalized domain and preserves lookup failures", async () => {
+    queueSelect([
+      { id: "org1", allowed_domain: "Acme.COM", a2a_secret: " secret " },
+    ]);
+    await expect(
+      resolveA2AOrganizationCredentialsByDomain(" ACME.COM "),
+    ).resolves.toEqual({
+      orgId: "org1",
+      orgDomain: "acme.com",
+      secret: "secret",
+    });
+    expect(mockExecute.mock.calls[0]?.[0].args).toEqual(["acme.com"]);
+
+    mockExecute.mockRejectedValueOnce(new Error("database unavailable"));
+    await expect(
+      resolveA2AOrganizationCredentialsByDomain("acme.com"),
+    ).rejects.toThrow("database unavailable");
   });
 
   it("recognizes a matching sole organization domain", async () => {

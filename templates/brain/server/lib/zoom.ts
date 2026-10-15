@@ -16,8 +16,19 @@ export class ZoomHttpError extends Error {
   ) {
     const code = zoomCode ? " (code " + zoomCode + ")" : "";
     const reason = zoomReason ? ": " + zoomReason : "";
+    const hint =
+      zoomCode === "unsupported_grant_type"
+        ? " These credentials are not from a Zoom Server-to-Server OAuth app. Create one in the Zoom App Marketplace and replace ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET."
+        : "";
     super(
-      "Zoom " + step + " failed with status " + status + code + reason + ".",
+      "Zoom " +
+        step +
+        " failed with status " +
+        status +
+        code +
+        reason +
+        "." +
+        hint,
     );
     this.name = "ZoomHttpError";
   }
@@ -43,11 +54,6 @@ export interface ZoomMeeting {
   start_time: string;
   share_url?: string;
   recording_files?: ZoomRecordingFile[];
-}
-
-interface ZoomUsersPage {
-  users?: Array<{ id?: string }>;
-  next_page_token?: string;
 }
 
 interface ZoomRecordingsPage {
@@ -139,33 +145,42 @@ export async function fetchZoomAccessToken(
   return body.access_token;
 }
 
-export async function listZoomUserIds(token: string): Promise<string[]> {
-  const ids: string[] = [];
-  let nextPageToken: string | undefined;
-  do {
-    const params = new URLSearchParams({
-      status: "active",
-      page_size: String(ZOOM_PAGE_SIZE),
-    });
-    if (nextPageToken) params.set("next_page_token", nextPageToken);
-    const page = await zoomApiJson<ZoomUsersPage>(
-      token,
-      `${ZOOM_API_BASE}/users?${params.toString()}`,
-      "user list",
-    );
-    for (const user of page.users ?? []) {
-      if (user.id) ids.push(user.id);
-    }
-    nextPageToken = page.next_page_token || undefined;
-  } while (nextPageToken);
-  return ids;
+type ZoomPageCallback = () => Promise<void>;
+
+// "me" is the token's own account and needs only the :admin scope; a literal
+// account ID is a master-account call that requires the :master scope.
+export function listZoomAccountRecordings(
+  token: string,
+  from: string,
+  to: string,
+  onPage?: ZoomPageCallback,
+) {
+  return listZoomRecordingPages(
+    token,
+    "/accounts/me/recordings",
+    from,
+    to,
+    onPage,
+  );
 }
 
-export async function listZoomRecordings(
+export function listZoomRecordings(
   token: string,
   userId: string,
   from: string,
   to: string,
+  onPage?: ZoomPageCallback,
+) {
+  const path = "/users/" + encodeURIComponent(userId) + "/recordings";
+  return listZoomRecordingPages(token, path, from, to, onPage);
+}
+
+async function listZoomRecordingPages(
+  token: string,
+  path: string,
+  from: string,
+  to: string,
+  onPage?: ZoomPageCallback,
 ): Promise<ZoomMeeting[]> {
   const meetings: ZoomMeeting[] = [];
   let nextPageToken: string | undefined;
@@ -178,13 +193,38 @@ export async function listZoomRecordings(
     if (nextPageToken) params.set("next_page_token", nextPageToken);
     const page = await zoomApiJson<ZoomRecordingsPage>(
       token,
-      `${ZOOM_API_BASE}/users/${encodeURIComponent(userId)}/recordings?${params.toString()}`,
+      `${ZOOM_API_BASE}${path}?${params.toString()}`,
       "recording list",
     );
     meetings.push(...(page.meetings ?? []));
+    await onPage?.();
     nextPageToken = page.next_page_token || undefined;
   } while (nextPageToken);
   return meetings;
+}
+
+export function isReadyZoomTranscript(file: ZoomRecordingFile): boolean {
+  return file.file_type === "TRANSCRIPT" && file.status !== "processing";
+}
+
+// Zoom requires a UUID that starts with "/" or contains "//" to be encoded twice.
+export function zoomMeetingUuidPath(uuid: string): string {
+  const encoded = encodeURIComponent(uuid);
+  return uuid.startsWith("/") || uuid.includes("//")
+    ? encodeURIComponent(encoded)
+    : encoded;
+}
+
+// The account-wide list omits download_url; this per-meeting lookup includes it.
+export function getZoomMeetingRecordings(
+  token: string,
+  meetingUuid: string,
+): Promise<ZoomMeeting> {
+  return zoomApiJson<ZoomMeeting>(
+    token,
+    `${ZOOM_API_BASE}/meetings/${zoomMeetingUuidPath(meetingUuid)}/recordings`,
+    "meeting recording lookup",
+  );
 }
 
 /**
@@ -277,6 +317,39 @@ export function hasProcessingTranscript(meeting: ZoomMeeting): boolean {
   return (meeting.recording_files ?? []).some(
     (file) => file.file_type === "TRANSCRIPT" && file.status === "processing",
   );
+}
+
+// Zoom shows meeting IDs as "123 4567 8901"; the API returns 12345678901.
+export function normalizeZoomMeetingId(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const id = String(value).replace(/[\s-]/g, "");
+  return /^\d{6,15}$/.test(id) ? id : null;
+}
+
+// The S2S token is account-wide, so this allowlist is the only boundary on
+// which meetings Brain reads. Empty approves nothing; titles are never trusted
+// because any host can reuse one.
+export function zoomApprovedMeetingIds(
+  zoomConfig: Record<string, unknown>,
+): Set<string> {
+  const raw = Array.isArray(zoomConfig.meetingIds) ? zoomConfig.meetingIds : [];
+  return new Set(
+    raw
+      .map(normalizeZoomMeetingId)
+      .filter((value): value is string => Boolean(value)),
+  );
+}
+
+export function zoomApprovedMeetingsKey(approved: Set<string>): string {
+  return JSON.stringify([...approved].sort());
+}
+
+export function isApprovedZoomMeeting(
+  meetingId: unknown,
+  approved: Set<string>,
+): boolean {
+  const id = normalizeZoomMeetingId(meetingId);
+  return Boolean(id && approved.has(id));
 }
 
 // The window must stay open until every pending transcript finishes, or a

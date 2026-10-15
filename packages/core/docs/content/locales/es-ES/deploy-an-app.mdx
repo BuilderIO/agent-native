@@ -1,14 +1,113 @@
 ---
 title: "Implementar una aplicación"
-description: "Construye e implementa una aplicación Agent-Native en un destino Nitro."
+description: "Los pasos que sigue toda implementación independiente de Agent-Native y dónde encontrar la guía de tu host."
 ---
 
 # Implementar una aplicación
 
-Consulta la [guía completa en inglés para implementar una aplicación](/docs/deploy-an-app) para ver los pasos y comandos de cada proveedor.
+Implementar una aplicación independiente de Agent-Native la publica en internet con una base de
+datos real, para que otras personas puedan registrarse y usarla. Todas las guías de alojamiento siguen
+los mismos cinco pasos. Esta página explica qué hace cada paso y te ayuda a elegir un
+host. Después, la guía de cada host da los comandos exactos.
 
-Empieza con [Primeros pasos](/docs/getting-started). Antes de compilar o implementar, configura `DATABASE_URL` en los ajustes de entorno del proveedor de alojamiento, no solo en el `.env` local. Genera un `BETTER_AUTH_SECRET` estable con `openssl rand -hex 32` y guárdalo allí. **Continue as local dev** solo funciona localmente; la aplicación implementada usa registro e inicio de sesión. Elige [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) o [Render](/docs/render).
+<Callout tone="info">
 
-Si `pnpm` no está disponible en `PATH`, ejecuta `corepack enable` dentro de la aplicación generada.
+Se requiere Node.js `22.22+`.
 
-Para varias aplicaciones bajo un mismo origen, usa [Implementación de espacios de trabajo](/docs/workspace-deployment).
+</Callout>
+
+## Elige un host {#choose-a-host}
+
+| Host                                                      | Dónde se ejecuta la aplicación                                         |
+| --------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [Node.js](/docs/node-js)                                  | Un servidor que administras tú, como una máquina virtual               |
+| [Docker](/docs/docker)                                    | Un contenedor en un servidor o host de contenedores que administras tú |
+| [Vercel](/docs/vercel)                                    | El alojamiento de Vercel, sin ningún servidor que administrar          |
+| [Netlify](/docs/netlify)                                  | El alojamiento de Netlify, sin ningún servidor que administrar         |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | La red de Cloudflare, sin ningún servidor que administrar              |
+
+Elige Node.js o Docker cuando quieras tener control total sobre la máquina en la que se ejecuta la
+aplicación. Elige Vercel, Netlify o Cloudflare Workers cuando quieras que el host
+ejecute la aplicación por ti y le dé una dirección pública con HTTPS.
+
+## Los pasos que sigue toda implementación {#the-steps-every-deployment-follows}
+
+### Paso 1: Crea la aplicación {#step-1-create-the-app}
+
+Crea una aplicación independiente e instala sus dependencias. Las guías usan la plantilla Chat
+como ejemplo, pero puedes empezar desde cualquier plantilla o usar una aplicación que
+ya tengas. [Primeros pasos](/docs/getting-started) explica cómo crear
+y ejecutar una aplicación en local.
+
+### Paso 2: Configura los secretos del entorno {#step-2-configure-environment-secrets}
+
+La aplicación lee su configuración de producción desde variables de entorno:
+
+| Variable             | Obligatoria | Propósito                                                                      |
+| -------------------- | ----------- | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`       | Sí          | Conecta la aplicación con su base de datos PostgreSQL                          |
+| `BETTER_AUTH_SECRET` | Sí          | Firma las sesiones de los usuarios                                             |
+| `BETTER_AUTH_URL`    | No          | Define la dirección pública que usan las personas para acceder a tu aplicación |
+
+Guarda estas variables en la configuración del entorno de tu host, no solo en el archivo
+`.env` local de la aplicación. Cada guía muestra cómo hacerlo en su host.
+
+`DATABASE_URL` debe apuntar a una base de datos PostgreSQL persistente, como Neon,
+Supabase o Amazon RDS. Las [guías de proveedores de bases de datos](/docs/neon) muestran dónde
+encontrar la cadena de conexión. `BETTER_AUTH_SECRET` debe mantenerse igual en todas las
+implementaciones, porque si cambia se cierra la sesión de todos los usuarios. Define `BETTER_AUTH_URL` cuando
+uses un dominio personalizado o un proxy inverso.
+
+La [referencia de variables de entorno de implementación](/docs/deployment-environment-variables)
+enumera el resto de la configuración de producción.
+
+### Paso 3: Ejecuta las migraciones {#step-3-migrate}
+
+Las migraciones crean y actualizan las tablas que la aplicación necesita en tu base de datos. Ejecútalas
+contra la base de datos de producción antes de la primera visita y otra vez después de cada
+actualización:
+
+```bash
+pnpm migrate:production
+```
+
+No omitas este paso. En producción, y sobre todo en hosts sin servidor, la
+aplicación no siempre crea por sí misma las tablas que faltan. Entonces, una tabla que falta hace
+que falle la primera consulta real.
+
+### Paso 4: Compila {#step-4-build}
+
+Compila la aplicación para tu host. Cada guía define `NITRO_PRESET` para que la compilación
+produzca el formato que espera ese host, como `node`, `vercel`, `netlify` o
+`cloudflare_module`.
+
+### Paso 5: Implementa {#step-5-deploy}
+
+Inicia o sube la compilación. En Node.js y Docker, inicias tú mismo el servidor o el
+contenedor. En Vercel, Netlify y Cloudflare Workers, una herramienta de línea de comandos
+sube la compilación y muestra la dirección pública de la aplicación.
+
+<Callout tone="warning">
+
+No uses la base de datos de desarrollo local en producción. Guarda los datos en la
+máquina que ejecuta la aplicación, así que se pierden en la mayoría de los hosts. El atajo **Continue as local
+dev** también funciona solo durante el desarrollo local. Una aplicación implementada usa
+el flujo de registro e inicio de sesión respaldado por tu base de datos de producción y tu secreto de
+autenticación.
+
+</Callout>
+
+## Comprueba la implementación {#check-the-deployment}
+
+Después de la primera implementación, abre la dirección pública de la aplicación y comprueba que:
+
+- Puedes crear una cuenta e iniciar sesión.
+- Los datos que creas siguen ahí después de recargar la página.
+- Cualquier inicio de sesión con OAuth o webhook que use tu aplicación apunta a la dirección pública.
+
+## Qué sigue {#whats-next}
+
+- [**Implementación: variables de entorno**](/docs/deployment-environment-variables) - la lista completa de la configuración de producción
+- [**Base de datos**](/docs/server-database#production) - las conexiones a la base de datos de producción
+- [**Seguridad**](/docs/security) - la lista de comprobación de seguridad para producción
+- [**Implementación**](/docs/deployment) - compara los destinos de alojamiento y sus requisitos previos

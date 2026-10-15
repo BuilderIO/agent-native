@@ -14,19 +14,22 @@
 
 import { getDbExec } from "../../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../../db/ddl-guard.js";
+import { defineStore } from "../../db/store-registry.js";
+import { widenIntColumnsToBigInt } from "../../db/widen-columns.js";
 import type {
   ObservationalMemoryEntry,
   ObservationalMemoryOwner,
   ObservationalMemoryTier,
 } from "./types.js";
 
-let tableReady: Promise<void> | null = null;
-
-export async function ensureTable(): Promise<void> {
-  if (tableReady) return tableReady;
-  tableReady = (async () => {
-    const integerType = "BIGINT";
-    const createSql = `CREATE TABLE IF NOT EXISTS observational_memory (
+export const observationalMemoryStore = defineStore({
+  id: "observational_memory",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const integerType = "BIGINT";
+        const createSql = `CREATE TABLE IF NOT EXISTS observational_memory (
         id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL,
         tier TEXT NOT NULL,
@@ -42,29 +45,37 @@ export async function ensureTable(): Promise<void> {
         visibility TEXT NOT NULL DEFAULT 'private'
       )`;
 
-    {
-      await ensureTableExists("observational_memory", createSql);
-      await ensureIndexExists(
-        "observational_memory_thread_tier_idx",
-        `CREATE INDEX IF NOT EXISTS observational_memory_thread_tier_idx
+        await ensureTableExists("observational_memory", createSql);
+        await ensureIndexExists(
+          "observational_memory_thread_tier_idx",
+          `CREATE INDEX IF NOT EXISTS observational_memory_thread_tier_idx
           ON observational_memory(thread_id, tier, created_at)`,
-      );
-      await ensureIndexExists(
-        "observational_memory_thread_owner_idx",
-        `CREATE INDEX IF NOT EXISTS observational_memory_thread_owner_idx
+        );
+        await ensureIndexExists(
+          "observational_memory_thread_owner_idx",
+          `CREATE INDEX IF NOT EXISTS observational_memory_thread_owner_idx
           ON observational_memory(thread_id, owner_email)`,
-      );
-      return;
-    }
-  })().catch((err) => {
-    tableReady = null;
-    throw err;
-  });
-  return tableReady;
+        );
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("observational_memory", [
+          "created_at",
+          "updated_at",
+        ]);
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return observationalMemoryStore.ready();
 }
 
 export function __resetObservationalMemoryTableCache(): void {
-  tableReady = null;
+  observationalMemoryStore.reset();
 }
 
 function entryId(): string {

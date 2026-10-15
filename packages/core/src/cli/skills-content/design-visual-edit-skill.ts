@@ -64,7 +64,7 @@ may request conversation confirmation. Otherwise,
   Design MCP connector and its normal OAuth/device authorization. Never replace
   either path with a local Design server.
 
-Inside Design, use **Show/Hide UI** from the \`Cmd K\` menu or press Figma's
+Inside Design, use **Show/Hide UI** from the \`Cmd K\` menu or press the
 \`Shift \\\` shortcut to toggle all editing chrome so only the canvas remains.
 
 ## Browser WebMCP (Default Without Connector)
@@ -422,9 +422,9 @@ The same operations are available to a page-capable agent through
 ### Adding more page frames later
 
 Call \`open-visual-edit\` again with the same \`designId\` and \`connectionId\` and
-only the new paths. Existing frames for the same route and viewport are
-refreshed in place rather than duplicated, and a frame the user has dragged or
-resized keeps its position unless you explicitly pass \`x\`/\`y\`/\`width\`/\`height\`.
+only the new paths. Missing IDs resume the saved project for the same
+connection; \`newDesign: true\` creates a separate one. Matching frames refresh
+in place and keep user geometry unless coordinates are passed.
 
 \`\`\`json
 {

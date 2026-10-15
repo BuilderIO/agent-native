@@ -1,0 +1,166 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  readSourceIndex: vi.fn(),
+  getRequestOrgId: vi.fn(() => "org_test"),
+  getRequestUserEmail: vi.fn(() => "admin@example.test"),
+}));
+
+vi.mock("@agent-native/core/action", () => ({
+  defineAction: (config: unknown) => config,
+  fail: (message: string, options?: { errorCode?: string }) => {
+    throw Object.assign(new Error(message), options);
+  },
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getRequestOrgId: mocks.getRequestOrgId,
+  getRequestUserEmail: mocks.getRequestUserEmail,
+}));
+
+vi.mock("../server/lib/source-index-store.js", () => ({
+  readSourceIndex: mocks.readSourceIndex,
+  sourceIndexScanCoverage: (bundle: {
+    scanSummary?: {
+      unsafeEntriesOmitted?: number;
+      unsafeFieldsOmitted?: number;
+      truncatedFields?: number;
+      unresolvedTrackingCallSites?: number;
+    };
+  }) => ({
+    unsafeEntriesOmitted: bundle.scanSummary?.unsafeEntriesOmitted ?? null,
+    unsafeFieldsOmitted: bundle.scanSummary?.unsafeFieldsOmitted ?? null,
+    truncatedFields: bundle.scanSummary?.truncatedFields ?? null,
+    unresolvedTrackingCallSites:
+      bundle.scanSummary?.unresolvedTrackingCallSites ?? null,
+  }),
+  sourceIndexFreshness: () => ({
+    ageDays: 3,
+    staleAfterDays: 90,
+    stale: false,
+  }),
+}));
+
+const { default: action } = await import("./get-data-dictionary-index-status");
+
+describe("get-data-dictionary-index-status", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns freshness and entry counts for each indexed source", async () => {
+    mocks.readSourceIndex.mockResolvedValueOnce({
+      status: "available",
+      bundle: {
+        generatedAt: "2026-10-06T00:00:00.000Z",
+        sources: [
+          { id: "dbt", revision: "abcdef123456" },
+          { id: "builder-internal", contentFingerprint: "a".repeat(64) },
+          { id: "ai-services", contentFingerprint: "b".repeat(64) },
+        ],
+        entries: [
+          { source: "dbt" },
+          { source: "dbt" },
+          { source: "builder-internal" },
+        ],
+        scanSummary: {
+          unsafeEntriesOmitted: 1,
+          unsafeFieldsOmitted: 2,
+          truncatedFields: 4,
+          unresolvedTrackingCallSites: 3,
+        },
+      },
+    });
+
+    await expect(action.run()).resolves.toEqual({
+      status: "available",
+      generatedAt: "2026-10-06T00:00:00.000Z",
+      entryCount: 3,
+      scanCoverage: {
+        unsafeEntriesOmitted: 1,
+        unsafeFieldsOmitted: 2,
+        truncatedFields: 4,
+        unresolvedTrackingCallSites: 3,
+      },
+      unresolvedTrackingCallSites: 3,
+      sources: [
+        { id: "dbt", revision: "abcdef123456" },
+        { id: "builder-internal", contentFingerprint: "a".repeat(64) },
+        { id: "ai-services", contentFingerprint: "b".repeat(64) },
+      ],
+      sourceCounts: [
+        { source: "dbt", entryCount: 2 },
+        { source: "builder-internal", entryCount: 1 },
+        { source: "ai-services", entryCount: 0 },
+      ],
+      ageDays: 3,
+      staleAfterDays: 90,
+      stale: false,
+    });
+    expect(mocks.readSourceIndex).toHaveBeenCalledWith("org_test");
+  });
+
+  it("preserves missing and invalid index states without inventing freshness", async () => {
+    mocks.readSourceIndex.mockResolvedValueOnce({ status: "not-configured" });
+
+    await expect(action.run()).resolves.toEqual({ status: "not-configured" });
+  });
+
+  it("reports missing legacy scan counts as unavailable", async () => {
+    mocks.readSourceIndex.mockResolvedValueOnce({
+      status: "available",
+      bundle: {
+        generatedAt: "2026-10-06T00:00:00.000Z",
+        sources: [{ id: "dbt" }],
+        entries: [{ source: "dbt" }],
+      },
+    });
+
+    await expect(action.run()).resolves.toMatchObject({
+      status: "available",
+      scanCoverage: {
+        unsafeEntriesOmitted: null,
+        unsafeFieldsOmitted: null,
+        truncatedFields: null,
+        unresolvedTrackingCallSites: null,
+      },
+      unresolvedTrackingCallSites: null,
+    });
+  });
+
+  it("preserves older partial scan summaries without inventing a zero", async () => {
+    mocks.readSourceIndex.mockResolvedValueOnce({
+      status: "available",
+      bundle: {
+        generatedAt: "2026-10-06T00:00:00.000Z",
+        sources: [{ id: "dbt" }],
+        entries: [{ source: "dbt" }],
+        scanSummary: {
+          unsafeEntriesOmitted: 1,
+          unsafeFieldsOmitted: 2,
+          truncatedFields: 3,
+        },
+      },
+    });
+
+    await expect(action.run()).resolves.toMatchObject({
+      status: "available",
+      scanCoverage: {
+        unsafeEntriesOmitted: 1,
+        unsafeFieldsOmitted: 2,
+        truncatedFields: 3,
+        unresolvedTrackingCallSites: null,
+      },
+      unresolvedTrackingCallSites: null,
+    });
+  });
+
+  it("requires an authenticated user before reading the organization index", async () => {
+    mocks.getRequestUserEmail.mockReturnValueOnce("");
+
+    await expect(action.run()).rejects.toMatchObject({
+      errorCode: "authentication_required",
+    });
+    expect(mocks.readSourceIndex).not.toHaveBeenCalled();
+  });
+});

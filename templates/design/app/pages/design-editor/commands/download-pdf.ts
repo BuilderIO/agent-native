@@ -4,6 +4,11 @@ import { toast } from "sonner";
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import type { ElementInfo } from "@/components/design/types";
 import {
+  browserDesignExportErrorType,
+  trackBrowserDesignExported,
+  type BrowserDesignExportContext,
+} from "@/lib/design-export-tracking";
+import {
   PDF_MIN_PRINT_RASTER_SCALE,
   createSinglePageRasterPdf,
 } from "@/pages/design-editor/export-capture";
@@ -17,6 +22,8 @@ import {
 } from "@/pages/design-editor/png-export-render";
 
 export interface DownloadPdfArgs {
+  /** Join keys for the `design_exported` this command reports. */
+  exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
   pngExportingRef: RefObject<boolean>;
   renderPngBlob: (arg0: {
@@ -25,9 +32,16 @@ export interface DownloadPdfArgs {
     format?: "png" | "jpg" | "webp";
   }) => Promise<Blob>;
   resolveSelectedScreensBounds: () => ExportCropRect | null;
-  resolvePngCaptureTarget: (scope: PngCaptureScope) => ExportCaptureTarget & {
-    cropSelection: ElementInfo | readonly ElementInfo[] | null;
-  };
+  resolvePngCaptureTarget: (scope: PngCaptureScope) =>
+    | (ExportCaptureTarget & {
+        cropSelection: ElementInfo | readonly ElementInfo[] | null;
+      })
+    | Promise<
+        ExportCaptureTarget & {
+          cropSelection: ElementInfo | readonly ElementInfo[] | null;
+        }
+      >;
+  releaseScreenFromExport?: () => void;
   setPngExporting: Dispatch<SetStateAction<boolean>>;
   showRasterCaptureError: (error: unknown, format?: "png" | "pdf") => void;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -36,11 +50,13 @@ export interface DownloadPdfArgs {
 
 export async function runDownloadPdf(
   {
+    exportTracking,
     fallbackExportName,
     pngExportingRef,
     renderPngBlob,
     resolveSelectedScreensBounds,
     resolvePngCaptureTarget,
+    releaseScreenFromExport,
     setPngExporting,
     showRasterCaptureError,
     t,
@@ -61,7 +77,7 @@ export async function runDownloadPdf(
       pageWidth = Math.max(1, selectedScreensBounds.width);
       pageHeight = Math.max(1, selectedScreensBounds.height);
     } else {
-      const target = resolvePngCaptureTarget(scope);
+      const target = await resolvePngCaptureTarget(scope);
       const prepared = await prepareExportCaptureTarget(target);
       try {
         const crop = resolveExportCropRect(prepared.doc, target.cropSelection);
@@ -113,9 +129,19 @@ export async function runDownloadPdf(
     });
     triggerBlobDownload(pdf, fallbackExportName("pdf", settings?.suffix));
     toast.success(t("designEditor.toasts.pdfDownloaded"));
+    trackBrowserDesignExported("pdf", {
+      ...exportTracking,
+      status: "completed",
+    });
   } catch (error) {
+    trackBrowserDesignExported("pdf", {
+      ...exportTracking,
+      status: "failed",
+      errorType: browserDesignExportErrorType(error),
+    });
     showRasterCaptureError(error, "pdf");
   } finally {
+    releaseScreenFromExport?.();
     pngExportingRef.current = false;
     setPngExporting(false);
   }

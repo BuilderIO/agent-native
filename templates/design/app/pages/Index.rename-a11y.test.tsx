@@ -17,7 +17,6 @@ const mocks = vi.hoisted(() => ({
     setQueriesData: vi.fn(),
     invalidateQueries: vi.fn(),
   },
-  headerActions: null as unknown,
   creativeContextLabEnabled: { value: false },
   creativeContexts: vi.fn(() => ({ data: undefined, isLoading: false })),
   creativeContextState: vi.fn(() => ({
@@ -157,9 +156,6 @@ vi.mock("@agent-native/creative-context/client", () => ({
 
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
-  useSetHeaderActions: (node: unknown) => {
-    mocks.headerActions = node;
-  },
   useSetPageTitle: () => {},
 }));
 
@@ -319,22 +315,12 @@ describe("Index rename dialog accessibility", () => {
     expect(resolveAccessibleName(input!)).toBeTruthy();
   });
 
-  it("gives the search text input an accessible name too (same placeholder-only pattern)", async () => {
-    const headerContainer = document.createElement("div");
-    document.body.append(headerContainer);
-    const headerRoot = createRoot(headerContainer);
-    await act(async () => {
-      headerRoot.render(mocks.headerActions as React.ReactElement);
-    });
-
-    const search = headerContainer.querySelector<HTMLInputElement>(
+  it("gives the Recent tab search input an accessible name", () => {
+    const search = container.querySelector<HTMLInputElement>(
       'input[placeholder="home.searchPlaceholder"]',
     );
     expect(search).toBeTruthy();
     expect(resolveAccessibleName(search!)).toBeTruthy();
-
-    await act(async () => headerRoot.unmount());
-    headerContainer.remove();
   });
 });
 

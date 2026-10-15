@@ -80,6 +80,15 @@ const APP_BUNDLES: MarketplaceApp[] = [
 
 const CLAUDE_MARKETPLACE_NAME = "agent-native-apps";
 
+// Directories render these links, so each carries the directory it appears in.
+function listingUrl(url: string, source: string, content: string): string {
+  const tagged = new URL(url);
+  tagged.searchParams.set("utm_source", source);
+  tagged.searchParams.set("utm_medium", "referral");
+  tagged.searchParams.set("utm_content", content);
+  return tagged.toString();
+}
+
 const check = process.argv.includes("--check");
 
 type GeneratedFile = { rel: string; content: string };
@@ -220,9 +229,17 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
         description: manifest.description,
         author: {
           name: "Agent-Native",
-          url: "https://agent-native.com",
+          url: listingUrl(
+            "https://agent-native.com",
+            "agent-plugins",
+            "plugin-author",
+          ),
         },
-        homepage: manifest.hosted.url,
+        homepage: listingUrl(
+          manifest.hosted.url,
+          "agent-plugins",
+          "plugin-homepage",
+        ),
         repository: "https://github.com/BuilderIO/agent-native",
         license: "MIT",
         keywords: keywords(app),
@@ -275,9 +292,17 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
           description: manifest.description,
           author: {
             name: "Agent-Native",
-            url: "https://agent-native.com",
+            url: listingUrl(
+              "https://agent-native.com",
+              "claude-plugins",
+              "plugin-author",
+            ),
           },
-          homepage: manifest.hosted.url,
+          homepage: listingUrl(
+            manifest.hosted.url,
+            "claude-plugins",
+            "plugin-homepage",
+          ),
           repository: "https://github.com/BuilderIO/agent-native",
           license: "MIT",
           keywords: keywords(app),
@@ -296,9 +321,17 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
           description: manifest.description,
           author: {
             name: "Agent-Native",
-            url: "https://agent-native.com",
+            url: listingUrl(
+              "https://agent-native.com",
+              "codex-plugins",
+              "plugin-author",
+            ),
           },
-          homepage: manifest.hosted.url,
+          homepage: listingUrl(
+            manifest.hosted.url,
+            "codex-plugins",
+            "plugin-homepage",
+          ),
           license: "MIT",
           keywords: keywords(app),
           skills: "./skills/",
@@ -314,7 +347,11 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
             developerName: "Agent-Native",
             category: "Productivity",
             capabilities: ["Interactive", "Read", "Write"],
-            websiteURL: manifest.hosted.url,
+            websiteURL: listingUrl(
+              manifest.hosted.url,
+              "codex-plugins",
+              "plugin-website",
+            ),
             defaultPrompt: [
               `Open ${manifest.displayName} where useful`,
               `Use ${manifest.displayName} for app-backed workflows`,
@@ -344,7 +381,11 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
           description: manifest.description,
           source: `./.agents/plugins/${name}`,
           autoUpdate: true,
-          homepage: manifest.hosted.url,
+          homepage: listingUrl(
+            manifest.hosted.url,
+            "claude-plugins",
+            "marketplace-homepage",
+          ),
           keywords: keywords(app),
         };
       }),

@@ -19,6 +19,7 @@ export const ANALYTICS_PROVIDER_API_IDS = Array.from(
   new Set([
     ...listProviderApiIdsForTemplateUse("analytics"),
     "google_drive" as ProviderApiId,
+    "google_sheets" as ProviderApiId,
   ]),
 ) as [ProviderApiId, ...ProviderApiId[]];
 export type AnalyticsProviderApiId = ProviderApiId;

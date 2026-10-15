@@ -811,7 +811,7 @@ async function resolveBuilderDesignSystemAuthorization(
     throw new FeatureNotConfiguredError({
       requiredCredential: "BUILDER_PRIVATE_KEY",
       message:
-        "Connect Builder.io (free tier available) before indexing a design system from Figma or code.",
+        "Use Builder.io (free tier available) to index a design system from Figma or code.",
       builderConnectUrl: "/_agent-native/builder/connect",
     });
   }

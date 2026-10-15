@@ -171,6 +171,9 @@ async function main() {
         requestBytes: JSON.stringify(payload).length,
       },
     );
+    if ("skipped" in result) {
+      throw new Error(`Seed user ${payload.userId} is a test identity`);
+    }
     recordings.push(result);
   }
 

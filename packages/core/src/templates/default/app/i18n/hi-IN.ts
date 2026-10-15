@@ -354,9 +354,9 @@ const messages = {
       "हमारे क्लाउड एजेंट को आपके लिए परिवर्तन करने दें। आपको पूर्वावलोकन और परिनियोजन के लिए एक लिंक मिलेगा।",
     codeChangeTitle: "इसके लिए कोड परिवर्तन की आवश्यकता है",
     codeChangeBadge: "कोड परिवर्तन",
-    connectBuilderTitle: "Builder.io कनेक्ट करें",
+    connectBuilderTitle: "Builder.io का उपयोग करें",
     connectBuilderDescription:
-      "इस ऐप से क्लाउड-आधारित कोड परिवर्तन सक्षम करने के लिए बिल्डर से कनेक्ट करें (free tier उपलब्ध)।",
+      "इस ऐप से क्लाउड-आधारित कोड परिवर्तन सक्षम करने के लिए Builder.io का उपयोग करें (free tier उपलब्ध)।",
     setupRequired: "सेटअप आवश्यक है",
     branchCreated: "शाखा बनाई गई",
     close: "बंद करें",
@@ -604,7 +604,7 @@ const messages = {
     back: "वापस",
     agentEngineRequired: "एजेंट इंजन की आवश्यकता है",
     agentEngineDescription:
-      "Connect Builder.io (free tier उपलब्ध) or an LLM key before {{platform}} can answer.",
+      "{{platform}} के जवाब देने से पहले Builder.io (free tier उपलब्ध) या LLM key का उपयोग करें।",
     openLlm: "LLM खोलें",
     setup: "Setup",
     shareDocumentsWith: "दस्तावेज़ साझा करें",
@@ -646,6 +646,8 @@ const messages = {
     promoteMustContain: "जवाब में यह होना चाहिए…",
     promoteMustContainOptional: "जवाब में जाँचने के लिए वैकल्पिक टेक्स्ट…",
     promoteMustContainLabel: "प्रमोट किए गए मूल्यांकन के जवाब में जाँचने वाला टेक्स्ट",
+    promoteReviewedPromptLabel:
+      "मैन्युअल रूप से समीक्षा किया गया प्रॉम्प्ट (प्रोडक्शन से कभी स्वतः कॉपी नहीं किया जाता)",
     promoteNeedsContains:
       "इस रन में कोई सफल टूल कॉल नहीं है। eval में प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
     spans: "Spans",

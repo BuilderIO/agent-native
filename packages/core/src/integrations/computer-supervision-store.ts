@@ -1,6 +1,7 @@
 import type { DbExec } from "../db/client.js";
-import { getDbExec, retryOnDdlRace } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   assertValidComputerCommandEnvelope,
   ComputerSupervisionError,
@@ -41,12 +42,13 @@ export interface ComputerApprovalRecord {
   updatedAt: number;
 }
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureComputerApprovalStore(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `CREATE TABLE IF NOT EXISTS integration_computer_approvals (
+export const computerApprovalsStore = defineStore({
+  id: "computer_approvals",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `CREATE TABLE IF NOT EXISTS integration_computer_approvals (
   id TEXT PRIMARY KEY,
   owner_email TEXT NOT NULL,
   org_id TEXT,
@@ -65,7 +67,6 @@ export async function ensureComputerApprovalStore(): Promise<void> {
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL
 )`;
-      {
         await ensureTableExists("integration_computer_approvals", createSql);
         await ensureIndexExists(
           "idx_computer_approvals_owner",
@@ -75,26 +76,13 @@ export async function ensureComputerApprovalStore(): Promise<void> {
           "idx_computer_approvals_binding",
           `CREATE INDEX IF NOT EXISTS idx_computer_approvals_binding ON integration_computer_approvals(device_id, task_id, run_id, action_hash)`,
         );
-        return;
-      }
-      const client = getDbExec();
-      await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_computer_approvals_owner ON integration_computer_approvals(owner_email, org_id, updated_at)`,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_computer_approvals_binding ON integration_computer_approvals(device_id, task_id, run_id, action_hash)`,
-        ),
-      );
-    })().catch((error) => {
-      _initPromise = undefined;
-      throw error;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureComputerApprovalStore(): Promise<void> {
+  return computerApprovalsStore.ready();
 }
 
 export async function createComputerApprovalRequest(input: {

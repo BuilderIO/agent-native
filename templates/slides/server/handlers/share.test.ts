@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadBody = vi.hoisted(() => vi.fn());
@@ -14,6 +16,7 @@ const mockInsertValues = vi.hoisted(() =>
   }),
 );
 const mockDeleteWhere = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+const mockTrackSlides = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -62,7 +65,14 @@ vi.mock("./request-auth-context.js", () => ({
     mockWithSlidesRequestContext(...args),
 }));
 
+vi.mock("../lib/slides-tracking.js", () => ({
+  trackSlides: (...args: unknown[]) => mockTrackSlides(...args),
+}));
+
 import { shareDeck } from "./share";
+
+const launchContent =
+  '<div class="fmd-slide"><h1>Launch</h1><div class="text-box"><p>One</p><p>Two</p></div></div>';
 
 describe("shareDeck", () => {
   beforeEach(() => {
@@ -85,7 +95,7 @@ describe("shareDeck", () => {
           slides: [
             {
               id: "slide-1",
-              content: "<h1>Launch</h1>",
+              content: launchContent,
               notes: "internal talking points",
               layout: "title",
               background: "#111",
@@ -133,7 +143,7 @@ describe("shareDeck", () => {
     expect(slides).toEqual([
       {
         id: "slide-1",
-        content: "<h1>Launch</h1>",
+        content: launchContent,
         notes: "",
         layout: "title",
         background: "#111",
@@ -165,6 +175,69 @@ describe("shareDeck", () => {
     expect(mockResolveAccess).toHaveBeenCalledWith(
       "design-system",
       "design-system-1",
+    );
+  });
+
+  it("snapshots a reveal whose stored path went stale with its stale-path issue", async () => {
+    mockAssertAccess.mockResolvedValue({
+      resource: {
+        title: "Launch review",
+        data: JSON.stringify({
+          slides: [
+            {
+              id: "slide-1",
+              content: launchContent,
+              animations: [
+                {
+                  id: "anim-ok",
+                  elementIndex: 0,
+                  elementPath: [1, 0],
+                  type: "fade",
+                },
+                {
+                  id: "anim-gone",
+                  elementIndex: 0,
+                  elementPath: [9],
+                  type: "fade",
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    });
+
+    await shareDeck({} as any);
+
+    const row = insertedRows.current[0] as Record<string, unknown>;
+    const [slide] = JSON.parse(row.slides as string);
+    expect(
+      slide.animations.map((animation: { id: string }) => animation.id),
+    ).toEqual(["anim-ok", "anim-gone"]);
+    expect(slide.animationIssues).toEqual([
+      { index: 1, id: "anim-gone", code: "stale-path" },
+    ]);
+  });
+
+  it("records share_link_created on the server without the token", async () => {
+    const result = (await shareDeck({} as any)) as { shareToken: string };
+
+    expect(mockTrackSlides).toHaveBeenCalledTimes(1);
+    expect(mockTrackSlides).toHaveBeenCalledWith(
+      "share_link_created",
+      {
+        output_id: "deck-1",
+        output_type: "deck",
+        share_type: "presentation_link",
+        share_token_hash: createHash("sha256")
+          .update(result.shareToken)
+          .digest("hex")
+          .slice(0, 16),
+      },
+      { userId: "owner@example.com" },
+    );
+    expect(JSON.stringify(mockTrackSlides.mock.calls)).not.toContain(
+      result.shareToken,
     );
   });
 });

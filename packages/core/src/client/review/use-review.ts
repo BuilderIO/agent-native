@@ -241,7 +241,7 @@ export interface CreateResourceSuggestionInput {
 
 export interface DecideResourceSuggestionInput {
   id: string;
-  decision: SuggestionDecision;
+  decision: SuggestionDecision | "withdrawn";
   idempotencyKey: string;
   observedBase: string;
   observedRevision?: number;

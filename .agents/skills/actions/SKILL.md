@@ -20,7 +20,7 @@ Before creating any custom route for app data, check `actions/` and the action t
 
 ## Keep Actions Deterministic
 
-An action may call a provider API, validate data, and persist records without being an AI feature — keep it deterministic, focused, and independently useful to the agent. Don't put LLM calls or a second model runtime in ordinary actions (`completeText()` in `delegate-to-agent` is the one narrow exception).
+An action may call a provider API, validate data, and persist records without being an AI feature — keep it deterministic, focused, and independently useful to the agent. Don't put LLM calls or a second model runtime in app actions.
 
 When a workflow is research, analysis, generation, recommendation, or synthesis — or spans several provider calls and writes — route it to the AgentSidebar via `sendToAgentChat({ openSidebar: true })` and let the agent orchestrate focused actions instead of hiding an AI-shaped workflow behind one opaque `generate-*`/`create-*` action just because its implementation happens to be deterministic.
 
@@ -37,12 +37,9 @@ import { meals } from "../server/db/schema.js";
 
 export default defineAction({
   description: "List all meals",
-  schema: z.object({
-    date: z.string().describe("Filter by date (YYYY-MM-DD)"),
-  }),
+  schema: z.object({}),
   http: { method: "GET" },
-  run: async (args) => {
-    // args is fully typed: { date: string }
+  run: async () => {
     const db = getDb();
     const rows = await db.select().from(meals);
     return rows; // Return objects/arrays, NOT JSON.stringify()
@@ -63,11 +60,13 @@ Every agent-exposed action is a tool in the model's context window; more tools d
 - **One orthogonal `update` per resource**, not one per field — `update-<thing>` taking an optional-fields patch, not `update-<thing>-name` + `update-<thing>-order` + …
 - **Reach for a generic escape hatch before minting a new read action** — the `provider-api-catalog`/`docs`/`request` trio for provider data (`references/provider-apis.md`), `db-query` for ad hoc app-data reads in dev.
 - **`agentTool: false`** hides a UI-only/programmatic action from the model while keeping it frontend/HTTP-callable — not `toolCallable: false`, which only blocks the sandboxed extension bridge and leaves the action visible everywhere else; reserve that one for high-blast-radius operations.
-- **Delete or hide stale actions** once the UI stops using them; `pnpm actions:audit` advisory-flags likely-dead/redundant ones (`references/examples.md`).
+- **Delete or hide stale actions** once you confirm neither the UI nor an agent workflow uses them.
 
 ## Key Actions — One Index, Every Surface
 
-Name the app's key actions for common intents (create X, edit the selection, add an item, restyle, share/export) exactly once. The MCP/WebMCP "Key tools" line is generated from `mcp.keyToolNames ?? initialToolNames`, filtered to the tools that surface serves — the action table in `AGENTS.md` may list more of the app's agent-facing actions than that generated subset, but every name in either place must be a real action, and the two must not disagree about what the key ones are. Do not hand-write a second tool list in `mcp.instructions`, a skill, or an external SKILL.md — describe *when* to use them there, not *which* they are.
+Document the app's primary actions in the `AGENTS.md` action table. For first-turn loading, add those action names to the plugin's `initialToolNames` (`INITIAL_TOOL_NAMES` in some templates), or mark the full starter set `deferLoading: false` on the actions. When one action opts into per-action eager loading, unmarked actions are deferred; the remaining actions stay discoverable through `tool-search`.
+
+When MCP is enabled, its `Key tools` line is generated from `mcp.keyToolNames ?? initialToolNames` and filtered to the actions served on that surface. A configured `mcp.keyToolNames` overrides the advertised MCP/WebMCP key list; it does not change the in-app agent's first-turn list. Keep the advertised subset consistent with the primary actions in the `AGENTS.md` table and the external catalog; the table may also document other in-app actions. Do not hand-write another action list in `mcp.instructions`, a skill, or an external skill; describe when to use actions there.
 
 ## The `http` Option
 
@@ -104,13 +103,40 @@ only the small structured fields the renderer needs. `chatUI.when` is evaluated
 against the full successful result first; the projection is used live and saved
 for interrupted-run recovery.
 
-An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. The full external contract (link builders, `mcpApp`, `publicAgent`, payload limits, the author rule) is the `external-agents` skill.
+An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. For external-agent integrations, use the external-agents documentation slug listed by `agent-native-docs`.
 
 Reach for `outputSchema` (validate the return), `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
 
+### Write receipts
+
+A write action that can check its own effect returns a plain-object result with a reserved `_receipt`, so the final answer is reconciled with what the write did, not with the model's reading of a JSON string that may be truncated:
+
+```ts
+import type { WriteReceipt } from "@agent-native/core/action";
+
+const _receipt: WriteReceipt = {
+  changed: true,
+  verified: false,
+  summary: "Saved; panel 3 returned no rows.",
+  checks: [{ id: "panel-3", ok: false, detail: "0 rows" }],
+};
+return { id, _receipt };
+```
+
+`verified` is `true` (the effect was observed), `false` (checked and did not hold), or `"unverified"` (could not be checked); `checks` and `warnings` are optional. The agent loop reads the receipt before the result is stringified and truncated (summary 200 chars, 8 checks, 5 warnings):
+
+- `verified: false` or `changed: false` forces one honest-reconciliation retry per turn: the model must say what the receipt shows and may not call the change visible or working. If the retry is spent, the answer is prefixed with the receipt block.
+- `verified: "unverified"` only prefixes that note; no retry.
+- A receipt that is present but malformed counts as `unverified`, never clean. `changed: false` also records the call as `completedSideEffect: false`.
+- Set `subject` (the stable target, such as a dashboard id) so a later `changed: true, verified: true` receipt for the same subject can supersede an earlier flagged one in the same turn. When the earlier receipt had failing or unverified `checks`, the later receipts (from this action or another that writes the same subject) must carry an `ok: true` check with the same `id` for each; a receipt without checks never clears one that had them. A flagged receipt with no failing checks is superseded only by the same action. Receipts without a `subject` are never superseded.
+
+A receipt is not an error channel. A write that did not achieve the requested state throws (`fail()`); return `changed: false` only for a benign no-op, such as the record already being in the requested state.
+
 ## Frontend Hooks
 
-Use hooks from `@agent-native/core/client`, not hand-written `fetch("/_agent-native/actions/...")`.
+Import from focused `@agent-native/core/client/*` entry points; the broad
+`@agent-native/core/client` barrel is deprecated. Use action hooks, not
+hand-written `fetch("/_agent-native/actions/...")`.
 
 ```ts
 import { useActionQuery, useActionMutation, callAction } from "@agent-native/core/client/hooks";
@@ -121,29 +147,31 @@ mutate({ name: "Salad", calories: 350 });
 const people = await callAction("search-people", { query }, { method: "GET" }); // imperative (debounce, prefetch)
 ```
 
-Don't add manual generics like `useActionQuery<Meal[]>(...)` — types come from `.generated/action-types.d.ts`. Mutations auto-invalidate all `["action"]` query keys, so GET queries refetch.
+Don't add manual generics like `useActionQuery<Meal[]>(...)` — types come from `.generated/action-types.d.ts`. Mutations auto-invalidate all `["action"]` query keys, so GET queries refetch. A revisit paints the persisted result for the signed-in user and org before that refetch; see `references/action-fields.md` for `persistInBrowser: false`.
+
+When a query result varies by viewer or another client context that is not part of the action arguments, pass that stable context through `queryKeyScope`. It partitions only the local query cache; it is not sent to the action and never replaces server-side authorization.
 
 ## How to Run (Agent)
 
 ```bash
-pnpm action my-action --input data/source.json --output data/result.json
+pnpm action log-meal --name "Salad" --calories 350
 ```
 
-The default template dispatches through core's `runScript()` in `actions/run.ts`. Action names are lowercase-with-hyphens (`pnpm action my-action` → `actions/my-action.ts`).
+CLI flags become action input fields (`--key value` or `--key=value`); the runner does not read or write files for `--input` or `--output`. The default template dispatches through core's `runScript()` in `actions/run.ts`. Action names are lowercase-with-hyphens (`pnpm action my-action` → `actions/my-action.ts`).
 
 ## Custom `/api/` Routes
 
 Complete exception list — justified only when the caller isn't your own UI/agent, or the payload isn't JSON: **file uploads** (actions take JSON, not multipart), **streaming** (SSE/chunked needing direct H3 control), **webhooks**, **OAuth callbacks** (fixed redirect URL patterns), **public unauthenticated endpoints** (SEO/OG images, share links), **binary/non-JSON responses**.
 
-Everything else — CRUD, settings, search, list/detail reads, auth state, anything the UI fetches as JSON — is an action. Needing middleware to scope a route to the current user is itself a signal it should be an action. First-party templates still carry a shrinking, grandfathered set of older `/api/*` CRUD routes (`guard:no-action-twin-routes` ratchets it down) — not license to add new ones.
+Everything else — CRUD, settings, search, list/detail reads, auth state, anything the UI fetches as JSON — is an action. Needing middleware to scope a route to the current user is itself a signal it should be an action. Existing template `/api/*` CRUD routes are being migrated; do not add new ones.
 
 ## Do / Don't
 
 - **Do** keep one action, one job; document a reusable action (when to use it, key args, return fields to preserve) in `AGENTS.md` once it's called from outside one narrow screen; promote workflow-heavy actions (provider-backed, cross-app, MCP/A2A, multi-step) into a skill.
 - **Do** use `fail(message, { errorCode, statusCode })` for user-friendly errors and import primitives from `@agent-native/core`(`/action`) instead of redefining them; use the core `upload-image` action or `uploadFile()` for durable images/files — never base64 into SQL, markdown, or action results.
-- **Do** signal failure by throwing (`fail()`), never by returning `{ error: ... }`. A returned envelope is a successful return everywhere the framework looks: the retry breakers (`MAX_IDENTICAL_TOOL_ERRORS`, `MAX_SAME_ERROR_ACROSS_ARGUMENTS`) never count it, the call is recorded `completedSideEffect: true` even though nothing was written, and `failed_tools` / `$ai_is_error` stay clean while the model keeps guessing. One production run spent 32% of its cost on three rejected writes that every dashboard reported as successes.
-- **Do** throw through `fail()` rather than `throw new Error()` whenever the message is written for whoever called. The agent reads either one, but the HTTP route can only tell them apart by type: `fail()` raises an `ActionContractError`, whose message, `errorCode`, and `details` reach the browser, while a bare `Error` is indistinguishable from a driver blowup and is replaced by a generic 500 `"Internal server error"` plus an error-tracking report. Keep the bare throw for genuine internal faults — that is what the 500 is for.
-- **Do** give `fail()` the status that matches the cause: it defaults to `400`, and `useActionQuery` retries only `429`, `502`, `503`, and `504`. A refusal sent as `404` or `409` costs one round trip; sent as a `500` (or thrown bare) it used to cost four, plus four duplicate error reports.
+- **Do** signal failure by throwing, using `fail()` for expected caller-readable failures. Never return `{ error: ... }` as a failure result: a normal return is treated as a successful action. Reserve bare errors for unexpected internal faults.
+- **Do** use `fail()` rather than a bare `Error` for caller-readable failures. It carries the action's message, `errorCode`, and `details` to the browser; unexpected errors become a generic 500. Reserve bare throws for internal faults.
+- **Do** give `fail()` the status that matches the cause: it defaults to `400`, and `useActionQuery` retries only `429`, `502`, `503`, and `504`. Mutations do not retry; use transient statuses only for retryable failures.
 - **Do** render `actionErrorMessage(error) ?? yourCopy` in UI, never bare `error.message`. The message keeps an `Action <name> failed:` prefix that belongs in a console, so a toast built from it reads "Action update-brand-kit failed: That name is taken." The helper returns only what the action wrote, and `undefined` when nothing did (network drop, proxy HTML page), which is why the fallback is not optional.
 - **Do** pass a real `errorCode` when the agent should branch on the failure rather than re-read it. Codes other than the default `action_failed` are appended to the tool result as `(errorCode: not_found)`, on both the in-app agent and MCP; `details` and the status never reach either.
 - **Don't** re-export actions as REST — `/_agent-native/actions/:name` is already the REST surface; duplicating it under `/api/*` hides the operation from agents.
@@ -160,7 +188,7 @@ Everything else — CRUD, settings, search, list/detail reads, auth state, anyth
 
 - `references/provider-apis.md` — wiring a credentialed provider (HubSpot, Gong, Slack, …) for querying, reporting, or cross-source research.
 - `references/action-fields.md` — `outputSchema`, `authorize`, `needsApproval`, `_agentImages`, and exact auto-refresh rules.
-- `references/examples.md` — a second worked example, the legacy `parameters`/bare-export patterns, and `pnpm actions:audit`.
+- `references/examples.md` — a second worked example and legacy bare-export patterns.
 
 ## Related Skills
 

@@ -60,6 +60,10 @@ export default defineAction({
   description:
     "Add a comment to a slide or reply to an existing thread on that same slide. Inline Markdown supports emphasis, inline code, links, and line breaks; headings are flattened. Comments may be anchored to slide positions or stable slide objects.",
   schema: addSlideCommentSchema,
+  changeResource: ({ deckId }) => ({
+    resourceType: "deck",
+    resourceId: deckId,
+  }),
   run: async (args, ctx) => {
     const {
       deckId,

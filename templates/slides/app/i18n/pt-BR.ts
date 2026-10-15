@@ -126,7 +126,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth não está configurado para esta implantação.",
     googlePickerNeedsKeys:
-      "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
+      "A navegação de arquivos do Google Drive não está configurada. Você ainda pode importar um documento colando o link.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
       "Conecte um armazenamento de objetos para enviar imagens: conecte o Builder.io (grátis) ou adicione suas próprias chaves de armazenamento compatíveis com S3 em Configurações → Envio de arquivos.",
@@ -241,6 +241,7 @@ const messages = {
     importCompleteFile: "Arquivo importado de {{fileName}}.",
     backToDecks: "Voltar aos decks",
     toggleSlideList: "Alternar lista de slides",
+    openInAgentNative: "Abrir no Agent-Native",
     designSystem: "Sistema de design",
     usingDesignSystem: "Usando {{title}}",
     usingLinkedDesignSystem: "Usando um sistema de design vinculado",
@@ -255,6 +256,16 @@ const messages = {
     generateImage: "Gerar imagem",
     assetLibrary: "Biblioteca de assets",
     imageOptions: "Opções da imagem",
+    videoPlayback: "Reprodução de vídeo",
+    autoplayVideo: "Reprodução automática",
+    loopVideo: "Repetir vídeo",
+    videoUploading: "Enviando vídeo…",
+    videoAdded: "Vídeo adicionado",
+    videoUploadFailed: "Falha ao enviar vídeo",
+    videoUploadError: "Não foi possível enviar este vídeo.",
+    videoFormatUnsupported: "Só há suporte para vídeos MP4 e WebM.",
+    videoTooLarge: "O vídeo deve ter no máximo 50 MB.",
+    videoUploadNeedsBuilder: "O armazenamento de vídeos não está configurado.",
     cropImage: "Cortar imagem",
     cropHandle: "Cortar imagem {{position}}",
     diagrams: "Diagramas",
@@ -265,10 +276,21 @@ const messages = {
     convertMermaidFailed: "Falha ao converter o diagrama",
     removeExcalidrawCanvas: "Remover canvas Excalidraw",
     transition: "Transição",
-    transition_instant: "Instantânea",
+    transition_none: "Nenhuma",
+    transition_dissolve: "Dissolver",
     transition_fade: "Fade",
-    transition_slide: "Deslizar",
-    transition_zoom: "Zoom",
+    transition_slide_from_right: "Deslizar da direita",
+    transition_slide_from_left: "Deslizar da esquerda",
+    transition_flip: "Virar",
+    transition_cube: "Cubo",
+    transition_gallery: "Galeria",
+    transition_panel: "Transição de slide",
+    transition_speed: "Velocidade",
+    transition_slow: "Lenta",
+    transition_fast: "Rápida",
+    transition_seconds: "{{seconds}} seg",
+    transition_apply_all: "Aplicar a todos os slides",
+    transition_play: "Reproduzir transição",
     aspectRatio: "Proporção",
     setAspectRatio: "Definir deck como {{ratio}}",
     slideTools: "Ferramentas do slide",
@@ -308,6 +330,9 @@ const messages = {
     conflictStatus: "Conflito de texto",
     conflictStatusDescription:
       "Revise o texto em conflito antes de salvar outras alterações.",
+    accessLost: "Acesso perdido",
+    accessLostDescription:
+      "Seu acesso a esta apresentação mudou. Suas edições continuam na tela; tente novamente quando o acesso for restaurado ou baixe um backup.",
     reviewConflict: "Revisar conflito",
     conflictTitle: "Conflito de texto no slide {{number}}",
     conflictDescription:
@@ -356,6 +381,7 @@ const messages = {
     googleSlidesCreated: "Aberto no Google Slides",
     googleSlidesCreatedHint:
       "Uma cópia desta apresentação foi criada no seu Google Drive.",
+    googleSlidesGoTo: "Ir para o Google Slides",
     duplicateDeck: "Duplicar deck",
   },
   share: {
@@ -442,7 +468,9 @@ const messages = {
     resolveThread: "Resolver conversa",
     reopenThread: "Reabrir conversa",
     hideReplies: "Ocultar respostas",
-    replyCount: "{{count}} respostas",
+    replyCount_one: "{{count}} resposta",
+    replyCount_many: "{{count}} respostas",
+    replyCount_other: "{{count}} respostas",
     title: "Comentários",
     addComment: "Adicionar comentário",
     close: "Fechar",
@@ -581,7 +609,6 @@ const messages = {
     selectObject: "Selecione um objeto para animar",
     addTransition: "Adicionar transição",
     effect: "Efeito",
-    trigger: "Gatilho",
     onClick: "Ao clicar",
     byParagraph: "Por parágrafo",
     expand: "Expandir transição",
@@ -592,6 +619,12 @@ const messages = {
     clearAll: "Borrar todo",
     elements: "Elementos",
     autoFill: "Autorrellenar",
+    issueStalePath: "Este objeto não está mais no slide.",
+    issueMissingElement: "Não foi possível encontrar este objeto no slide.",
+    issueDuplicate: "Esta animação se sobrepõe a outra no slide.",
+    blocked:
+      "Remova ou corrija a animação não resolvida para salvar ou reproduzir.",
+    changeNotApplied: "Esta alteração não foi aplicada.",
     noAnimatableElements:
       "No se detectaron elementos animables en esta diapositiva.",
   },
@@ -773,6 +806,15 @@ const messages = {
     exportFailed: "Error al exportar",
     agentRunFailed:
       "A execução do agente falhou antes de criar qualquer slide. Confira os detalhes no chat e tente novamente.",
+    generationFailed:
+      "Os slides não foram criados. Confira os detalhes no chat e tente novamente.",
+    generationOutcomeUnresolved:
+      "Não foi possível confirmar se os slides foram criados. Confira a apresentação antes de tentar novamente.",
+    partialGenerationFailed:
+      "Não foi possível terminar de criar os slides. Confira os slides já criados e seu pedido original antes de continuar.",
+    originalPrompt: "O que você pediu",
+    backToHome: "Voltar para a página inicial",
+    checkedDeckTryAgain: "Verifiquei a apresentação. Tentar novamente",
     deckHasNoSlides: "Esta apresentação não contém slides.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -809,7 +851,7 @@ const messages = {
     sourceMixed: "Várias fontes",
     sourceBuilder: "Inteligência de sistemas de design do Builder",
     sourceIndexingDescription:
-      "O Builder ainda está processando esta fonte. Os resultados aparecerão aqui quando estiverem prontos.",
+      "O estilo da sua marca ainda está sendo preparado. Aguarde até que fique pronto e tente novamente.",
     sourceIndexedDescription:
       "{{docs}} documentos · {{tokens}} tokens indexados",
     sourceIndexedDocsOnly: "{{docs}} documentos indexados",
@@ -985,8 +1027,8 @@ const messages = {
           "Leia o site da empresa fornecido e crie uma apresentação sobre ela. Informe falhas de acesso em vez de inventar fatos.",
       },
     },
-    connectBuilderIo: "Conectar o Builder.io",
-    connectingBuilder: "Conectando ao Builder.io…",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando o Builder.io…",
     recent: "Recentes",
     starters: {
       pitch: {
@@ -1021,13 +1063,19 @@ const messages = {
     generationStartFailed: "Não foi possível iniciar a geração do deck",
     generationStartFailedDescription:
       "O novo deck não terminou de salvar, então o agente não foi iniciado contra um deck ausente. Seu prompt foi salvo para você tentar novamente.",
+    generationContextUnavailableDescription:
+      "Não foi possível carregar o estilo da sua marca ou a apresentação de referência escolhida. Confira se você consegue abrir o arquivo e se a conexão com a internet está funcionando, depois tente novamente.",
     showAllDecks: "Mostrar todos os decks",
     all: "Todos",
     showMineDecks: "Mostrar decks criados por mim",
     mine: "Meus",
+    ownedByAnyone: "De qualquer pessoa",
+    ownedByMe: "Meus",
+    sharedWithMe: "Compartilhado comigo",
     createDeckOrVisual: "Criar uma apresentação",
     noMineDecks: "Nenhum deck criado por você ainda.",
     noDecksMatchSearch: "Nenhum deck corresponde à sua busca.",
+    noDecksMatchFilter: "Nenhum deck corresponde ao filtro atual.",
     deleteDeckTitle: "Excluir deck?",
     deleteDeckDescription:
       "Isso excluirá permanentemente este deck e todos os seus slides. Esta ação não pode ser desfeita.",

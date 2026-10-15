@@ -13,13 +13,21 @@ import {
   PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL,
   PRE_CAPPED_SIGNUPS_OVER_TIME_SQL,
   PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
+  PRE_TEMPLATE_KEY_SESSIONS_BY_APP_SQL,
+  scopeFirstPartyPanelSql,
   SIGNUPS_OVER_TIME_SQL,
+  buildFirstPartyDashboardFilters,
   type ExactFirstPartyPanelReplacement,
   repairFirstPartyObservedRetentionPanels,
 } from "./first-party-metric-catalog";
 
 export const FIRST_PARTY_BIGQUERY_DASHBOARD_ID =
   "agent-native-templates-first-party-bigquery-v2";
+
+export const FIRST_PARTY_BIGQUERY_DASHBOARD_IDS = [
+  FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+  "agent-native-templates-first-party-bigquery-v3",
+];
 
 const BIGQUERY_SESSION_STATUS_EVENT_FILTER =
   "event_name IN ('session status', 'session_status')";
@@ -33,7 +41,7 @@ const BIGQUERY_CONTENT_OR_CHAT_ACTIVITY_FILTER = `(
   OR (event_name = 'core_action_started' AND JSON_VALUE(properties, '$.action_name') = 'chat_submit')
 ) AND NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') IS NOT NULL`;
 
-export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
+export const PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
   SELECT
     event_date,
     user_key AS visitor_key,
@@ -92,8 +100,69 @@ SELECT date, template, visitors
 FROM wau
 ORDER BY date, template`;
 
+export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
+  SELECT
+    event_date,
+    user_key AS visitor_key,
+    COALESCE(
+      NULLIF(template, ''),
+      NULLIF(JSON_VALUE(properties, '$.templateId'), ''),
+      NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''),
+      NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''),
+      NULLIF(app, ''),
+      NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''),
+      NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''),
+      'unknown'
+    ) AS template
+  FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw_query_range\`(
+    CASE
+      WHEN '{{timeRange}}' IN ('', 'all') THEN DATE '1970-01-01'
+      WHEN '{{timeRange}}' = 'custom' THEN DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 6 DAY)
+      WHEN '{{timeRange}}' = '7d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 13 DAY)
+      WHEN '{{timeRange}}' = '30d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 36 DAY)
+      WHEN '{{timeRange}}' = '90d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 96 DAY)
+      WHEN '{{timeRange}}' = '180d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 186 DAY)
+      WHEN '{{timeRange}}' = '365d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 371 DAY)
+      ELSE DATE_SUB(CURRENT_DATE(), INTERVAL 96 DAY)
+    END,
+    IF('{{timeRange}}' = 'custom', LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), CURRENT_DATE())
+  )
+  WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'
+    AND ${BIGQUERY_SIGNED_IN_ACTIVITY_FILTER}
+    AND ('{{emailFilter}}' IN ('', 'all')
+      OR ('{{emailFilter}}' = 'exclude_builder' AND LOWER(COALESCE(user_id, '')) NOT LIKE '%@builder.io')
+      OR ('{{emailFilter}}' = 'only_builder' AND LOWER(COALESCE(user_id, '')) LIKE '%@builder.io'))
+    AND ('{{appFilter}}' IN ('', 'all')
+      OR LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), 'unknown')) = LOWER('{{appFilter}}'))
+    AND LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')
+), date_spine AS (
+  SELECT date
+  FROM UNNEST(GENERATE_DATE_ARRAY(
+    CASE
+      WHEN '{{timeRange}}' = 'custom' THEN DATE('{{timeRangeStart}}')
+      WHEN '{{timeRange}}' = '7d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+      WHEN '{{timeRange}}' = '30d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 29 DAY)
+      WHEN '{{timeRange}}' = '90d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 89 DAY)
+      WHEN '{{timeRange}}' = '180d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 179 DAY)
+      WHEN '{{timeRange}}' = '365d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 364 DAY)
+      WHEN '{{timeRange}}' IN ('', 'all') THEN COALESCE((SELECT MIN(event_date) FROM base), CURRENT_DATE())
+      ELSE DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+    END,
+    IF('{{timeRange}}' = 'custom', LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), CURRENT_DATE())
+  )) AS date
+), wau AS (
+  SELECT d.date, b.template, COUNT(DISTINCT b.visitor_key) AS visitors
+  FROM date_spine d
+  JOIN base b
+    ON b.event_date BETWEEN DATE_SUB(d.date, INTERVAL 6 DAY) AND d.date
+  GROUP BY d.date, b.template
+)
+SELECT date, template, visitors
+FROM wau
+ORDER BY date, template`;
+
 export const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL =
-  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+  PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
     "      WHEN '{{timeRange}}' = 'custom' THEN DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 6 DAY)\n",
     "",
   )
@@ -194,7 +263,7 @@ const BIGQUERY_RETENTION_IDENTITY_EMAILS_CTE = `identity_emails AS (
 const LEGACY_BIGQUERY_RETENTION_EMAIL_FILTER = `  AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND LOWER(COALESCE(NULLIF(user_id, ''), '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND LOWER(COALESCE(NULLIF(user_id, ''), '')) LIKE '%@builder.io'))`;
 const BIGQUERY_RETENTION_IDENTITY_EMAIL_FILTER = `  AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND COALESCE(identity_emails.email, '') NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND COALESCE(identity_emails.email, '') LIKE '%@builder.io'))`;
 
-export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
+export const PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL =
   LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
     "WITH base AS (",
     `WITH ${BIGQUERY_RETENTION_IDENTITY_EMAILS_CTE},\nbase AS (`,
@@ -252,8 +321,93 @@ export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
     )
     .replace(PRE_CUSTOM_RETENTION_ANCHOR_RANGE, CUSTOM_RETENTION_ANCHOR_RANGE);
 
+const BIGQUERY_RETENTION_ACQUISITION_CTE = `acquisition AS (
+ SELECT user_key, channel
+ FROM (
+   SELECT NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') AS user_key,
+     CASE
+       WHEN NULLIF(JSON_VALUE(properties, '$.gclid'), '') IS NOT NULL
+         OR NULLIF(JSON_VALUE(properties, '$.msclkid'), '') IS NOT NULL
+         OR NULLIF(JSON_VALUE(properties, '$.vector_source'), '') IS NOT NULL
+         OR LOWER(COALESCE(JSON_VALUE(properties, '$.utm_medium'), '')) IN ('cpc', 'ppc', 'paid', 'paidsearch', 'paid_search', 'paid-search', 'paidsocial', 'paid_social', 'paid-social', 'cpm', 'display')
+         THEN 'paid'
+       WHEN NULLIF(JSON_VALUE(properties, '$.utm_source'), '') IS NULL
+         AND NULLIF(JSON_VALUE(properties, '$.utm_medium'), '') IS NULL
+         AND NULLIF(JSON_VALUE(properties, '$.utm_campaign'), '') IS NULL
+         AND NULLIF(JSON_VALUE(properties, '$.utm_term'), '') IS NULL
+         AND NULLIF(JSON_VALUE(properties, '$.referrer_user'), '') IS NULL
+         AND COALESCE(JSON_VALUE(properties, '$.referral_source'), 'direct') IN ('direct', 'external')
+         THEN 'untagged'
+       ELSE 'other'
+     END AS channel,
+     ROW_NUMBER() OVER (
+       PARTITION BY NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '')
+       ORDER BY timestamp ASC
+     ) AS signup_rank
+   FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw\`
+   WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'
+     AND event_name = 'signup'
+     AND NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') IS NOT NULL
+     AND ${BIGQUERY_RETENTION_TEMPLATE_FILTER} IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')
+     AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3660 DAY)
+     AND event_date <= CURRENT_DATE()
+ ) signups
+ WHERE signup_rank = 1
+)`;
+
+const BIGQUERY_RETENTION_CHANNEL_CTES = `channel_cohort_sizes AS (
+ SELECT cw.date, acq.channel, COUNT(DISTINCT cw.user_key) AS users
+ FROM cohort_windows cw
+ JOIN acquisition acq ON acq.user_key = cw.user_key
+ WHERE acq.channel IN ('paid', 'untagged')
+ GROUP BY cw.date, acq.channel
+), channel_retained AS (
+ SELECT cw.date, acq.channel, COUNT(DISTINCT cw.user_key) AS retained
+ FROM cohort_windows cw
+ JOIN acquisition acq ON acq.user_key = cw.user_key
+ JOIN base b ON b.user_key = cw.user_key
+   AND b.event_date > cw.cohort_date
+   AND b.event_date <= DATE_ADD(cw.cohort_date, INTERVAL 7 DAY)
+ WHERE acq.channel IN ('paid', 'untagged')
+ GROUP BY cw.date, acq.channel
+)`;
+
+export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
+  PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
+    "),\nbase AS (",
+    `),\n${BIGQUERY_RETENTION_ACQUISITION_CTE},\nbase AS (`,
+  )
+    .replace(
+      "\n)\nSELECT FORMAT_DATE('%Y-%m-%d', a.date) AS date,",
+      `\n),\n${BIGQUERY_RETENTION_CHANNEL_CTES}\nSELECT FORMAT_DATE('%Y-%m-%d', a.date) AS date,`,
+    )
+    .replace(
+      "LEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period\nORDER BY date, p.period",
+      `LEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period
+UNION ALL
+SELECT FORMAT_DATE('%Y-%m-%d', a.date) AS date,
+ CONCAT('1-7d return (', channels.channel, ')') AS period,
+ CASE WHEN a.date <= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+           AND COALESCE(ccs.users, 0) >= 5
+           AND coverage.observed_days = coverage.expected_days
+      THEN COALESCE(cr.retained, 0)
+      ELSE NULL END AS retained_users,
+ COALESCE(ccs.users, 0) AS cohort_users,
+ CASE WHEN a.date <= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+           AND COALESCE(ccs.users, 0) >= 5
+           AND coverage.observed_days = coverage.expected_days
+      THEN COALESCE(CAST(cr.retained AS FLOAT64) / NULLIF(ccs.users, 0), 0)
+      ELSE NULL END AS rate
+FROM anchor_dates a
+CROSS JOIN (SELECT 'paid' AS channel UNION ALL SELECT 'untagged' AS channel) channels
+LEFT JOIN channel_cohort_sizes ccs ON ccs.date = a.date AND ccs.channel = channels.channel
+LEFT JOIN channel_retained cr ON cr.date = a.date AND cr.channel = channels.channel
+LEFT JOIN coverage ON coverage.date = a.date AND coverage.period = '1-7d return'
+ORDER BY date, period`,
+    );
+
 export const PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL =
-  FIRST_PARTY_BIGQUERY_RETENTION_SQL.split(
+  PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL.split(
     "NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), ",
   )
     .join("")
@@ -319,13 +473,13 @@ export const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL =
     );
 
 const MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL =
-  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+  PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
     "WHEN '{{timeRange}}' = '7d'",
     "WHEN '{{timeRange}}' = '{{timeRange}}'",
   );
 
 const LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL =
-  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+  PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
     `    AND ${BIGQUERY_SIGNED_IN_ACTIVITY_FILTER}`,
     "    AND event_name = 'session status'\n    AND signed_in = 'true'\n    AND NULLIF(user_key, '') IS NOT NULL",
   );
@@ -349,6 +503,7 @@ function isMalformedFirstPartyBigQueryWauSql(sql: string): boolean {
 
 function isLegacyFirstPartyBigQueryWauSql(sql: string): boolean {
   return [
+    PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
     LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL,
     PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
     PRE_CUSTOM_LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL,
@@ -371,6 +526,7 @@ function repairFirstPartyBigQueryDauSql(sql: string): string {
 function isLegacyFirstPartyBigQueryRetentionSql(sql: string): boolean {
   return [
     LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
     PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
     PREVIOUS_PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
     PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
@@ -548,6 +704,16 @@ function repairFingerprintedPanelQueries(
 const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacement[] =
   [
     {
+      id: "onboarding-setup-choice",
+      legacySql: [
+        buildPanel("onboarding-setup-choice")!.sql.replace(
+          "'Use Builder.io' AS method_label",
+          "'Create Builder.io account' AS method_label",
+        ),
+      ],
+      sql: buildPanel("onboarding-setup-choice")!.sql,
+    },
+    {
       id: "signups-over-time",
       legacySql: [
         LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
@@ -576,6 +742,16 @@ const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacem
       sql: NEW_VS_RECURRING_USERS_SQL,
       legacyDescription: LEGACY_NEW_VS_RECURRING_USERS_DESCRIPTION,
       description: NEW_VS_RECURRING_USERS_DESCRIPTION,
+    },
+    {
+      id: "sessions-by-app",
+      legacySql: [
+        PRE_TEMPLATE_KEY_SESSIONS_BY_APP_SQL,
+        removeCustomDateRangeClauses(
+          scopeFirstPartyPanelSql(PRE_TEMPLATE_KEY_SESSIONS_BY_APP_SQL),
+        ),
+      ],
+      sql: buildPanel("sessions-by-app")!.sql,
     },
   ];
 
@@ -714,12 +890,68 @@ export function repairKnownFirstPartyDashboardQueries(
     const repaired = repairFirstPartyBigQueryDashboardQueries(
       historical.config,
     );
-    return historical.changed && !repaired.changed
-      ? { ...repaired, changed: true }
-      : repaired;
+    const defaultsRepaired = repairFirstPartyBigQueryDashboardFilterDefaults(
+      repaired.config,
+    );
+    return {
+      ...defaultsRepaired,
+      changed:
+        historical.changed || repaired.changed || defaultsRepaired.changed,
+    };
+  }
+  if (FIRST_PARTY_BIGQUERY_DASHBOARD_IDS.includes(dashboardId)) {
+    return repairFingerprintedPanelQueries(config, [
+      {
+        id: "wau-over-time",
+        source: "bigquery",
+        sha256: fingerprintPanelSql(PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL),
+        sql: FIRST_PARTY_BIGQUERY_WAU_SQL,
+      },
+    ]);
   }
   if (dashboardId === FIRST_PARTY_DASHBOARD_ID) {
     return repairCanonicalFirstPartyDashboardQueries(config);
   }
   return { config, changed: false };
+}
+
+function repairFirstPartyBigQueryDashboardFilterDefaults(
+  config: Record<string, unknown>,
+): { config: Record<string, unknown>; changed: boolean } {
+  if (!Array.isArray(config.filters)) return { config, changed: false };
+
+  const canonicalDefaults = new Map(
+    buildFirstPartyDashboardFilters()
+      .filter(
+        (filter) => filter.id === "timeRange" || filter.id === "emailFilter",
+      )
+      .map((filter) => [filter.id, filter.default]),
+  );
+  const legacyDefaults = new Map<string, Set<unknown>>([
+    ["timeRange", new Set(["all"])],
+    ["emailFilter", new Set(["all"])],
+  ]);
+  let changed = false;
+  const filters = config.filters.map((filter) => {
+    if (!filter || typeof filter !== "object" || Array.isArray(filter)) {
+      return filter;
+    }
+    const record = filter as Record<string, unknown>;
+    const expected =
+      typeof record.id === "string" ? canonicalDefaults.get(record.id) : null;
+    const legacy =
+      typeof record.id === "string" ? legacyDefaults.get(record.id) : null;
+    if (
+      !expected ||
+      record.default === expected ||
+      !legacy?.has(record.default)
+    )
+      return filter;
+    changed = true;
+    return { ...record, default: expected };
+  });
+
+  return changed
+    ? { config: { ...config, filters }, changed: true }
+    : { config, changed: false };
 }

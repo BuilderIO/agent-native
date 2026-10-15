@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  getWorkspaceConnectionProvider,
   listWorkspaceConnectionProviders,
   type WorkspaceConnectionCapability,
   type WorkspaceConnectionProvider,
@@ -17,6 +18,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -112,6 +114,8 @@ export interface ListWorkspaceConnectionsForAppOptions {
 
 export interface ResolveWorkspaceConnectionForAppOptions extends ListWorkspaceConnectionsForAppOptions {
   connectionId?: string;
+  accountId?: string;
+  connectionOwnerEmail?: string;
   requireConnected?: boolean;
 }
 
@@ -258,6 +262,9 @@ export interface WorkspaceConnectionProviderReadiness {
 export interface WorkspaceConnectionProviderLike {
   id: string;
   label?: string;
+  oauth?: {
+    scopes: readonly string[];
+  };
   credentialKeys?: readonly {
     key: string;
     required?: boolean;
@@ -266,6 +273,7 @@ export interface WorkspaceConnectionProviderLike {
 
 export interface SummarizeWorkspaceConnectionProviderForAppOptions {
   providerId: string;
+  provider?: WorkspaceConnectionProviderLike;
   appId: string;
   connections: SerializedWorkspaceConnection[];
   grants?: SerializedWorkspaceConnectionGrant[];
@@ -319,8 +327,6 @@ export interface WorkspaceConnectionProviderCatalogForApp {
   };
 }
 
-let _initPromise: Promise<void> | undefined;
-
 function workspaceConnectionsTable(): string {
   return "public.workspace_connections";
 }
@@ -329,13 +335,16 @@ function workspaceConnectionGrantsTable(): string {
   return "public.workspace_connection_grants";
 }
 
-export async function ensureWorkspaceConnectionsTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const table = workspaceConnectionsTable();
-      const grantsTable = workspaceConnectionGrantsTable();
+export const workspaceConnectionsStore = defineStore({
+  id: "workspace_connections",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const table = workspaceConnectionsTable();
+        const grantsTable = workspaceConnectionGrantsTable();
 
-      const createConnectionsSql = `
+        const createConnectionsSql = `
           CREATE TABLE IF NOT EXISTS ${table} (
             id TEXT PRIMARY KEY,
             provider TEXT NOT NULL DEFAULT '',
@@ -358,7 +367,7 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             last_error TEXT
           )
         `;
-      const createGrantsSql = `
+        const createGrantsSql = `
           CREATE TABLE IF NOT EXISTS ${grantsTable} (
             id TEXT PRIMARY KEY,
             connection_id TEXT NOT NULL DEFAULT '',
@@ -376,7 +385,6 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
           )
         `;
 
-      {
         await ensureTableExists("workspace_connections", createConnectionsSql);
         await ensureColumnExists(
           "workspace_connections",
@@ -550,14 +558,13 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
           "idx_workspace_connection_grants_updated_at",
           `CREATE INDEX IF NOT EXISTS idx_workspace_connection_grants_updated_at ON ${grantsTable} (updated_at)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureWorkspaceConnectionsTable(): Promise<void> {
+  return workspaceConnectionsStore.ready();
 }
 
 function requireWorkspaceConnectionScope(): {
@@ -980,11 +987,42 @@ function connectionForApp(
   );
   return {
     ...connection,
+    status: connectionStatusForProvider(
+      getWorkspaceConnectionProvider(connection.provider),
+      connection,
+    ),
     appAccess,
     explicitGrant:
       explicitGrantForConnection(connection.id, grants, normalizedAppId) ??
       null,
   };
+}
+
+function connectionStatusForProvider(
+  provider: WorkspaceConnectionProviderLike | null | undefined,
+  connection: SerializedWorkspaceConnection,
+): WorkspaceConnectionStatus {
+  const grantedScopes = new Set(connection.scopes.map(normalizeOAuthScope));
+  if (
+    connection.status === "connected" &&
+    connection.config.credentialMode === "oauth" &&
+    provider?.oauth?.scopes.some(
+      (scope) => !grantedScopes.has(normalizeOAuthScope(scope)),
+    )
+  ) {
+    return "needs_reauth";
+  }
+  return connection.status;
+}
+
+function normalizeOAuthScope(scope: string): string {
+  if (scope === "https://www.googleapis.com/auth/userinfo.email") {
+    return "email";
+  }
+  if (scope === "https://www.googleapis.com/auth/userinfo.profile") {
+    return "profile";
+  }
+  return scope;
 }
 
 function serializeConnectionForApp(
@@ -1055,6 +1093,7 @@ function grantAvailabilityMessage(
 
 export function summarizeWorkspaceConnectionProviderForApp({
   providerId,
+  provider,
   appId,
   connections,
   grants = [],
@@ -1062,6 +1101,8 @@ export function summarizeWorkspaceConnectionProviderForApp({
 }: SummarizeWorkspaceConnectionProviderForAppOptions): WorkspaceConnectionProviderAppSummary {
   const normalizedProviderId = providerId.trim();
   const normalizedAppId = appId.trim();
+  const providerDefinition =
+    provider ?? getWorkspaceConnectionProvider(normalizedProviderId);
   const allConnections = connections.filter(
     (connection) => connection.provider === normalizedProviderId,
   );
@@ -1071,7 +1112,9 @@ export function summarizeWorkspaceConnectionProviderForApp({
         .available,
   );
   const connectedConnections = grantedConnections.filter(
-    (connection) => connection.status === "connected",
+    (connection) =>
+      connectionStatusForProvider(providerDefinition, connection) ===
+      "connected",
   );
   const ungrantedConnectionCount =
     allConnections.length - grantedConnections.length;
@@ -1138,10 +1181,19 @@ export function summarizeWorkspaceConnectionProviderForApp({
     hasActiveWorkspaceConnection: connectedConnections.length > 0,
     lastUsedAt,
     statuses: uniqueStrings(
-      allConnections.map((connection) => connection.status),
+      allConnections.map((connection) =>
+        connectionStatusForProvider(providerDefinition, connection),
+      ),
     ) as WorkspaceConnectionStatus[],
     connections: visibleConnections.map((connection) =>
-      serializeConnectionForApp(connection, normalizedAppId, grants),
+      serializeConnectionForApp(
+        {
+          ...connection,
+          status: connectionStatusForProvider(providerDefinition, connection),
+        },
+        normalizedAppId,
+        grants,
+      ),
     ),
   };
 }
@@ -1190,8 +1242,8 @@ export function summarizeWorkspaceConnectionProviderReadiness({
   );
   const attentionConnections = activeConnections.filter(
     (connection) =>
-      connection.status === "error" ||
-      connection.status === "needs_reauth" ||
+      connectionStatusForProvider(provider, connection) === "error" ||
+      connectionStatusForProvider(provider, connection) === "needs_reauth" ||
       Boolean(connection.lastError),
   );
   const missingKeys = uniqueStrings(
@@ -1205,7 +1257,7 @@ export function summarizeWorkspaceConnectionProviderReadiness({
   );
   const readyConnections = activeConnections.filter(
     (connection) =>
-      connection.status === "connected" &&
+      connectionStatusForProvider(provider, connection) === "connected" &&
       missingRequiredCredentialKeys(
         provider,
         connection,
@@ -1239,6 +1291,7 @@ export function summarizeWorkspaceConnectionProviderReadiness({
     appGrant: appId
       ? summarizeWorkspaceConnectionProviderForApp({
           providerId: provider.id,
+          provider,
           appId,
           connections,
           grants,
@@ -1272,6 +1325,7 @@ export async function listWorkspaceConnectionProviderCatalogForApp({
     .map((item) => {
       const workspaceConnection = summarizeWorkspaceConnectionProviderForApp({
         providerId: item.id,
+        provider: item,
         appId,
         connections,
         grants,
@@ -1337,6 +1391,8 @@ export async function resolveWorkspaceConnectionForApp({
   provider,
   includeDisabled = false,
   connectionId,
+  accountId,
+  connectionOwnerEmail,
   requireConnected = false,
 }: ResolveWorkspaceConnectionForAppOptions): Promise<ResolvedWorkspaceConnectionForApp> {
   const normalizedAppId = normalizeRequiredString(
@@ -1344,36 +1400,53 @@ export async function resolveWorkspaceConnectionForApp({
     "resolveWorkspaceConnectionForApp appId",
   );
   const normalizedConnectionId = connectionId?.trim();
+  const normalizedAccountId = accountId?.trim();
   const scope = requireWorkspaceConnectionScope();
   const requestedConnections = await listWorkspaceConnections({
     provider,
-    includeDisabled: includeDisabled || Boolean(normalizedConnectionId),
+    includeDisabled:
+      includeDisabled || Boolean(normalizedConnectionId || normalizedAccountId),
   });
   const userConnections = await filterWorkspaceConnectionsForUser(
     requestedConnections,
     scope,
   );
-  const candidateConnections = normalizedConnectionId
-    ? userConnections.filter(
-        (connection) => connection.id === normalizedConnectionId,
+  const normalizedConnectionOwnerEmail = connectionOwnerEmail
+    ?.trim()
+    .toLowerCase();
+  const candidateConnections = userConnections.filter(
+    (connection) =>
+      (!normalizedConnectionId || connection.id === normalizedConnectionId) &&
+      (!normalizedAccountId || connection.accountId === normalizedAccountId),
+  );
+  const ownerFilteredConnections = normalizedConnectionOwnerEmail
+    ? candidateConnections.filter(
+        (connection) =>
+          connection.ownerEmail.trim().toLowerCase() ===
+          normalizedConnectionOwnerEmail,
       )
-    : userConnections;
+    : candidateConnections;
   const grants = await listWorkspaceConnectionGrants({
     provider,
     appId: normalizedAppId,
     connectionId: normalizedConnectionId,
   });
 
-  if (normalizedConnectionId && candidateConnections.length === 0) {
+  if (
+    (normalizedConnectionId || normalizedAccountId) &&
+    ownerFilteredConnections.length === 0
+  ) {
     return {
       available: false,
       connection: null,
       appAccess: null,
-      reason: `Workspace connection "${normalizedConnectionId}" was not found in the current request scope.`,
+      reason: normalizedConnectionId
+        ? `Workspace connection "${normalizedConnectionId}" was not found in the current request scope.`
+        : "Workspace connection for the requested account was not found in the current request scope.",
     };
   }
 
-  for (const connection of candidateConnections) {
+  for (const connection of ownerFilteredConnections) {
     const connectionWithAccess = connectionForApp(
       connection,
       normalizedAppId,
@@ -1404,13 +1477,13 @@ export async function resolveWorkspaceConnectionForApp({
       continue;
     }
 
-    if (requireConnected && connection.status !== "connected") {
+    if (requireConnected && connectionWithAccess.status !== "connected") {
       if (normalizedConnectionId) {
         return {
           available: false,
           connection: connectionWithAccess,
           appAccess: connectionWithAccess.appAccess,
-          reason: `Workspace connection "${connection.id}" is ${connection.status}; a connected workspace connection is required.`,
+          reason: `Workspace connection "${connection.id}" is ${connectionWithAccess.status}; a connected workspace connection is required.`,
         };
       }
       continue;
@@ -1548,7 +1621,19 @@ export async function upsertWorkspaceConnection(
   const now = Date.now();
   const label = input.label?.trim() || input.accountLabel?.trim() || provider;
   const status = normalizeStatus(input.status);
-  const scopes = normalizeStringArray(input.scopes);
+  const accountId =
+    input.accountId === undefined
+      ? (existingConnection?.accountId ?? null)
+      : input.accountId;
+  const sameAccount =
+    existingConnection?.provider === provider &&
+    existingConnection.accountId === accountId;
+  const scopes =
+    input.scopes === undefined
+      ? sameAccount
+        ? (existingConnection?.scopes ?? [])
+        : []
+      : normalizeStringArray(input.scopes);
   const config = sanitizeConfig(input.config);
   const allowedApps = normalizeStringArray(input.allowedApps);
   const allowedUsers =
@@ -1577,7 +1662,7 @@ export async function upsertWorkspaceConnection(
     args: [
       provider,
       label,
-      input.accountId ?? null,
+      accountId,
       input.accountLabel ?? null,
       status,
       JSON.stringify(scopes),
@@ -1608,7 +1693,7 @@ export async function upsertWorkspaceConnection(
           id,
           provider,
           label,
-          input.accountId ?? null,
+          accountId,
           input.accountLabel ?? null,
           status,
           JSON.stringify(scopes),

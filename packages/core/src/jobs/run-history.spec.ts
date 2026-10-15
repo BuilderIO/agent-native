@@ -33,6 +33,7 @@ vi.mock("../secrets/crypto.js", () => ({
 
 import {
   finishAutomationRun,
+  attachAutomationRunThread,
   listLatestAutomationRuns,
   listAutomationRuns,
   processPendingAutomationFailureAlerts,
@@ -76,6 +77,118 @@ describe("automation run history", () => {
     );
   });
 
+  it("reports a failed required thread attachment when no history row was written", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    await expect(
+      attachAutomationRunThread("missing", "thread", "worker", {
+        requirePersisted: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "background_automation_history_write_failed",
+    });
+  });
+
+  it("reports a failed required terminal write instead of a successful no-op", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    await expect(
+      finishAutomationRun("missing", "success", undefined, undefined, {
+        requirePersisted: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "background_automation_history_write_failed",
+    });
+  });
+
+  it.each(["success", "interrupted"] as const)(
+    "accepts an already durable %s outcome on an idempotent retry",
+    async (status) => {
+      executeMock.mockImplementation(async (input: DbExecStatement) =>
+        input.sql.startsWith("SELECT")
+          ? {
+              rows: [row({ status, finished_at: Date.now() })],
+              rowsAffected: 0,
+            }
+          : { rows: [], rowsAffected: 0 },
+      );
+      await expect(
+        finishAutomationRun("run-1", status, undefined, undefined, {
+          requirePersisted: true,
+        }),
+      ).resolves.toBeUndefined();
+      expect(emitMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { error: "Delivery evidence unreadable", errorCode: "worker_stopped" },
+    { error: "Email delivery confirmed", errorCode: "journal_unreadable" },
+  ])(
+    "rejects a same-worker terminal retry with different delivery evidence: %j",
+    async (outcome) => {
+      executeMock.mockImplementation(async (input: DbExecStatement) =>
+        input.sql.startsWith("SELECT")
+          ? {
+              rows: [
+                row({
+                  run_id: "worker",
+                  status: "error",
+                  finished_at: Date.now(),
+                  error: "Email delivery confirmed",
+                  error_code: "worker_stopped",
+                }),
+              ],
+            }
+          : { rows: [], rowsAffected: 0 },
+      );
+      await expect(
+        finishAutomationRun(
+          "run-1",
+          "error",
+          outcome.error,
+          outcome.errorCode,
+          {
+            requirePersisted: true,
+            expectedRunId: "worker",
+          },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "background_automation_history_write_failed",
+      });
+      expect(emitMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["error", "skipped"] as const)(
+    "accepts an identical normalized %s outcome on retry",
+    async (status) => {
+      const error = "x".repeat(501);
+      const errorCode = "y".repeat(101);
+      executeMock.mockImplementation(async (input: DbExecStatement) =>
+        input.sql.startsWith("SELECT")
+          ? {
+              rows: [
+                row({
+                  run_id: "worker",
+                  status,
+                  finished_at: Date.now(),
+                  error: error.slice(0, 500),
+                  error_code:
+                    status === "skipped" ? null : errorCode.slice(0, 100),
+                }),
+              ],
+            }
+          : { rows: [], rowsAffected: 0 },
+      );
+      await expect(
+        finishAutomationRun("run-1", status, error, errorCode, {
+          requirePersisted: true,
+          expectedRunId: "worker",
+        }),
+      ).resolves.toBeUndefined();
+      expect(emitMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("reports a run abandoned past the liveness ceiling as interrupted", async () => {
     executeMock.mockResolvedValue({
       rows: [row({ started_at: Date.now() - 60 * MINUTE })],
@@ -100,6 +213,127 @@ describe("automation run history", () => {
     });
 
     expect(run.status).toBe("running");
+  });
+
+  it("guards the terminal write on the claim snapshot it read", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [row({ claimed_at: 1000 })] })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
+    await finishAutomationRun("run-1", "error", "stale", undefined, {
+      expectedClaimedAt: 1000,
+    });
+
+    const update = executeMock.mock.calls[1]?.[0] as DbExecStatement;
+    expect(update.sql).toContain("AND claimed_at IS NOT DISTINCT FROM ?");
+    expect(update.args.at(-1)).toBe(1000);
+  });
+
+  it("does not overwrite a run claimed after the stale snapshot", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [row({ claimed_at: 1000 })] })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
+    await finishAutomationRun("run-1", "error", "stale", undefined, {
+      expectedClaimedAt: 1000,
+    });
+    const update = executeMock.mock.calls[1]?.[0] as DbExecStatement;
+
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        claimed_at BIGINT,
+        finished_at BIGINT,
+        error TEXT,
+        error_code TEXT,
+        failure_alert_state TEXT,
+        failure_alert_next_attempt_at BIGINT,
+        failure_alert_claimed_at BIGINT
+      )`);
+      await pglite.query(
+        `INSERT INTO automation_runs (id, status, claimed_at) VALUES ('run-1', 'running', 2000)`,
+      );
+
+      const overwritten = await pglite.query(update.sql, update.args);
+      expect(overwritten.rowCount).toBe(0);
+
+      await pglite.query(
+        `UPDATE automation_runs SET claimed_at = 1000 WHERE id = 'run-1'`,
+      );
+      const settled = await pglite.query(update.sql, update.args);
+      expect(settled.rowCount).toBe(1);
+    } finally {
+      await pglite.close();
+    }
+  });
+
+  it("keeps history owned by a successor when recovery settles a stale worker snapshot", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [row({ run_id: "old-worker" })] })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+    await finishAutomationRun("run-1", "error", "stale", undefined, {
+      expectedRunId: "old-worker",
+    });
+    const settle = executeMock.mock.calls[1]![0] as DbExecStatement;
+    await attachAutomationRunThread("run-1", "thread-1", "successor", {
+      requirePersisted: true,
+      expectedRunId: "old-worker",
+    });
+    const attach = executeMock.mock.calls[2]![0] as DbExecStatement;
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        id TEXT PRIMARY KEY, status TEXT NOT NULL, run_id TEXT, thread_id TEXT,
+        finished_at BIGINT, error TEXT, error_code TEXT, claimed_at BIGINT,
+        failure_alert_state TEXT, failure_alert_next_attempt_at BIGINT,
+        failure_alert_claimed_at BIGINT
+      )`);
+      await pglite.query(`INSERT INTO automation_runs (id,status,run_id)
+        VALUES ('run-1','running','old-worker')`);
+      expect((await pglite.query(attach.sql, attach.args)).rowCount).toBe(1);
+      expect((await pglite.query(settle.sql, settle.args)).rowCount).toBe(0);
+      expect(
+        (
+          await pglite.query(
+            `SELECT status, run_id, finished_at FROM automation_runs`,
+          )
+        ).rows,
+      ).toEqual([
+        { status: "running", run_id: "successor", finished_at: null },
+      ]);
+      await pglite.query(`UPDATE automation_runs SET run_id = 'old-worker'`);
+      expect((await pglite.query(settle.sql, settle.args)).rowCount).toBe(1);
+      expect((await pglite.query(attach.sql, attach.args)).rowCount).toBe(0);
+    } finally {
+      await pglite.close();
+    }
+  });
+
+  it("rejects a guarded terminal retry for a different worker even with the same status", async () => {
+    executeMock.mockImplementation(async (input: DbExecStatement) =>
+      input.sql.startsWith("SELECT")
+        ? {
+            rows: [
+              row({
+                run_id: "successor",
+                status: "error",
+                finished_at: Date.now(),
+              }),
+            ],
+          }
+        : { rows: [], rowsAffected: 0 },
+    );
+    await expect(
+      finishAutomationRun("run-1", "error", "stale", undefined, {
+        requirePersisted: true,
+        expectedRunId: "old-worker",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "background_automation_history_write_failed",
+    });
+    expect(emitMock).not.toHaveBeenCalled();
   });
 
   it("filters run history to the requesting app while keeping legacy rows", async () => {
@@ -179,6 +413,65 @@ describe("automation run history", () => {
       );
     expect(update.sql).toContain("error_code = ?");
     expect(update.args).toContain("background_automation_cut_off");
+  });
+
+  it("persists and announces a skipped reason without an error code or owner alert", async () => {
+    executeMock
+      .mockResolvedValueOnce({
+        rows: [row({ notification_email: "alice@example.com" })],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+    const reason = "No new bookings need reminders.";
+
+    await finishAutomationRun("run-1", "skipped", reason, "http_502");
+
+    const update = executeMock.mock.calls[1]?.[0];
+    expect(update.args).toEqual([
+      "skipped",
+      expect.any(Number),
+      reason,
+      null,
+      null,
+      null,
+      "run-1",
+    ]);
+    expect(emitMock).toHaveBeenCalledWith(
+      "automation.run.finished",
+      expect.objectContaining({
+        status: "skipped",
+        error: reason,
+        errorCode: null,
+      }),
+      expect.anything(),
+    );
+    expect(executeMock).toHaveBeenCalledTimes(2);
+    expect(sendAutomationFailureNotificationMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a skipped run terminal beyond the liveness ceiling", async () => {
+    executeMock.mockResolvedValue({
+      rows: [
+        row({
+          status: "skipped",
+          started_at: Date.now() - 60 * MINUTE,
+          finished_at: Date.now() - 59 * MINUTE,
+          error: "No new bookings need reminders.",
+        }),
+      ],
+    });
+
+    expect(
+      await listAutomationRuns({
+        owners: ["alice@example.com"],
+        automation: "digest",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        status: "skipped",
+        error: "No new bookings need reminders.",
+        errorCode: null,
+      }),
+    ]);
   });
 
   it("reports an interrupted run with a code, not only a sentence", async () => {
@@ -298,6 +591,73 @@ describe("automation run history", () => {
       "calendar",
       "run-1",
     ]);
+  });
+
+  it("keeps failure alerts suppressed across skipped runs", async () => {
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        id TEXT, owner TEXT, automation TEXT, path TEXT, app_id TEXT,
+        status TEXT, notification_email TEXT, failure_alerted BIGINT,
+        started_at BIGINT
+      );
+      INSERT INTO automation_runs VALUES
+        ('previous-error', 'alice@example.com', 'digest', 'jobs/digest.md',
+         'calendar', 'error', 'alice@example.com', 1, 1),
+        ('previous-skip', 'alice@example.com', 'digest', 'jobs/digest.md',
+         'calendar', 'skipped', 'alice@example.com', 0, 2)`);
+      executeMock
+        .mockResolvedValueOnce({
+          rows: [
+            row({
+              app_id: "calendar",
+              notification_email: "alice@example.com",
+            }),
+          ],
+        })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            row({
+              app_id: "calendar",
+              notification_email: "alice@example.com",
+              status: "error",
+              error: "MCP tool unavailable",
+              failure_alert_state: "evaluating",
+            }),
+          ],
+        })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockImplementationOnce(async (statement: DbExecStatement) => {
+          if (typeof statement === "string")
+            throw new Error("Expected parameterized query");
+          const query = await pglite.prepare(statement.sql);
+          return {
+            rows: await query.all(...(statement.args ?? [])),
+            rowsAffected: 0,
+          };
+        })
+        .mockResolvedValueOnce({ rowsAffected: 1 });
+
+      await finishAutomationRun(
+        "run-1",
+        "error",
+        "MCP tool unavailable",
+        "mcp_missing",
+      );
+
+      expect(sendAutomationFailureNotificationMock).not.toHaveBeenCalled();
+      expect(
+        executeMock.mock.calls.some(
+          ([statement]) =>
+            typeof statement === "object" &&
+            statement.sql.includes("failure_alert_state = 'suppressed'"),
+        ),
+      ).toBe(true);
+    } finally {
+      await pglite.close();
+    }
   });
 
   it("checks legacy failure streaks without an untyped app id parameter", async () => {

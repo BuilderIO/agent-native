@@ -129,7 +129,9 @@ export const IPC = {
   CODE_AGENTS_REMOTE_CONNECTOR_PAIR: "code-agents:remote-connector:pair",
   CODE_AGENTS_PROVIDER_SETTINGS_GET: "code-agents:provider-settings:get",
   CODE_AGENTS_PROVIDER_SETTINGS_UPDATE: "code-agents:provider-settings:update",
-  CODE_AGENTS_PROVIDER_BUILDER_CONNECT: "code-agents:provider-builder:connect",
+  CODE_AGENTS_BUILDER_STATUS_GET: "code-agents:builder-status:get",
+  CODE_AGENTS_BUILDER_ACTIVATE: "code-agents:builder:activate",
+  CODE_AGENTS_BUILDER_CONNECT_OPEN: "code-agents:builder:connect-open",
 
   DEEP_LINK_OPEN: "deep-link:open",
 
@@ -143,6 +145,8 @@ export const IPC = {
   QUICK_PROMPT_UPDATE: "quick-prompt:update",
   QUICK_PROMPT_DISMISS: "quick-prompt:dismiss",
   QUICK_PROMPT_SET_PICKER_OPEN: "quick-prompt:set-picker-open",
+  QUICK_PROMPT_SET_SETUP_REQUIRED: "quick-prompt:set-setup-required",
+  QUICK_PROMPT_OPEN_PROVIDER_SETTINGS: "quick-prompt:open-provider-settings",
   QUICK_PROMPT_HIDDEN: "quick-prompt:hidden",
   QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
@@ -932,6 +936,62 @@ export type CodeAgentProviderCredentialKey =
   | "BUILDER_PRIVATE_KEY"
   | "BUILDER_PUBLIC_KEY";
 
+export interface CodeAgentBuilderConnectionStatus {
+  configured: boolean;
+  builderEnabled: boolean;
+  connectUrl: string;
+  appHost: string;
+  apiHost: string;
+  publicKeyConfigured: boolean;
+  privateKeyConfigured: boolean;
+  grants?: {
+    org?: { connectedAt: number | null; needsReconnect: boolean };
+    personal?: {
+      connectedAt: number | null;
+      needsReconnect: boolean;
+      restricted: boolean;
+    };
+  } | null;
+  effective?: "personal" | "org" | "workspace" | "env" | null;
+  canConnect?: { org: boolean; personal: boolean };
+  canDisconnect?: boolean;
+  agentNativeProvisioningEnabled?: boolean;
+  agentNativeProvisioningToken?: string;
+  envManaged?: boolean;
+  credentialSource?: "user" | "org" | "workspace" | "env";
+  orgName?: string;
+  connectError?: { message: string; at: number; code?: string };
+  authError?: { message: string; at: number };
+}
+
+export type CodeAgentBuilderConnectionResult =
+  | { state: "connected"; status: CodeAgentBuilderConnectionStatus }
+  | { state: "disconnected"; status: CodeAgentBuilderConnectionStatus }
+  | { state: "unavailable"; error: string };
+
+export interface CodeAgentBuilderActivationRequest {
+  provisioningToken: string;
+  scope?: "org" | "personal";
+  connectToken?: string | null;
+  source?: string;
+  flow?: string;
+}
+
+export type CodeAgentBuilderActivationResult =
+  | { ok: true; scope?: "org" | "personal" }
+  | { ok: false; code: string; message: string | null };
+
+export interface CodeAgentBuilderConnectOpenRequest {
+  connectAttemptId: string;
+  scope?: "org" | "personal";
+  source?: string;
+  flow?: string;
+}
+
+export type CodeAgentBuilderConnectOpenResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
 export interface CodeAgentProviderStatus {
   id: CodeAgentProviderId;
   label: string;
@@ -939,7 +999,13 @@ export interface CodeAgentProviderStatus {
   configuredKeys: CodeAgentProviderCredentialKey[];
   missingKeys: CodeAgentProviderCredentialKey[];
   savedKeys: CodeAgentProviderCredentialKey[];
-  source?: "desktop-settings" | "environment" | "mixed" | "local-codex";
+  source?:
+    | "desktop-settings"
+    | "desktop-managed"
+    | "environment"
+    | "mixed"
+    | "local-codex";
+  error?: string;
 }
 
 export interface CodeAgentProviderSettings {
@@ -1102,6 +1168,7 @@ export interface DesktopOpenRequest {
   path?: string;
   softOpen?: boolean;
   runId?: string;
+  settingsTab?: string;
 }
 
 export interface DesktopChatOpenAppRequest {

@@ -1,3 +1,5 @@
+import { parseBase64DataUrl } from "@agent-native/core/shared";
+
 import {
   base64ToBytes,
   readAscii,
@@ -317,6 +319,18 @@ export function guidKey(g: Guid | undefined): string {
   return g ? `${g.sessionID}:${g.localID}` : "";
 }
 
+function isUnsetGuid(guid: Guid | undefined): boolean {
+  if (!guid) return false;
+  const isAllOnes = (value: number) => value === -1 || value === 0xffffffff;
+  return isAllOnes(guid.sessionID) && isAllOnes(guid.localID);
+}
+
+function overrideGuid(node: FigNode): Guid | undefined {
+  return isUnsetGuid(node.overrideKey)
+    ? node.guid
+    : (node.overrideKey ?? node.guid);
+}
+
 function collectRawProps(
   node: FigNode,
   componentSymbol: FigNode | null,
@@ -453,7 +467,7 @@ type OverrideEntry = SymbolOverride;
  * An active override scope contributed by an enclosing INSTANCE. `startIndex`
  * is the position in the running guid path at which this instance's master
  * tree begins; override keys in `map` are joined-guid paths RELATIVE to that
- * point (matching what Figma stores in `symbolOverrides[].guidPath`).
+ * point (each override key is a joined path relative to this instance).
  *
  * Multiple layers stack: an outer instance's overrides remain valid even
  * after we descend through nested inner instances, because the descendant's
@@ -507,7 +521,7 @@ function applyOverrideLayers(
   instancePath: string[],
 ): FigNode {
   if (layers.length === 0) return node;
-  const nodeKey = guidKey(node.overrideKey ?? node.guid);
+  const nodeKey = guidKey(overrideGuid(node));
   if (!nodeKey) return node;
   const matches: OverrideEntry[] = [];
   for (const layer of layers) {
@@ -1129,7 +1143,7 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
       recordApproximation(
         node,
         ctx,
-        "GRADIENT_DIAMOND approximated as an ellipse; its falloff is an L1 distance, so Figma draws a four-pointed star. The REST walker reproduces it exactly with four quadrant-tiled linear gradients",
+        "GRADIENT_DIAMOND is approximated as an ellipse; its L1-distance falloff forms a four-pointed star. The REST walker approximates that effect with four quadrant-tiled linear gradients",
       );
       return `radial-gradient(${stops})`;
     }
@@ -1294,7 +1308,7 @@ function diamondBackgroundLayers(
   recordApproximation(
     node,
     ctx,
-    "GRADIENT_DIAMOND drawn as four quadrant-tiled linear gradients — the same shape Figma draws, since its falloff is linear within each quadrant",
+    "GRADIENT_DIAMOND drawn as four quadrant-tiled linear gradients — linear falloff within each quadrant",
   );
   return layers;
 }
@@ -1454,13 +1468,17 @@ export function imageSizeFromUnknownBytes(
 function intrinsicImageSize(
   url: string,
 ): { width: number; height: number } | null {
-  const match = /^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/.exec(
-    url,
-  );
-  if (!match) return null;
+  const parsed = parseBase64DataUrl(url);
+  if (
+    !parsed ||
+    !["image/png", "image/jpeg", "image/jpg"].includes(parsed.mediaType) ||
+    !/^[A-Za-z0-9+/=]+$/.test(parsed.data)
+  ) {
+    return null;
+  }
   return imageSizeFromBytes(
-    base64ToBytes(match[2]!),
-    match[1] === "png" ? "png" : "jpeg",
+    base64ToBytes(parsed.data),
+    parsed.mediaType === "image/png" ? "png" : "jpeg",
   );
 }
 
@@ -1558,7 +1576,7 @@ function borderShorthand(
         recordApproximation(
           node,
           ctx,
-          "dashed INSIDE stroke on a node with children drawn solid; an inset box-shadow cannot be dashed, and a real border would shrink the content box Figma leaves alone",
+          "dashed INSIDE stroke on a node with children drawn solid; an inset box-shadow cannot be dashed, and a real border would shrink the content box",
         );
       }
       return { boxShadow: `inset 0 0 0 ${num(uniformW)}px ${color}` };
@@ -1647,7 +1665,7 @@ function effectStyles(
       const c = colorToCss(e.color) ?? "rgba(0, 0, 0, 0.25)";
       if (shadowAsFilter) {
         filters.push(
-          `drop-shadow(${num(e.offset?.x ?? 0)}px ${num(e.offset?.y ?? 0)}px ${num(e.radius ?? 0)}px ${c})`,
+          `drop-shadow(${num(e.offset?.x ?? 0)}px ${num(e.offset?.y ?? 0)}px ${num((e.radius ?? 0) / 2)}px ${c})`,
         );
       } else {
         shadows.push(
@@ -2283,12 +2301,25 @@ function buildCss(
       node,
       ctx,
       node.type === "BOOLEAN_OPERATION"
-        ? "BOOLEAN_OPERATION has no decodable geometry; omitted rather than painted as its bounding box. Figma flattens a boolean outline only for REST and the .fig container — a clipboard paste carries just the operands — so import the frame with a Figma token, or upload the .fig, to get the real shape."
+        ? "BOOLEAN_OPERATION has no decodable geometry; omitted rather than painted as its bounding box. The input contains only boolean operands; retry REST import with a Figma token or upload the .fig source file to recover the combined shape."
         : `${node.type} has no decodable geometry; omitted rather than painted as its bounding box`,
     );
   }
 
-  if (node.type !== "TEXT" && !vectorLike && !geometrylessVector) {
+  if (node.type === "TEXT_PATH") {
+    recordApproximation(
+      node,
+      ctx,
+      "Text-on-path placement is omitted; its characters are not converted to glyph outlines.",
+    );
+  }
+
+  if (
+    node.type !== "TEXT" &&
+    node.type !== "TEXT_PATH" &&
+    !vectorLike &&
+    !geometrylessVector
+  ) {
     Object.assign(css, backgroundShorthand(node, ctx, overlays));
   }
 
@@ -2401,6 +2432,38 @@ interface Ctx {
   svgDefSeq: number;
   approximatedNodes: RenderHtmlFidelityEntry[];
   approximationByNode: Map<string, RenderHtmlFidelityEntry>;
+  skipCounts: FigImportSkipCounts;
+}
+
+const MAX_IMPORT_SKIP_COUNT = 250_000;
+
+function boundedIncrement(value: number): number {
+  return Math.min(value + 1, MAX_IMPORT_SKIP_COUNT);
+}
+
+function countUnresolvedOverrides(nodes: FigNode[]): number {
+  const identities = new Set<string>();
+  for (const node of nodes) {
+    const key = guidKey(node.guid);
+    if (key) identities.add(key);
+    if (node.overrideKey && !isUnsetGuid(node.overrideKey)) {
+      identities.add(guidKey(node.overrideKey));
+    }
+  }
+
+  let count = 0;
+  for (const node of nodes) {
+    if (count >= MAX_IMPORT_SKIP_COUNT) break;
+    if (node.type !== "INSTANCE") continue;
+    for (const override of node.symbolData?.symbolOverrides ?? []) {
+      const path = override.guidPath?.guids ?? [];
+      const target = path[path.length - 1];
+      if (target && !identities.has(guidKey(target))) {
+        count = boundedIncrement(count);
+      }
+    }
+  }
+  return count;
 }
 
 function decodePathCommands(bytes: Uint8Array | undefined): string {
@@ -3278,6 +3341,16 @@ function emitNode(
   if (resolved === null) return;
   node = resolved;
 
+  if (
+    node.type === "INSTANCE" &&
+    guidKey(node.symbolData?.symbolID) &&
+    !ctx.symbolByGuid.has(guidKey(node.symbolData?.symbolID))
+  ) {
+    ctx.skipCounts.missingComponentCount = boundedIncrement(
+      ctx.skipCounts.missingComponentCount,
+    );
+  }
+
   const indent = "  ".repeat(depth);
 
   let inlinedSymbol: FigNode | null = null;
@@ -3294,7 +3367,7 @@ function emitNode(
     node.type === "INSTANCE" ? buildPropEnv(node, propEnv) : propEnv;
   let childInstancePath =
     node.type === "INSTANCE" && inlinedSymbol
-      ? [...instancePath, guidKey(node.overrideKey ?? node.guid)]
+      ? [...instancePath, guidKey(overrideGuid(node))]
       : instancePath;
   let childOverrideLayers = overrideLayers;
   if (node.type === "INSTANCE") {
@@ -3657,6 +3730,13 @@ function emitFrameTemplate(frame: FigNode, ctx: Ctx, pageName: string): string {
   return lines.join("\n");
 }
 
+export class FrameOutputBudgetError extends Error {
+  constructor() {
+    super(".fig frame exceeded its render output budget.");
+    this.name = "FrameOutputBudgetError";
+  }
+}
+
 class BudgetedLines extends Array<string> {
   private bytes = 0;
 
@@ -3667,9 +3747,7 @@ class BudgetedLines extends Array<string> {
   override push(...items: string[]): number {
     for (const item of items) {
       this.bytes += utf8ByteLength(item) + 1;
-      if (this.bytes > this.maxBytes) {
-        throw new Error(".fig frame exceeded its render output budget.");
-      }
+      if (this.bytes > this.maxBytes) throw new FrameOutputBudgetError();
     }
     return super.push(...items);
   }
@@ -3696,12 +3774,26 @@ export interface RenderHtmlFidelityEntry {
   notes: string[];
 }
 
+export interface SkippedRenderFrame {
+  pageName: string;
+  frameName: string;
+}
+
 export interface RenderHtmlResult {
   pageCount: number;
   frameCount: number;
   frames: RenderedFrame[];
+  skippedFrames: SkippedRenderFrame[];
   unresolvedImageRefs?: Set<string>;
   approximatedNodes: RenderHtmlFidelityEntry[];
+  skipCounts: FigImportSkipCounts;
+}
+
+export interface FigImportSkipCounts {
+  unresolvedOverrideCount: number;
+  unresolvedVariableAliasCount: number;
+  missingComponentCount: number;
+  skippedNodeTypeCount: number;
 }
 
 export interface RenderHtmlOptions {
@@ -3716,6 +3808,8 @@ export interface RenderHtmlOptions {
   maxTreeDepth?: number;
   maxFrameOutputBytes?: number;
   maxTotalOutputBytes?: number;
+  /** Report frames over `maxFrameOutputBytes` in `skippedFrames` instead of failing the render. */
+  skipOversizedFrames?: boolean;
 }
 
 const DEFAULT_MAX_RENDER_FRAMES = 300;
@@ -3726,11 +3820,40 @@ const DEFAULT_MAX_TOTAL_OUTPUT_BYTES = 24 * 1024 * 1024;
 
 const TOP_LEVEL_RENDERABLE_TYPES = new Set(["FRAME", "SYMBOL", "INSTANCE"]);
 
+function countSkippedCanvasNodeTypes(
+  pages: FigNode[],
+  childrenOf: Map<string, FigNode[]>,
+): number {
+  const stack = pages.flatMap(
+    (page) => childrenOf.get(guidKey(page.guid)) ?? [],
+  );
+  let count = 0;
+  let visited = 0;
+  const visitedSections = new Set<string>();
+  while (stack.length > 0 && visited < MAX_IMPORT_SKIP_COUNT) {
+    const node = stack.pop()!;
+    visited += 1;
+    if (!node.type || node.visible === false) continue;
+    if (node.type === "SECTION") {
+      const key = guidKey(node.guid);
+      if (visitedSections.has(key)) continue;
+      visitedSections.add(key);
+      stack.push(...(childrenOf.get(guidKey(node.guid)) ?? []));
+      continue;
+    }
+    if (!TOP_LEVEL_RENDERABLE_TYPES.has(node.type)) {
+      count = boundedIncrement(count);
+    }
+  }
+  return count;
+}
+
 export function collectTopLevelFrames(
   parent: FigNode,
   childrenOf: Map<string, FigNode[]>,
+  maxNodes = DEFAULT_MAX_RENDERED_NODES,
 ): FigNode[] {
-  return collectTopLevelFrameBounds(parent, childrenOf).map(
+  return collectTopLevelFrameBounds(parent, childrenOf, maxNodes).map(
     (entry) => entry.node,
   );
 }
@@ -3738,6 +3861,7 @@ export function collectTopLevelFrames(
 function collectTopLevelFrameBounds(
   parent: FigNode,
   childrenOf: Map<string, FigNode[]>,
+  maxNodes: number,
 ): Array<{ node: FigNode; x: number; y: number }> {
   type Affine = {
     m00: number;
@@ -3788,7 +3912,7 @@ function collectTopLevelFrameBounds(
   while (stack.length > 0) {
     const { node, depth, matrix } = stack.pop()!;
     visited += 1;
-    if (visited > DEFAULT_MAX_RENDERED_NODES) {
+    if (visited > maxNodes) {
       throw new Error(".fig section traversal exceeded its node budget.");
     }
     if (depth > DEFAULT_MAX_TREE_DEPTH) {
@@ -3860,14 +3984,14 @@ const VARIABLE_FIELD_TO_PROP: Record<string, keyof FigNode> = {
  * Rewrites bound design-token variables into literal layout fields (padding, corner radius,
  * spacing, border weight) so the renderer doesn't need to know about variables.
  *
- * Figma bakes a literal alongside each binding, but the literal can be stale (e.g. the mode
+ * The node data includes a literal alongside each binding, but it can be stale (e.g. the mode
  * changed after the node was created). We overwrite a present literal only when the active mode
  * was found explicitly on the node or an ancestor — the collection default is NOT recoverable
  * from the document, so when no explicit mode exists we leave the baked value alone. A missing
  * literal is always filled.
  *
  * Local variables with a unique published counterpart by name are redirected to the published
- * one; Figma drops stale local copies on paste and this matches what renders in isolation.
+ * one; Paste payloads can omit stale local copies, which otherwise alter the isolated render.
  *
  * Mutates nodes in place; unresolvable bindings leave the literal untouched.
  */
@@ -3875,7 +3999,8 @@ function resolveVariableBindings(
   nodes: FigNode[],
   byGuid: Map<string, FigNode>,
   byKey: Map<string, FigNode>,
-): void {
+): number {
+  let unresolvedAliasCount = 0;
   const publishedByName = new Map<string, FigNode | null>();
   for (const n of nodes) {
     if (n.type !== "VARIABLE" || !n.key || !n.name) continue;
@@ -3931,9 +4056,15 @@ function resolveVariableBindings(
     if (value == null) return { value: null, confident: true };
     if (value.alias) {
       const v = lookupVar(value.alias);
-      if (!v) return { value: null, confident: true };
+      if (!v) {
+        unresolvedAliasCount = boundedIncrement(unresolvedAliasCount);
+        return { value: null, confident: true };
+      }
       const id = guidKey(v.guid);
-      if (seen.has(id)) return { value: null, confident: true };
+      if (seen.has(id)) {
+        unresolvedAliasCount = boundedIncrement(unresolvedAliasCount);
+        return { value: null, confident: true };
+      }
       seen.add(id);
       const setId = setIdOf(v.variableSetID);
       const entries = v.variableDataValues?.entries ?? [];
@@ -3981,6 +4112,7 @@ function resolveVariableBindings(
       }
     }
   }
+  return unresolvedAliasCount;
 }
 
 export function renderHtmlTemplates(
@@ -4029,7 +4161,12 @@ export function renderHtmlTemplates(
     arr.push(n);
   }
 
-  resolveVariableBindings(nodes, byGuid, byKey);
+  const skipCounts: FigImportSkipCounts = {
+    unresolvedOverrideCount: countUnresolvedOverrides(nodes),
+    unresolvedVariableAliasCount: resolveVariableBindings(nodes, byGuid, byKey),
+    missingComponentCount: 0,
+    skippedNodeTypeCount: 0,
+  };
 
   const ctx: Ctx = {
     byGuid,
@@ -4055,6 +4192,7 @@ export function renderHtmlTemplates(
     svgDefSeq: 0,
     approximatedNodes: [],
     approximationByNode: new Map(),
+    skipCounts,
     renderedNodeCount: 0,
     maxRenderedNodes: options.maxRenderedNodes ?? DEFAULT_MAX_RENDERED_NODES,
     maxTreeDepth: options.maxTreeDepth ?? DEFAULT_MAX_TREE_DEPTH,
@@ -4066,8 +4204,16 @@ export function renderHtmlTemplates(
   };
 
   const documentNode = nodes.find((n) => n.type === "DOCUMENT");
-  if (!documentNode)
-    return { pageCount: 0, frameCount: 0, frames: [], approximatedNodes: [] };
+  if (!documentNode) {
+    return {
+      pageCount: 0,
+      frameCount: 0,
+      frames: [],
+      skippedFrames: [],
+      approximatedNodes: [],
+      skipCounts,
+    };
+  }
 
   const allPages = (childrenOf.get(guidKey(documentNode.guid)) ?? []).filter(
     (n) => n.type === "CANVAS" && !n.internalOnly,
@@ -4080,23 +4226,32 @@ export function renderHtmlTemplates(
   const pages = selection
     ? allPages.filter((page) => {
         if (selection.has(guidKey(page.guid))) return true;
-        return collectTopLevelFrames(page, childrenOf).some((frame) =>
-          selection.has(guidKey(frame.guid)),
-        );
+        return collectTopLevelFrames(
+          page,
+          childrenOf,
+          ctx.maxRenderedNodes,
+        ).some((frame) => selection.has(guidKey(frame.guid)));
       })
     : allPages;
+  skipCounts.skippedNodeTypeCount = countSkippedCanvasNodeTypes(
+    pages,
+    childrenOf,
+  );
 
   const frames: RenderedFrame[] = [];
+  const skippedFrames: SkippedRenderFrame[] = [];
   for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
     const page = pages[pageIdx]!;
     const pageDirName = sanitizeFilename(page.name, `page-${pageIdx + 1}`);
     const pageSelected = selection?.has(guidKey(page.guid)) ?? false;
-    const pageFrames = collectTopLevelFrameBounds(page, ctx.childrenOf).filter(
-      (c) => {
-        if (!selection || pageSelected) return true;
-        return selection.has(guidKey(c.node.guid));
-      },
-    );
+    const pageFrames = collectTopLevelFrameBounds(
+      page,
+      ctx.childrenOf,
+      ctx.maxRenderedNodes,
+    ).filter((c) => {
+      if (!selection || pageSelected) return true;
+      return selection.has(guidKey(c.node.guid));
+    });
     if (frames.length + pageFrames.length > maxFrames) {
       throw new Error(
         `.fig document has too many top-level frames (max ${maxFrames}).`,
@@ -4112,15 +4267,39 @@ export function renderHtmlTemplates(
       const fileName =
         dupeIdx === 0 ? `${baseFile}.html` : `${baseFile}-${dupeIdx + 1}.html`;
       const pageName = page.name ?? `page-${pageIdx + 1}`;
-      const html = emitFrameTemplate(frame, ctx, pageName);
+      const frameName = frame.name ?? `frame-${frameIdx + 1}`;
+      const approximatedBefore = ctx.approximatedNodes.length;
+      const unresolvedBefore = ctx.unresolvedImageRefs?.size ?? 0;
+      const missingComponentsBefore = ctx.skipCounts.missingComponentCount;
+      let html: string;
+      try {
+        html = emitFrameTemplate(frame, ctx, pageName);
+      } catch (error) {
+        if (!options.skipOversizedFrames) throw error;
+        if (!(error instanceof FrameOutputBudgetError)) throw error;
+        // renderedNodeCount is deliberately kept: it bounds total work, not output.
+        for (const entry of ctx.approximatedNodes.splice(approximatedBefore)) {
+          ctx.approximationByNode.delete(entry.nodeId);
+        }
+        if (ctx.unresolvedImageRefs) {
+          [...ctx.unresolvedImageRefs]
+            .slice(unresolvedBefore)
+            .forEach((hash) => ctx.unresolvedImageRefs!.delete(hash));
+        }
+        ctx.skipCounts.missingComponentCount = missingComponentsBefore;
+        skippedFrames.push({ pageName, frameName });
+        continue;
+      }
       ctx.totalOutputBytes += utf8ByteLength(html);
       if (ctx.totalOutputBytes > ctx.maxTotalOutputBytes) {
-        throw new Error(".fig render exceeded its total output budget.");
+        throw new Error(
+          `.fig import generated too much editable HTML (max ${Math.round(ctx.maxTotalOutputBytes / 1024 / 1024)} MB).`,
+        );
       }
       frames.push({
         pageName,
         pageDirName,
-        frameName: frame.name ?? `frame-${frameIdx + 1}`,
+        frameName,
         fileName,
         relativePath: `${pageDirName}/${fileName}`,
         html,
@@ -4137,7 +4316,9 @@ export function renderHtmlTemplates(
     pageCount: pages.length,
     frameCount: frames.length,
     frames,
+    skippedFrames,
     approximatedNodes: ctx.approximatedNodes,
+    skipCounts: ctx.skipCounts,
     ...(ctx.unresolvedImageRefs !== undefined
       ? { unresolvedImageRefs: ctx.unresolvedImageRefs }
       : {}),

@@ -48,6 +48,7 @@ import {
   setIdentityGoogleAuthCookie,
   setFrameworkSessionCookie,
   setBetterAuthSessionCookie,
+  queryEchoSafeRedirect,
 } from "@agent-native/core/server";
 import { signInJourney } from "@agent-native/core/shared";
 import { defineEventHandler, getHeader, getMethod, readBody } from "h3";
@@ -1376,7 +1377,10 @@ export const bootstrapHandler = defineEventHandler(
       }
       if (!location)
         return new Response("Invalid sign-in request", { status: 400 });
-      return redirectWithStagedCookies(event, location);
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(event, location),
+      );
     }
 
     return jsonResponse({ error: "Method not allowed" }, 405);
@@ -1543,7 +1547,10 @@ export const bootstrapActivationHandler = defineEventHandler(
           200,
         );
       }
-      return redirectWithStagedCookies(event, returnUrl);
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(event, returnUrl),
+      );
     } catch (error) {
       void error;
       await releaseIdentityBootstrapActivation(activation).catch(() => {});

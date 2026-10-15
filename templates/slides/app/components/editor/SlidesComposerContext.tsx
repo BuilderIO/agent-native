@@ -64,7 +64,6 @@ export function useSlidesComposerContext({
   active = true,
   initialSelection,
   defaultDesignSystemId,
-  defaultReferenceDeck,
   systems,
   systemsError,
   systemsLoading,
@@ -77,7 +76,6 @@ export function useSlidesComposerContext({
   active?: boolean;
   initialSelection?: SlidesComposerContext;
   defaultDesignSystemId: string | null;
-  defaultReferenceDeck?: { id: string; title: string };
   systems: Array<{ id: string; title: string }>;
   systemsError?: unknown;
   systemsLoading?: boolean;
@@ -105,8 +103,6 @@ export function useSlidesComposerContext({
     "designs",
   ]);
   const storageKey = `slides-home-context:${session?.authUserId ? `${session.authUserId}:` : ""}${accountIdentity}`;
-  const defaultDeckId = defaultReferenceDeck?.id;
-  const defaultDeckTitle = defaultReferenceDeck?.title;
   const [storedSelection, setSelection] = useState<SlidesComposerContext>({
     designSystemId: null,
     references: [],
@@ -187,28 +183,21 @@ export function useSlidesComposerContext({
       const parsed = stored
         ? storedContextSchema.parse(JSON.parse(stored))
         : undefined;
-      setAutomaticReferenceDeckId(
-        parsed?.automaticReferenceDeckId ??
-          (stored ? null : (defaultDeckId ?? null)),
+      const automaticDeckId = parsed?.automaticReferenceDeckId;
+      const references = parsed?.references.filter(
+        (reference) =>
+          reference.source !== "slides" || reference.id !== automaticDeckId,
       );
+      setAutomaticReferenceDeckId(null);
       setSelection(
         parsed
           ? {
               designSystemId: parsed.designSystemId,
-              references: parsed.references,
+              references: references ?? parsed.references,
             }
           : {
               designSystemId: systemsEnabled ? defaultDesignSystemId : null,
-              references:
-                defaultDeckId && defaultDeckTitle !== undefined
-                  ? [
-                      {
-                        source: "slides",
-                        id: defaultDeckId,
-                        title: defaultDeckTitle,
-                      },
-                    ]
-                  : [],
+              references: [],
             },
       );
     } catch (cause) {
@@ -225,8 +214,6 @@ export function useSlidesComposerContext({
     identity,
     persistSelection,
     defaultDesignSystemId,
-    defaultDeckId,
-    defaultDeckTitle,
     t,
     systemsEnabled,
   ]);

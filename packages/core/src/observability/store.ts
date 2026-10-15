@@ -6,6 +6,7 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   sanitizeToolErrorMessage,
   TOOL_ERROR_CAPTURE_METADATA_KEY,
@@ -157,12 +158,13 @@ function withUserFilter(
   return { where: conditions.join(" AND "), args };
 }
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureObservabilityTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const traceSpansCreateSql = `
+export const observabilityStore = defineStore({
+  id: "observability",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const traceSpansCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_trace_spans (
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
@@ -181,11 +183,12 @@ export async function ensureObservabilityTables(): Promise<void> {
           status TEXT NOT NULL DEFAULT 'success',
           error_message TEXT,
           metadata TEXT,
-          created_at BIGINT NOT NULL
+          created_at BIGINT NOT NULL,
+          ended_at BIGINT
         )
       `;
 
-      const traceSummariesCreateSql = `
+        const traceSummariesCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_trace_summaries (
           run_id TEXT PRIMARY KEY,
           thread_id TEXT,
@@ -205,7 +208,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const feedbackCreateSql = `
+        const feedbackCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_feedback (
           id TEXT PRIMARY KEY,
           run_id TEXT,
@@ -221,7 +224,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const instructionUpdatesCreateSql = `
+        const instructionUpdatesCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_instruction_updates (
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
@@ -237,7 +240,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const humanReviewSummariesCreateSql = `
+        const humanReviewSummariesCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_human_review_summaries (
           run_id TEXT PRIMARY KEY,
           org_id TEXT NOT NULL,
@@ -250,7 +253,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const satisfactionScoresCreateSql = `
+        const satisfactionScoresCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_satisfaction_scores (
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
@@ -264,7 +267,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const evalsCreateSql = `
+        const evalsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_evals (
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
@@ -279,7 +282,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const evalDatasetsCreateSql = `
+        const evalDatasetsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_eval_datasets (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -292,7 +295,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const experimentsCreateSql = `
+        const experimentsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_experiments (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -307,7 +310,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const experimentAssignmentsCreateSql = `
+        const experimentAssignmentsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_experiment_assignments (
           experiment_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
@@ -317,7 +320,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const experimentResultsCreateSql = `
+        const experimentResultsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_experiment_results (
           id TEXT PRIMARY KEY,
           experiment_id TEXT NOT NULL,
@@ -331,7 +334,6 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      {
         await ensureTableExists("agent_trace_spans", traceSpansCreateSql);
         await ensureTableExists(
           "agent_trace_summaries",
@@ -365,6 +367,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           "agent_experiments",
           "owner_email",
           `ALTER TABLE agent_experiments ADD COLUMN IF NOT EXISTS owner_email TEXT`,
+        );
+        await ensureColumnExists(
+          "agent_trace_spans",
+          "ended_at",
+          `ALTER TABLE agent_trace_spans ADD COLUMN IF NOT EXISTS ended_at BIGINT`,
         );
         for (const table of USER_SCOPED_TABLES) {
           await ensureColumnExists(
@@ -496,14 +503,13 @@ export async function ensureObservabilityTables(): Promise<void> {
           "idx_experiment_results_exp",
           `CREATE INDEX IF NOT EXISTS idx_experiment_results_exp ON agent_experiment_results (experiment_id)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureObservabilityTables(): Promise<void> {
+  return observabilityStore.ready();
 }
 
 export async function insertTraceSpan(span: TraceSpan): Promise<void> {
@@ -513,8 +519,8 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
     sql: `INSERT INTO agent_trace_spans
       (id, run_id, thread_id, user_id, org_id, parent_span_id, span_type, name,
        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-       cost_cents_x100, duration_ms, status, error_message, metadata, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       cost_cents_x100, duration_ms, status, error_message, metadata, created_at, ended_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       span.id,
       span.runId,
@@ -534,6 +540,7 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
       span.errorMessage,
       span.metadata ? JSON.stringify(span.metadata) : null,
       span.createdAt,
+      span.endedAt ?? span.createdAt + span.durationMs,
     ],
   });
 }
@@ -881,6 +888,66 @@ export async function getTraceSummary(
   });
   if (rows.length === 0) return null;
   return rowToTraceSummary(rows[0] as any);
+}
+
+/**
+ * A thread created on a path with no request org keeps `org_id` NULL, and every
+ * review read requires `thread.org_id` to equal the trace's org, so its runs
+ * never reach Human Review. The run that executed under an org is the proof of
+ * which org the thread belongs to: adopt it, for the thread's own owner only
+ * and only while `org_id` is NULL.
+ *
+ * A private thread's `org_id` grants nothing but that review access (owner
+ * access ignores it, shares do not read it, and `visibility = 'org'` is the only
+ * way it scopes sharing), while `thread_data` holds every run's conversation. So
+ * a private thread whose owner's runs span more than one org belongs to none of
+ * them: the second statement unassigns it. Org-visible threads keep their
+ * `org_id`, which is an explicit sharing scope.
+ *
+ * Both statements run after this run's own summary is committed
+ * (`upsertTraceSummary` is awaited first), so of two concurrent runs under
+ * different orgs the one whose statements run later always sees the other's
+ * committed org. If this run's adopt raced ahead of the other run's summary, the
+ * other run's unassign undoes it, or, when that ran before this adopt
+ * committed, this run's own unassign does, since it starts after the adopt.
+ * No lock is needed.
+ *
+ * The multi-org signal is derived from `agent_trace_summaries`, so it is only
+ * as durable as those rows: retention purges them, and a run that never wrote a
+ * summary is invisible to it. A thread unassigned for spanning orgs can
+ * therefore be re-adopted once the other org's summaries age out.
+ */
+export async function adoptTraceOrgForThread(
+  summary: Pick<TraceSummary, "threadId" | "userId" | "orgId">,
+): Promise<void> {
+  if (!summary.orgId || !summary.threadId || !summary.userId) return;
+  const client = getDbExec();
+  // The subqueries only run for a thread owned by the caller (the other
+  // predicates short-circuit first) and probe
+  // idx_trace_summaries_thread_user_created by thread_id.
+  await client.execute({
+    sql: `UPDATE chat_threads SET org_id = ?
+      WHERE id = ? AND org_id IS NULL AND LOWER(owner_email) = LOWER(?)
+        AND NOT EXISTS (
+          SELECT 1 FROM agent_trace_summaries other
+          WHERE other.thread_id = chat_threads.id
+            AND LOWER(other.user_id) = LOWER(chat_threads.owner_email)
+            AND other.org_id IS NOT NULL AND other.org_id <> ?
+        )`,
+    args: [summary.orgId, summary.threadId, summary.userId, summary.orgId],
+  });
+  await client.execute({
+    sql: `UPDATE chat_threads SET org_id = NULL
+      WHERE id = ? AND org_id IS NOT NULL AND visibility = 'private'
+        AND LOWER(owner_email) = LOWER(?)
+        AND EXISTS (
+          SELECT 1 FROM agent_trace_summaries other
+          WHERE other.thread_id = chat_threads.id
+            AND LOWER(other.user_id) = LOWER(chat_threads.owner_email)
+            AND other.org_id IS NOT NULL AND other.org_id <> chat_threads.org_id
+        )`,
+    args: [summary.threadId, summary.userId],
+  });
 }
 
 export async function getOrgScopedThreadData(
@@ -2194,6 +2261,8 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
     errorDetail === "full" ||
     errorDetail === "signature";
 
+  const createdAt = Number(row.created_at);
+  const durationMs = Number(row.duration_ms ?? 0);
   return {
     id: String(row.id),
     runId: String(row.run_id),
@@ -2208,7 +2277,7 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
     cacheReadTokens: Number(row.cache_read_tokens ?? 0),
     cacheWriteTokens: Number(row.cache_write_tokens ?? 0),
     costCentsX100: Number(row.cost_cents_x100 ?? 0),
-    durationMs: Number(row.duration_ms ?? 0),
+    durationMs,
     status: row.status as TraceSpan["status"],
     errorMessage:
       errorMessage && exposesErrorText
@@ -2216,7 +2285,9 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
         : null,
     ...(errorDetail ? { errorDetail } : {}),
     metadata,
-    createdAt: Number(row.created_at),
+    createdAt,
+    endedAt:
+      row.ended_at == null ? createdAt + durationMs : Number(row.ended_at),
   };
 }
 

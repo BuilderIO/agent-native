@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
@@ -153,7 +154,9 @@ export default function ApproveDeckAccessRequestRoute() {
     t,
   ]);
 
-  const signInHref = buildSignInReturnHref({ returnTo: signInReturnTo });
+  const signInHref = buildSignInReturnHref({
+    returnTo: appPath(signInReturnTo),
+  });
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 py-12 text-foreground">

@@ -20,7 +20,7 @@ describe("desktop passive-access regressions", () => {
     const createWindow = between(
       main,
       "function createWindow(): BrowserWindow {",
-      "// ---------- DevTools: target the active app webview ----------",
+      'let activeAppId = "";',
     );
 
     expect(createWindow).toContain('win.webContents.on("will-navigate"');
@@ -78,7 +78,7 @@ describe("desktop passive-access regressions", () => {
     const startup = between(
       main,
       "void app.whenReady().then(async () => {",
-      "// Webviews now run in per-app persisted partitions",
+      '\n});\n\napp.on("window-all-closed", () => {',
     );
 
     expect(projects).not.toContain("resolveUsableDirectory");
@@ -229,7 +229,9 @@ describe("desktop passive-access regressions", () => {
       "<QueryClientProvider client={codeAgentsQueryClient}>",
     );
     expect(agent).not.toContain("AgentAdvancedMenu");
-    expect(agent).toContain("availableModels={availableModels}");
+    expect(agent).toContain(
+      "availableModels={showModelSelector ? availableModels : undefined}",
+    );
     expect(agent).toContain("onModelChange={(model, engine) =>");
   });
 
@@ -254,16 +256,25 @@ describe("desktop passive-access regressions", () => {
 
   it("retries a missing-provider chat after Builder connects", () => {
     const agent = source("../../../code-agents-ui/src/CodeAgentsApp.tsx");
-    const connectFlow = between(
+    const connectAction = between(
       agent,
-      "const connectBuilderProvider = useCallback(async () =>",
+      "const connectBuilderProvider = useCallback(() =>",
       "  const connectLocalRuntime = useCallback(",
     );
+    const connectedHandler = between(
+      agent,
+      "const handleBuilderConnected = useCallback(async () =>",
+      "  builderConnectedHandlerRef.current = handleBuilderConnected;",
+    );
 
-    expect(connectFlow).toContain('modelSelection.model === "auto"');
-    expect(connectFlow).toContain("hasMissingCredentialSignal(");
-    expect(connectFlow).toContain("await host.retryRun({");
-    expect(connectFlow).toContain("selectRun(retryResult.run.id)");
+    expect(connectAction).toContain(
+      "builderConnectFlow.start({ provisionAccount: false })",
+    );
+    expect(connectAction).not.toContain("window.open");
+    expect(connectedHandler).toContain('modelSelection.model === "auto"');
+    expect(connectedHandler).toContain("hasMissingCredentialSignal(");
+    expect(connectedHandler).toContain("await host.retryRun({");
+    expect(connectedHandler).toContain("selectRun(retryResult.run.id)");
     expect(agent).toContain("shouldShowCodeAgentCredentialCallout({");
     expect(agent).toContain("providerBlocked,");
     expect(agent).toContain("hasCredentialHistory,");
@@ -314,26 +325,6 @@ describe("desktop passive-access regressions", () => {
     expect(providerCheck).toContain(
       "hasRuntimeNonCodexCodeAgentLlmProvider(providerEnv)",
     );
-  });
-
-  it("keeps desktop app creation visible while provider setup is incomplete", () => {
-    const main = source("./index.ts");
-    const createRun = between(
-      main,
-      "async function createCodeAgentRun(",
-      "async function rerunCodeAgentRun(",
-    );
-    const runner = between(
-      main,
-      "async function spawnCodeAgentRunner(",
-      "function spawnCodeAgentApprovalRunner(",
-    );
-
-    expect(createRun).toContain(
-      'const isDesktopAppCreation = userMetadata.kind === "desktop-create-app"',
-    );
-    expect(createRun).toContain("if (!provider.ok && !isDesktopAppCreation)");
-    expect(runner).toContain('phase: "missing-credentials"');
   });
 
   it("starts empty desktop app creation from the framework workspace", () => {
@@ -460,7 +451,7 @@ describe("desktop passive-access regressions", () => {
     const whenReady = between(
       main,
       "app.whenReady().then(async () => {",
-      "// Webviews now run in per-app persisted partitions",
+      '\n});\n\napp.on("window-all-closed", () => {',
     );
     expect(whenReady).toContain("if (pendingDeepLink) {");
     expect(whenReady).toContain("handleDeepLink(deepLink);");
@@ -501,7 +492,7 @@ describe("desktop passive-access regressions", () => {
     const navigation = between(
       main,
       "function installWebviewOAuthNavigationHandler(",
-      "// ---------- Webview popup handling ----------",
+      'app.on("web-contents-created", (_event, contents) => {',
     );
     expect(navigation).toContain(
       "denied desktop deep-link navigation from embedded content",

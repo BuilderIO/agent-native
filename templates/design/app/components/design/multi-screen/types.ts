@@ -12,6 +12,8 @@ import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
 import type { VectorEndpointStyle } from "@shared/vector-endpoints";
 import type { ReactNode, RefObject } from "react";
 
+import type { TextCommitStatus } from "@/pages/design-editor/command-types";
+
 import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
@@ -185,6 +187,8 @@ export interface MultiScreenCanvasProps {
   interactMode?: boolean;
   interactScreenId?: string | null;
   focusedInteractViewport?: { width: number; height: number } | null;
+  /** The corner class of the focused Interact frame; a string, so the memoised canvas compares it by value. */
+  focusedInteractCornerClass?: string | null;
   readOnly?: boolean;
   editableScreenIds?: ReadonlySet<string>;
   activeScreenHasHoveredChild?: boolean;
@@ -195,6 +199,9 @@ export interface MultiScreenCanvasProps {
   reviewResourceId?: string;
   reviewPinMode?: boolean;
   reviewCommentsHidden?: boolean;
+  pixelGridEnabled?: boolean;
+  snapToPixelGrid?: boolean;
+  showRulers?: boolean;
   reviewCanPost?: boolean;
   reviewCanResolve?: boolean;
   reviewTargetId?: string | null;
@@ -213,7 +220,11 @@ export interface MultiScreenCanvasProps {
   toolProps?: CanvasToolProps;
   onActiveToolChange?: (tool: MultiScreenCanvasTool) => void;
   onCommentPin?: (point: Point) => void;
-  onPick: (id: string) => void;
+  onPick: (
+    id: string,
+    selectionToggle?: { screenId: string; selected: boolean },
+  ) => void;
+  onSelectForGesture?: (id: string) => void;
   onEdit?: (id: string) => void;
   metadataById?: Record<string, ScreenMetadata | undefined>;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
@@ -301,7 +312,10 @@ export interface MultiScreenCanvasProps {
       onRuntimeReload?: () => void;
     },
   ) => ReactNode;
-  onScreenSelectionChange?: (ids: string[]) => void;
+  onScreenSelectionChange?: (
+    ids: string[],
+    intent?: ElementSelectionIntent,
+  ) => void;
   selectAllRequest?: number;
   clearSelectionRequest?: number;
   onAddBreakpoint?: (widthPx: number) => void;
@@ -317,7 +331,10 @@ export interface MultiScreenCanvasProps {
     nextWidthPx: number,
   ) => void;
   onEditBreakpoint?: (screenId: string, widthPx: number) => void;
-  onSelectionChange?: (selectedIds: string[]) => void;
+  onSelectionChange?: (
+    selectedIds: string[],
+    intent?: ElementSelectionIntent,
+  ) => void;
   onLayerMarqueeSelectionChange?: (
     selection: CanvasLayerMarqueeSelection[],
     intent: ElementSelectionIntent & { final?: boolean },
@@ -336,9 +353,16 @@ export interface MultiScreenCanvasProps {
     targetAnchorSelector?: string;
     targetAnchorPlacement?: "before" | "after" | "inside";
     targetDropMode?: CrossScreenDropMode;
+    targetGridPlacement?: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
     targetAnchorRect?: CrossScreenHitTestAnchorRect;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
+    targetOutsideBoardContentBounds?: boolean;
     sourcePointerOffset?: Point;
     sourceComputedSize?: { width?: number; height?: number };
     sourceHtmlSnapshot?: string;
@@ -476,7 +500,7 @@ export interface MultiScreenCanvasProps {
     value: string,
     info?: ElementInfo,
     details?: { html?: string },
-  ) => void;
+  ) => TextCommitStatus | void;
   vectorEdit?: VectorEditOverlayState | null;
   gradientEditTarget?: GradientEditOverlayTarget | null;
   onDropFiles?: (
@@ -485,6 +509,7 @@ export interface MultiScreenCanvasProps {
   ) => void;
   cameraCommand?: {
     fitBounds: FrameBounds;
+    canvasZoom?: number;
     paddingScreenPx?: number;
     nonce: number;
   } | null;
@@ -495,10 +520,174 @@ export interface MultiScreenCanvasProps {
   } | null;
   preserveCameraOnScreenCountChange?: boolean;
   deferLineupZoomChange?: boolean;
+  /**
+   * Omitted: the first layout fits every screen. Set (a screen id, or null for
+   * the first screen): it focuses that screen. By default it fits the pane
+   * width; `fitFocusedViewport` fits both axes and centers it.
+   */
+  initialFitScreenId?: string | null;
+  /**
+   * With `initialFitScreenId` set: render that screen at least as tall as the
+   * pane so it reflows into the pane instead of leaving empty canvas below it.
+   */
+  fillFocusedViewport?: boolean;
+  /** With `initialFitScreenId` set: center the full screen inside the pane. */
+  fitFocusedViewport?: boolean;
   chromeInsetLeft?: number;
   chromeInsetRight?: number;
   visibleCanvasRectRef?: RefObject<(() => VisibleCanvasRect | null) | null>;
 }
+
+export type MultiScreenCanvasReviewProps = Pick<
+  MultiScreenCanvasProps,
+  | "reviewResourceId"
+  | "reviewPinMode"
+  | "reviewCommentsHidden"
+  | "reviewCanPost"
+  | "reviewCanResolve"
+  | "reviewTargetId"
+  | "reviewFocusRequest"
+  | "reviewCurrentUserEmail"
+  | "onExitReviewPinMode"
+  | "onDispatchCommentToAgent"
+  | "onSendThreadToAgent"
+  | "reviewSendingThreadId"
+  | "reviewDesignTitle"
+  | "onCommentPin"
+  | "pendingReviewScreenIds"
+  | "onReviewPendingScreen"
+>;
+
+export type MultiScreenCanvasBoardProps = Pick<
+  MultiScreenCanvasProps,
+  | "boardFileId"
+  | "boardFileContent"
+  | "boardCodeLayerSource"
+  | "boardFrameGeometry"
+  | "onBoardDrawPrimitive"
+  | "boardEditMode"
+  | "boardRuntimeStructureInsertRequest"
+  | "boardRuntimeStructureRollbackRequest"
+  | "runtimeStructurePendingTransactionRef"
+  | "onBoardRuntimeStructureInsertRejected"
+  | "onBoardRuntimeStructureInsertApplied"
+  | "onBoardRuntimeStructureRollbackResult"
+  | "boardIsActive"
+  | "onBoardElementSelect"
+  | "onBoardSelectionWorldBoundsChange"
+  | "onBoardElementMarqueeSelect"
+  | "onBoardElementHover"
+  | "onBoardElementClear"
+  | "onBoardElementDblClickText"
+  | "onBoardIframeHotkey"
+  | "onBoardFigmaClipboardPaste"
+  | "onBoardImagePaste"
+  | "onBoardIframeContextMenu"
+  | "onBoardTextEditingStateChange"
+  | "boardClearSelectionRequest"
+  | "boardSelectedSelector"
+  | "boardSelectedSelectorCandidates"
+  | "boardSelectedSourceId"
+  | "boardHoveredSelector"
+  | "boardHoveredSelectorCandidates"
+  | "boardLockedSelectors"
+  | "boardHiddenSelectors"
+  | "onBoardVisualStructureChange"
+  | "onBoardVisualStyleChange"
+  | "onBoardVisualStyleBatchChange"
+  | "onBoardVisualDuplicateChange"
+  | "onBoardTextContentChange"
+>;
+
+export type MultiScreenCanvasBreakpointsProps = Pick<
+  MultiScreenCanvasProps,
+  | "onAddBreakpoint"
+  | "breakpointMutationPending"
+  | "onActiveBreakpointChange"
+  | "onRemoveBreakpoint"
+  | "onChangeBreakpointWidth"
+  | "onEditBreakpoint"
+  | "renderBreakpointContent"
+  | "onBreakpointContentHeightChange"
+>;
+
+export type MultiScreenCanvasCameraProps = Pick<
+  MultiScreenCanvasProps,
+  | "cameraCommand"
+  | "suppressLineupRecenter"
+  | "preserveCameraOnScreenCountChange"
+  | "deferLineupZoomChange"
+  | "chromeInsetLeft"
+  | "chromeInsetRight"
+  | "visibleCanvasRectRef"
+  | "onZoomChange"
+  | "initialFitScreenId"
+  | "fillFocusedViewport"
+  | "fitFocusedViewport"
+>;
+
+export type MultiScreenCanvasCreationProps = Pick<
+  MultiScreenCanvasProps,
+  | "activeTool"
+  | "toolProps"
+  | "onActiveToolChange"
+  | "onCreatePrimitive"
+  | "onPrimitiveCreated"
+  | "onUpdatePenPath"
+  | "onPrimitiveReparent"
+  | "onCreateScreenFrame"
+  | "frameToolDraws"
+  | "vectorEdit"
+  | "gradientEditTarget"
+>;
+
+export type MultiScreenCanvasGeometryProps = Pick<
+  MultiScreenCanvasProps,
+  | "geometryById"
+  | "geometryOverridesById"
+  | "onGeometryChange"
+  | "onGeometryCommit"
+  | "onPrimaryContentHeightChange"
+  | "onScreenContentNaturalHeightChange"
+  | "layoutGrids"
+  | "nudgeAmounts"
+  | "onNudgeSelection"
+>;
+
+export type MultiScreenCanvasSelectionProps = Pick<
+  MultiScreenCanvasProps,
+  | "selectedScreenIds"
+  | "selectedElementScreenId"
+  | "selectedPenPathNodeId"
+  | "onScreenSelectionChange"
+  | "selectAllRequest"
+  | "clearSelectionRequest"
+  | "onSelectionChange"
+  | "onLayerMarqueeSelectionChange"
+  | "selectedLayerSelectorGroupsByScreen"
+  | "activeScreenHasHoveredChild"
+  | "hoveredChildScreenId"
+  | "directlyHoveredScreenId"
+>;
+
+export type MultiScreenCanvasGroupedProps = Omit<
+  MultiScreenCanvasProps,
+  | keyof MultiScreenCanvasReviewProps
+  | keyof MultiScreenCanvasBoardProps
+  | keyof MultiScreenCanvasBreakpointsProps
+  | keyof MultiScreenCanvasCameraProps
+  | keyof MultiScreenCanvasCreationProps
+  | keyof MultiScreenCanvasGeometryProps
+  | keyof MultiScreenCanvasSelectionProps
+> & {
+  review?: MultiScreenCanvasReviewProps;
+  board?: MultiScreenCanvasBoardProps;
+  breakpoints?: MultiScreenCanvasBreakpointsProps;
+  camera?: MultiScreenCanvasCameraProps;
+  creation?: MultiScreenCanvasCreationProps;
+  geometry?: MultiScreenCanvasGeometryProps;
+  selection?: MultiScreenCanvasSelectionProps;
+};
 
 export interface VisibleCanvasRect {
   x: number;
@@ -551,7 +740,7 @@ export interface VectorEditOverlayState {
 }
 
 /**
- * Figma-parity on-canvas gradient editing handles (follow-up to IP21's
+ * On-canvas gradient editing handles (follow-up to IP21's
  * inspector-only `GradientEditor`). Supplied by the parent (DesignEditor)
  * whenever a fill's gradient tab is open in the inspector for a selected
  * board/draft primitive or screen frame this canvas renders chrome for; see
@@ -711,6 +900,8 @@ export interface MarqueeDragState {
   baseSelectedIds: string[];
   baseSelectedDraftIds: string[];
   additive: boolean;
+  metaKey: boolean;
+  ctrlKey: boolean;
   hasMoved: boolean;
 }
 
@@ -718,6 +909,7 @@ export interface PanDragState {
   type: "pan";
   originClient: Point;
   originPan: Point;
+  originZoom: number;
 }
 
 export interface DraftMoveDragState {
@@ -836,12 +1028,21 @@ export interface CrossScreenHitTestAnchorRect {
 export interface CrossScreenHitTestResult {
   targetAnchorProvenance?: SourceNodeProvenance;
   anchorNodeId?: string;
+  anchorParentNodeId?: string;
   pendingNodeId?: string;
   anchorSelector?: string;
   placement?: CrossScreenDropPlacement;
+  guidePlacement?: CrossScreenDropPlacement;
   axis?: CrossScreenDropAxis;
   dropMode?: CrossScreenDropMode;
   anchorRect?: CrossScreenHitTestAnchorRect;
+  guideRect?: CrossScreenHitTestAnchorRect;
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
 }
 
 export interface CrossScreenDragElementRect {
@@ -865,6 +1066,7 @@ export interface CanvasLayerMarqueeSelection {
 
 export interface CrossScreenDropGuide {
   placement: CrossScreenDropPlacement;
+  guidePlacement?: CrossScreenDropPlacement;
   axis: CrossScreenDropAxis;
   boardRect: FrameGeometry;
 }

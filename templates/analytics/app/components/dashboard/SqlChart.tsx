@@ -1,10 +1,25 @@
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   EmbeddedExtension,
   ExtensionSlot,
 } from "@agent-native/toolkit/app/extensions";
-import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
+import {
+  isCategoryAxis,
+  planCategoryAxis,
+  trimToWidth,
+  type CategoryAxisPlan,
+} from "@shared/chart-axis-labels";
+import type { DashboardFunnelRows } from "@shared/dashboard-funnel";
+import { formatDollars } from "@shared/format-dollars";
+import {
+  isNumericLikeValue,
+  limitChartRows,
+  planPanelRender,
+  resolveSeriesColors,
+  type ChartPointLimit,
+  type HeatmapKeys,
+} from "@shared/panel-render-contract";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -12,13 +27,16 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconAlertTriangle,
+  IconEye,
   IconInfoCircle,
+  IconPencil,
   IconRefresh,
   IconTrendingUp,
   IconTrendingDown,
 } from "@tabler/icons-react";
 import {
   createContext,
+  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -26,6 +44,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -37,6 +56,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -44,12 +64,32 @@ import {
   PieChart,
   ResponsiveContainer,
   Tooltip,
+  usePlotArea,
   XAxis,
   YAxis,
 } from "recharts";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverAnchor,
@@ -75,7 +115,6 @@ import {
   type DualAxisPlan,
 } from "@/pages/adhoc/sql-dashboard/dual-axis";
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
-import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
   SqlPanel,
   ChartType,
@@ -85,24 +124,7 @@ import type {
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
 
-const MAX_CHART_POINTS = 400;
-
-export function limitChartRows(
-  rows: Record<string, unknown>[],
-  chartType: ChartType,
-): Record<string, unknown>[] {
-  if (
-    rows.length <= MAX_CHART_POINTS ||
-    !["line", "area", "bar", "pie", "heatmap", "funnel", "callout"].includes(
-      chartType,
-    )
-  ) {
-    return rows;
-  }
-  return chartType !== "line" && chartType !== "area" && chartType !== "heatmap"
-    ? rows.slice(0, MAX_CHART_POINTS)
-    : rows.slice(-MAX_CHART_POINTS);
-}
+export { limitChartRows };
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",
@@ -205,7 +227,7 @@ function formatYValue(
   value: number,
   formatter?: "number" | "currency" | "percent",
 ): string {
-  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
@@ -321,15 +343,6 @@ export function formatMetricValue(
     : raw == null
       ? "-"
       : stringifyValue(raw);
-}
-
-function isNumericLikeValue(value: unknown): boolean {
-  if (typeof value === "number") return Number.isFinite(value);
-  return (
-    typeof value === "string" &&
-    value.trim() !== "" &&
-    Number.isFinite(Number(value))
-  );
 }
 
 export function detectMetricValueColumn(
@@ -618,16 +631,22 @@ function tooltipItemName(item: {
   return String(item.name ?? item.dataKey ?? "");
 }
 
+/** Sorts by value, or by `order` (series names) first when given. */
 export function sortTooltipPayloadItems<
   T extends {
     dataKey?: string | number;
     name?: string | number;
     value?: unknown;
   },
->(items: T[]): T[] {
+>(items: T[], order?: readonly string[]): T[] {
+  const rank = new Map(order?.map((name, index) => [name, index]));
   const sorted = items
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {
+      const ranked =
+        (rank.get(tooltipItemName(a.item)) ?? rank.size) -
+        (rank.get(tooltipItemName(b.item)) ?? rank.size);
+      if (ranked !== 0) return ranked;
       const diff =
         numericTooltipValue(b.item.value) - numericTooltipValue(a.item.value);
       return diff !== 0 ? diff : a.index - b.index;
@@ -946,12 +965,14 @@ function chartTypeReservesLegend(panel: SqlPanel): boolean {
     panel.chartType === "line" ||
     panel.chartType === "area" ||
     panel.chartType === "bar" ||
+    panel.chartType === "combo" ||
     panel.chartType === "pie";
   if (!chartUsesFrame) return false;
   return (
     panel.chartType === "line" ||
     panel.chartType === "area" ||
     panel.chartType === "bar" ||
+    panel.chartType === "combo" ||
     usesPrometheusPresentation(panel)
   );
 }
@@ -1052,6 +1073,7 @@ export function ChartTooltip({
   seriesNameFormatter,
   valueFormatter,
   stacked,
+  seriesOrder,
 }: {
   active?: boolean;
   payload?: Array<{
@@ -1066,14 +1088,17 @@ export function ChartTooltip({
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number, name?: string | number) => string;
   stacked?: boolean;
+  /** Series names in draw order; a stacked chart lists them this way. */
+  seriesOrder?: readonly string[];
 }) {
   const items = useMemo(
     () =>
       sortTooltipPayloadItems(
         payload?.filter((item) => item.value != null && item.value !== "") ??
           [],
+        stacked ? seriesOrder : undefined,
       ),
-    [payload],
+    [payload, seriesOrder, stacked],
   );
   const isVisible = Boolean(active) && items.length > 0;
   const { anchorRef, boxRef } = useChartTooltipPortalPosition(
@@ -1108,7 +1133,7 @@ export function ChartTooltip({
         <div className="mb-1.5 font-semibold text-foreground">{totalValue}</div>
       )}
       {labelText && (
-        <div className="mb-1.5 truncate font-medium text-foreground">
+        <div className="mb-1.5 break-words font-medium text-foreground">
           {labelText}
         </div>
       )}
@@ -1148,79 +1173,6 @@ export function ChartTooltip({
   );
 }
 
-function detectKeys(
-  rows: Record<string, unknown>[],
-  config?: SqlPanel["config"],
-  forcedYKeys?: string[],
-): { xKey: string; yKeys: string[] } {
-  if (rows.length === 0) return { xKey: "", yKeys: [] };
-
-  const cols = Object.keys(rows[0]);
-  const colSet = new Set(cols);
-  const sample = rows[0] as Record<string, unknown>;
-
-  let xKey = config?.xKey && colSet.has(config.xKey) ? config.xKey : "";
-  if (!xKey) {
-    xKey =
-      cols.find((c) => {
-        const v = sample[c];
-        if (typeof v === "string" && v.length >= 8) {
-          const d = new Date(v);
-          return !isNaN(d.getTime());
-        }
-        return false;
-      }) ||
-      cols.find((c) => typeof sample[c] === "string") ||
-      cols[0];
-  }
-
-  if (forcedYKeys && forcedYKeys.length) {
-    return { xKey, yKeys: forcedYKeys.filter((key) => colSet.has(key)) };
-  }
-
-  const yKeys = (config?.yKeys ?? (config?.yKey ? [config.yKey] : [])).filter(
-    (key) => colSet.has(key),
-  );
-  if (yKeys.length === 0) {
-    for (const c of cols) {
-      if (c === xKey) continue;
-      if (isNumericLikeValue(sample[c])) yKeys.push(c);
-    }
-  }
-  if (yKeys.length === 0 && cols.length > 1) {
-    yKeys.push(cols.find((c) => c !== xKey) || cols[1]);
-  }
-
-  return { xKey, yKeys };
-}
-
-function configuredKeysMissingFromRows(
-  rows: Record<string, unknown>[],
-  panel: SqlPanel,
-): string[] {
-  if (rows.length === 0) return [];
-  const rowKeys = new Set(Object.keys(rows[0]));
-  const missing = new Set<string>();
-  const config = panel.config;
-  if (config?.xKey && !rowKeys.has(config.xKey)) missing.add(config.xKey);
-
-  if (!config?.pivot) {
-    if (config?.yKey && !rowKeys.has(config.yKey)) missing.add(config.yKey);
-    for (const key of config?.yKeys ?? []) {
-      if (!rowKeys.has(key)) missing.add(key);
-    }
-    for (const key of config?.rightYKeys ?? []) {
-      if (!rowKeys.has(key)) missing.add(key);
-    }
-  }
-
-  for (const col of config?.columns ?? []) {
-    if (!rowKeys.has(col.key)) missing.add(col.key);
-    if (col.linkKey && !rowKeys.has(col.linkKey)) missing.add(col.linkKey);
-  }
-  return Array.from(missing);
-}
-
 function ConfigWarning({ keys }: { keys: string[] }) {
   if (keys.length === 0) return null;
   return (
@@ -1228,6 +1180,29 @@ function ConfigWarning({ keys }: { keys: string[] }) {
       <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
       <span>Ignored missing result columns: {keys.join(", ")}</span>
     </div>
+  );
+}
+
+function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
+  const t = useT();
+  const formatters = useFormatters();
+  return (
+    <p
+      data-chart-point-limit
+      className="mt-1 text-[11px] leading-4 text-muted-foreground"
+    >
+      {t(
+        limit.keeps === "newest"
+          ? "sqlDashboard.chartPointLimitNewest"
+          : limit.keeps === "last"
+            ? "sqlDashboard.chartPointLimitLast"
+            : "sqlDashboard.chartPointLimitFirst",
+        {
+          shown: formatters.formatNumber(limit.shown),
+          total: formatters.formatNumber(limit.total),
+        },
+      )}
+    </p>
   );
 }
 
@@ -1240,8 +1215,12 @@ interface SqlChartProps {
   showLoadingWhenDisabled?: boolean;
   timeRange?: number;
   reportScreenshot?: boolean;
+  refreshToken?: number;
+  onRefreshRequested?: () => void;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
+  /** Passing this makes a table's columns editable; omit it for read-only tables. */
+  onSaveColumns?: (columns: TableColumnConfig[]) => void;
   dashboardId?: string;
   extensionContext?: Record<string, unknown> | null;
 }
@@ -1254,8 +1233,11 @@ export function SqlChart({
   showLoadingWhenDisabled = true,
   timeRange,
   reportScreenshot = false,
+  refreshToken = 0,
+  onRefreshRequested,
   onExportCsvChange,
   onCopyTableChange,
+  onSaveColumns,
   dashboardId,
   extensionContext,
 }: SqlChartProps) {
@@ -1265,17 +1247,21 @@ export function SqlChart({
   const isExtension = panel.chartType === "extension";
   const shouldQuery = !isSection && !isExtension && loadData && !resultOverride;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
+  const [localRefreshToken, setLocalRefreshToken] = useState(0);
   const {
     data: queryResult,
     isLoading: queryIsLoading,
     isFetching: queryIsFetching,
     error: queryError,
-    refetch,
   } = useSqlQuery(
     ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
     panel.source,
-    { enabled: shouldQuery, reportScreenshot },
+    {
+      enabled: shouldQuery,
+      reportScreenshot,
+      refreshToken: refreshToken + localRefreshToken,
+    },
   );
 
   const result = resultOverride ?? queryResult;
@@ -1287,22 +1273,20 @@ export function SqlChart({
       ? (result?.error ??
         (queryError ? formatSqlChartError(queryError) : undefined))
       : undefined;
+  const refreshError =
+    shouldQuery && rawRows.length > 0 && queryError
+      ? formatSqlChartError(queryError)
+      : undefined;
+  const requestRefresh = () => {
+    if (onRefreshRequested) onRefreshRequested();
+    else setLocalRefreshToken((token) => token + 1);
+  };
 
-  const { rows: queryRows, forcedYKeys } = useMemo(() => {
-    if (panel.config?.pivot && rawRows.length) {
-      const pivoted = pivotRows(rawRows, panel.config.pivot, {
-        fillDateGaps: panel.chartType !== "bar",
-        timeRange,
-      });
-      return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
-    }
-    return { rows: rawRows, forcedYKeys: undefined };
-  }, [rawRows, panel.chartType, panel.config?.pivot, timeRange]);
-
-  const { xKey, yKeys } = useMemo(
-    () => detectKeys(queryRows, panel.config, forcedYKeys),
-    [queryRows, panel.config, forcedYKeys],
+  const plan = useMemo(
+    () => planPanelRender(rawRows, panel, { timeRange }),
+    [rawRows, panel.chartType, panel.config, timeRange],
   );
+  const { rows: queryRows, xKey, yKeys } = plan;
   const shouldCreateDemoTrend =
     demoModeEnabled &&
     (panel.chartType === "line" ||
@@ -1322,8 +1306,8 @@ export function SqlChart({
         ? "area"
         : panel.chartType;
   const chartRows = useMemo(
-    () => limitChartRows(rows, chartType),
-    [chartType, rows],
+    () => limitChartRows(rows, chartType, xKey),
+    [chartType, rows, xKey],
   );
 
   if (isSection) {
@@ -1359,7 +1343,15 @@ export function SqlChart({
       />
     );
   }
-  const colors = panel.config?.colors || DEFAULT_COLORS;
+  const colors = panel.config?.colors?.length
+    ? panel.config.colors
+    : DEFAULT_COLORS;
+  const seriesColors = resolveSeriesColors(
+    plan.yKeys,
+    plan.colorSlots,
+    panel,
+    colors,
+  );
   const yFormatter = panel.config?.yFormatter;
 
   const isMetric = panel.chartType === "metric";
@@ -1389,7 +1381,7 @@ export function SqlChart({
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => void refetch()}
+            onClick={requestRefresh}
           >
             <IconRefresh className="mr-2 h-3.5 w-3.5" />
             {t("sqlDashboard.refresh")}
@@ -1399,8 +1391,58 @@ export function SqlChart({
     );
   }
 
-  if (rows.length === 0) {
-    return (
+  const missingConfigKeys = plan.missingKeys;
+  const withConfigWarning = (node: ReactNode) => {
+    if (refreshError) {
+      return (
+        <div className="flex h-full min-h-0 flex-col gap-2">
+          <div
+            className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
+            role="alert"
+          >
+            <p className="min-w-0 break-words text-xs text-destructive">
+              {refreshError}
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={requestRefresh}
+            >
+              <IconRefresh className="mr-2 h-3.5 w-3.5" />
+              {t("sqlDashboard.refresh")}
+            </Button>
+          </div>
+          {missingConfigKeys.length > 0 && (
+            <ConfigWarning keys={missingConfigKeys} />
+          )}
+          <div className="min-h-0 flex-1">{node}</div>
+        </div>
+      );
+    }
+    return missingConfigKeys.length > 0 ? (
+      <div className="space-y-2">
+        <ConfigWarning keys={missingConfigKeys} />
+        {node}
+      </div>
+    ) : (
+      node
+    );
+  };
+
+  const pointLimit = plan.pointLimit;
+  const withPointLimit = (node: ReactNode) =>
+    pointLimit ? (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1">{node}</div>
+        <ChartPointLimitNote limit={pointLimit} />
+      </div>
+    ) : (
+      node
+    );
+
+  if (plan.empty) {
+    const noData = (
       <div
         className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
       >
@@ -1409,18 +1451,11 @@ export function SqlChart({
         </p>
       </div>
     );
+    // A funnel or heatmap with rows that draws nothing keeps the warning and
+    // refresh banner that say why; a result with no rows to plot is a bare
+    // "No data".
+    return plan.rows.length === 0 ? noData : withConfigWarning(noData);
   }
-
-  const missingConfigKeys = configuredKeysMissingFromRows(rows, panel);
-  const withConfigWarning = (node: ReactNode) =>
-    missingConfigKeys.length > 0 ? (
-      <div className="space-y-2">
-        <ConfigWarning keys={missingConfigKeys} />
-        {node}
-      </div>
-    ) : (
-      node
-    );
 
   if (chartType === "metric") {
     return withConfigWarning(<MetricRenderer rows={rows} panel={panel} />);
@@ -1433,50 +1468,77 @@ export function SqlChart({
         panel={panel}
         onExportCsvChange={onExportCsvChange}
         onCopyTableChange={onCopyTableChange}
+        onSaveColumns={onSaveColumns}
       />,
     );
   }
 
   if (chartType === "pie") {
     return withConfigWarning(
-      <PieRenderer
-        rows={chartRows}
-        xKey={xKey}
-        yKey={yKeys[0]}
-        colors={colors}
-        panel={panel}
-      />,
+      withPointLimit(
+        <PieRenderer
+          rows={chartRows}
+          xKey={xKey}
+          yKey={yKeys[0]}
+          colors={colors}
+          panel={panel}
+        />,
+      ),
     );
   }
 
   if (chartType === "bar") {
     return withConfigWarning(
-      <BarRenderer
-        rows={chartRows}
-        xKey={xKey}
-        yKeys={yKeys}
-        colors={colors}
-        yFormatter={yFormatter}
-        stacked={panel.config?.stacked === true}
-        panel={panel}
-      />,
+      withPointLimit(
+        <BarRenderer
+          rows={chartRows}
+          xKey={xKey}
+          yKeys={yKeys}
+          colors={seriesColors}
+          yFormatter={yFormatter}
+          stacked={panel.config?.stacked === true}
+          panel={panel}
+        />,
+      ),
     );
   }
 
-  if (chartType === "funnel") {
+  if (chartType === "combo") {
     return withConfigWarning(
-      <FunnelRenderer rows={chartRows} panel={panel} colors={colors} />,
+      withPointLimit(
+        <ComboRenderer
+          rows={chartRows}
+          xKey={xKey}
+          yKeys={yKeys}
+          colors={seriesColors}
+          yFormatter={yFormatter}
+          barKeys={panel.config?.barKeys ?? []}
+          panel={panel}
+        />,
+      ),
     );
   }
 
-  if (chartType === "heatmap") {
+  if (chartType === "funnel" && plan.funnel) {
     return withConfigWarning(
-      <HeatmapRenderer rows={chartRows} panel={panel} />,
+      withPointLimit(
+        <FunnelRenderer funnel={plan.funnel} panel={panel} colors={colors} />,
+      ),
+    );
+  }
+
+  if (chartType === "heatmap" && plan.heatmap) {
+    return withConfigWarning(
+      withPointLimit(
+        <HeatmapRenderer rows={chartRows} panel={panel} keys={plan.heatmap} />,
+      ),
     );
   }
 
   if (chartType === "callout") {
-    return withConfigWarning(<CalloutRenderer rows={chartRows} />);
+    return withConfigWarning(
+      withPointLimit(<CalloutRenderer rows={chartRows} />),
+    );
   }
 
   if (chartType !== "line" && chartType !== "area") {
@@ -1484,16 +1546,18 @@ export function SqlChart({
   }
 
   return withConfigWarning(
-    <TimeSeriesRenderer
-      rows={chartRows}
-      xKey={xKey}
-      yKeys={yKeys}
-      colors={colors}
-      yFormatter={yFormatter}
-      chartType={chartType}
-      stacked={panel.config?.stacked === true}
-      panel={panel}
-    />,
+    withPointLimit(
+      <TimeSeriesRenderer
+        rows={chartRows}
+        xKey={xKey}
+        yKeys={yKeys}
+        colors={seriesColors}
+        yFormatter={yFormatter}
+        chartType={chartType}
+        stacked={panel.config?.stacked === true}
+        panel={panel}
+      />,
+    ),
   );
 }
 
@@ -1659,6 +1723,38 @@ export function sortTableRows(
     .map(({ row }) => row);
 }
 
+/**
+ * Moves `fromKey` to the position `toKey` holds among the visible columns.
+ * Hidden entries keep their slots in the persisted list, so reordering never
+ * shifts a column the user hid.
+ */
+export function reorderColumnConfigs(
+  configs: TableColumnConfig[],
+  visibleKeys: string[],
+  fromKey: string,
+  toKey: string,
+): TableColumnConfig[] {
+  const from = visibleKeys.indexOf(fromKey);
+  const to = visibleKeys.indexOf(toKey);
+  if (from < 0 || to < 0 || from === to) return configs;
+
+  const nextVisible = [...visibleKeys];
+  nextVisible.splice(from, 1);
+  nextVisible.splice(to, 0, fromKey);
+
+  const visibleSet = new Set(visibleKeys);
+  const configByKey = new Map(configs.map((config) => [config.key, config]));
+  const next = [...configs];
+  let visibleIndex = 0;
+  configs.forEach((config, index) => {
+    if (!visibleSet.has(config.key)) return;
+    const entry = configByKey.get(nextVisible[visibleIndex]);
+    if (entry) next[index] = entry;
+    visibleIndex += 1;
+  });
+  return next;
+}
+
 export function formatCell(
   value: unknown,
   format: ColumnFormat | undefined,
@@ -1669,7 +1765,7 @@ export function formatCell(
     return numeric.toLocaleString();
   }
   if (format === "currency" && numeric !== null) {
-    return `$${numeric.toLocaleString()}`;
+    return formatDollars(numeric);
   }
   if (format === "percent" && numeric !== null) {
     const pct = numeric <= 1 && numeric >= -1 ? numeric * 100 : numeric;
@@ -1787,23 +1883,73 @@ function isSessionColumn(key: string): boolean {
   return key === "session_id" || key === "sessionId";
 }
 
+function isNumericColumnFormat(format: ColumnFormat | undefined): boolean {
+  return (
+    format === "number" ||
+    format === "currency" ||
+    format === "percent" ||
+    format === "delta"
+  );
+}
+
+/**
+ * Text columns that give way first in a narrow card, so numbers and dates
+ * stay whole; a capped cell ends in an ellipsis and keeps its full value in a
+ * hover title.
+ */
+export function truncatedTableColumns(
+  columns: TableColumnConfig[],
+  rows: Record<string, unknown>[],
+): Set<string> {
+  return new Set(
+    columns
+      .filter((col) => {
+        if (isNumericColumnFormat(col.format) || col.format === "date") {
+          return false;
+        }
+        if (col.format) return true;
+        const values = rows
+          .map((row) => row[col.key])
+          .filter((value) => value != null && value !== "");
+        return !values.length || isCategoryAxis(values);
+      })
+      .map((col) => col.key),
+  );
+}
+
+const MIN_TABLE_COLUMN_WIDTH = 48;
+const COLUMN_DRAG_MIME = "application/x-analytics-table-column";
+
+// A set width must also be the cell's max-width: with max-width 0 Chrome
+// resolves the preferred width to 0 and the column collapses to its padding.
+function sizedColumnClass(col: TableColumnConfig): string {
+  return col.width ? " overflow-hidden text-ellipsis" : "";
+}
+
+function sizedColumnStyle(width: number | undefined) {
+  return width ? { width, maxWidth: width } : undefined;
+}
+
 function TableRenderer({
   rows,
   panel,
   onExportCsvChange,
   onCopyTableChange,
+  onSaveColumns,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
+  onSaveColumns?: (columns: TableColumnConfig[]) => void;
 }) {
   const t = useT();
   const config = panel.config;
   const sortable = config?.sortable !== false;
+  const editable = onSaveColumns !== undefined;
+  const rowKeys = useMemo(() => new Set(Object.keys(rows[0] ?? {})), [rows]);
 
   const columns = useMemo<TableColumnConfig[]>(() => {
-    const rowKeys = new Set(Object.keys(rows[0] ?? {}));
     if (config?.columns?.length) {
       const configured = config.columns.filter(
         (c) => !c.hidden && rowKeys.has(c.key),
@@ -1811,7 +1957,287 @@ function TableRenderer({
       if (configured.length > 0) return configured;
     }
     return Object.keys(rows[0]).map((key) => ({ key }));
-  }, [config?.columns, rows]);
+  }, [config?.columns, rows, rowKeys]);
+
+  // Edits start from the persisted list, hidden entries included, so a change
+  // never drops a key the agent configured. Visible keys missing from it (the
+  // all-keys fallback above) are appended so every visible column is editable.
+  const editableColumns = useMemo<TableColumnConfig[]>(() => {
+    const base: TableColumnConfig[] = config?.columns?.length
+      ? config.columns
+      : Object.keys(rows[0] ?? {}).map((key) => ({ key }));
+    const listed = new Set(base.map((c) => c.key));
+    return [
+      ...base,
+      ...columns.filter((c) => !listed.has(c.key)).map((c) => ({ key: c.key })),
+    ];
+  }, [config?.columns, rows, columns]);
+
+  const hiddenColumns = editable
+    ? editableColumns.filter((c) => c.hidden && rowKeys.has(c.key))
+    : [];
+
+  const updateColumn = (key: string, patch: Partial<TableColumnConfig>) => {
+    onSaveColumns?.(
+      editableColumns.map((c) => (c.key === key ? { ...c, ...patch } : c)),
+    );
+  };
+
+  const moveColumn = (fromKey: string, toKey: string) => {
+    const next = reorderColumnConfigs(
+      editableColumns,
+      columns.map((c) => c.key),
+      fromKey,
+      toKey,
+    );
+    if (next !== editableColumns) onSaveColumns?.(next);
+  };
+
+  // While dragging, the live width stays local; the save happens on release.
+  const [resize, setResize] = useState<{
+    key: string;
+    startX: number;
+    startWidth: number;
+    width: number;
+  } | null>(null);
+
+  const renameKeyRef = useRef<string | null>(null);
+  const [renamingKey, setRenamingKey] = useState<string | null>(null);
+
+  const startRename = (key: string) => {
+    renameKeyRef.current = key;
+    setRenamingKey(key);
+  };
+
+  // A rename ends on blur or Escape; the ref makes the second call a no-op,
+  // since Escape unmounts the input and some browsers blur it on removal.
+  const finishRename = (key: string, draft: string | null) => {
+    if (renameKeyRef.current !== key) return;
+    renameKeyRef.current = null;
+    setRenamingKey(null);
+    if (draft === null) return;
+    const label = draft.trim();
+    const current = editableColumns.find((c) => c.key === key);
+    if (label === (current?.label ?? key)) return;
+    updateColumn(key, { label: label || undefined });
+  };
+
+  // The last column fills the table's remaining width, so widening it has no
+  // visible effect and its handle is not rendered.
+  const handleResizeStart = (
+    key: string,
+    event: ReactPointerEvent<HTMLSpanElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const header = event.currentTarget.closest("th");
+    if (!header) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startWidth = Math.round(header.getBoundingClientRect().width);
+    setResize({ key, startX: event.clientX, startWidth, width: startWidth });
+  };
+
+  const handleResizeMove = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    const { clientX } = event;
+    setResize(
+      (current) =>
+        current && {
+          ...current,
+          width: Math.max(
+            MIN_TABLE_COLUMN_WIDTH,
+            Math.round(current.startWidth + clientX - current.startX),
+          ),
+        },
+    );
+  };
+
+  // The width is recomputed from the release point rather than read from state,
+  // so a release that lands before React renders the last move still saves it.
+  const handleResizeEnd = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    if (resize === null) return;
+    setResize(null);
+    const width = Math.max(
+      MIN_TABLE_COLUMN_WIDTH,
+      Math.round(resize.startWidth + event.clientX - resize.startX),
+    );
+    if (width !== resize.startWidth) updateColumn(resize.key, { width });
+  };
+
+  const renderHeaderCell = (col: TableColumnConfig) => {
+    const label = col.label ?? col.key;
+    const sort = sortColumns.find((item) => item.key === col.key);
+    const isSorted = sort !== undefined;
+    const isRenaming = renamingKey === col.key;
+    const width = resize?.key === col.key ? resize.width : col.width;
+    const cell = (
+      <th
+        aria-sort={
+          sort
+            ? sort.direction === "asc"
+              ? "ascending"
+              : "descending"
+            : "none"
+        }
+        style={
+          sizedColumnStyle(width) ??
+          (truncatedColumns.has(col.key) ? truncatedHeaderStyle : undefined)
+        }
+        draggable={editable && !isRenaming && resize === null}
+        onDragStart={
+          editable
+            ? (event) => {
+                event.dataTransfer.setData(COLUMN_DRAG_MIME, col.key);
+                event.dataTransfer.effectAllowed = "move";
+              }
+            : undefined
+        }
+        onDragOver={
+          editable
+            ? (event) => {
+                if (event.dataTransfer.types.includes(COLUMN_DRAG_MIME)) {
+                  event.preventDefault();
+                }
+              }
+            : undefined
+        }
+        onDrop={
+          editable
+            ? (event) => {
+                const fromKey = event.dataTransfer.getData(COLUMN_DRAG_MIME);
+                if (!fromKey) return;
+                event.preventDefault();
+                moveColumn(fromKey, col.key);
+              }
+            : undefined
+        }
+        className={`text-left align-bottom py-1.5 px-2 font-medium text-muted-foreground ${
+          sortable ? "cursor-pointer select-none hover:text-foreground" : ""
+        } ${editable ? "relative" : ""} ${width ? "overflow-hidden text-ellipsis whitespace-nowrap" : ""}`}
+        onClick={(event) => {
+          // The second click of a double-click renames the column and must not
+          // toggle the sort a second time.
+          if (event.detail > 1) return;
+          handleHeaderClick(col.key, event.shiftKey);
+        }}
+        title={sortable ? t("sqlDashboard.multiColumnSortHelp") : undefined}
+      >
+        <span className="inline-flex items-center gap-1">
+          {isRenaming ? (
+            <Input
+              autoFocus
+              defaultValue={label}
+              aria-label={t("sqlDashboard.columnName")}
+              className="h-6 w-32 px-1.5 py-0 text-sm font-medium"
+              onClick={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") finishRename(col.key, null);
+              }}
+              onBlur={(event) =>
+                finishRename(col.key, event.currentTarget.value)
+              }
+            />
+          ) : (
+            <>
+              <span
+                onDoubleClick={
+                  editable
+                    ? (event) => {
+                        event.stopPropagation();
+                        startRename(col.key);
+                      }
+                    : undefined
+                }
+              >
+                {label}
+              </span>
+              {sortable &&
+                (isSorted ? (
+                  sort?.direction === "asc" ? (
+                    <IconSortAscending className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <IconSortDescending className="h-3 w-3 shrink-0" />
+                  )
+                ) : (
+                  <IconArrowsSort className="h-3 w-3 shrink-0 opacity-30" />
+                ))}
+            </>
+          )}
+        </span>
+        {editable &&
+        !isRenaming &&
+        col.key !== columns[columns.length - 1]?.key ? (
+          <span
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("sqlDashboard.columnResize")}
+            className="absolute inset-y-0 end-0 w-1.5 cursor-col-resize hover:bg-border"
+            onPointerDown={(event) => handleResizeStart(col.key, event)}
+            onPointerMove={handleResizeMove}
+            onPointerUp={handleResizeEnd}
+            onClick={(event) => event.stopPropagation()}
+          />
+        ) : null}
+      </th>
+    );
+    if (!editable) return <Fragment key={col.key}>{cell}</Fragment>;
+    return (
+      <ContextMenu key={col.key}>
+        <ContextMenuTrigger asChild>{cell}</ContextMenuTrigger>
+        <ContextMenuContent
+          onCloseAutoFocus={(event) => {
+            // Rename moves focus into the input after the menu closes; letting
+            // the menu return focus to the header would blur the input at once.
+            if (renameKeyRef.current !== null) event.preventDefault();
+          }}
+        >
+          <ContextMenuItem onSelect={() => startRename(col.key)}>
+            <IconPencil className="me-2 h-3.5 w-3.5" />
+            {t("sqlDashboard.columnRename")}
+          </ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              {t("sqlDashboard.columnFormat")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {/* Delta and link stay out of this menu: delta needs a sign
+                  convention and link needs a linkKey source. */}
+              <ContextMenuRadioGroup
+                value={col.format ?? "text"}
+                onValueChange={(value) =>
+                  updateColumn(col.key, { format: value as ColumnFormat })
+                }
+              >
+                <ContextMenuRadioItem value="text">
+                  {t("sqlDashboard.columnFormatText")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="number">
+                  {t("sqlDashboard.columnFormatNumber")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="currency">
+                  {t("sqlDashboard.columnFormatCurrency")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="percent">
+                  {t("sqlDashboard.columnFormatPercent")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="date">
+                  {t("sqlDashboard.columnFormatDate")}
+                </ContextMenuRadioItem>
+              </ContextMenuRadioGroup>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            disabled={columns.length <= 1}
+            onSelect={() => updateColumn(col.key, { hidden: true })}
+          >
+            {t("sqlDashboard.columnHide")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
 
   const limitedRows = useMemo(() => {
     const limit = config?.limit;
@@ -1828,6 +2254,23 @@ function TableRenderer({
 
   const pageCount = Math.ceil(sortedRows.length / pageSize);
   const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);
+
+  const truncatedColumns = useMemo(
+    () => truncatedTableColumns(columns, limitedRows),
+    [columns, limitedRows],
+  );
+  // A max-width of 0 drops a text cell's content from its column's minimum
+  // width, so in a narrow panel text gives way and numbers keep their width.
+  // A column the user sized keeps that width instead.
+  const flexibleTextColumns = columns.filter(
+    (col) => !col.width && truncatedColumns.has(col.key),
+  ).length;
+  const truncatedHeaderStyle: CSSProperties = {
+    width: `${Math.floor(60 / Math.max(flexibleTextColumns, 1))}%`,
+  };
+  const bodyCellStyle = (col: TableColumnConfig): CSSProperties | undefined =>
+    sizedColumnStyle(col.width) ??
+    (truncatedColumns.has(col.key) ? { maxWidth: 0 } : undefined);
 
   const handleHeaderClick = (key: string, shiftKey: boolean) => {
     if (!sortable) return;
@@ -1900,50 +2343,35 @@ function TableRenderer({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              {columns.map((col) => {
-                const label = col.label ?? col.key;
-                const sort = sortColumns.find((item) => item.key === col.key);
-                const isSorted = sort !== undefined;
-                return (
-                  <th
-                    key={col.key}
-                    aria-sort={
-                      sort
-                        ? sort.direction === "asc"
-                          ? "ascending"
-                          : "descending"
-                        : "none"
-                    }
-                    className={`text-left py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap ${
-                      sortable
-                        ? "cursor-pointer select-none hover:text-foreground"
-                        : ""
-                    }`}
-                    onClick={(event) =>
-                      handleHeaderClick(col.key, event.shiftKey)
-                    }
-                    title={
-                      sortable
-                        ? t("sqlDashboard.multiColumnSortHelp")
-                        : undefined
-                    }
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {label}
-                      {sortable &&
-                        (isSorted ? (
-                          sort?.direction === "asc" ? (
-                            <IconSortAscending className="h-3 w-3" />
-                          ) : (
-                            <IconSortDescending className="h-3 w-3" />
-                          )
-                        ) : (
-                          <IconArrowsSort className="h-3 w-3 opacity-30" />
-                        ))}
-                    </span>
-                  </th>
-                );
-              })}
+              {columns.map((col) => renderHeaderCell(col))}
+              {hiddenColumns.length > 0 ? (
+                <th className="w-8 py-1.5 px-1">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="p-0.5 rounded text-muted-foreground hover:text-foreground"
+                        aria-label={t("sqlDashboard.columnShowHidden")}
+                      >
+                        <IconEye className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {hiddenColumns.map((col) => (
+                        <DropdownMenuItem
+                          key={col.key}
+                          onSelect={() =>
+                            updateColumn(col.key, { hidden: false })
+                          }
+                        >
+                          {t("sqlDashboard.columnShow", {
+                            name: col.label ?? col.key,
+                          })}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -1951,6 +2379,7 @@ function TableRenderer({
               <tr key={i} className="border-b border-border/50">
                 {columns.map((col) => {
                   const raw = row[col.key];
+                  const truncated = truncatedColumns.has(col.key);
                   if (col.format === "link") {
                     const formatted = formatCell(raw, col.format);
                     const href = col.linkKey
@@ -1960,32 +2389,39 @@ function TableRenderer({
                     return (
                       <td
                         key={col.key}
-                        className="py-1.5 px-2 whitespace-nowrap"
+                        className={`py-1.5 px-2 whitespace-nowrap${sizedColumnClass(col)}`}
+                        style={bodyCellStyle(col)}
                       >
                         {safeHref ? (
                           <a
                             href={safeHref}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-primary hover:underline"
+                            className="block truncate text-primary hover:underline"
+                            title={formatted}
                           >
                             {formatted}
                           </a>
                         ) : (
-                          formatted
+                          <span className="block truncate" title={formatted}>
+                            {formatted}
+                          </span>
                         )}
                       </td>
                     );
                   }
-                  const numeric =
-                    col.format === "number" ||
-                    col.format === "currency" ||
-                    col.format === "percent" ||
-                    col.format === "delta";
+                  const numeric = isNumericColumnFormat(col.format);
+                  const formatted = formatCell(raw, col.format);
                   const content: ReactNode =
-                    col.format === "delta"
-                      ? renderDeltaCell(raw)
-                      : formatCell(raw, col.format);
+                    col.format === "delta" ? (
+                      renderDeltaCell(raw)
+                    ) : truncated ? (
+                      <span className="block truncate" title={formatted}>
+                        {formatted}
+                      </span>
+                    ) : (
+                      formatted
+                    );
                   const replayHref = isSessionColumn(col.key)
                     ? sessionReplayHref(row)
                     : null;
@@ -1994,10 +2430,11 @@ function TableRenderer({
                       key={col.key}
                       className={`py-1.5 px-2 whitespace-nowrap ${
                         numeric ? "text-right tabular-nums" : ""
-                      }`}
+                      }${sizedColumnClass(col)}`}
+                      style={bodyCellStyle(col)}
                     >
                       {replayHref ? (
-                        <span className="inline-flex flex-col gap-0.5">
+                        <span className="inline-flex max-w-full flex-col gap-0.5">
                           <span>{content}</span>
                           <Link
                             to={replayHref}
@@ -2012,6 +2449,7 @@ function TableRenderer({
                     </td>
                   );
                 })}
+                {hiddenColumns.length > 0 ? <td /> : null}
               </tr>
             ))}
           </tbody>
@@ -2130,6 +2568,121 @@ function PieRenderer({
   );
 }
 
+const CATEGORY_TICK_FONT_SIZE = 12;
+
+const LEVEL_CATEGORY_AXIS: CategoryAxisPlan = {
+  angle: 0,
+  interval: 0,
+  height: 30,
+  labelWidth: Number.POSITIVE_INFINITY,
+};
+
+/** Formatted x labels when the axis holds named categories, else null. */
+function useCategoryAxisLabels(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  formatLabel: (value: unknown) => string,
+): string[] | null {
+  return useMemo(() => {
+    const values = rows.map((row) => row[xKey]);
+    return isCategoryAxis(values) ? values.map(formatLabel) : null;
+  }, [rows, xKey, formatLabel]);
+}
+
+function CategoryAxisTick({
+  x,
+  y,
+  payload,
+  fill,
+  plan,
+  formatLabel,
+}: {
+  x: number | string;
+  y: number | string;
+  payload: { value?: unknown };
+  fill: string | undefined;
+  plan: CategoryAxisPlan;
+  formatLabel: (value: unknown) => string;
+}) {
+  const full = formatLabel(payload.value);
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{full}</title>
+      <text
+        textAnchor={plan.angle ? "end" : "middle"}
+        transform={plan.angle ? `rotate(${plan.angle})` : undefined}
+        dy={plan.angle ? "0.35em" : "0.71em"}
+        fontSize={CATEGORY_TICK_FONT_SIZE}
+        fill={fill}
+      >
+        {trimToWidth(full, CATEGORY_TICK_FONT_SIZE, plan.labelWidth, "…")}
+      </text>
+    </g>
+  );
+}
+
+/**
+ * X axis for named categories: every name is drawn, angled and cut with an
+ * ellipsis when the plot is too narrow, since a skipped tick hides a bar's name.
+ */
+function CategoryXAxis({
+  dataKey,
+  labels,
+  formatLabel,
+}: {
+  dataKey: string;
+  labels: string[];
+  formatLabel: (value: unknown) => string;
+}) {
+  const plotArea = usePlotArea();
+  const plotWidth = plotArea?.width ?? 0;
+  const leftInset = plotArea?.x ?? 0;
+  const plan = useMemo(
+    () =>
+      plotWidth > 0
+        ? planCategoryAxis(
+            labels,
+            plotWidth,
+            leftInset,
+            CATEGORY_TICK_FONT_SIZE,
+          )
+        : LEVEL_CATEGORY_AXIS,
+    [labels, plotWidth, leftInset],
+  );
+  // A new tick function re-registers the axis with the chart store, which
+  // re-renders this component; it must only change with the plan.
+  const renderTick = useCallback(
+    (props: {
+      x: number | string;
+      y: number | string;
+      payload: { value?: unknown };
+      fill: string | undefined;
+    }) => (
+      <CategoryAxisTick
+        x={props.x}
+        y={props.y}
+        payload={props.payload}
+        fill={props.fill}
+        plan={plan}
+        formatLabel={formatLabel}
+      />
+    ),
+    [plan, formatLabel],
+  );
+  return (
+    <XAxis
+      dataKey={dataKey}
+      stroke="hsl(var(--muted-foreground))"
+      fontSize={CATEGORY_TICK_FONT_SIZE}
+      tickLine={false}
+      axisLine={false}
+      interval={plan.interval}
+      height={plan.height}
+      tick={renderTick}
+    />
+  );
+}
+
 function BarRenderer({
   rows,
   xKey,
@@ -2147,8 +2700,11 @@ function BarRenderer({
   stacked?: boolean;
   panel: SqlPanel;
 }) {
-  const xLabelFormatter = (value: any) =>
-    formatXLabel(String(value ?? ""), panel);
+  const xLabelFormatter = useCallback(
+    (value: unknown) => formatXLabel(String(value ?? ""), panel),
+    [panel],
+  );
+  const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
@@ -2173,15 +2729,23 @@ function BarRenderer({
       showCustomLegend
     >
       <ChartResponsiveContainer>
-        <BarChart data={rows}>
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
-          />
+        <BarChart key={JSON.stringify(yKeys)} data={rows}>
+          {categoryLabels ? (
+            <CategoryXAxis
+              dataKey={xKey}
+              labels={categoryLabels}
+              formatLabel={xLabelFormatter}
+            />
+          ) : (
+            <XAxis
+              dataKey={xKey}
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={xLabelFormatter}
+            />
+          )}
           {renderChartYAxes(dualAxis, yFormatter)}
           <CartesianGrid
             strokeDasharray="3 3"
@@ -2198,6 +2762,7 @@ function BarRenderer({
                 seriesNameFormatter={seriesNameFormatter}
                 valueFormatter={valueFormatter}
                 stacked={stacked}
+                seriesOrder={yKeys.map(seriesNameFormatter)}
               />
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2218,6 +2783,122 @@ function BarRenderer({
             />
           ))}
         </BarChart>
+      </ChartResponsiveContainer>
+    </ChartFrame>
+  );
+}
+
+function ComboRenderer({
+  rows,
+  xKey,
+  yKeys,
+  colors,
+  yFormatter,
+  barKeys,
+  panel,
+}: {
+  rows: Record<string, unknown>[];
+  xKey: string;
+  yKeys: string[];
+  colors: string[];
+  yFormatter?: "number" | "currency" | "percent";
+  barKeys: string[];
+  panel: SqlPanel;
+}) {
+  const xLabelFormatter = useCallback(
+    (value: unknown) => formatXLabel(String(value ?? ""), panel),
+    [panel],
+  );
+  const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
+  const xTooltipLabelFormatter = (value: any) =>
+    formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
+  const seriesNameFormatter = (name: string) =>
+    formatSeriesLabelForPanel(panel, name);
+  const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
+  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
+  const valueFormatter = seriesValueFormatter(
+    yKeys,
+    dualAxis,
+    seriesNameFormatter,
+    yFormatter,
+  );
+  const barKeySet = new Set(barKeys);
+
+  return (
+    <ChartFrame
+      panel={panel}
+      legendKeys={yKeys}
+      colors={colors}
+      hiddenKeys={hiddenKeys}
+      onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
+      showCustomLegend
+    >
+      <ChartResponsiveContainer>
+        <ComposedChart data={rows}>
+          {categoryLabels ? (
+            <CategoryXAxis
+              dataKey={xKey}
+              labels={categoryLabels}
+              formatLabel={xLabelFormatter}
+            />
+          ) : (
+            <XAxis
+              dataKey={xKey}
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={xLabelFormatter}
+            />
+          )}
+          {renderChartYAxes(dualAxis, yFormatter)}
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke="hsl(var(--border))"
+            vertical={false}
+          />
+          <Tooltip
+            {...CHART_TOOLTIP_PROPS}
+            cursor={BAR_TOOLTIP_CURSOR_PROPS}
+            labelFormatter={xTooltipLabelFormatter}
+            content={
+              <ChartTooltip
+                labelFormatter={xTooltipLabelFormatter}
+                seriesNameFormatter={seriesNameFormatter}
+                valueFormatter={valueFormatter}
+              />
+            }
+            itemSorter={(item) => -(Number(item.value) || 0)}
+          />
+          {yKeys.map((key, i) =>
+            barKeySet.has(key) ? (
+              <Bar
+                key={key}
+                dataKey={key}
+                name={seriesNameFormatter(key)}
+                yAxisId={seriesAxisId(dualAxis, key)}
+                fill={colors[i % colors.length]}
+                radius={[4, 4, 0, 0]}
+                hide={hiddenKeys.has(key)}
+                isAnimationActive={false}
+              />
+            ) : (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                name={seriesNameFormatter(key)}
+                yAxisId={seriesAxisId(dualAxis, key)}
+                stroke={colors[i % colors.length]}
+                strokeWidth={2}
+                dot={false}
+                hide={hiddenKeys.has(key)}
+                isAnimationActive={false}
+              />
+            ),
+          )}
+        </ComposedChart>
       </ChartResponsiveContainer>
     </ChartFrame>
   );
@@ -2363,7 +3044,7 @@ function TimeSeriesRenderer({
       showCustomLegend
     >
       <ChartResponsiveContainer>
-        <AreaChart data={chartRows}>
+        <AreaChart key={JSON.stringify(yKeys)} data={chartRows}>
           {showFill && (
             <defs>
               {yKeys.map((key, i) => (
@@ -2412,6 +3093,7 @@ function TimeSeriesRenderer({
                 seriesNameFormatter={seriesNameFormatter}
                 valueFormatter={valueFormatter}
                 stacked={stacked}
+                seriesOrder={yKeys.map(seriesNameFormatter)}
               />
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2458,33 +3140,14 @@ function TimeSeriesRenderer({
 }
 
 function FunnelRenderer({
-  rows,
+  funnel,
   panel,
   colors,
 }: {
-  rows: Record<string, unknown>[];
+  funnel: DashboardFunnelRows;
   panel: SqlPanel;
   colors: string[];
 }) {
-  const t = useT();
-  const funnel = useMemo(
-    () =>
-      resolveDashboardFunnelRows(rows, panel.config?.xKey, panel.config?.yKey),
-    [rows, panel.config?.xKey, panel.config?.yKey],
-  );
-
-  if (funnel.items.length === 0) {
-    return (
-      <div
-        className={`flex items-center justify-center py-8 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
-      >
-        <p className="text-sm text-muted-foreground text-center">
-          {t("common.noData")}
-        </p>
-      </div>
-    );
-  }
-
   const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
   const formatter = panel.config?.yFormatter;
   const funnelColors = colors.length > 0 ? colors : DEFAULT_COLORS;
@@ -2534,42 +3197,16 @@ function FunnelRenderer({
 function HeatmapRenderer({
   rows,
   panel,
+  keys,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
+  keys: HeatmapKeys;
 }) {
-  const t = useT();
-  const cfg = panel.config;
-  const yFormatter = cfg?.yFormatter;
+  const yFormatter = panel.config?.yFormatter;
+  const { xKey: xK, valueKey: valK, rowKey: rowK } = keys;
 
-  const { valueKey, rowKey, xValues, yValues, grid, stats } = useMemo(() => {
-    if (rows.length === 0) {
-      return {
-        xKey: "",
-        valueKey: "",
-        rowKey: "",
-        xValues: [] as string[],
-        yValues: [] as string[],
-        grid: new Map<string, number>(),
-        stats: new Map<string, { mean: number; std: number }>(),
-      };
-    }
-    const cols = Object.keys(rows[0]);
-    const sample = rows[0] as Record<string, unknown>;
-    const xK =
-      cfg?.xKey || cols.find((c) => typeof sample[c] === "string") || cols[0];
-    const valK =
-      cfg?.yKey ||
-      cols.find((c) => c !== xK && typeof sample[c] === "number") ||
-      cols[1] ||
-      "";
-    const rowK =
-      cfg?.color ||
-      cols.find(
-        (c) => c !== xK && c !== valK && typeof sample[c] === "string",
-      ) ||
-      "";
-
+  const { xValues, yValues, grid, stats } = useMemo(() => {
     const xs: string[] = [];
     const ys: string[] = [];
     const seenX = new Set<string>();
@@ -2606,28 +3243,8 @@ function HeatmapRenderer({
         vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
       s.set(xv, { mean, std: Math.sqrt(variance) });
     }
-    return {
-      xKey: xK,
-      valueKey: valK,
-      rowKey: rowK,
-      xValues: xs,
-      yValues: ys,
-      grid: g,
-      stats: s,
-    };
-  }, [rows, cfg?.xKey, cfg?.yKey, cfg?.color]);
-
-  if (rows.length === 0 || !valueKey) {
-    return (
-      <div
-        className={`flex items-center justify-center py-8 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
-      >
-        <p className="text-sm text-muted-foreground text-center">
-          {t("common.noData")}
-        </p>
-      </div>
-    );
-  }
+    return { xValues: xs, yValues: ys, grid: g, stats: s };
+  }, [rows, xK, valK, rowK]);
 
   const cellColor = (xv: string, v: number | undefined) => {
     if (v == null) return undefined;
@@ -2647,7 +3264,7 @@ function HeatmapRenderer({
         <thead>
           <tr className="border-b border-border">
             <th className="text-left py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap">
-              {rowKey || ""}
+              {rowK}
             </th>
             {xValues.map((xv) => (
               <th

@@ -1,26 +1,27 @@
 ---
 title: "Accès et autorisation"
-description: "Qui peut appeler une action : flags d’exposition (agentTool, mcpTool, toolCallable), portée basée sur ctx, accessFilter/assertAccess, et le garde authorize."
+description: "Qui peut appeler une action : flags d’exposition (agentTool, mcpTool, toolCallable), l’option déclarative access, portée basée sur ctx, accessFilter/assertAccess, et le garde authorize."
 ---
 
 # Accès et autorisation
 
-Six paramètres décident qui peut appeler une action : l’agent, le frontend, une extension, un appelant API externe, ou personne sans l’approbation préalable d’un humain. La plupart des actions n’ont jamais besoin de toucher à l’un d’eux, puisque les valeurs par défaut conviennent déjà à un usage UI-et-agent normal.
+Sept paramètres décident qui peut appeler une action : l’agent, le frontend, une extension, un appelant API externe, ou personne sans l’approbation préalable d’un humain. La plupart des actions n’ont jamais besoin de toucher à l’un d’eux, puisque les valeurs par défaut conviennent déjà à un usage UI-et-agent normal.
 
 ### Flags d’exposition {#exposure-flags}
 
-Les six valent par défaut la valeur permissive — `mcpTool` en héritant d’`agentTool` —, donc vous n’en définissez un que lorsque vous devez restreindre une surface spécifique. Le tableau ci-dessous est un résumé rapide. Les sections qui suivent ajoutent le détail dont chaque flag a besoin.
+Les sept valent par défaut la valeur permissive — `mcpTool` en héritant d’`agentTool` —, donc vous n’en définissez un que lorsque vous devez restreindre une surface spécifique. Le tableau ci-dessous est un résumé rapide. Les sections qui suivent ajoutent le détail dont chaque flag a besoin.
 
-| Flag            | Défaut            | Valeur restrictive → qui peut encore appeler                                        | Usage typique                                                                                    |
-| --------------- | ----------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `agentTool`     | `true`            | `false` → UI, HTTP, et CLI seulement (masqué au modèle, à MCP, et à A2A)            | Actions réservées à l’UI ou programmatiques qui ne doivent pas prendre de place dans les outils  |
-| `mcpTool`       | `agentTool`       | `false` → l’agent de votre propre application seulement (masqué à MCP et A2A)       | Actions qui exigent un écran ou une session de l’application en face                             |
-| `toolCallable`  | `true`            | `false` → tout **sauf** le pont iframe des extensions en bac à sable (403)          | Changements sensibles de compte ou d’organisation (suppression de compte, changement d’adhésion) |
-| `publicAgent`   | désactivé (privé) | `{ expose: true }` → ajoute l’action aux surfaces **publiques** MCP/A2A/OpenAPI     | Outils de lecture ou d’ingestion sûrs qui n’exigent pas d’authentification                       |
-| `needsApproval` | `false`           | `true` → l’agent **se met en pause**, et un humain doit approuver l’appel précis    | Effets secondaires conséquents (envoyer un email, débiter une carte, supprimer)                  |
-| `authorize`     | aucun             | une fonction de garde → seuls les appelants qu’elle accepte, sur **chaque** surface | Opérations restreintes à un rôle (RBAC par application, opérations réservées aux admins)         |
+| Flag            | Défaut            | Valeur restrictive → qui peut encore appeler                                                              | Usage typique                                                                                    |
+| --------------- | ----------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `agentTool`     | `true`            | `false` → UI, HTTP, et CLI seulement (masqué au modèle, à MCP, et à A2A)                                  | Actions réservées à l’UI ou programmatiques qui ne doivent pas prendre de place dans les outils  |
+| `mcpTool`       | `agentTool`       | `false` → l’agent de votre propre application seulement (masqué à MCP et A2A)                             | Actions qui exigent un écran ou une session de l’application en face                             |
+| `toolCallable`  | `true`            | `false` → tout **sauf** le pont iframe des extensions en bac à sable (403)                                | Changements sensibles de compte ou d’organisation (suppression de compte, changement d’adhésion) |
+| `publicAgent`   | désactivé (privé) | `{ expose: true }` → ajoute l’action aux surfaces **publiques** MCP/A2A/OpenAPI                           | Outils de lecture ou d’ingestion sûrs qui n’exigent pas d’authentification                       |
+| `needsApproval` | `false`           | `true` → l’agent **se met en pause**, et un humain doit approuver l’appel précis                          | Effets secondaires conséquents (envoyer un email, débiter une carte, supprimer)                  |
+| `access`        | aucun             | une politique déclarée → seuls les appelants qui détiennent le rôle qu’elle nomme, sur **chaque** surface | Actions qui lisent ou modifient une seule ressource partagée (modifier un formulaire)            |
+| `authorize`     | aucun             | une fonction de garde → seuls les appelants qu’elle accepte, sur **chaque** surface                       | Opérations restreintes à un rôle (RBAC par application, opérations réservées aux admins)         |
 
-Ces flags sont indépendants, à une exception près : un `mcpTool` non déclaré hérite d’`agentTool`. `agentTool` contrôle ce que le modèle voit, voir [Masquer au modèle](#agent-tool) ci-dessous. `mcpTool` restreint cela aux seuls agents externes, voir [Masquer aux agents externes](#mcp-tool) ci-dessous. `toolCallable` ne contrôle que l’iframe d’extension, voir [Bloquer les iframes d’extension](#tool-callable) ci-dessous. `publicAgent` ajoute une surface publique optionnelle, et une route web publique n’implique jamais une exposition d’outil publique, voir [Exposer aux agents publics](#public-agent) ci-dessous. `needsApproval` restreint l’exécution après que l’appel a déjà été fait, voir [Exiger une approbation humaine](#needs-approval) ci-dessous. `authorize` décide si cet appelant peut exécuter l’action, tout court, sur chaque chemin de dispatch, avant que `run()` ne soit entré, voir [Restreindre les appelants par rôle](#authorize) ci-dessous.
+Ces flags sont indépendants, à une exception près : un `mcpTool` non déclaré hérite d’`agentTool`. `agentTool` contrôle ce que le modèle voit, voir [Masquer au modèle](#agent-tool) ci-dessous. `mcpTool` restreint cela aux seuls agents externes, voir [Masquer aux agents externes](#mcp-tool) ci-dessous. `toolCallable` ne contrôle que l’iframe d’extension, voir [Bloquer les iframes d’extension](#tool-callable) ci-dessous. `publicAgent` ajoute une surface publique optionnelle, et une route web publique n’implique jamais une exposition d’outil publique, voir [Exposer aux agents publics](#public-agent) ci-dessous. `needsApproval` restreint l’exécution après que l’appel a déjà été fait, voir [Exiger une approbation humaine](#needs-approval) ci-dessous. `access` déclare le rôle que l’appelant doit détenir sur une ressource, vérifié sur chaque chemin de dispatch avant que `run()` ne soit entré, voir [Exiger l’accès à une ressource](#access) ci-dessous. `authorize` décide si cet appelant peut exécuter l’action, tout court, sur chaque chemin de dispatch, avant que `run()` ne soit entré, voir [Restreindre les appelants par rôle](#authorize) ci-dessous.
 
 ## Masquer au modèle {#agent-tool}
 
@@ -261,6 +262,48 @@ Sur `approval_required`, l’UI de chat affiche une affordance **Approuver / Ref
 
 L’action `send-email` du template Mail est l’usage canonique de cette garde dans le framework, et elle est intentionnellement rare. Elle définit `needsApproval: true` afin que l’agent puisse rédiger et mettre en file d’attente des emails librement. Elle ne peut jamais réellement envoyer un message sans qu’un humain n’approuve cet envoi précis.
 
+## Exiger l’accès à une ressource {#access}
+
+`access` déclare ce qu’un appelant doit détenir avant l’exécution d’une action. C’est une donnée de la définition, pas du code dans `run()`. Sa forme la plus courante nomme une ressource partagée et le rôle minimal sur celle-ci. L’action `update-form` du template Forms l’utilise pour que seul un éditeur d’un formulaire puisse modifier ce formulaire :
+
+```ts
+// actions/update-form.ts
+export default defineAction({
+  description: "Update an existing form.",
+  access: {
+    scope: "resource",
+    resource: { type: "form", idFrom: "id", level: "editor" },
+  },
+  schema: z.object({
+    id: z.string(),
+    title: z.string().optional(),
+  }),
+  run: async (args) => {
+    /* ...update the form... */
+  },
+});
+```
+
+`resource` prend trois champs :
+
+- **type** : le nom sous lequel la ressource a été enregistrée avec `registerShareableResource()`, comme `"form"` ou `"deck"`. Voir [Partage](/docs/sharing#building).
+- **idFrom** : le champ d’entrée qui contient l’identifiant de la ressource. Un chemin à points comme `"target.formId"` lit un champ imbriqué. Si la valeur est absente ou n’est pas une chaîne non vide, l’appel est refusé.
+- **level** : le rôle minimal dont l’appelant a besoin, parmi `"viewer"`, `"commenter"`, `"editor"`, `"admin"` ou `"owner"`. Il vaut `"viewer"` par défaut.
+
+Comme `authorize`, le contrôle enveloppe `run()` lui-même, donc l’UI, les appelants HTTP, l’agent intégré à l’application, les clients MCP, les appelants A2A et la CLI passent tous le même contrôle avant l’exécution du corps. Il résout le rôle de l’appelant de la même façon qu’`assertAccess()`, donc la propriété, les partages et la visibilité comptent tous. Un appelant en dessous de `level` reçoit un 403 tel que `Requires editor access to form <id>.` Une ressource qui n’existe pas reçoit le même 403.
+
+Utilisez `access` quand un champ d’entrée nomme l’unique ressource que l’action touche. Utilisez `assertAccess()` dans `run()` quand l’identifiant vient d’ailleurs, comme une ligne que vous chargez d’abord, ou quand un seul appel touche plusieurs ressources. Les requêtes de liste n’ont pas d’identifiant unique à vérifier, elles utilisent donc `accessFilter()`. Voir [Contrôle d’accès dans les actions](#access-control) ci-dessous. La vérification `resource-action-access` de [doctor](/docs/doctor) accepte soit un `access` déclaré, soit un appel à `assertAccess()`.
+
+### Portées d’organisation et d’application {#access-scopes}
+
+Les autres champs vérifient l’adhésion plutôt qu’une seule ressource. Chaque champ que vous définissez doit passer.
+
+- **`scope: "org"`** : l’appelant doit être un membre actif de son organisation actuelle.
+- **`scope: "app"`** : l’appelant doit être connecté, et l’espace de travail doit lui avoir rendu cette application disponible.
+- **`permission`** : une clé de permission issue de l’objet `permissions` de `defineAppRoles()` de cette application. L’appelant doit détenir un rôle d’application qui l’accorde. Elle exécute d’abord la vérification `scope: "app"`.
+
+`scope: "app"` et `permission` lisent le registre d’applications de l’espace de travail, donc ils conviennent aux applications déployées au sein d’un espace de travail. Dans une application autonome, gardez une permission d’application avec `authorize` et `requirePermission()` à la place, comme montré dans [Rôles d’application](/docs/organizations-teams-permissions#app-roles-per-app-rbac). Cette garde rejette aussi une clé de permission non déclarée au chargement du module. `access.permission` ne la refuse qu’au moment de la requête.
+
 ## Restreindre les appelants par rôle {#authorize}
 
 `authorize` répond à une question précise : **cet appelant peut-il exécuter cette opération, tout court ?** Donnez-lui une fonction de garde, et elle s’exécute avant `run()` sur chaque appelant : outil agent, HTTP, frontend, MCP, A2A, et CLI.
@@ -299,10 +342,10 @@ La garde enveloppe `run()` lui-même, plutôt que de s’attacher à une autre p
 Les wrappers se composent dans cet ordre :
 
 ```text
-validate input -> authorize -> run -> validate output -> audit
+validate input -> access -> authorize -> run -> validate output -> audit
 ```
 
-L’autorisation se situe _à l’intérieur_ de la validation d’entrée, donc une garde qui inspecte `args` reçoit la même valeur analysée et vérifiée en type que celle que reçoit `run()`, pas la forme brute que l’appelant a envoyée. L’audit est le plus externe, donc un refus est quand même enregistré.
+L’autorisation se situe _à l’intérieur_ de la validation d’entrée, donc une garde qui inspecte `args` reçoit la même valeur analysée et vérifiée en type que celle que reçoit `run()`, pas la forme brute que l’appelant a envoyée. `access` lit `idFrom` dans cette même valeur analysée. L’audit est le plus externe, donc une action auditée enregistre quand même un refus. Les actions en lecture seule ne sont pas auditées par défaut, voir [Journalisation d’audit](#audit) ci-dessous.
 
 `requireAny()` échoue au moment de la définition, pas au moment de la requête. L’appeler sans rôle, ou avec un rôle en dehors de la liste déclarée, lève une exception dès le chargement du module. Ainsi, une erreur, comme `authorize: coachAccess.requireAny()` avec un argument oublié, casse exactement là où elle s’est produite, au lieu d’apparaître plus tard comme un 403 inexpliqué.
 
@@ -355,17 +398,20 @@ export default defineAction({
 });
 ```
 
+Quand l’identifiant vient directement de l’entrée, comme `id` ici, une politique [`access`](#access) déclarée exécute le même contrôle depuis la définition de l’action.
+
 Une action de création n’appelle ni l’une ni l’autre de ces aides. Elle a seulement besoin d’estampiller `ownerEmail` (et `orgId`) depuis le contexte de la requête au moment de l’insertion de la nouvelle ligne, puisqu’il n’y a pas encore de ligne existante contre laquelle vérifier l’accès. Voir [Partage](/docs/sharing#building) pour le modèle complet d’enregistrement et de création, et [Contexte d’exécution](/docs/actions-run-context) pour la forme complète du second argument `ctx` utilisé ci-dessus.
 
-Les trois mécanismes ne sont pas interchangeables :
+Les quatre mécanismes ne sont pas interchangeables :
 
 | Mécanisme                         | Question à laquelle il répond                               | S’applique à                                   |
 | --------------------------------- | ----------------------------------------------------------- | ---------------------------------------------- |
+| `access`                          | L’appelant détient-il le rôle ou l’adhésion déclarés ?      | Les six sites de dispatch                      |
 | `authorize`                       | Cet appelant peut-il effectuer l’opération, tout court ?    | Les six sites de dispatch                      |
 | `needsApproval`                   | Un humain doit-il approuver cet appel précis et permis ?    | La boucle de l’agent seulement                 |
 | `accessFilter()`/`assertAccess()` | Quelles lignes cet appelant permis peut-il voir ou écrire ? | À l’intérieur de `run()`, par requête ou ligne |
 
-Une action d’écriture restreinte a typiquement besoin à la fois de `authorize` et de `assertAccess()`. Le premier écarte les non-coachs de l’opération. Le second écarte un coach du plan d’une autre organisation. `needsApproval` est un axe séparé. Il ne restreint jamais qui peut appeler, seulement si l’agent peut continuer sans surveillance.
+Une action d’écriture restreinte a typiquement besoin à la fois de `authorize` et d’un contrôle de ligne. Le premier écarte les non-coachs de l’opération. Le second écarte un coach du plan d’une autre organisation. Le contrôle de ligne est `assertAccess()`, ou `access` quand l’identifiant de la ligne est un champ d’entrée. `needsApproval` est un axe séparé. Il ne restreint jamais qui peut appeler, seulement si l’agent peut continuer sans surveillance.
 
 `coachAccess` ci-dessus vient de `defineAppRoles()`, la surcouche de rôles par application sur l’adhésion à l’organisation. Voir [Organisations, équipes et permissions → Rôles d’application](/docs/organizations-teams-permissions#app-roles-per-app-rbac) pour le modèle de rôles et ses garanties.
 

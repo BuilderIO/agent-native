@@ -30,17 +30,6 @@ const loadCodeWorkbench: CodeWorkbenchModuleLoader = () =>
     default: module.CodeWorkbench,
   }));
 
-export function preloadCodeWorkbench() {
-  void loadCodeWorkbench().catch(() => {
-    // The mounted boundary reports import failures. Hover/focus preloading is
-    // speculative and must not produce an unhandled rejection.
-  });
-}
-
-if (typeof window !== "undefined" && import.meta.env.MODE !== "test") {
-  preloadCodeWorkbench();
-}
-
 export function CodeWorkbenchLoader(props: CodeWorkbenchProps) {
   return (
     <RetryableCodeWorkbenchLoader

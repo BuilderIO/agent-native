@@ -11,7 +11,13 @@ vi.mock("../db/ddl-guard.js", () => ({
 const NOW = 1_800_000_000_000;
 
 function makeDb(
-  markers: Array<{ session: string; ts: number; action: string }>,
+  markers: Array<{
+    session: string;
+    ts: number;
+    action: string;
+    resourceType?: string;
+    resourceId?: string;
+  }>,
 ) {
   const persisted: Array<{ id: string; key: string; owner: string }> = [];
   const markerQueries: Array<{ sql: string; args: unknown[] }> = [];
@@ -53,6 +59,12 @@ function makeDb(
                   value: JSON.stringify({
                     actionName: m.action,
                     owner: m.session,
+                    ...(m.resourceType
+                      ? {
+                          resourceType: m.resourceType,
+                          resourceId: m.resourceId,
+                        }
+                      : {}),
                   }),
                   updated_at: m.ts,
                 })),
@@ -111,5 +123,45 @@ describe("action marker replay on cold start", () => {
       q.sql.includes("updated_at > ?"),
     );
     expect(Number(bounded?.args[1])).toBeLessThan(NOW - 5_000);
+  });
+
+  it("replays a resource-scoped marker so collaborators can see the action", async () => {
+    const db = makeDb([
+      {
+        session: "owner@x.com",
+        ts: NOW - 5_000,
+        action: "update-document",
+        resourceType: "document",
+        resourceId: "doc-1",
+      },
+    ]);
+    const state = new AppSyncState({
+      getDb: () => db.exec as never,
+      resolveAccess: async (_type, id, ctx) =>
+        id === "doc-1" && ctx.userEmail === "collaborator@x.com"
+          ? ({ role: "viewer" } as never)
+          : null,
+    });
+    await state.seedVersionFromDb();
+    await state.checkExternalDbChanges({ durableEvents: false });
+
+    const [event] = state.getChangesSince(0).events;
+    expect(event).toMatchObject({
+      source: "action",
+      key: "update-document",
+      owner: "owner@x.com",
+      resourceType: "document",
+      resourceId: "doc-1",
+    });
+    expect(
+      state.canSeeChangeForUser(event, "collaborator@x.com", undefined),
+    ).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      state.canSeeChangeForUser(event, "collaborator@x.com", undefined),
+    ).toBe(true);
+    expect(state.canSeeChangeForUser(event, "stranger@x.com", undefined)).toBe(
+      false,
+    );
   });
 });

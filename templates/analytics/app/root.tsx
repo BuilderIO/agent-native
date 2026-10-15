@@ -32,6 +32,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import { i18nCatalog } from "./i18n";
+import { isReplayFrameRequest } from "./pages/sessions/session-replay-frame";
 
 import stylesheet from "./global.css?url";
 configureTracking({
@@ -135,8 +136,14 @@ export default function Root() {
 
   const isPublicStatusPath =
     location.pathname === "/status" || location.pathname.startsWith("/status/");
+  // Frame mode renders one replay for a headless browser holding a signed,
+  // recording-scoped agent link: no session, no app chrome.
+  const isReplayFramePath = isReplayFrameRequest(
+    location.pathname,
+    location.search,
+  );
 
-  if (isPublicStatusPath) {
+  if (isPublicStatusPath || isReplayFramePath) {
     return (
       <AppToolkitProvider>
         <AppProviders

@@ -63,7 +63,7 @@ const CREDIT_BLOCK_PATTERNS: readonly RegExp[] = [
 const CONNECT_BLOCK_PATTERNS: readonly RegExp[] = [
   /Connect AI above to continue/i,
   /No LLM provider is connected/i,
-  /Connect Builder\.io to (?:continue|use|start|run)/i,
+  /(?:Connect|Use) Builder\.io to (?:continue|use|start|run)/i,
 ];
 
 export interface BlockingText {
@@ -162,6 +162,12 @@ export interface BuilderConnectionEvidence {
   /** Visible text of the app chrome and the opened account menu. */
   chromeText: string;
   creditExhausted: boolean | null;
+}
+
+export function hasBuilderConnectionState(settingsText: string): boolean {
+  return /\b(?:Connect|Disconnect|Reconnect|Connected|Not connected)\b|Needs to be reconnected/i.test(
+    settingsText,
+  );
 }
 
 /**

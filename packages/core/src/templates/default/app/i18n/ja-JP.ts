@@ -360,9 +360,9 @@ const messages = {
       "弊社のクラウド エージェントに変更を依頼してください。プレビューしてデプロイするためのリンクが表示されます。",
     codeChangeTitle: "これにはコードの変更が必要です",
     codeChangeBadge: "コード変更",
-    connectBuilderTitle: "Builder.io に接続",
+    connectBuilderTitle: "Builder.io を使う",
     connectBuilderDescription:
-      "Builder（無料プランあり）に接続すると、このアプリからクラウドベースのコード変更が可能になります。",
+      "Builder.io（無料プランあり）を使うと、このアプリからクラウド経由でコードを変更できます。",
     setupRequired: "セットアップが必要です",
     branchCreated: "ブランチが作成されました",
     close: "閉じる",
@@ -612,7 +612,7 @@ const messages = {
     back: "戻る",
     agentEngineRequired: "エージェント エンジンが必要です",
     agentEngineDescription:
-      "Connect Builder.io（無料プランあり）or an LLM key before {{platform}} can answer.",
+      "Builder.io（無料プランあり）または LLM キーを使うと、{{platform}} が回答できるようになります。",
     openLlm: "LLM を開く",
     setup: "Setup",
     shareDocumentsWith: "ドキュメントを共有する",
@@ -655,6 +655,8 @@ const messages = {
     promoteMustContain: "返信に含めるテキスト…",
     promoteMustContainOptional: "返信で確認する任意のテキスト…",
     promoteMustContainLabel: "昇格した評価の返信で確認するテキスト",
+    promoteReviewedPromptLabel:
+      "手動で確認したプロンプト（本番環境から自動コピーされません）",
     promoteNeedsContains:
       "この実行には成功したツール呼び出しがありません。評価に昇格する前に、返信に含めるテキストを入力してください。",
     spans: "Spans",

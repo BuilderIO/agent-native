@@ -1,13 +1,16 @@
 import { serializeAnalyticsAnonymousIdCookie } from "../shared/analytics-anonymous-id.js";
+import {
+  ANALYTICS_SESSION_ID_COOKIE_NAME,
+  ANALYTICS_SESSION_ID_MAX_LENGTH,
+  normalizeAnalyticsSessionId,
+  serializeAnalyticsSessionIdCookie,
+} from "../shared/analytics-session-id.js";
 
 const ANONYMOUS_ID_STORAGE_KEY = "agent-native.anonymous_id";
 const SESSION_ID_STORAGE_KEY = "agent-native.session_id";
 const SESSION_ID_PIN_STORAGE_KEY = "agent-native.session_id_pin";
 const SESSION_LAST_ACTIVITY_STORAGE_KEY = "agent-native.session_last_activity";
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
-const MAX_SESSION_ID_LENGTH = 127;
-const SAFE_SESSION_ID = /^[!-~]+$/;
-
 function generateVisitorId(): string {
   try {
     if (
@@ -61,6 +64,24 @@ function syncAnalyticsAnonymousIdCookie(id: string): void {
   }
 }
 
+function syncAnalyticsSessionIdCookie(id: string): void {
+  try {
+    const cookie = serializeAnalyticsSessionIdCookie(id);
+    if (cookie) document.cookie = cookie;
+  } catch {
+    // coercion-ok: cookie access is optional and cannot block analytics.
+    // Local storage remains the browser-side source of truth when cookies are unavailable.
+  }
+}
+
+let pageLoadId: string | undefined;
+
+/** One id for this page load, shared by every pageview until it reloads. */
+export function getAnalyticsPageLoadId(): string {
+  pageLoadId ??= generateVisitorId();
+  return pageLoadId;
+}
+
 export function getOrCreateAnalyticsAnonymousId(): string | undefined {
   if (typeof window === "undefined") return undefined;
   let id = safeStorageGet(ANONYMOUS_ID_STORAGE_KEY);
@@ -73,20 +94,17 @@ export function getOrCreateAnalyticsAnonymousId(): string | undefined {
 }
 
 export function setAnalyticsSessionId(sessionId: string): string | undefined {
-  const trimmed = typeof sessionId === "string" ? sessionId.trim() : "";
-  if (
-    !trimmed ||
-    trimmed.length > MAX_SESSION_ID_LENGTH ||
-    !SAFE_SESSION_ID.test(trimmed)
-  ) {
+  const trimmed = normalizeAnalyticsSessionId(sessionId);
+  if (!trimmed) {
     throw new Error(
-      `Invalid analytics session id: expected 1-${MAX_SESSION_ID_LENGTH} printable ASCII characters with no whitespace`,
+      `Invalid analytics session id: expected 1-${ANALYTICS_SESSION_ID_MAX_LENGTH} printable ASCII characters with no whitespace`,
     );
   }
   if (typeof window === "undefined") return undefined;
   safeStorageSet(SESSION_ID_PIN_STORAGE_KEY, trimmed);
   safeStorageSet(SESSION_ID_STORAGE_KEY, trimmed);
   safeStorageSet(SESSION_LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
+  syncAnalyticsSessionIdCookie(trimmed);
   return trimmed;
 }
 
@@ -95,6 +113,12 @@ export function clearAnalyticsSessionId(): void {
   safeStorageRemove(SESSION_ID_PIN_STORAGE_KEY);
   safeStorageRemove(SESSION_ID_STORAGE_KEY);
   safeStorageRemove(SESSION_LAST_ACTIVITY_STORAGE_KEY);
+  try {
+    document.cookie = `${ANALYTICS_SESSION_ID_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax`;
+  } catch {
+    // coercion-ok: cookie access is optional and cannot block analytics.
+    // Local storage remains the browser-side source of truth when cookies are unavailable.
+  }
 }
 
 export function getOrCreateAnalyticsSessionId(): string | undefined {
@@ -104,6 +128,7 @@ export function getOrCreateAnalyticsSessionId(): string | undefined {
   if (pinned) {
     safeStorageSet(SESSION_ID_STORAGE_KEY, pinned);
     safeStorageSet(SESSION_LAST_ACTIVITY_STORAGE_KEY, String(now));
+    syncAnalyticsSessionIdCookie(pinned);
     return pinned;
   }
   const lastActivityRaw = safeStorageGet(SESSION_LAST_ACTIVITY_STORAGE_KEY);
@@ -120,5 +145,6 @@ export function getOrCreateAnalyticsSessionId(): string | undefined {
     safeStorageSet(SESSION_ID_STORAGE_KEY, id);
   }
   safeStorageSet(SESSION_LAST_ACTIVITY_STORAGE_KEY, String(now));
+  syncAnalyticsSessionIdCookie(id);
   return id;
 }

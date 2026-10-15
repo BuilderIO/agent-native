@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconAlertTriangle,
   IconArrowUpRight,
   IconChevronRight,
   IconCloudDataConnection,
@@ -38,6 +39,8 @@ import {
 } from "./session-replay-devtools";
 
 export type SessionIssueMatch = { issueId: string; status: string };
+
+type DevToolsTab = "console" | "network" | "friction";
 
 export function issueDetailPath(issueId: string): string {
   return `/monitoring?view=errors&issue=${encodeURIComponent(issueId)}`;
@@ -81,8 +84,10 @@ export function SessionDevToolsPanel({
   maxHeight = DEVTOOLS_MAX_HEIGHT,
   onHeightChange,
   onSeek,
+  jumpDisabled = false,
   issueMatches,
   issueMatching = false,
+  friction,
 }: {
   diagnostics: ReplayDevToolsDiagnostics;
   currentTime: number;
@@ -90,11 +95,14 @@ export function SessionDevToolsPanel({
   maxHeight?: number;
   onHeightChange: (height: number) => void;
   onSeek: (ms: number) => void;
+  jumpDisabled?: boolean;
   issueMatches?: ReadonlyMap<string, SessionIssueMatch>;
   issueMatching?: boolean;
+  /** The Lab's friction tab; there is no tab without it. */
+  friction?: ReactNode;
 }) {
   const t = useT();
-  const [tab, setTab] = useState<"console" | "network">("console");
+  const [tab, setTab] = useState<DevToolsTab>("console");
   const [consoleLevel, setConsoleLevel] = useState<ConsoleLevelFilter>("all");
   const [consoleQuery, setConsoleQuery] = useState("");
   const [networkKind, setNetworkKind] = useState<NetworkKindFilter>("all");
@@ -173,7 +181,7 @@ export function SessionDevToolsPanel({
       />
       <Tabs
         value={tab}
-        onValueChange={(value) => setTab(value as "console" | "network")}
+        onValueChange={(value) => setTab(value as DevToolsTab)}
         className="flex min-h-0 flex-1 flex-col"
       >
         <div className="flex shrink-0 items-center gap-2 px-3 pt-2">
@@ -196,6 +204,15 @@ export function SessionDevToolsPanel({
                 <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
               ) : null}
             </TabsTrigger>
+            {friction ? (
+              <TabsTrigger
+                value="friction"
+                className="h-7 gap-1.5 px-2.5 text-xs"
+              >
+                <IconAlertTriangle className="h-3.5 w-3.5" />
+                {t("sessions.friction")}
+              </TabsTrigger>
+            ) : null}
           </TabsList>
         </div>
 
@@ -263,6 +280,7 @@ export function SessionDevToolsPanel({
                 selected={expanded}
                 issueMatch={issueMatches?.get(entry.id) ?? null}
                 issueMatching={issueMatching}
+                jumpDisabled={jumpDisabled}
                 onSelect={() =>
                   setSelectedConsoleId((current) =>
                     current === entry.id ? null : entry.id,
@@ -328,6 +346,7 @@ export function SessionDevToolsPanel({
                 entry={entry}
                 active={entry.id === activeNetworkId}
                 selected={expanded}
+                jumpDisabled={jumpDisabled}
                 onSelect={() =>
                   setSelectedNetworkId((current) =>
                     current === entry.id ? null : entry.id,
@@ -338,6 +357,15 @@ export function SessionDevToolsPanel({
             )}
           />
         </TabsContent>
+
+        {friction ? (
+          <TabsContent
+            value="friction"
+            className="mt-0 min-h-0 flex-1 overflow-y-auto"
+          >
+            {friction}
+          </TabsContent>
+        ) : null}
       </Tabs>
     </div>
   );
@@ -614,14 +642,17 @@ function DevToolsEmptyState({ message }: { message: string }) {
 function JumpToButton({
   offsetMs,
   onSeek,
+  disabled = false,
 }: {
   offsetMs: number;
   onSeek: (ms: number) => void;
+  disabled?: boolean;
 }) {
   const t = useT();
   return (
     <button
       type="button"
+      disabled={disabled}
       className="inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
       onClick={(event) => {
         event.stopPropagation();
@@ -681,12 +712,14 @@ function ConsoleRow({
   issueMatching,
   onSelect,
   onSeek,
+  jumpDisabled,
 }: {
   entry: ReplayConsoleEntry;
   active: boolean;
   selected: boolean;
   issueMatch: SessionIssueMatch | null;
   issueMatching: boolean;
+  jumpDisabled: boolean;
   onSelect: () => void;
   onSeek: (ms: number) => void;
 }) {
@@ -754,7 +787,11 @@ function ConsoleRow({
         {!issueMatch && !issueMatching && bucket === "error" ? (
           <SearchIssuesLink message={entry.message} />
         ) : null}
-        <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
+        <JumpToButton
+          offsetMs={entry.offsetMs}
+          onSeek={onSeek}
+          disabled={jumpDisabled}
+        />
       </div>
       {selected ? (
         <div className="space-y-2 border-t border-border/60 bg-muted/20 px-3 py-2 ps-[3.25rem]">
@@ -805,12 +842,14 @@ function NetworkRow({
   selected,
   onSelect,
   onSeek,
+  jumpDisabled,
 }: {
   entry: ReplayNetworkEntry;
   active: boolean;
   selected: boolean;
   onSelect: () => void;
   onSeek: (ms: number) => void;
+  jumpDisabled: boolean;
 }) {
   const t = useT();
   const displayUrl = middleTruncate(networkDisplayUrl(entry.url), 72);
@@ -878,7 +917,11 @@ function NetworkRow({
             )}
           />
         </button>
-        <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
+        <JumpToButton
+          offsetMs={entry.offsetMs}
+          onSeek={onSeek}
+          disabled={jumpDisabled}
+        />
       </div>
       {selected ? (
         <div className="space-y-2 border-t border-border/60 bg-muted/20 px-3 py-2 ps-[3.25rem]">

@@ -4,14 +4,22 @@ import {
   localizeKnownChatErrorText,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
+import { resendVerificationEmail as requestVerificationEmail } from "@agent-native/core/client/auth/resend-verification-email";
 import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { trackOnboardingEvent } from "@agent-native/core/client/onboarding/use-onboarding";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconLoader2,
@@ -34,13 +42,66 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 
 import { DeferredBuilderConnectPopover } from "../../settings/deferred-builder-connect-popover.js";
+import { currentTemplateId } from "../../settings/shell/app-identity.js";
 import { useBuilderConnectFlow } from "../../settings/useBuilderStatus.js";
 import { BuilderReferralInviteRow } from "../BuilderReferralInviteRow.js";
+import { SESSION_REPLAY_MASK_PROPS } from "../session-replay-privacy.js";
 
 const builderSubscriptionUrl = withBuilderUtmTrackingParams(
   "https://builder.io/account/subscription?signupSource=agent-native",
   { content: "chat_credit_limit" },
 );
+
+function setupTelemetryAppName(): string {
+  const appId = injectedAgentNativeAppId() ?? currentTemplateId();
+  return appId && /^[a-z0-9][a-z0-9-]{0,63}$/.test(appId)
+    ? appId.replace(/^agent-native-/, "") || "framework"
+    : "framework";
+}
+
+type SetupTelemetryEventName =
+  | "integration_setup_exposed"
+  | "integration_method_clicked"
+  | "integration_method_outcome";
+type SetupTelemetryMethodId =
+  | "setup_card"
+  | "builder"
+  | "custom_keys"
+  | "environment_variable";
+type SetupTelemetryAction = "view" | "click" | "connect";
+type SetupTelemetryOutcome =
+  | "exposed"
+  | "started"
+  | "connected"
+  | "status_read_failed"
+  | "connection_failed";
+
+function trackSetupFunnelEvent(
+  eventName: SetupTelemetryEventName,
+  methodId: SetupTelemetryMethodId,
+  action: SetupTelemetryAction,
+  outcome: SetupTelemetryOutcome,
+): void {
+  // Runs in the card's mount effect and ahead of the setup links' navigation,
+  // so a throw here would unmount the card or swallow the click.
+  try {
+    trackOnboardingEvent(eventName, {
+      flow: "chat_setup",
+      app_name: setupTelemetryAppName(),
+      step_id: "connect_ai",
+      method_id: methodId,
+      action,
+      outcome,
+    });
+  } catch (err) {
+    console.warn(`[connect-ai-setup] ${eventName} tracking failed:`, err);
+  }
+}
+
+type BuilderConnectTelemetryAttempt = {
+  statusAvailableAfterStart: boolean;
+  terminalErrorCleared: boolean;
+};
 
 export type LoopLimitInfo = { maxIterations?: number };
 
@@ -232,12 +293,61 @@ export function BuilderConnectCta({
   reconnect?: boolean;
 }) {
   const t = useT();
+  const connectAttemptRef = useRef<BuilderConnectTelemetryAttempt | null>(null);
+  const handleConnected = useCallback(async () => {
+    try {
+      await onConnected?.();
+    } finally {
+      if (!connectAttemptRef.current) return;
+      connectAttemptRef.current = null;
+      trackSetupFunnelEvent(
+        "integration_method_outcome",
+        "builder",
+        "connect",
+        "connected",
+      );
+    }
+  }, [onConnected]);
   const flow = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: "assistant_chat_builder_cta",
-    onConnected,
+    onConnected: handleConnected,
   });
   const { configured, orgName, connecting, error } = flow;
+  useEffect(() => {
+    const attempt = connectAttemptRef.current;
+    if (!attempt) return;
+    if (!flow.statusUnavailable) attempt.statusAvailableAfterStart = true;
+    if (!flow.terminalError) attempt.terminalErrorCleared = true;
+
+    const outcome =
+      flow.statusUnavailable &&
+      flow.errorKind === "status-read" &&
+      attempt.statusAvailableAfterStart
+        ? "status_read_failed"
+        : flow.terminalError && attempt.terminalErrorCleared
+          ? "connection_failed"
+          : null;
+    if (!outcome) return;
+    connectAttemptRef.current = null;
+    trackSetupFunnelEvent(
+      "integration_method_outcome",
+      "builder",
+      "connect",
+      outcome,
+    );
+  }, [flow.errorKind, flow.statusUnavailable, flow.terminalError]);
+
+  const startBuilderConnect = useCallback(
+    (provisionAccount: boolean) => {
+      connectAttemptRef.current = {
+        statusAvailableAfterStart: !flow.statusUnavailable,
+        terminalErrorCleared: !flow.terminalError,
+      };
+      flow.start({ provisionAccount });
+    },
+    [flow.start, flow.statusUnavailable, flow.terminalError],
+  );
 
   if (variant === "compact") {
     if (configured && !reconnect) {
@@ -253,10 +363,21 @@ export function BuilderConnectCta({
 
     return (
       <div className="agent-builder-setup-card__builder-cta flex min-w-0 flex-col items-start gap-1 sm:items-end">
-        <DeferredBuilderConnectPopover flow={flow}>
+        <DeferredBuilderConnectPopover
+          flow={flow}
+          onConnect={startBuilderConnect}
+        >
           <button
             type="button"
             disabled={connecting}
+            onClick={() =>
+              trackSetupFunnelEvent(
+                "integration_method_clicked",
+                "builder",
+                "click",
+                "started",
+              )
+            }
             className="agent-builder-setup-card__builder-button inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
             aria-busy={connecting}
           >
@@ -265,15 +386,20 @@ export function BuilderConnectCta({
                 <IconLoader2 size={10} className="animate-spin" />
                 {t("agentChat.common.waiting")}
               </>
-            ) : reconnect ? (
-              t("agentChat.recovery.reconnectBuilder")
             ) : (
-              t("agentChat.setup.connectBuilder")
+              <>
+                {reconnect
+                  ? t("agentChat.recovery.reconnectBuilder")
+                  : t("agentChat.setup.connectBuilder")}
+              </>
             )}
           </button>
         </DeferredBuilderConnectPopover>
         {error && (
-          <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end">
+          <p
+            {...SESSION_REPLAY_MASK_PROPS}
+            className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end"
+          >
             {error}
           </p>
         )}
@@ -314,12 +440,30 @@ export function BuilderConnectCta({
         <p className="text-[11px] text-muted-foreground mt-0.5 max-w-[220px]">
           {t("agentChat.setup.freeCredits")}
         </p>
-        {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
+        {error && (
+          <p
+            {...SESSION_REPLAY_MASK_PROPS}
+            className="mt-1 text-[10px] text-destructive"
+          >
+            {error}
+          </p>
+        )}
       </div>
-      <DeferredBuilderConnectPopover flow={flow}>
+      <DeferredBuilderConnectPopover
+        flow={flow}
+        onConnect={startBuilderConnect}
+      >
         <button
           type="button"
           disabled={connecting}
+          onClick={() =>
+            trackSetupFunnelEvent(
+              "integration_method_clicked",
+              "builder",
+              "click",
+              "started",
+            )
+          }
           className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
           aria-busy={connecting}
         >
@@ -354,6 +498,40 @@ export function BuilderSetupContent({
   const sidebarLayout = layout === "sidebar";
   // Model providers moved to Agent › Model in the redesigned Settings.
   const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  const settingsRoute = buildSettingsRoute(redesign.enabled ? "model" : "keys");
+  const trackCustomKeysClick = () =>
+    trackSetupFunnelEvent(
+      "integration_method_clicked",
+      "custom_keys",
+      "click",
+      "started",
+    );
+  const trackEnvironmentVariableClick = () =>
+    trackSetupFunnelEvent(
+      "integration_method_clicked",
+      "environment_variable",
+      "click",
+      "started",
+    );
+  const customKeysClassName = cn(
+    "agent-builder-setup-card__key-button inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md text-[11px] font-medium",
+    sidebarLayout
+      ? "h-7 border-0 bg-transparent px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+      : "h-8 border border-border bg-transparent px-3 text-foreground hover:bg-accent",
+  );
+
+  const settingsLink = (
+    <Link
+      to={settingsRoute}
+      state={{ providerSetupTrackingFlow: "chat_setup" }}
+      onClick={trackCustomKeysClick}
+      className={customKeysClassName}
+    >
+      {t("agentPanel.addOwnKeys", {
+        defaultValue: "Custom keys",
+      })}
+    </Link>
+  );
 
   return (
     <div
@@ -401,19 +579,63 @@ export function BuilderSetupContent({
           )}
         >
           <BuilderConnectCta variant="compact" onConnected={onConnected} />
-          <Link
-            to={buildSettingsRoute(redesign.enabled ? "model" : "keys")}
-            className={cn(
-              "agent-builder-setup-card__key-button inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
-              sidebarLayout
-                ? "h-7 border-0 bg-transparent px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-                : "h-8 border border-border bg-background px-3 text-foreground hover:bg-accent",
-            )}
-          >
-            {t("agentPanel.addOwnKeys", {
-              defaultValue: "Custom keys",
-            })}
-          </Link>
+          {import.meta.env.DEV ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className={customKeysClassName}
+                >
+                  {t("agentPanel.addOwnKeys", {
+                    defaultValue: "Custom keys",
+                  })}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 p-2">
+                <div className="flex flex-col gap-1">
+                  <Link
+                    to={settingsRoute}
+                    state={{ providerSetupTrackingFlow: "chat_setup" }}
+                    onClick={trackCustomKeysClick}
+                    className="flex flex-col gap-0.5 rounded-sm px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="text-xs font-medium text-foreground">
+                      {t("agentChat.setup.addKeyInSettings", {
+                        defaultValue: "Add a key in Settings",
+                      })}
+                    </span>
+                    <span className="text-[11px] leading-4 text-muted-foreground">
+                      {t("agentChat.setup.addKeyInSettingsDescription", {
+                        defaultValue: "For your account or organization.",
+                      })}
+                    </span>
+                  </Link>
+                  <a
+                    href="https://www.agent-native.com/docs/environment-variables#llm-provider-keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={trackEnvironmentVariableClick}
+                    className="flex flex-col gap-0.5 rounded-sm px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="text-xs font-medium text-foreground">
+                      {t("agentChat.setup.setEnvironmentVariable", {
+                        defaultValue: "Set an environment variable",
+                      })}
+                    </span>
+                    <span className="text-[11px] leading-4 text-muted-foreground">
+                      {t("agentChat.setup.setEnvironmentVariableDescription", {
+                        defaultValue:
+                          "One provider key for everyone in this app.",
+                      })}
+                    </span>
+                  </a>
+                </div>
+              </PopoverContent>
+            </Popover>
+          ) : (
+            settingsLink
+          )}
         </div>
       </div>
     </div>
@@ -441,6 +663,18 @@ export function BuilderSetupCard({
   const t = useT();
   const retryRequestedRef = useRef(false);
   const [retryRequested, setRetryRequested] = useState(false);
+  const exposureTrackedRef = useRef(false);
+
+  useEffect(() => {
+    if (exposureTrackedRef.current) return;
+    exposureTrackedRef.current = true;
+    trackSetupFunnelEvent(
+      "integration_setup_exposed",
+      "setup_card",
+      "view",
+      "exposed",
+    );
+  }, []);
 
   const handleRetry = useCallback(() => {
     if (!onRetry || retryRequestedRef.current) return;
@@ -466,11 +700,13 @@ export function BuilderSetupCard({
         "agent-builder-setup-card",
         sidebarLayout && "agent-builder-setup-card--sidebar",
         attached && "agent-builder-setup-card--attached",
-        fullWidth
-          ? "w-full px-3 pb-2"
-          : sidebarLayout
-            ? "mx-auto w-full max-w-[42rem] px-3 pb-2"
-            : "mx-auto w-full max-w-[42rem] px-3 pb-2 sm:w-fit",
+        attached
+          ? "p-3"
+          : fullWidth
+            ? "w-full p-3"
+            : sidebarLayout
+              ? "mx-auto w-full max-w-[42rem] p-3"
+              : "mx-auto w-full max-w-[42rem] p-3 sm:w-fit",
       )}
     >
       <div
@@ -513,16 +749,28 @@ export function BuilderSetupCard({
 
 export function RunErrorRecoveryCard({
   info,
+  verificationEmail,
+  verificationCallbackURL,
   onContinue,
   onRetry,
+  onRetryWithoutAttachments,
+  onRetryWithoutAttachment,
   retryHasUnavailableAttachment = false,
   onFork,
   onDismiss,
   onProviderConnected,
+  continueError,
 }: {
   info: RunErrorInfo;
-  onContinue: () => void;
+  verificationEmail?: string | null;
+  verificationCallbackURL?: string;
+  /** Absent when the stopped run can no longer be continued. */
+  onContinue?: () => void;
+  continueError?: string | null;
   onRetry: () => void;
+  /** Resends the rejected request without its attachments. */
+  onRetryWithoutAttachments?: () => void;
+  onRetryWithoutAttachment?: () => void;
   retryHasUnavailableAttachment?: boolean;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
@@ -535,12 +783,21 @@ export function RunErrorRecoveryCard({
   );
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
+  const [verificationEmailStatus, setVerificationEmailStatus] = useState<
+    "idle" | "sending" | "sent" | "failed"
+  >("idle");
   const retryRequestedRef = useRef(false);
   const builderReconnect = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: "assistant_chat_reconnect_error",
   });
-  const canRecover = info.recoverable === true;
+  // Retrying or continuing sends the rejected attachment again.
+  const attachmentRejected = info.errorCode === "invalid_attachment";
+  const canRecover = info.recoverable === true && !attachmentRejected;
+  const retryWithoutAttachments =
+    onRetryWithoutAttachments ?? onRetryWithoutAttachment;
+  const canRetryWithoutAttachments =
+    attachmentRejected && retryWithoutAttachments;
   const isBuilderCreditsLimit = isCreditsLimitErrorCode(info.errorCode);
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
@@ -553,6 +810,26 @@ export function RunErrorRecoveryCard({
     (isProviderAuthError && !shouldShowBuilderReconnect);
   const isUnblockableExternally =
     info.errorCode === "email_verification_required";
+  const requestVerification = useCallback(async () => {
+    if (
+      !verificationEmail ||
+      verificationEmailStatus === "sending" ||
+      verificationEmailStatus === "sent"
+    ) {
+      return;
+    }
+    setVerificationEmailStatus("sending");
+    try {
+      await requestVerificationEmail(
+        verificationEmail,
+        verificationCallbackURL ??
+          `${window.location.origin}${window.location.pathname}`,
+      );
+      setVerificationEmailStatus("sent");
+    } catch {
+      setVerificationEmailStatus("failed");
+    }
+  }, [verificationCallbackURL, verificationEmail, verificationEmailStatus]);
   // Rejected provider keys keep their setup path below — update/connect the
   // credential and the setup callback re-runs the turn. They ALSO get a retry
   // now, which the old comment here ruled out because "retry replays the same
@@ -640,6 +917,15 @@ export function RunErrorRecoveryCard({
     }
   }, [builderReconnectResolved, onDismiss]);
 
+  useEffect(() => {
+    if (verificationEmailStatus !== "sent") return;
+    const timeout = window.setTimeout(
+      () => setVerificationEmailStatus("idle"),
+      60_000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [verificationEmailStatus]);
+
   if (shouldShowProviderSetup) {
     return (
       <div className="w-full">
@@ -681,14 +967,14 @@ export function RunErrorRecoveryCard({
 
   if (isBuilderCreditsLimit) {
     return (
-      <div className="@container min-w-0 rounded-lg border border-border bg-card p-3 text-sm">
+      <div className="@container relative min-w-0 rounded-lg border border-border bg-card p-3 pe-11 text-sm">
         <div className="flex min-w-0 flex-col gap-3 @md:flex-row @md:items-center">
           <p className="w-full min-w-0 font-medium text-foreground @md:flex-1 @md:w-auto">
             {t("agentChat.errorMessages.creditsLimitReached", {
               defaultValue: "You've reached your AI credits limit.",
             })}
           </p>
-          <div className="flex w-full items-center gap-3 @md:w-auto">
+          <div className="flex w-full items-center @md:w-auto">
             <Button asChild size="sm">
               <a href={builderSubscriptionUrl} target="_blank" rel="noreferrer">
                 {t("agentChat.errorMessages.addCreditsInBuilder", {
@@ -697,16 +983,16 @@ export function RunErrorRecoveryCard({
                 <IconArrowUpRight />
               </a>
             </Button>
-            <button
-              type="button"
-              onClick={onDismiss}
-              aria-label={t("agentChat.common.dismiss")}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <IconX size={14} />
-            </button>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={t("agentChat.common.dismiss")}
+          className="absolute end-2 top-2 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <IconX size={14} />
+        </button>
         <BuilderReferralInviteRow className="mt-3 border-t border-border/70 pt-3" />
       </div>
     );
@@ -725,7 +1011,10 @@ export function RunErrorRecoveryCard({
               terminal: t("agentChat.error.failed"),
             })}
           </div>
-          <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
+          <p
+            {...SESSION_REPLAY_MASK_PROPS}
+            className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground"
+          >
             {localizeKnownChatErrorText(info.message, t)}
           </p>
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
@@ -742,6 +1031,38 @@ export function RunErrorRecoveryCard({
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               {t("agentChat.recovery.retryAttachmentUnavailable")}
             </p>
+          )}
+          {isUnblockableExternally && verificationEmail && (
+            <div className="mt-3">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={
+                  verificationEmailStatus === "sending" ||
+                  verificationEmailStatus === "sent"
+                }
+                onClick={() => void requestVerification()}
+              >
+                {verificationEmailStatus === "sending" && (
+                  <IconLoader2 size={14} className="animate-spin" />
+                )}
+                {t(
+                  verificationEmailStatus === "sending"
+                    ? "agentChat.recovery.sendingVerificationEmail"
+                    : "agentChat.recovery.resendVerificationEmail",
+                )}
+              </Button>
+              {verificationEmailStatus === "sent" && (
+                <p role="status" className="mt-2 text-xs text-muted-foreground">
+                  {t("agentChat.recovery.verificationEmailRequested")}
+                </p>
+              )}
+              {verificationEmailStatus === "failed" && (
+                <p role="alert" className="mt-2 text-xs text-destructive">
+                  {t("agentChat.recovery.verificationEmailFailed")}
+                </p>
+              )}
+            </div>
           )}
           {(info.runId || info.errorCode || info.details) && (
             <button
@@ -764,7 +1085,10 @@ export function RunErrorRecoveryCard({
               {info.runId && <div>run: {info.runId}</div>}
               {info.errorCode && <div>code: {info.errorCode}</div>}
               {info.details && (
-                <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono">
+                <pre
+                  {...SESSION_REPLAY_MASK_PROPS}
+                  className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono"
+                >
                   {info.details}
                 </pre>
               )}
@@ -797,7 +1121,7 @@ export function RunErrorRecoveryCard({
             </button>
           </DeferredBuilderConnectPopover>
         )}
-        {canRecover && (
+        {canRecover && onContinue && (
           <button
             type="button"
             onClick={onContinue}
@@ -805,6 +1129,18 @@ export function RunErrorRecoveryCard({
           >
             <IconPlayerPlay size={13} />
             <span className="truncate">{t("agentChat.common.continue")}</span>
+          </button>
+        )}
+        {canRetryWithoutAttachments && (
+          <button
+            type="button"
+            onClick={retryWithoutAttachments}
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90"
+          >
+            <IconRefresh size={13} />
+            <span className="truncate">
+              {t("agentChat.recovery.retryWithoutAttachment")}
+            </span>
           </button>
         )}
         <div className="flex shrink-0 items-center gap-0.5">
@@ -891,12 +1227,25 @@ export function RunErrorRecoveryCard({
         </div>
       </div>
       {shouldShowBuilderReconnect && builderReconnect.error && (
-        <p className="mt-2 text-xs leading-relaxed text-red-500">
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="mt-2 text-xs leading-relaxed text-destructive"
+        >
           {builderReconnect.error}
         </p>
       )}
       {forkError && (
-        <p className="mt-2 text-xs leading-relaxed text-red-500">{forkError}</p>
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="mt-2 text-xs leading-relaxed text-destructive"
+        >
+          {forkError}
+        </p>
+      )}
+      {continueError && (
+        <p className="mt-2 text-xs leading-relaxed text-destructive">
+          {continueError}
+        </p>
       )}
     </div>
   );
@@ -1090,7 +1439,14 @@ export function LoopLimitContinueCard({
           {t("agentChat.limit.ownerOnly")}
         </p>
       )}
-      {error && <p className="mt-2 text-[11px] text-destructive">{error}</p>}
+      {error && (
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="mt-2 text-[11px] text-destructive"
+        >
+          {error}
+        </p>
+      )}
     </div>
   );
 }

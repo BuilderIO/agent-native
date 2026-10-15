@@ -84,7 +84,10 @@ function runCrossScreenMove(
   });
   const sourceTree = buildCodeLayerTree(sourceProjection);
   const targetTree = buildCodeLayerTree(targetProjection);
-  const owners: LayerMoveArgs["codeLayerOwnerByNodeId"] = new Map();
+  const owners = new Map<
+    string,
+    NonNullable<ReturnType<LayerMoveArgs["codeLayerOwnerByNodeId"]["get"]>>
+  >();
   for (const node of sourceProjection.nodes) {
     owners.set(node.id, {
       fileId: SOURCE_ID,

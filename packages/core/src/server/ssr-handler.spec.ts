@@ -5,11 +5,17 @@ import {
   resetAppConfigForTests,
 } from "../app-config/index.js";
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import {
+  CHUNK_RECOVERY_PATH_SUFFIX,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
@@ -342,6 +348,179 @@ describe("createH3SSRHandler", () => {
     const response = await handler(createEvent("/"));
 
     expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+  });
+
+  it("normalizes recovery paths and revalidates recovery aliases in browsers", async () => {
+    process.env.SITE_ID = "site-test";
+    const handler = createH3SSRHandler(() => ({})) as any;
+    const recoveryUrls = [
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}?${CHUNK_RECOVERY_QUERY_PARAM}=first&tab=one`,
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}?${CHUNK_RECOVERY_QUERY_PARAM}=second&tab=two`,
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}/?${CHUNK_RECOVERY_QUERY_PARAM}=last&tab=four`,
+      `/?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary&tab=three`,
+    ];
+
+    for (const recoveryUrl of recoveryUrls) {
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response("<html><head></head><body>ok</body></html>", {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      const response = await handler(createEvent(recoveryUrl));
+      const isRecoveryAlias = recoveryUrl.includes(CHUNK_RECOVERY_PATH_SUFFIX);
+      expect(response.headers.get("cache-control")).toBe(
+        isRecoveryAlias
+          ? CHUNK_RECOVERY_BROWSER_CACHE_CONTROL
+          : DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+      );
+      expect(response.headers.get("cdn-cache-control")).toBe(
+        isRecoveryAlias
+          ? "no-store"
+          : DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
+      );
+      expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+        isRecoveryAlias
+          ? "no-store"
+          : DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+      );
+      expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+    }
+
+    expect(mocks.requestHandler.mock.calls[0]?.[0].url).toContain("/page?");
+    expect(mocks.requestHandler.mock.calls[1]?.[0].url).toContain("/page?");
+    expect(mocks.requestHandler.mock.calls[2]?.[0].url).toContain("/page/?");
+  });
+
+  it("normalizes recovery aliases before React Router data suffixes", async () => {
+    process.env.SITE_ID = "site-test";
+    const handler = createH3SSRHandler(() => ({})) as any;
+    const recoveryUrls = [
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}.data`,
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}/_.data`,
+    ];
+
+    for (const recoveryUrl of recoveryUrls) {
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response("loader data", {
+          headers: { "content-type": "text/x-script" },
+        }),
+      );
+      const response = await handler(createEvent(recoveryUrl));
+
+      expect(response.headers.get("cache-control")).toBe(
+        CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+      );
+      expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+      expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+        "no-store",
+      );
+    }
+
+    expect(mocks.requestHandler.mock.calls[0]?.[0].url).toContain("/page.data");
+    expect(mocks.requestHandler.mock.calls[1]?.[0].url).toContain(
+      "/page/_.data",
+    );
+  });
+
+  it("preserves a bounded cache variant for the exact legacy recovery marker", async () => {
+    process.env.SITE_ID = "site-test";
+    const handler = createH3SSRHandler(() => ({})) as any;
+    const legacyUrl = `/page?${CHUNK_RECOVERY_QUERY_PARAM}=${CHUNK_RECOVERY_QUERY_VALUE}&tab=one`;
+
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const legacyResponse = await handler(createEvent(legacyUrl));
+
+    expect(legacyResponse.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(legacyResponse.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(legacyResponse.headers.get("netlify-cdn-cache-control")).toBe(
+      "no-store",
+    );
+    expect(legacyResponse.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const arbitraryResponse = await handler(
+      createEvent(`/page?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary&tab=one`),
+    );
+
+    expect(arbitraryResponse.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(arbitraryResponse.headers.get("netlify-vary")).toBe(
+      "query=_routes|index",
+    );
+
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const duplicateMarkerResponse = await handler(
+      createEvent(
+        `/page?${CHUNK_RECOVERY_QUERY_PARAM}=1&${CHUNK_RECOVERY_QUERY_PARAM}=1`,
+      ),
+    );
+
+    expect(duplicateMarkerResponse.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(duplicateMarkerResponse.headers.get("netlify-vary")).toBe(
+      "query=_routes|index",
+    );
+  });
+
+  it("preserves disabled SSR caching for recovery aliases", async () => {
+    process.env.AGENT_NATIVE_SSR_CACHE = "off";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent(`/page${CHUNK_RECOVERY_PATH_SUFFIX}`),
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      DISABLED_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe(
+      DISABLED_SSR_CACHE_HEADERS["cdn-cache-control"],
+    );
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+      DISABLED_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+    );
+  });
+
+  it("preserves explicit cache policy on non-SSR recovery responses", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response('{"private":true}', {
+        headers: {
+          "cache-control": "private, no-store",
+          "content-type": "application/json",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent(`/private-json${CHUNK_RECOVERY_PATH_SUFFIX}`),
+    );
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expectNoDefaultCdnCacheHeaders(response);
   });
 
   it("preserves full Netlify query variation for marked public redirects", async () => {

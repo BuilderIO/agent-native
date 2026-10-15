@@ -8,6 +8,7 @@ import {
   diagnoseCredentialState,
   findBlockingText,
   findStuckDesignSystems,
+  hasBuilderConnectionState,
   laneOf,
   looksLikeNotFound,
   pickOpenableApps,
@@ -16,6 +17,15 @@ import {
 } from "./journey-checks";
 
 const APP = "https://beta.slides.agent-native.com";
+
+test("recognizes the not-connected Builder settings state", () => {
+  assert.equal(
+    hasBuilderConnectionState(
+      "Not connected. Use Builder.io to enable access for everyone in this workspace.",
+    ),
+    true,
+  );
+});
 
 test("a navigation to a sign-in route is a signed-in user being pushed out", () => {
   for (const url of [

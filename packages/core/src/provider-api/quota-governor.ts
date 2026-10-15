@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { CredentialContext } from "../credentials/index.js";
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { parseRetryAfterMs } from "../shared/retry-after.js";
 
 export interface ProviderQuotaIdentityInput {
@@ -69,7 +70,6 @@ interface ProviderQuotaState {
   queues: Map<string, QueueState>;
   inflight: Map<string, Promise<unknown>>;
   cooldowns: Map<string, CooldownEntry>;
-  initPromise?: Promise<void>;
   persistenceUnavailableUntil?: number;
 }
 
@@ -181,7 +181,7 @@ export function resetProviderQuotaStateForTests(): void {
   state.queues.clear();
   state.inflight.clear();
   state.cooldowns.clear();
-  state.initPromise = undefined;
+  providerQuotaCooldownsStore.reset();
   state.persistenceUnavailableUntil = undefined;
 }
 
@@ -369,36 +369,44 @@ function persistenceTemporarilyUnavailable(): boolean {
   );
 }
 
+export const providerQuotaCooldownsStore = defineStore({
+  id: "provider_quota_cooldowns",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const integerType = "BIGINT";
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS provider_api_cooldowns (
+            quota_key TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            scope_key TEXT NOT NULL,
+            cooldown_until ${integerType} NOT NULL,
+            status ${integerType},
+            reason TEXT,
+            updated_at ${integerType} NOT NULL,
+            PRIMARY KEY (quota_key)
+          )
+        `;
+        await ensureTableExists("provider_api_cooldowns", createSql);
+        await ensureIndexExists(
+          "provider_api_cooldowns_provider_idx",
+          `CREATE INDEX IF NOT EXISTS provider_api_cooldowns_provider_idx ON provider_api_cooldowns (provider_id, cooldown_until)`,
+        );
+      },
+    },
+  ],
+});
+
 export async function ensureCooldownTable(): Promise<void> {
   if (!shouldPersistCooldowns()) return;
   if (persistenceTemporarilyUnavailable()) return;
-  if (!state.initPromise) {
-    state.initPromise = (async () => {
-      const integerType = "BIGINT";
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS provider_api_cooldowns (
-          quota_key TEXT NOT NULL,
-          provider_id TEXT NOT NULL,
-          scope_key TEXT NOT NULL,
-          cooldown_until ${integerType} NOT NULL,
-          status ${integerType},
-          reason TEXT,
-          updated_at ${integerType} NOT NULL,
-          PRIMARY KEY (quota_key)
-        )
-      `;
-      await ensureTableExists("provider_api_cooldowns", createSql);
-      await ensureIndexExists(
-        "provider_api_cooldowns_provider_idx",
-        `CREATE INDEX IF NOT EXISTS provider_api_cooldowns_provider_idx ON provider_api_cooldowns (provider_id, cooldown_until)`,
-      );
-    })().catch((err) => {
-      state.initPromise = undefined;
-      state.persistenceUnavailableUntil = Date.now() + PERSISTENCE_RETRY_MS;
-      throw err;
-    });
+  try {
+    await providerQuotaCooldownsStore.ready();
+  } catch (err) {
+    state.persistenceUnavailableUntil = Date.now() + PERSISTENCE_RETRY_MS;
+    throw err;
   }
-  await state.initPromise;
 }
 
 async function readPersistedCooldown(

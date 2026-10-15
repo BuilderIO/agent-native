@@ -7,6 +7,7 @@ import {
   type SessionReplayIframeStartMessage,
   type SessionReplayIframeStopMessage,
 } from "../session-replay-iframe-protocol.js";
+import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import {
   loadOptionalPeer,
   OptionalPeerDependencyError,
@@ -16,6 +17,11 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
+import {
+  SESSION_REPLAY_BLOCK_ATTRIBUTE,
+  SESSION_REPLAY_MASK_ATTRIBUTE,
+} from "./session-replay-privacy.js";
 import {
   decideReplayQuotaResponse,
   parseRetryAfterSeconds,
@@ -113,10 +119,14 @@ interface SessionReplayState {
   removeLifecycleListeners: (() => void) | null;
   restoreIframeBridge: (() => void) | null;
   addCustomEvent: ((tag: string, payload: unknown) => void) | null;
+  analyticsEventCount: number;
+  analyticsEventReplayId: string | null;
   takeFullSnapshot: ((isCheckout?: boolean) => void) | null;
   restoreCaptures: (() => void) | null;
   options: NormalizedSessionReplayOptions | null;
   lastAuthenticatedProperties: Record<string, unknown> | null;
+  captureContext: "pre_auth" | null;
+  suppressIdentityInProperties: boolean;
   resourceNodes: Map<number, ReplayResourceNode>;
   automaticConflictRestartAttempted: boolean;
   broadcastChannel: BroadcastChannel | null;
@@ -128,6 +138,9 @@ interface StoredReplaySession {
   startedAtMs?: number;
   sequence?: number;
   linkBaseUrl?: string;
+  analyticsEventCount?: number;
+  captureContext?: "pre_auth";
+  suppressIdentityInProperties?: boolean;
 }
 
 interface ReplayClaimMessage {
@@ -188,6 +201,7 @@ export interface SessionReplayOptions {
   blockSelector?: string;
   ignoreSelector?: string;
   maskTextClass?: string | RegExp;
+  /** App selectors extend the framework's `data-an-mask` privacy marker. */
   maskTextSelector?: string;
   maskAllInputs?: boolean;
   recordCanvas?: boolean;
@@ -294,7 +308,7 @@ const SESSION_REPLAY_IFRAME_BLOCK_SELECTOR = `iframe[${SESSION_REPLAY_IFRAME_ATT
 const DEFAULT_BLOCK_SELECTOR = [
   SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
   "[data-sensitive]",
-  "[data-an-block]",
+  `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
   "[data-an-private]",
   "[data-private]",
   ".an-block",
@@ -309,9 +323,18 @@ const DEFAULT_BLOCK_SELECTOR = [
   "[name*='card' i]",
   "[name*='ssn' i]",
 ].join(", ");
+/**
+ * App block selectors extend these framework markers instead of replacing them.
+ * Append them whole: a custom selector can mention one, as in
+ * `[data-an-block] .secret`, without matching the bare marker.
+ */
+const REQUIRED_BLOCK_SELECTORS = [
+  SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
+  `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
+];
 const DEFAULT_IGNORE_SELECTOR = ".an-ignore, [data-an-ignore]";
 const DEFAULT_MASK_TEXT_CLASS = "an-mask";
-const DEFAULT_MASK_TEXT_SELECTOR = "[data-an-mask]";
+const DEFAULT_MASK_TEXT_SELECTOR = `[${SESSION_REPLAY_MASK_ATTRIBUTE}]`;
 const DEFAULT_MASK_INPUT_OPTIONS: Record<string, boolean> = {
   color: true,
   date: true,
@@ -343,11 +366,17 @@ const SESSION_REPLAY_CLAIM_TIMEOUT_MS = 150;
 export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
 export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
+export const SESSION_REPLAY_ANALYTICS_EVENT_TAG = "agent-native.event";
+export const SESSION_REPLAY_VITALS_EVENT_TAG = "agent-native.vitals";
+export const SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG =
+  "agent-native.slow_request";
 const SESSION_REPLAY_LIFECYCLE_EVENT_TAG = "agent-native.session_replay";
 
 const DEFAULT_MAX_CONSOLE_EVENTS = 1000;
 const DEFAULT_MAX_NETWORK_EVENTS = 2000;
 const MAX_CONSOLE_MESSAGE_LENGTH = 500;
+const MAX_ANALYTICS_EVENT_NAME_LENGTH = 120;
+const MAX_ANALYTICS_EVENTS_PER_REPLAY = 1000;
 const MAX_CONSOLE_ARGS = 10;
 const MAX_CONSOLE_STACK_LENGTH = 2000;
 const MAX_CONSOLE_SERIALIZE_DEPTH = 4;
@@ -427,10 +456,14 @@ function getState(): SessionReplayState {
       removeLifecycleListeners: null,
       restoreIframeBridge: null,
       addCustomEvent: null,
+      analyticsEventCount: 0,
+      analyticsEventReplayId: null,
       takeFullSnapshot: null,
       restoreCaptures: null,
       options: null,
       lastAuthenticatedProperties: null,
+      captureContext: null,
+      suppressIdentityInProperties: false,
       resourceNodes: new Map(),
       automaticConflictRestartAttempted: false,
       broadcastChannel: null,
@@ -449,6 +482,8 @@ function getState(): SessionReplayState {
   state.awaitingFullSnapshot ??= false;
   state.startGeneration ??= 0;
   state.replayLinkBaseUrl ??= null;
+  state.captureContext ??= null;
+  state.suppressIdentityInProperties ??= false;
   return state;
 }
 
@@ -548,22 +583,27 @@ function removeStoredReplaySession(replayId: string): void {
 function getOrCreateReplaySession(
   sessionId: string,
   linkBaseUrl?: string | null,
+  captureContext?: "pre_auth",
 ): {
   replayId: string;
   startedAtMs: number;
   sequence: number;
   linkBaseUrl?: string;
+  analyticsEventCount: number;
+  captureContext: "pre_auth" | null;
+  suppressIdentityInProperties: boolean;
   resumed: boolean;
 } {
   clearLegacyLocalStorageReplaySession();
   const parsed = readStoredReplaySession();
-  const parsedSequence =
-    typeof parsed?.sequence === "number" &&
-    Number.isFinite(parsed.sequence) &&
-    parsed.sequence >= 0
-      ? Math.floor(parsed.sequence)
-      : 0;
+  const parsedSequence = storedCount(parsed?.sequence);
+  const resumesPreAuthReplay =
+    parsed?.captureContext === "pre_auth" ||
+    parsed?.suppressIdentityInProperties === true;
+  const startsPreAuthReplay = captureContext === "pre_auth";
+  const crossesAuthBoundary = resumesPreAuthReplay !== startsPreAuthReplay;
   if (
+    !crossesAuthBoundary &&
     parsed?.sessionId === sessionId &&
     parsed.replayId &&
     parsedSequence < MAX_REPLAY_CHUNKS_PER_RECORDING - 1
@@ -576,14 +616,36 @@ function getOrCreateReplaySession(
         : Date.now();
     const sequence = parsedSequence;
     const resolvedLinkBaseUrl = linkBaseUrl ?? parsed.linkBaseUrl;
-    if (linkBaseUrl && parsed.linkBaseUrl !== linkBaseUrl) {
-      writeStoredReplaySession({ ...parsed, linkBaseUrl });
+    const resolvedCaptureContext =
+      parsed.captureContext === "pre_auth" ? "pre_auth" : null;
+    const suppressIdentityInProperties =
+      parsed.suppressIdentityInProperties === true ||
+      resolvedCaptureContext === "pre_auth";
+    if (
+      (linkBaseUrl && parsed.linkBaseUrl !== linkBaseUrl) ||
+      resolvedCaptureContext !== (parsed.captureContext ?? null) ||
+      suppressIdentityInProperties !==
+        (parsed.suppressIdentityInProperties === true)
+    ) {
+      writeStoredReplaySession({
+        ...parsed,
+        ...(linkBaseUrl ? { linkBaseUrl } : {}),
+        ...(resolvedCaptureContext
+          ? { captureContext: resolvedCaptureContext }
+          : {}),
+        ...(suppressIdentityInProperties
+          ? { suppressIdentityInProperties: true }
+          : {}),
+      });
     }
     return {
       replayId: parsed.replayId,
       startedAtMs,
       sequence,
       ...(resolvedLinkBaseUrl ? { linkBaseUrl: resolvedLinkBaseUrl } : {}),
+      analyticsEventCount: storedCount(parsed.analyticsEventCount),
+      captureContext: resolvedCaptureContext,
+      suppressIdentityInProperties,
       resumed: true,
     };
   }
@@ -595,14 +657,27 @@ function getOrCreateReplaySession(
     startedAtMs,
     sequence: 0,
     ...(linkBaseUrl ? { linkBaseUrl } : {}),
+    ...(captureContext ? { captureContext } : {}),
+    ...(captureContext === "pre_auth"
+      ? { suppressIdentityInProperties: true }
+      : {}),
   });
   return {
     replayId,
     startedAtMs,
     sequence: 0,
     ...(linkBaseUrl ? { linkBaseUrl } : {}),
+    analyticsEventCount: 0,
+    captureContext: captureContext ?? null,
+    suppressIdentityInProperties: captureContext === "pre_auth",
     resumed: false,
   };
+}
+
+function storedCount(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : 0;
 }
 
 function openReplayBroadcastChannel(): BroadcastChannel | null {
@@ -707,15 +782,31 @@ function persistReplaySequence(
   startedAtMs: number | null,
   sequence: number,
   linkBaseUrl?: string | null,
+  captureContext?: "pre_auth" | null,
+  suppressIdentityInProperties = false,
 ): void {
   const existing = readStoredReplaySession();
+  if (
+    existing &&
+    (existing.sessionId !== sessionId || existing.replayId !== replayId)
+  ) {
+    return;
+  }
+  const isSameRecording = existing !== null;
+  const persistedLinkBaseUrl =
+    linkBaseUrl ?? (isSameRecording ? existing?.linkBaseUrl : undefined);
   writeStoredReplaySession({
     sessionId,
     replayId,
     startedAtMs: startedAtMs ?? Date.now(),
     sequence,
-    ...(linkBaseUrl || existing?.linkBaseUrl
-      ? { linkBaseUrl: linkBaseUrl ?? existing?.linkBaseUrl }
+    ...(persistedLinkBaseUrl ? { linkBaseUrl: persistedLinkBaseUrl } : {}),
+    ...(isSameRecording && existing.analyticsEventCount
+      ? { analyticsEventCount: existing.analyticsEventCount }
+      : {}),
+    ...(captureContext ? { captureContext } : {}),
+    ...(suppressIdentityInProperties
+      ? { suppressIdentityInProperties: true }
       : {}),
   });
 }
@@ -760,38 +851,15 @@ function readFirstEnvNumber(keys: string[]): number | undefined {
   return undefined;
 }
 
-function replayEndpointFromAnalyticsEndpoint(value: string): string | null {
-  try {
-    const url = new URL(value);
-    if (url.pathname.endsWith("/api/analytics/track")) {
-      url.pathname = url.pathname.replace(
-        /\/api\/analytics\/track$/,
-        "/api/analytics/replay",
-      );
-      return url.toString();
-    }
-    if (url.pathname.endsWith("/track")) {
-      url.pathname = url.pathname.replace(/\/track$/, "/api/analytics/replay");
-      return url.toString();
-    }
-  } catch {
-    // Fall through to the relative path cases below.
-  }
-  if (value.endsWith("/api/analytics/track")) {
-    return value.replace(/\/api\/analytics\/track$/, "/api/analytics/replay");
-  }
-  if (value.endsWith("/track")) {
-    return value.replace(/\/track$/, "/api/analytics/replay");
-  }
-  return null;
-}
-
 function defaultReplayEndpoint(): string {
   const analyticsEndpoint = readEnvString(
     "VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT",
   );
   const derived = analyticsEndpoint
-    ? replayEndpointFromAnalyticsEndpoint(analyticsEndpoint)
+    ? replayEndpointFromAnalyticsEndpoint(
+        analyticsEndpoint,
+        typeof document === "undefined" ? undefined : document.baseURI,
+      )
     : null;
   if (derived) return derived;
   return typeof window !== "undefined"
@@ -870,14 +938,16 @@ function normalizeOptions(
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (!publicKey) return null;
-  const endpoint =
+  const endpoint = resolveLaneEndpoint(
     options.endpoint ||
-    readFirstEnvString([
-      "VITE_AGENT_NATIVE_ANALYTICS_REPLAY_ENDPOINT",
-      "VITE_AGENT_NATIVE_SESSION_REPLAY_ENDPOINT",
-      "VITE_SESSION_REPLAY_INGEST_URL",
-    ]) ||
-    defaultReplayEndpoint();
+      readFirstEnvString([
+        "VITE_AGENT_NATIVE_ANALYTICS_REPLAY_ENDPOINT",
+        "VITE_AGENT_NATIVE_SESSION_REPLAY_ENDPOINT",
+        "VITE_SESSION_REPLAY_INGEST_URL",
+      ]) ||
+      defaultReplayEndpoint(),
+    typeof window !== "undefined" ? window.location.hostname : undefined,
+  );
   const maxDurationMs =
     options.maxDurationMs ??
     readFirstEnvNumber([
@@ -932,12 +1002,14 @@ function normalizeOptions(
     checkoutEveryNth: options.checkoutEveryNth,
     checkoutEveryNms: options.checkoutEveryNms,
     inlineStylesheet: options.inlineStylesheet ?? true,
-    blockSelector: mergeReplayBlockSelector(
-      options.blockSelector || DEFAULT_BLOCK_SELECTOR,
-    ),
+    blockSelector: options.blockSelector
+      ? [options.blockSelector, ...REQUIRED_BLOCK_SELECTORS].join(", ")
+      : DEFAULT_BLOCK_SELECTOR,
     ignoreSelector: options.ignoreSelector || DEFAULT_IGNORE_SELECTOR,
     maskTextClass: options.maskTextClass || DEFAULT_MASK_TEXT_CLASS,
-    maskTextSelector: options.maskTextSelector || DEFAULT_MASK_TEXT_SELECTOR,
+    maskTextSelector: options.maskTextSelector
+      ? `${DEFAULT_MASK_TEXT_SELECTOR}, ${options.maskTextSelector}`
+      : DEFAULT_MASK_TEXT_SELECTOR,
     maskAllInputs: options.maskAllInputs ?? true,
     recordCanvas: options.recordCanvas ?? false,
     recordCrossOriginIframes:
@@ -959,12 +1031,6 @@ function normalizeOptions(
     extraProperties: options.extraProperties,
     shouldStart: options.shouldStart,
   };
-}
-
-function mergeReplayBlockSelector(blockSelector: string): string {
-  return blockSelector.includes(SESSION_REPLAY_IFRAME_BLOCK_SELECTOR)
-    ? blockSelector
-    : `${blockSelector}, ${SESSION_REPLAY_IFRAME_BLOCK_SELECTOR}`;
 }
 
 function normalizeCaptureToggle(
@@ -1336,12 +1402,127 @@ function replayPropertiesForUpload(
   const properties = replayExtraProperties(options);
   if (replayUserEmail(properties)) {
     state.lastAuthenticatedProperties = properties ? { ...properties } : null;
-    return properties;
+    return withoutReplayContextClaims(properties);
   }
   if (options.requireSignedInUser && state.lastAuthenticatedProperties) {
-    return state.lastAuthenticatedProperties;
+    return withoutReplayContextClaims(state.lastAuthenticatedProperties);
   }
-  return properties;
+  return withoutReplayContextClaims(properties);
+}
+
+function withoutReplayContextClaims(
+  properties: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!properties) return properties;
+  const {
+    capture_context: _captureContext,
+    pre_auth_base_path: _preAuthBasePath,
+    ...safeProperties
+  } = properties;
+  return safeProperties;
+}
+
+const REPLAY_IDENTITY_PROPERTY_KEYS = new Set([
+  "email",
+  "emailaddress",
+  "useremail",
+  "user_email",
+  "useremailaddress",
+  "userid",
+  "user_id",
+  "username",
+  "user_name",
+  "name",
+  "firstname",
+  "first_name",
+  "lastname",
+  "last_name",
+  "fullname",
+  "full_name",
+  "displayname",
+  "display_name",
+  "user",
+  "session",
+  "auth",
+  "response",
+  "orgid",
+  "org_id",
+  "orgname",
+  "org_name",
+  "organizationid",
+  "organization_id",
+  "organizationname",
+  "organization_name",
+  "tenantid",
+  "tenant_id",
+  "workspaceid",
+  "workspace_id",
+  "code",
+  "state",
+  "nonce",
+  "otp",
+  "verifier",
+  "flowid",
+  "callbackurl",
+  "redirecturl",
+  "verificationcode",
+  "authuserid",
+  "auth_user_id",
+  "identity",
+]);
+const REPLAY_IDENTITY_PROPERTY_TOKENS = new Set([
+  "email",
+  "id",
+  "name",
+  "user",
+  "session",
+  "auth",
+  "org",
+  "organization",
+  "tenant",
+  "workspace",
+  "identity",
+  "customer",
+  "recipient",
+  "member",
+  "principal",
+]);
+
+function isSensitiveReplayPropertyKey(key: string): boolean {
+  const tokens = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  const normalized = tokens.join("");
+  if (normalized === "preauthbasepath") return false;
+  return (
+    REPLAY_IDENTITY_PROPERTY_KEYS.has(normalized) ||
+    tokens.some((token) => REPLAY_IDENTITY_PROPERTY_TOKENS.has(token)) ||
+    /password|passwd|passphrase|token|secret|credential|authorization|authresponse|authcode|verificationcode|otp|nonce|verifier|callbackurl|redirecturl/.test(
+      normalized,
+    )
+  );
+}
+
+function stripReplayIdentityValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripReplayIdentityValue);
+  if (value && typeof value === "object") {
+    return stripReplayIdentityProperties(value as Record<string, unknown>);
+  }
+  return value;
+}
+
+function stripReplayIdentityProperties(
+  value: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  const result: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (isSensitiveReplayPropertyKey(key)) continue;
+    result[key] = stripReplayIdentityValue(child);
+  }
+  return result;
 }
 
 interface ReplayUploadPayload {
@@ -1372,11 +1553,19 @@ function buildReplayBody(
   if (!options || !state.replayId) return null;
   const sessionId = getOrCreateAnalyticsSessionId();
   if (!sessionId) return null;
-  const properties = replayPropertiesForUpload(state, options);
-  const userEmail = replayUserEmail(properties);
-  if (options.requireSignedInUser && !userEmail) return null;
-  const userId =
-    userEmail || replayString(properties?.userId ?? properties?.user_id);
+  const replayProperties = replayPropertiesForUpload(state, options);
+  const authenticatedUserEmail = replayUserEmail(replayProperties);
+  if (options.requireSignedInUser && !authenticatedUserEmail) return null;
+  const userEmail = state.suppressIdentityInProperties
+    ? undefined
+    : authenticatedUserEmail;
+  const userId = state.suppressIdentityInProperties
+    ? undefined
+    : userEmail ||
+      replayString(replayProperties?.userId ?? replayProperties?.user_id);
+  const properties = state.suppressIdentityInProperties
+    ? stripReplayIdentityProperties(replayProperties)
+    : replayProperties;
   const eventTimestamps = events.map((event) => event.timestampMs);
   const nowMs = Date.now();
   const startedAtMs =
@@ -1628,11 +1817,13 @@ async function awaitReplayUpload(
 async function sendReplayUpload(
   options: NormalizedSessionReplayOptions,
   body: string,
-  callbacks: { beforeKeepaliveUpload?: () => void } = {},
-): Promise<void> {
+  callbacks: { beforeUpload?: (keepalive: boolean) => "send" | "defer" } = {},
+): Promise<"sent" | "deferred"> {
   if (isCrossOriginReplayEndpoint(options.endpoint)) {
     const canUseKeepalive = canUseReplayKeepalive(body);
-    if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
+    if (callbacks.beforeUpload?.(canUseKeepalive) === "defer") {
+      return "deferred";
+    }
     const timeout = startReplayUploadTimeout();
     await awaitReplayUploadRequest(timeout, () =>
       fetch(options.endpoint, {
@@ -1643,12 +1834,12 @@ async function sendReplayUpload(
         signal: timeout.signal,
       }),
     );
-    return;
+    return "sent";
   }
 
   const upload = await buildReplayUploadBody(body);
   const canUseKeepalive = canUseReplayKeepalive(upload.body);
-  if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
+  if (callbacks.beforeUpload?.(canUseKeepalive) === "defer") return "deferred";
   const timeout = startReplayUploadTimeout();
   await awaitReplayUploadRequest(timeout, () =>
     fetch(options.endpoint, {
@@ -1662,6 +1853,7 @@ async function sendReplayUpload(
       signal: timeout.signal,
     }),
   );
+  return "sent";
 }
 
 function isFinalFlushReason(reason: string): boolean {
@@ -1679,6 +1871,19 @@ function isFinalFlushReason(reason: string): boolean {
 
 function isTerminalReplayFlushReason(reason: string): boolean {
   return reason === "pagehide" || reason === "beforeunload";
+}
+
+/**
+ * A navigation fires `visibilitychange` before or after `pagehide`, depending
+ * on the browser, and a mobile page may get only `visibilitychange`. A page in
+ * the back/forward cache can be evicted without running again.
+ */
+function isPageLeaveReplayFlushReason(reason: string): boolean {
+  return (
+    isTerminalReplayFlushReason(reason) ||
+    reason === "pagehide-persisted" ||
+    reason === "visibility-hidden"
+  );
 }
 
 function flushReasonPriority(reason: string): number {
@@ -1702,15 +1907,6 @@ function mergePendingFlushReason(
   return flushReasonPriority(requested) > flushReasonPriority(current)
     ? requested
     : current;
-}
-
-function shouldReserveSequenceBeforeKeepalive(reason: string): boolean {
-  return (
-    reason === "pagehide" ||
-    reason === "pagehide-persisted" ||
-    reason === "beforeunload" ||
-    reason === "visibility-hidden"
-  );
 }
 
 function hasFullSnapshot(events: QueuedReplayEvent[]): boolean {
@@ -1964,6 +2160,8 @@ function advanceReplaySequence(
     state.startedAtMs,
     state.sequence,
     state.replayLinkBaseUrl,
+    state.captureContext,
+    state.suppressIdentityInProperties,
   );
 }
 
@@ -1980,6 +2178,8 @@ function rollbackReplaySequenceReservation(
     state.startedAtMs,
     state.sequence,
     state.replayLinkBaseUrl,
+    state.captureContext,
+    state.suppressIdentityInProperties,
   );
 }
 
@@ -2042,18 +2242,40 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   let pausedForQuota = false;
   let quotaRetryAfterSeconds: number | null = null;
   try {
-    await sendReplayUpload(state.options, payload.body, {
-      beforeKeepaliveUpload: shouldReserveSequenceBeforeKeepalive(reason)
-        ? () => {
-            advanceReplaySequence(state, payload);
-            reservedSequence = true;
-          }
-        : undefined,
+    // An upload can be stored after a navigation has destroyed this page and
+    // its response handler: a keepalive one because the browser finishes
+    // sending it, and a larger one when the server already has its body.
+    // Persist the next index first, or the next page resends this chunk number
+    // with different content and the server rejects it (HTTP 409). A flush as
+    // the page hides or leaves never starts an upload too large for keepalive:
+    // a navigation usually cancels it, so a reserved number would leave a gap,
+    // and an unreserved one that still arrives would be reused. Its events stay
+    // queued for the next flush of a page that survives. A same-origin body is
+    // compressed before this check, so a hide or leave event can arrive in
+    // between; it is queued as the pending reason.
+    const outcome = await sendReplayUpload(state.options, payload.body, {
+      beforeUpload: (keepalive) => {
+        const pendingReason = state.pendingFlushReason;
+        if (
+          !keepalive &&
+          (isPageLeaveReplayFlushReason(reason) ||
+            (pendingReason !== null &&
+              isPageLeaveReplayFlushReason(pendingReason)))
+        ) {
+          return "defer";
+        }
+        advanceReplaySequence(state, payload);
+        reservedSequence = true;
+        return "send";
+      },
     });
-    if (!reservedSequence) advanceReplaySequence(state, payload);
-    state.automaticConflictRestartAttempted = false;
-    state.transientClientErrorFailures = 0;
-    uploaded = true;
+    if (outcome === "deferred") {
+      restoreReplayEvents(state, events);
+    } else {
+      state.automaticConflictRestartAttempted = false;
+      state.transientClientErrorFailures = 0;
+      uploaded = true;
+    }
   } catch (error) {
     if (error instanceof ReplayUploadInFlightTimeoutError) {
       const pending: PendingReplayUpload = {
@@ -2461,8 +2683,41 @@ function installSessionReplayIframeBridge(
   const stopMessage: SessionReplayIframeStopMessage = {
     type: SESSION_REPLAY_IFRAME_STOP,
   };
-  const sendStart = (iframe: HTMLIFrameElement) =>
+  const recordingFrames = new Set<HTMLIFrameElement>();
+  const startFrame = (iframe: HTMLIFrameElement, retry = false) => {
+    if (
+      !state.active ||
+      !iframe.hasAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)
+    ) {
+      return;
+    }
+    if (recordingFrames.has(iframe)) {
+      if (retry) postSessionReplayIframeMessage(iframe, startMessage);
+      return;
+    }
+    recordingFrames.add(iframe);
     postSessionReplayIframeMessage(iframe, startMessage);
+  };
+  const stopFrame = (iframe: HTMLIFrameElement) => {
+    if (!recordingFrames.delete(iframe)) return;
+    postSessionReplayIframeMessage(iframe, stopMessage);
+  };
+  const iframesIn = (node: Node): HTMLIFrameElement[] => {
+    if (node.nodeType !== 1 && node.nodeType !== 11) return [];
+    const element = node as Element;
+    const frames: HTMLIFrameElement[] = [];
+    if (element.nodeType === 1 && element.localName === "iframe") {
+      frames.push(element as HTMLIFrameElement);
+    }
+    if (typeof (element as ParentNode).querySelectorAll === "function") {
+      frames.push(
+        ...Array.from(
+          (element as ParentNode).querySelectorAll<HTMLIFrameElement>("iframe"),
+        ),
+      );
+    }
+    return frames;
+  };
   const onMessage = (event: MessageEvent) => {
     if (!state.active) return;
     if (
@@ -2473,16 +2728,45 @@ function installSessionReplayIframeBridge(
       return;
     }
     const iframe = markedSessionReplayIframeForSource(event.source);
-    if (iframe) sendStart(iframe);
+    if (iframe) startFrame(iframe, true);
   };
 
   window.addEventListener("message", onMessage);
-  for (const iframe of markedSessionReplayIframes()) sendStart(iframe);
+  const observer =
+    typeof MutationObserver === "undefined" || !document.documentElement
+      ? null
+      : new MutationObserver((records) => {
+          for (const record of records) {
+            if (record.type === "attributes") {
+              const target = record.target as Element;
+              if (target.localName !== "iframe") continue;
+              const iframe = target as HTMLIFrameElement;
+              if (iframe.hasAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)) {
+                startFrame(iframe);
+              } else {
+                stopFrame(iframe);
+              }
+              continue;
+            }
+            for (const removed of Array.from(record.removedNodes)) {
+              for (const iframe of iframesIn(removed)) stopFrame(iframe);
+            }
+            for (const added of Array.from(record.addedNodes)) {
+              for (const iframe of iframesIn(added)) startFrame(iframe);
+            }
+          }
+        });
+  observer?.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: [SESSION_REPLAY_IFRAME_ATTRIBUTE],
+    childList: true,
+    subtree: true,
+  });
+  for (const iframe of markedSessionReplayIframes()) startFrame(iframe);
   state.restoreIframeBridge = () => {
     window.removeEventListener("message", onMessage);
-    for (const iframe of markedSessionReplayIframes()) {
-      postSessionReplayIframeMessage(iframe, stopMessage);
-    }
+    observer?.disconnect();
+    for (const iframe of recordingFrames) stopFrame(iframe);
     state.restoreIframeBridge = null;
   };
 }
@@ -2663,6 +2947,11 @@ function installConsoleCapture(
         level,
         source,
         message,
+        // Captured exceptions also arrive as console errors, and only they
+        // can become Monitoring issues, so a reader must tell the two apart.
+        ...(source === "console" && level === "error"
+          ? { exception: false }
+          : {}),
         ...(extraArgs.length ? { args: extraArgs } : {}),
         ...(stack ? { stack } : {}),
         ...(url ? { url } : {}),
@@ -2862,6 +3151,56 @@ function installNetworkCapture(
       ? (captureOptions.maxErrorBodyLength ?? DEFAULT_MAX_ERROR_BODY_LENGTH)
       : null;
 
+  const restores: Array<() => void> = [];
+
+  // A background tab throttles timers, so a request that was ever hidden did
+  // not keep anyone waiting for its duration. Checking visibility only at the
+  // end misses a tab that was hidden and came back.
+  let hiddenEpoch = 0;
+  const countHidden = () => {
+    if (document.visibilityState === "hidden") hiddenEpoch += 1;
+  };
+  document.addEventListener("visibilitychange", countHidden);
+  restores.push(() =>
+    document.removeEventListener("visibilitychange", countHidden),
+  );
+  const watchHidden = (): (() => boolean) => {
+    const hiddenAtStart = document.visibilityState !== "visible";
+    const epochAtStart = hiddenEpoch;
+    return () =>
+      hiddenAtStart ||
+      epochAtStart !== hiddenEpoch ||
+      document.visibilityState !== "visible";
+  };
+
+  // A request the browser cancels because the page is leaving fails exactly
+  // like a network error. WebKit cancels right after beforeunload, Chromium
+  // after pagehide; neither listener costs the page its bfcache eligibility.
+  // Input or a bfcache restore means the page stayed (a cancelled prompt or a
+  // download keeps it alive after beforeunload).
+  let pageLeaving = false;
+  const markLeaving = () => {
+    pageLeaving = true;
+  };
+  const markStaying = () => {
+    pageLeaving = false;
+  };
+  const leaveListeners: Array<[EventTarget, string, () => void]> = [
+    [window, "beforeunload", markLeaving],
+    [window, "pagehide", markLeaving],
+    [window, "pageshow", markStaying],
+    [window, "pointerdown", markStaying],
+    [window, "keydown", markStaying],
+  ];
+  for (const [target, type, listener] of leaveListeners) {
+    target.addEventListener(type, listener, { capture: true });
+  }
+  restores.push(() => {
+    for (const [target, type, listener] of leaveListeners) {
+      target.removeEventListener(type, listener, { capture: true });
+    }
+  });
+
   const recordRequest = (
     api: "fetch" | "xhr",
     method: string,
@@ -2869,6 +3208,7 @@ function installNetworkCapture(
     status: number,
     ok: boolean,
     durationMs: number,
+    pageHidden: boolean,
     error?: string,
     responseBody?: string,
   ) => {
@@ -2884,6 +3224,8 @@ function installNetworkCapture(
         status,
         ok,
         durationMs: Math.max(0, Math.round(durationMs)),
+        ...(pageHidden ? { pageHidden: true } : {}),
+        ...(status === 0 && pageLeaving ? { pageLeaving: true } : {}),
         ...(error
           ? {
               error: truncateCaptureText(
@@ -2934,8 +3276,6 @@ function installNetworkCapture(
     }
   };
 
-  const restores: Array<() => void> = [];
-
   if (typeof window.fetch === "function") {
     const originalFetch = window.fetch;
     const wrappedFetch = function (
@@ -2961,6 +3301,7 @@ function installNetworkCapture(
         return originalFetch.call(self, input as RequestInfo | URL, init);
       }
       const startedAt = performance.now();
+      const wasHidden = watchHidden();
       const result = originalFetch.call(self, input as RequestInfo | URL, init);
       if (!result || typeof (result as Promise<Response>).then !== "function") {
         return result;
@@ -2969,6 +3310,7 @@ function installNetworkCapture(
         (response) => {
           try {
             const durationMs = performance.now() - startedAt;
+            const pageHidden = wasHidden();
             if (errorBodyCap !== null && response.status >= 500) {
               let clone: Response | null = null;
               try {
@@ -2993,6 +3335,7 @@ function installNetworkCapture(
                       response.status,
                       response.ok,
                       durationMs,
+                      pageHidden,
                       undefined,
                       responseBody,
                     );
@@ -3008,6 +3351,7 @@ function installNetworkCapture(
                   response.status,
                   response.ok,
                   durationMs,
+                  pageHidden,
                 );
               }
             } else {
@@ -3018,6 +3362,7 @@ function installNetworkCapture(
                 response.status,
                 response.ok,
                 durationMs,
+                pageHidden,
               );
             }
           } catch {
@@ -3034,6 +3379,7 @@ function installNetworkCapture(
               0,
               false,
               performance.now() - startedAt,
+              wasHidden(),
               error instanceof Error ? error.message : String(error),
             );
           } catch {
@@ -3096,6 +3442,7 @@ function installNetworkCapture(
         const info = xhrInfo.get(this);
         if (info && !stopped && !replayCaptureInternal) {
           const startedAt = performance.now();
+          const wasHidden = watchHidden();
           let errorMessage: string | undefined;
           const markError = (message: string) => () => {
             errorMessage = message;
@@ -3127,6 +3474,7 @@ function installNetworkCapture(
                 effectiveStatus,
                 !errorMessage && status >= 200 && status < 300,
                 performance.now() - startedAt,
+                wasHidden(),
                 errorMessage,
                 responseBody,
               );
@@ -3325,9 +3673,12 @@ async function startSessionReplayRecorder(
     return { started: false, reason: "disabled", sessionId, sampled };
   }
 
+  const captureContext =
+    initialProperties?.capture_context === "pre_auth" ? "pre_auth" : undefined;
   let replaySession = getOrCreateReplaySession(
     sessionId,
     normalized.linkBaseUrl,
+    captureContext,
   );
   const instanceNonce = generateReplayId();
   const { channel: replayChannel, probeClaim } = createReplayClaimChannel(
@@ -3347,6 +3698,12 @@ async function startSessionReplayRecorder(
         ...(normalized.linkBaseUrl
           ? { linkBaseUrl: normalized.linkBaseUrl }
           : {}),
+        ...(replaySession.captureContext === "pre_auth"
+          ? { captureContext: "pre_auth" }
+          : {}),
+        ...(replaySession.suppressIdentityInProperties
+          ? { suppressIdentityInProperties: true }
+          : {}),
       });
       replaySession = {
         replayId: freshReplayId,
@@ -3355,6 +3712,10 @@ async function startSessionReplayRecorder(
         ...(normalized.linkBaseUrl
           ? { linkBaseUrl: normalized.linkBaseUrl }
           : {}),
+        analyticsEventCount: 0,
+        captureContext: replaySession.captureContext,
+        suppressIdentityInProperties:
+          replaySession.suppressIdentityInProperties,
         resumed: false,
       };
     }
@@ -3379,6 +3740,9 @@ async function startSessionReplayRecorder(
   state.replayLinkBaseUrl =
     replaySession.linkBaseUrl ?? normalized.linkBaseUrl ?? null;
   state.sequence = replaySession.sequence;
+  state.captureContext = replaySession.captureContext;
+  state.suppressIdentityInProperties =
+    replaySession.suppressIdentityInProperties;
   state.queue = [];
   state.queuedBytes = 0;
   state.retryBatches = [];
@@ -3393,6 +3757,11 @@ async function startSessionReplayRecorder(
   state.lastAuthenticatedProperties = replayUserEmail(initialProperties)
     ? { ...initialProperties }
     : null;
+  // A resumed replay keeps its marker count, across page reloads too.
+  if (state.analyticsEventReplayId !== state.replayId) {
+    state.analyticsEventReplayId = state.replayId;
+    state.analyticsEventCount = replaySession.analyticsEventCount;
+  }
   state.active = true;
 
   try {
@@ -3492,12 +3861,20 @@ async function startSessionReplayRecorder(
 
 export async function stopSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
+  const authClearedReplayId =
+    reason === "auth-cleared"
+      ? (state.replayId ?? readStoredReplaySession()?.replayId)
+      : undefined;
   state.startGeneration += 1;
   if (reason !== "upload-timeout") state.pendingReplayStart = null;
   if (reason !== "pagehide-persisted") {
     state.bfcacheRestored = false;
   }
-  if (!state.active) return;
+  if (!state.active) {
+    if (authClearedReplayId) removeStoredReplaySession(authClearedReplayId);
+    if (reason === "auth-cleared") state.lastAuthenticatedProperties = null;
+    return;
+  }
   const isCappedStop = reason === "max-duration" || reason === "max-chunks";
   const cappedReplayId = isCappedStop ? state.replayId : null;
   try {
@@ -3552,7 +3929,12 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
   }
   state.broadcastChannel = null;
   const sequenceBeforeFinalFlush = state.sequence;
-  await flushSessionReplay(reason);
+  try {
+    await flushSessionReplay(reason);
+  } finally {
+    if (authClearedReplayId) removeStoredReplaySession(authClearedReplayId);
+    if (reason === "auth-cleared") state.lastAuthenticatedProperties = null;
+  }
   if (
     cappedReplayId &&
     state.sequence > sequenceBeforeFinalFlush &&
@@ -3607,6 +3989,7 @@ export function emitSessionReplayException(input: {
   emitReplayCustomEvent(state, SESSION_REPLAY_CONSOLE_EVENT_TAG, {
     level,
     source: "console",
+    exception: true,
     message: `${input.type}: ${input.message}`.slice(
       0,
       MAX_CONSOLE_MESSAGE_LENGTH,
@@ -3615,6 +3998,106 @@ export function emitSessionReplayException(input: {
       ? { stack: input.stack.slice(0, MAX_CONSOLE_STACK_LENGTH) }
       : {}),
     ...(input.url ? { url: input.url } : {}),
+  });
+}
+
+function reserveAnalyticsMarker(state: SessionReplayState): boolean {
+  if (state.analyticsEventCount >= MAX_ANALYTICS_EVENTS_PER_REPLAY) {
+    return false;
+  }
+  state.analyticsEventCount += 1;
+  const stored = readStoredReplaySession();
+  if (stored?.replayId === state.replayId) {
+    writeStoredReplaySession({
+      ...stored,
+      analyticsEventCount: state.analyticsEventCount,
+    });
+  }
+  return true;
+}
+
+/**
+ * Mark a tracked analytics event on the replay timeline. Only the event name
+ * is recorded; event properties stay out of the replay.
+ */
+export function emitSessionReplayAnalyticsEvent(name: string): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  const bounded = name.trim().slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH);
+  if (!bounded || !reserveAnalyticsMarker(state)) return;
+  emitReplayCustomEvent(state, SESSION_REPLAY_ANALYTICS_EVENT_TAG, {
+    name: bounded,
+  });
+}
+
+export type SessionReplaySlowRequest = {
+  action?: unknown;
+  method?: unknown;
+  duration_ms?: unknown;
+  status_code?: unknown;
+  outcome?: unknown;
+  page_hidden?: unknown;
+};
+
+/**
+ * Mark a slow `action.response` on the replay timeline with that event's own
+ * timing, which runs to the end of the body; a network event stops at the
+ * headers. Only these operational fields are recorded, and the marker shares
+ * the analytics marker budget.
+ */
+export function emitSessionReplaySlowRequest(
+  input: SessionReplaySlowRequest,
+): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  if (typeof input.duration_ms !== "number") return;
+  if (!reserveAnalyticsMarker(state)) return;
+  emitReplayCustomEvent(state, SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG, {
+    ...(typeof input.action === "string"
+      ? { action: input.action.slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH) }
+      : {}),
+    ...(typeof input.method === "string"
+      ? { method: input.method.slice(0, 10) }
+      : {}),
+    duration_ms: input.duration_ms,
+    ...(typeof input.status_code === "number"
+      ? { status_code: input.status_code }
+      : {}),
+    ...(typeof input.outcome === "string"
+      ? { outcome: input.outcome.slice(0, 20) }
+      : {}),
+    page_hidden: input.page_hidden === true,
+  });
+}
+
+export type SessionReplayWebVitals = {
+  route?: string;
+  navigationType: string;
+  ttfbMs?: number;
+  lcpMs?: number;
+  inpMs?: number;
+  cls?: number;
+};
+
+/**
+ * Mark a finished page view's Web Vitals on the replay timeline. Shares the
+ * analytics marker budget, since each page view adds one.
+ */
+export function emitSessionReplayWebVitals(
+  input: SessionReplayWebVitals,
+): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  if (!reserveAnalyticsMarker(state)) return;
+  const metric = (value: number | undefined) =>
+    typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  emitReplayCustomEvent(state, SESSION_REPLAY_VITALS_EVENT_TAG, {
+    ...(input.route ? { route: input.route.slice(0, 200) } : {}),
+    navigationType: input.navigationType.slice(0, 20),
+    ...(metric(input.ttfbMs) !== undefined ? { ttfbMs: input.ttfbMs } : {}),
+    ...(metric(input.lcpMs) !== undefined ? { lcpMs: input.lcpMs } : {}),
+    ...(metric(input.inpMs) !== undefined ? { inpMs: input.inpMs } : {}),
+    ...(metric(input.cls) !== undefined ? { cls: input.cls } : {}),
   });
 }
 

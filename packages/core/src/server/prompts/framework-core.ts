@@ -76,7 +76,7 @@ Workspace resources are user-facing by default. If you need temporary working fi
     "inline embeds (`embed` fenced code block)",
     groupOn("chat") ? "chat history search (`chat-history`)" : "",
     groupOn("automation") ? "recurring jobs (`manage-jobs`)" : "",
-    "connecting Builder.io (`connect-builder`)",
+    "using Builder.io (`connect-builder`)",
     "browser automation (`set-browser-control`/`activate-browser`)",
     "structured memory (`save-memory`/`delete-memory`)",
   ].filter(Boolean);

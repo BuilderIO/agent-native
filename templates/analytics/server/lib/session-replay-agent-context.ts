@@ -6,6 +6,11 @@ import {
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 
+import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../shared/session-events.js";
+import {
+  SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+  SESSION_REPLAY_VITALS_EVENT_TAG,
+} from "../../shared/session-performance.js";
 import {
   SESSION_REPLAY_AGENT_ACCESS_PARAM,
   SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
@@ -446,11 +451,21 @@ export function buildSessionReplayDiagnostics(
   };
 }
 
-function capReplayTimelineMarkers(
-  markers: ReplayTimelineMarker[],
-): ReplayTimelineMarker[] {
+function capReplayTimelineMarkers(markers: ReplayTimelineMarker[]): {
+  markers: ReplayTimelineMarker[];
+  totalMarkerCount: number;
+  markerTruncated: boolean;
+  omittedMarkerCount: number;
+} {
   const sorted = [...markers].sort((a, b) => a.offsetMs - b.offsetMs);
-  if (sorted.length <= TIMELINE_MARKER_CAP) return sorted;
+  if (sorted.length <= TIMELINE_MARKER_CAP) {
+    return {
+      markers: sorted,
+      totalMarkerCount: sorted.length,
+      markerTruncated: false,
+      omittedMarkerCount: 0,
+    };
+  }
   const isError = (marker: ReplayTimelineMarker) =>
     marker.kind === "console-error" || marker.kind === "network-error";
   const kept = new Set<ReplayTimelineMarker>();
@@ -462,8 +477,20 @@ function capReplayTimelineMarkers(
     if (kept.size >= TIMELINE_MARKER_CAP) break;
     kept.add(marker);
   }
-  return [...kept].sort((a, b) => a.offsetMs - b.offsetMs);
+  const selected = [...kept].sort((a, b) => a.offsetMs - b.offsetMs);
+  return {
+    markers: selected,
+    totalMarkerCount: sorted.length,
+    markerTruncated: true,
+    omittedMarkerCount: sorted.length - selected.length,
+  };
 }
+
+const SESSIONS_TRIAGE_MARKER_TAGS = new Set<string>([
+  SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+  SESSION_REPLAY_VITALS_EVENT_TAG,
+  SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+]);
 
 function buildReplayTimeline(events: AgentReplayEvent[]) {
   const startedAt = replayStartedAt(events);
@@ -564,7 +591,13 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         label: event.data.type === MOUSE_INTERACTION.Focus ? "Focus" : "Click",
         detail: null,
       });
-    } else if (event.type === RRWEB_EVENT_TYPE.Custom) {
+    } else if (
+      event.type === RRWEB_EVENT_TYPE.Custom &&
+      // App event, Web Vitals and slow-request markers belong to the Sessions
+      // triage Lab; agent timelines keep their existing shape until that Lab
+      // covers agent surfaces.
+      !SESSIONS_TRIAGE_MARKER_TAGS.has(String(event.data?.tag))
+    ) {
       markers.push({
         timestamp,
         offsetMs: Math.max(0, timestamp - startedAt),
@@ -599,14 +632,21 @@ export async function getSessionReplayTimeline(
         Boolean(event) && typeof event === "object",
     ),
   );
-  const markers = buildReplayTimeline(events);
+  const timeline = buildReplayTimeline(events);
 
   return {
     recording: compactSessionRecordingSummary(eventsResponse.recording),
-    markerCount: markers.length,
-    markers,
+    markerCount: timeline.markers.length,
+    totalMarkerCount: timeline.totalMarkerCount,
+    markerTruncated: timeline.markerTruncated,
+    omittedMarkerCount: timeline.omittedMarkerCount,
+    markers: timeline.markers,
     eventCount: eventsResponse.eventCount,
-    truncated: eventsResponse.truncated,
+    eventsTruncated: eventsResponse.truncated,
+    truncated:
+      eventsResponse.truncated ||
+      eventsResponse.unavailableChunks > 0 ||
+      timeline.markerTruncated,
     unavailableChunks: eventsResponse.unavailableChunks,
   };
 }
@@ -621,12 +661,12 @@ export function verifySessionReplayAgentAccess(
 export function resolveSessionReplayAgentAccess(
   recordingId: string,
   token: string,
-): { viewerEmail: string } | null {
+): { viewerEmail?: string } | null {
   const result = verifyScopedAgentAccessToken(token, {
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recordingId,
   });
-  if (!result.ok || !result.viewerEmail) return null;
+  if (!result.ok) return null;
   return { viewerEmail: result.viewerEmail };
 }
 
@@ -643,7 +683,6 @@ export async function createSessionReplayAgentLink({
   const grant = createScopedAgentAccessGrant({
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recording.id,
-    viewerEmail: scope.userEmail,
     ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
   });
   const resolvedOrigin = appOrigin(origin);
@@ -735,7 +774,7 @@ export async function buildSessionReplayAgentContext({
           Boolean(event) && typeof event === "object",
       ),
     ) ?? [];
-  const markers = buildReplayTimeline(events);
+  const timeline = buildReplayTimeline(events);
   const diagnostics = buildSessionReplayDiagnostics(events, {
     maxConsoleEntries: AGENT_CONTEXT_DIAGNOSTIC_ENTRY_CAP,
     maxNetworkEntries: AGENT_CONTEXT_DIAGNOSTIC_ENTRY_CAP,
@@ -781,9 +820,17 @@ export async function buildSessionReplayAgentContext({
         : {}),
     },
     timeline: {
-      markerCount: markers.length,
-      markers,
-      truncated: Boolean(eventsResponse?.truncated),
+      markerCount: timeline.markers.length,
+      totalMarkerCount: timeline.totalMarkerCount,
+      markerTruncated: timeline.markerTruncated,
+      omittedMarkerCount: timeline.omittedMarkerCount,
+      markers: timeline.markers,
+      eventsTruncated: Boolean(eventsResponse?.truncated),
+      truncated: Boolean(
+        eventsResponse?.truncated ||
+        (eventsResponse?.unavailableChunks ?? 0) > 0 ||
+        timeline.markerTruncated,
+      ),
       unavailableChunks: eventsResponse?.unavailableChunks ?? 0,
     },
   };

@@ -88,6 +88,7 @@ interface SlideCommentsPanelProps {
   onClose: () => void;
   selectedThreadId?: string | null;
   selectedThreadRequestId?: number;
+  onThreadResolved?: (threadId: string) => void;
 }
 
 function Avatar({ email, name }: { email: string; name?: string | null }) {
@@ -530,6 +531,7 @@ function ThreadCard({
   onSelectSlide,
   selected,
   selectionRequestId,
+  onThreadResolved,
 }: {
   thread: CommentThread;
   deckId: string;
@@ -542,6 +544,7 @@ function ThreadCard({
   onSelectSlide?: (slideId: string) => void;
   selected: boolean;
   selectionRequestId: number;
+  onThreadResolved?: (threadId: string) => void;
 }) {
   const t = useT();
   const [replyOpen, setReplyOpen] = useState(false);
@@ -574,6 +577,9 @@ function ThreadCard({
         resolved: !thread.resolved,
       },
       {
+        onSuccess: () => {
+          if (selected && !thread.resolved) onThreadResolved?.(thread.threadId);
+        },
         onError: (caught) =>
           setError(actionErrorMessage(caught) ?? t("comments.updateFailed")),
       },
@@ -739,6 +745,7 @@ export function SlideCommentsPanel({
   onClose,
   selectedThreadId = null,
   selectedThreadRequestId = 0,
+  onThreadResolved,
 }: SlideCommentsPanelProps) {
   const t = useT();
   const [scope, setScope] = useState<"slide" | "deck">("slide");
@@ -998,6 +1005,7 @@ export function SlideCommentsPanel({
               onSelectSlide={onSelectSlide}
               selected={thread.threadId === selectedThreadId}
               selectionRequestId={selectedThreadRequestId}
+              onThreadResolved={onThreadResolved}
             />
           ))}
 

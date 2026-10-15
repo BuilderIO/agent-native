@@ -88,8 +88,26 @@ describe("framework request handler", () => {
     delete process.env.AGENT_NATIVE_DISABLED_PLUGINS;
     resetAppConfigForTests();
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     delete (globalThis as Record<string, unknown>)
       .__AGENT_NATIVE_SERVER_RUNTIME__;
+  });
+
+  it("installs the dev database close hook once per Nitro app", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const hook = vi.fn();
+    const nitroApp = {
+      ...createNitroApp(),
+      hooks: { hook },
+    };
+
+    getH3App(nitroApp);
+    getH3App(nitroApp);
+
+    expect(hook).toHaveBeenCalledWith("close", expect.any(Function));
+    expect(hook.mock.calls.filter(([name]) => name === "close")).toHaveLength(
+      1,
+    );
   });
 
   it("marks server-runtime duty started on the first getH3App() call for a nitroApp", () => {
@@ -119,6 +137,57 @@ describe("framework request handler", () => {
     expect(sawContext).toBe(true);
     expect(sawEmail).toBeUndefined();
     vi.unstubAllEnvs();
+  });
+
+  it("scopes shared database pools to each Cloudflare H3 request", async () => {
+    const workerGlobal = globalThis as typeof globalThis & {
+      __env__?: unknown;
+    };
+    const previousEnvironment = Object.getOwnPropertyDescriptor(
+      workerGlobal,
+      "__env__",
+    );
+    workerGlobal.__env__ = {};
+    try {
+      const { sharedDbPool } = await import("../db/client.js");
+      const nitroApp = createNitroApp();
+      getH3App(nitroApp);
+
+      const pools: Array<{
+        query: () => Promise<void>;
+        end: () => Promise<void>;
+      }> = [];
+      const pool = sharedDbPool(
+        "framework-request-test",
+        "postgres://db.test/app",
+        () => {
+          const created = {
+            query: vi.fn(async () => {}),
+            end: vi.fn(async () => {}),
+          };
+          pools.push(created);
+          return created;
+        },
+      );
+      nitroApp.h3["~middleware"].push(
+        async (_event: any, next: () => unknown) => {
+          await pool.query();
+          return next();
+        },
+      );
+
+      await dispatch(nitroApp, "/api/pool-scope");
+
+      expect(pools).toHaveLength(1);
+      expect(pools[0]?.query).toHaveBeenCalledOnce();
+      expect(pools[0]?.end).toHaveBeenCalledOnce();
+    } finally {
+      if (previousEnvironment) {
+        Object.defineProperty(workerGlobal, "__env__", previousEnvironment);
+      } else {
+        delete workerGlobal.__env__;
+      }
+    }
   });
 
   it("lets a handler's own request context shadow the boundary store", async () => {
@@ -231,6 +300,33 @@ describe("framework request handler", () => {
     expect(event.res.status).toBe(400);
     expect(event.res.headers.get("content-type")).toBe("application/json");
     expect(debugSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps a thrown error's code in the JSON error", async () => {
+    const nitroApp = createNitroApp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    getH3App(nitroApp).use("/_agent-native/agent-chat", () => {
+      throw createError({
+        statusCode: 403,
+        statusMessage: "Use Builder.io or a provider API key before chatting.",
+        data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+      });
+    });
+
+    let event: any;
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/agent-chat",
+      (e) => {
+        event = e;
+      },
+    );
+
+    expect(result).toEqual({
+      error: "Use Builder.io or a provider API key before chatting.",
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+    });
+    expect(event.res.status).toBe(403);
   });
 
   it("treats a closed response as a client abort", async () => {
@@ -888,6 +984,56 @@ describe("framework request handler", () => {
     release();
 
     await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("keeps any request open until pending plugin init settles", async () => {
+    const requestHooks: Array<(event: any) => unknown> = [];
+    const nitroApp = {
+      ...createNitroApp(),
+      hooks: {
+        hook(name: string, handler: (event: any) => unknown) {
+          if (name === "request") requestHooks.push(handler);
+        },
+      },
+    };
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const requestFor = (pathname: string) => {
+      const url = new URL(`http://example.test${pathname}`);
+      const req = Object.assign(new Request(url), { waitUntil: vi.fn() });
+      return {
+        url,
+        context: {},
+        req,
+        res: { status: 200, headers: new Headers(), errHeaders: new Headers() },
+      };
+    };
+    const runRequestHooks = async (event: any) => {
+      for (const hook of requestHooks) await hook(event);
+    };
+
+    const pageLoad = requestFor("/");
+    await runRequestHooks(pageLoad);
+    expect(pageLoad.req.waitUntil).toHaveBeenCalledTimes(1);
+    let held = true;
+    void pageLoad.req.waitUntil.mock.calls[0]![0].then(() => {
+      held = false;
+    });
+    await Promise.resolve();
+    expect(held).toBe(true);
+
+    release();
+    await vi.waitFor(() => expect(held).toBe(false));
+
+    const later = requestFor("/");
+    await runRequestHooks(later);
+    expect(later.req.waitUntil).not.toHaveBeenCalled();
   });
 
   it("answers with a retryable 503 when plugin init outlives the ready deadline", async () => {
