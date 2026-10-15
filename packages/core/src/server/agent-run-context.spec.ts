@@ -5,6 +5,7 @@ const getOrgContextMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const getTurnInitiatorByRunMock = vi.hoisted(() => vi.fn());
 const isLoopbackRequestMock = vi.hoisted(() => vi.fn());
+const isDirectLoopbackRequestMock = vi.hoisted(() => vi.fn());
 const getForwardedRequestOriginMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./auth.js", () => ({
@@ -12,6 +13,7 @@ vi.mock("./auth.js", () => ({
 }));
 
 vi.mock("./loopback.js", () => ({
+  isDirectLoopbackRequest: isDirectLoopbackRequestMock,
   isLoopbackRequest: isLoopbackRequestMock,
 }));
 
@@ -68,12 +70,14 @@ describe("server/agent-run-context", () => {
     resolveOrgIdForEmailMock.mockReset();
     getTurnInitiatorByRunMock.mockReset();
     isLoopbackRequestMock.mockReset();
+    isDirectLoopbackRequestMock.mockReset();
     getForwardedRequestOriginMock.mockReset();
     getSessionMock.mockResolvedValue(null);
     getOrgContextMock.mockResolvedValue({ orgId: null });
     resolveOrgIdForEmailMock.mockResolvedValue(null);
     getTurnInitiatorByRunMock.mockResolvedValue(null);
     isLoopbackRequestMock.mockReturnValue(false);
+    isDirectLoopbackRequestMock.mockReturnValue(false);
     getForwardedRequestOriginMock.mockReturnValue("http://localhost:3000");
   });
 
@@ -255,6 +259,7 @@ describe("server/agent-run-context", () => {
     const event = makeEvent();
     getForwardedRequestOriginMock.mockReturnValue("http://127.0.0.1:8080");
     isLoopbackRequestMock.mockReturnValue(true);
+    isDirectLoopbackRequestMock.mockReturnValue(true);
 
     const requestContext = await resolveAgentRunRequestContext({
       event,
@@ -264,8 +269,10 @@ describe("server/agent-run-context", () => {
     expect(requestContext).toMatchObject({
       requestOrigin: "http://127.0.0.1:8080",
       isLoopbackRequest: true,
+      isDirectLoopbackRequest: true,
     });
     expect(isLoopbackRequestMock).toHaveBeenCalledWith(event);
+    expect(isDirectLoopbackRequestMock).toHaveBeenCalledWith(event);
   });
 
   it("restores the browser session captured in a durable run payload", async () => {
@@ -291,6 +298,7 @@ describe("server/agent-run-context", () => {
       [AGENT_CHAT_REQUEST_CONTEXT_FIELD]: {
         requestOrigin: "http://127.0.0.1:8080",
         isLoopbackRequest: true,
+        isDirectLoopbackRequest: true,
       },
     };
     isLoopbackRequestMock.mockReturnValue(false);
@@ -304,8 +312,10 @@ describe("server/agent-run-context", () => {
     ).resolves.toMatchObject({
       requestOrigin: "http://127.0.0.1:8080",
       isLoopbackRequest: true,
+      isDirectLoopbackRequest: true,
     });
     expect(isLoopbackRequestMock).not.toHaveBeenCalled();
+    expect(isDirectLoopbackRequestMock).not.toHaveBeenCalled();
   });
 
   it("does not infer durable loopback eligibility from worker request headers", async () => {
@@ -319,8 +329,12 @@ describe("server/agent-run-context", () => {
         ownerContext: { owner: "alice@example.com", anonymous: false },
         isBackgroundWorker: true,
       }),
-    ).resolves.toMatchObject({ isLoopbackRequest: false });
+    ).resolves.toMatchObject({
+      isLoopbackRequest: false,
+      isDirectLoopbackRequest: false,
+    });
     expect(isLoopbackRequestMock).not.toHaveBeenCalled();
+    expect(isDirectLoopbackRequestMock).not.toHaveBeenCalled();
   });
 
   it("does not use dispatch headers when the durable run had no browser session", async () => {

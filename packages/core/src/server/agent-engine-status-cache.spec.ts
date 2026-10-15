@@ -59,6 +59,41 @@ describe("memoizeAgentEngineStatus", () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
+  it("separates status by origin and direct-loopback proof", async () => {
+    const load = vi.fn(async () => ({ chatEligible: true }));
+    const identity = { userEmail: "steve@example.test", orgId: "org-1" };
+    const direct127 = {
+      ...identity,
+      isLoopbackRequest: true,
+      isDirectLoopbackRequest: true,
+      requestOrigin: "http://127.0.0.1:3000",
+    };
+
+    await memoizeAgentEngineStatus(direct127, load);
+    expect(
+      getMemoizedAgentEngineStatus({
+        ...direct127,
+        requestOrigin: "http://localhost:3000",
+      }),
+    ).toBeUndefined();
+    expect(
+      getMemoizedAgentEngineStatus({
+        ...direct127,
+        isDirectLoopbackRequest: false,
+      }),
+    ).toBeUndefined();
+    await memoizeAgentEngineStatus(
+      { ...direct127, requestOrigin: "http://localhost:3000" },
+      load,
+    );
+    await memoizeAgentEngineStatus(
+      { ...direct127, isDirectLoopbackRequest: false },
+      load,
+    );
+
+    expect(load).toHaveBeenCalledTimes(3);
+  });
+
   it("expires the answer after one second and clears it after a credential change", async () => {
     let configured = false;
     const load = vi.fn(async () => ({ chatEligible: configured }));

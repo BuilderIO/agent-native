@@ -432,6 +432,8 @@ export default defineAction({
         "Legacy frontend checkpoint to validate before a delete; the live pre-delete version is always captured in the delete transaction.",
       ),
   }),
+  needsApproval: ({ allowLockedLayers }) => allowLockedLayers === true,
+  allowPersistentApproval: false,
   run: async (
     { id, fileIds, allowLockedLayers, historyCheckpointId },
     context,

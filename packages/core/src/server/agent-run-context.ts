@@ -17,7 +17,7 @@ import {
   CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
   isCredentialMembershipUnavailable,
 } from "./credential-membership-unavailable.js";
-import { isLoopbackRequest } from "./loopback.js";
+import { isDirectLoopbackRequest, isLoopbackRequest } from "./loopback.js";
 import {
   getRequestContext,
   getRequestIdentityAuthenticatedAtMs,
@@ -349,6 +349,13 @@ export async function resolveAgentRunRequestContext(options: {
     (durableRequestContext as Record<string, unknown>).isLoopbackRequest ===
       true,
   );
+  const durableDirectLoopback = Boolean(
+    durableRequestContext &&
+    typeof durableRequestContext === "object" &&
+    !Array.isArray(durableRequestContext) &&
+    (durableRequestContext as Record<string, unknown>)
+      .isDirectLoopbackRequest === true,
+  );
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
     ...(waitUntil ? { waitUntil } : {}),
@@ -381,6 +388,9 @@ export async function resolveAgentRunRequestContext(options: {
     isLoopbackRequest: options.isBackgroundWorker
       ? durableLoopback
       : isLoopbackRequest(options.event),
+    isDirectLoopbackRequest: options.isBackgroundWorker
+      ? durableDirectLoopback
+      : isDirectLoopbackRequest(options.event),
     ...(browserTabId ? { run: { ...run, browserTabId } } : {}),
     ...(!browserTabId && Object.keys(run).length > 0 ? { run } : {}),
   };

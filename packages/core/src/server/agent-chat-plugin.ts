@@ -282,6 +282,7 @@ import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
 import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
 import { startIntervalJob } from "./interval-job.js";
+import { isDirectLoopbackRequest } from "./loopback.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
@@ -5532,9 +5533,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       ) => {
         registerBuiltinEngines();
         const availableEngines = listAgentEngines();
-        const loopbackRequest = isLoopbackRequest(event);
+        const directLoopbackRequest = isDirectLoopbackRequest(event);
         const chatGPTEnabled =
-          loopbackRequest &&
+          directLoopbackRequest &&
           (!ctx.orgId || isDevMode()) &&
           !!ctx.userEmail &&
           availableEngines.some(
@@ -5578,6 +5579,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             orgId: ctx.orgId ?? undefined,
             requestOrigin: getForwardedRequestOrigin(event),
             isLoopbackRequest: isLoopbackRequest(event),
+            isDirectLoopbackRequest: isDirectLoopbackRequest(event),
           },
           async () => {
             const chatGPTCatalog =
@@ -5717,7 +5719,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             };
           }
           if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
-            if (ctx.orgId && !(isDevMode() && isLoopbackRequest(event))) {
+            if (ctx.orgId && !(isDevMode() && isDirectLoopbackRequest(event))) {
               setResponseStatus(event, 400);
               return {
                 error:
@@ -5741,6 +5743,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 orgId: ctx.orgId ?? undefined,
                 requestOrigin: getForwardedRequestOrigin(event),
                 isLoopbackRequest: isLoopbackRequest(event),
+                isDirectLoopbackRequest: isDirectLoopbackRequest(event),
               },
               () => listChatGPTSubscriptionModels(ctx.userEmail),
             );

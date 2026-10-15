@@ -158,6 +158,8 @@ export interface RequestContext {
    * radius (a resource that is itself local-only, NODE_ENV, etc.).
    */
   isLoopbackRequest?: boolean;
+  /** True only when this server received the request directly on 127.0.0.1. */
+  isDirectLoopbackRequest?: boolean;
   isIntegrationCaller?: boolean;
   integration?: {
     taskId: string;

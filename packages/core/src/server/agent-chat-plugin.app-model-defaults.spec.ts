@@ -27,7 +27,7 @@ describe("agent app model-default ChatGPT options", () => {
     expect(listRoute).toContain("getUserLabEnabled(");
     expect(listRoute).toContain("ctx.userEmail");
     expect(listRoute).toContain("CHATGPT_SUBSCRIPTION_LAB");
-    expect(listRoute).toContain("loopbackRequest &&");
+    expect(listRoute).toContain("directLoopbackRequest &&");
     expect(listRoute).toContain("(!ctx.orgId || isDevMode()) &&");
     expect(listRoute).toContain("chatGPTEnabled && ctx.userEmail");
     expect(listRoute).toContain("visibleEngines.map(async (entry) => ({");
@@ -38,6 +38,9 @@ describe("agent app model-default ChatGPT options", () => {
       "requestOrigin: getForwardedRequestOrigin(event)",
     );
     expect(listRoute).toContain("isLoopbackRequest: isLoopbackRequest(event)");
+    expect(listRoute).toContain(
+      "isDirectLoopbackRequest: isDirectLoopbackRequest(event)",
+    );
     const catalogRead = listRoute.slice(
       listRoute.indexOf("const chatGPTCatalog"),
       listRoute.indexOf("const visibleEngines"),
@@ -72,13 +75,16 @@ describe("agent app model-default ChatGPT options", () => {
       "requestOrigin: getForwardedRequestOrigin(event)",
     );
     expect(putRoute).toContain("isLoopbackRequest: isLoopbackRequest(event)");
+    expect(putRoute).toContain(
+      "isDirectLoopbackRequest: isDirectLoopbackRequest(event)",
+    );
     expect(putRoute).toContain("if (!catalog.models.includes(model))");
     expect(putRoute).toContain("setResponseStatus(event, 400)");
   });
 
   it("rejects ChatGPT models for org defaults outside local loopback development", () => {
     const orgGuard = putRoute.indexOf(
-      "if (ctx.orgId && !(isDevMode() && isLoopbackRequest(event)))",
+      "if (ctx.orgId && !(isDevMode() && isDirectLoopbackRequest(event)))",
     );
     const catalogCheck = putRoute.indexOf("listChatGPTSubscriptionModels(");
     const write = putRoute.indexOf("await writeAgentAppModelDefaultSettings(");

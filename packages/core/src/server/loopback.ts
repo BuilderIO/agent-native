@@ -20,3 +20,34 @@ export function isLoopbackRequest(event: H3Event): boolean {
   }
   return isLoopbackAddress(ip);
 }
+
+export function isDirectLoopbackRequest(event: H3Event): boolean {
+  const request = event.node?.req;
+  const headers = request?.headers;
+  const host = headers?.host;
+  const socket = request?.socket;
+  if (
+    !isLoopbackRequest(event) ||
+    typeof host !== "string" ||
+    !/^127\.0\.0\.1(?::\d{1,5})?$/.test(host) ||
+    headers?.["x-forwarded-host"] !== undefined ||
+    headers?.["x-forwarded-proto"] !== undefined ||
+    !socket ||
+    ("encrypted" in socket && socket.encrypted) ||
+    (socket.localAddress !== "127.0.0.1" &&
+      socket.localAddress !== "::ffff:127.0.0.1")
+  ) {
+    return false;
+  }
+
+  const originValue = `http://${host}`;
+  if (!URL.canParse(originValue)) return false;
+  const origin = new URL(originValue);
+  return (
+    origin.hostname === "127.0.0.1" &&
+    origin.port !== "0" &&
+    origin.pathname === "/" &&
+    origin.search === "" &&
+    origin.hash === ""
+  );
+}
