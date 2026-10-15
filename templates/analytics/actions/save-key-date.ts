@@ -8,7 +8,7 @@ import {
 
 export default defineAction({
   description:
-    'Add a key date to a set, or edit one by id. Name the set with setId, or with setName, which finds the set or creates it; an edit that names neither keeps the date in its set. A date draws as a marker on every time chart of every dashboard that shows its set. Give time and timeZone when the moment matters, for example a launch at "00:01" "America/Los_Angeles"; dates on the same day share one marker.',
+    'Add a key date to a set, or edit one by id; an edit keeps what it omits. Name the set with setId, or with setName, which finds the set or creates it. A date draws as a marker on every time chart of every dashboard that shows its set. Give time and timeZone when the moment matters, for example a launch at "00:01" "America/Los_Angeles"; dates on the same day share one marker.',
   schema: z.object({
     id: z
       .string()
@@ -25,13 +25,15 @@ export default defineAction({
     date: z.string().describe('Day of the key date, "YYYY-MM-DD"'),
     time: z
       .string()
+      .nullable()
       .optional()
-      .describe('Time of day, "HH:MM" (24-hour), in timeZone'),
+      .describe('"HH:MM" (24-hour) in timeZone; null clears both'),
     timeZone: z
       .string()
+      .nullable()
       .optional()
       .describe(
-        'IANA time zone for time, for example "America/New_York"; UTC when omitted. Only with time.',
+        'IANA zone, for example "America/New_York"; UTC if none, null clears. Only with time.',
       ),
     label: z
       .string()

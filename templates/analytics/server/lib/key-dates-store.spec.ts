@@ -269,6 +269,87 @@ describe("key-dates store", () => {
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 
+  it("keeps a date's time and zone when an edit leaves them out", async () => {
+    const saved = await store.saveKeyDate(alice, productHunt);
+
+    const relabeled = await store.saveKeyDate(alice, {
+      id: saved.id,
+      date: "2026-10-14",
+      label: "Product Hunt launch",
+    });
+    expect(relabeled).toMatchObject({
+      time: "00:01",
+      timeZone: "America/Los_Angeles",
+      label: "Product Hunt launch",
+    });
+
+    const retimed = await store.saveKeyDate(alice, {
+      id: saved.id,
+      date: "2026-10-14",
+      time: "09:00",
+      label: "Product Hunt launch",
+    });
+    expect(retimed).toMatchObject({
+      time: "09:00",
+      timeZone: "America/Los_Angeles",
+    });
+  });
+
+  it("clears a time or zone only when an edit sends null, and a time takes its zone with it", async () => {
+    const saved = await store.saveKeyDate(alice, productHunt);
+    const edit = { id: saved.id, date: "2026-10-14", label: "Launch" };
+
+    const utc = await store.saveKeyDate(alice, { ...edit, timeZone: null });
+    expect(utc.time).toBe("00:01");
+    expect(utc).not.toHaveProperty("timeZone");
+
+    await store.saveKeyDate(alice, { ...edit, time: "00:01", timeZone: "UTC" });
+    const allDay = await store.saveKeyDate(alice, { ...edit, time: null });
+    expect(allDay).not.toHaveProperty("time");
+    expect(allDay).not.toHaveProperty("timeZone");
+
+    await expect(
+      store.saveKeyDate(alice, {
+        ...edit,
+        time: null,
+        timeZone: "America/New_York",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      errorCode: "invalid_key_date",
+      message: expect.stringContaining("timeZone needs a time"),
+    });
+  });
+
+  it("refuses an empty time or zone instead of saving the date untimed or in UTC", async () => {
+    for (const [bad, problem] of [
+      [{ time: "10:00", timeZone: "" }, "timeZone must be an IANA zone"],
+      [{ time: "" }, 'time must be a 24-hour "HH:MM"'],
+    ] as const) {
+      await expect(
+        store.saveKeyDate(alice, { ...productHunt, ...bad }),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        errorCode: "invalid_key_date",
+        message: expect.stringContaining(`Invalid key date: ${problem}`),
+      });
+    }
+    expect(queries).toEqual([]);
+
+    const saved = await store.saveKeyDate(alice, productHunt);
+    await expect(
+      store.saveKeyDate(alice, {
+        id: saved.id,
+        date: saved.date,
+        label: saved.label,
+        timeZone: "",
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, errorCode: "invalid_key_date" });
+    expect((await store.listKeyDateSets(alice))[0].dates).toMatchObject([
+      { time: "00:01", timeZone: "America/Los_Angeles" },
+    ]);
+  });
+
   it("locks the organization, or the person without one, before every write", async () => {
     const locks = () =>
       queries.flatMap(({ query, params }) =>
