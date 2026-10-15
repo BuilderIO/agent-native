@@ -8,9 +8,7 @@ meta_description: "Get a visual walkthrough of a pull request, commit, branch, o
 cta_label: "Plan visually"
 secondary_cta_label: "See how it works"
 app_cta_url: "https://plan.agent-native.com"
-screenshot_url: TODO
-screenshot_alt: "A visual recap of a pull request in Plans with a file list and annotated code"
-screenshot_brief: "Frame from product video: a visual recap of a PR showing files changed, annotated code, and a resolved comment."
+screenshot_alt: "A visual plan in Plans: a canvas of three mobile screens above a written plan with a goal and a comment indicator"
 old_way:
   heading: "How most people do it today"
   body: "Your agent hands you a diff the size of a feature. Reading it line by line is the review, and the part you most need to understand is buried in file nine."

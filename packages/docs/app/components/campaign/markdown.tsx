@@ -1,11 +1,11 @@
-import { useT } from "@agent-native/core/client/i18n";
+import { useT, useLocale } from "@agent-native/core/client/i18n";
 import { marked, type Token, type Tokens } from "marked";
 import { Fragment, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { TemplateLandingFaq } from "../template-landing";
 import { CodeBlock } from "../website-redesign/ds/code-block";
-import { safeHref, type Article } from "./public-content";
+import { campaignHref, safeHref, type Article } from "./public-content";
 import { CampaignCta, CampaignScreenshot, CopyControl } from "./shared";
 
 export function sanitizedMarkdown(body: string): string {
@@ -79,18 +79,18 @@ function inlineText(tokens: Token[] | undefined): string {
     .join("");
 }
 
-function inline(tokens: Token[] | undefined): ReactNode {
+function inline(tokens: Token[] | undefined, locale: unknown): ReactNode {
   return requiredTokens(tokens).map((token, i) => {
     let node: ReactNode;
     switch (token.type) {
       case "strong":
-        node = <strong>{inline(token.tokens)}</strong>;
+        node = <strong>{inline(token.tokens, locale)}</strong>;
         break;
       case "em":
-        node = <em>{inline(token.tokens)}</em>;
+        node = <em>{inline(token.tokens, locale)}</em>;
         break;
       case "del":
-        node = <del>{inline(token.tokens)}</del>;
+        node = <del>{inline(token.tokens, locale)}</del>;
         break;
       case "codespan":
         node = <code>{token.text}</code>;
@@ -100,11 +100,11 @@ function inline(tokens: Token[] | undefined): ReactNode {
         break;
       case "link": {
         const href = safeHref(decodeText(token.href));
-        const label = inline(token.tokens);
+        const label = inline(token.tokens, locale);
         node = !href ? (
           label
         ) : href.startsWith("/") && !href.startsWith("//") ? (
-          <Link to={href}>{label}</Link>
+          <Link to={campaignHref(href, locale)}>{label}</Link>
         ) : (
           <a href={href}>{label}</a>
         );
@@ -131,7 +131,7 @@ function inline(tokens: Token[] | undefined): ReactNode {
       default:
         node =
           "tokens" in token && token.tokens
-            ? inline(token.tokens)
+            ? inline(token.tokens, locale)
             : "text" in token
               ? decodeText(token.text)
               : null;
@@ -211,6 +211,7 @@ export function MarkdownBlocks({
   article: Article;
   headingIds?: Map<string, number>;
 }) {
+  const { locale } = useLocale();
   return (
     <>
       {tokens.map((token, i) => {
@@ -232,17 +233,19 @@ export function MarkdownBlocks({
                 id={id}
                 className="group scroll-mt-24 flex items-start gap-2"
               >
-                {inline(token.tokens)}
+                {inline(token.tokens, locale)}
                 <CopyControl text={id} heading />
               </Heading>
             );
             break;
           }
           case "paragraph":
-            node = <p>{inline(token.tokens)}</p>;
+            node = <p>{inline(token.tokens, locale)}</p>;
             break;
           case "text":
-            node = <>{token.tokens ? inline(token.tokens) : token.text}</>;
+            node = (
+              <>{token.tokens ? inline(token.tokens, locale) : token.text}</>
+            );
             break;
           case "code":
             node = (
@@ -287,7 +290,7 @@ export function MarkdownBlocks({
                   <thead>
                     <tr>
                       {(token as Tokens.Table).header.map((cell, n) => (
-                        <th key={n}>{inline(cell.tokens)}</th>
+                        <th key={n}>{inline(cell.tokens, locale)}</th>
                       ))}
                     </tr>
                   </thead>
@@ -295,7 +298,7 @@ export function MarkdownBlocks({
                     {(token as Tokens.Table).rows.map((row, n) => (
                       <tr key={n}>
                         {row.map((cell, c) => (
-                          <td key={c}>{inline(cell.tokens)}</td>
+                          <td key={c}>{inline(cell.tokens, locale)}</td>
                         ))}
                       </tr>
                     ))}

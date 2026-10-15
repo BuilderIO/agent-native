@@ -24,7 +24,9 @@ export function loader({ params }: LoaderFunctionArgs) {
 export const meta = ({
   data,
   loaderData,
+  params,
 }: {
+  params?: { locale?: string };
   data?: ReturnType<typeof loader>;
   loaderData?: ReturnType<typeof loader>;
 }) => {
@@ -34,6 +36,8 @@ export const meta = ({
         content.item.title,
         content.item.meta_description,
         `${USE_CASES_BASE}/${content.item.slug}`,
+        "website",
+        params?.locale,
       )
     : [];
 };

@@ -1,10 +1,11 @@
-import { useT, useFormatters } from "@agent-native/core/client/i18n";
+import { useT, useFormatters, useLocale } from "@agent-native/core/client/i18n";
 
 import {
   ARTICLES_BASE,
   USE_CASES_BASE,
   CATEGORY_NAMES,
 } from "../../../lib/campaign-content";
+import { sitePathForLocale } from "../docs-locale";
 import {
   TemplateHero,
   TemplateLandingFaq,
@@ -27,6 +28,7 @@ import {
 
 export function UseCasesIndex({ items }: { items: UseCase[] }) {
   const t = useT();
+  const { locale } = useLocale();
   const apps = [...new Set(items.map((item) => item.app))];
   return (
     <TemplateLandingShell className="builder-brand-tokens pb-16">
@@ -49,7 +51,10 @@ export function UseCasesIndex({ items }: { items: UseCase[] }) {
               .map((item) => (
                 <ContentCard
                   key={item.slug}
-                  href={`${USE_CASES_BASE}/${item.slug}`}
+                  href={sitePathForLocale(
+                    `${USE_CASES_BASE}/${item.slug}`,
+                    locale,
+                  )}
                   title={item.title}
                   body={item.subhead}
                 />
@@ -69,6 +74,7 @@ export function UseCasePage({
   articles: Article[];
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const format = useFormatters();
   const names = (value: string | string[]) =>
     typeof value === "string"
@@ -185,7 +191,10 @@ export function UseCasePage({
             {articles.map((article) => (
               <ContentCard
                 key={article.slug}
-                href={`${ARTICLES_BASE}/${article.slug}`}
+                href={sitePathForLocale(
+                  `${ARTICLES_BASE}/${article.slug}`,
+                  locale,
+                )}
                 title={article.title}
               />
             ))}

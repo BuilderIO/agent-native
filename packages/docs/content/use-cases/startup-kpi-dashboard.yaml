@@ -8,9 +8,7 @@ meta_description: "Connect your data, ask questions in plain English, and build 
 cta_label: "Try Analytics"
 secondary_cta_label: "See how it works"
 app_cta_url: "https://analytics.agent-native.com"
-screenshot_url: TODO
-screenshot_alt: "An Analytics dashboard with metric cards and a chart, and the agent chat open"
-screenshot_brief: "Frame from product video: an Analytics dashboard with metric cards and a trend chart, and the agent chat answering a question."
+screenshot_alt: "An Analytics product overview dashboard with metric cards, a weekly active users chart, an activation funnel, and the agent chat open"
 old_way:
   heading: "How most people do it today"
   body: "The metrics live in a spreadsheet someone rebuilds every month, or in an analytics tool only a few people know how to query. Everyone else asks a question and waits."

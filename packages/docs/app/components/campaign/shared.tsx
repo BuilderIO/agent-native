@@ -4,8 +4,12 @@ import { IconCopy, IconLink } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import { buildCampaignCtaUrl } from "../../lib/campaign-links";
-import { BuilderImage } from "../builder-image";
 import { TemplateFinalCta } from "../template-landing";
+import {
+  TEMPLATE_SCREENSHOTS,
+  getScreenshotTileScaleX,
+} from "../template-screenshots";
+import { TemplateScreenshot } from "../TemplateScreenshot";
 import { Button } from "../website-redesign/ds/button";
 import { copyText } from "../website-redesign/ds/clipboard";
 import { useSnackbar } from "../website-redesign/ds/snackbar";
@@ -77,37 +81,19 @@ export function CampaignBand({ item }: { item: UseCase | Article }) {
   );
 }
 
-export function CampaignScreenshot({
-  item,
-}: {
-  item: Pick<Article, "screenshot_url" | "screenshot_alt" | "screenshot_brief">;
-}) {
-  const t = useT();
-  const url =
-    item.screenshot_url && !/^TODO\b/i.test(item.screenshot_url)
-      ? safeHref(item.screenshot_url)
-      : undefined;
+export function CampaignScreenshot({ item }: { item: UseCase | Article }) {
+  const app = "app" in item ? item.app : item.category;
+  const appKey = app === "plans" ? "plan" : app;
   return (
     <figure className="docs-content m-0">
-      <div className="docs-image-frame">
-        {url ? (
-          <BuilderImage
-            src={url}
-            alt={item.screenshot_alt}
-            loading="lazy"
-            sizes="(max-width: 767px) 100vw, 1200px"
-            className="block h-auto w-full"
-          />
-        ) : (
-          <div className="flex min-h-64 flex-col items-center justify-center gap-4 p-8 text-center">
-            <p className="m-0 font-mono font-semibold">
-              {t("campaign.screenshotTodo")}
-            </p>
-            <p className="m-0 max-w-xl text-[var(--b-text-secondary)]">
-              {item.screenshot_brief}
-            </p>
-          </div>
-        )}
+      <div className="docs-image-frame relative aspect-[1200/750] overflow-hidden rounded-xl">
+        <TemplateScreenshot
+          variants={TEMPLATE_SCREENSHOTS[appKey]}
+          frame
+          alt={item.screenshot_alt}
+          scaleX={getScreenshotTileScaleX(appKey)}
+          sizes="(max-width: 767px) 100vw, 1200px"
+        />
       </div>
     </figure>
   );

@@ -10,11 +10,13 @@ import {
 import enUS from "../i18n/en-US";
 import { campaignMeta } from "../lib/campaign-seo";
 
-export const meta = () =>
+export const meta = ({ params }: { params?: { locale?: string } } = {}) =>
   campaignMeta(
     enUS.campaign.articles,
     enUS.campaign.articlesIntro,
     ARTICLES_BASE,
+    "website",
+    params?.locale,
   );
 export function loader() {
   const articles = newestArticles(loadCampaignContent().articles);

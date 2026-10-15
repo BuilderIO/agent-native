@@ -46,7 +46,6 @@ const appUrl = safeUrl.refine(
   (value) => /^https?:\/\//.test(value),
   "Expected an absolute app URL",
 );
-const screenshot = z.string().optional();
 const date = z.preprocess(
   (value) =>
     value instanceof Date && Number.isFinite(value.getTime())
@@ -70,9 +69,7 @@ const common = {
   meta_description: text,
   app_cta_url: appUrl,
   cta_label: text,
-  screenshot_url: screenshot,
   screenshot_alt: text,
-  screenshot_brief: text,
   cta_band_heading: text,
   cta_band_subhead: text,
 };
@@ -122,17 +119,7 @@ export type CampaignSources = {
   articles: Record<string, string>;
 };
 
-function validateScreenshot(value: string | undefined, filename: string): void {
-  if (!value?.trim() || /^TODO\b/i.test(value)) {
-    console.warn(
-      `[campaign-content] ${filename}: screenshot_url missing or TODO; retaining content`,
-    );
-  } else if (!isSafeCampaignUrl(value) || !/^https?:\/\//.test(value)) {
-    throw new Error("screenshot_url must be an absolute HTTP(S) URL or TODO");
-  }
-}
-
-function parseFiles<T extends { slug: string; screenshot_url?: string }>(
+function parseFiles<T extends { slug: string }>(
   sources: Record<string, string>,
   schema: z.ZodType<T>,
   markdown: boolean,
@@ -151,7 +138,6 @@ function parseFiles<T extends { slug: string; screenshot_url?: string }>(
           ?.replace(/\.(?:yaml|md)$/, "");
         if (result.slug !== fileSlug)
           throw new Error(`slug must match filename ${fileSlug}`);
-        validateScreenshot(result.screenshot_url, filename);
         return [result];
       } catch (error) {
         // Log only validation paths/messages, never private frontmatter or YAML excerpts.
@@ -160,8 +146,7 @@ function parseFiles<T extends { slug: string; screenshot_url?: string }>(
             ? error.issues
                 .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
                 .join("; ")
-            : error instanceof Error &&
-                /^(slug must match|screenshot_url must)/.test(error.message)
+            : error instanceof Error && /^slug must match/.test(error.message)
               ? error.message
               : "Unable to parse campaign content";
         console.error(

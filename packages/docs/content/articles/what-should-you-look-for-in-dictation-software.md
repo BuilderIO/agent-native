@@ -10,9 +10,7 @@ published: 2026-10-14
 author: "Agent-Native Team"
 app_cta_url: "https://clips.agent-native.com"
 cta_label: "Get Clips"
-screenshot_url: TODO
-screenshot_alt: "The Dictate tab in Clips showing a history of dictations with raw and cleaned-up text"
-screenshot_brief: "Frame from product video: the Dictate tab in the Clips desktop app with a dictation history list and one dictation open."
+screenshot_alt: "The Clips library with recordings, and the recorder panel open with screen, camera, and microphone options and Library, Meetings, Dictate, and Settings tabs"
 cta_band_heading: "Say it instead of typing it"
 cta_band_subhead: "Hold Fn, speak your prompt, and keep every dictation searchable."
 related_resources:

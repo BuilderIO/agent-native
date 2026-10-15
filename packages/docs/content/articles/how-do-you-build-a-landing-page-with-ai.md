@@ -10,9 +10,7 @@ published: 2026-10-14
 author: "Agent-Native Team"
 app_cta_url: "https://design.agent-native.com"
 cta_label: "Design for free"
-screenshot_url: TODO
-screenshot_alt: "Two landing page variants side by side on the Design canvas"
-screenshot_brief: "Frame from product video: the Design canvas with Variant A and Variant B of a landing page side by side."
+screenshot_alt: "The Design editor showing a landing page prototype in desktop and mobile frames, with layers on the left and design properties on the right"
 cta_band_heading: "Prototype your next launch page"
 cta_band_subhead: "Bring a brief. Compare a few versions. Export the one you pick."
 related_resources:

@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client/i18n";
+import { useT, useLocale } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
 import {
@@ -7,12 +7,18 @@ import {
   CATEGORY_NAMES,
   categories,
 } from "../../../lib/campaign-content";
+import { sitePathForLocale } from "../docs-locale";
 import { TemplateLandingShell } from "../template-landing";
 import { Button } from "../website-redesign/ds/button";
 import { ContentCard } from "../website-redesign/ds/content-card";
 import { SectionHeader } from "../website-redesign/ds/section-header";
 import { ArticleBody, parseArticle, sanitizedMarkdown } from "./markdown";
-import { safeHref, type Article, type UseCase } from "./public-content";
+import {
+  campaignHref,
+  safeHref,
+  type Article,
+  type UseCase,
+} from "./public-content";
 import {
   CampaignBand,
   CampaignDate,
@@ -34,6 +40,7 @@ export function ArticlesList({
   hasMore: boolean;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   return (
     <TemplateLandingShell className="builder-brand-tokens pb-16">
       <div className="border-x border-[var(--docs-border)] px-6 py-16 sm:px-10">
@@ -60,7 +67,7 @@ export function ArticlesList({
             className="border-t border-[var(--docs-border)] first:border-t-0"
           >
             <Link
-              to={`${ARTICLES_BASE}/${article.slug}`}
+              to={sitePathForLocale(`${ARTICLES_BASE}/${article.slug}`, locale)}
               className="grid gap-3 p-6 no-underline hover:bg-[var(--b-bg-raised)] sm:grid-cols-[12rem_7rem_1fr] sm:p-8"
             >
               <span className="text-sm text-[var(--fg-secondary)]">
@@ -78,7 +85,10 @@ export function ArticlesList({
         <div className="border-x border-b border-[var(--docs-border)] p-6 text-center">
           <Button
             variant="secondary"
-            href={`${ARTICLES_BASE}/page/${page + 1}`}
+            href={sitePathForLocale(
+              `${ARTICLES_BASE}/page/${page + 1}`,
+              locale,
+            )}
           >
             {t("campaign.showMore")}
           </Button>
@@ -93,7 +103,10 @@ export function ArticlesList({
             {categories.map((key) => (
               <ContentCard
                 key={key}
-                href={`${ARTICLES_BASE}/category/${key}`}
+                href={sitePathForLocale(
+                  `${ARTICLES_BASE}/category/${key}`,
+                  locale,
+                )}
                 title={CATEGORY_NAMES[key]}
                 body={t(`campaign.topics.${key}`)}
               />
@@ -115,6 +128,7 @@ export function ArticlePage({
   more: Article[];
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const parsed = parseArticle(article.body);
   const words = sanitizedMarkdown(article.body)
     .trim()
@@ -150,9 +164,16 @@ export function ArticlePage({
             aria-label={t("campaign.breadcrumb")}
             className="mb-8 flex flex-wrap items-center gap-2 text-sm text-[var(--fg-secondary)]"
           >
-            <Link to={ARTICLES_BASE}>{t("campaign.articles")}</Link>
+            <Link to={sitePathForLocale(ARTICLES_BASE, locale)}>
+              {t("campaign.articles")}
+            </Link>
             <span aria-hidden="true">/</span>
-            <Link to={`${ARTICLES_BASE}/category/${article.category}`}>
+            <Link
+              to={sitePathForLocale(
+                `${ARTICLES_BASE}/category/${article.category}`,
+                locale,
+              )}
+            >
               {CATEGORY_NAMES[article.category]}
             </Link>
           </nav>
@@ -188,7 +209,12 @@ export function ArticlePage({
           {useCase ? (
             <p className="mb-8 text-[var(--fg-secondary)]">
               {t("campaign.partOf")}{" "}
-              <Link to={`${USE_CASES_BASE}/${useCase.slug}`}>
+              <Link
+                to={sitePathForLocale(
+                  `${USE_CASES_BASE}/${useCase.slug}`,
+                  locale,
+                )}
+              >
                 {useCase.title}
               </Link>
             </p>
@@ -204,7 +230,9 @@ export function ArticlePage({
                     <li key={i}>
                       {href ? (
                         href.startsWith("/") ? (
-                          <Link to={href}>{resource.label}</Link>
+                          <Link to={campaignHref(href, locale)}>
+                            {resource.label}
+                          </Link>
                         ) : (
                           <a href={href}>{resource.label}</a>
                         )
@@ -232,7 +260,10 @@ export function ArticlePage({
             {more.map((item) => (
               <ContentCard
                 key={item.slug}
-                href={`${ARTICLES_BASE}/${item.slug}`}
+                href={sitePathForLocale(
+                  `${ARTICLES_BASE}/${item.slug}`,
+                  locale,
+                )}
                 title={
                   <>
                     <span className="mb-3 block font-mono text-sm font-normal text-[var(--b-text-secondary)]">

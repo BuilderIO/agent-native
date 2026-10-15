@@ -2,6 +2,7 @@ import type {
   PublicArticle,
   PublicUseCase,
 } from "../../../lib/campaign-content";
+import { sitePathForLocale } from "../docs-locale";
 
 export type UseCase = PublicUseCase;
 export type Article = PublicArticle;
@@ -18,9 +19,7 @@ export function publicUseCase(item: UseCase): UseCase {
     cta_label: item.cta_label,
     secondary_cta_label: item.secondary_cta_label,
     app_cta_url: item.app_cta_url,
-    screenshot_url: item.screenshot_url,
     screenshot_alt: item.screenshot_alt,
-    screenshot_brief: item.screenshot_brief,
     old_way: { heading: item.old_way.heading, body: item.old_way.body },
     replaces: item.replaces,
     new_way: { heading: item.new_way.heading, steps: item.new_way.steps },
@@ -54,9 +53,7 @@ export function publicArticle(item: Article): Article {
     author_avatar: item.author_avatar,
     app_cta_url: item.app_cta_url,
     cta_label: item.cta_label,
-    screenshot_url: item.screenshot_url,
     screenshot_alt: item.screenshot_alt,
-    screenshot_brief: item.screenshot_brief,
     cta_band_heading: item.cta_band_heading,
     cta_band_subhead: item.cta_band_subhead,
     related_resources: item.related_resources.map(({ label, url }) => ({
@@ -72,6 +69,14 @@ export function newestArticles<T extends { published: string }>(
   articles: T[],
 ): T[] {
   return [...articles].sort((a, b) => b.published.localeCompare(a.published));
+}
+
+export function campaignHref(href: string, locale: unknown): string {
+  if (!href.startsWith("/") || href.startsWith("//")) return href;
+  const suffixIndex = href.search(/[?#]/);
+  const path = suffixIndex === -1 ? href : href.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? "" : href.slice(suffixIndex);
+  return `${sitePathForLocale(path, locale)}${suffix}`;
 }
 
 export function safeHref(href: string): string | undefined {

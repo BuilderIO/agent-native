@@ -1,5 +1,6 @@
 import type { MetaDescriptor } from "react-router";
 
+import { sitePathForLocale } from "../components/docs-locale";
 import { agentNativeSocialImageUrl, withDefaultSocialImage } from "../seo";
 
 export function campaignMeta(
@@ -7,13 +8,17 @@ export function campaignMeta(
   description: string,
   path: string,
   type: "website" | "article" = "website",
+  locale?: string,
 ): MetaDescriptor[] {
   if (!path.startsWith("/") || path.startsWith("//") || /[?#\\]/.test(path)) {
     throw new Error(
       "Campaign canonical path must be a root-relative path without query or fragment",
     );
   }
-  const canonical = new URL(path, "https://www.agent-native.com").toString();
+  const canonical = new URL(
+    sitePathForLocale(path, locale),
+    "https://www.agent-native.com",
+  ).toString();
   return withDefaultSocialImage(
     [
       { title: `${title} | Agent-Native` },

@@ -16,7 +16,6 @@ const zhCN = {
     faqs: "常见问题",
     faqTitle: "获取常见问题的答案",
     goDeeper: "深入了解",
-    screenshotTodo: "截图待补充",
     copyPage: "复制页面",
     copyLink: "复制链接",
     copied: "已复制",

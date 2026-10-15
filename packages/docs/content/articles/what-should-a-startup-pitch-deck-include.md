@@ -10,9 +10,7 @@ published: 2026-10-14
 author: "Agent-Native Team"
 app_cta_url: "https://slides.agent-native.com"
 cta_label: "Create a deck"
-screenshot_url: TODO
-screenshot_alt: "A pitch deck draft in the Slides editor with brand applied"
-screenshot_brief: "Frame from product video: the Slides editor with an investor deck draft and a brand applied."
+screenshot_alt: "The Slides editor with a quarterly review deck open, showing a bar chart slide, with the agent chat on the right"
 cta_band_heading: "Draft your next pitch deck"
 cta_band_subhead: "Bring a brief and your brand. Edit the draft, then send it."
 related_resources:

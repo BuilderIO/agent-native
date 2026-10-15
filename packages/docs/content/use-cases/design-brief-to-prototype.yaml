@@ -8,9 +8,7 @@ meta_description: "Turn a design brief into an interactive prototype, compare di
 cta_label: "Design for free"
 secondary_cta_label: "See how it works"
 app_cta_url: "https://design.agent-native.com"
-screenshot_url: TODO
-screenshot_alt: "Two design directions for the same brief side by side on the Design canvas"
-screenshot_brief: "Frame from product video: the Design canvas with two variants generated from one brief side by side, with the agent chat showing the brief."
+screenshot_alt: "The Design editor showing a landing page prototype in desktop and mobile frames, with layers on the left and design properties on the right"
 old_way:
   heading: "How most people do it today"
   body: "A design brief is a document. People agree with it, and then the first thing anyone can actually react to shows up after someone has interpreted it. Reacting to a brief isn't the same as clicking through something."

@@ -19,7 +19,6 @@ const common = {
   app_cta_url: "https://example.com/app?existing=1",
   cta_label: "Try",
   screenshot_alt: "Sample image",
-  screenshot_brief: "Capture the workflow",
   cta_band_heading: "Try the workflow",
   cta_band_subhead: "Start here",
 };
@@ -65,7 +64,6 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("campaign content", () => {
   it("strips private and unknown fields recursively, including Markdown mirrors", () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
     const content = parseCampaignContent(sources());
     expect(content.useCases).toHaveLength(1);
     expect(content.articles).toHaveLength(1);
@@ -79,7 +77,6 @@ describe("campaign content", () => {
   });
 
   it("accepts null stories as absent and normalizes used_before strings to lists", () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
     const absent = parseCampaignContent(
       sources({ "sample.yaml": yaml({ ...useCase, story: null }) }),
     ).useCases[0];
@@ -106,40 +103,35 @@ describe("campaign content", () => {
     }
   });
 
-  it("rejects relative screenshot URLs and preserves original public text", () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("does not validate or project removed screenshot fields and preserves original public text", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(
-      parseCampaignContent(
-        sources({
-          "sample.yaml": yaml({
-            ...useCase,
-            screenshot_url: "/images/sample.png",
-          }),
-        }),
-      ).useCases,
-    ).toEqual([]);
-    expect(error).toHaveBeenCalledWith(
-      expect.stringContaining("absolute HTTP(S) URL"),
+    const removed = {
+      screenshot_url: { internal: "PRIVATE-SCREENSHOT" },
+      screenshot_brief: null,
+    };
+    const content = parseCampaignContent(
+      sources(
+        { "sample.yaml": yaml({ ...useCase, ...removed, title: " Sample " }) },
+        { "sample.md": markdown({ ...article, ...removed }) },
+      ),
     );
-    const item = parseCampaignContent(
-      sources({
-        "sample.yaml": yaml({
-          ...useCase,
-          title: " Sample ",
-          screenshot_url: "https://example.com/image.png",
-        }),
-      }),
-    ).useCases[0];
-    expect(item.title).toBe(" Sample ");
-    expect(item.screenshot_url).toBe("https://example.com/image.png");
-    expect(parseCampaignContent(sources()).articles[0].body).toBe(
-      "\nPublic article body.",
-    );
+    expect(content.useCases).toHaveLength(1);
+    expect(content.articles).toHaveLength(1);
+    for (const item of [...content.useCases, ...content.articles]) {
+      expect(item).not.toHaveProperty("screenshot_url");
+      expect(item).not.toHaveProperty("screenshot_brief");
+      expect(item.screenshot_alt).toBe("Sample image");
+    }
+    expect(JSON.stringify(content)).not.toContain("PRIVATE-SCREENSHOT");
+    expect(content.useCases[0].title).toBe(" Sample ");
+    expect(content.articles[0].body).toBe("\nPublic article body.");
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
   });
 
-  it("validates all nine use cases and eight articles through bundled and disk loaders", () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("validates all nine use cases and eight articles through bundled and disk loaders without warnings", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const bundled = loadCampaignContent();
     const disk = loadCampaignContentFromDisk(
@@ -148,6 +140,11 @@ describe("campaign content", () => {
     expect(bundled.useCases).toHaveLength(9);
     expect(bundled.articles).toHaveLength(8);
     expect(bundled).toEqual(disk);
+    expect(warn).not.toHaveBeenCalled();
+    for (const item of [...bundled.useCases, ...bundled.articles]) {
+      expect(item).not.toHaveProperty("screenshot_url");
+      expect(item).not.toHaveProperty("screenshot_brief");
+    }
     expect(error).not.toHaveBeenCalled();
     const serialized = JSON.stringify(bundled);
     expect(serialized).not.toMatch(/"(?:audience|internal)":/);
@@ -157,7 +154,6 @@ describe("campaign content", () => {
   });
 
   it("normalizes YAML dates and rejects impossible dates", () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     // A block YAML scalar exercises gray-matter's Date parser rather than JSON strings.
     const dated = `slug: sample\nupdated: 2026-09-01\n${Object.entries(useCase)
@@ -179,7 +175,6 @@ describe("campaign content", () => {
   });
 
   it("skips invalid files, filename mismatches, unsafe URLs and mismatched jobs explicitly", () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(
       parseCampaignContent(sources({ "wrong.yaml": yaml(useCase) })).useCases,
@@ -204,21 +199,18 @@ describe("campaign content", () => {
     expect(error).toHaveBeenCalledTimes(4);
   });
 
-  it("allows an absent matching use case and retains missing/TODO screenshots with warnings", () => {
+  it("allows an absent matching use case and valid content without screenshot warnings", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const content = parseCampaignContent(
-      sources(
-        {},
-        { "sample.md": markdown({ ...article, screenshot_url: "TODO" }) },
-      ),
+      sources({}, { "sample.md": markdown(article) }),
     );
     expect(content.articles).toHaveLength(1);
-    expect(content.articles[0].screenshot_url).toBe("TODO");
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("retaining content"),
-    );
-    parseCampaignContent(sources());
-    expect(warn).toHaveBeenCalledTimes(3);
+    const complete = parseCampaignContent(sources());
+    expect(complete.useCases).toHaveLength(1);
+    expect(complete.articles).toHaveLength(1);
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
   });
 
   it("throws on unreadable/missing source directories rather than reporting empty content", () => {
@@ -239,7 +231,6 @@ describe("campaign content", () => {
         path.join(root, "content", "use-cases", "sample.yaml"),
         yaml(useCase),
       );
-      vi.spyOn(console, "warn").mockImplementation(() => {});
       expect(loadCampaignContentFromDisk(root).useCases).toHaveLength(1);
       const read = vi.spyOn(fs, "readFileSync").mockImplementation(() => {
         throw new Error("Unreadable");
@@ -254,7 +245,6 @@ describe("campaign content", () => {
   });
 
   it("includes categories, pagination at twelve, supplied dates and safe article mirrors", () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
     const content = parseCampaignContent(sources());
     content.articles = Array.from({ length: 13 }, (_, index) => ({
       ...content.articles[0],

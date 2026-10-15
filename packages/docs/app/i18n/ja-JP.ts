@@ -17,7 +17,6 @@ const jaJP = {
     faqs: "よくある質問",
     faqTitle: "よくある質問への回答",
     goDeeper: "詳しく知る",
-    screenshotTodo: "スクリーンショット準備中",
     copyPage: "ページをコピー",
     copyLink: "リンクをコピー",
     copied: "コピーしました",

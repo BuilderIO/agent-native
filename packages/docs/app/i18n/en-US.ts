@@ -15,7 +15,6 @@ const enUS = {
     faqs: "FAQs",
     faqTitle: "Get answers to common questions",
     goDeeper: "Go deeper",
-    screenshotTodo: "Screenshot TODO",
     copyPage: "Copy page",
     copyLink: "Copy link",
     copied: "Copied",

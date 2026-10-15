@@ -10,9 +10,7 @@ published: 2026-10-14
 author: "Agent-Native Team"
 app_cta_url: "https://analytics.agent-native.com"
 cta_label: "Try Analytics"
-screenshot_url: TODO
-screenshot_alt: "An Analytics dashboard with metric cards and a trend chart"
-screenshot_brief: "Frame from product video: an Analytics dashboard with metric cards and a trend chart."
+screenshot_alt: "An Analytics product overview dashboard with metric cards, a weekly active users chart, an activation funnel, and the agent chat open"
 cta_band_heading: "Build your first dashboard"
 cta_band_subhead: "Connect your data and ask a question."
 related_resources:

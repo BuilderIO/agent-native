@@ -17,7 +17,6 @@ const deDE = {
     faqs: "Häufige Fragen",
     faqTitle: "Antworten auf häufige Fragen",
     goDeeper: "Mehr erfahren",
-    screenshotTodo: "Screenshot ausstehend",
     copyPage: "Seite kopieren",
     copyLink: "Link kopieren",
     copied: "Kopiert",

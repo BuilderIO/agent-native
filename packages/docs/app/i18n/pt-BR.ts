@@ -17,7 +17,6 @@ const ptBR = {
     faqs: "Perguntas frequentes",
     faqTitle: "Respostas a perguntas frequentes",
     goDeeper: "Saiba mais",
-    screenshotTodo: "Captura de tela pendente",
     copyPage: "Copiar página",
     copyLink: "Copiar link",
     copied: "Copiado",

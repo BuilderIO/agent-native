@@ -7,11 +7,13 @@ import { UseCasesIndex } from "../components/campaign/use-cases";
 import enUS from "../i18n/en-US";
 import { campaignMeta } from "../lib/campaign-seo";
 
-export const meta = () =>
+export const meta = ({ params }: { params?: { locale?: string } } = {}) =>
   campaignMeta(
     enUS.campaign.useCases,
     enUS.campaign.useCasesIntro,
     USE_CASES_BASE,
+    "website",
+    params?.locale,
   );
 export function loader() {
   return { items: loadCampaignContent().useCases.map(publicUseCase) };

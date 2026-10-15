@@ -17,7 +17,6 @@ const frFR = {
     faqs: "FAQ",
     faqTitle: "Des réponses aux questions fréquentes",
     goDeeper: "Approfondir",
-    screenshotTodo: "Capture à ajouter",
     copyPage: "Copier la page",
     copyLink: "Copier le lien",
     copied: "Copié",

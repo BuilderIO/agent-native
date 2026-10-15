@@ -10,9 +10,7 @@ published: 2026-10-14
 author: "Agent-Native Team"
 app_cta_url: "https://plan.agent-native.com"
 cta_label: "Plan visually"
-screenshot_url: TODO
-screenshot_alt: "A visual plan in Plans showing an architecture diagram next to the written plan"
-screenshot_brief: "Frame from product video: a visual plan in Plans with an architecture diagram and annotated code."
+screenshot_alt: "A visual plan in Plans: a canvas of three mobile screens above a written plan with a goal and a comment indicator"
 cta_band_heading: "Review your next plan visually"
 cta_band_subhead: "Ask your agent for a plan, then work through the details together."
 related_resources:

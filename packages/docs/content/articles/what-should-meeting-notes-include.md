@@ -10,9 +10,7 @@ published: 2026-10-14
 author: "Agent-Native Team"
 app_cta_url: "https://clips.agent-native.com"
 cta_label: "Record a meeting"
-screenshot_url: TODO
-screenshot_alt: "The Meetings view in Clips with a recorded meeting's summary, notes, and action items"
-screenshot_brief: "Frame from product video: a recorded meeting open in Clips, showing its summary, notes, and action items."
+screenshot_alt: "The Clips library with recordings, and the recorder panel open with screen, camera, and microphone options and Library, Meetings, Dictate, and Settings tabs"
 cta_band_heading: "Record your next meeting"
 cta_band_subhead: "Get the transcript, the summary, and the action items without taking notes."
 related_resources:

@@ -8,9 +8,7 @@ meta_description: "Draft a startup pitch deck from your brief, apply your brand,
 cta_label: "Create a deck"
 secondary_cta_label: "See how it works"
 app_cta_url: "https://slides.agent-native.com"
-screenshot_url: TODO
-screenshot_alt: "A pitch deck draft in the Slides editor with brand applied and the agent chat open"
-screenshot_brief: "Frame from product video: the Slides editor with an investor deck draft, a brand applied, and the agent chat showing a prompt that turns a brief into a deck."
+screenshot_alt: "The Slides editor with a quarterly review deck open, showing a bar chart slide, with the agent chat on the right"
 old_way:
   heading: "How most people do it today"
   body: "You start from a template, paste in last round's slides, and restyle everything by hand. Then each investor conversation sends you back in to rework it."

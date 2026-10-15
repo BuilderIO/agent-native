@@ -8,9 +8,7 @@ meta_description: "Record meetings from your calendar and get a transcript, AI s
 cta_label: "Record a meeting"
 secondary_cta_label: "See how it works"
 app_cta_url: "https://clips.agent-native.com"
-screenshot_url: TODO
-screenshot_alt: "The Meetings view in Clips with upcoming calendar meetings and a recorded meeting's summary"
-screenshot_brief: "Frame from product video: the Meetings view with upcoming calendar meetings in the sidebar and one recorded meeting open, showing its summary, notes, and action items."
+screenshot_alt: "The Clips library with recordings, and the recorder panel open with screen, camera, and microphone options and Library, Meetings, Dictate, and Settings tabs"
 old_way:
   heading: "How most people do it today"
   body: "Someone is supposed to take notes. They end up half-listening, the notes land in a doc nobody opens again, and two weeks later you're asking the room who agreed to what."

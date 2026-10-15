@@ -17,7 +17,6 @@ const hiIN = {
     faqs: "अक्सर पूछे जाने वाले प्रश्न",
     faqTitle: "आम सवालों के जवाब पाएँ",
     goDeeper: "और जानें",
-    screenshotTodo: "स्क्रीनशॉट बाकी है",
     copyPage: "पेज कॉपी करें",
     copyLink: "लिंक कॉपी करें",
     copied: "कॉपी हो गया",

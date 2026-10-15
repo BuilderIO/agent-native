@@ -17,7 +17,6 @@ const arSA = {
     faqs: "الأسئلة الشائعة",
     faqTitle: "إجابات عن الأسئلة الشائعة",
     goDeeper: "تعمّق أكثر",
-    screenshotTodo: "لقطة الشاشة قيد الإعداد",
     copyPage: "نسخ الصفحة",
     copyLink: "نسخ الرابط",
     copied: "تم النسخ",

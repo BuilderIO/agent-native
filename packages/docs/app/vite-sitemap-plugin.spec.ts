@@ -5,10 +5,18 @@ import { fileURLToPath } from "url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { DOCS_LOCALES } from "./components/docs-locale";
+import {
+  ARTICLES_BASE,
+  ARTICLES_PAGE_SIZE,
+  USE_CASES_BASE,
+} from "../lib/campaign-content";
+import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
+import { DOCS_LOCALES, sitePathForLocale } from "./components/docs-locale";
 import {
   SITE_URL,
   buildAgentWebPages,
+  buildCampaignPages,
+  buildPrerenderPaths,
   buildSitemapXml,
   sitemapPlugin,
 } from "./vite-sitemap-plugin";
@@ -62,6 +70,64 @@ describe("docs agent web generation", () => {
       expect(paths).toContain("/es-es/privacy/");
       expect(paths).toContain("/es-es/legal/acceptable-use/");
       expect(paths).toContain("/apps/calendar/");
+    },
+    AGENT_WEB_GENERATION_TIMEOUT_MS,
+  );
+
+  it("generates all six campaign path shapes and distinct markdown mirrors for every docs locale", () => {
+    const content = loadCampaignContentFromDisk(rootDir);
+    const article = content.articles[0];
+    const useCase = content.useCases[0];
+    const campaignPages = buildCampaignPages({
+      ...content,
+      articles: Array.from({ length: ARTICLES_PAGE_SIZE + 1 }, (_, index) => ({
+        ...article,
+        slug: `test-${index}`,
+      })),
+    });
+    const paths = campaignPages.map((page) => page.path);
+    for (const locale of DOCS_LOCALES) {
+      for (const path of [
+        USE_CASES_BASE,
+        `${USE_CASES_BASE}/${useCase.slug}`,
+        ARTICLES_BASE,
+        `${ARTICLES_BASE}/test-0`,
+        `${ARTICLES_BASE}/category/${article.category}`,
+        `${ARTICLES_BASE}/page/2`,
+      ]) {
+        expect(paths).toContain(sitePathForLocale(path, locale));
+      }
+      const index = campaignPages.find(
+        (page) => page.path === sitePathForLocale(ARTICLES_BASE, locale),
+      )!;
+      expect(index.markdown).toContain(
+        `](${sitePathForLocale(`${ARTICLES_BASE}/test-0`, locale)})`,
+      );
+      const detail = campaignPages.find(
+        (page) =>
+          page.path === sitePathForLocale(`${ARTICLES_BASE}/test-0`, locale),
+      )!;
+      expect(detail.title).toBe(article.title);
+      expect(detail.markdownPath).toBe(
+        `${sitePathForLocale(ARTICLES_BASE, locale)}test-0.md`,
+      );
+    }
+    expect(new Set(paths).size).toBe(paths.length);
+    const mirrors = campaignPages.flatMap((page) =>
+      page.markdownPath ? [page.markdownPath] : [],
+    );
+    expect(new Set(mirrors).size).toBe(mirrors.length);
+  });
+
+  it(
+    "prerenders every published localized campaign sitemap page",
+    () => {
+      const prerenderPaths = new Set(buildPrerenderPaths());
+      const campaignPages = buildCampaignPages(
+        loadCampaignContentFromDisk(rootDir),
+      );
+      for (const page of campaignPages)
+        expect(prerenderPaths.has(page.path)).toBe(true);
     },
     AGENT_WEB_GENERATION_TIMEOUT_MS,
   );

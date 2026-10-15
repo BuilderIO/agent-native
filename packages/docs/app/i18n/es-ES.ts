@@ -17,7 +17,6 @@ const esES = {
     faqs: "Preguntas frecuentes",
     faqTitle: "Respuestas a preguntas frecuentes",
     goDeeper: "Profundiza",
-    screenshotTodo: "Captura pendiente",
     copyPage: "Copiar página",
     copyLink: "Copiar enlace",
     copied: "Copiado",

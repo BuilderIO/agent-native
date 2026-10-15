@@ -16,7 +16,6 @@ const koKR = {
     faqs: "자주 묻는 질문",
     faqTitle: "자주 묻는 질문에 대한 답변",
     goDeeper: "더 알아보기",
-    screenshotTodo: "스크린샷 준비 중",
     copyPage: "페이지 복사",
     copyLink: "링크 복사",
     copied: "복사됨",

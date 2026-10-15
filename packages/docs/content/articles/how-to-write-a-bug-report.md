@@ -10,9 +10,7 @@ published: 2026-10-14
 author: "Agent-Native Team"
 app_cta_url: "https://clips.agent-native.com"
 cta_label: "Record a clip"
-screenshot_url: TODO
-screenshot_alt: "A Clips recording of a bug with the agent hand-off options shown on the clip page"
-screenshot_brief: "Frame from product video: a clip page for a bug recording, with the agent hand-off buttons visible. Ideally with the console or network log in view, if the UI shows it."
+screenshot_alt: "The Clips library with recordings, and the recorder panel open with screen, camera, and microphone options and Library, Meetings, Dictate, and Settings tabs"
 cta_band_heading: "Record your next bug"
 cta_band_subhead: "Capture the video, the console errors, and the failed requests behind one link."
 related_resources:

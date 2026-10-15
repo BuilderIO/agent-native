@@ -32,7 +32,9 @@ export function loader({ params }: LoaderFunctionArgs) {
 export const meta = ({
   data,
   loaderData,
+  params,
 }: {
+  params?: { locale?: string };
   data?: ReturnType<typeof loader>;
   loaderData?: ReturnType<typeof loader>;
 }) => {
@@ -42,6 +44,8 @@ export const meta = ({
         CATEGORY_NAMES[content.category as keyof typeof CATEGORY_NAMES],
         enUS.campaign.articlesIntro,
         `${ARTICLES_BASE}/category/${content.category}`,
+        "website",
+        params?.locale,
       )
     : [];
 };

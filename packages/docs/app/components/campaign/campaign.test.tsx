@@ -9,17 +9,32 @@ import {
   ARTICLES_BASE,
   USE_CASES_BASE,
   CATEGORY_NAMES,
+  categories,
 } from "../../../lib/campaign-content";
 import { loadCampaignContent } from "../../../lib/campaign-content.server";
 import enUS from "../../i18n/en-US";
+import * as localizedCampaignRoute3 from "../../routes/$locale.articles.$slug";
+import * as localizedCampaignRoute2 from "../../routes/$locale.articles._index";
+import * as localizedCampaignRoute4 from "../../routes/$locale.articles.category.$category";
+import * as localizedCampaignRoute5 from "../../routes/$locale.articles.page.$page";
+import * as localizedCampaignRoute1 from "../../routes/$locale.use-cases.$slug";
+import * as localizedCampaignRoute0 from "../../routes/$locale.use-cases._index";
+import * as campaignRoute3 from "../../routes/articles.$slug";
 import {
   loader as articleLoader,
   meta as articleMeta,
 } from "../../routes/articles.$slug";
+import * as campaignRoute2 from "../../routes/articles._index";
 import { loader as articlesLoader } from "../../routes/articles._index";
+import * as campaignRoute4 from "../../routes/articles.category.$category";
 import { loader as categoryLoader } from "../../routes/articles.category.$category";
+import * as campaignRoute5 from "../../routes/articles.page.$page";
 import { loader as pageLoader } from "../../routes/articles.page.$page";
+import * as campaignRoute1 from "../../routes/use-cases.$slug";
 import { loader as useCaseLoader } from "../../routes/use-cases.$slug";
+import * as campaignRoute0 from "../../routes/use-cases._index";
+import { DOCS_LOCALES, sitePathForLocale } from "../docs-locale";
+import { TEMPLATE_SCREENSHOTS } from "../template-screenshots";
 import { SnackbarProvider } from "../website-redesign/ds/snackbar";
 import { ArticlePage, ArticlesList } from "./articles";
 import { parseArticle, sanitizedMarkdown } from "./markdown";
@@ -30,17 +45,21 @@ import {
   type Article,
   type UseCase,
 } from "./public-content";
-import { CampaignCta, CampaignView } from "./shared";
-import { UseCasePage } from "./use-cases";
+import { CampaignCta, CampaignScreenshot, CampaignView } from "./shared";
+import { UseCasePage, UseCasesIndex } from "./use-cases";
+
+const currentLocale = vi.hoisted(() => ({ locale: "en-US" }));
 
 afterEach(() => {
   cleanup();
+  currentLocale.locale = "en-US";
   vi.mocked(trackEvent).mockClear();
   window.history.replaceState(null, "", "/");
 });
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
+  useLocale: () => currentLocale,
   useT:
     () =>
     (key: string, values: Record<string, unknown> = {}) => {
@@ -79,7 +98,7 @@ const useCase: UseCase = {
   secondary_cta_label: "Test steps",
   app_cta_url: "https://example.com/app",
   screenshot_alt: "Test screenshot",
-  screenshot_brief: "Test screenshot brief.",
+
   old_way: { heading: "Test old heading", body: "Test old body." },
   replaces: ["Test tool A", "Test tool B"],
   story: undefined,
@@ -107,7 +126,7 @@ const article: Article = {
   app_cta_url: "https://example.com/app",
   cta_label: "Test app",
   screenshot_alt: "Test screenshot",
-  screenshot_brief: "Test screenshot brief.",
+
   cta_band_heading: "Test band",
   cta_band_subhead: "Test band subhead.",
   related_resources: [],
@@ -259,7 +278,7 @@ describe("public campaign frontend", () => {
     expect(metadata).toContainEqual({
       tagName: "link",
       rel: "canonical",
-      href: "https://www.agent-native.com/articles/test-article",
+      href: "https://www.agent-native.com/articles/test-article/",
     });
     expect(metadata).toContainEqual({
       property: "og:type",
@@ -313,8 +332,9 @@ describe("public campaign frontend", () => {
     expect(document.querySelector("#how-it-works ol")?.textContent).toBe(
       "Test first step.Test second step.",
     );
-    expect(document.body.textContent).toContain("Screenshot TODO");
-    expect(document.body.textContent).toContain(useCase.screenshot_brief);
+    expect(document.querySelector(".theme-img-dark")?.getAttribute("src")).toBe(
+      TEMPLATE_SCREENSHOTS.clips.dark,
+    );
     expect(document.body.textContent).not.toContain("Go deeper");
     const cta = document.querySelector('a[href^="https://example.com/app"]')!;
     expect(new URL(cta.getAttribute("href")!).searchParams.get("job")).toBe(
@@ -393,7 +413,9 @@ describe("public campaign frontend", () => {
       [...list.querySelectorAll("h2")].map((heading) => heading.textContent),
     ).toContain("All articles");
     expect(
-      list.querySelector(`a[href="${ARTICLES_BASE}/${article.slug}"]`),
+      list.querySelector(
+        `a[href="${sitePathForLocale(`${ARTICLES_BASE}/${article.slug}`)}"]`,
+      ),
     ).not.toBeNull();
     const related = {
       ...article,
@@ -407,30 +429,201 @@ describe("public campaign frontend", () => {
       ),
     );
     const card = page.querySelector(
-      `a[href="${ARTICLES_BASE}/${related.slug}"]`,
+      `a[href="${sitePathForLocale(`${ARTICLES_BASE}/${related.slug}`)}"]`,
     )!;
     expect(card.querySelector("h3")?.textContent).toBe(
       `${CATEGORY_NAMES[related.category]}${related.title}`,
     );
     expect(card.textContent).toContain(related.meta_description);
     expect(
-      page.querySelector(`a[href="${USE_CASES_BASE}/${useCase.slug}"]`)
-        ?.textContent,
+      page.querySelector(
+        `a[href="${sitePathForLocale(`${USE_CASES_BASE}/${useCase.slug}`)}"]`,
+      )?.textContent,
     ).toBe(useCase.title);
   });
 
-  it("uses the existing image frame and optimized BuilderImage for public screenshots", () => {
-    const screenshot = {
-      ...article,
-      screenshot_url:
-        "https://cdn.builder.io/api/v1/image/assets%2Ffake-space%2Ffake-screenshot.png",
-    };
-    const document = dom(
-      markup(<ArticlePage article={screenshot} useCase={null} more={[]} />),
+  it.each(categories)(
+    "uses existing dark/light %s app screenshots with fixed framing in heroes and inline markers",
+    (app) => {
+      const appKey = app === "plans" ? "plan" : app;
+      for (const item of [
+        { ...useCase, app },
+        { ...article, category: app },
+      ]) {
+        const document = dom(markup(<CampaignScreenshot item={item} />));
+        const frame = document.querySelector(".docs-image-frame")!;
+        expect(frame.classList.contains("relative")).toBe(true);
+        expect(frame.classList.contains("aspect-[1200/750]")).toBe(true);
+        const dark = frame.querySelector(".theme-img-dark")!;
+        const light = frame.querySelector(".theme-img-light")!;
+        expect(dark.getAttribute("src")).toBe(
+          TEMPLATE_SCREENSHOTS[appKey].dark,
+        );
+        expect(light.getAttribute("src")).toBe(
+          TEMPLATE_SCREENSHOTS[appKey].light,
+        );
+        expect(dark.getAttribute("alt")).toBe(item.screenshot_alt);
+        expect(light.getAttribute("alt")).toBe("");
+        expect(light.getAttribute("aria-hidden")).toBe("true");
+        expect(dark.getAttribute("sizes")).toBe(
+          "(max-width: 767px) 100vw, 1200px",
+        );
+        expect(dark.getAttribute("style")).toBe(
+          appKey === "design" || appKey === "slides"
+            ? `transform:scaleX(${15 / 14})`
+            : null,
+        );
+        expect(frame.querySelector("div[aria-hidden]")).not.toBeNull();
+      }
+      const document = dom(
+        markup(
+          <ArticlePage
+            article={{ ...article, category: app }}
+            useCase={null}
+            more={[]}
+          />,
+        ),
+      );
+      expect(
+        document
+          .querySelector(".docs-image-frame .theme-img-dark")
+          ?.getAttribute("src"),
+      ).toBe(TEMPLATE_SCREENSHOTS[appKey].dark);
+    },
+  );
+
+  it.each(DOCS_LOCALES)(
+    "preserves %s in every campaign navigation surface without translating editorial content",
+    (locale) => {
+      currentLocale.locale = locale;
+      const related = { ...article, slug: "test-related" };
+      const nodes = [
+        <UseCasesIndex items={[useCase]} />,
+        <UseCasePage item={useCase} articles={[article]} />,
+        <ArticlesList articles={[article]} page={1} hasMore />,
+        <ArticlePage
+          article={{
+            ...article,
+            body: `${article.body}\n\n[Internal article](${ARTICLES_BASE}/test-linked?source=test#details)`,
+            related_resources: [
+              {
+                label: "Test resource",
+                url: `${USE_CASES_BASE}/test-resource`,
+              },
+            ],
+          }}
+          useCase={useCase}
+          more={[related]}
+        />,
+      ];
+      const documents = nodes.map((node) => dom(markup(node)));
+      const path = (value: string) => sitePathForLocale(value, locale);
+      for (const [index, hrefs] of [
+        [0, [path(`${USE_CASES_BASE}/${useCase.slug}`)]],
+        [1, [path(`${ARTICLES_BASE}/${article.slug}`)]],
+        [
+          2,
+          [
+            path(`${ARTICLES_BASE}/${article.slug}`),
+            path(`${ARTICLES_BASE}/page/2`),
+            ...categories.map((category) =>
+              path(`${ARTICLES_BASE}/category/${category}`),
+            ),
+          ],
+        ],
+        [
+          3,
+          [
+            path(ARTICLES_BASE),
+            path(`${ARTICLES_BASE}/category/clips`),
+            path(`${USE_CASES_BASE}/${useCase.slug}`),
+            path(`${ARTICLES_BASE}/${related.slug}`),
+            path(`${USE_CASES_BASE}/test-resource`),
+            `${path(`${ARTICLES_BASE}/test-linked`)}?source=test#details`,
+          ],
+        ],
+      ] as const) {
+        for (const href of hrefs)
+          expect(
+            documents[index].querySelector(`a[href="${href}"]`),
+            `surface ${index}: ${href}`,
+          ).not.toBeNull();
+      }
+      expect(documents[3].querySelector("h1")?.textContent).toBe(article.title);
+      expect(documents[3].body.textContent).toContain("Test final paragraph.");
+      const metadata = articleMeta({
+        loaderData: { article, useCase: null, more: [] },
+        params: { locale: locale.toLowerCase() },
+      });
+      const canonical = `https://www.agent-native.com${path(`${ARTICLES_BASE}/${article.slug}`)}`;
+      expect(metadata).toContainEqual({
+        tagName: "link",
+        rel: "canonical",
+        href: canonical,
+      });
+      expect(metadata).toContainEqual({
+        property: "og:url",
+        content: canonical,
+      });
+    },
+  );
+
+  it("reexports the existing public route contracts for all six locale aliases", () => {
+    for (const [route, localized] of [
+      [campaignRoute0, localizedCampaignRoute0],
+      [campaignRoute1, localizedCampaignRoute1],
+      [campaignRoute2, localizedCampaignRoute2],
+      [campaignRoute3, localizedCampaignRoute3],
+      [campaignRoute4, localizedCampaignRoute4],
+      [campaignRoute5, localizedCampaignRoute5],
+    ]) {
+      expect(localized.default).toBe(route.default);
+      expect(localized.loader).toBe(route.loader);
+      expect(localized.meta).toBe(route.meta);
+    }
+  });
+
+  it("uses locale-aware canonicals on indexes, use cases, categories and pagination, with existing unknown-locale fallback", () => {
+    const params = { locale: "fr-fr" };
+    const cases = [
+      [campaignRoute0.meta({ params }), `${USE_CASES_BASE}/`],
+      [
+        campaignRoute1.meta({
+          params,
+          loaderData: { item: useCase, articles: [] },
+        }),
+        `${USE_CASES_BASE}/${useCase.slug}/`,
+      ],
+      [campaignRoute2.meta({ params }), `${ARTICLES_BASE}/`],
+      [
+        campaignRoute4.meta({
+          params,
+          loaderData: {
+            articles: [],
+            category: "clips",
+            page: 1,
+            hasMore: false,
+          },
+        }),
+        `${ARTICLES_BASE}/category/clips/`,
+      ],
+      [
+        campaignRoute5.meta({
+          params,
+          loaderData: { articles: [], page: 2, hasMore: false },
+        }),
+        `${ARTICLES_BASE}/page/2/`,
+      ],
+    ] as const;
+    for (const [meta, path] of cases)
+      expect(meta).toContainEqual({
+        tagName: "link",
+        rel: "canonical",
+        href: `https://www.agent-native.com/fr-fr${path}`,
+      });
+    expect(campaignRoute0.meta({ params: { locale: "unknown" } })).toEqual(
+      campaignRoute0.meta(),
     );
-    const image = document.querySelector(".docs-image-frame img")!;
-    expect(image.getAttribute("alt")).toBe(article.screenshot_alt);
-    expect(image.getAttribute("srcset")).not.toBeNull();
   });
 
   it("rejects unsafe URL forms while preserving their visible labels", () => {

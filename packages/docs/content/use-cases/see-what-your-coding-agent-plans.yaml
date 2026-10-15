@@ -8,9 +8,7 @@ meta_description: "Review your coding agent's plan with diagrams, wireframes, an
 cta_label: "Plan visually"
 secondary_cta_label: "See how it works"
 app_cta_url: "https://plan.agent-native.com"
-screenshot_url: TODO
-screenshot_alt: "A visual plan in Plans showing screen wireframes next to the written plan"
-screenshot_brief: "Frame from product video: a visual plan with a canvas of screens on the left and the written plan on the right, ideally with a comment pinned to one screen."
+screenshot_alt: "A visual plan in Plans: a canvas of three mobile screens above a written plan with a goal and a comment indicator"
 old_way:
   heading: "How most people do it today"
   body: "Your agent writes a plan as a wall of text in a terminal. You skim it, say it looks fine, and find the misunderstanding later, in the diff."

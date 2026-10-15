@@ -14,7 +14,6 @@ const messages = {
     faqs: "常見問題",
     faqTitle: "取得常見問題的答案",
     goDeeper: "深入了解",
-    screenshotTodo: "截圖待補充",
     copyPage: "複製頁面",
     copyLink: "複製連結",
     copied: "已複製",

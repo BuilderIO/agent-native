@@ -8,9 +8,7 @@ meta_description: "Dictate prompts, tickets, and notes instead of typing them. H
 cta_label: "Get Clips"
 secondary_cta_label: "See how it works"
 app_cta_url: "https://clips.agent-native.com"
-screenshot_url: TODO
-screenshot_alt: "The Dictate tab in Clips showing a history of dictations with raw and cleaned-up text"
-screenshot_brief: "Frame from product video: the Dictate tab in the Clips desktop app with a dictation history list, ideally with one dictation open to show the transcript and the cleaned-up text."
+screenshot_alt: "The Clips library with recordings, and the recorder panel open with screen, camera, and microphone options and Library, Meetings, Dictate, and Settings tabs"
 old_way:
   heading: "How most people do it today"
   body: "You type the same long prompts all day: the context, the constraints, the exact behavior you want. Or you open a separate dictation app, fix what it got wrong, and paste the text across. Either way, you think faster than you type, and the detail is what gets cut."

@@ -8,9 +8,7 @@ meta_description: "Turn a brief into an interactive landing page prototype, comp
 cta_label: "Design for free"
 secondary_cta_label: "See how it works"
 app_cta_url: "https://design.agent-native.com"
-screenshot_url: TODO
-screenshot_alt: "Two landing page variants side by side on the Design canvas"
-screenshot_brief: "Frame from product video: the Design canvas with two landing page variants side by side (Variant A and Variant B), with the export option visible."
+screenshot_alt: "The Design editor showing a landing page prototype in desktop and mobile frames, with layers on the left and design properties on the right"
 old_way:
   heading: "How most people do it today"
   body: "Every launch needs a page. You start from the last one, wait on a designer, or fight a page builder, and by the time there's something to react to, the launch date is close. Review happens on screenshots, so feedback arrives as a pile of comments about spacing."
