@@ -1,8 +1,8 @@
 /**
  * What the deploy-path check and its reaper both do to the outside world:
- * run a command with a clean environment, talk to a Postgres server, and list
- * or delete Netlify sites. Everything here refuses to touch a name the check
- * did not generate.
+ * run a command with a clean environment, talk to a Postgres server, and find
+ * the Netlify site the check reuses. Everything here refuses to touch a name the
+ * check did not generate.
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   DEPLOY_DATABASE_NAME_PATTERN,
-  DEPLOY_SITE_NAME_PATTERN,
+  DEPLOY_PROJECT_NAME_PATTERN,
 } from "./qa-deploy-paths-lib";
 
 export const repoRoot = path.resolve(
@@ -125,8 +125,8 @@ export function baseEnv(): NodeJS.ProcessEnv {
 }
 
 // The Netlify CLI the check runs. It is pinned because it runs with the team's
-// token and can delete sites, and the repo's other credentialed workflows pin
-// netlify-cli the same way (27.9.0 is the newest of those); bump them together.
+// token, and the repo's other credentialed workflows pin netlify-cli the same
+// way (27.9.0 is the newest of those); bump them together.
 // The guide says `npx netlify`; the docs contract still checks that text, and
 // the subcommands and flags here are the guide's own.
 export const NETLIFY_CLI_PACKAGE = "netlify-cli@27.9.0";
@@ -136,16 +136,37 @@ export function netlifyCliArgs(args: string[]): string[] {
   return ["--yes", "--package", NETLIFY_CLI_PACKAGE, "netlify", ...args];
 }
 
-// The one environment that carries the Netlify token, for Netlify CLI calls
-// only. Install scripts of the CLI's own dependencies stay off, as they do where
+// A host CLI's environment: the clean base plus that host's token, and nothing
+// else. Install scripts of the CLI's own dependencies stay off, as they do where
 // the repo's workflows install it with `--ignore-scripts`. Without the env
 // token the CLI falls back to the user's own login.
-export function netlifyEnv(): NodeJS.ProcessEnv {
+function hostCliEnv(tokenName: string): NodeJS.ProcessEnv {
   const env = baseEnv();
-  const token = process.env.NETLIFY_AUTH_TOKEN;
-  if (token) env.NETLIFY_AUTH_TOKEN = token;
+  const token = process.env[tokenName];
+  if (token) env[tokenName] = token;
   env.npm_config_ignore_scripts = "true";
   return env;
+}
+
+// The one environment that carries the Netlify token, for Netlify CLI calls only.
+export function netlifyEnv(): NodeJS.ProcessEnv {
+  return hostCliEnv("NETLIFY_AUTH_TOKEN");
+}
+
+// The Vercel CLI the check runs, pinned like the Netlify one (64.2.0 was the
+// newest release when this was written). The guide says `npx vercel`; the docs
+// contract still checks that text, and the subcommands and flags here are the
+// guide's own.
+export const VERCEL_CLI_PACKAGE = "vercel@64.2.0";
+
+/** `npx` arguments that run the pinned Vercel CLI with these arguments. */
+export function vercelCliArgs(args: string[]): string[] {
+  return ["--yes", "--package", VERCEL_CLI_PACKAGE, "vercel", ...args];
+}
+
+// The one environment that carries the Vercel token, for Vercel CLI calls only.
+export function vercelEnv(): NodeJS.ProcessEnv {
+  return hostCliEnv("VERCEL_TOKEN");
 }
 
 export function runQuiet(
@@ -187,13 +208,14 @@ function runNetlifyApi(method: string, data: unknown): string {
 export interface NetlifySite {
   id: string;
   name: string;
+  account_slug?: string;
 }
 
 const SITES_PER_PAGE = 100;
 
 // `netlify api` prints the API's JSON on stdout. Anything else on stdout, or an
 // answer that is not a list of sites, means the listing cannot be trusted, and
-// a site that cannot be listed cannot be proven deleted.
+// a site that cannot be listed cannot be found.
 export function listNetlifySites(nameFilter: string): NetlifySite[] {
   const sites: NetlifySite[] = [];
   for (let page = 1; ; page++) {
@@ -210,40 +232,44 @@ export function listNetlifySites(nameFilter: string): NetlifySite[] {
   }
 }
 
-// Deleted by name, never by a remembered id: a site whose creation errored on
-// the way back is still found, and only a name this check generated can match.
-export function deleteNetlifySite(name: string): void {
+// The site the check reuses, found by its exact name. Null when it has not been
+// created yet. A site of that name in another team than the one asked for is an
+// error, not a match: the check must never deploy to a project it does not own.
+export function findNetlifySite(
+  name: string,
+  accountSlug?: string,
+): NetlifySite | null {
   assert.match(
     name,
-    DEPLOY_SITE_NAME_PATTERN,
-    `Refusing to delete "${name}": this check did not create it.`,
+    DEPLOY_PROJECT_NAME_PATTERN,
+    `Refusing to look up "${name}": this check does not use that project.`,
   );
-  for (const site of listNetlifySites(name).filter((s) => s.name === name)) {
-    runNetlifyApi("deleteSite", { site_id: site.id });
+  const matches = listNetlifySites(name).filter((site) => site.name === name);
+  assert.ok(
+    matches.length <= 1,
+    `Expected at most one Netlify site named ${name}.`,
+  );
+  const site = matches[0] ?? null;
+  if (site && accountSlug) {
+    assert.equal(
+      site.account_slug,
+      accountSlug,
+      `The Netlify site ${name} belongs to "${site.account_slug}", not "${accountSlug}".`,
+    );
   }
-  const left = listNetlifySites(name).filter((site) => site.name === name);
-  assert.equal(
-    left.length,
-    0,
-    `The Netlify site ${name} is still there after the delete.`,
-  );
+  return site;
 }
 
 // A new site's visibility follows its team's default, and some teams (a
 // personal Netlify team, for one) put every new site behind a Netlify login.
 // The check reaches its site as an anonymous visitor, so it turns that off for
-// its own throwaway site. The team's default is untouched.
+// its own project. The team's default is untouched.
 export function makeNetlifySitePublic(name: string): void {
-  assert.match(
-    name,
-    DEPLOY_SITE_NAME_PATTERN,
-    `Refusing to change "${name}": this check did not create it.`,
-  );
-  const sites = listNetlifySites(name).filter((site) => site.name === name);
-  assert.equal(sites.length, 1, `Expected one Netlify site named ${name}.`);
+  const site = findNetlifySite(name);
+  assert.ok(site, `Expected a Netlify site named ${name}.`);
   const updated = JSON.parse(
     runNetlifyApi("updateSite", {
-      site_id: sites[0]!.id,
+      site_id: site.id,
       body: { sso_login: false },
     }),
   ) as { sso_login?: boolean };

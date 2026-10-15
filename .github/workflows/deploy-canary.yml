@@ -11,8 +11,9 @@ name: Deploy canary
 # file in a published package, a leaked workspace: range).
 #
 # `paths` covers the Node.js and Docker guides and needs no credentials.
-# `hosts` deploys to a real Netlify site and needs the secrets deploy-hosts.yml
-# lists; without them it fails, rather than reporting a path as checked.
+# `hosts` deploys to real Netlify and Vercel projects and needs the secrets
+# deploy-hosts.yml lists; without them it fails, rather than reporting a path
+# as checked.
 #
 # A failure in either is posted to #qa-agent-native by the `report` job. A
 # failed Slack post fails the run, so an alert that did not send is visible.

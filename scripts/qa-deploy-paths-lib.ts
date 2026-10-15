@@ -1,14 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export type DeployTarget = "node" | "docker" | "netlify" | "presets";
+export type DeployTarget = "node" | "docker" | "netlify" | "vercel" | "presets";
 
 export const DEPLOY_TARGETS: readonly DeployTarget[] = [
   "node",
   "docker",
   "netlify",
+  "vercel",
   "presets",
 ];
+
+// Targets that deploy to a hosting provider's project instead of running here.
+export type HostTarget = "netlify" | "vercel";
 
 // Targets that run the app against a database the check creates for the run.
 export type DatabaseTarget = Exclude<DeployTarget, "presets">;
@@ -85,6 +89,23 @@ export const DEPLOY_DOC_CONTRACTS: Record<
         "pnpm migrate:production",
         "NITRO_PRESET=netlify pnpm build",
         "npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
+      ],
+    },
+  ],
+  vercel: [
+    {
+      doc: GUIDES.vercel,
+      commands: [
+        CREATE_COMMAND,
+        "corepack enable",
+        "pnpm install",
+        AUTH_SECRET_COMMAND,
+        "npx vercel link",
+        "npx vercel env add DATABASE_URL production",
+        "npx vercel env add BETTER_AUTH_SECRET production",
+        "pnpm migrate:production",
+        "NITRO_PRESET=vercel pnpm build",
+        "npx vercel deploy --prebuilt --prod",
       ],
     },
   ],
@@ -227,12 +248,49 @@ export function databaseUrlFor(adminUrl: string, database: string): string {
   return url.toString();
 }
 
-// The epoch lets a reaper age a leaked database or site from its name alone,
-// and the patterns keep it from ever matching one this check did not create.
+// The epoch lets a reaper age a leaked database from its name alone, and the
+// pattern keeps it from ever matching one this check did not create.
 export const DEPLOY_DATABASE_NAME_PATTERN =
   /^an_deploy_ci_(\d{10})_[a-z0-9]{6}_[a-z]+$/;
 
-export const DEPLOY_SITE_NAME_PATTERN = /^an-deploy-ci-(\d{10})-[a-z0-9]{6}$/;
+// A host project is created once and reused by every later run, because the
+// credential that runs the check is not guaranteed to be allowed to delete
+// one. Runs that could overlap get a project of their own, one per npm
+// dist-tag and one for this checkout's packages, so one run never overwrites
+// the deploy another is still using.
+export const DEPLOY_PROJECT_SLOTS = ["local", "latest", "nightly"] as const;
+
+export type DeployProjectSlot = (typeof DEPLOY_PROJECT_SLOTS)[number];
+
+export const DEPLOY_PROJECT_NAME_PATTERN =
+  /^an-deploy-ci-(netlify|vercel)-(local|latest|nightly)$/;
+
+export function deployProjectSlot(
+  source: string,
+  npmTag: string,
+): DeployProjectSlot {
+  const slot = source === "npm" ? npmTag : "local";
+  const allowed = DEPLOY_PROJECT_SLOTS.filter((candidate) =>
+    source === "npm" ? candidate !== "local" : candidate === "local",
+  );
+  if (!(allowed as readonly string[]).includes(slot)) {
+    throw new Error(
+      `A hosted deploy check has a project for ${allowed.join(" and ")}, not "${slot}".`,
+    );
+  }
+  return slot as DeployProjectSlot;
+}
+
+export function deployProjectName(
+  host: HostTarget,
+  slot: DeployProjectSlot,
+): string {
+  const name = `an-deploy-ci-${host}-${slot}`;
+  if (!DEPLOY_PROJECT_NAME_PATTERN.test(name)) {
+    throw new Error(`Refusing to use "${name}" as a deploy-check project.`);
+  }
+  return name;
+}
 
 export function deployDatabaseName(
   target: DatabaseTarget,
@@ -246,34 +304,23 @@ export function deployDatabaseName(
   return name;
 }
 
-export function deploySiteName(nowMs: number, randomSuffix: string): string {
-  const name = `an-deploy-ci-${Math.floor(nowMs / 1000)}-${randomSuffix}`;
-  if (!DEPLOY_SITE_NAME_PATTERN.test(name)) {
-    throw new Error(`Refusing to use "${name}" as a deploy-check site.`);
-  }
-  return name;
-}
-
 /**
- * Seconds since a deploy-check database or site was created, read from its
- * name. Null for any name this check did not create, so a reaper cannot touch
- * it.
+ * Seconds since a deploy-check database was created, read from its name. Null
+ * for any name this check did not create, so a reaper cannot touch it.
  */
 export function deployResourceAgeSeconds(
   name: string,
   nowMs: number,
 ): number | null {
-  const match =
-    DEPLOY_DATABASE_NAME_PATTERN.exec(name) ??
-    DEPLOY_SITE_NAME_PATTERN.exec(name);
+  const match = DEPLOY_DATABASE_NAME_PATTERN.exec(name);
   if (!match) return null;
   return Math.floor(nowMs / 1000) - Number(match[1]);
 }
 
 /**
- * The databases or sites old enough to be leaked: created by this check, and
- * at least `minAgeSeconds` ago. A run still in progress is younger than any
- * sensible minimum, so a reaper never deletes under a live run.
+ * The databases old enough to be leaked: created by this check, and at least
+ * `minAgeSeconds` ago. A run still in progress is younger than any sensible
+ * minimum, so a reaper never deletes under a live run.
  */
 export function selectReapable(
   names: readonly string[],

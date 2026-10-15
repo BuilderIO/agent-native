@@ -1,26 +1,22 @@
 #!/usr/bin/env tsx
 /**
- * Deletes what the deploy-path check leaked: Netlify sites and Postgres
- * databases it created that are old enough that no run can still be using
- * them. The check cleans up after itself on every exit, so this only matters
- * when a runner was killed or a cleanup failed, which is exactly when nothing
- * else will.
+ * Drops the Postgres databases the deploy-path check leaked: ones it created
+ * that are old enough that no run can still be using them. The check cleans up
+ * after itself on every exit, so this only matters when a runner was killed or
+ * a cleanup failed, which is exactly when nothing else will. Host projects are
+ * created once and reused, never one per run, so there is nothing to sweep on a
+ * host.
  *
  *   pnpm exec tsx scripts/reap-deploy-paths.ts [--dry-run]
- *     [--max-age-minutes 120] [--only netlify|databases]
+ *     [--max-age-minutes 120]
  *
  * A name is reaped only if it matches the pattern the check generates, so a
- * real site or database can never be selected. A listing that fails fails the
- * run: an unreadable account is not an empty one.
+ * real database can never be selected. A listing that fails fails the run: an
+ * unreadable server is not an empty one.
  */
 import { parseArgs } from "node:util";
 
-import {
-  deleteNetlifySite,
-  dropDatabase,
-  listNetlifySites,
-  withSql,
-} from "./qa-deploy-paths-cloud";
+import { dropDatabase, withSql } from "./qa-deploy-paths-cloud";
 import {
   redactSecrets,
   secretsInUrl,
@@ -32,14 +28,12 @@ const { values } = parseArgs({
   options: {
     "max-age-minutes": { type: "string", default: "120" },
     "dry-run": { type: "boolean", default: false },
-    only: { type: "string" },
     "admin-database-url": { type: "string" },
   },
 });
 
 const maxAgeMinutes = Number(values["max-age-minutes"]);
 const dryRun = values["dry-run"] === true;
-const only = values.only;
 const adminUrl =
   values["admin-database-url"] ?? process.env.DEPLOY_CHECK_DATABASE_URL;
 
@@ -48,18 +42,15 @@ if (!Number.isFinite(maxAgeMinutes) || maxAgeMinutes < 10) {
   console.error("--max-age-minutes must be a number of at least 10.");
   process.exit(2);
 }
-if (only !== undefined && only !== "netlify" && only !== "databases") {
-  console.error("--only must be netlify or databases.");
-  process.exit(2);
-}
-if (only !== "netlify" && !adminUrl) {
+if (!adminUrl) {
   console.error(
-    "No database server to sweep. Pass --admin-database-url (or set DEPLOY_CHECK_DATABASE_URL), or --only netlify to sweep sites alone.",
+    "No database server to sweep. Pass --admin-database-url (or set DEPLOY_CHECK_DATABASE_URL).",
   );
   process.exit(2);
 }
 
-const secrets = adminUrl ? secretsInUrl(adminUrl) : [];
+const serverUrl: string = adminUrl;
+const secrets = secretsInUrl(serverUrl);
 const say = (message: string) =>
   console.log(redactSecrets(`[reap-deploy-paths] ${message}`, secrets));
 
@@ -77,71 +68,40 @@ function fail(label: string, error: unknown): void {
   );
 }
 
-// Each sweep fails on its own: an outage on one side must not stop the other
-// side from being swept.
-async function sweep(kind: string, run: () => Promise<void>): Promise<void> {
-  try {
-    await run();
-  } catch (error) {
-    fail(`${kind} sweep`, error);
-  }
-}
-
-function reapAll(
-  kind: string,
-  names: string[],
-  remove: (name: string) => void | Promise<void>,
-): Promise<void> {
+async function sweepDatabases(url: string): Promise<void> {
+  const rows = await withSql(
+    url,
+    (sql) =>
+      sql`select datname from pg_database where datname like 'an\\_deploy\\_ci\\_%'`,
+  );
+  const names = rows.map((row) => String(row.datname));
   const reapable = selectReapable(names, now, minAgeSeconds);
   say(
-    `${kind}: ${names.length} named like a deploy check, ${reapable.length} older than ${maxAgeMinutes} minutes.`,
+    `database: ${names.length} named like a deploy check, ${reapable.length} older than ${maxAgeMinutes} minutes.`,
   );
-  return reapable.reduce(async (previous, name) => {
-    await previous;
+  for (const name of reapable) {
     if (dryRun) {
-      say(`would delete ${kind} ${name}`);
-      return;
+      say(`would drop database ${name}`);
+      continue;
     }
     try {
-      await remove(name);
-      reaped.push(`${kind} ${name}`);
-      say(`deleted ${kind} ${name}`);
+      await dropDatabase(url, name);
+      reaped.push(name);
+      say(`dropped database ${name}`);
     } catch (error) {
-      fail(`${kind} ${name}`, error);
+      fail(`database ${name}`, error);
     }
-  }, Promise.resolve());
-}
-
-async function main(): Promise<void> {
-  if (only !== "databases") {
-    await sweep("site", () =>
-      reapAll(
-        "site",
-        listNetlifySites("an-deploy-ci-").map((site) => site.name),
-        deleteNetlifySite,
-      ),
-    );
-  }
-  if (only !== "netlify" && adminUrl) {
-    await sweep("database", async () => {
-      const rows = await withSql(
-        adminUrl,
-        (sql) =>
-          sql`select datname from pg_database where datname like 'an\\_deploy\\_ci\\_%'`,
-      );
-      await reapAll(
-        "database",
-        rows.map((row) => String(row.datname)),
-        (name) => dropDatabase(adminUrl, name),
-      );
-    });
   }
 }
 
 async function run(): Promise<void> {
-  await main();
+  try {
+    await sweepDatabases(serverUrl);
+  } catch (error) {
+    fail("database sweep", error);
+  }
   say(
-    `${dryRun ? "dry run: nothing deleted" : `deleted ${reaped.length}`}; ${failures.length} failure(s).`,
+    `${dryRun ? "dry run: nothing dropped" : `dropped ${reaped.length}`}; ${failures.length} failure(s).`,
   );
   for (const failure of failures) console.error(`  - ${failure}`);
   process.exit(failures.length > 0 ? 1 : 0);

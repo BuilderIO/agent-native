@@ -5,12 +5,13 @@
  * then sign up, call the `hello` action, and confirm the account landed in
  * Postgres and survived a restart.
  *
- *   pnpm qa:deploy-paths --target node|docker|netlify|presets [--source local|npm]
+ *   pnpm qa:deploy-paths --target node|docker|netlify|vercel|presets
+ *     [--source local|npm]
  *
- * `node` and `docker` run the app here. `netlify` deploys it to a real Netlify
- * site and runs the same checks against the site's address. `presets` is the
- * cheap one for hosts the check cannot deploy to: it builds the Netlify and
- * Vercel output and checks the files each host's deploy command looks for.
+ * `node` and `docker` run the app here. `netlify` and `vercel` deploy it to a
+ * real project on that host and run the same checks against its address.
+ * `presets` is the cheap one: it builds the Netlify and Vercel output and checks
+ * the files each host's deploy command looks for, without deploying.
  *
  * `--source local` (the default) installs the packages from this checkout, so
  * the check can fail before anything is published. `--source npm` runs the
@@ -22,7 +23,10 @@
  * check starts a Postgres container, which only the targets that run the app
  * here can reach. Every resource registers its cleanup the moment it exists,
  * and a cleanup that fails fails the run: a leaked database, container or
- * Netlify site is a failure, never a footnote.
+ * host secret is a failure, never a footnote. A host project is created once
+ * and reused by every later run, which links to it, overwrites its variables
+ * and removes them again, because the credential that runs the check may not be
+ * allowed to delete a project.
  */
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -37,14 +41,16 @@ import { parseArgs } from "node:util";
 
 import {
   baseEnv,
-  deleteNetlifySite,
   dropDatabase,
   fetchWithTimeout,
+  findNetlifySite,
   makeNetlifySitePublic,
   netlifyCliArgs,
   netlifyEnv,
   repoRoot,
   runQuiet,
+  vercelCliArgs,
+  vercelEnv,
   withSql,
 } from "./qa-deploy-paths-cloud";
 import {
@@ -54,7 +60,8 @@ import {
   DEPLOY_DOC_CONTRACTS,
   DEPLOY_TARGETS,
   deployDatabaseName,
-  deploySiteName,
+  deployProjectName,
+  deployProjectSlot,
   dockerfileBaseImages,
   extractFencedBlock,
   findFileUrls,
@@ -85,6 +92,7 @@ const { values } = parseArgs({
     "npm-tag": { type: "string", default: "latest" },
     "admin-database-url": { type: "string" },
     "netlify-account-slug": { type: "string" },
+    "vercel-scope": { type: "string" },
     keep: { type: "boolean", default: false },
   },
 });
@@ -95,6 +103,7 @@ const npmTag = values["npm-tag"] as string;
 const adminDatabaseUrlArg =
   values["admin-database-url"] ?? process.env.DEPLOY_CHECK_DATABASE_URL;
 const netlifyAccountSlug = values["netlify-account-slug"];
+const vercelScope = values["vercel-scope"];
 const keep = values.keep === true;
 
 if (!DEPLOY_TARGETS.includes(target)) {
@@ -129,8 +138,9 @@ const warn = (message: string) => console.error(redact(`${tag} ${message}`));
 
 registerSecrets(PASSWORD);
 if (adminDatabaseUrlArg) registerSecrets(...secretsInUrl(adminDatabaseUrlArg));
-if (process.env.NETLIFY_AUTH_TOKEN) {
-  registerSecrets(process.env.NETLIFY_AUTH_TOKEN);
+for (const name of ["NETLIFY_AUTH_TOKEN", "VERCEL_TOKEN"]) {
+  const token = process.env[name];
+  if (token) registerSecrets(token);
 }
 
 interface StepResult {
@@ -270,6 +280,8 @@ interface RunOptions {
   env?: NodeJS.ProcessEnv;
   timeoutMs: number;
   label: string;
+  /** Written to the command's stdin, for a secret the guide pipes in. */
+  input?: string;
 }
 
 async function runLive(
@@ -283,7 +295,7 @@ async function runLive(
     cwd: options.cwd,
     env: options.env ?? baseEnv(),
     detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
   });
   activeRuns.add(child);
   child.once("close", () => activeRuns.delete(child));
@@ -294,8 +306,16 @@ async function runLive(
     if (output.length > 400) output.shift();
     process.stdout.write(text);
   };
-  child.stdout.on("data", append);
-  child.stderr.on("data", append);
+  if (options.input !== undefined) {
+    // A command that exits before it reads its input reports that through its
+    // exit code; the write error only needs to be on the record.
+    child.stdin!.once("error", (error) =>
+      append(`stdin: ${errorMessage(error)}\n`),
+    );
+    child.stdin!.end(options.input);
+  }
+  child.stdout!.on("data", append);
+  child.stderr!.on("data", append);
   let timedOut = false;
   const timeout = setTimeout(() => {
     timedOut = true;
@@ -543,6 +563,51 @@ async function waitForReady(
     warn(`app logs:\n${logs()}`);
     throw error;
   }
+}
+
+// A reused project still serves the previous run's deploy at its address until
+// the host moves the address to the new one, and that old deploy points at a
+// database the previous run already dropped. Any answer from the address would
+// pass for the new deploy, so each deploy carries a file only it contains, and
+// the check waits for the address to serve that file. It goes in the app's
+// `public` folder before any build, because every build copies that folder into
+// what the host serves, including the rebuild the Netlify CLI runs on deploy.
+// One answer is not enough: a host moves its address to the new deploy over a
+// few seconds and answers from either deploy meanwhile (measured on Vercel with
+// a warm previous deploy: the old one still answered up to 3 s after the deploy
+// command returned, between answers from the new one), so the file has to be
+// served this many times in a row.
+const DEPLOY_SETTLE_HITS = 10;
+interface DeployMarker {
+  urlPath: string;
+  nonce: string;
+}
+
+function addDeployMarker(appDir: string): DeployMarker {
+  const nonce = randomBytes(8).toString("hex");
+  const urlPath = `/an-deploy-check-${nonce}.txt`;
+  fs.writeFileSync(path.join(appDir, "public", urlPath), nonce);
+  return { urlPath, nonce };
+}
+
+async function waitForNewDeploy(
+  baseUrl: string,
+  marker: DeployMarker,
+  logs: () => string,
+): Promise<void> {
+  let hits = 0;
+  await waitFor(
+    "the new deploy to answer at its address",
+    READY_TIMEOUT_MS,
+    async () => {
+      const response = await fetchWithTimeout(`${baseUrl}${marker.urlPath}`);
+      const isNewDeploy =
+        response.status === 200 && (await response.text()) === marker.nonce;
+      hits = isNewDeploy ? hits + 1 : 0;
+      return hits >= DEPLOY_SETTLE_HITS;
+    },
+  );
+  await waitForReady(baseUrl, () => null, logs);
 }
 
 async function startNodeServer(
@@ -826,9 +891,12 @@ async function prepareApp(
 }
 
 async function provisionDatabase(forTarget: DatabaseTarget): Promise<string> {
-  if (forTarget === "netlify" && !adminDatabaseUrlArg) {
+  if (
+    (forTarget === "netlify" || forTarget === "vercel") &&
+    !adminDatabaseUrlArg
+  ) {
     throw new Error(
-      "The netlify target needs --admin-database-url (or DEPLOY_CHECK_DATABASE_URL): a Postgres server Netlify can reach. A local container is not one.",
+      `The ${forTarget} target needs --admin-database-url (or DEPLOY_CHECK_DATABASE_URL): a Postgres server ${forTarget} can reach. A local container is not one.`,
     );
   }
   const adminUrl =
@@ -856,46 +924,112 @@ async function buildPresets(
   }
 }
 
-// The guide's Step 3. The site is registered for deletion by name before it is
-// created, so a create that fails halfway cannot strand it. Netlify commands
-// run in `netlifyEnv()`, the only environment that carries the Netlify token.
-async function createNetlifySite(
+// The guide's Step 3, against a project that is created once and reused. The
+// first run creates the site as the guide says; later runs link to it. Either
+// way the run overwrites its two variables and removes them again, because the
+// credential that runs the check may not be allowed to delete a site, and the
+// database URL carries the CI role's password: it must not outlive the run. A
+// cleanup is registered once its variable is set, and a stale one from a run
+// that could not clean up is overwritten by the next. Netlify commands run in
+// `netlifyEnv()`, the only environment that carries the Netlify token.
+async function useNetlifySite(
   appDir: string,
   databaseUrl: string,
   authSecret: string,
 ): Promise<string> {
-  const name = deploySiteName(Date.now(), randomBytes(3).toString("hex"));
-  onCleanup(`netlify site ${name}`, () => deleteNetlifySite(name));
-  await step("create the Netlify site", () =>
-    runLive(
-      "npx",
-      netlifyCliArgs([
-        "sites:create",
-        "--name",
-        name,
-        ...(netlifyAccountSlug ? ["--account-slug", netlifyAccountSlug] : []),
-      ]),
-      {
-        cwd: appDir,
-        env: netlifyEnv(),
-        timeoutMs: 5 * 60_000,
-        label: "netlify sites:create",
-      },
-    ),
+  const name = deployProjectName("netlify", deployProjectSlot(source, npmTag));
+  const netlify = (args: string[], label: string) =>
+    runLive("npx", netlifyCliArgs(args), {
+      cwd: appDir,
+      env: netlifyEnv(),
+      timeoutMs: 5 * 60_000,
+      label,
+    });
+  const existing = await step("look for the Netlify site", () =>
+    findNetlifySite(name, netlifyAccountSlug),
   );
-  await step("make the throwaway site public", () =>
-    makeNetlifySitePublic(name),
-  );
+  if (existing) {
+    await step("link the existing Netlify site", () =>
+      netlify(["link", "--id", existing.id], "netlify link"),
+    );
+  } else {
+    await step("create the Netlify site", () =>
+      netlify(
+        [
+          "sites:create",
+          "--name",
+          name,
+          ...(netlifyAccountSlug ? ["--account-slug", netlifyAccountSlug] : []),
+        ],
+        "netlify sites:create",
+      ),
+    );
+  }
+  await step("make the site public", () => makeNetlifySitePublic(name));
   await step("save the secrets in the site's environment", async () => {
     for (const [key, value] of [
       ["DATABASE_URL", databaseUrl],
       ["BETTER_AUTH_SECRET", authSecret],
     ] as const) {
-      await runLive("npx", netlifyCliArgs(["env:set", key, value]), {
-        cwd: appDir,
-        env: netlifyEnv(),
-        timeoutMs: 5 * 60_000,
-        label: `netlify env:set ${key}`,
+      await netlify(["env:set", key, value], `netlify env:set ${key}`);
+      onCleanup(`netlify ${key} on ${name}`, () => {
+        runQuiet("npx", netlifyCliArgs(["env:unset", key, "--force"]), {
+          cwd: appDir,
+          env: netlifyEnv(),
+        });
+      });
+    }
+  });
+  return name;
+}
+
+const vercelScopeArgs = vercelScope ? ["--scope", vercelScope] : [];
+
+// The guide's Step 3 for Vercel, reused the same way. `vercel link --yes`
+// links the project when it exists and creates it when it does not. `--force`
+// is the one flag the guide does not have: it overwrites a variable a run left
+// behind, which `env add` otherwise refuses to do. The values go in on stdin,
+// as the guide pipes them, so they never appear in a command line.
+async function useVercelProject(
+  appDir: string,
+  databaseUrl: string,
+  authSecret: string,
+): Promise<string> {
+  const name = deployProjectName("vercel", deployProjectSlot(source, npmTag));
+  const vercel = (args: string[], label: string, input?: string) =>
+    runLive("npx", vercelCliArgs([...args, ...vercelScopeArgs]), {
+      cwd: appDir,
+      env: vercelEnv(),
+      timeoutMs: 5 * 60_000,
+      label,
+      input,
+    });
+  await step("link the Vercel project", () =>
+    vercel(["link", "--yes", "--project", name], "vercel link"),
+  );
+  await step("save the secrets in the project's environment", async () => {
+    for (const [key, value] of [
+      ["DATABASE_URL", databaseUrl],
+      ["BETTER_AUTH_SECRET", authSecret],
+    ] as const) {
+      await vercel(
+        ["env", "add", key, "production", "--force"],
+        `vercel env add ${key}`,
+        value,
+      );
+      onCleanup(`vercel ${key} on ${name}`, () => {
+        runQuiet(
+          "npx",
+          vercelCliArgs([
+            "env",
+            "rm",
+            key,
+            "production",
+            "--yes",
+            ...vercelScopeArgs,
+          ]),
+          { cwd: appDir, env: vercelEnv() },
+        );
       });
     }
   });
@@ -907,6 +1041,7 @@ async function deployToNetlify(
   env: NodeJS.ProcessEnv,
   siteName: string,
 ): Promise<RunningApp> {
+  const marker = addDeployMarker(appDir);
   await step("build for Netlify", () =>
     runLive("pnpm", ["build"], {
       cwd: appDir,
@@ -936,8 +1071,50 @@ async function deployToNetlify(
   const baseUrl = `https://${siteName}.netlify.app`;
   const logs = () =>
     `No server log is available from Netlify here; the site is ${baseUrl}.`;
-  await step("wait for the site to answer", () =>
-    waitForReady(baseUrl, () => null, logs),
+  await step("wait for the new deploy to answer", () =>
+    waitForNewDeploy(baseUrl, marker, logs),
+  );
+  return { baseUrl, logs };
+}
+
+async function deployToVercel(
+  appDir: string,
+  env: NodeJS.ProcessEnv,
+  projectName: string,
+): Promise<RunningApp> {
+  const marker = addDeployMarker(appDir);
+  await step("build for Vercel", () =>
+    runLive("pnpm", ["build"], {
+      cwd: appDir,
+      env: { ...env, NITRO_PRESET: "vercel" },
+      timeoutMs: BUILD_TIMEOUT_MS,
+      label: "build",
+    }),
+  );
+  // Vercel aliases a production deploy at `<project>.vercel.app`. The check
+  // reaches the app there, so a deploy that was aliased anywhere else fails
+  // here instead of exercising an address that may belong to someone else.
+  const baseUrl = `https://${projectName}.vercel.app`;
+  await step("deploy to Vercel", async () => {
+    const output = await runLive(
+      "npx",
+      vercelCliArgs(["deploy", "--prebuilt", "--prod", ...vercelScopeArgs]),
+      {
+        cwd: appDir,
+        env: vercelEnv(),
+        timeoutMs: 15 * 60_000,
+        label: "vercel deploy",
+      },
+    );
+    assert.ok(
+      output.includes(baseUrl),
+      `Vercel did not publish the deploy at ${baseUrl}.`,
+    );
+  });
+  const logs = () =>
+    `No server log is available from Vercel here; the project is ${baseUrl}.`;
+  await step("wait for the new deploy to answer", () =>
+    waitForNewDeploy(baseUrl, marker, logs),
   );
   return { baseUrl, logs };
 }
@@ -975,10 +1152,12 @@ async function runTarget(): Promise<void> {
     BETTER_AUTH_SECRET: authSecret,
   };
 
-  const siteName =
+  const projectName =
     target === "netlify"
-      ? await createNetlifySite(appDir, databaseUrl, authSecret)
-      : null;
+      ? await useNetlifySite(appDir, databaseUrl, authSecret)
+      : target === "vercel"
+        ? await useVercelProject(appDir, databaseUrl, authSecret)
+        : null;
 
   await step("migrate the database", () =>
     runLive("pnpm", ["migrate:production"], {
@@ -1041,8 +1220,10 @@ async function runTarget(): Promise<void> {
     app = await step("docker run", () =>
       startContainer(appDir, image, containerEnv),
     );
+  } else if (target === "netlify") {
+    app = await deployToNetlify(appDir, hostEnv, projectName!);
   } else {
-    app = await deployToNetlify(appDir, hostEnv, siteName!);
+    app = await deployToVercel(appDir, hostEnv, projectName!);
   }
 
   try {

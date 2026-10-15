@@ -9,6 +9,9 @@ import {
   NETLIFY_CLI_PACKAGE,
   netlifyCliArgs,
   netlifyEnv,
+  VERCEL_CLI_PACKAGE,
+  vercelCliArgs,
+  vercelEnv,
 } from "./qa-deploy-paths-cloud";
 
 // What a developer's shell or a CI job can hold that a child process must not
@@ -16,6 +19,8 @@ import {
 // the app's database, and things that change how sign-up or the runtime behave.
 const AMBIENT: Record<string, string> = {
   NETLIFY_AUTH_TOKEN: "fake-netlify-token-for-tests",
+  VERCEL_TOKEN: "fake-vercel-token-for-tests",
+  VERCEL_ORG_ID: "someone-elses-team",
   NETLIFY_SITE_ID: "someone-elses-site",
   NETLIFY_DATABASE_URL: "postgres://host/netlify-db",
   NETLIFY_DATABASE_URL_UNPOOLED: "postgres://host/netlify-unpooled",
@@ -79,6 +84,7 @@ describe("the environment of a child process the check starts", () => {
   it("holds none of the check's credentials, so install, build and the app under test cannot read them", () => {
     const env = baseEnv();
     assert.equal(env.NETLIFY_AUTH_TOKEN, undefined);
+    assert.equal(env.VERCEL_TOKEN, undefined);
     assert.equal(env.DEPLOY_CHECK_DATABASE_URL, undefined);
   });
 
@@ -102,6 +108,7 @@ describe("the environment of a Netlify CLI call", () => {
   it("is the only one that carries the Netlify token", () => {
     const env = netlifyEnv();
     assert.equal(env.NETLIFY_AUTH_TOKEN, "fake-netlify-token-for-tests");
+    assert.equal(env.VERCEL_TOKEN, undefined);
     assert.equal(env.DEPLOY_CHECK_DATABASE_URL, undefined);
     assert.equal(env.NETLIFY_SITE_ID, undefined);
   });
@@ -113,6 +120,44 @@ describe("the environment of a Netlify CLI call", () => {
   it("sets no token when there is none, so the CLI uses the user's own login", () => {
     delete process.env.NETLIFY_AUTH_TOKEN;
     assert.equal("NETLIFY_AUTH_TOKEN" in netlifyEnv(), false);
+  });
+});
+
+describe("the environment of a Vercel CLI call", () => {
+  it("is the only one that carries the Vercel token, and not the Netlify one", () => {
+    const env = vercelEnv();
+    assert.equal(env.VERCEL_TOKEN, "fake-vercel-token-for-tests");
+    assert.equal(env.NETLIFY_AUTH_TOKEN, undefined);
+    assert.equal(env.DEPLOY_CHECK_DATABASE_URL, undefined);
+    assert.equal(env.VERCEL_ORG_ID, undefined);
+  });
+
+  it("keeps install scripts of the CLI's own dependencies off", () => {
+    assert.equal(vercelEnv().npm_config_ignore_scripts, "true");
+  });
+
+  it("sets no token when there is none, so the CLI uses the user's own login", () => {
+    delete process.env.VERCEL_TOKEN;
+    assert.equal("VERCEL_TOKEN" in vercelEnv(), false);
+  });
+});
+
+describe("the Vercel CLI the check runs", () => {
+  it("is pinned to an exact version, not a range or a tag", () => {
+    assert.match(VERCEL_CLI_PACKAGE, /^vercel@\d+\.\d+\.\d+$/);
+  });
+
+  it("runs the pinned package's `vercel` binary with the given arguments", () => {
+    assert.deepEqual(vercelCliArgs(["env", "rm", "A", "production"]), [
+      "--yes",
+      "--package",
+      VERCEL_CLI_PACKAGE,
+      "vercel",
+      "env",
+      "rm",
+      "A",
+      "production",
+    ]);
   });
 });
 

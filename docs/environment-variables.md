@@ -406,12 +406,13 @@ store them only as GitHub Actions secrets. See `e2e/signup/README.md`.
 
 Read by `scripts/qa-deploy-paths.ts`, `scripts/reap-deploy-paths.ts`, and
 `.github/workflows/deploy-hosts.yml`, never by application runtime code. The
-connection string is a live credential: store it only as a GitHub Actions
-secret.
+connection string and the host tokens are live credentials: store them only
+as GitHub Actions secrets.
 
-| Variable                    | Purpose                                                                                                                                                                                                                                  |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DEPLOY_CHECK_DATABASE_URL` | Connection string for the Postgres server on which the check creates one throwaway database per run, named `an_deploy_ci_<epoch>_<suffix>_<target>`, and drops it afterward. Use a role that can create databases and owns nothing else. |
+| Variable                    | Purpose                                                                                                                                                                                                                                                                                      |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEPLOY_CHECK_DATABASE_URL` | Connection string for the Postgres server on which the check creates one throwaway database per run, named `an_deploy_ci_<epoch>_<suffix>_<target>`, and drops it afterward. Use a role that can create databases and owns nothing else.                                                     |
+| `VERCEL_TOKEN`              | A Vercel token for the team that owns the `an-deploy-ci-vercel-*` projects. Used only by the Vercel CLI calls of `--target vercel`; the check creates each project once, reuses it, and removes the two secrets it sets on every exit, so the token needs no permission to delete a project. |
 
 ### Signup agent review
 

@@ -11,11 +11,12 @@ import {
   DEPLOY_DATABASE_NAME_PATTERN,
   DEPLOY_DOC_CONTRACTS,
   DEPLOY_GUIDE_PATHS,
-  DEPLOY_SITE_NAME_PATTERN,
+  DEPLOY_PROJECT_NAME_PATTERN,
   DEPLOY_TARGETS,
   deployDatabaseName,
+  deployProjectName,
+  deployProjectSlot,
   deployResourceAgeSeconds,
-  deploySiteName,
   dockerfileBaseImages,
   extractFencedBlock,
   findFileUrls,
@@ -197,69 +198,92 @@ describe("database helpers", () => {
   });
 });
 
-describe("throwaway Netlify sites", () => {
-  it("names a site so a reaper can age it and never mistake another for it", () => {
-    const name = deploySiteName(1_791_930_000_123, "a1b2c3");
-    assert.equal(name, "an-deploy-ci-1791930000-a1b2c3");
-    assert.match(name, DEPLOY_SITE_NAME_PATTERN);
+describe("reused host projects", () => {
+  it("names one project per host and slot, so the check can never reach another project", () => {
+    assert.equal(
+      deployProjectName("netlify", "latest"),
+      "an-deploy-ci-netlify-latest",
+    );
+    assert.equal(
+      deployProjectName("vercel", "local"),
+      "an-deploy-ci-vercel-local",
+    );
     for (const other of [
       "builder-io-slides",
       "agent-native-docs",
-      "an-deploy-ci-17919-a1b2c3",
-      "an-deploy-ci-1791930000-A1B2C3",
-      "beta-an-deploy-ci-1791930000-a1b2c3",
-      "an-deploy-ci-1791930000-a1b2c3-prod",
+      "an-deploy-ci-1791930000-a1b2c3",
+      "an-deploy-ci-netlify",
+      "an-deploy-ci-netlify-beta",
+      "an-deploy-ci-cloudflare-latest",
+      "beta-an-deploy-ci-netlify-latest",
+      "an-deploy-ci-netlify-latest-2",
     ]) {
-      assert.doesNotMatch(other, DEPLOY_SITE_NAME_PATTERN);
+      assert.doesNotMatch(other, DEPLOY_PROJECT_NAME_PATTERN);
     }
   });
 
-  it("refuses a suffix that would not match the reaper's pattern", () => {
-    assert.throws(() => deploySiteName(1_791_930_000_000, "X Y"), /Refusing/);
+  it("gives this checkout's packages and each npm tag a project of their own", () => {
+    assert.equal(deployProjectSlot("local", "latest"), "local");
+    assert.equal(deployProjectSlot("npm", "latest"), "latest");
+    assert.equal(deployProjectSlot("npm", "nightly"), "nightly");
   });
 
-  it("ages a database or a site from its name, and nothing else", () => {
+  it("refuses a tag it has no project for, so a dispatch cannot start a new one", () => {
+    assert.throws(() => deployProjectSlot("npm", "beta"), /not "beta"/);
+    assert.throws(() => deployProjectSlot("npm", "local"), /not "local"/);
+  });
+});
+
+describe("leaked databases", () => {
+  it("ages a database from its name, and nothing else", () => {
     const now = 1_791_933_600_000;
-    assert.equal(
-      deployResourceAgeSeconds("an-deploy-ci-1791930000-a1b2c3", now),
-      3600,
-    );
-    assert.equal(
-      deployResourceAgeSeconds("an_deploy_ci_1791930000_a1b2c3_netlify", now),
-      3600,
-    );
-    assert.equal(deployResourceAgeSeconds("test-an-deploy2", now), null);
-    assert.equal(deployResourceAgeSeconds("postgres", now), null);
+    for (const name of [
+      "an_deploy_ci_1791930000_a1b2c3_netlify",
+      "an_deploy_ci_1791930000_a1b2c3_vercel",
+    ]) {
+      assert.equal(deployResourceAgeSeconds(name, now), 3600);
+    }
+    for (const other of [
+      "an-deploy-ci-1791930000-a1b2c3",
+      "an-deploy-ci-netlify-latest",
+      "test-an-deploy2",
+      "postgres",
+    ]) {
+      assert.equal(deployResourceAgeSeconds(other, now), null);
+    }
   });
 });
 
 describe("selectReapable", () => {
   const now = 1_791_940_000_000;
 
-  it("selects only what this check created and left behind", () => {
+  it("selects only the databases this check created and left behind", () => {
     assert.deepEqual(
       selectReapable(
         [
-          "an-deploy-ci-1791930000-a1b2c3",
           "an_deploy_ci_1791930000_a1b2c3_node",
+          "an_deploy_ci_1791930000_a1b2c3_vercel",
+          "an-deploy-ci-netlify-latest",
           "test-an-deploy2",
-          "builder-io-slides",
           "postgres",
         ],
         now,
         7200,
       ),
-      ["an-deploy-ci-1791930000-a1b2c3", "an_deploy_ci_1791930000_a1b2c3_node"],
+      [
+        "an_deploy_ci_1791930000_a1b2c3_node",
+        "an_deploy_ci_1791930000_a1b2c3_vercel",
+      ],
     );
   });
 
   it("leaves a run that is still in progress alone", () => {
-    const young = `an-deploy-ci-${Math.floor(now / 1000) - 60}-a1b2c3`;
+    const young = `an_deploy_ci_${Math.floor(now / 1000) - 60}_a1b2c3_node`;
     assert.deepEqual(selectReapable([young], now, 7200), []);
   });
 
-  it("keeps a resource exactly at the minimum age", () => {
-    const atLimit = `an-deploy-ci-${Math.floor(now / 1000) - 7200}-a1b2c3`;
+  it("keeps a database exactly at the minimum age", () => {
+    const atLimit = `an_deploy_ci_${Math.floor(now / 1000) - 7200}_a1b2c3_node`;
     assert.deepEqual(selectReapable([atLimit], now, 7200), [atLimit]);
   });
 });

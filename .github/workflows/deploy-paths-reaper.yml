@@ -1,15 +1,15 @@
 name: Deploy paths reaper
 
-# Deletes the Netlify sites and Postgres databases the deploy-path check leaked.
-# The check deletes what it creates on every exit, so this only finds
-# something when a runner was killed or a cleanup failed, which is exactly when
-# nothing else will. scripts/reap-deploy-paths.ts selects only names the check
-# generates (`an-deploy-ci-<epoch>-<suffix>`, `an_deploy_ci_<epoch>_...`) that
-# are at least two hours old, so it cannot touch a real site or database, nor a
-# run still in progress.
+# Drops the Postgres databases the deploy-path check leaked. The check drops
+# what it creates on every exit, so this only finds something when a runner was
+# killed or a cleanup failed, which is exactly when nothing else will.
+# scripts/reap-deploy-paths.ts selects only names the check generates
+# (`an_deploy_ci_<epoch>_...`) that are at least two hours old, so it cannot
+# touch a real database, nor a run still in progress. Host projects are reused
+# by every run and never created per run, so there is nothing to sweep there.
 #
-# A failed listing or delete fails this workflow, and its last step posts that
-# to #qa-agent-native.
+# A failed listing or drop fails this workflow, and its last step posts that to
+# #qa-agent-native.
 
 on:
   schedule:
@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   reap:
-    name: Sweep leaked sites and databases
+    name: Sweep leaked databases
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -41,18 +41,13 @@ jobs:
 
       - name: Check the credentials
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           DEPLOY_CHECK_DATABASE_URL: ${{ secrets.DEPLOY_CHECK_DATABASE_URL }}
         run: |
           set -euo pipefail
-          missing=0
-          for name in NETLIFY_AUTH_TOKEN DEPLOY_CHECK_DATABASE_URL; do
-            if [ -z "${!name}" ]; then
-              echo "::error::The $name secret is not available to this run."
-              missing=1
-            fi
-          done
-          [ "$missing" = 0 ] || exit 1
+          if [ -z "$DEPLOY_CHECK_DATABASE_URL" ]; then
+            echo "::error::The DEPLOY_CHECK_DATABASE_URL secret is not available to this run."
+            exit 1
+          fi
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -61,7 +56,6 @@ jobs:
       # Scheduled runs delete; a manual dispatch defaults to a dry run.
       - name: Sweep
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           DEPLOY_CHECK_DATABASE_URL: ${{ secrets.DEPLOY_CHECK_DATABASE_URL }}
           dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
@@ -93,4 +87,4 @@ jobs:
           token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
           payload: |
             channel: ${{ env.SLACK_CHANNEL }}
-            text: ":rotating_light: The deploy-path reaper failed, so leaked Netlify sites or Neon databases may not have been cleaned up. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Full report: ${{ steps.report-artifact.outputs.artifact-url || 'not available, the report could not be saved' }}"
+            text: ":rotating_light: The deploy-path reaper failed, so leaked Neon databases may not have been cleaned up. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Full report: ${{ steps.report-artifact.outputs.artifact-url || 'not available, the report could not be saved' }}"
