@@ -2112,6 +2112,7 @@ export default {
     edit: "Editar",
     markFixed: "Marcar como solucionado",
     hideHere: "Ocultar en este gráfico",
+    hideNoteHere: "Ocultar «{{title}}» en este gráfico",
     set: "Grupo",
     newSet: "Nuevo grupo",
     setName: "Nombre del grupo",

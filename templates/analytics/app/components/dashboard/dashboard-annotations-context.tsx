@@ -19,10 +19,10 @@ import type {
 
 /** What a chart's data-note card offers; absent outside an editable dashboard. */
 export interface DataNoteActions {
-  /** Starts a note pinned to this chart. */
-  add(panelId: string): void;
-  edit(note: DataNote): void;
-  markFixed(note: DataNote): void;
+  /** Starts a note pinned to this chart. Absent, like edit and markFixed, when the notes belong to another organization. */
+  add?(panelId: string): void;
+  edit?(note: DataNote): void;
+  markFixed?(note: DataNote): void;
   /** Absent when the viewer can't edit this dashboard. */
   hide?(noteId: string, panelId: string): void;
 }
@@ -52,8 +52,10 @@ const DashboardAnnotationsContext =
   createContext<DashboardAnnotationsValue>(NO_ANNOTATIONS);
 
 /**
- * Draws the organization's key dates, minus the sets this dashboard hides,
- * and its data notes, minus the ones hidden per chart, on every chart inside.
+ * Draws the dashboard's key dates, minus the sets it hides, and its data
+ * notes, minus the ones hidden per chart, on every chart inside. Both are its
+ * owner organization's, which differ from the viewer's when it was shared
+ * from another organization.
  */
 export function DashboardAnnotationsProvider({
   dashboardId,
@@ -67,10 +69,11 @@ export function DashboardAnnotationsProvider({
   children: ReactNode;
 }) {
   const t = useT();
-  const keyDateQuery = useActionQuery("list-key-dates", undefined, {
+  const scope = dashboardId ? { dashboardId } : undefined;
+  const keyDateQuery = useActionQuery("list-key-dates", scope, {
     staleTime: 60_000,
   });
-  const dataNoteQuery = useActionQuery("list-data-notes", undefined, {
+  const dataNoteQuery = useActionQuery("list-data-notes", scope, {
     staleTime: 60_000,
   });
   const keyDateData = keyDateQuery.data;
@@ -92,6 +95,13 @@ export function DashboardAnnotationsProvider({
       });
     }
   }, [dataNotesFailed, t]);
+  // A shared dashboard's notes are its organization's: the viewer may hide
+  // one here, but their own edits would save into their own organization.
+  const notesEditable = dataNoteData?.editable !== false;
+  const noteActions = useMemo<DataNoteActions | undefined>(() => {
+    if (notesEditable || !dataNoteActions) return dataNoteActions;
+    return dataNoteActions.hide ? { hide: dataNoteActions.hide } : undefined;
+  }, [notesEditable, dataNoteActions]);
   // Its own memo: a changed note list must not re-resolve every chart's key dates.
   const keyDates = useMemo(
     () =>
@@ -106,7 +116,7 @@ export function DashboardAnnotationsProvider({
       keyDatesFailed,
       dataNotes: dataNoteData ? dataNoteData.notes : NO_DATA_NOTES,
       dataNotesFailed,
-      dataNoteActions,
+      dataNoteActions: noteActions,
     }),
     [
       dashboardId,
@@ -115,7 +125,7 @@ export function DashboardAnnotationsProvider({
       keyDatesFailed,
       dataNoteData,
       dataNotesFailed,
-      dataNoteActions,
+      noteActions,
     ],
   );
   return (

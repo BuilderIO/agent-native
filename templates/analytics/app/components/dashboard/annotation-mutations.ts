@@ -2,23 +2,29 @@ import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { DataNote } from "@shared/data-notes";
 import type { KeyDate, KeyDateSet } from "@shared/key-dates";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 /** An annotation list query and how to reach the items in its result. */
-interface AnnotationList<Data, Item> {
+interface AnnotationList<Data extends { editable?: boolean }, Item> {
   action: "list-data-notes" | "list-key-dates";
   items(data: Data): Item[];
   with(data: Data, items: Item[]): Data;
 }
 
-const DATA_NOTES: AnnotationList<{ notes: DataNote[] }, DataNote> = {
+const DATA_NOTES: AnnotationList<
+  { notes: DataNote[]; editable?: boolean },
+  DataNote
+> = {
   action: "list-data-notes",
   items: (data) => data.notes,
   with: (data, notes) => ({ ...data, notes }),
 };
 
-const KEY_DATE_SETS: AnnotationList<{ sets: KeyDateSet[] }, KeyDateSet> = {
+const KEY_DATE_SETS: AnnotationList<
+  { sets: KeyDateSet[]; editable?: boolean },
+  KeyDateSet
+> = {
   action: "list-key-dates",
   items: (data) => data.sets,
   with: (data, sets) => ({ ...data, sets }),
@@ -64,9 +70,11 @@ function removeItem<T extends { id: string }>(
  * through `mutate`'s per-call callbacks: those never run once the dialog that
  * called `mutate` has closed. A failure reverts only its own change, since
  * restoring a snapshot would also erase other writes still in flight, and the
- * list refetches once the last overlapping write settles.
+ * list refetches once the last overlapping write settles. The change shows in
+ * every cached copy of the list (the dashboard's, the dialogs'), except a
+ * shared dashboard's from another organization, which the write never reaches.
  */
-function useAnnotationWrite<TInput, Data, Item>(
+function useAnnotationWrite<TInput, Data extends { editable?: boolean }, Item>(
   action: string,
   list: AnnotationList<Data, Item>,
   failure: "annotations.saveFailed" | "annotations.deleteFailed",
@@ -74,25 +82,28 @@ function useAnnotationWrite<TInput, Data, Item>(
 ) {
   const client = useQueryClient();
   const t = useT();
-  const queryKey = ["action", list.action, undefined];
+  const queryKey = ["action", list.action];
   const mutationKey = ["annotation-write", list.action];
+  type Reverts = Array<[QueryKey, Change<Item[]>["revert"]]>;
   return useActionMutation<unknown, TInput>(action, {
     mutationKey,
     skipActionQueryInvalidation: true,
     onMutate: async (input) => {
       await client.cancelQueries({ queryKey });
-      const data = client.getQueryData<Data>(queryKey);
-      if (!data) return undefined;
-      const { next, revert } = change(list.items(data), input as TInput);
-      client.setQueryData<Data>(queryKey, list.with(data, next));
-      return { revert };
+      const reverts: Reverts = [];
+      for (const [key, data] of client.getQueriesData<Data>({ queryKey })) {
+        if (!data || data.editable === false) continue;
+        const { next, revert } = change(list.items(data), input as TInput);
+        client.setQueryData<Data>(key, list.with(data, next));
+        reverts.push([key, revert]);
+      }
+      return { reverts };
     },
     onError: (error, _input, context) => {
-      const revert = (context as Pick<Change<Item[]>, "revert"> | undefined)
-        ?.revert;
-      if (revert) {
+      const reverts = (context as { reverts: Reverts } | undefined)?.reverts;
+      for (const [key, revert] of reverts ?? []) {
         client.setQueryData<Data>(
-          queryKey,
+          key,
           (current) =>
             current && list.with(current, revert(list.items(current))),
         );
@@ -102,7 +113,7 @@ function useAnnotationWrite<TInput, Data, Item>(
     onSettled: () => {
       // The settling write still counts as pending here.
       if (client.isMutating({ mutationKey }) > 1) return;
-      void client.invalidateQueries({ queryKey: ["action", list.action] });
+      void client.invalidateQueries({ queryKey });
     },
   });
 }

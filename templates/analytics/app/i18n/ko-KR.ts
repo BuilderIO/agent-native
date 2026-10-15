@@ -2045,6 +2045,7 @@ export default {
     edit: "편집",
     markFixed: "수정됨으로 표시",
     hideHere: "이 차트에서 숨기기",
+    hideNoteHere: "이 차트에서 '{{title}}' 숨기기",
     set: "세트",
     newSet: "새 세트",
     setName: "세트 이름",

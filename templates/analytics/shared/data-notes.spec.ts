@@ -97,6 +97,48 @@ describe("sqlCountsEvent", () => {
       expect(sqlCountsEvent(sql, "builder_connect_failed"), sql).toBe(false);
     }
   });
+
+  it("ignores a name under a NOT that wraps its comparison or its parentheses", () => {
+    for (const sql of [
+      "WHERE NOT event = 'builder_connect_failed'",
+      "WHERE NOT (event = 'builder_connect_failed')",
+      "WHERE NOT (event = 'signup' OR event = 'builder_connect_failed')",
+      "WHERE NOT EXISTS (SELECT 1 FROM e WHERE e.event = 'builder_connect_failed')",
+      "SELECT COUNT(CASE WHEN NOT event = 'builder_connect_failed' THEN 1 END)",
+    ]) {
+      expect(sqlCountsEvent(sql, "builder_connect_failed"), sql).toBe(false);
+    }
+  });
+
+  it("counts a name again once the NOT's predicate or parentheses end", () => {
+    for (const sql of [
+      "WHERE NOT (event = 'signup') AND event = 'builder_connect_failed'",
+      "WHERE user_id IS NOT NULL AND event = 'builder_connect_failed'",
+      "WHERE event NOT IN ('signup') OR event IN ('builder_connect_failed')",
+      "WHERE NOT (NOT event = 'builder_connect_failed')",
+    ]) {
+      expect(sqlCountsEvent(sql, "builder_connect_failed"), sql).toBe(true);
+    }
+  });
+
+  it("matches LIKE patterns as SQL does: % any run, _ one character, ILIKE in any case", () => {
+    const failed = "builder_connect_failed";
+    expect(sqlCountsEvent("WHERE event LIKE 'builder_connect_%'", failed)).toBe(
+      true,
+    );
+    expect(sqlCountsEvent("WHERE event LIKE '%_failed'", failed)).toBe(true);
+    expect(
+      sqlCountsEvent("WHERE event LIKE 'builder_connect_faile_'", failed),
+    ).toBe(true);
+    expect(sqlCountsEvent("WHERE event ILIKE 'BUILDER_CONNECT%'", failed)).toBe(
+      true,
+    );
+    expect(sqlCountsEvent("WHERE event LIKE 'BUILDER_CONNECT%'", failed)).toBe(
+      false,
+    );
+    expect(sqlCountsEvent("WHERE event LIKE 'signup%'", failed)).toBe(false);
+    expect(sqlCountsEvent("WHERE e LIKE 'a+b%'", "aab")).toBe(false);
+  });
 });
 
 describe("dataNoteAppliesTo", () => {
@@ -108,6 +150,13 @@ describe("dataNoteAppliesTo", () => {
     );
     expect(dataNoteAppliesTo(CONNECT_UNDERCOUNT, "dash", old)).toBe(true);
     expect(dataNoteAppliesTo(CONNECT_UNDERCOUNT, "dash", both)).toBe(false);
+    const patterned = panel(
+      "p3",
+      "where event = 'builder connect clicked' or event like 'builder_connect_c%'",
+    );
+    expect(dataNoteAppliesTo(CONNECT_UNDERCOUNT, "dash", patterned)).toBe(
+      false,
+    );
     expect(
       dataNoteAppliesTo(CONNECT_UNDERCOUNT, "dash", panel("p3", "select 1")),
     ).toBe(false);

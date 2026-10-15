@@ -1965,6 +1965,7 @@ export default {
     edit: "编辑",
     markFixed: "标记为已修复",
     hideHere: "在此图表中隐藏",
+    hideNoteHere: "在此图表中隐藏“{{title}}”",
     set: "组",
     newSet: "新建组",
     setName: "组名称",

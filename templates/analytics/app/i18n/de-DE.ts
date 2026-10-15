@@ -2132,6 +2132,7 @@ export default {
     edit: "Bearbeiten",
     markFixed: "Als behoben markieren",
     hideHere: "In diesem Diagramm ausblenden",
+    hideNoteHere: "„{{title}}“ in diesem Diagramm ausblenden",
     set: "Gruppe",
     newSet: "Neue Gruppe",
     setName: "Gruppenname",

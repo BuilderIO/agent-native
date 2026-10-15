@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   listDataNotes: vi.fn(async () => []),
   saveDataNote: vi.fn(async () => ({ id: "note-1" })),
   deleteDataNote: vi.fn(async () => ({ id: "note-1" })),
+  dashboardAnnotationScope: vi.fn(),
 }));
 const reads = vi.hoisted(() => ({
   readDashboardConfigForAnnotations: vi.fn(),
@@ -18,6 +19,9 @@ vi.mock("@agent-native/core/action", () => ({
 }));
 vi.mock("../server/lib/data-notes-store.js", () => mocks);
 vi.mock("../server/lib/dashboard-annotation-reads.js", () => reads);
+vi.mock("../server/lib/dashboard-annotation-scope.js", () => ({
+  dashboardAnnotationScope: mocks.dashboardAnnotationScope,
+}));
 
 const actions = {
   list: (await import("./list-data-notes")).default as any,
@@ -32,7 +36,10 @@ describe("data-note actions", () => {
   });
 
   it("run every operation in the caller's scope", async () => {
-    await expect(actions.list.run({})).resolves.toEqual({ notes: [] });
+    await expect(actions.list.run({})).resolves.toEqual({
+      notes: [],
+      editable: true,
+    });
     expect(mocks.listDataNotes).toHaveBeenCalledWith(scope);
 
     const note = {
@@ -95,6 +102,23 @@ describe("data-note actions", () => {
       }),
     ).rejects.toThrow("not found");
     expect(mocks.saveDataNote).not.toHaveBeenCalled();
+  });
+
+  it("lists the notes a dashboard draws, and says when they aren't the caller's", async () => {
+    const owner = { email: "owner@example.test", orgId: "org-2" };
+    mocks.dashboardAnnotationScope.mockResolvedValue({
+      scope: owner,
+      editable: false,
+    });
+
+    await expect(
+      actions.list.run({ dashboardId: "shared-dashboard" }),
+    ).resolves.toEqual({ notes: [], editable: false });
+    expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
+      "shared-dashboard",
+      scope,
+    );
+    expect(mocks.listDataNotes).toHaveBeenCalledWith(owner);
   });
 
   it("marks only the list as read-only", () => {

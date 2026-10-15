@@ -2096,6 +2096,7 @@ export default {
     edit: "編集",
     markFixed: "修正済みにする",
     hideHere: "このグラフで非表示",
+    hideNoteHere: "このグラフで「{{title}}」を非表示",
     set: "セット",
     newSet: "新しいセット",
     setName: "セット名",

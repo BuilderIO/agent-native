@@ -2047,6 +2047,7 @@ export default {
     edit: "Edit",
     markFixed: "Mark fixed",
     hideHere: "Hide on this chart",
+    hideNoteHere: "Hide “{{title}}” on this chart",
     set: "Set",
     newSet: "New set",
     setName: "Set name",

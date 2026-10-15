@@ -50,12 +50,20 @@ export function AnnotationsMenu({
   onEditDataNote: (note: DataNote) => void;
 }) {
   const t = useT();
-  const { data: keyDateData } = useActionQuery("list-key-dates", undefined, {
-    staleTime: 60_000,
-  });
-  const { data: dataNoteData } = useActionQuery("list-data-notes", undefined, {
-    staleTime: 60_000,
-  });
+  // The dashboard's own lists, as its charts draw them.
+  const { data: keyDateData } = useActionQuery(
+    "list-key-dates",
+    { dashboardId },
+    { staleTime: 60_000 },
+  );
+  const { data: dataNoteData } = useActionQuery(
+    "list-data-notes",
+    { dashboardId },
+    { staleTime: 60_000 },
+  );
+  // False on a dashboard shared from another organization.
+  const keyDatesEditable = keyDateData?.editable !== false;
+  const notesEditable = dataNoteData?.editable !== false;
   const returningFocus = useRef(false);
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const sets = keyDateData?.sets ?? [];
@@ -125,11 +133,13 @@ export function AnnotationsMenu({
             </span>
           </DropdownMenuCheckboxItem>
         ))}
-        <DropdownMenuItem onSelect={onAddKeyDate}>
-          <IconPlus className="mr-2 h-4 w-4" />
-          {t("annotations.addKeyDate")}
-        </DropdownMenuItem>
-        {sets.length > 0 ? (
+        {keyDatesEditable ? (
+          <DropdownMenuItem onSelect={onAddKeyDate}>
+            <IconPlus className="mr-2 h-4 w-4" />
+            {t("annotations.addKeyDate")}
+          </DropdownMenuItem>
+        ) : null}
+        {keyDatesEditable && sets.length > 0 ? (
           <DropdownMenuItem onSelect={onEditKeyDates}>
             <IconPencil className="mr-2 h-4 w-4" />
             {t("annotations.editKeyDates")}
@@ -142,7 +152,7 @@ export function AnnotationsMenu({
         {notesHere.map((note) => (
           <DropdownMenuItem
             key={note.id}
-            disabled={isPendingAnnotation(note.id)}
+            disabled={!notesEditable || isPendingAnnotation(note.id)}
             onSelect={() => onEditDataNote(note)}
           >
             <span
@@ -152,10 +162,12 @@ export function AnnotationsMenu({
             <span className="min-w-0 truncate">{note.title}</span>
           </DropdownMenuItem>
         ))}
-        <DropdownMenuItem onSelect={onAddDataNote}>
-          <IconPlus className="mr-2 h-4 w-4" />
-          {t("annotations.addDataNote")}
-        </DropdownMenuItem>
+        {notesEditable ? (
+          <DropdownMenuItem onSelect={onAddDataNote}>
+            <IconPlus className="mr-2 h-4 w-4" />
+            {t("annotations.addDataNote")}
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

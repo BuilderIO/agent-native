@@ -2040,6 +2040,7 @@ export default {
     edit: "تعديل",
     markFixed: "وضع علامة كمُصلَح",
     hideHere: "إخفاء في هذا المخطط",
+    hideNoteHere: 'إخفاء "{{title}}" في هذا المخطط',
     set: "المجموعة",
     newSet: "مجموعة جديدة",
     setName: "اسم المجموعة",

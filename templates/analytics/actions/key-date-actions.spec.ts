@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   deleteKeyDateSet: vi.fn(async () => ({ id: "set-1", deletedDates: 0 })),
   saveKeyDate: vi.fn(async () => ({ id: "date-1" })),
   deleteKeyDate: vi.fn(async () => ({ id: "date-1" })),
+  dashboardAnnotationScope: vi.fn(),
 }));
 const reads = vi.hoisted(() => ({
   readDashboardConfigForAnnotations: vi.fn(),
@@ -18,6 +19,9 @@ vi.mock("@agent-native/core/action", () => ({
 }));
 vi.mock("../server/lib/key-dates-store.js", () => mocks);
 vi.mock("../server/lib/dashboard-annotation-reads.js", () => reads);
+vi.mock("../server/lib/dashboard-annotation-scope.js", () => ({
+  dashboardAnnotationScope: mocks.dashboardAnnotationScope,
+}));
 
 const actions = {
   list: (await import("./list-key-dates")).default as any,
@@ -34,7 +38,10 @@ describe("key-date actions", () => {
   });
 
   it("run every operation in the caller's scope", async () => {
-    await expect(actions.list.run({})).resolves.toEqual({ sets: [] });
+    await expect(actions.list.run({})).resolves.toEqual({
+      sets: [],
+      editable: true,
+    });
     expect(mocks.listKeyDateSets).toHaveBeenCalledWith(scope);
 
     await actions.saveSet.run({ name: "Launches" });
@@ -86,6 +93,23 @@ describe("key-date actions", () => {
       setShown: false,
       hint: expect.stringContaining("hides the date's set"),
     });
+  });
+
+  it("lists the sets a dashboard draws, and says when they aren't the caller's", async () => {
+    const owner = { email: "owner@example.test", orgId: "org-2" };
+    mocks.dashboardAnnotationScope.mockResolvedValue({
+      scope: owner,
+      editable: false,
+    });
+
+    await expect(
+      actions.list.run({ dashboardId: "shared-dashboard" }),
+    ).resolves.toEqual({ sets: [], editable: false });
+    expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
+      "shared-dashboard",
+      scope,
+    );
+    expect(mocks.listKeyDateSets).toHaveBeenCalledWith(owner);
   });
 
   it("marks only the list as read-only", () => {
