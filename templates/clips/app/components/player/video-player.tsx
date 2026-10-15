@@ -1120,7 +1120,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           try {
             let next: 1 | -1 | undefined = direction;
             while (next !== undefined && videoRef.current === v && v.paused) {
-              await stepVideoFrame(
+              const kept = await stepVideoFrame(
                 {
                   video: v,
                   clock: frameClockRef.current,
@@ -1129,6 +1129,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 },
                 next,
               );
+              // A seek elsewhere drops the steps queued before it.
+              if (!kept) break;
               next = queue.pending.shift();
             }
           } finally {

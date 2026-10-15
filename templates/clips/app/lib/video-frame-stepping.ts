@@ -192,11 +192,18 @@ export interface FrameStepTarget {
   excludedRanges: readonly ExcludedRange[];
 }
 
-/** Moves a paused video one presented frame forward or back. */
+/** Another seek or playback took over the video before a step finished. */
+class StepOvertaken extends Error {}
+
+/**
+ * Moves a paused video one presented frame forward or back. Resolves false
+ * when another seek or playback took over first, so steps queued behind this
+ * one shouldn't run from wherever that left the video.
+ */
 export async function stepVideoFrame(
   target: FrameStepTarget,
   direction: 1 | -1,
-): Promise<void> {
+): Promise<boolean> {
   const { video, clock, seekMs } = target;
   if (!clock) {
     // The player floors to whole milliseconds; rounding up keeps a 30 fps
@@ -207,19 +214,33 @@ export async function stepVideoFrame(
     seekMs(
       direction < 0 ? beforeCut(targetMs, target.excludedRanges) : targetMs,
     );
-    return;
+    return true;
   }
+  const sought = video.currentTime;
   const start = (await clock.settledFrameStart()) ?? video.currentTime;
-  if (direction < 0) {
-    await stepBack(target, clock, start);
-  } else {
-    await stepForward(target, clock, start);
+  if (overtaken(video, sought)) return false;
+  try {
+    if (direction < 0) {
+      await stepBack(target, clock, start);
+    } else {
+      await stepForward(target, clock, start);
+    }
+  } catch (error) {
+    if (error instanceof StepOvertaken) return false;
+    throw error;
   }
+  return true;
+}
+
+function overtaken(video: HTMLVideoElement, sought: number): boolean {
+  return (
+    !video.paused || Math.abs(video.currentTime - sought) > SEEK_MATCH_SECONDS
+  );
 }
 
 /**
  * Seeks and returns the start of the frame it shows, or null when no frame
- * arrives or another seek or playback took over before it did.
+ * arrives. Throws StepOvertaken when another seek or playback took over.
  */
 async function showAt(
   { video, seekMs }: FrameStepTarget,
@@ -229,12 +250,7 @@ async function showAt(
   seekMs(ms);
   const sought = video.currentTime;
   const shown = await clock.nextPresentedFrame();
-  if (
-    !video.paused ||
-    Math.abs(video.currentTime - sought) > SEEK_MATCH_SECONDS
-  ) {
-    return null;
-  }
+  if (overtaken(video, sought)) throw new StepOvertaken();
   return shown;
 }
 

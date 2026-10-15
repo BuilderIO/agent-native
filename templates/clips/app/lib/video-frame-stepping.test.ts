@@ -222,13 +222,27 @@ describe("stepVideoFrame", () => {
     const userSeekMs = frameTimeMs(frames[27]);
     let probes = 0;
 
-    await step(1, (ms) => {
+    const kept = await step(1, (ms) => {
       seekMs(ms);
       // The viewer clicks the scrubber while the second probe is in flight.
       if (++probes === 2) queueMicrotask(() => seekMs(userSeekMs));
     });
 
+    expect(kept).toBe(false);
     expect(fake.shownFrame()).toBe(27);
+  });
+
+  it("leaves a seek made before the step reads the screen alone", async () => {
+    const frames = frameStarts(24, 48, true);
+    const { fake, step, goToFrame, seekMs } = setup(frames);
+    await goToFrame(5);
+
+    const stepping = step(1);
+    // The viewer scrubs while the step waits for the last seek to settle.
+    seekMs(frameTimeMs(frames[20]));
+
+    expect(await stepping).toBe(false);
+    expect(fake.shownFrame()).toBe(20);
   });
 
   it("steps onto the last frame before a cut, then across it", async () => {
