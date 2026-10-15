@@ -343,8 +343,10 @@ is that dashboard's choice, so ask before showing it.
 To explain a spike or dip, read `keyDateSets` and `dataNotes` from
 `get-sql-dashboard` or `view-screen` first and cite what they say. If
 `annotationsError` is there instead, say the markers could not be read rather
-than that there are none. `keyDatesHint` means no chart on the dashboard draws
-key dates, so don't cite one there. A note's `panelIds` are the charts it is
+than that there are none. `omittedKeyDateSetCount` or `omittedDataNoteCount`
+means the list was cut to fit, so read `list-key-dates` or `list-data-notes`
+with `dashboardId` before saying a marker isn't there. `keyDatesHint` means no
+chart on the dashboard draws key dates, so don't cite one there. A note's `panelIds` are the charts it is
 on, but a time chart draws it only over the dates it plots (and, if its x
 values aren't dates, only while the note is recent), so cite it for a change
 only when the change falls within the note's dates. `editable: false` means

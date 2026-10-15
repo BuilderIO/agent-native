@@ -136,9 +136,10 @@ export interface DashboardAgentContextOptions {
   includeConfig?: boolean;
   /** Full SQL and config for just these panels, under `panelDetails`. */
   panelIds?: readonly string[];
-  /** The agent's projection: no owner, org, or audit fields, and an
+  /** The agent's projection: no owner, org, or audit fields, an
    *  `includeConfig` result over the size cap becomes summaries plus
-   *  `truncated: true`. The UI reads the same action and gets everything. */
+   *  `truncated: true`, and key dates and data notes are held to that cap.
+   *  The UI reads the same action and gets everything. */
   forAgent?: boolean;
   /** The key-date sets and data notes the dashboard's charts draw, in the
    *  caller's scope, or why they could not be read. */
@@ -190,7 +191,9 @@ function withRequestedDetail(
     if (missing.length > 0) requested.missingPanelIds = missing;
   }
   const compact: Record<string, unknown> = { ...base, ...requested };
-  if (options.includeConfig !== true) return compact;
+  if (options.includeConfig !== true) {
+    return options.forAgent ? withFittedAnnotations(compact) : compact;
+  }
 
   const full = mergeSavedConfig(compact, config);
   if (
@@ -213,10 +216,31 @@ function withRequestedDetail(
         hint: `The full config is over ${cap} characters, so only summaries are returned. Call get-sql-dashboard again with panelIds for the panels whose SQL and config you need.`,
       },
       AGENT_FULL_CONFIG_MAX_CHARS,
-      `The full config is over ${cap} characters, and so are its summaries, so only trimmed summaries are returned: panel bindings, layout rows, and key dates are omitted, as is anything an omitted* field counts or names. Call get-sql-dashboard without includeConfig for the summaries, or with panelIds for a panel's SQL and config.`,
+      `The full config is over ${cap} characters, and so are its summaries, so only trimmed summaries are returned: panel bindings, layout rows, and key dates are omitted, as is anything an omitted* field counts or names. Call get-sql-dashboard without includeConfig for every panel's summary, or with panelIds for a panel's SQL and config, and list-key-dates or list-data-notes with dashboardId for every key date and note.`,
     ),
     ...requested,
   };
+}
+
+/**
+ * A summary read keeps every panel, but its key dates and data notes grow with
+ * the organization's stores, not the dashboard, so they shed to the cap as a
+ * screen context does.
+ */
+function withFittedAnnotations(
+  context: Record<string, unknown>,
+): Record<string, unknown> {
+  const annotations = Object.fromEntries(
+    ["keyDateSets", "keyDatesHint", "dataNotes"].flatMap((key) =>
+      context[key] === undefined ? [] : [[key, context[key]]],
+    ),
+  );
+  const fitted = fitDashboardScreenContext(
+    annotations,
+    AGENT_FULL_CONFIG_MAX_CHARS,
+    `Key dates and data notes are over ${AGENT_FULL_CONFIG_MAX_CHARS.toLocaleString()} characters, so sets list no recent dates, and anything an omitted* field counts is left out. Call list-key-dates or list-data-notes with dashboardId for all of them.`,
+  );
+  return fitted === annotations ? context : { ...context, ...fitted };
 }
 
 export function buildDashboardAgentContext(
@@ -335,18 +359,14 @@ const SCREEN_CONTEXT_KEPT_KEYS: ReadonlySet<string> = new Set([
 export function fitDashboardScreenContext(
   context: Record<string, unknown>,
   maxChars: number,
-  hint = "Panel bindings, layout rows, and key dates are omitted to fit, as is anything an omitted* field counts or names. Call get-sql-dashboard for them, with panelIds for a panel's SQL and config.",
+  hint = "Panel bindings, layout rows, and key dates are omitted to fit, as is anything an omitted* field counts or names. Call get-sql-dashboard for them, with panelIds for a panel's SQL and config, and list-key-dates or list-data-notes with dashboardId for every key date and note.",
 ): Record<string, unknown> {
   const length = (value: unknown) => JSON.stringify(value, null, 2).length;
   if (length(context) <= maxChars) return context;
 
-  const layout = context.layout as {
-    panelCount?: unknown;
-    firstPanelIds?: unknown;
-  };
-  const panels = (context.panels as Array<Record<string, unknown>>).map(
-    ({ id, title, chartType }) => ({ id, title, chartType }),
-  );
+  const layout = context.layout as
+    | { panelCount?: unknown; firstPanelIds?: unknown }
+    | undefined;
   const slim: Record<string, unknown> = {
     ...context,
     ...(Array.isArray(context.keyDateSets)
@@ -356,25 +376,39 @@ export function fitDashboardScreenContext(
           ).map(({ recentDates: _, ...set }) => set),
         }
       : {}),
-    layout: {
-      panelCount: layout.panelCount,
-      firstPanelIds: layout.firstPanelIds,
-    },
-    panels,
+    ...(layout
+      ? {
+          layout: {
+            panelCount: layout.panelCount,
+            firstPanelIds: layout.firstPanelIds,
+          },
+        }
+      : {}),
+    ...(Array.isArray(context.panels)
+      ? {
+          panels: (context.panels as Array<Record<string, unknown>>).map(
+            ({ id, title, chartType }) => ({ id, title, chartType }),
+          ),
+        }
+      : {}),
     trimmed: true,
     hint,
   };
   const lists = SCREEN_CONTEXT_LISTS.flatMap(([key, countKey]) => {
     const items = slim[key];
+    // An agent read arrives with its key dates and notes already shed, and
+    // counted; a second shedding adds to that count.
+    const counted = slim[countKey];
+    const before = typeof counted === "number" ? counted : 0;
     return Array.isArray(items)
-      ? [{ key, countKey, items, kept: items.length }]
+      ? [{ key, countKey, items, kept: items.length, before }]
       : [];
   });
   const withEveryListShed = () => {
     const shed: Record<string, unknown> = { ...slim };
-    for (const { key, countKey, items } of lists) {
+    for (const { key, countKey, items, before } of lists) {
       shed[key] = [];
-      shed[countKey] = items.length;
+      shed[countKey] = before + items.length;
     }
     return shed;
   };
@@ -401,7 +435,8 @@ export function fitDashboardScreenContext(
     if (!longest || longest.kept === 0) break;
     longest.kept -= 1;
     slim[longest.key] = longest.items.slice(0, longest.kept);
-    slim[longest.countKey] = longest.items.length - longest.kept;
+    slim[longest.countKey] =
+      longest.before + longest.items.length - longest.kept;
   }
   return slim;
 }

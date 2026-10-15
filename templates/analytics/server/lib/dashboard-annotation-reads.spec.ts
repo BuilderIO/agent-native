@@ -189,7 +189,7 @@ describe("dashboard annotation reads", () => {
       });
     });
 
-    it("tells a reader when no chart here draws key dates", async () => {
+    it("tells a reader when no chart here draws key dates, without the sets", async () => {
       await saveKeyDate(carol, {
         setName: "Launches",
         date: "2026-10-14",
@@ -206,7 +206,7 @@ describe("dashboard annotation reads", () => {
       );
 
       expect(summary).toMatchObject({
-        keyDateSets: [expect.objectContaining({ name: "Launches" })],
+        keyDateSets: [],
         keyDatesHint: expect.stringContaining(
           "no line, area, bar or combo charts",
         ),

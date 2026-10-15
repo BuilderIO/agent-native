@@ -37,9 +37,13 @@ export async function loadDashboardAnnotationSummary(
     // As list-key-dates and list-data-notes: what the dashboard hides only
     // for a reader who can show it again.
     if (drawn.dashboard.canEdit) return { ...summary, editable: false };
+    // A reader gets only what the dashboard draws: no sets where no chart can
+    // draw a key date, though the hint still says so.
     return {
       ...summary,
-      keyDateSets: summary.keyDateSets.filter((set) => set.shown),
+      keyDateSets: summary.keyDatesHint
+        ? []
+        : summary.keyDateSets.filter((set) => set.shown),
       dataNotes: summary.dataNotes.filter((note) => note.panelIds.length > 0),
       editable: false,
     };

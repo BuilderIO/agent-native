@@ -836,14 +836,10 @@ describe("get-sql-dashboard agent reads", () => {
     expect(JSON.stringify(result).length).toBeLessThan(12_000);
   });
 
-  it("holds a truncated read to the cap when key dates and notes are at the stores' limits", async () => {
-    // key-dates-store: 50 sets, 1,000 dates, 80-character names, 120-character
-    // labels; data-notes-store: 200 notes, 120-character titles.
-    const limits = { sets: 50, dates: 1_000, notes: 200 };
-    const panels = Array.from({ length: 10 }, (_, index) =>
-      sqlPanel(`p${index}`, 2_000),
-    );
-    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+  // key-dates-store: 50 sets, 1,000 dates, 80-character names, 120-character
+  // labels; data-notes-store: 200 notes, 120-character titles.
+  const limits = { sets: 50, dates: 1_000, notes: 200 };
+  const annotationsAtStoreLimits = (panels: readonly { id: string }[]) =>
     mocks.loadDashboardAnnotationSummary.mockResolvedValue({
       keyDateSets: Array.from({ length: limits.sets }, (_, index) => ({
         id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
@@ -868,6 +864,13 @@ describe("get-sql-dashboard agent reads", () => {
       })),
     });
 
+  it("holds a truncated read to the cap when key dates and notes are at the stores' limits", async () => {
+    const panels = Array.from({ length: 10 }, (_, index) =>
+      sqlPanel(`p${index}`, 2_000),
+    );
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+    annotationsAtStoreLimits(panels);
+
     const result = (await getSqlDashboard.run(
       { id: "weekly", includeConfig: true },
       agent,
@@ -885,12 +888,50 @@ describe("get-sql-dashboard agent reads", () => {
       expect(kept + Number(result[countKey] ?? 0), key).toBe(total);
     }
     expect(result.hint).toContain("without includeConfig");
+    expect(result.hint).toContain("list-data-notes");
 
     const withPanel = (await getSqlDashboard.run(
       { id: "weekly", includeConfig: true, panelIds: ["p3"] },
       agent,
     )) as { panelDetails: Array<{ id: string; sql: string }> };
     expect(withPanel.panelDetails).toEqual([panels[3]]);
+  });
+
+  it("holds a summary read's key dates and notes to the cap, keeping every panel", async () => {
+    const panels = Array.from({ length: 10 }, (_, index) =>
+      sqlPanel(`p${index}`, 2_000),
+    );
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+    annotationsAtStoreLimits(panels);
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly" },
+      agent,
+    )) as Record<string, unknown>;
+
+    const annotations = {
+      keyDateSets: result.keyDateSets,
+      dataNotes: result.dataNotes,
+      omittedKeyDateSetCount: result.omittedKeyDateSetCount,
+      omittedDataNoteCount: result.omittedDataNoteCount,
+    };
+    expect(JSON.stringify(annotations, null, 2).length).toBeLessThanOrEqual(
+      12_000,
+    );
+    for (const [key, countKey, total] of [
+      ["keyDateSets", "omittedKeyDateSetCount", limits.sets],
+      ["dataNotes", "omittedDataNoteCount", limits.notes],
+    ] as const) {
+      const kept = (result[key] as unknown[]).length;
+      expect(kept, key).toBeGreaterThan(0);
+      expect(kept + Number(result[countKey] ?? 0), key).toBe(total);
+    }
+    expect(result.hint).toContain("list-key-dates");
+    expect(
+      (result.panels as Array<{ id: string }>).map(({ id }) => id),
+    ).toEqual(panels.map((panel) => panel.id));
+    expect(result.omittedPanelCount).toBeUndefined();
+    expect(result.truncated).toBeUndefined();
   });
 
   it("returns the whole config to the UI however large it is", async () => {
