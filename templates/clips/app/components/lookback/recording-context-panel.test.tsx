@@ -488,6 +488,20 @@ describe("RecordingContextSection", () => {
     expect(queryOptions.current?.enabled).toBe(true);
   });
 
+  it("renders nothing when a trashed Clip answers a viewer 404 recording_not_found", () => {
+    setQuery({
+      isError: true,
+      isPending: false,
+      error: Object.assign(new Error("not found"), {
+        status: 404,
+        errorCode: "recording_not_found",
+      }),
+    });
+    render();
+
+    expect(container.innerHTML).toBe("");
+  });
+
   it("shows the load-failed state when listing context fails without items", () => {
     setQuery({
       isError: true,

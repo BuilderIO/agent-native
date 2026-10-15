@@ -387,7 +387,9 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       const gate = recRow;
-      if (clipId && gate.trashedAt) {
+      // The owner's context panel lists items for a trashed Clip, so the owner
+      // can still play them.
+      if (clipId && gate.trashedAt && role !== "owner") {
         setResponseStatus(event, 404);
         return { error: "Not found" };
       }

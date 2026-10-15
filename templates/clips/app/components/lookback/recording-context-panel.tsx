@@ -108,6 +108,16 @@ function shouldReplacePinnedAccessToken(
   );
 }
 
+// A trashed Clip answers non-owner viewers 404 recording_not_found. That is
+// "no context to show", not a failed load.
+function isClipUnavailableError(error: unknown): boolean {
+  const { status, errorCode } = (error ?? {}) as {
+    status?: unknown;
+    errorCode?: unknown;
+  };
+  return status === 404 && errorCode === "recording_not_found";
+}
+
 export function useRecordingContextItems(
   recordingId: string | undefined,
   enabled: boolean,
@@ -188,12 +198,13 @@ export function RecordingContextSection({
     canPollUnclaimedPending,
   );
   const { isError, error } = itemsQuery;
+  const clipUnavailable = isError && isClipUnavailableError(error);
   useEffect(() => {
-    if (isError) captureClientException(error);
-  }, [error, isError]);
+    if (isError && !clipUnavailable) captureClientException(error);
+  }, [clipUnavailable, error, isError]);
 
   const hasItems = Boolean(itemsQuery.data?.items.length);
-  if (!recordingId || (!hasItems && !itemsQuery.isError)) {
+  if (!recordingId || (!hasItems && (!isError || clipUnavailable))) {
     return null;
   }
   return (
