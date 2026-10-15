@@ -57,14 +57,31 @@ export function createDashboardAdoptionHold({
 }
 
 /**
- * The hold left after one dashboard's save fails. The page may have moved on
- * to another dashboard whose own save holds it by now; that hold stays.
+ * The hold left after a save fails. The save gives up only the hold it placed:
+ * by now a later save, a live collaborative update, or another dashboard may
+ * hold the page instead, and that hold stays.
  */
 export function releaseDashboardAdoptionHold(
-  hold: DashboardAdoptionHold | null,
-  dashboardId: string,
+  current: DashboardAdoptionHold | null,
+  placed: DashboardAdoptionHold | null,
 ): DashboardAdoptionHold | null {
-  return hold?.dashboardId === dashboardId ? null : hold;
+  return current === placed ? null : current;
+}
+
+/**
+ * The page's version after one of its saves lands. A save moves it only from
+ * the version it was sent against. If the page has moved on since (it adopted
+ * someone else's save, undid one, or switched dashboards), a late result is
+ * older news and the page keeps what it has.
+ */
+export function dashboardVersionAfterSave(
+  current: string | null,
+  sentAgainst: string | undefined,
+  saved: string | undefined,
+): string | null {
+  return saved !== undefined && (current ?? undefined) === sentAgainst
+    ? saved
+    : current;
 }
 
 export function shouldAdoptDashboardQueryResult({
