@@ -1,5 +1,6 @@
 import type { WriteReceipt } from "@agent-native/core/action";
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
+import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../.generated/actions-registry.js", () => ({
@@ -718,6 +719,146 @@ describe("realDataFinalGuard dashboard edits", () => {
 
     it("does not accept a result with no receipt, such as a dry run", () => {
       expect(guardAfter()).not.toBeNull();
+    });
+  });
+
+  describe("on a dashboard page, whose chat context names the open dashboard", () => {
+    // The sidebar appends every chat context item to the message, and the
+    // dashboard page publishes the open dashboard as one
+    // (use-dashboard-chat-context).
+    const onDashboardPage = (message: string) =>
+      appendAgentChatContextToMessage(
+        message,
+        [
+          "## Dashboard: Product signups",
+          "The user currently has this Analytics dashboard selected: Product signups.",
+          "Dashboard id: product-signups",
+          "Dashboard kind: sql",
+          "Panel count: 6",
+          "User can edit: yes",
+          "Current URL: /adhoc/product-signups",
+          "Use the Analytics dashboard actions to inspect, edit, or restore this dashboard.",
+        ].join("\n"),
+      );
+    const markerTurns = [
+      {
+        userText:
+          "Add a note to Signups per day: signups were counted twice on Oct 6 and 7.",
+        draftText:
+          "Done. I added a note to Signups per day for October 6 and 7.",
+        toolResults: [
+          {
+            name: "save-data-note",
+            isError: false,
+            content: JSON.stringify({
+              id: "note-1",
+              kind: "data",
+              title: "Signups double-counted",
+              startDate: "2026-10-06",
+              endDate: "2026-10-07",
+              dashboard: {
+                dashboardId: "product-signups",
+                shownOn: [{ id: "signups-per-day", title: "Signups per day" }],
+              },
+            }),
+          },
+        ],
+      },
+      {
+        userText: "Mark the Product Hunt launch on Oct 3 at 00:01 Pacific.",
+        draftText:
+          'Added "Product Hunt live" on October 3 to the Launches set. It shows on this dashboard\'s time charts.',
+        toolResults: [
+          { name: "list-key-dates", isError: false, content: '{"sets":[]}' },
+          {
+            name: "save-key-date",
+            isError: false,
+            content: JSON.stringify({
+              id: "date-1",
+              setId: "launches",
+              date: "2026-10-03",
+              label: "Product Hunt live",
+              dashboard: { dashboardId: "product-signups", setShown: true },
+            }),
+          },
+        ],
+      },
+      {
+        userText: "Hide the setup incident on Setup completions per day.",
+        draftText:
+          "Done. Setup completions per day no longer shows the setup incident.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: "{}",
+            receipt: SAVED_RECEIPT,
+          },
+        ],
+      },
+    ];
+
+    it("accepts a marker the agent saved, judging the request by the user's own words", () => {
+      expect(
+        markerTurns.map((turn) =>
+          realDataFinalGuard(
+            guardContext({ ...turn, userText: onDashboardPage(turn.userText) }),
+          ),
+        ),
+      ).toEqual([null, null, null]);
+    });
+
+    it("judges a marker draft that states figures as it does off the dashboard page", () => {
+      const [noteTurn] = markerTurns;
+      const draftText =
+        "Done. Signups per day doubled to 1,240 on October 6, so I added a note.";
+      const offPage = realDataFinalGuard(
+        guardContext({ ...noteTurn, draftText }),
+      );
+      const onPage = realDataFinalGuard(
+        guardContext({
+          ...noteTurn,
+          userText: onDashboardPage(noteTurn.userText),
+          draftText,
+        }),
+      );
+
+      expect(offPage?.retryMessage).toContain("real source query");
+      expect(onPage).toEqual(offPage);
+    });
+
+    it("still steers a dashboard build or clone to its template", () => {
+      for (const userText of [
+        "Build a dashboard like the Growth dashboard for Acme",
+        "Clone the Revenue dashboard for the EMEA team",
+      ]) {
+        const result = realDataFinalGuard(
+          guardContext({
+            userText: onDashboardPage(userText),
+            draftText: "On it.",
+          }),
+        );
+
+        expect(result?.retryMessage).toContain(
+          "dashboard construction/template-clone",
+        );
+      }
+    });
+
+    it("still reads a build request an app sends as REAL_DATA_REQUIRED context", () => {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText: appendAgentChatContextToMessage(
+            "Signups by source over the last 30 days",
+            "The user wants to create a new analytics dashboard. REAL_DATA_REQUIRED: run at least one real data-source query action before presenting numbers.",
+          ),
+          draftText: "On it.",
+        }),
+      );
+
+      expect(result?.retryMessage).toContain(
+        "dashboard construction/template-clone",
+      );
     });
   });
 

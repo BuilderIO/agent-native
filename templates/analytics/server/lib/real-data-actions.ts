@@ -1,3 +1,5 @@
+import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
+
 export const REAL_DATA_REQUIRED_MARKER = "REAL_DATA_REQUIRED";
 
 const INJECTED_CONTEXT_BLOCKS = [
@@ -440,7 +442,15 @@ function hasRunCodeCorpusWorkflowAttempt(content: string | undefined): boolean {
 }
 
 export function stripInjectedAnalyticsGuardContext(text: string): string {
-  let requestText = text;
+  // Chat context rides along on every message (on a dashboard page it names
+  // the open dashboard and says the user can edit it), so it says nothing about
+  // what this message asks. The New dashboard, panel editor, and analysis
+  // re-run dialogs are the exception: they send the request itself as context,
+  // marked REAL_DATA_REQUIRED.
+  const { message, context } = splitAgentChatContextFromMessage(text);
+  let requestText = context.includes(REAL_DATA_REQUIRED_MARKER)
+    ? text
+    : message;
   for (const tag of INJECTED_CONTEXT_BLOCKS) {
     requestText = requestText.replace(
       new RegExp(`\\n*<${tag}>[\\s\\S]*?<\\/${tag}>`, "gi"),

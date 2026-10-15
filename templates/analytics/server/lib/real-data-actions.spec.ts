@@ -1,3 +1,4 @@
+import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -209,6 +210,27 @@ describe("analytics data request classification", () => {
       "i want a recurring job this is the .yml file",
     );
     expect(looksLikeAnalyticsDataRequest(text)).toBe(false);
+  });
+
+  it("ignores chat context items unless an app sends the request as REAL_DATA_REQUIRED context", () => {
+    const dashboardItem =
+      "## Dashboard: Product signups\nUser can edit: yes\nUse the Analytics dashboard actions to inspect, edit, or restore this dashboard.";
+    const ask = "Hide the setup incident on Setup completions per day.";
+    const onDashboard = appendAgentChatContextToMessage(ask, dashboardItem);
+
+    expect(stripInjectedAnalyticsGuardContext(onDashboard)).toBe(ask);
+    expect(looksLikeDashboardConstructionRequest(onDashboard)).toBe(false);
+    expect(
+      isTrivialTurn(appendAgentChatContextToMessage("thanks!", dashboardItem)),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        appendAgentChatContextToMessage(
+          "Signups by source",
+          "The user wants to create a new analytics dashboard. REAL_DATA_REQUIRED: query before presenting numbers.",
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("does not treat GitHub Actions workflow migrations as analytics requests", () => {
