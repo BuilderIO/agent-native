@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 
@@ -1795,12 +1796,15 @@ export function useChatThreads(
         const putThread = async () => {
           const response = await fetch(
             withChatThreadScope(
-              `${apiUrl}/threads/${encodeURIComponent(id)}?absent=typed`,
+              `${apiUrl}/threads/${encodeURIComponent(id)}`,
               historyScope,
             ),
             {
               method: "PUT",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json",
+                [AGENT_CHAT_THREAD_ABSENCE_HEADER]: "typed",
+              },
               body: JSON.stringify(payload),
               signal: context?.signal,
             },

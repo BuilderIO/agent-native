@@ -226,6 +226,7 @@ import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import { type RefusedTurnRetryContext } from "../shared/agent-chat-run-not-started.js";
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   normalizeAnalyticsClientPlatform,
@@ -7169,10 +7170,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             scopesMatch(thread.scope, requestedScope) ||
             (!thread.scope && scopesMatch(incomingScope, requestedScope));
 
-          // A client that asks with ?absent=typed reads a thread no run has saved yet
-          // as { absent: true }, a state it handles, instead of a 404 it would log.
           const threadNotFound = () => {
-            if (getQuery(event).absent === "typed") return { absent: true };
+            if (
+              getHeader(event, AGENT_CHAT_THREAD_ABSENCE_HEADER) === "typed"
+            ) {
+              return { absent: true };
+            }
             setResponseStatus(event, 404);
             return { error: "Thread not found" };
           };

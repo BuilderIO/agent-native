@@ -14,6 +14,7 @@ import {
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
 import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../../shared/agent-chat.js";
 import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
 import {
   AgentChatAiSetupRequiredError,
@@ -222,12 +223,7 @@ function createAgentNativeAgentKitTransport(
           [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
         });
       }
-      return fetchImpl(
-        url.includes("absent=typed")
-          ? url.replace(/[?&]absent=typed$/, "")
-          : input,
-        init,
-      );
+      return fetchImpl(input, init);
     }) as typeof fetch,
   });
 }
@@ -775,6 +771,7 @@ describe("createAgentNativeAgentKitTransport", () => {
 
   it("creates a thread its first run has not saved from the typed absent read, without a 404", async () => {
     const requests: Array<{ url: string; method: string }> = [];
+    let typedAbsenceRequested = false;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
@@ -783,7 +780,12 @@ describe("createAgentNativeAgentKitTransport", () => {
         if (url.includes("/_agent-native/agent-engine/status")) {
           return json({ configured: true, chatEligible: true });
         }
-        if (method === "GET") return json({ absent: true });
+        if (method === "GET") {
+          typedAbsenceRequested =
+            new Headers(init?.headers).get(AGENT_CHAT_THREAD_ABSENCE_HEADER) ===
+            "typed";
+          return json({ absent: true });
+        }
         if (method === "POST") {
           return json({ id: "unsaved", title: "", threadData: "{}" });
         }
@@ -806,13 +808,11 @@ describe("createAgentNativeAgentKitTransport", () => {
     });
 
     expect(requests.filter(({ url }) => url.includes("/threads"))).toEqual([
-      {
-        url: "/_agent-native/agent-chat/threads/unsaved?absent=typed",
-        method: "GET",
-      },
+      { url: "/_agent-native/agent-chat/threads/unsaved", method: "GET" },
       { url: "/_agent-native/agent-chat/threads", method: "POST" },
       { url: "/_agent-native/agent-chat/threads/unsaved", method: "PUT" },
     ]);
+    expect(typedAbsenceRequested).toBe(true);
   });
 
   it("scrubs inline image data before sending a thread snapshot PUT", async () => {

@@ -4,24 +4,13 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 import {
   useChatThreads,
   type ChatThreadScope,
   type ChatThreadSnapshot,
   type ChatThreadSummary,
 } from "./use-chat-threads.js";
-
-// Thread saves opt into the typed absent state; the mocks match the bare thread URL.
-function stubFetch(
-  fetchMock: (url: string, init?: RequestInit) => Promise<Response>,
-): void {
-  vi.stubGlobal("fetch", (url: string, ...rest: [RequestInit?]) =>
-    fetchMock(
-      url.replace("?absent=typed&", "?").replace("?absent=typed", ""),
-      ...rest,
-    ),
-  );
-}
 
 function jsonResponse(data: unknown) {
   return new Response(JSON.stringify(data), {
@@ -85,7 +74,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -129,7 +118,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -171,7 +160,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -216,7 +205,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let mainHook: ReturnType<typeof useChatThreads> | null = null;
     let sidebarHook: ReturnType<typeof useChatThreads> | null = null;
@@ -290,7 +279,7 @@ describe("useChatThreads", () => {
       if (url === "/chat/threads?includeExternal=1") return externalResponse;
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness({ includeExternal }: { includeExternal: boolean }) {
@@ -374,7 +363,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     window.localStorage.setItem(
       "agent-chat-active-thread:workspace-app-chat:scope:workspace-app:app-one",
@@ -453,7 +442,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -540,7 +529,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
     window.localStorage.setItem(
       "agent-chat-active-thread:workspace-app-chat:scope:workspace-app:app-one",
       "app-one-thread",
@@ -600,7 +589,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function ThreadList() {
@@ -690,7 +679,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -726,7 +715,10 @@ describe("useChatThreads", () => {
     let createAnswers = true;
     const calls: string[] = [];
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
-      calls.push(`${init?.method ?? "GET"} ${url}`);
+      const typed =
+        new Headers(init?.headers).get(AGENT_CHAT_THREAD_ABSENCE_HEADER) ===
+        "typed";
+      calls.push(`${init?.method ?? "GET"} ${url}${typed ? " typed" : ""}`);
       if (url === "/chat/threads" && !init) {
         return jsonResponse({ threads: [] });
       }
@@ -736,7 +728,7 @@ describe("useChatThreads", () => {
           ? jsonResponse({ id: "unsaved-thread" })
           : new Response(null, { status: 409 });
       }
-      if (url === "/chat/threads/unsaved-thread?absent=typed") {
+      if (url === "/chat/threads/unsaved-thread") {
         return created
           ? jsonResponse({ id: "unsaved-thread" })
           : jsonResponse({ absent: true });
@@ -768,9 +760,9 @@ describe("useChatThreads", () => {
       true,
     );
     expect(calls.filter((call) => call !== "GET /chat/threads")).toEqual([
-      "PUT /chat/threads/unsaved-thread?absent=typed",
+      "PUT /chat/threads/unsaved-thread typed",
       "POST /chat/threads",
-      "PUT /chat/threads/unsaved-thread?absent=typed",
+      "PUT /chat/threads/unsaved-thread typed",
     ]);
 
     created = false;
@@ -794,7 +786,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -845,7 +837,7 @@ describe("useChatThreads", () => {
       }
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -910,7 +902,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -956,7 +948,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -990,7 +982,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     let initialDraftState: boolean | undefined;
@@ -1156,7 +1148,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1207,7 +1199,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1273,7 +1265,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1329,7 +1321,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1394,7 +1386,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1437,7 +1429,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1475,7 +1467,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     function Harness() {
       useChatThreads("/chat", "shared-chat", null, {
@@ -1516,7 +1508,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1573,7 +1565,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1621,7 +1613,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1661,7 +1653,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1711,7 +1703,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1739,7 +1731,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness({ routeThreadId }: { routeThreadId: string | null }) {
@@ -1787,7 +1779,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1829,7 +1821,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     let routeThreadId: string | null = null;
@@ -1887,7 +1879,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -1941,7 +1933,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2023,7 +2015,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2109,7 +2101,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2168,7 +2160,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2225,7 +2217,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2296,7 +2288,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2347,7 +2339,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     let routeThreadId: string | null = null;
@@ -2410,7 +2402,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     let activeScope = scopeA;
@@ -2482,7 +2474,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     let activeScope = scopeA;
@@ -2526,7 +2518,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2578,7 +2570,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2614,7 +2606,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2672,7 +2664,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2720,7 +2712,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2755,7 +2747,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2801,7 +2793,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -2863,7 +2855,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness({ scope }: { scope?: ChatThreadScope | null }) {
@@ -2935,7 +2927,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness({ scope }: { scope?: ChatThreadScope | null }) {
@@ -2986,7 +2978,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness({ scope }: { scope: ChatThreadScope }) {
@@ -3047,7 +3039,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness({ scope }: { scope: ChatThreadScope }) {
@@ -3102,7 +3094,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3150,7 +3142,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3187,7 +3179,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness({
@@ -3269,7 +3261,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness({ scope }: { scope: ChatThreadScope | null }) {
@@ -3326,7 +3318,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3385,7 +3377,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3449,7 +3441,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3523,7 +3515,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3569,7 +3561,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3607,7 +3599,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3648,7 +3640,7 @@ describe("useChatThreads", () => {
       if (init?.method === "PUT") return jsonResponse({ ok: true });
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3726,7 +3718,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3801,7 +3793,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3872,7 +3864,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -3946,7 +3938,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4008,7 +4000,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4080,7 +4072,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4143,7 +4135,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4200,7 +4192,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4253,7 +4245,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4312,7 +4304,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4365,7 +4357,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4453,7 +4445,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4502,7 +4494,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4579,7 +4571,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4640,7 +4632,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4692,7 +4684,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4752,7 +4744,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {
@@ -4840,7 +4832,7 @@ describe("useChatThreads", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    stubFetch(fetchMock);
+    vi.stubGlobal("fetch", fetchMock);
 
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness() {

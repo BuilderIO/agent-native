@@ -41,6 +41,7 @@ import {
   RUN_NOT_STARTED_METADATA_KEY,
   retryContextFromRequest,
 } from "../../shared/agent-chat-run-not-started.js";
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../../shared/agent-chat.js";
 import {
   assertNoInlineImageBytes,
   stripInlineBytes,
@@ -2491,13 +2492,13 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<StoredThread | null> {
     throwIfRequestAborted(signal);
     const requestHeaders = await headers({ sessionId: threadId });
+    requestHeaders.set(AGENT_CHAT_THREAD_ABSENCE_HEADER, "typed");
     throwIfRequestAborted(signal);
-    const endpoint = scopedThreadEndpoint(
-      `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
-      options,
-    );
     const response = await fetcher(
-      `${endpoint}${endpoint.includes("?") ? "&" : "?"}absent=typed`,
+      scopedThreadEndpoint(
+        `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+        options,
+      ),
       { headers: requestHeaders, signal },
     );
     throwIfRequestAborted(signal);

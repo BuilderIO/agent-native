@@ -1,6 +1,8 @@
 import { createApp, H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
+
 const mocks = vi.hoisted(() => ({
   ensurePersonalDefaults: vi.fn(async () => undefined),
   resourceGetByPath: vi.fn(),
@@ -789,8 +791,9 @@ describe("agent chat unsaved thread reads", () => {
 
     const typed = await fetchWithRequestContext(
       h3App,
-      "/_agent-native/agent-chat/threads/unsaved-thread?absent=typed",
+      "/_agent-native/agent-chat/threads/unsaved-thread",
       { userEmail: "user@example.test" },
+      { headers: { [AGENT_CHAT_THREAD_ABSENCE_HEADER]: "typed" } },
     );
     expect(typed.status).toBe(200);
     expect(await typed.json()).toEqual({ absent: true });
