@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -90,6 +92,7 @@ export default defineAction({
       failureCode: null,
       retryCount: 0,
       source: IMPORTED_TRANSCRIPT_SOURCE,
+      importId: randomUUID(),
       updatedAt: now,
     };
     const [previous] = await db

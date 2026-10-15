@@ -1258,6 +1258,12 @@ export const migrations = runMigrations(
       // Additive. Mirrors `source` on `recordingTranscripts` in server/db/schema.ts.
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS source TEXT`,
     },
+    {
+      version: 88,
+      name: "recording-transcripts-import-id",
+      // Additive. Mirrors `importId` on `recordingTranscripts` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS import_id TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

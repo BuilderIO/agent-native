@@ -70,11 +70,7 @@ type RecordingMediaRow = {
   durationMs?: number | null;
 };
 
-type StartedFromTranscript = {
-  updatedAt: string;
-  fullText: string;
-  segmentsJson: string;
-};
+type StartedFromTranscript = { importId: string | null };
 
 function recordingTrackingSource(
   ownerEmail: string,
@@ -1068,6 +1064,7 @@ const requestTranscriptAction = defineAction({
         language: schema.recordingTranscripts.language,
         retryCount: schema.recordingTranscripts.retryCount,
         source: schema.recordingTranscripts.source,
+        importId: schema.recordingTranscripts.importId,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -1495,21 +1492,12 @@ async function upsertTranscriptRow(
     ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
     ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
     ...(retryCount !== undefined ? { retryCount } : {}),
-    ...(row.replaceTranscript ? { source: null } : {}),
+    ...(row.replaceTranscript ? { source: null, importId: null } : {}),
     updatedAt,
   };
-  // updatedAt alone can repeat (two writes in one millisecond, or servers
-  // whose clocks disagree), so the started-from transcript is matched on its
-  // content too; a replacement that matches all three is that transcript.
-  const replaceable = row.replaceTranscript
-    ? or(
-        notImportedTranscript(),
-        and(
-          eq(t.updatedAt, row.replaceTranscript.updatedAt),
-          eq(t.fullText, row.replaceTranscript.fullText),
-          eq(t.segmentsJson, row.replaceTranscript.segmentsJson),
-        ),
-      )
+  const replaceImportId = row.replaceTranscript?.importId;
+  const replaceable = replaceImportId
+    ? or(notImportedTranscript(), eq(t.importId, replaceImportId))
     : notImportedTranscript();
 
   if (existing) {

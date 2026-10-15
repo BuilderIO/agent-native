@@ -258,6 +258,9 @@ export const recordingTranscripts = table("recording_transcripts", {
   // "imported" when the owner or an agent supplied the transcript file.
   // Automatic transcription never writes over an imported row.
   source: text("source", { enum: ["imported"] }),
+  // New on every import, even of the same file in the same millisecond, so a
+  // regenerate replaces only the import it started from.
+  importId: text("import_id"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

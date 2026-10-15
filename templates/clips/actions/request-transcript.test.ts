@@ -117,6 +117,7 @@ vi.mock("../server/db/index.js", () => ({
       language: "recordingTranscripts.language",
       retryCount: "recordingTranscripts.retryCount",
       source: "recordingTranscripts.source",
+      importId: "recordingTranscripts.importId",
     },
   },
 }));
@@ -1005,6 +1006,7 @@ describe("requestTranscript regeneration", () => {
       ]),
       language: "en",
       source: "imported",
+      importId: "import_1",
     };
     const recordingRow = {
       videoUrl: "https://cdn.example.com/recording.mp4",
@@ -1092,6 +1094,7 @@ describe("requestTranscript regeneration", () => {
       );
       expect(mockUpdateSet.mock.calls[loomWrite][0]).toMatchObject({
         source: null,
+        importId: null,
       });
       expect(mockUpdateWhere.mock.calls[loomWrite][0]).toContainEqual({
         or: [
@@ -1101,26 +1104,16 @@ describe("requestTranscript regeneration", () => {
               { ne: ["recordingTranscripts.source", "imported"] },
             ],
           },
-          [
-            {
-              column: "recordingTranscripts.updatedAt",
-              value: startedFrom.updatedAt,
-            },
-            {
-              column: "recordingTranscripts.fullText",
-              value: startedFrom.fullText,
-            },
-            {
-              column: "recordingTranscripts.segmentsJson",
-              value: startedFrom.segmentsJson,
-            },
-          ],
+          {
+            column: "recordingTranscripts.importId",
+            value: startedFrom.importId,
+          },
         ],
       });
       expect(result).toMatchObject({ status: "ready", provider: "loom" });
     });
 
-    it("lets a regenerate replace only the import it started from", async () => {
+    it("lets a regenerate replace only the import it started from, not an identical re-import", async () => {
       const startedFrom = {
         ...importedRow,
         updatedAt: "2026-07-09T00:00:00.000Z",
@@ -1129,7 +1122,7 @@ describe("requestTranscript regeneration", () => {
         [startedFrom],
         [recordingRow],
         [{ recordingId: "rec_imported" }],
-        [{ ...importedRow, updatedAt: "2026-07-09T00:05:00.000Z" }],
+        [{ ...startedFrom, importId: "import_2" }],
         [titleRow],
       ];
       mockUpdateReturning.mockResolvedValueOnce([]);
@@ -1141,7 +1134,7 @@ describe("requestTranscript regeneration", () => {
       });
 
       const [cloudWrite] = cloudTextWrites();
-      expect(cloudWrite[0]).toMatchObject({ source: null });
+      expect(cloudWrite[0]).toMatchObject({ source: null, importId: null });
       const cloudWriteIndex = mockUpdateSet.mock.calls.indexOf(cloudWrite);
       expect(mockUpdateWhere.mock.calls[cloudWriteIndex][0]).toContainEqual({
         or: [
@@ -1151,20 +1144,10 @@ describe("requestTranscript regeneration", () => {
               { ne: ["recordingTranscripts.source", "imported"] },
             ],
           },
-          [
-            {
-              column: "recordingTranscripts.updatedAt",
-              value: startedFrom.updatedAt,
-            },
-            {
-              column: "recordingTranscripts.fullText",
-              value: startedFrom.fullText,
-            },
-            {
-              column: "recordingTranscripts.segmentsJson",
-              value: startedFrom.segmentsJson,
-            },
-          ],
+          {
+            column: "recordingTranscripts.importId",
+            value: startedFrom.importId,
+          },
         ],
       });
       expect(result).toMatchObject({ status: "ready", preserved: true });

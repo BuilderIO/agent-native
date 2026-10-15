@@ -101,7 +101,7 @@ beforeEach(async () => {
     status TEXT NOT NULL DEFAULT 'pending',
     failure_reason TEXT, failure_code TEXT,
     retry_count INTEGER NOT NULL DEFAULT 0,
-    source TEXT,
+    source TEXT, import_id TEXT,
     created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
   )`);
   await client.query(
@@ -186,6 +186,24 @@ describe("import-transcript", () => {
     const result = await run({ text: VTT, replace: true });
     expect(result).toMatchObject({ replaced: true });
     expect(await readTranscript()).toMatchObject({ source: "imported" });
+  });
+
+  it("gives a re-import of the same file a new import id", async () => {
+    const importId = async () =>
+      (
+        await client.query(
+          "SELECT import_id FROM recording_transcripts WHERE recording_id = 'rec_1'",
+        )
+      ).rows[0] as { import_id: string | null };
+
+    await run({ text: VTT });
+    const first = (await importId()).import_id;
+    await run({ text: VTT, replace: true });
+    const second = (await importId()).import_id;
+
+    expect(first).toEqual(expect.any(String));
+    expect(second).toEqual(expect.any(String));
+    expect(second).not.toBe(first);
   });
 
   it("names the bad line and leaves the existing transcript untouched", async () => {
