@@ -736,9 +736,8 @@ function SqlDashboardPageContent({
   }, [dashboardId, session?.email]);
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
-  // Every dashboard opens in view mode, where nothing on the page saves for
-  // everyone: drag handles, column edits, and inline renames exist only while
-  // an editor has switched to edit mode.
+  // Every dashboard opens in view mode: drag handles, column edits, and inline
+  // renames exist only while an editor has switched to edit mode.
   const editing = canEdit && editMode;
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
   const canCertify =
