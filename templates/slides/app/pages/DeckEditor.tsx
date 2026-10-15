@@ -197,6 +197,7 @@ import {
   normalizeSlideClipboards,
   readSlideClipboards,
   resolveSlideClipboardsForPaste,
+  shouldHandleSlideClipboardShortcut,
   writeSlideClipboards,
 } from "@/lib/slide-clipboard";
 import { slideCommentAnchorFromRange } from "@/lib/slide-comment-anchor";
@@ -3679,7 +3680,7 @@ export default function DeckEditor() {
   const pasteSlideAfter = useCallback(
     (targetSlideId: string) => {
       if (!id) return;
-      const clipboard = slideClipboardSlidesRef.current ?? syncSlideClipboard();
+      const clipboard = syncSlideClipboard();
       if (!clipboard) return;
       const newIds = pasteSlides(
         id,
@@ -3757,9 +3758,10 @@ export default function DeckEditor() {
     [deck, id, selectedSlideIdsForAction, updateSlides],
   );
 
-  // Command/Ctrl+C then Command/Ctrl+V on the focused slide rail copies/pastes
-  // the selected slide directly below itself. Canvas shortcuts own these keys
-  // only while the canvas has focus, even if its selection remains visible.
+  // Command/Ctrl+C then Command/Ctrl+V copies/pastes slides. Copy, cut, and
+  // duplicate stay scoped to the focused rail; paste also works after focus
+  // moves to another deck. Canvas shortcuts own these keys while the canvas
+  // has focus, even if its selection remains visible.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !canEdit) return;
@@ -3767,7 +3769,10 @@ export default function DeckEditor() {
       const key = e.key.toLowerCase();
       if (key !== "c" && key !== "x" && key !== "v" && key !== "d") return;
       if (pinMode || drawMode) return;
-      if (!document.activeElement?.closest("[data-slide-thumbnail-id]")) {
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
+      if (!shouldHandleSlideClipboardShortcut(key, Boolean(focusedThumbnail))) {
         return;
       }
 
@@ -3817,9 +3822,6 @@ export default function DeckEditor() {
         ).some(isBlockingPopperWrapper)
       )
         return;
-      const focusedThumbnail = document.activeElement?.closest(
-        "[data-slide-thumbnail-id]",
-      );
       if (
         !focusedThumbnail &&
         document.querySelector("[data-slide-element-selected='true']")
@@ -3858,12 +3860,8 @@ export default function DeckEditor() {
         return;
       }
 
-      if (
-        !hasSlideClipboard ||
-        !activeSlideId ||
-        !isSlideClipboardStillArmed(slideClipboardArmedAtRef.current)
-      )
-        return;
+      if (!activeSlideId || !syncSlideClipboard()) return;
+      if (!isSlideClipboardStillArmed(slideClipboardArmedAtRef.current)) return;
       e.preventDefault();
       e.stopPropagation();
       if (slidePasteFallbackRef.current !== null) {
@@ -3884,8 +3882,8 @@ export default function DeckEditor() {
     copySlides,
     cutSlides,
     handleDuplicateSlideFromRail,
-    hasSlideClipboard,
     pasteSlideAfter,
+    syncSlideClipboard,
     selectedSlideIds,
     pinMode,
     drawMode,

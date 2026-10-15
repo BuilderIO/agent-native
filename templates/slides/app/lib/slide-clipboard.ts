@@ -13,6 +13,13 @@ import type {
 
 export const SLIDE_CLIPBOARD_STORAGE_PREFIX = "slides:slide-clipboard";
 
+export function shouldHandleSlideClipboardShortcut(
+  key: string,
+  hasFocusedThumbnail: boolean,
+): boolean {
+  return hasFocusedThumbnail || key === "v";
+}
+
 export function getSlideClipboardStorageKey(email: string): string {
   return `${SLIDE_CLIPBOARD_STORAGE_PREFIX}:${encodeURIComponent(email)}`;
 }
@@ -172,7 +179,7 @@ export function normalizeSlideClipboard(value: unknown): Slide | null {
     if (field !== undefined) normalized[key] = field;
   }
 
-  if (candidate.transition !== undefined) {
+  if (candidate.transition !== undefined && candidate.transition !== null) {
     if (
       !(SLIDE_TRANSITION_INPUTS as readonly unknown[]).includes(
         candidate.transition,

@@ -12,6 +12,7 @@ import {
   readSlideClipboards,
   resolveSlideClipboardForPaste,
   resolveSlideClipboardsForPaste,
+  shouldHandleSlideClipboardShortcut,
   writeSlideClipboard,
   writeSlideClipboards,
 } from "../lib/slide-clipboard";
@@ -95,6 +96,14 @@ describe("slide paste fallback", () => {
 });
 
 describe("slide thumbnail shortcuts", () => {
+  it("allows paste after focus leaves the thumbnail rail", () => {
+    expect(shouldHandleSlideClipboardShortcut("v", false)).toBe(true);
+    expect(shouldHandleSlideClipboardShortcut("c", false)).toBe(false);
+    expect(shouldHandleSlideClipboardShortcut("x", false)).toBe(false);
+    expect(shouldHandleSlideClipboardShortcut("d", false)).toBe(false);
+    expect(shouldHandleSlideClipboardShortcut("c", true)).toBe(true);
+  });
+
   it("routes slide clipboard shortcuts through the focused thumbnail", () => {
     expect(deckEditorSource).toContain(
       'if (key !== "c" && key !== "x" && key !== "v" && key !== "d") return;',
@@ -110,7 +119,7 @@ describe("slide thumbnail shortcuts", () => {
 
   it("cuts the focused slide selection without removing every slide", () => {
     const shortcutStart = deckEditorSource.indexOf(
-      "// Command/Ctrl+C then Command/Ctrl+V on the focused slide rail",
+      "const key = e.key.toLowerCase();",
     );
     const shortcutEnd = deckEditorSource.indexOf(
       'document.addEventListener("keydown", handleKeyDown)',
@@ -130,7 +139,7 @@ describe("slide thumbnail shortcuts", () => {
 
   it("lets focused thumbnails own shortcuts while canvas selection remains visible", () => {
     const shortcutStart = deckEditorSource.indexOf(
-      "// Command/Ctrl+C then Command/Ctrl+V on the focused slide rail",
+      "const key = e.key.toLowerCase();",
     );
     const shortcutEnd = deckEditorSource.indexOf(
       'document.addEventListener("keydown", handleKeyDown)',
@@ -139,7 +148,10 @@ describe("slide thumbnail shortcuts", () => {
     const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
 
     expect(shortcutBody).toContain(
-      'document.activeElement?.closest("[data-slide-thumbnail-id]")',
+      "const focusedThumbnail = document.activeElement?.closest(",
+    );
+    expect(shortcutBody).toContain(
+      "shouldHandleSlideClipboardShortcut(key, Boolean(focusedThumbnail))",
     );
     expect(shortcutBody).toContain(
       "!focusedThumbnail &&\n        document.querySelector(\"[data-slide-element-selected='true']\")",
@@ -150,9 +162,6 @@ describe("slide thumbnail shortcuts", () => {
     expect(deckEditorSource).toContain("saveSlidesToClipboard(slides);");
     expect(deckEditorSource).toContain(
       "readSlideClipboards(slideClipboardStorageKey)",
-    );
-    expect(deckEditorSource).toContain(
-      "const clipboard = slideClipboardSlidesRef.current ?? syncSlideClipboard();",
     );
   });
 });
@@ -324,6 +333,12 @@ describe("slide clipboard storage", () => {
       slide: { ...slide, notes: "", layout: "content" },
       copiedAt: 2_000,
     });
+  });
+
+  it("normalizes the deck's null transition default", () => {
+    expect(normalizeSlideClipboard({ ...slide, transition: null })).toEqual(
+      slide,
+    );
   });
 
   it("keeps only validated optional fields and drops transient data", () => {
