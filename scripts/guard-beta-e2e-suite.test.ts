@@ -23,6 +23,8 @@ const tsx = path.join(repoRoot, "node_modules", ".bin", "tsx");
 const GUARDED_FILES = [
   ".github/workflows/beta-e2e.yml",
   ".github/workflows/beta-e2e-scheduled.yml",
+  ".github/workflows/signup-e2e-scheduled.yml",
+  ".github/workflows/signup-agent-scheduled.yml",
   ".github/workflows/beta-e2e-report.yml",
   "scripts/beta-e2e-digest.ts",
   ".github/actions/beta-e2e-setup/action.yml",
@@ -82,6 +84,122 @@ describe("guard:beta-e2e-suite", () => {
     const { status, output } = runGuard();
     assert.equal(status, 0, output);
     assert.match(output, /guard:beta-e2e-suite passed/);
+  });
+
+  it("keeps unattended scheduled Beta E2E unauthenticated and scoped", () => {
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "lane: public",
+          "lane: public+authed",
+        ),
+      /must run only the public lane until Beta databases are isolated/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}",
+          "QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}\n      BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}",
+        ),
+      /must pass only QA_SLACK_BOT_TOKEN from its matching secret/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "    secrets:\n      QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}",
+          "    secrets: inherit",
+        ),
+      /must pass only QA_SLACK_BOT_TOKEN from its matching secret/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}",
+          "QA_SLACK_BOT_TOKEN: ${{ secrets.SOME_OTHER_TOKEN }}",
+        ),
+      /must pass only QA_SLACK_BOT_TOKEN from its matching secret/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "      update_baseline: false",
+          "      update_baseline: true",
+        ),
+      /must preserve the shared full-suite notification baseline/,
+    );
+  });
+
+  it("gates both scheduled signup writers on verified Beta database isolation", () => {
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-e2e-scheduled.yml",
+          "vars.BETA_DATABASES_ISOLATED == 'true'",
+          "true",
+        ),
+      /must gate scheduled signup writes on BETA_DATABASES_ISOLATED == 'true'/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-e2e-scheduled.yml",
+          "  workflow_dispatch:",
+          "  dispatch_disabled:",
+        ),
+      /must gate scheduled signup writes on BETA_DATABASES_ISOLATED == 'true' while preserving manual dispatch/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-e2e-scheduled.yml",
+          "needs.signup-e2e.result == 'failure' || needs.signup-e2e.result == 'cancelled') && (steps.report.outcome",
+          "needs.signup-e2e.result != 'success') && (steps.report.outcome",
+        ),
+      /must not report an intentional skipped signup run as a collection failure/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-e2e-scheduled.yml",
+          "outcome=inconclusive",
+          "outcome=clean",
+        ),
+      /must preserve the prior report state when signup is skipped or inconclusive/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-e2e-scheduled.yml",
+          "|| (steps.previous-state.outputs.continuity_unknown == 'true' && needs.signup-e2e.result == 'success'))",
+          "|| steps.previous-state.outputs.continuity_unknown == 'true')",
+        ),
+      /must not attempt Slack delivery for unknown continuity when the signup job was intentionally skipped/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-agent-scheduled.yml",
+          "  workflow_dispatch:",
+          '  schedule:\n    - cron: "15 17 * * *"\n  workflow_dispatch:',
+        ),
+      /must keep its unattended schedule disabled until Beta database isolation is verified/,
+    );
   });
 
   it("reports opted-in production pre-flight failures through the shared Slack reporter", () => {

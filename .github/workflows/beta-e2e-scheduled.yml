@@ -18,12 +18,12 @@ jobs:
     uses: ./.github/workflows/beta-e2e.yml
     with:
       apps: all
-      lane: public+authed
+      # Beta sites share production databases. Keep unattended runs on the
+      # unauthenticated lane until isolated Beta databases are verified.
+      lane: public
       grep: ""
-      # Scheduled health checks use the separately limited E2E credential so
-      # they cannot spend or inherit the repository-wide provider key.
-      key_source: dedicated
-    secrets: inherit
+    secrets:
+      QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
     # beta-e2e.yml's report job needs actions: read; without it GitHub refuses
     # to start the run.
     permissions:
@@ -38,7 +38,8 @@ jobs:
     uses: ./.github/workflows/beta-e2e-report.yml
     with:
       run_result: ${{ needs.beta-e2e.result }}
-      update_baseline: true
+      # This scoped run cannot verify previous authenticated-suite failures.
+      update_baseline: false
     secrets:
       QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
     permissions:

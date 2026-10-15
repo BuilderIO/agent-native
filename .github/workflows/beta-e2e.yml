@@ -26,10 +26,9 @@ name: Beta E2E (browser)
 #
 # The workflow itself has no push or schedule trigger. The authenticated lane
 # spends model tokens against the credential selected by its caller, and most
-# beta apps share a database with production, so the explicit manual entrypoint
-# remains a deliberate promotion decision. The separate scheduled wrapper
-# calls this workflow on a six-hour cadence with the hosted sites' shared
-# credential and sends one rolled-up report to #qa-agent-native with run links.
+# beta apps share a database with production, so authenticated runs remain an
+# explicit manual decision. The six-hour scheduled wrapper runs only the public
+# lane until isolated Beta databases are provisioned and verified.
 
 on:
   workflow_call:
