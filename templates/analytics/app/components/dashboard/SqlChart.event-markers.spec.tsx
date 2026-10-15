@@ -124,13 +124,10 @@ describe("SqlChart key-date markers", () => {
     },
   );
 
-  it("lists every event of the day, with times, outside the chart's SVG", async () => {
-    await act(async () => {
-      root.render(<SqlChart panel={panel("line")} />);
-    });
+  async function hoverMarker(index: number) {
     const markers = container.querySelectorAll("[data-event-marker]");
     await act(async () => {
-      markers[1].dispatchEvent(
+      markers[index].dispatchEvent(
         new PointerEvent("pointerover", {
           bubbles: true,
           pointerType: "mouse",
@@ -138,16 +135,39 @@ describe("SqlChart key-date markers", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
+    return document.querySelector("[data-radix-popper-content-wrapper]");
+  }
 
-    const card = document.querySelector("[data-radix-popper-content-wrapper]");
+  const cardRows = (card: Element | null) =>
+    [...(card?.querySelectorAll("li") ?? [])].map((row) => row.textContent);
+
+  it("lists every event of the day, with times, outside the chart's SVG", async () => {
+    await act(async () => {
+      root.render(<SqlChart panel={panel("line")} />);
+    });
+    const card = await hoverMarker(1);
     expect(card).not.toBeNull();
     expect(container.contains(card)).toBe(false);
-    const rows = [...(card?.querySelectorAll("li") ?? [])].map(
-      (row) => row.textContent,
-    );
-    expect(rows).toEqual([
+    expect(cardRows(card)).toEqual([
       "Product Hunt live12:01 AM PT",
       "Launch posts on X, LinkedIn12:00 PM ET",
+    ]);
+  });
+
+  it("dates each event a weekly point gathers from another day", async () => {
+    mocks.rows = ["2026-10-05", "2026-10-12", "2026-10-19"].map(
+      (day, index) => ({ day, people: 100 + index * 10 }),
+    );
+    await act(async () => {
+      root.render(<SqlChart panel={panel("line")} />);
+    });
+    expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(1);
+    const card = await hoverMarker(0);
+    expect(card?.textContent).toContain("Oct 12, 2026");
+    expect(cardRows(card)).toEqual([
+      "Role step first",
+      "Product Hunt liveOct 14, 2026, 12:01 AM PT",
+      "Launch posts on X, LinkedInOct 14, 2026, 12:00 PM ET",
     ]);
   });
 });
