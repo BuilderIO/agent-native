@@ -127,6 +127,7 @@ describe("Countdown", () => {
 
     await act(async () => vi.advanceTimersByTimeAsync(1_000));
     expect(mocks.emit).toHaveBeenCalledWith("clips:countdown-done", {
+      attemptId: "countdown-attempt",
       cause: "timer",
     });
   });

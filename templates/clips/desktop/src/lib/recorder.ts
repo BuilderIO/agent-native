@@ -243,6 +243,7 @@ export interface StartParams {
   preAcquiredAudioStream?: MediaStream | null;
   preAcquiredCaptureSuspension?: RewindCaptureSuspensionLease | null;
   pendingTranscriptionTeardown?: Promise<void> | null;
+  countdownAttemptId?: string;
   onCaptureIdentityAvailable?: (captureIdentity: string) => void;
   onCaptureStartRequested?: (
     recordingId: string | null,
@@ -1909,7 +1910,6 @@ async function captureTitleForRecording(params: {
 
 const COUNTDOWN_EVENT_TIMEOUT_MS = 5000;
 const COUNTDOWN_PRESENTED_TIMEOUT_MS = 5000;
-const COUNTDOWN_WARM_PRESENTATION_FALLBACK_MS = 250;
 const COUNTDOWN_SHOW_TIMEOUT_MS = 10_000;
 
 function wait(ms: number): Promise<void> {
@@ -1921,20 +1921,7 @@ async function waitForCountdownPresentation(
   countdownPresented: Promise<void>,
 ): Promise<void> {
   await countdownShown;
-  let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    await Promise.race([
-      countdownPresented,
-      new Promise<void>((resolve) => {
-        fallbackTimer = window.setTimeout(
-          resolve,
-          COUNTDOWN_WARM_PRESENTATION_FALLBACK_MS,
-        );
-      }),
-    ]);
-  } finally {
-    if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
-  }
+  await countdownPresented;
 }
 
 function abortableWait(ms: number, signal?: AbortSignal): Promise<void> {
@@ -2621,6 +2608,7 @@ async function prepareCountdownEventWaiter(
     keyboardEvent.preventDefault();
     const cancelled = keyboardEvent.key === "Escape";
     void emit(cancelled ? "clips:countdown-cancel" : "clips:countdown-done", {
+      attemptId,
       cause: cancelled ? "escape" : "return",
     });
   };
@@ -2685,11 +2673,19 @@ async function prepareCountdownEventWaiter(
   }
 
   const [doneUnlisten, cancelUnlisten, presentedUnlisten] = await Promise.all([
-    listen<{ cause?: string }>("clips:countdown-done", (event) =>
-      finish("done", event.payload?.cause),
+    listen<{ attemptId?: string; cause?: string }>(
+      "clips:countdown-done",
+      (event) => {
+        if (event.payload?.attemptId === attemptId)
+          finish("done", event.payload.cause);
+      },
     ),
-    listen<{ cause?: string }>("clips:countdown-cancel", (event) =>
-      finish("cancel", event.payload?.cause),
+    listen<{ attemptId?: string; cause?: string }>(
+      "clips:countdown-cancel",
+      (event) => {
+        if (event.payload?.attemptId === attemptId)
+          finish("cancel", event.payload.cause);
+      },
     ),
     listen<{ attemptId?: string }>("clips:countdown-presented", (event) => {
       if (event.payload?.attemptId === attemptId) markPresented();
@@ -2751,8 +2747,8 @@ async function runRecordingCountdown(
   wantsScreen: boolean,
   signal?: AbortSignal,
   callbacks?: { onPresented?: () => void; onShown?: () => void },
+  attemptId: string = crypto.randomUUID(),
 ) {
-  const attemptId = crypto.randomUUID();
   const countdown = await prepareCountdownEventWaiter(signal, attemptId);
   throwIfRecordingStartAborted(signal);
   await showRegionGuidesForRecording(wantsScreen);
@@ -3139,7 +3135,12 @@ async function tryStartRewindFullscreenRecording(
       },
       async countdown() {
         try {
-          await runRecordingCountdown(true, countdownSignal);
+          await runRecordingCountdown(
+            true,
+            countdownSignal,
+            undefined,
+            params.countdownAttemptId,
+          );
           console.log("[rewind-latency] countdown completed");
         } catch (err) {
           countdownFailed = true;
@@ -3646,10 +3647,15 @@ async function startNativeFullscreenRecording(
       rejectCountdownPresented = reject;
     });
     void countdownPresented.catch(() => {});
-    countdownPromise = runRecordingCountdown(true, countdownSignal, {
-      onShown: () => resolveCountdownShown(),
-      onPresented: () => resolveCountdownPresented(),
-    });
+    countdownPromise = runRecordingCountdown(
+      true,
+      countdownSignal,
+      {
+        onShown: () => resolveCountdownShown(),
+        onPresented: () => resolveCountdownPresented(),
+      },
+      params.countdownAttemptId,
+    );
     void countdownPromise.catch((error) => {
       startupFailed = true;
       rejectCountdownShown(error);
@@ -3809,7 +3815,9 @@ async function startNativeFullscreenRecording(
     startupFailed = true;
     if (countdownPromise) {
       countdownController.abort();
-      await emit("clips:countdown-cancel").catch(() => {});
+      await emit("clips:countdown-cancel", {
+        attemptId: params.countdownAttemptId,
+      }).catch(() => {});
       await countdownPromise.catch(() => {});
     }
     await localCameraExport?.cancel().catch(() => {});
@@ -4391,24 +4399,28 @@ export async function startRecording(
   params: StartParams,
   preparedAudioCue?: AudioCue,
 ): Promise<RecorderHandle> {
+  const countdownAttemptId = params.countdownAttemptId ?? crypto.randomUUID();
+  const recordingParams = { ...params, countdownAttemptId };
   const audioCue = preparedAudioCue ?? createAudioCue();
   const startController = new AbortController();
   const cancelStartup = () => {
     startController.abort();
-    void emit("clips:countdown-cancel").catch(() => {});
+    void emit("clips:countdown-cancel", {
+      attemptId: countdownAttemptId,
+    }).catch(() => {});
     void invoke("native_fullscreen_recording_cancel").catch(() => {});
     void invoke("hide_recording_chrome").catch(() => {});
   };
   const startPromise = startRecordingInner(
     {
-      ...params,
+      ...recordingParams,
       signal: startController.signal,
     },
     audioCue,
   );
   try {
     return await guardRecordingStart(startPromise, {
-      signal: params.signal,
+      signal: recordingParams.signal,
       timeoutMs: RECORDING_START_TIMEOUT_MS,
       onCancel: cancelStartup,
       // Capture has already begun when a start resolves this late: keep what
@@ -4919,7 +4931,9 @@ async function startRecordingInner(
           console.log("[clips-recorder] local stop event received");
           if (startedAt === 0) {
             cancelRequestedDuringStartup = true;
-            void emit("clips:countdown-cancel").catch(() => {});
+            void emit("clips:countdown-cancel", {
+              attemptId: params.countdownAttemptId,
+            }).catch(() => {});
             return;
           }
           handle.stop().catch((err) => {
@@ -5055,7 +5069,12 @@ async function startRecordingInner(
       };
 
       try {
-        await runRecordingCountdown(wantsScreen, params.signal);
+        await runRecordingCountdown(
+          wantsScreen,
+          params.signal,
+          undefined,
+          params.countdownAttemptId,
+        );
         if (cancelRequestedDuringStartup) {
           throw new RecordingStartCancelledError();
         }
@@ -5360,7 +5379,9 @@ async function startRecordingInner(
         console.log("[clips-recorder] stop event received");
         if (!handle) {
           cancelRequestedDuringStartup = true;
-          void emit("clips:countdown-cancel").catch(() => {});
+          void emit("clips:countdown-cancel", {
+            attemptId: params.countdownAttemptId,
+          }).catch(() => {});
           return;
         }
         const stopPromise = handle.stop();
@@ -5405,7 +5426,12 @@ async function startRecordingInner(
     emit("clips:toolbar-sync").catch(() => {});
 
     try {
-      await runRecordingCountdown(wantsScreen, params.signal);
+      await runRecordingCountdown(
+        wantsScreen,
+        params.signal,
+        undefined,
+        params.countdownAttemptId,
+      );
       if (cancelRequestedDuringStartup) {
         throw new RecordingStartCancelledError();
       }

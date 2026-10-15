@@ -279,7 +279,7 @@ beforeEach(() => {
         void mocks.emit("clips:countdown-presented", { attemptId });
       }, 0);
       setTimeout(() => {
-        void mocks.emit("clips:countdown-done", { cause: "timer" });
+        void mocks.emit("clips:countdown-done", { attemptId, cause: "timer" });
       }, 3_600);
       return 1;
     }
@@ -341,11 +341,12 @@ describe("native recording startup", () => {
     const overlay = deferred<number>();
     nativeCommands.set("show_countdown", async (args) => {
       const generation = await overlay.promise;
+      const attemptId = (args as { attemptId?: string } | undefined)?.attemptId;
       await mocks.emit("clips:countdown-presented", {
-        attemptId: (args as { attemptId?: string } | undefined)?.attemptId,
+        attemptId,
       });
       setTimeout(() => {
-        void mocks.emit("clips:countdown-done", { cause: "timer" });
+        void mocks.emit("clips:countdown-done", { attemptId, cause: "timer" });
       }, 3_600);
       return generation;
     });
@@ -864,7 +865,14 @@ describe("native recording startup", () => {
     });
     nativeCommands.set("show_countdown", async (_args) => {
       setTimeout(() => {
-        void mocks.emit("clips:countdown-done", { cause: "timer" });
+        void mocks.emit("clips:countdown-done", {
+          attemptId: "stale-countdown-attempt",
+          cause: "timer",
+        });
+        void mocks.emit("clips:countdown-cancel", {
+          attemptId: "stale-countdown-attempt",
+          cause: "escape",
+        });
       }, 3_600);
       return 1;
     });
@@ -883,6 +891,7 @@ describe("native recording startup", () => {
     await mocks.emit("clips:countdown-presented", {
       attemptId: "stale-countdown-attempt",
     });
+    await vi.advanceTimersByTimeAsync(300);
     await flush();
     expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
 
@@ -895,6 +904,9 @@ describe("native recording startup", () => {
     await vi.advanceTimersByTimeAsync(3_600);
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
     warm.resolve();
+    await flush();
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    await mocks.emit("clips:countdown-done", { attemptId, cause: "timer" });
     await flush();
     const handle = await pending;
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);

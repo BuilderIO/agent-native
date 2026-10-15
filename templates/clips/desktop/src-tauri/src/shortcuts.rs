@@ -60,6 +60,17 @@ mod tests {
     }
 
     #[test]
+    fn countdown_terminal_events_match_the_active_generation() {
+        let attempt = (7, "countdown-attempt-7".to_string());
+        assert_eq!(
+            countdown_attempt_id_for_generation(Some(&attempt), 7),
+            Some("countdown-attempt-7"),
+        );
+        assert_eq!(countdown_attempt_id_for_generation(Some(&attempt), 8), None);
+        assert_eq!(countdown_attempt_id_for_generation(None, 7), None);
+    }
+
+    #[test]
     fn recording_shortcuts_match_platform_defaults() {
         #[cfg(target_os = "macos")]
         {
@@ -111,6 +122,7 @@ static POPOVER_VISIBILITY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static COUNTDOWN_SHORTCUTS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static COUNTDOWN_SHORTCUTS_GENERATION: AtomicU64 = AtomicU64::new(0);
 static COUNTDOWN_SHORTCUTS_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static COUNTDOWN_SHORTCUT_ATTEMPT: OnceLock<Mutex<Option<(u64, String)>>> = OnceLock::new();
 static DICTATION_ESCAPE_SHORTCUT_ACTIVE: AtomicBool = AtomicBool::new(false);
 static MONITOR_PICKER_ESCAPE_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Escape has several owners (popover, countdown, dictation, monitor picker).
@@ -118,6 +130,15 @@ static MONITOR_PICKER_ESCAPE_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// flag before taking it, so a release can never unregister a shortcut another
 /// owner just claimed.
 static ESCAPE_SHORTCUT_LOCK: Mutex<()> = Mutex::new(());
+
+fn countdown_attempt_id_for_generation(
+    attempt: Option<&(u64, String)>,
+    generation: u64,
+) -> Option<&str> {
+    attempt
+        .filter(|(active_generation, _)| *active_generation == generation)
+        .map(|(_, attempt_id)| attempt_id.as_str())
+}
 
 fn lock_escape() -> std::sync::MutexGuard<'static, ()> {
     ESCAPE_SHORTCUT_LOCK
@@ -622,13 +643,20 @@ fn sync_dictation_escape_shortcut(app: AppHandle, active: bool) {
     });
 }
 
-pub(crate) async fn prepare_countdown_shortcuts(app: AppHandle) -> Result<u64, String> {
+pub(crate) async fn prepare_countdown_shortcuts(
+    app: AppHandle,
+    attempt_id: String,
+) -> Result<u64, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = COUNTDOWN_SHORTCUTS_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let generation = COUNTDOWN_SHORTCUTS_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        *COUNTDOWN_SHORTCUT_ATTEMPT
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((generation, attempt_id));
         COUNTDOWN_SHORTCUTS_ACTIVE.store(true, Ordering::SeqCst);
         let _escape = lock_escape();
         let gs = app.global_shortcut();
@@ -640,6 +668,10 @@ pub(crate) async fn prepare_countdown_shortcuts(app: AppHandle) -> Result<u64, S
                         let _ = gs.unregister(registered);
                     }
                     COUNTDOWN_SHORTCUTS_ACTIVE.store(false, Ordering::SeqCst);
+                    *COUNTDOWN_SHORTCUT_ATTEMPT
+                        .get_or_init(|| Mutex::new(None))
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
                     return Err(format!("failed to register countdown shortcut: {error}"));
                 }
                 newly_registered.push(shortcut);
@@ -664,6 +696,10 @@ pub(crate) async fn finish_countdown_shortcuts(
             return;
         }
         COUNTDOWN_SHORTCUTS_ACTIVE.store(false, Ordering::SeqCst);
+        *COUNTDOWN_SHORTCUT_ATTEMPT
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         let gs = app.global_shortcut();
         for shortcut in countdown_return_shortcuts() {
             if gs.is_registered(shortcut) {
@@ -674,6 +710,16 @@ pub(crate) async fn finish_countdown_shortcuts(
     })
     .await
     .map_err(|error| format!("countdown shortcut cleanup worker stopped unexpectedly: {error}"))
+}
+
+fn active_countdown_generation() -> Option<u64> {
+    let _guard = COUNTDOWN_SHORTCUTS_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    COUNTDOWN_SHORTCUTS_ACTIVE
+        .load(Ordering::SeqCst)
+        .then(|| COUNTDOWN_SHORTCUTS_GENERATION.load(Ordering::SeqCst))
 }
 
 /// Observe key-down events only while Clips itself is the active application.
@@ -689,7 +735,7 @@ pub fn install_countdown_local_key_monitor(app: &tauri::App) {
 
     let app = app.handle().clone();
     let handler = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
-        if COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst) {
+        if let Some(generation) = active_countdown_generation() {
             let key_code = unsafe { event.as_ref().keyCode() };
             let countdown_event = match key_code {
                 36 | 76 => Some("clips:countdown-done"),
@@ -698,7 +744,9 @@ pub fn install_countdown_local_key_monitor(app: &tauri::App) {
             };
             if let Some(countdown_event) = countdown_event {
                 let app = app.clone();
-                thread::spawn(move || finish_countdown_from_shortcut(&app, countdown_event));
+                thread::spawn(move || {
+                    finish_countdown_from_shortcut(&app, countdown_event, generation)
+                });
             }
         }
         event.as_ptr()
@@ -714,14 +762,34 @@ pub fn install_countdown_local_key_monitor(app: &tauri::App) {
 #[cfg(not(target_os = "macos"))]
 pub fn install_countdown_local_key_monitor(_app: &tauri::App) {}
 
-fn finish_countdown_from_shortcut(app: &AppHandle, event: &'static str) {
+fn finish_countdown_from_shortcut(app: &AppHandle, event: &'static str, generation: u64) {
+    let _guard = COUNTDOWN_SHORTCUTS_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if COUNTDOWN_SHORTCUTS_GENERATION.load(Ordering::SeqCst) != generation {
+        return;
+    }
+    let attempt = COUNTDOWN_SHORTCUT_ATTEMPT
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    let Some(attempt_id) =
+        countdown_attempt_id_for_generation(attempt.as_ref(), generation).map(str::to_owned)
+    else {
+        return;
+    };
     dlog!("[clips-tray] countdown shortcut accepted: {event}");
     let cause = if event == "clips:countdown-cancel" {
         "escape"
     } else {
         "return"
     };
-    let _ = app.emit(event, serde_json::json!({ "cause": cause }));
+    let _ = app.emit(
+        event,
+        serde_json::json!({ "attemptId": attempt_id, "cause": cause }),
+    );
     if let Some(window) = app.get_webview_window("countdown") {
         let _ = window.close();
     }
@@ -759,26 +827,25 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         let is_enter = shortcut.matches(Modifiers::empty(), Code::Enter);
         let is_numpad_enter = shortcut.matches(Modifiers::empty(), Code::NumpadEnter);
         let is_paste_last_dictation = *shortcut == paste_last_dictation_shortcut();
-        if (is_escape || is_enter || is_numpad_enter)
-            && COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
-        {
+        if is_escape || is_enter || is_numpad_enter {
             if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
                 return;
             }
-            if app.get_webview_window("countdown").is_some() {
-                let event = if is_escape {
-                    "clips:countdown-cancel"
-                } else {
-                    "clips:countdown-done"
-                };
-                finish_countdown_from_shortcut(app, event);
-                return;
+            if let Some(generation) = active_countdown_generation() {
+                if app.get_webview_window("countdown").is_some() {
+                    let event = if is_escape {
+                        "clips:countdown-cancel"
+                    } else {
+                        "clips:countdown-done"
+                    };
+                    finish_countdown_from_shortcut(app, event, generation);
+                    return;
+                }
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = finish_countdown_shortcuts(app, generation).await;
+                });
             }
-            let app = app.clone();
-            let generation = COUNTDOWN_SHORTCUTS_GENERATION.load(Ordering::SeqCst);
-            tauri::async_runtime::spawn(async move {
-                let _ = finish_countdown_shortcuts(app, generation).await;
-            });
         }
         if is_escape {
             if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {

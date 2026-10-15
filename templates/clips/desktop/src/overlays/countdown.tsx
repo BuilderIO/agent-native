@@ -17,13 +17,13 @@ export function Countdown({ attemptId }: { attemptId?: string }) {
     ) => {
       if (closingRef.current) return;
       closingRef.current = true;
-      void emit(eventName, { cause }).finally(() => {
+      void emit(eventName, { attemptId, cause }).finally(() => {
         getCurrentWindow()
           .close()
           .catch(() => {});
       });
     },
-    [],
+    [attemptId],
   );
 
   useEffect(() => {

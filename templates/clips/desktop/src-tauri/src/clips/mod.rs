@@ -650,13 +650,14 @@ pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, S
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
-    let generation = match crate::shortcuts::prepare_countdown_shortcuts(app.clone()).await {
-        Ok(generation) => generation,
-        Err(error) => {
-            let _ = win.close();
-            return Err(error);
-        }
-    };
+    let generation =
+        match crate::shortcuts::prepare_countdown_shortcuts(app.clone(), attempt_id).await {
+            Ok(generation) => generation,
+            Err(error) => {
+                let _ = win.close();
+                return Err(error);
+            }
+        };
     present_interactive_window(&win);
     start_countdown_control_tracking(&app);
     dlog!("[clips-tray] countdown shown");

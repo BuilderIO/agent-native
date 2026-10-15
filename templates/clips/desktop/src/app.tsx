@@ -1184,6 +1184,7 @@ export function App({
   const recorderRef = useRef<RecorderHandle | null>(recorder);
   recorderRef.current = recorder;
   const recordingStartAttemptRef = useRef<RecordingStartAttempt | null>(null);
+  const recordingStartAttemptIdRef = useRef<string | null>(null);
   const captureStartedDuringStartRef = useRef(false);
   const [recordingStartPending, setRecordingStartPending] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
@@ -3806,6 +3807,7 @@ export function App({
     const startAttemptId = crypto.randomUUID();
     recoverySessionId.current = startAttemptId;
     recordingStartAttemptRef.current = attempt;
+    recordingStartAttemptIdRef.current = startAttemptId;
     captureStartedDuringStartRef.current = false;
     recordingFlowGateRef.current = true;
     setRecordingStartPending(true);
@@ -3834,7 +3836,9 @@ export function App({
           stopRequestedDuringStart = true;
           if (!captureStartRequestedDuringStart) {
             attempt.cancel();
-            emit("clips:countdown-cancel").catch(() => {});
+            emit("clips:countdown-cancel", {
+              attemptId: startAttemptId,
+            }).catch(() => {});
           }
         },
       );
@@ -3889,6 +3893,7 @@ export function App({
           pendingTranscriptionTeardown:
             options?.resumeCapture?.transcriptionTornDown ?? null,
           signal: attempt.signal,
+          countdownAttemptId: startAttemptId,
           onCaptureIdentityAvailable: (captureIdentity) => {
             sessionCaptureIdentityRef.current = captureIdentity;
           },
@@ -3977,6 +3982,7 @@ export function App({
       }
       if (recordingStartAttemptRef.current === attempt) {
         recordingStartAttemptRef.current = null;
+        recordingStartAttemptIdRef.current = null;
         captureStartedDuringStartRef.current = false;
         setRecordingStartPending(false);
       }
@@ -4060,8 +4066,19 @@ export function App({
       if (restartInFlightRef.current) restartCancelledRef.current = true;
       recordingStartAttemptRef.current?.cancel();
     };
-    for (const event of ["clips:recorder-cancel", "clips:countdown-cancel"]) {
-      listen(event, cancelStart)
+    for (const eventName of [
+      "clips:recorder-cancel",
+      "clips:countdown-cancel",
+    ]) {
+      listen<{ attemptId?: string }>(eventName, (event) => {
+        if (
+          eventName === "clips:countdown-cancel" &&
+          event.payload?.attemptId !== recordingStartAttemptIdRef.current
+        ) {
+          return;
+        }
+        cancelStart();
+      })
         .then((nextUnlisten) => {
           if (cancelled) {
             nextUnlisten();
@@ -4105,7 +4122,10 @@ export function App({
     if (recordingStartAttemptRef.current || restartInFlightRef.current) {
       if (restartInFlightRef.current) restartCancelledRef.current = true;
       recordingStartAttemptRef.current?.cancel();
-      emit("clips:countdown-cancel").catch(() => {});
+      const attemptId = recordingStartAttemptIdRef.current;
+      if (attemptId) {
+        emit("clips:countdown-cancel", { attemptId }).catch(() => {});
+      }
       return;
     }
     if (recorder) {
@@ -4115,7 +4135,10 @@ export function App({
       return;
     }
     if (recordingFlowGateRef.current || recordingFlowActive) {
-      emit("clips:countdown-cancel").catch(() => {});
+      const attemptId = recordingStartAttemptIdRef.current;
+      if (attemptId) {
+        emit("clips:countdown-cancel", { attemptId }).catch(() => {});
+      }
       return;
     }
     if (recordingStopFinalizingRef.current) {
