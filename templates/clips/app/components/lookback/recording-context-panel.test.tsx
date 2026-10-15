@@ -31,6 +31,7 @@ const queryOptions = vi.hoisted(() => ({
     | {
         input?: unknown;
         enabled?: boolean;
+        refetchOnWindowFocus?: boolean;
         refetchInterval?: (query: {
           state: { data?: { items: unknown[] } };
         }) => number | false;
@@ -486,6 +487,7 @@ describe("RecordingContextSection", () => {
     render();
     expect(container.innerHTML).toBe("");
     expect(queryOptions.current?.enabled).toBe(true);
+    expect(queryOptions.current?.refetchOnWindowFocus).toBe(true);
   });
 
   it("renders nothing when a trashed Clip answers a viewer 404 recording_not_found", () => {

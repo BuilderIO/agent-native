@@ -47,7 +47,7 @@ import {
   verifyShortLivedToken,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getCookie,
@@ -67,6 +67,7 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
+import { contextClipIdForFootage } from "../../../lib/context-footage.js";
 import { allowsLegacyS3ObjectForPersistedMedia } from "../../../lib/media-storage-provenance.js";
 import {
   isHeldForRedaction,
@@ -313,24 +314,6 @@ function parseLoomStartMs(value: unknown): number | null {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   return Math.floor(parsed);
-}
-
-// The clip an earlier-screen-time footage recording is attached to, or null
-// for any other recording.
-async function contextClipIdForFootage(
-  footageId: string,
-): Promise<string | null> {
-  const [item] = await getDb()
-    .select({ recordingId: schema.recordingContextItems.recordingId })
-    .from(schema.recordingContextItems)
-    .where(
-      and(
-        eq(schema.recordingContextItems.mediaRecordingId, footageId),
-        eq(schema.recordingContextItems.status, "ready"),
-      ),
-    )
-    .limit(1);
-  return item?.recordingId ?? null;
 }
 
 export default defineEventHandler(async (event: H3Event) => {

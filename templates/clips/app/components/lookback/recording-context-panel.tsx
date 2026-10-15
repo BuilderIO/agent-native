@@ -143,6 +143,11 @@ export function useRecordingContextItems(
     },
     {
       enabled: enabled && Boolean(recordingId),
+      // A share viewer has no realtime channel, so context attached after the
+      // page opened appears when they come back to the tab.
+      // request-storm-allow: one small query per open clip view, and the 30s
+      // staleTime default skips a refetch on a quick refocus.
+      refetchOnWindowFocus: true,
       refetchInterval: (query) =>
         hasUnfinishedContextItems(
           query.state.data?.items ?? [],
