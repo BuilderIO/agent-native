@@ -2106,7 +2106,7 @@ describe("compact skills summary and the request registry", () => {
     mocks.getSession.mockResolvedValue({ email: "user@example.test" });
     mocks.loadAgentsBundle.mockResolvedValue(deepReviewBundle);
     const systemPrompt = await runWithRequestContext(
-      { userEmail: "user@example.test" },
+      { userEmail: "user@example.test", orgScope: "personal" },
       () =>
         handler.systemPrompt(
           new H3Event(new Request("https://app.example.test/chat")),

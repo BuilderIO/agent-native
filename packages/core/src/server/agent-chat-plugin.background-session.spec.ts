@@ -218,6 +218,9 @@ beforeAll(async () => {
       owner: ownerless ? "" : anonymous ? "anonymous-owner@example.com" : OWNER,
       anonymous,
       orgId: directLoopback ? "test-org" : null,
+      ...(!ownerless && !anonymous && !directLoopback
+        ? { orgScope: "personal" as const }
+        : {}),
     });
     if (directLoopback) {
       (event.req as any).context = { clientAddress: "127.0.0.1" };

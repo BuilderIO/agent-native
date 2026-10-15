@@ -409,6 +409,9 @@ export async function resolveAgentRunRequestContext(options: {
       : {}),
     ...(orgScope === "personal" ? { orgScope: "personal" as const } : {}),
     ...(options.ownerContext.anonymous ? { agentRunAnonymous: true } : {}),
+    ...(options.ownerContext.anonymous && !orgId
+      ? { defaultAgentEngineScope: "deployment" as const }
+      : {}),
     ...(options.ownerContext.identityAuthenticatedAtMs !== undefined
       ? {
           identityAuthenticatedAtMs:

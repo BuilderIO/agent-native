@@ -225,6 +225,22 @@ describe("server/agent-run-context", () => {
     expect(requestContext.orgScope).toBeUndefined();
   });
 
+  it("uses deployment engine defaults for an explicitly configured anonymous owner", async () => {
+    const requestContext = await resolveAgentRunRequestContext({
+      event: makeEvent(),
+      ownerContext: { owner: "public-owner", anonymous: true },
+    });
+
+    expect(requestContext).toMatchObject({
+      userEmail: "public-owner",
+      agentRunAnonymous: true,
+      defaultAgentEngineScope: "deployment",
+    });
+    expect(requestContext.orgScope).toBeUndefined();
+    expect(requestContext.orgId).toBeUndefined();
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+  });
+
   it("keeps secondary route scope unknown when membership resolution fails", async () => {
     getSessionMock.mockRejectedValue(new Error("session unavailable"));
     getOrgContextMock.mockRejectedValue(new Error("org store unavailable"));
