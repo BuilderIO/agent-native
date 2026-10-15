@@ -16,6 +16,7 @@ import {
   resolveBoardExportCropRect,
   resolveExportCropTarget,
   resolveSelectedExportElements,
+  screenFrameCropRect,
 } from "@/pages/design-editor/png-export-render";
 
 export interface RenderPngBlobArgs {
@@ -177,18 +178,15 @@ export async function runRenderPngBlob(
       if (!context) throw new PngCaptureError("blob-failed");
 
       for (const capture of captures) {
-        const view = capture.doc.defaultView;
-        const viewportCropRect = {
-          x: view?.scrollX ?? 0,
-          y: view?.scrollY ?? 0,
-          width: Math.max(1, capture.iframe.clientWidth),
-          height: Math.max(1, capture.iframe.clientHeight),
-        };
         const rendered = await renderExportDocumentCanvas({
           doc: capture.doc,
           iframe: capture.iframe,
           exportScale,
-          cropRect: viewportCropRect,
+          cropRect: screenFrameCropRect(
+            capture.doc,
+            capture.iframe,
+            capture.frame,
+          ),
         });
         const frame = capture.frame;
         context.save();
@@ -241,11 +239,25 @@ export async function runRenderPngBlob(
         !selectionCropRect
           ? resolveBoardExportCropRect(doc, iframe)
           : null;
+      const screenId = iframe.getAttribute("data-screen-iframe-id");
+      const screenFrame =
+        scope === "document" &&
+        screenId &&
+        overviewScreens.some((screen) => screen.id === screenId)
+          ? resolveSelectedScreenExportFrames({
+              selectedScreenIds: [screenId],
+              overviewScreens,
+              canvasFrameGeometryById,
+            })[0]!.frame
+          : null;
       const rendered = await renderExportDocumentCanvas({
         doc,
         iframe,
         exportScale: requestedExportScale,
-        cropRect: selectionCropRect ?? boardCropRect,
+        cropRect:
+          selectionCropRect ??
+          boardCropRect ??
+          (screenFrame ? screenFrameCropRect(doc, iframe, screenFrame) : null),
         isolateSelectedElements: selectionCropRect
           ? resolveSelectedExportElements(doc, cropSelection)
           : [],

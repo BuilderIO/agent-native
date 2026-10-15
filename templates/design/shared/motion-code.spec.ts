@@ -66,6 +66,95 @@ describe("Motion source document CSS codec", () => {
     expect(compiled.css).toContain("@keyframes an-motion-");
   });
 
+  it("keeps an authored track and a native style on the same node and property apart through a round trip", () => {
+    const position = {
+      ...createMotionNativeStyleInstance({
+        styleKey: "Position",
+        targetNodeId: "alpha",
+      }),
+      duration: 0.901,
+    };
+    const shared: MotionTimeline = {
+      ...timeline,
+      durationMs: 2000,
+      playbackMode: "once",
+      defaultEase: "ease",
+      tracks: [
+        {
+          targetNodeId: "alpha",
+          property: "translate",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "0px 0px" },
+          ],
+        },
+      ],
+      nativeStyles: [position],
+    };
+
+    const { css } = compileMotionCode(shared);
+    const names = [...css.matchAll(/@keyframes\s+(an-motion-[^\s{]+)/g)].map(
+      (match) => match[1],
+    );
+    expect(new Set(names).size).toBe(names.length);
+
+    const reconciled = reconcileMotionCodeDocument(
+      css,
+      motionCodeDocumentFromTimeline(shared),
+    );
+    expect(reconciled.tracks).toHaveLength(1);
+    expect(reconciled.tracks[0]).toMatchObject({
+      targetNodeId: "alpha",
+      property: "translate",
+    });
+    expect(reconciled.tracks[0]?.durationMs).toBeUndefined();
+    expect(reconciled.nativeStyles?.map((style) => style.duration)).toEqual([
+      0.901,
+    ]);
+  });
+
+  it("reads a native style's plain translate beside an authored motion path on the same node", () => {
+    const position = createMotionNativeStyleInstance({
+      styleKey: "Position",
+      targetNodeId: "alpha",
+    });
+    const withPath: MotionTimeline = {
+      ...timeline,
+      durationMs: 2000,
+      playbackMode: "once",
+      defaultEase: "ease",
+      tracks: [
+        {
+          targetNodeId: "alpha",
+          property: "translate",
+          keyframes: [
+            {
+              t: 0,
+              value: "0px 0px",
+              motionPath: {
+                version: 1,
+                type: "cubic",
+                control1: { x: 0, y: 100 },
+                control2: { x: 0, y: 100 },
+              },
+            },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+      ],
+      nativeStyles: [position],
+    };
+
+    const { css } = compileMotionCode(withPath);
+    const reconciled = reconcileMotionCodeDocument(
+      css,
+      motionCodeDocumentFromTimeline(withPath),
+    );
+    expect(reconciled.tracks).toHaveLength(1);
+    expect(reconciled.tracks[0]?.keyframes[0]?.motionPath).toBeDefined();
+    expect(reconciled.nativeStyles).toHaveLength(1);
+  });
+
   it("keeps disabled tracks in source metadata while omitting them from CSS", () => {
     const disabledTimeline = {
       ...timeline,

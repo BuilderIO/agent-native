@@ -936,6 +936,14 @@ export function runCrossScreenElementDrop(
           targetScreenId === boardFileId ? [] : [targetScreenId],
         );
       }
+      // The source reselected its original when the drag left it; the copy owns the selection now.
+      if (sourceScreenId !== targetScreenId) {
+        document
+          .querySelector<HTMLIFrameElement>(
+            `[data-screen-iframe-id="${CSS.escape(getPrimaryIframeId(sourceScreenId))}"]`,
+          )
+          ?.contentWindow?.postMessage({ type: "clear-selection" }, "*");
+      }
     }
     return;
   }

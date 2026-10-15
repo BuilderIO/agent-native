@@ -7169,6 +7169,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             scopesMatch(thread.scope, requestedScope) ||
             (!thread.scope && scopesMatch(incomingScope, requestedScope));
 
+          // A client that asks with ?absent=typed reads a thread no run has saved yet
+          // as { absent: true }, a state it handles, instead of a 404 it would log.
+          const threadNotFound = () => {
+            if (getQuery(event).absent === "typed") return { absent: true };
+            setResponseStatus(event, 404);
+            return { error: "Thread not found" };
+          };
+
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
             if (method === "GET") {
@@ -7179,8 +7187,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 { orgId },
               );
               if (!thread || !threadMatchesRequestedScope(thread)) {
-                setResponseStatus(event, 404);
-                return { error: "Thread not found" };
+                return threadNotFound();
               }
               return thread;
             }
@@ -7221,8 +7228,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   !thread ||
                   !threadMatchesRequestedScope(thread, incomingScope)
                 ) {
-                  setResponseStatus(event, 404);
-                  return { error: "Thread not found" };
+                  return threadNotFound();
                 }
                 const bodyScopeMatchesRequestedScope =
                   !requestedScope ||

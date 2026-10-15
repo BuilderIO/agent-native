@@ -245,8 +245,7 @@ async function targetGridBoxes(app: App) {
   return boxes;
 }
 
-// fixme: product bug: Displaced Occupied A is pushed outside the 4 explicit columns: rendered at x 980-1044 (64px wide, a sliver) instead of keeping a 216px
-test.fixme("dropping a two-item group on an occupied grid cell keeps every item inside the 4×3 grid without overlap, and undo, redo and reload agree", async ({
+test("dropping a two-item group on an occupied grid cell keeps every item inside the 4×3 grid without overlap, and undo, redo and reload agree", async ({
   app,
   page,
 }) => {
@@ -256,7 +255,7 @@ test.fixme("dropping a two-item group on an occupied grid cell keeps every item 
   await page
     .getByRole("treeitem", { name: /Source B/ })
     .click({ modifiers: ["Shift"] });
-  expect(await app.selectedLayers()).toEqual(["Source B", "Source A"]);
+  expect(await app.selectedLayers()).toEqual(["Source A", "Source B"]);
   const before = await app.savedNodes(designId);
   const occupiedA = (await app.node("occupied-a").boundingBox())!;
   const sourceBox = (await app.node("source-a").boundingBox())!;

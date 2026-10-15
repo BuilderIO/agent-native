@@ -344,13 +344,6 @@ export interface RuntimeComponentDetails {
   local?: ComponentLocalSource;
 }
 
-interface GoToMainComponentResult {
-  isMain?: boolean;
-  ctaRequired?: boolean;
-  ctaMessage?: string;
-  note?: string;
-}
-
 interface SwapComponentInstanceResult {
   swapped?: boolean;
   conflict?: boolean;
@@ -517,6 +510,7 @@ export function ComponentSection({
   hasLocalOverrides = false,
   onResetOverrides,
   onRestoreComponent,
+  onGoToMainComponent,
   onComponentPropApplied,
   sourceCapabilities = [],
   runtime,
@@ -535,6 +529,7 @@ export function ComponentSection({
   hasLocalOverrides?: boolean;
   onResetOverrides?: () => void;
   onRestoreComponent?: () => void;
+  onGoToMainComponent?: () => void;
   onComponentPropApplied?: (
     fileId: string,
     content: string,
@@ -625,7 +620,6 @@ export function ComponentSection({
 
   const openSourceMutation = useActionMutation("open-component-source");
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
-  const goToMainMutation = useActionMutation("go-to-main-component");
   const detachMutation = useActionMutation("detach-component-instance");
   const swapMutation = useActionMutation("swap-component-instance");
 
@@ -672,31 +666,6 @@ export function ComponentSection({
           ...(latestSource.revision ? { revision: latestSource.revision } : {}),
         }
       : undefined;
-  };
-
-  const handleGoToMainComponent = () => {
-    goToMainMutation.mutate(
-      { designId, nodeId, ...(fileId ? { fileId } : {}) },
-      {
-        onSuccess: (result: GoToMainComponentResult) => {
-          if (result.ctaRequired) {
-            toast.error(
-              result.ctaMessage ??
-                t("designEditor.componentInstances.goToMainUnavailable"),
-            );
-            return;
-          }
-          if (result.isMain) {
-            toast(
-              result.note ??
-                t("designEditor.componentInstances.onlyKnownInstance"),
-            );
-          }
-        },
-        onError: () =>
-          toast.error(t("designEditor.componentInstances.resolveMainFailed")),
-      },
-    );
   };
 
   const handleDetachInstance = () => {
@@ -1148,7 +1117,7 @@ export function ComponentSection({
                         disabled={
                           canRestore
                             ? !onRestoreComponent
-                            : goToMainMutation.isPending
+                            : !onGoToMainComponent
                         }
                         aria-label={t(
                           canRestore
@@ -1156,9 +1125,7 @@ export function ComponentSection({
                             : "designEditor.componentInstances.goToMain",
                         )}
                         onClick={
-                          canRestore
-                            ? onRestoreComponent
-                            : handleGoToMainComponent
+                          canRestore ? onRestoreComponent : onGoToMainComponent
                         }
                       >
                         {canRestore ? (

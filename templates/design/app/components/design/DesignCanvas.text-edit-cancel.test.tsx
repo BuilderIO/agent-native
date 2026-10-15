@@ -842,6 +842,61 @@ it("keeps owing the text when the frame reports the insert did not land", async 
   expect(isPendingTextRequestLive("screen-live", "text-drop")).toBe(false);
 });
 
+it("commits owed text when Escape ends the session before the text lands, without deleting the node", async () => {
+  const onTextContentChange = vi.fn();
+  const canvas = await mountCanvas(
+    "text-edit-escape-race-preview-token",
+    {},
+    onTextContentChange,
+  );
+  await canvas.markReady(canvas.iframeWindow);
+
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind("text-race");
+  await act(async () => {
+    beginTextEditForOwner("screen-live", "text-race");
+  });
+  await act(async () => {
+    for (const char of "Sta") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: true,
+    sourceId: "text-race",
+  });
+  expect(canvas.typed("text-edit-insert-text")).toHaveLength(1);
+
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: false,
+    sourceId: "text-race",
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-content-change",
+    selector: '[data-agent-native-node-id="text-race"]',
+    value: "",
+    payload: { sourceId: "text-race" },
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-edit-insert-result",
+    nodeId: "text-race",
+    inserted: false,
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  expect(onTextContentChange).not.toHaveBeenCalled();
+  const begins = canvas.typed("begin-text-edit");
+  expect(begins[begins.length - 1]).toMatchObject({
+    nodeId: "text-race",
+    insertText: "Sta",
+    commitImmediately: true,
+  });
+});
+
 it("revokes an owed delivery the frame may already hold when the request stands down", async () => {
   const canvas = await mountCanvas("text-edit-revoke-preview-token");
   await canvas.markReady(canvas.iframeWindow);

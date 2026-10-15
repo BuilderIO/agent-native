@@ -214,8 +214,7 @@ async function terminalPenPoint(page: Page) {
 
 test.use({ viewport: { width: 1440, height: 1000 } });
 
-// fixme: product bug: The drag now moves every anchor by the full delta, but after it the saved vector's style keeps its compact text ("position: absolute;left: 130px;...") while the live node's is re-serialized ("position: absolute; left: 130px; ..."), so the saved-equals-rendered check fails on spacing alone.
-test.fixme("a Pen path drawn in a frame is saved inside it where it was clicked, and dragging it moves every anchor by the drag", async ({
+test("a Pen path drawn in a frame is saved inside it where it was clicked, and dragging it moves every anchor by the drag", async ({
   app,
 }) => {
   const id = await openFixture(app, SCREEN_HTML);
@@ -286,8 +285,7 @@ test.fixme("a Pen path drawn in a frame is saved inside it where it was clicked,
   expectOnlyChanged(before, after, [vectorId]);
 });
 
-// fixme: product bug, fails in CI on both attempts: the first 11 px handle pull after the second anchor still previews a straight segment ("M … L …"), not a curve
-test.fixme("a new Pen path previews every pointer step in the selected frame and closes without fill", async ({
+test("a new Pen path previews every pointer step in the selected frame and closes without fill", async ({
   app,
 }) => {
   const id = await openFixture(app, SCREEN_HTML);
@@ -325,9 +323,11 @@ test.fixme("a new Pen path previews every pointer step in the selected frame and
       y: points[1]!.y + handlePull.y * t,
     };
     await page.mouse.move(pointer.x, pointer.y);
+    await expect
+      .poll(async () => (await penPreview(page)).pathData)
+      .toMatch(/[CQ]/);
     const preview = await penPreview(page);
     expect(preview.anchors).toHaveLength(2);
-    expect(preview.pathData).toMatch(/[CQ]/);
     expect(Math.abs(preview.anchors[1]!.x - points[1]!.x)).toBeLessThan(3);
     expect(Math.abs(preview.anchors[1]!.y - points[1]!.y)).toBeLessThan(3);
     await expect
@@ -518,10 +518,7 @@ test("Pen continues a selected open path in place and persists undo/redo", async
   expect((await savedVectors(app, designId))[0]).toEqual(restarted);
 });
 
-// fixme: product bug: After Enter the extended authored SVG teleports by +200,+200: its start anchor renders at (410,430) instead of (210,230); the authored
-test.fixme("Pen continues a selected authored open SVG in place", async ({
-  app,
-}) => {
+test("Pen continues a selected authored open SVG in place", async ({ app }) => {
   const id = await openFixture(app, AUTHORED_OPEN_SVG_HTML);
   const page = app.page;
   await expandAllLayers(page);
@@ -584,5 +581,11 @@ test.fixme("Pen continues a selected authored open SVG in place", async ({
   expectNear(extended[1]!.anchor, { x: 270, y: 230 }, "end stays in place");
   expectNear(extended[2]!.anchor, appended.design, "appended anchor");
   await expectSavedAsRendered(app, id, "authored-open-svg");
-  expectOnlyChanged(before, await app.savedNodes(id), ["authored-open-svg"]);
+  const authoredPathIds = [...before.values()]
+    .filter((node) => node.parent === "authored-open-svg")
+    .map((node) => node.id);
+  expectOnlyChanged(before, await app.savedNodes(id), [
+    "authored-open-svg",
+    ...authoredPathIds,
+  ]);
 });

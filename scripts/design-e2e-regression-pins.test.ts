@@ -293,7 +293,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 84);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 88);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,

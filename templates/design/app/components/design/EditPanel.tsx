@@ -204,6 +204,7 @@ import type { TextContrastContext } from "./edit-panel/text-contrast";
 import {
   mergeRotationValue,
   normalizeRotationDegrees,
+  sharedRotationValue,
 } from "./edit-panel/transform-helpers";
 import {
   displayFontFamilyName,
@@ -493,6 +494,7 @@ interface EditPanelProps {
   componentInstanceHasLocalOverrides?: boolean;
   onResetComponentInstanceOverrides?: (nodeId: string) => void;
   onRestoreComponent?: (nodeId: string) => void;
+  onGoToMainComponent?: () => void;
   componentSwapPickerRequest?: number;
   sourceCapabilities?: string[];
   onCreateComponent?: (name: string) => void;
@@ -2105,6 +2107,7 @@ function GroupFillProperties({
       documentColorPalette={documentColors}
       hideAddFill={disabled}
       cancelOpacityGestureOnHistoryUndo={!disabled}
+      allowDesignHistoryHotkeys={!disabled}
       onAddFill={onAddFill}
       uploadScopeKey={uploadScopeKey}
     />
@@ -2240,6 +2243,7 @@ export const EditPanel = memo(function EditPanel({
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
   onRestoreComponent,
+  onGoToMainComponent,
   componentSwapPickerRequest,
   sourceCapabilities = [],
   onCreateComponent,
@@ -2321,6 +2325,13 @@ export const EditPanel = memo(function EditPanel({
       breakpointContext?.upperBoundPx,
       effectiveSelectedElements,
     ],
+  );
+  const sharedSelectionRotation = useMemo(
+    () =>
+      effectiveSelectedElements.length > 1
+        ? sharedRotationValue(effectiveSelectedElements)
+        : undefined,
+    [effectiveSelectedElements],
   );
   const inspectorElement = useMemo(() => {
     const element =
@@ -2917,6 +2928,7 @@ export const EditPanel = memo(function EditPanel({
                         ? () => onRestoreComponent(componentNodeId)
                         : undefined
                     }
+                    onGoToMainComponent={onGoToMainComponent}
                     onComponentPropApplied={onComponentPropApplied}
                     sourceCapabilities={sourceCapabilities}
                   />
@@ -3222,6 +3234,7 @@ export const EditPanel = memo(function EditPanel({
                       element={
                         stateResolvedInspectorElement ?? inspectorElement
                       }
+                      sharedRotation={sharedSelectionRotation}
                       onStyleChange={onStyleChange}
                       onStylesChange={onStylesChange}
                       onAlignSelection={onAlignSelection}

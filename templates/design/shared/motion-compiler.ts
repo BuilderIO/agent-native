@@ -91,6 +91,7 @@ export function compile(
     return cmp !== 0 ? cmp : a.property.localeCompare(b.property);
   });
 
+  const usedNames = new Set<string>();
   for (const track of sorted) {
     const { targetNodeId, property, keyframes } = track;
     if (!keyframes || keyframes.length === 0) continue;
@@ -98,7 +99,13 @@ export function compile(
 
     const sortedKeyframes = [...keyframes].sort((a, b) => a.t - b.t);
 
-    const name = animationName(targetNodeId, property);
+    // Two tracks on one node and property (an authored track beside a native
+    // style's) would share @keyframes, and the later block would replace both.
+    let name = animationName(targetNodeId, property);
+    for (let occurrence = 2; usedNames.has(name); occurrence += 1) {
+      name = animationName(targetNodeId, property, `_${occurrence}`);
+    }
+    usedNames.add(name);
     const spatialPath = compileSpatialPath(property, sortedKeyframes);
     kfBlocks.push(
       property === "path-trim"
@@ -211,7 +218,9 @@ export function parse(css: string): MotionTrack[] {
 
     const info = rules.byName.get(fullName);
     const keyframes =
-      decoded.property === "translate" && info?.offsetPath
+      decoded.property === "translate" &&
+      info?.offsetPath &&
+      /\boffset-distance\s*:/.test(body)
         ? parseSpatialPathKeyframes(body, info)
         : decoded.property === "path-trim"
           ? parsePathTrimKeyframeBody(body)
@@ -340,12 +349,16 @@ export function assertSafeMotionCssProperty(
 const CSS_TOKEN_BREAKOUT_RE = /[;{}<>]|\/\*|\*\/|\burl\s*\(/i;
 const CSS_TOKEN_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-function animationName(nodeId: string, property: string): string {
+function animationName(
+  nodeId: string,
+  property: string,
+  occurrence = "",
+): string {
   const safe = (s: string) => s.replace(/[^a-zA-Z0-9-]/g, "_");
   const safeNode = safe(nodeId);
   const suffix =
     safeNode === nodeId ? "" : `_${djb2Num(nodeId).toString(36).slice(-4)}`;
-  return `an-motion-${safeNode}${suffix}--${safe(property)}`;
+  return `an-motion-${safeNode}${suffix}${occurrence}--${safe(property)}`;
 }
 
 function decodeAnimationName(

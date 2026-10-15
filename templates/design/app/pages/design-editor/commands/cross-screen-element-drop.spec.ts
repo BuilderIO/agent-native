@@ -608,6 +608,40 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
     expect(result.clearExplicitOverviewScreenSelection).toHaveBeenCalledOnce();
   });
 
+  it("clears the source Screen's selection once the copy lands in another Screen", () => {
+    const sourceFrame = document.createElement("iframe");
+    sourceFrame.setAttribute("data-screen-iframe-id", "source");
+    document.body.appendChild(sourceFrame);
+    const postMessage = vi.spyOn(sourceFrame.contentWindow!, "postMessage");
+    try {
+      const result = runStoredCrossScreenDrop({
+        sourceContent: `<html><body><div data-agent-native-node-id="source">Source</div></body></html>`,
+        destinationContent: `<html><body><main data-agent-native-node-id="frame"></main></body></html>`,
+        drop: {
+          sourceSelector: '[data-agent-native-node-id="source"]',
+          sourceNodeId: "source",
+          sourceScreenId: "source",
+          targetScreenId: "target",
+          targetAnchorNodeId: "frame",
+          targetAnchorSelector: '[data-agent-native-node-id="frame"]',
+          targetAnchorProvenance: { uniqueNodeId: "frame" },
+          targetAnchorPlacement: "inside",
+          targetDropMode: "flow-insert",
+          duplicate: true,
+          sourceCloneHtml: '<div data-agent-native-node-id="copy">Copy</div>',
+        },
+      });
+
+      expect(result.writes.get("target")).toContain("Copy");
+      expect(postMessage).toHaveBeenCalledWith(
+        { type: "clear-selection" },
+        "*",
+      );
+    } finally {
+      sourceFrame.remove();
+    }
+  });
+
   it("links an inline duplicate into another Screen in the same Design", () => {
     const designId = "design-1";
     const sourceContent = `<!doctype html><html><body>

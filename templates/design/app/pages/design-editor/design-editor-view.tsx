@@ -393,6 +393,8 @@ export function renderDesignEditorView({
     handleMotionDurationChange,
     inspectCodeData,
     handleCreateComponent,
+    handleGoToMainComponentMenuAction,
+    selectedInstanceActionNodeId,
     handleComponentPropApplied,
     handleShaderSourceApplied,
     handleShaderSourceEdit,
@@ -1796,6 +1798,9 @@ export function renderDesignEditorView({
               kind: "resetOverrides",
             })
         : undefined,
+    onGoToMainComponent: selectedInstanceActionNodeId
+      ? handleGoToMainComponentMenuAction
+      : undefined,
     onRestoreComponent:
       canEditDesign && id && activeFile?.id
         ? (nodeId: string) =>
@@ -1933,7 +1938,8 @@ export function renderDesignEditorView({
         {!hostOwnsChrome &&
           designBottomToolbarMode === "editor" &&
           design &&
-          !questionFlowActive && (
+          !questionFlowActive &&
+          !(isMobileViewport && leftSidebarVisible && activeLeftPanel) && (
             <DesignBottomToolbar
               mode={mode}
               drawMode={drawMode}

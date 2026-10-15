@@ -79,7 +79,11 @@ export class App {
         });
     });
     page.on("console", (message) => {
-      if (this.recording && message.type() === "error") {
+      if (
+        this.recording &&
+        message.type() === "error" &&
+        !isSandboxedFrameAutomationNoise(message.text())
+      ) {
         this.failures.push({ kind: "console.error", detail: message.text() });
       }
     });
@@ -183,13 +187,15 @@ export class App {
     const before = JSON.stringify(await frame.boundingBox());
     await this.page.keyboard.press("Shift+1");
     let previous = "";
+    let unchangedPolls = 0;
     await expect
       .poll(
         async () => {
           const now = JSON.stringify(await frame.boundingBox());
-          const stable = now === previous && now !== before;
+          unchangedPolls = now === previous ? unchangedPolls + 1 : 0;
           previous = now;
-          return stable;
+          // A reload restores the fitted camera, so Shift+1 may move nothing at all.
+          return unchangedPolls >= (now === before ? 10 : 1);
         },
         {
           intervals: [100],
@@ -421,6 +427,17 @@ export function expectOnlyChanged(
   for (const id of after.keys())
     if (!before.has(id) && !touched.has(id)) drift.push(`${id} appeared`);
   expect(drift, "nodes other than the edited ones changed").toEqual([]);
+}
+
+/**
+ * Chromium logs this under Playwright for a sandboxed srcdoc frame that holds no
+ * script at all; the board static preview and export snapshot frames are such frames.
+ */
+export function isSandboxedFrameAutomationNoise(text: string) {
+  return (
+    text ===
+    "Blocked script execution in 'about:srcdoc' because the document's frame is sandboxed and the 'allow-scripts' permission is not set."
+  );
 }
 
 export function childrenOf(nodes: Map<string, SavedNode>, parent: string) {

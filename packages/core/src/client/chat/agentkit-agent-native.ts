@@ -2492,20 +2492,23 @@ export function createAgentNativeAgentKitTransport(
     throwIfRequestAborted(signal);
     const requestHeaders = await headers({ sessionId: threadId });
     throwIfRequestAborted(signal);
+    const endpoint = scopedThreadEndpoint(
+      `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+      options,
+    );
     const response = await fetcher(
-      scopedThreadEndpoint(
-        `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
-        options,
-      ),
+      `${endpoint}${endpoint.includes("?") ? "&" : "?"}absent=typed`,
       { headers: requestHeaders, signal },
     );
     throwIfRequestAborted(signal);
     if (response.status === 404) return null;
     if (!response.ok) throw await responseError(response);
     const value = await response.json();
-    if (!asRecord(value)) {
+    const record = asRecord(value);
+    if (!record) {
       throw new TypeError("Agent chat thread response must be an object.");
     }
+    if (record.absent === true) return null;
     return value as StoredThread;
   }
 

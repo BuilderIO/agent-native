@@ -49,6 +49,18 @@ describe("applyWrapNodes (Cmd+G group)", () => {
     expect(ungrouped.content).toContain("left: 60px");
   });
 
+  it("sizes the group around children positioned with a unitless 0", () => {
+    const patch = applyVisualEdit(
+      `<body><div data-agent-native-node-id="image" style="position:absolute;left:0;top:0;width:320px;height:180px"></div><div data-agent-native-node-id="body" style="position:absolute;left:0;top:180px;width:320px;height:180px"></div></body>`,
+      { kind: "wrapNodes", targetIds: ["image", "body"] },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(
+      'style="position: absolute; left: 0px; top: 0px; width: 320px; height: 360px;"',
+    );
+  });
+
   it("places the group at the TOPMOST selected child's z-position, not the bottommost, for a non-adjacent selection", () => {
     const patch = applyVisualEdit(THREE_SIBLINGS, {
       kind: "wrapNodes",

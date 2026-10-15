@@ -324,8 +324,7 @@ function sourceNodeIds(html: string, sourceNodeId: string): string[] {
   });
 }
 
-// fixme: fails in CI on current main: app reported http 409: POST /_agent-native/actions/update-file
-test.fixme("real component instances propagate, detach, and persist a variant", async ({
+test("real component instances propagate, detach, and persist a variant", async ({
   app,
   page,
   request,

@@ -1300,6 +1300,48 @@ function parseFragment(html: string): Element {
   return element;
 }
 
+describe("insertClonedHtmlLayers placement", () => {
+  const pasted = (html: string, parentId: string) =>
+    new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${parentId}"] > [data-agent-native-clone-root], [data-agent-native-node-id="${parentId}"] > [data-agent-native-node-id^="copy-"]`,
+      )!;
+  const layer = `<div data-agent-native-node-id="alpha" style="position:absolute;left:12px;top:8px;padding:12px">Alpha</div>`;
+
+  it("keeps a layer absolutely placed at the origin of a frame whose children are all absolute", () => {
+    const content = `<!DOCTYPE html><html><head></head><body><div data-agent-native-node-id="free" style="position:relative;width:360px;height:200px"><div data-agent-native-node-id="child" style="position:absolute;left:8px;top:8px"></div></div></body></html>`;
+    const result = insertClonedHtmlLayers(content, [layer], {
+      targetSelectors: ['[data-agent-native-node-id="free"]'],
+      placement: "inside",
+      stripRootPosition: true,
+    });
+
+    const copy = pasted(result!.content, "free");
+    expect([copy.style.position, copy.style.left, copy.style.top]).toEqual([
+      "absolute",
+      "",
+      "",
+    ]);
+  });
+
+  it("lets a layer pasted into a flex row join the flow", () => {
+    const content = `<!DOCTYPE html><html><head></head><body><div data-agent-native-node-id="row" style="display:flex"><div data-agent-native-node-id="child" style="position:absolute"></div></div></body></html>`;
+    const result = insertClonedHtmlLayers(content, [layer], {
+      targetSelectors: ['[data-agent-native-node-id="row"]'],
+      placement: "inside",
+      stripRootPosition: true,
+    });
+
+    const copy = pasted(result!.content, "row");
+    expect([copy.style.position, copy.style.left, copy.style.top]).toEqual([
+      "",
+      "",
+      "",
+    ]);
+  });
+});
+
 describe("prepareClonedHtmlLayersForLiveInsert", () => {
   it("rejects a failed snapshot sentinel atomically", () => {
     const layerHtmls = [
@@ -1419,6 +1461,18 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     );
   });
 
+  it("leaves a text-named copy unnamed so its name follows its own text", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      ['<h1 data-agent-native-node-id="title">First title</h1>'],
+      { stripRootPosition: true },
+    );
+
+    expect(result!.htmlFragments[0]).not.toContain(
+      "data-agent-native-layer-name",
+    );
+  });
+
   it("drops the Figma/Fusion source identity so deleting a copy cannot resolve to the original", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,
@@ -1462,7 +1516,7 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
           data-source-line="42"
           data-source-column="7"
           data-component-name="Card"
-          style="display:flex;color:rgb(1, 2, 3)"
+          style="color:rgb(1, 2, 3)"
         ><span
           data-agent-native-node-id="title"
           data-source-file="src/Card.tsx"

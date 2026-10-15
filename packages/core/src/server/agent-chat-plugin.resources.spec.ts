@@ -781,6 +781,29 @@ describe("agent chat thread save route", () => {
   });
 });
 
+describe("agent chat unsaved thread reads", () => {
+  it("answers a thread nobody has saved yet as typed absent only when the client asks", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(null);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const typed = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/unsaved-thread?absent=typed",
+      { userEmail: "user@example.test" },
+    );
+    expect(typed.status).toBe(200);
+    expect(await typed.json()).toEqual({ absent: true });
+
+    const plain = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/unsaved-thread",
+      { userEmail: "user@example.test" },
+    );
+    expect(plain.status).toBe(404);
+  });
+});
+
 describe("agent chat resource route organization scopes", () => {
   it("prefers the most recently updated resource skill when names repeat", async () => {
     const h3App = await mountResourceRoutes();

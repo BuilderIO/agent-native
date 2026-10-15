@@ -339,6 +339,7 @@ class CollabDocConnection {
       this.start();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
+      if (this.snapshot.initialization.status === "ready") this.startSync();
       this.reschedulePoll();
     }
   }
@@ -347,6 +348,8 @@ class CollabDocConnection {
     this.subscribers.delete(id);
     if (this.subscribers.size === 0) {
       cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+      // A lingering connection may outlive its document (a deleted Screen).
+      this.stopSync();
       this.scheduleDispose();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
@@ -530,6 +533,7 @@ class CollabDocConnection {
       this.lastSetUser &&
       this.snapshot.isSynced &&
       origin === "local" &&
+      this.syncActive &&
       !this.disposed
     ) {
       scheduleAwarenessPush(
@@ -821,7 +825,14 @@ class CollabDocConnection {
   }
 
   private startSync(): void {
-    if (this.syncActive || this.docMissing || this.disposed) return;
+    if (
+      this.syncActive ||
+      this.docMissing ||
+      this.disposed ||
+      this.subscribers.size === 0
+    ) {
+      return;
+    }
     this.syncActive = true;
 
     this.subscribeCollabEvents();
@@ -1091,7 +1102,7 @@ class CollabDocConnection {
       }
 
       const localState = this.awareness.getLocalState();
-      if (localState && !this.disposed) {
+      if (localState && this.syncActive && !this.disposed) {
         try {
           const awarenessRes = await fetch(
             `${this.baseUrl}/${this.docId}/awareness`,

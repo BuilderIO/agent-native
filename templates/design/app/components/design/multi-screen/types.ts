@@ -511,6 +511,8 @@ export interface MultiScreenCanvasProps {
     fitBounds: FrameBounds;
     canvasZoom?: number;
     paddingScreenPx?: number;
+    /** Pan at the current zoom, and only when no part of `fitBounds` is in view. */
+    revealOnly?: boolean;
     nonce: number;
   } | null;
   suppressLineupRecenter?: {

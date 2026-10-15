@@ -603,12 +603,19 @@ test.describe("drag reparent interaction", () => {
       .toBe("footer");
   });
 
-  // fixme: product bug: FooterItem is saved at left:330px top:175px although released with its centre on RootGap2's centre (expected 370,175): it lands 40 design
-  test.fixme("dragging an element out of the footer to the screen root reparents it to the root", async ({
+  test("dragging an element out of the footer to the screen root reparents it to the root", async ({
     app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(app);
+    // RootGap2 and LaterOverlay sit clear of the screen's centre line, so the
+    // drop is not pulled onto it by snapping.
+    const id = await newTwoScreenDesign(
+      app,
+      SCREEN_ONE.replace(
+        'style="position:absolute;left:400px;top:200px;width:60px;height:20px"',
+        'style="position:absolute;left:150px;top:200px;width:60px;height:20px"',
+      ).replace("left:380px;top:190px", "left:130px;top:190px"),
+    );
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
     const beforeHtml = await fileContent(page, id, "index.html");
@@ -664,7 +671,7 @@ test.describe("drag reparent interaction", () => {
     expectPlacement(savedPlacement(rootHtml, "footer-item"), {
       parent: null,
       position: "absolute",
-      left: 370,
+      left: 120,
       top: 175,
     });
     expectOnlyChanged(savedNodeMap(beforeHtml), savedNodeMap(rootHtml), [
@@ -1085,8 +1092,7 @@ test.describe("drag reparent interaction", () => {
       .toBe(true);
   });
 
-  // fixme: product bug: Six console errors: 'Blocked script execution in about:srcdoc because the document's frame is sandboxed and the allow-scripts permission
-  test.fixme("a held screen child dropped beyond the rendered board window persists at that canvas point", async ({
+  test("a held screen child dropped beyond the rendered board window persists at that canvas point", async ({
     app,
     page,
   }) => {
@@ -2068,8 +2074,7 @@ test.describe("drag reparent interaction", () => {
     });
   });
 
-  // fixme: product bug: After release the editor saves Widget at left:30px (was 40px): a 10px shift onto FooterItem's left edge (x=30). Likely edge snapping at
-  test.fixme("returning a held cross-screen drag to its source keeps the source intact", async ({
+  test("returning a held cross-screen drag to its source keeps the source intact", async ({
     app,
     page,
   }) => {

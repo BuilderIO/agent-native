@@ -526,7 +526,7 @@ export function useEditorScreenRendering({
       if (patch.status !== "applied") {
         toast.error(
           codeLayerPatchMessage(
-            patch.reason,
+            patch.status === "failed" ? patch.reason : null,
             t("designEditor.patchProof.selectorMissing"),
           ),
         );

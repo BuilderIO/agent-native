@@ -357,7 +357,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     );
   });
 
-  it("Enter keeps Pen active when extending an existing selected vector", async () => {
+  it("Enter commits a Pen continuation made in vector edit and returns to Move", async () => {
     const onChange = vi.fn((_path: PenPath) => true);
     const onExit = vi.fn();
     const surface = await renderPenHarness({
@@ -389,8 +389,9 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     await pressKey("Enter");
 
     expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
-      "pen",
+      "move",
     );
+    expect(onExit).toHaveBeenCalled();
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ closed: false, nodes: expect.any(Array) }),
       "commit",

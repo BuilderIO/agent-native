@@ -1,6 +1,9 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
 import {
+  getBoardObjectRects,
+  getBoardObjectScreenOverlaps,
   getBoardSurfaceContentBounds,
   getBoardSurfaceHtml,
   hasBoardRuntimeSurfaceContent,
@@ -11,6 +14,25 @@ import {
 import { getBoardSurfaceRenderGeometry } from "./overview-layout";
 
 describe("board surface rendering", () => {
+  it("paints the parts of board objects over a screen above it, except objects that enclose the screen", () => {
+    const objects = getBoardObjectRects(`<html><body>
+      <div data-agent-native-node-id="inside" style="position:absolute;left:160px;top:110px;width:80px;height:80px"></div>
+      <div data-agent-native-node-id="straddles" style="position:absolute;left:380px;top:-20px;width:40px;height:40px"></div>
+      <div data-agent-native-node-id="backdrop" style="position:absolute;left:-100px;top:-100px;width:800px;height:600px"></div>
+      <div data-agent-native-node-id="away" style="position:absolute;left:600px;top:0px;width:40px;height:40px"></div>
+      <div data-agent-native-node-id="auto-text" style="position:absolute;left:10px;top:10px"></div>
+    </body></html>`);
+
+    expect(
+      getBoardObjectScreenOverlaps(objects, [
+        { x: 0, y: 0, width: 400, height: 300 },
+      ]),
+    ).toEqual([
+      { x: 160, y: 110, width: 80, height: 80 },
+      { x: 380, y: 0, width: 20, height: 20 },
+    ]);
+  });
+
   it("mounts an inert board document when an existing board file is empty", () => {
     expect(getBoardSurfaceHtml("<html><body></body></html>")).toContain(
       "<body></body>",

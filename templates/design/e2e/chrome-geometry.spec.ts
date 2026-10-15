@@ -48,7 +48,7 @@ const APP_GEOMETRY_CONTRACT = {
   layerIndentWidth: 24,
   autoLayoutSectionHeaderHeight: 40,
   autoLayoutSectionPadding: 8,
-  autoLayoutPairGutter: 16,
+  autoLayoutPairGutter: 8,
   sizingMenuItemMinHeight: 24,
   sizingMenuItemMaxHeight: 32,
 } as const;
@@ -243,14 +243,21 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
     `${APP_GEOMETRY_CONTRACT.autoLayoutSectionPadding}px`,
   );
 
-  const pair = section.locator('[data-inspector-layout="pair-flow"]').first();
-  const cells = pair.locator(":scope > [data-inspector-grid-cell]");
-  await expect(cells).toHaveCount(2);
+  const pair = section
+    .locator('[data-inspector-layout="action-pair"]')
+    .filter({
+      has: page.getByRole("button", { name: "Advanced gap settings" }),
+    })
+    .first();
+  const cells = pair.locator(
+    ':scope > [data-inspector-grid-cell]:not([aria-hidden="true"])',
+  );
+  await expect(cells).toHaveCount(3);
   const pairGeometry = await readGeometry(pair, ["grid-template-columns"]);
   const pairColumns = pairGeometry.styles["grid-template-columns"]
     .trim()
     .split(/\s+/);
-  expect(pairColumns).toHaveLength(3);
+  expect(pairColumns).toHaveLength(5);
   expect(pairColumns[1]).toBe(
     `${APP_GEOMETRY_CONTRACT.autoLayoutPairGutter}px`,
   );
@@ -417,17 +424,16 @@ async function assertLeftPanelWidth(page: Page): Promise<void> {
   );
   const width = async () =>
     (await readGeometry(leftPanel, ["width"])).styles.width;
-  expect(await width()).toBe("240px");
+  expect(await width()).toBe("280px");
   await dragLeftPanelBy(page, 9);
-  await expect.poll(width).toBe("248px");
+  await expect.poll(width).toBe("288px");
   await dragLeftPanelBy(page, 1000);
   await expect.poll(width).toBe("416px");
   await dragLeftPanelBy(page, -1000);
   await expect.poll(width).toBe("232px");
 }
 
-// fixme: fails in CI on current main: Test timeout of 90000ms exceeded.
-test.fixme("keeps Design chrome geometry stable at compact and wide inspector widths", async ({
+test("keeps Design chrome geometry stable at compact and wide inspector widths", async ({
   app,
   page,
 }) => {

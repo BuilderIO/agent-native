@@ -67,6 +67,7 @@ import { designSourceTypeFromData } from "../shared/source-mode.js";
 import {
   isBridgeSha256VersionHash,
   MotionLocalSourceError,
+  isMotionLocalhostScreen,
   resolveMotionLocalSourceLocation,
 } from "./_motion-local-source.js";
 import {
@@ -498,13 +499,27 @@ async function readUnindexedManagedInlineSources(args: {
   return { recovered, recoveryErrors };
 }
 
+function screenIsLocalhost(designData: unknown, screenId: string): boolean {
+  try {
+    return isMotionLocalhostScreen(designData, screenId);
+  } catch (error) {
+    if (error instanceof MotionLocalSourceError) {
+      fail(error.message, {
+        errorCode: `motion_local_source_${error.code.replace(/-/g, "_")}`,
+        statusCode: 422,
+      });
+    }
+    throw error;
+  }
+}
+
 async function resolveManagedReactLocation(args: {
   designId: string;
   designData: unknown;
   sourceRef?: string;
   expectedFilePath?: string | null;
   previewModulePath?: string;
-}): Promise<ReturnType<typeof resolveMotionLocalSourceLocation>> {
+}): Promise<ReturnType<typeof resolveMotionLocalSourceLocation> | "unmapped"> {
   if (!args.sourceRef) {
     fail("The selected localhost screen is not part of this Design.", {
       errorCode: "motion_local_source_screen_not_found",
@@ -540,6 +555,15 @@ async function resolveManagedReactLocation(args: {
         : {}),
     });
   } catch (error) {
+    // No saved file and nothing that names one: the screen has no Design-managed Motion yet.
+    if (
+      error instanceof MotionLocalSourceError &&
+      error.code === "unmapped-source-file" &&
+      !args.expectedFilePath &&
+      !args.previewModulePath
+    ) {
+      return "unmapped";
+    }
     if (error instanceof MotionLocalSourceError) {
       fail(error.message, {
         errorCode: `motion_local_source_${error.code.replace(/-/g, "_")}`,
@@ -941,7 +965,10 @@ export default defineAction({
     }
     const sourceType = designSourceTypeFromData(design.data);
     const useLocalSource =
-      sourceType === "localhost" || Boolean(timelines[0]?.filePath);
+      Boolean(timelines[0]?.filePath) ||
+      (sourceType === "localhost" &&
+        (!managedSourceRef ||
+          screenIsLocalhost(design.data, managedSourceRef)));
     let sourceReadCapability: MotionSourceReadCapability | null = null;
     type InlineManagedSourceRead =
       | { kind: "readable"; managedCss: ManagedCssSource | null }
@@ -1051,7 +1078,7 @@ export default defineAction({
         { errorCode: "motion_local_source_screen_not_found", statusCode: 422 },
       );
     }
-    const localSourceLocation =
+    const resolvedLocalSource =
       useLocalSource && managedSourceRef
         ? await resolveManagedReactLocation({
             designId,
@@ -1061,6 +1088,10 @@ export default defineAction({
             previewModulePath,
           })
         : null;
+    const localSourceUnmapped = resolvedLocalSource === "unmapped";
+    const localSourceLocation = localSourceUnmapped
+      ? null
+      : resolvedLocalSource;
     const isLocalHtmlSource = Boolean(
       localSourceLocation && /\.html?$/i.test(localSourceLocation.filePath),
     );
@@ -1203,7 +1234,7 @@ export default defineAction({
       sourceReadCapability = inlineSourceRead.capability;
     }
     const managedCss =
-      useLocalSource && !canReadLocalSource
+      (useLocalSource && !canReadLocalSource) || localSourceUnmapped
         ? null
         : localSourceRead.kind === "unsupported"
           ? null
@@ -1315,6 +1346,7 @@ export default defineAction({
       recoveryErrors,
       sourceWriteCapability,
       sourceReadCapability,
+      ...(localSourceUnmapped ? { localSource: "unmapped" as const } : {}),
     };
   },
 });

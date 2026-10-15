@@ -160,6 +160,7 @@ export function useEditorEditCommands({
     recordLocalContentHistoryChangeFallback,
     flushPendingFileCreationHistoryEntries,
     discardPendingLiveStructureTransaction,
+    captureCurrentSelection,
   } = editorHistory;
   const {
     restoreSelectionSnapshot,
@@ -1032,6 +1033,7 @@ export function useEditorEditCommands({
         applyLocalContentUpdate,
         canEditDesign,
         allowPendingLiveEdits: canEditLiveScreens && !canEditDesign,
+        captureCurrentSelection,
         clipboardPasteRedoStackRef,
         clipboardPasteUndoStackRef,
         codeLayerOwnerByNodeIdRef,
@@ -1106,6 +1108,7 @@ export function useEditorEditCommands({
     [
       ydoc,
       activeFile,
+      captureCurrentSelection,
       applyFileContentUpdate,
       applyDesignDataHistoryChanges,
       applyGeometryHistoryContentChangesRef,

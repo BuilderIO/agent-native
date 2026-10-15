@@ -77,8 +77,7 @@ async function savedStyle(app: App, id: string, nodeId: string) {
   return styleOf((await app.savedNodes(id)).get(nodeId));
 }
 
-// fixme: fails on current main after the merge: Error: the canvas never settled after zoom to fit
-test.fixme("text fills hide and restore without losing the original color", async ({
+test("text fills hide and restore without losing the original color", async ({
   app,
 }) => {
   const page = app.page;
@@ -383,8 +382,7 @@ test("typography edits update size and spacing inputs", async ({ app }) => {
   expectOnlyChanged(before, after, ["heading"]);
 });
 
-// fixme: fails on current main after the merge: Error: the canvas never settled after zoom to fit
-test.fixme("search selects Lato Medium and keeps custom font names offline", async ({
+test("search selects Lato Medium and keeps custom font names offline", async ({
   app,
 }) => {
   const page = app.page;

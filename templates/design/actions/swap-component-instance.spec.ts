@@ -8,6 +8,7 @@ import {
 import action, {
   findOpenTagEnd,
   isSwapSourceCandidate,
+  keepInstancePlacement,
   mergeComponentSwapOverrides,
   reassignCopiedDescendantNodeIds,
   setAttributeOnMarkup,
@@ -193,5 +194,27 @@ describe("swap source identity", () => {
 
     expect(isSwapSourceCandidate(main, "Card")).toBe(false);
     expect(isSwapSourceCandidate(reference, "Card")).toBe(true);
+  });
+});
+
+describe("keepInstancePlacement", () => {
+  it("keeps the swapped instance where it stood and the target's own size and paint", () => {
+    const target = `<button data-agent-native-node-id="b" style="position:absolute;left:220px;top:140px;width:160px;height:44px;background:#22c55e">Sign up</button>`;
+    expect(
+      keepInstancePlacement(target, {
+        position: "absolute",
+        left: "220px",
+        top: "60px",
+      }),
+    ).toBe(
+      `<button data-agent-native-node-id="b" style="position:absolute;left:220px;top:60px;width:160px;height:44px;background:#22c55e">Sign up</button>`,
+    );
+  });
+
+  it("drops the target's placement when the instance flowed in its parent", () => {
+    const target = `<div style="position:absolute;left:4px;top:8px;width:10px">x</div>`;
+    expect(keepInstancePlacement(target, {})).toBe(
+      `<div style="width:10px">x</div>`,
+    );
   });
 });

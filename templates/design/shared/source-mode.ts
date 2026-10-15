@@ -380,11 +380,13 @@ export function designScreenSourceTypeFromData(
         : null))
     : null;
 
-  return (
-    screenSourceType ??
+  if (screenSourceType) return screenSourceType;
+  const designSourceType =
     normalizeDesignSourceType(data.sourceType) ??
-    normalizeDesignSourceType(data.sourceMode)
-  );
+    normalizeDesignSourceType(data.sourceMode);
+  // Every localhost screen records its own sourceType; adding one flips the
+  // whole design to localhost, so its unmarked screens are still inline.
+  return designSourceType === "localhost" ? "inline" : designSourceType;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

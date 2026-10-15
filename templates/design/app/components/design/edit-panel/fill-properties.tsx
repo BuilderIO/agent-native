@@ -189,6 +189,7 @@ export function FillProperties({
   breakpointOverrideContext,
   hideAddFill = false,
   cancelOpacityGestureOnHistoryUndo = false,
+  allowDesignHistoryHotkeys = false,
   onAddFill,
   capturedStyleTargets,
   readSubtreeColorStyles,
@@ -212,6 +213,7 @@ export function FillProperties({
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   hideAddFill?: boolean;
   cancelOpacityGestureOnHistoryUndo?: boolean;
+  allowDesignHistoryHotkeys?: boolean;
   onAddFill?: () => "base" | "layer" | null;
   capturedStyleTargets?: CapturedStyleTarget[];
   readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead;
@@ -715,6 +717,7 @@ export function FillProperties({
                       : undefined
                   }
                   {...baseFillLayerProps}
+                  allowDesignHistoryHotkeys={allowDesignHistoryHotkeys}
                   open={openFillPickerKey === `${fillStashKey}:base`}
                   onOpenChange={(open) =>
                     setFillPickerOpen(`${fillStashKey}:base`, open)
@@ -823,7 +826,7 @@ export function FillProperties({
                       return;
                     }
                     commitStylePatch(
-                      removeBaseFillPatch(fillProperty),
+                      removeBaseFillPatch(fillProperty, element.inlineStyles),
                       onStyleChange,
                       onStylesChange,
                     );

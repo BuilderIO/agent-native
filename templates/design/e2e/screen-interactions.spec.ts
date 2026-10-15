@@ -531,8 +531,7 @@ test("editing a screen fill changes its body without changing child fills", asyn
   ).toHaveCSS("background-color", "rgb(218, 218, 218)");
 });
 
-// fixme: product bug: After closing the hidden Code workbench the app fires an unrequested preview-source-edit + apply-source-edit; the first nudge saves x=1
-test.fixme("keeps hidden Code source reads quiet during canvas commits", async ({
+test("keeps hidden Code source reads quiet during canvas commits", async ({
   app,
   page,
   request,
@@ -1312,8 +1311,7 @@ test("all-screens PDF mounts an offscreen Hug screen and exports its natural hei
   await expect(hugShell.locator("iframe")).toHaveCount(0);
 });
 
-// fixme: product bug: All-screens PDF vertically squashes auto-height screens: render-export-png captures the screen at its 844 px preview viewport (payload
-test.fixme("all-screens PDF reports a broken image and can retry after it recovers", async ({
+test("all-screens PDF reports a broken image and can retry after it recovers", async ({
   app,
   page,
   request,
@@ -1329,6 +1327,10 @@ test.fixme("all-screens PDF reports a broken image and can retry after it recove
   app.allowFailure(
     /^console\.error PDF image readiness failed: Error: A screen image failed to load\./,
     "the app logs the broken image it reports",
+  );
+  app.allowFailure(
+    /^console\.error (All-screens PDF export|PDF capture) failed: PngCaptureError: PNG capture blob-failed/,
+    "the export command and its error reporter log the failure they report",
   );
   const designId = await createDesign(app, "PDF image failure recovery");
   let assetAvailable = false;

@@ -46,7 +46,6 @@ import { cn } from "@/lib/utils";
 import {
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
   INSPECTOR_GRID_PAIR_GUTTER_SPAN,
-  INSPECTOR_GRID_PAIR_SPAN,
   InspectorGrid,
   InspectorGridCell,
 } from "../edit-panel/inspector-grid";
@@ -660,8 +659,8 @@ export function AutoLayoutMatrix({
         ) : null}
 
         {showChildLayoutControls && !isBlock && activeFlow !== "grid" ? (
-          <InspectorGrid className="items-start" layout="pair-flow">
-            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+          <InspectorGrid className="items-start" layout="action-pair">
+            <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
                 <div className="flex items-center justify-between gap-2">
                   <ControlLabel>
@@ -683,8 +682,8 @@ export function AutoLayoutMatrix({
                 />
               </div>
             </InspectorGridCell>
-
-            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+            <InspectorGridCell span={1} ariaHidden />
+            <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-1">
@@ -733,6 +732,29 @@ export function AutoLayoutMatrix({
                   </label>
                 ) : null}
               </div>
+            </InspectorGridCell>
+            <InspectorGridCell span={1} ariaHidden />
+            <InspectorGridCell span={4} className="flex justify-center">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={disabled}
+                    aria-label={
+                      "Advanced gap settings" /* i18n-ignore inspector tooltip */
+                    }
+                    onClick={() => onDistribute?.(value.direction)}
+                    className="mt-5 size-6 shrink-0 self-start rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                  >
+                    <IconAdjustmentsHorizontal className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {"Advanced gap settings" /* i18n-ignore inspector tooltip */}
+                </TooltipContent>
+              </Tooltip>
             </InspectorGridCell>
           </InspectorGrid>
         ) : null}
@@ -1520,118 +1542,88 @@ function GapField({
   };
 
   return (
-    <InspectorGrid
-      className="items-center"
-      layout="field-action"
+    // [gap-icon] value [▾] in one control surface
+    <div
       onKeyDown={handleShortcut}
+      className={cn(
+        "flex h-6 w-full min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)]",
+        disabled && "opacity-40",
+      )}
     >
-      <InspectorGridCell span={24}>
-        {/* [gap-icon] value [▾] in one control surface */}
-        <div
-          className={cn(
-            "flex h-6 w-full min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)]",
-            disabled && "opacity-40",
-          )}
-        >
-          <ScrubInput
-            label={label}
-            ariaLabel={label}
-            tooltipLabel={label}
-            icon={IconGap}
-            value={value}
-            mixed={mixed}
-            onChange={(next, meta) => onGapChange(next, meta)}
-            unit="px"
-            min={0}
-            step={1}
-            precision={1}
-            disabled={disabled}
-            className="min-w-0 flex-1 gap-0"
-            labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
-            inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
-          />
-          {onDistribute != null ? (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={
-                        gapModeMixed
-                          ? "Gap mode: Mixed" /* i18n-ignore inspector tooltip */
-                          : "Gap mode" /* i18n-ignore inspector tooltip */
-                      }
-                      disabled={disabled}
-                      className={cn(
-                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md",
-                        "text-muted-foreground hover:text-foreground",
-                        "disabled:pointer-events-none disabled:opacity-40",
-                        "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
-                      )}
-                    >
-                      <IconChevronDown className="size-2 opacity-70" />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {"Gap mode" /* i18n-ignore inspector tooltip */}
-                </TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent
-                align="end"
-                className="min-w-[110px] text-[12px]"
-                sideOffset={4}
-              >
-                <DropdownMenuCheckboxItem
-                  checked={!gapModeMixed && gapMode !== "auto"}
-                  className="text-[12px]"
-                  onSelect={() => onGapModeChange?.("fixed", direction)}
+      <ScrubInput
+        label={label}
+        ariaLabel={label}
+        tooltipLabel={label}
+        icon={IconGap}
+        value={value}
+        mixed={mixed}
+        onChange={(next, meta) => onGapChange(next, meta)}
+        unit="px"
+        min={0}
+        step={1}
+        precision={1}
+        disabled={disabled}
+        className="min-w-0 flex-1 gap-0"
+        labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+        inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+      />
+      {onDistribute != null ? (
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={
+                    gapModeMixed
+                      ? "Gap mode: Mixed" /* i18n-ignore inspector tooltip */
+                      : "Gap mode" /* i18n-ignore inspector tooltip */
+                  }
+                  disabled={disabled}
+                  className={cn(
+                    "flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md",
+                    "text-muted-foreground hover:text-foreground",
+                    "disabled:pointer-events-none disabled:opacity-40",
+                    "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
+                  )}
                 >
-                  {"Fixed" /* i18n-ignore design gap mode label */}
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem
-                  checked={!gapModeMixed && gapMode === "auto"}
-                  className="text-[12px]"
-                  onSelect={() => {
-                    if (onGapModeChange) {
-                      onGapModeChange("auto", direction);
-                      return;
-                    }
-                    onDistribute?.(direction);
-                  }}
-                >
-                  {"Auto" /* i18n-ignore design gap mode label */}
-                </DropdownMenuCheckboxItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-      </InspectorGridCell>
-      {/* Sliders / advanced spacing icon (the design editor's tune control) */}
-      <InspectorGridCell span={4} className="flex justify-center">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              disabled={disabled}
-              aria-label={
-                "Advanced gap settings" /* i18n-ignore inspector tooltip */
-              }
-              onClick={() => onDistribute?.(direction)}
-              className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                  <IconChevronDown className="size-2 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>
+              {"Gap mode" /* i18n-ignore inspector tooltip */}
+            </TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent
+            align="end"
+            className="min-w-[110px] text-[12px]"
+            sideOffset={4}
+          >
+            <DropdownMenuCheckboxItem
+              checked={!gapModeMixed && gapMode !== "auto"}
+              className="text-[12px]"
+              onSelect={() => onGapModeChange?.("fixed", direction)}
             >
-              <IconAdjustmentsHorizontal className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {"Advanced gap settings" /* i18n-ignore inspector tooltip */}
-          </TooltipContent>
-        </Tooltip>
-      </InspectorGridCell>
-    </InspectorGrid>
+              {"Fixed" /* i18n-ignore design gap mode label */}
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={!gapModeMixed && gapMode === "auto"}
+              className="text-[12px]"
+              onSelect={() => {
+                if (onGapModeChange) {
+                  onGapModeChange("auto", direction);
+                  return;
+                }
+                onDistribute?.(direction);
+              }}
+            >
+              {"Auto" /* i18n-ignore design gap mode label */}
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+    </div>
   );
 }
 
@@ -2214,7 +2206,7 @@ export function SizingField({
                   aria-label={`${axis} ${sizeText} ${modeLabel}`}
                   disabled={disabled}
                   className={cn(
-                    "flex h-6 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
+                    "flex h-6 w-full items-center gap-0.5 overflow-hidden rounded-md px-1",
                     "bg-[var(--design-editor-control-bg)] !text-[11px]",
                     "hover:bg-[var(--design-editor-panel-raised-bg)]",
                     "disabled:pointer-events-none disabled:opacity-40",
@@ -2234,7 +2226,7 @@ export function SizingField({
                   </span>
                   {/* Mode word (Hug/Fill only) */}
                   {showWord ? (
-                    <span className="shrink-0 truncate text-muted-foreground">
+                    <span className="shrink-0 truncate pl-0.5 text-muted-foreground">
                       {modeLabel}
                     </span>
                   ) : null}
@@ -2356,7 +2348,7 @@ function ConstraintSubRow({
         precision={1}
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
-        labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground [&>span]:sr-only"
+        labelClassName="h-6 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground [&>span]:sr-only"
         inputClassName="h-5 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
       <Tooltip>

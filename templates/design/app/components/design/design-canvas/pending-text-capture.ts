@@ -336,6 +336,14 @@ function onKeyDown(event: KeyboardEvent): void {
 }
 
 function onPointerDown(): void {
+  const capture = liveCapture();
+  if (!capture) return;
+  stopIntercepting(capture);
+  // Clicking away keeps text the user already typed; only an empty request stands down.
+  if (capture.nodeId && capture.buffer) {
+    commitOwedHostSide(capture);
+    return;
+  }
   cancelActive();
 }
 
@@ -536,6 +544,17 @@ export function acknowledgePendingTextInsert(
   }
   capture.deliveryPosted = false;
   oweDelivery(capture);
+}
+
+// A session that ends before its owed text lands was left by the user (Escape,
+// blur), so the text is owed as a commit, not as a reopened session.
+export function endPendingTextSession(
+  owner: OwnerIdentity,
+  nodeId: string,
+): void {
+  const capture = liveCapture();
+  if (!matches(capture, owner, nodeId) || !capture.deliveryPosted) return;
+  capture.commitOnBegin = true;
 }
 
 export function releasePendingTextCapture(

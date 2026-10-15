@@ -44,10 +44,43 @@ const AUDIT_HTML = `<!doctype html>
   </body>
 </html>`;
 
-const EXPECTED_ALPHA_OPACITY_CSS = `@keyframes an-motion-alpha--opacity {
+// The inspector's Opacity animation is a native style: 1s ease-out, played once.
+function expectedAlphaOpacityCss(durationMs = 500): string {
+  const source = encodeURIComponent(
+    JSON.stringify({
+      version: 3,
+      // The timeline stretches to fit its longest animation.
+      durationMs: Math.max(2000, durationMs),
+      defaultEase: "ease",
+      tracks: [],
+      playbackMode: "once",
+      nativeStyles: [
+        {
+          type: "FIGMA",
+          styleKey: "Opacity",
+          nameKey: "motion.preset_name.opacity",
+          duration: durationMs / 1000,
+          timelineOffset: 0,
+          targetNodeId: "alpha",
+          enabled: true,
+          props: {
+            type: "fadeIn",
+            amount: 0,
+            startFrame: 0,
+            endFrame: 100,
+            delay: 0,
+            easing: { type: "EASE_OUT" },
+          },
+        },
+      ],
+      easingVariables: [],
+      audioClips: [],
+    }),
+  );
+  return `@keyframes an-motion-alpha--opacity {
   0% {
     opacity: 0;
-    animation-timing-function: ease;
+    animation-timing-function: ease-out;
   }
   100% {
     opacity: 1;
@@ -57,17 +90,18 @@ const EXPECTED_ALPHA_OPACITY_CSS = `@keyframes an-motion-alpha--opacity {
 
 [data-agent-native-node-id="alpha"] {
   animation-name: an-motion-alpha--opacity;
-  animation-duration: 2s;
-  animation-timing-function: ease;
+  animation-duration: ${durationMs / 1000}s;
+  animation-timing-function: ease-out;
   animation-fill-mode: both;
-  animation-iteration-count: infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   [data-agent-native-node-id="alpha"] {
     animation: none !important;
   }
-}`;
+}
+/* agent-native-motion-source:v3:${source} */`;
+}
 
 const UNSUPPORTED_MOTION_CSS = compileMotionCode({
   id: "unsupported-motion",
@@ -199,8 +233,20 @@ async function openMotionDockFromMenu(page: Page) {
   await expect(motionDock(page)).toBeVisible();
 }
 
+function inspectorAnimations(page: Page) {
+  return page
+    .locator("[data-design-inspector-section]")
+    .filter({ has: page.locator('h3[aria-label="Animations"]') });
+}
+
+function opacitySpan(page: Page) {
+  return motionDock(page).locator('[data-motion-native-style-span="Opacity"]');
+}
+
 async function addOpacityTrack(page: Page) {
-  await page.getByRole("button", { name: "Add motion", exact: true }).click();
+  await inspectorAnimations(page)
+    .getByRole("button", { name: "Add animation", exact: true })
+    .click();
   const request = page.waitForRequest(
     (candidate) =>
       candidate.method() === "POST" &&
@@ -212,10 +258,8 @@ async function addOpacityTrack(page: Page) {
 
 function managedMotionCss(html: string) {
   return [
-    ...html.matchAll(
-      /<style data-agent-native-motion>\n([\s\S]*?)\n<\/style>/g,
-    ),
-  ].map((match) => match[1]);
+    ...html.matchAll(/<style data-agent-native-motion>([\s\S]*?)<\/style>/g),
+  ].map((match) => match[1].trim());
 }
 
 test("changing a component's variant in the inspector saves that prop on the instance and nothing else", async ({
@@ -467,7 +511,7 @@ test("unsupported managed Motion syntax is visible and does not block canvas tex
 });
 
 // fixme: fails in CI on current main: Timeoutlocator.click: Timeout 15000ms exceeded.
-test.fixme("adding an opacity track saves one managed motion style for that button and reopens with its keyframes", async ({
+test("adding an opacity track saves one managed motion style for that button and reopens with its keyframes", async ({
   app,
   page,
 }) => {
@@ -491,33 +535,31 @@ test.fixme("adding an opacity track saves one managed motion style for that butt
 
     expect(request.postDataJSON().includeContent).toBe(false);
     expect(managedMotionCss(await app.savedHtml(id))).toStrictEqual([
-      EXPECTED_ALPHA_OPACITY_CSS,
+      expectedAlphaOpacityCss(),
     ]);
     expectOnlyChanged(before, await app.savedNodes(id), []);
-    await expect(motionDock(page).getByLabel("Keyframe at 0ms")).toBeVisible();
-    await expect(
-      motionDock(page).getByLabel("Keyframe at 2000ms"),
-    ).toBeVisible();
+    await expect(opacitySpan(page)).toHaveAttribute(
+      "aria-valuetext",
+      "0ms – 500ms",
+    );
 
     await app.open(id);
     await openMotionDockFromMenu(page);
     await expect(
-      motionDock(page).getByRole("button", { name: "Alpha Button" }),
+      motionDock(page)
+        .getByRole("button", { name: "Alpha Button" })
+        .and(page.locator("[data-motion-select-layer]")),
     ).toBeVisible();
-    await expect(
-      motionDock(page).getByText("opacity", { exact: true }),
-    ).toBeVisible();
-    await expect(motionDock(page).getByLabel("Keyframe at 0ms")).toBeVisible();
-    await expect(
-      motionDock(page).getByLabel("Keyframe at 2000ms"),
-    ).toBeVisible();
+    await expect(opacitySpan(page)).toHaveAttribute(
+      "aria-valuetext",
+      "0ms – 500ms",
+    );
   } finally {
     await restoreLab();
   }
 });
 
-// fixme: fails on current main: #7436 moved Add motion from the Motion dock to the inspector, and this flow never reaches it; re-author for the new UI
-test.fixme("typing a 4000 ms duration in the Motion dock saves a 4s animation that reopens with its keyframe at 4000ms", async ({
+test("typing a 4000 ms animation duration saves a 4s animation that reopens spanning 4000ms", async ({
   app,
   page,
 }) => {
@@ -530,33 +572,35 @@ test.fixme("typing a 4000 ms duration in the Motion dock saves a 4s animation th
     await addOpacityTrack(page);
     await app.settled();
     expect(managedMotionCss(await app.savedHtml(id))).toStrictEqual([
-      EXPECTED_ALPHA_OPACITY_CSS,
+      expectedAlphaOpacityCss(),
     ]);
 
-    const duration = motionDock(page).getByLabel("Duration in ms");
+    await inspectorAnimations(page)
+      .getByRole("button", { name: "Opacity", exact: true })
+      .click();
+    const duration = page
+      .getByRole("dialog")
+      .getByLabel("Duration", { exact: true });
     await duration.fill("4000");
     await duration.press("Tab");
     await app.settled();
 
     await expect(duration).toHaveValue("4000");
     expect(managedMotionCss(await app.savedHtml(id))).toStrictEqual([
-      EXPECTED_ALPHA_OPACITY_CSS.replace(
-        "animation-duration: 2s;",
-        "animation-duration: 4s;",
-      ),
+      expectedAlphaOpacityCss(4000),
     ]);
     await app.open(id);
     await openMotionDockFromMenu(page);
-    await expect(
-      motionDock(page).getByLabel("Keyframe at 4000ms"),
-    ).toBeVisible();
+    await expect(opacitySpan(page)).toHaveAttribute(
+      "aria-valuetext",
+      "0ms – 4000ms",
+    );
   } finally {
     await restoreLab();
   }
 });
 
-// fixme: fails on current main: #7436 moved Add motion from the Motion dock to the inspector, and this flow never reaches it; re-author for the new UI
-test.fixme("turning the Motion lab off hides the dock for a design with a saved track and keeps the track", async ({
+test("turning the Motion lab off hides the dock for a design with a saved track and keeps the track", async ({
   app,
   page,
 }) => {
@@ -569,7 +613,7 @@ test.fixme("turning the Motion lab off hides the dock for a design with a saved 
     await addOpacityTrack(page);
     await app.settled();
     expect(managedMotionCss(await app.savedHtml(id))).toStrictEqual([
-      EXPECTED_ALPHA_OPACITY_CSS,
+      expectedAlphaOpacityCss(),
     ]);
 
     await setLab(page, DESIGN_MOTION_LAB.key, false);
@@ -587,7 +631,7 @@ test.fixme("turning the Motion lab off hides the dock for a design with a saved 
     await expect(motionDock(page)).toHaveCount(0);
     await app.settled();
     expect(managedMotionCss(await app.savedHtml(id))).toStrictEqual([
-      EXPECTED_ALPHA_OPACITY_CSS,
+      expectedAlphaOpacityCss(),
     ]);
   } finally {
     await restoreLab();

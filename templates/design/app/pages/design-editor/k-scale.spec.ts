@@ -176,7 +176,10 @@ describe("applyKScaleStyleChanges", () => {
           styles: { width: "72px" },
         },
       ]),
-    ).toMatchObject({ status: "failed", selector: expect.any(String) });
+    ).toEqual({
+      status: "unresolved",
+      selector: '[data-agent-native-node-id="missing"]',
+    });
   });
 
   it("rejects responsive vector endpoint writes before cleaning scoped source", () => {

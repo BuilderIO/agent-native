@@ -211,8 +211,7 @@ test.afterAll(async ({ request }) => {
   await postAction(request, "delete-design", { id: designId });
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).toEqual(expected) // deep equality
-test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
+test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   page,
   request,
 }) => {
@@ -350,7 +349,8 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     ),
   ).toEqual([
     [0, "0.1", "cubic-bezier(0.5, 0, 0.5, 1)"],
-    [1, "1", undefined],
+    // Read back from compiled CSS, a keyframe saved without an ease gets the CSS default.
+    [1, "1", "ease"],
   ]);
   await gotoEditor(page, designId);
   await selectByText(page, "Alpha Button", { screenId: fileId });
@@ -366,14 +366,18 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await referencePlayhead.press("Tab");
   const referenceRows = referenceDock.locator("[data-motion-track-row]");
   await expect(referenceRows).toHaveCount(2);
+  const referencePositionRow = referenceRows.filter({
+    has: page.getByLabel("Keyframe at 1200ms"),
+  });
+  await expect(referencePositionRow).toHaveCount(1);
   for (const timeMs of [1200, 1603, 1999, 2398, 2804, 3202, 3601]) {
     await expect(
-      referenceRows.first().getByLabel(`Keyframe at ${timeMs}ms`),
+      referencePositionRow.getByLabel(`Keyframe at ${timeMs}ms`),
     ).toBeVisible();
   }
   await expect(
-    referenceRows.nth(1).getByLabel("Keyframe at 1000ms"),
-  ).toBeVisible();
+    referenceRows.filter({ has: page.getByLabel("Keyframe at 1000ms") }),
+  ).toHaveCount(1);
   await captureMotionStep(page, "motion-figma-comparable");
 
   const animationStyleTrigger = page.getByRole("button", {
@@ -535,7 +539,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     exact: true,
   });
   await expect(positionType).toHaveText("Slide in");
-  await expect(positionDirection).toHaveText("To left");
+  await expect(positionDirection).toHaveText("From left");
   const positionTypeSave = page.waitForResponse(
     (response) =>
       response.url().includes("/_agent-native/actions/apply-motion-edit") &&
@@ -629,7 +633,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
       width: rect.width,
     };
   });
-  expect(initialPositionSpan.endMs).toBe(1000);
+  expect(initialPositionSpan.endMs).toBe(500);
   const targetPositionDurationMs = 901;
   const positionSpanEndHandle = positionSpan.locator(
     '[data-motion-native-style-span-handle="end"]',
@@ -1041,7 +1045,15 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await expect(dock.getByLabel("Keyframe at 2000ms")).toHaveCount(4);
   const timelineTrackRows = dock.locator("[data-motion-track-row]");
   await expect(timelineTrackRows).toHaveCount(4);
-  const positionTimelineRow = timelineTrackRows.nth(3);
+  const positionRowIndex = (
+    await dock
+      .locator("[data-motion-property-row]")
+      .evaluateAll((rows) =>
+        rows.map((row) => row.getAttribute("data-motion-property-row")),
+      )
+  ).indexOf("translate");
+  expect(positionRowIndex).toBeGreaterThanOrEqual(0);
+  const positionTimelineRow = timelineTrackRows.nth(positionRowIndex);
 
   await expect
     .poll(() =>

@@ -82,7 +82,7 @@ describe("AutoLayoutMatrix", () => {
     );
 
     expect(markup).toMatch(
-      /data-inspector-layout="pair-flow"[^>]*>[\s\S]*?data-inspector-span="13"[\s\S]*?data-inspector-span="13"/,
+      /data-inspector-layout="action-pair"[^>]*>[\s\S]*?data-inspector-span="11"[\s\S]*?data-inspector-span="1"[\s\S]*?data-inspector-span="11"[\s\S]*?aria-label="Gap"/,
     );
     expect(markup).toMatch(
       /<input(?=[^>]*aria-label="Gap")(?=[^>]*class="[^"]*h-6[^"]*")[^>]*>/,
@@ -269,7 +269,7 @@ describe("AutoLayoutMatrix", () => {
     }
   });
 
-  it("keeps the flex alignment and gap row on the canonical pair geometry", () => {
+  it("keeps the flex alignment and gap row on the action-pair geometry", () => {
     const markup = renderToStaticMarkup(
       createElement(AutoLayoutMatrix, {
         value,
@@ -283,9 +283,10 @@ describe("AutoLayoutMatrix", () => {
       }),
     );
 
-    expect(markup).toContain('data-inspector-layout="pair-flow"');
-    expect(markup.match(/data-inspector-span="13"/g)).toHaveLength(2);
-    expect(markup).not.toContain('data-inspector-span="14"');
+    expect(markup).not.toContain('data-inspector-layout="pair-flow"');
+    expect(markup).toMatch(
+      /data-inspector-layout="action-pair"[^>]*>(?:(?!data-inspector-layout=)[\s\S])*?aria-label="Gap"(?:(?!data-inspector-layout=)[\s\S])*?aria-label="Advanced gap settings"/,
+    );
     expect(markup).toContain("w-full max-w-[92px]");
   });
 });

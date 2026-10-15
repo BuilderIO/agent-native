@@ -889,6 +889,11 @@ function layerCanShowBadge(node: LayersPanelNode) {
   );
 }
 
+// autoFocus would scroll the Layers tree to the input.
+function focusRenameInput(input: HTMLInputElement | null) {
+  input?.focus({ preventScroll: true });
+}
+
 function clampScreenSectionHeight(nextHeight: number, panelHeight: number) {
   const maxHeight = panelHeight > 0 ? panelHeight * 0.3 : nextHeight;
   const minHeight = Math.min(96, maxHeight);
@@ -1739,8 +1744,8 @@ export function LayerRowIndentSlots({
           key={index}
           data-layer-row-indent
           className={cn(
-            "flex h-full items-center",
-            fit ? "min-w-0 max-w-6 flex-[1_1_24px]" : "w-6 shrink-0",
+            "flex h-full w-6 items-center",
+            fit ? "min-w-0 shrink" : "shrink-0",
             fit && index === count - 1 && "min-w-4",
             index === count - 1 ? "justify-start" : "justify-center",
           )}
@@ -1909,7 +1914,7 @@ const LayerRow = memo(function LayerRow({
   };
 
   const handleDragStart = (event: DragEvent<HTMLDivElement>) => {
-    if (!draggable) {
+    if (!draggable || activeIconToggleDrag) {
       event.preventDefault();
       return;
     }
@@ -2244,7 +2249,7 @@ const LayerRow = memo(function LayerRow({
               {isRenaming ? (
                 <input
                   data-layer-row-name
-                  autoFocus
+                  ref={focusRenameInput}
                   value={renameDraft}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => onRenameDraftChange(event.target.value)}

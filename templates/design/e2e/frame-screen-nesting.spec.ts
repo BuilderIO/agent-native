@@ -191,8 +191,7 @@ test("after choosing Frame in the frame menu, pressing F again still draws board
   expect(await filenames(app, id)).toEqual(files);
 });
 
-// fixme: fails on current main after the merge: Error: saved design has no __board__.html
-test.fixme("Screen mode draws one new top-level screen at the dragged box and no board frame", async ({
+test("Screen mode draws one new top-level screen at the dragged box and no board frame", async ({
   app,
 }) => {
   const { id, screenId } = await openScreenOnBoard(app);
@@ -240,8 +239,7 @@ test.fixme("Screen mode draws one new top-level screen at the dragged box and no
   );
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).toEqual(expected) // deep equality
-test.fixme("after drawing a board frame in the light theme, the board stays light grey and the screen stays painted", async ({
+test("after drawing a board frame in the light theme, the board stays light grey and the screen stays painted", async ({
   app,
 }) => {
   await app.page.emulateMedia({ colorScheme: "light" });
@@ -374,8 +372,7 @@ test("a board frame dropped onto a larger board frame nests in it with its centr
   expectOnlyChanged(before, after, [source.id]);
 });
 
-// fixme: product bug: Position and ownership are correct, but the frame is painted behind the locked screen. The pixel at its centre is the screen's blue
-test.fixme("a board frame released over a locked screen stays on the board at the release point, painted above the screen", async ({
+test("a board frame released over a locked screen stays on the board at the release point, painted above the screen", async ({
   app,
 }) => {
   const { id } = await openScreenOnBoard(app);
@@ -424,8 +421,7 @@ test.fixme("a board frame released over a locked screen stays on the board at th
   ).toEqual(WHITE);
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toBeVisible() failed
-test.fixme("R on the board draws a #D9D9D9 rectangle at the dragged box", async ({
+test("R on the board draws a #D9D9D9 rectangle at the dragged box", async ({
   app,
 }) => {
   const { id } = await openScreenOnBoard(app);

@@ -197,14 +197,18 @@ export function writeBackVectorEditedPenPath(
     }
 
     svg.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
-    svg.setAttribute(
-      "viewBox",
-      `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
-    );
-    svg.style.left = `${oldLeft + geometry.x - oldViewBox.x}px`;
-    svg.style.top = `${oldTop + geometry.y - oldViewBox.y}px`;
-    svg.style.width = `${Math.max(1, geometry.width)}px`;
-    svg.style.height = `${Math.max(1, geometry.height)}px`;
+    if (svg.getAttribute("data-an-primitive") === "pasted-svg") {
+      svg.style.overflow = "visible";
+    } else {
+      svg.setAttribute(
+        "viewBox",
+        `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
+      );
+      svg.style.left = `${oldLeft + geometry.x - oldViewBox.x}px`;
+      svg.style.top = `${oldTop + geometry.y - oldViewBox.y}px`;
+      svg.style.width = `${Math.max(1, geometry.width)}px`;
+      svg.style.height = `${Math.max(1, geometry.height)}px`;
+    }
     if (strokeOverlay) svg.style.overflow = "visible";
     if (!isClosed && strokeOverlay && originalOverflow !== null) {
       const svgStyle = svg.style;
@@ -605,6 +609,21 @@ function clearRootLayerPosition(element: Element) {
   host.style.top = "";
   host.style.right = "";
   host.style.bottom = "";
+}
+
+const UNRENDERED_TAGS = new Set(["script", "style", "template"]);
+
+// A parent whose children are all absolutely placed is a free frame: a root pasted
+// into it stays absolute at the frame's origin, or it stretches as a block or paints
+// under its siblings.
+function placesChildrenFreely(parent: Element): boolean {
+  if (/flex|grid/.test(styleHost(parent)?.style.display ?? "")) return false;
+  return Array.from(parent.children)
+    .filter((child) => !UNRENDERED_TAGS.has(child.tagName.toLowerCase()))
+    .every((child) => {
+      const position = styleHost(child)?.style.position;
+      return position === "absolute" || position === "fixed";
+    });
 }
 
 export function preserveClipboardLayerName(
@@ -1164,6 +1183,8 @@ export function prepareClonedHtmlLayer(
   reservedNodeIds: Set<string> | null = null,
   componentContext?: ComponentCloneContext,
   preserveIncomingNodeIds = false,
+  // Ids the destination already uses; without it every authored id is rewritten.
+  takenAuthoredIds?: ReadonlySet<string>,
 ): {
   element: Element;
   rootNodeId: string;
@@ -1245,7 +1266,11 @@ export function prepareClonedHtmlLayer(
     );
   }
   if (!preserveIncomingNodeIds) {
-    reassignClonedAuthoredIds(clone, () => uniqueLayerId("copy-id"));
+    reassignClonedAuthoredIds(
+      clone,
+      () => uniqueLayerId("copy-id"),
+      takenAuthoredIds && ((id) => takenAuthoredIds.has(id)),
+    );
     reassignClonedSourceIdentity(clone, () => uniqueLayerId("copy-child"));
   }
   for (const element of [clone, ...Array.from(clone.querySelectorAll("*"))]) {
@@ -1606,27 +1631,6 @@ export function insertClonedHtmlLayers(
           ...(options.additionalReservedNodeIds ?? []),
         ])
       : null;
-    layerHtmls.forEach((layerHtml, index) => {
-      const prepared = prepareClonedHtmlLayer(
-        doc,
-        layerHtml,
-        options.styleSnapshots?.[index],
-        reservedNodeIds,
-        componentContextForLayer(content, options.componentLinks, index),
-      );
-      if (!prepared) return;
-      const position = options.positions?.[index];
-      if (position) {
-        if (!setRootLayerPosition(prepared.element, position)) return;
-      } else if (options.stripRootPosition) {
-        clearRootLayerPosition(prepared.element);
-      }
-      rootNodeIds.push(prepared.rootNodeId);
-      prepared.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
-      fragment.appendChild(prepared.element);
-    });
-    if (rootNodeIds.length !== layerHtmls.length) return null;
-
     const target = queryFirstSelector(doc, options.targetSelectors ?? []);
     const anchor =
       queryFirstSelector(doc, options.anchorSelectors ?? []) ?? target;
@@ -1636,6 +1640,42 @@ export function insertClonedHtmlLayers(
         ? anchor
         : anchor.parentElement
       : null;
+    const keepRootAbsolute = parent ? placesChildrenFreely(parent) : false;
+    const takenAuthoredIds = new Set(
+      Array.from(doc.querySelectorAll("[id]"), (element) => element.id),
+    );
+    layerHtmls.forEach((layerHtml, index) => {
+      const prepared = prepareClonedHtmlLayer(
+        doc,
+        layerHtml,
+        options.styleSnapshots?.[index],
+        reservedNodeIds,
+        componentContextForLayer(content, options.componentLinks, index),
+        false,
+        takenAuthoredIds,
+      );
+      if (!prepared) return;
+      [prepared.element, ...prepared.element.querySelectorAll("[id]")].forEach(
+        (element) => takenAuthoredIds.add(element.id),
+      );
+      const position = options.positions?.[index];
+      if (position) {
+        if (!setRootLayerPosition(prepared.element, position)) return;
+      } else if (options.stripRootPosition) {
+        clearRootLayerPosition(prepared.element);
+        if (keepRootAbsolute) {
+          styleHost(prepared.element)?.style.setProperty(
+            "position",
+            "absolute",
+          );
+        }
+      }
+      rootNodeIds.push(prepared.rootNodeId);
+      prepared.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
+      fragment.appendChild(prepared.element);
+    });
+    if (rootNodeIds.length !== layerHtmls.length) return null;
+
     if (parent) {
       const projection = buildCodeLayerProjection(content);
       const parentId = parent.getAttribute("data-agent-native-node-id");

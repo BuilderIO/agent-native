@@ -423,6 +423,7 @@ export interface UndoArgs {
   ) => boolean;
   canEditDesign: boolean;
   allowPendingLiveEdits?: boolean;
+  captureCurrentSelection: () => GeometryHistorySelection;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
   codeLayerOwnerByNodeIdRef: RefObject<
@@ -587,6 +588,7 @@ export function runUndo({
   applyDesignDataHistoryChanges,
   canEditDesign,
   allowPendingLiveEdits,
+  captureCurrentSelection,
   clipboardPasteRedoStackRef,
   clipboardPasteUndoStackRef,
   codeLayerOwnerByNodeIdRef,
@@ -1152,6 +1154,10 @@ export function runUndo({
       contentReplayRefused = true;
       return false;
     }
+    // Captured before the replay, so its sources are the content redo restores.
+    const selectionAfter =
+      contentHistorySelectionAfterRef.current.get(entry) ??
+      captureCurrentSelection();
     const acceptedContents = new Map<string, string>();
     let replayAccepted = true;
     suppressContentHistoryRef.current = true;
@@ -1226,9 +1232,7 @@ export function runUndo({
       replayedChanges,
       linkedComponent,
     )!;
-    const stampedAfter = contentHistorySelectionAfterRef.current.get(entry);
-    if (stampedAfter)
-      contentHistorySelectionAfterRef.current.set(appliedEntry, stampedAfter);
+    contentHistorySelectionAfterRef.current.set(appliedEntry, selectionAfter);
     contentRedoStackRef.current = [
       ...contentRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
       appliedEntry,

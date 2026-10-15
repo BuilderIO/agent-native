@@ -222,7 +222,12 @@ function createAgentNativeAgentKitTransport(
           [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
         });
       }
-      return fetchImpl(input, init);
+      return fetchImpl(
+        url.includes("absent=typed")
+          ? url.replace(/[?&]absent=typed$/, "")
+          : input,
+        init,
+      );
     }) as typeof fetch,
   });
 }
@@ -765,6 +770,48 @@ describe("createAgentNativeAgentKitTransport", () => {
     );
     expect(JSON.parse(savedThreadData ?? "{}").agentKit.messages).toEqual([
       expect.objectContaining({ id: "prompt-1", role: "user" }),
+    ]);
+  });
+
+  it("creates a thread its first run has not saved from the typed absent read, without a 404", async () => {
+    const requests: Array<{ url: string; method: string }> = [];
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        requests.push({ url, method });
+        if (url.includes("/_agent-native/agent-engine/status")) {
+          return json({ configured: true, chatEligible: true });
+        }
+        if (method === "GET") return json({ absent: true });
+        if (method === "POST") {
+          return json({ id: "unsaved", title: "", threadData: "{}" });
+        }
+        return json({ ok: true });
+      },
+    );
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "unsaved",
+      snapshot: {
+        id: "unsaved",
+        createdAt: "2026-10-14T00:00:00.000Z",
+        updatedAt: "2026-10-14T00:00:00.000Z",
+        messages: [],
+      },
+    });
+
+    expect(requests.filter(({ url }) => url.includes("/threads"))).toEqual([
+      {
+        url: "/_agent-native/agent-chat/threads/unsaved?absent=typed",
+        method: "GET",
+      },
+      { url: "/_agent-native/agent-chat/threads", method: "POST" },
+      { url: "/_agent-native/agent-chat/threads/unsaved", method: "PUT" },
     ]);
   });
 

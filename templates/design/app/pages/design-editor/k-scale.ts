@@ -12,6 +12,7 @@ import {
 
 export type KScaleStylePatchResult =
   | { status: "applied"; content: string }
+  | { status: "unresolved"; selector: string }
   | { status: "failed"; selector: string; reason: string };
 
 export function applyKScaleStyleChanges(
@@ -39,11 +40,7 @@ export function applyKScaleStyleChanges(
       change.sourceId,
     );
     if (resolved.status !== "resolved") {
-      return {
-        status: "failed",
-        selector: change.selector,
-        reason: resolved.status,
-      };
+      return { status: "unresolved", selector: change.selector };
     }
     for (const [property, value] of Object.entries(change.styles)) {
       batchEdits.push({
@@ -89,11 +86,7 @@ export function applyKScaleStyleChanges(
       change.sourceId,
     );
     if (resolved.status !== "resolved") {
-      return {
-        status: "failed",
-        selector: change.selector,
-        reason: resolved.status,
-      };
+      return { status: "unresolved", selector: change.selector };
     }
 
     for (const [property, value] of Object.entries(change.styles)) {

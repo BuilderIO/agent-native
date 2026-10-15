@@ -195,6 +195,22 @@ async function openWithBoardIdentity(app: App, designId: string) {
     .toBe(true);
 }
 
+/** The longhands a style parses to, so equal declarations match however they were serialized. */
+async function parsedStyle(page: Page, style: Record<string, string>) {
+  return page.evaluate((declarations) => {
+    const probe = document.createElement("div");
+    for (const [property, value] of Object.entries(declarations)) {
+      probe.style.setProperty(property, value);
+    }
+    return Object.fromEntries(
+      Array.from(probe.style, (property) => [
+        property,
+        probe.style.getPropertyValue(property),
+      ]),
+    );
+  }, style);
+}
+
 function px(value: string | undefined) {
   return Number.parseFloat(value ?? "NaN");
 }
@@ -268,8 +284,7 @@ test("Frame Selection wraps two board frames in one frame at their union bounds,
   expectOnlyChanged(wrapped, await app.savedNodes(id, BOARD), []);
 });
 
-// fixme: product bug: Minor source cruft: Remove fill keeps background: rgb(255,255,255) and adds background-color: transparent (line 229); renders correctly.
-test.fixme("removing a board frame's fill in the inspector saves it without a background and changes nothing else", async ({
+test("removing a board frame's fill in the inspector saves it without a background and changes nothing else", async ({
   app,
 }) => {
   const id = await app.seed(BLANK_SCREEN("Home"));
@@ -302,8 +317,7 @@ test.fixme("removing a board frame's fill in the inspector saves it without a ba
   expectOnlyChanged(before, after, [frame.id]);
 });
 
-// fixme: product bug: Copy lands as a flow child at Home's top-left (no position/left/top) and its style is rewritten to computed longhands (background 'none
-test.fixme("Option-dragging a component instance onto another screen drops a copy at the cursor and leaves the source screen untouched", async ({
+test("Option-dragging a component instance onto another screen drops a copy at the cursor and leaves the source screen untouched", async ({
   app,
 }) => {
   const id = await app.seed(BLANK_SCREEN("Home"), {
@@ -343,11 +357,13 @@ test.fixme("Option-dragging a component instance onto another screen drops a cop
   );
   expect(copies).toHaveLength(1);
   expect(homeAfter.get(copies[0].parent!)?.tag).toBe("body");
-  expect(styleOf(copies[0])).toEqual({
-    ...styleOf(navBefore.get("nav-root")),
-    left: "100px",
-    top: "180px",
-  });
+  expect(await parsedStyle(app.page, styleOf(copies[0]))).toEqual(
+    await parsedStyle(app.page, {
+      ...styleOf(navBefore.get("nav-root")),
+      left: "100px",
+      top: "180px",
+    }),
+  );
   expectOnlyChanged(
     homeBefore,
     homeAfter,
@@ -356,8 +372,7 @@ test.fixme("Option-dragging a component instance onto another screen drops a cop
   expectOnlyChanged(navBefore, await app.savedNodes(id, "nav.html"), []);
 });
 
-// fixme: product bug: No wrapper: Shift+A re-applies auto layout to the nav itself, overwriting padding '12px 24px' with '12px' and stamping
-test.fixme("Shift+A on an element that already has auto layout wraps it in a new auto-layout frame without changing its own layout", async ({
+test("Shift+A on an element that already has auto layout wraps it in a new auto-layout frame without changing its own layout", async ({
   app,
 }) => {
   const id = await app.seed(PAGE_WITH_NAV);
@@ -392,8 +407,7 @@ test.fixme("Shift+A on an element that already has auto layout wraps it in a new
   expectOnlyChanged(before, after, ["nav", wrapperId]);
 });
 
-// fixme: product bug, intermittent: after a screen duplicate the editor POSTs collab awareness to a stale room and gets 404
-test.fixme("step 5 [overview, screens as top-level frames]: Cmd+D finds free slots, stacks above the source, and groups undo/redo", async ({
+test("step 5 [overview, screens as top-level frames]: Cmd+D finds free slots, stacks above the source, and groups undo/redo", async ({
   app,
 }) => {
   const id = await app.seed(NAV_SCREEN, {
@@ -507,8 +521,7 @@ test.fixme("step 5 [overview, screens as top-level frames]: Cmd+D finds free slo
     .toStrictEqual([redoneId]);
 });
 
-// fixme: product bug, intermittent: after a screen duplicate the editor GETs collab state and POSTs awareness to a stale room and gets 404
-test.fixme("step 5 [overview, multi-selection]: Cmd+D duplicates every selected screen in one undo step", async ({
+test("step 5 [overview, multi-selection]: Cmd+D duplicates every selected screen in one undo step", async ({
   app,
 }) => {
   const id = await app.seed(BLANK_SCREEN("Source"), {
@@ -646,8 +659,27 @@ test("dragging Bio above Skills in the Layers panel reorders the saved children 
   ]).toEqual([200, 320]);
 });
 
-// fixme: product bug: The editor switches to Home at 100% with a blank canvas for 14s and selects the Home screen, not the main instance (line 491: selected
-test.fixme("'Go to main component' on a later instance selects the earliest instance on its screen", async ({
+/** The selected Layers row's name and the Screen row it is listed under. */
+function selectedRowPlace(page: Page) {
+  return page.evaluate(() => {
+    const rows = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+    );
+    const selected = rows.findIndex(
+      (row) => row.getAttribute("aria-selected") === "true",
+    );
+    const screen = rows
+      .slice(0, selected)
+      .reverse()
+      .find((row) => row.getAttribute("aria-level") === "1");
+    return {
+      screen: screen?.innerText.trim(),
+      layer: rows[selected]?.innerText.trim(),
+    };
+  });
+}
+
+test("'Go to main component' on a later instance selects the earliest instance on its screen", async ({
   app,
 }) => {
   const id = await app.seed(NAV_SCREEN, {
@@ -667,11 +699,9 @@ test.fixme("'Go to main component' on a later instance selects the earliest inst
 
   await app.page.getByRole("button", { name: "Go to main component" }).click();
 
-  await expect(
-    app.page.locator(
-      '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
-    ),
-  ).toHaveAttribute("data-layer-node-id", "nav-root");
+  await expect
+    .poll(() => selectedRowPlace(app.page), "the main on Home is selected")
+    .toEqual({ screen: "Home", layer: "Navigation" });
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
   await app.settled();
   expect((await app.savedRecord(id)).files).toEqual(before.files);

@@ -193,6 +193,40 @@ export function mergeComponentSwapOverrides(
   return { markup, overriddenProps, droppedProps, defaultedProps };
 }
 
+const INSTANCE_PLACEMENT_PROPERTIES = [
+  "position",
+  "left",
+  "top",
+  "right",
+  "bottom",
+] as const;
+
+export function keepInstancePlacement(
+  markup: string,
+  instanceStyle: CodeLayerNode["style"],
+): string {
+  const openTag = markup.slice(0, findOpenTagEnd(markup));
+  const authoredStyle =
+    /\sstyle\s*=\s*(["'])([\s\S]*?)\1/i.exec(openTag)?.[2] ?? "";
+  const placement = INSTANCE_PLACEMENT_PROPERTIES.flatMap((property) => {
+    const value = instanceStyle[property];
+    return value ? [`${property}:${value}`] : [];
+  });
+  const rest = authoredStyle
+    .split(";")
+    .filter((declaration) => {
+      const property = declaration.split(":")[0]!.trim().toLowerCase();
+      return (
+        property !== "" &&
+        !(INSTANCE_PLACEMENT_PROPERTIES as readonly string[]).includes(property)
+      );
+    })
+    .map((declaration) => declaration.trim());
+  const style = [...placement, ...rest].join(";");
+  if (style === authoredStyle) return markup;
+  return setAttributeOnMarkup(markup, "style", style);
+}
+
 async function persistEdit(file: {
   id: string;
   designId: string;
@@ -485,7 +519,7 @@ export default defineAction({
 
     const patchedContent =
       html.slice(0, node.source.start) +
-      mergedMarkup +
+      keepInstancePlacement(mergedMarkup, node.style) +
       html.slice(node.source.end);
 
     if (patchedContent === html) {

@@ -212,6 +212,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     new Map(),
   );
   const renderedElementInfoRevisionRef = useRef(0);
+  const [renderedElementInfoVersion, setRenderedElementInfoVersion] =
+    useState(0);
   const rehydrateRenderedElementInfoRef = useRef<(() => void) | null>(null);
   const renderedInfoRehydratePendingRef = useRef(false);
   const invalidateRenderedElementInfo = useCallback(() => {
@@ -817,6 +819,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
 
   const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);
   const selectionRedoStackRef = useRef<SelectionHistoryEntry[]>([]);
+  const selectionPushedAtRef = useRef(0);
+  const dragStartSelectionRef = useRef<SelectionHistoryEntry | null>(null);
   const clearRedoStacks = useCallback(() => {
     contentRedoStackRef.current = [];
     contentRedoSelectionStackRef.current = [];
@@ -843,7 +847,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const historySourceReaderRef = useRef<(screenId: string) => string>(() => {
     throw new Error("History source reader is not initialized");
   });
-  const captureCurrentSelection = (): GeometryHistorySelection => {
+  const captureCurrentSelection = useCallback((): GeometryHistorySelection => {
     recordDesignPerformance("captureCurrentSelection");
     return captureHistorySelectionFromOwners(
       {
@@ -857,7 +861,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       codeLayerOwnerByNodeIdRef.current,
       (screenId) => historySourceReaderRef.current(screenId),
     );
-  };
+  }, []);
   // Runs after every history push; same-value sets right after a commit still
   // re-render the whole editor, so only real changes are published.
   const publishedUndoRedoRef = useRef({ canUndo: false, canRedo: false });
@@ -990,6 +994,23 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
           redoOrderRef.current,
           "content",
         );
+      }
+      const dragStartSelection = dragStartSelectionRef.current;
+      dragStartSelectionRef.current = null;
+      if (
+        dragStartSelection &&
+        historyOrderRef.current[historyOrderRef.current.length - 1] ===
+          "selection" &&
+        selectionUndoStackRef.current[
+          selectionUndoStackRef.current.length - 1
+        ] === dragStartSelection
+      ) {
+        // The selection a drag's pointerdown made belongs to that drag's step.
+        selectionUndoStackRef.current = selectionUndoStackRef.current.slice(
+          0,
+          -1,
+        );
+        historyOrderRef.current = historyOrderRef.current.slice(0, -1);
       }
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -1313,6 +1334,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     selectedScreenStyleChangeRef,
     renderedElementInfoByLayerKeyRef,
     renderedElementInfoRevisionRef,
+    renderedElementInfoVersion,
+    setRenderedElementInfoVersion,
     rehydrateRenderedElementInfoRef,
     invalidateRenderedElementInfo,
     rehydrateRenderedInfoAfterPreview,
@@ -1389,6 +1412,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     redoOrderRef,
     selectionUndoStackRef,
     selectionRedoStackRef,
+    selectionPushedAtRef,
+    dragStartSelectionRef,
     clearRedoStacks,
     clearPendingHistoryDirections,
     historySourceReaderRef,

@@ -336,6 +336,64 @@ function deepestFrameContaining(
     : null;
 }
 
+/** Later siblings paint over earlier ones; z-index is ignored. */
+function topmostBoxContaining(
+  root: Element,
+  x: number,
+  y: number,
+): Element | null {
+  let topmost: Element | null = null;
+  for (const element of Array.from(root.querySelectorAll("*"))) {
+    const rect = absoluteRect(element);
+    if (
+      rect &&
+      x >= rect.x &&
+      y >= rect.y &&
+      x <= rect.x + rect.w &&
+      y <= rect.y + rect.h
+    ) {
+      topmost = element;
+    }
+  }
+  return topmost;
+}
+
+export interface LayerSize {
+  width: number;
+  height: number;
+}
+
+/** A drawn frame adopts the absolutely placed host children it fully encloses, keeping them in place. */
+function adoptEnclosedLayers(
+  host: Element,
+  frame: HTMLElement,
+  box: { left: number; top: number; width: number; height: number },
+  liveLayerSizes: ReadonlyMap<string, LayerSize> | undefined,
+) {
+  if (!liveLayerSizes?.size) return;
+  const border = inlineBorderInset(frame);
+  for (const child of Array.from(host.children)) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    const size = id ? liveLayerSizes.get(id) : undefined;
+    const style = (child as HTMLElement).style;
+    if (!size || style.position !== "absolute") continue;
+    if (!style.left.endsWith("px") || !style.top.endsWith("px")) continue;
+    const left = Number.parseFloat(style.left);
+    const top = Number.parseFloat(style.top);
+    if (
+      left < box.left ||
+      top < box.top ||
+      left + size.width > box.left + box.width ||
+      top + size.height > box.top + box.height
+    ) {
+      continue;
+    }
+    style.left = `${left - box.left - border.x}px`;
+    style.top = `${top - box.top - border.y}px`;
+    frame.appendChild(child);
+  }
+}
+
 export function canvasPrimitiveInsertionHostNodeId(
   content: string,
   primitive: CanvasPrimitiveInsert,
@@ -370,6 +428,7 @@ export function appendCanvasPrimitiveToHtml(
     isBoardTarget?: boolean;
     positioning?: "absolute" | "flow";
     boardBackground?: string | null;
+    liveLayerSizes?: ReadonlyMap<string, LayerSize>;
   },
 ): string | null {
   if (typeof window === "undefined") return null;
@@ -537,22 +596,19 @@ export function appendCanvasPrimitiveToHtml(
             height: pathViewBoxHeight,
           }
         : { left: hostLeft, top: hostTop, width, height };
-      svg.setAttribute(
-        "style",
-        [
-          "position:absolute",
-          `left:${box.left}px`,
-          `top:${box.top}px`,
-          `width:${box.width}px`,
-          `height:${box.height}px`,
-          "overflow:visible",
-          `${VECTOR_START_ENDPOINT_PROPERTY}:${endpoints.startPoint}`,
-          `${VECTOR_END_ENDPOINT_PROPERTY}:${endpoints.endPoint}`,
-          geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
-        ]
-          .filter(Boolean)
-          .join(";"),
-      );
+      svg.style.cssText = [
+        "position:absolute",
+        `left:${box.left}px`,
+        `top:${box.top}px`,
+        `width:${box.width}px`,
+        `height:${box.height}px`,
+        "overflow:visible",
+        `${VECTOR_START_ENDPOINT_PROPERTY}:${endpoints.startPoint}`,
+        `${VECTOR_END_ENDPOINT_PROPERTY}:${endpoints.endPoint}`,
+        geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
+      ]
+        .filter(Boolean)
+        .join(";");
       svg.appendChild(path);
       return finishPrimitive(svg);
     }
@@ -577,20 +633,17 @@ export function appendCanvasPrimitiveToHtml(
       svg.setAttribute("data-agent-native-layer-name", layerName);
       svg.setAttribute("data-an-primitive", primitive.kind);
       svg.setAttribute("preserveAspectRatio", "none");
-      svg.setAttribute(
-        "style",
-        [
-          "position:absolute",
-          `left:${hostLeft}px`,
-          `top:${hostTop}px`,
-          `width:${width}px`,
-          `height:${height}px`,
-          "overflow:visible",
-          geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
-        ]
-          .filter(Boolean)
-          .join(";"),
-      );
+      svg.style.cssText = [
+        "position:absolute",
+        `left:${hostLeft}px`,
+        `top:${hostTop}px`,
+        `width:${width}px`,
+        `height:${height}px`,
+        "overflow:visible",
+        geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
+      ]
+        .filter(Boolean)
+        .join(";");
       svg.appendChild(shapePath);
       updateCanvasPolygonSvgGeometry(svg, primitive.kind, width, height);
       return finishPrimitive(svg);
@@ -626,6 +679,12 @@ export function appendCanvasPrimitiveToHtml(
         element.style.border = `${primitive.strokeWidth ?? 1}px solid ${primitive.stroke ?? canonical.border.split(" ").slice(2).join(" ")}`;
       }
       element.style.overflow = "hidden";
+      adoptEnclosedLayers(
+        hostOrBody,
+        element,
+        { left: hostLeft, top: hostTop, width, height },
+        options?.liveLayerSizes,
+      );
     } else if (primitive.kind === "text") {
       element.textContent = primitive.text ?? "";
       element.style.display = primitive.autoSize ? "inline-block" : "flex";
@@ -638,8 +697,10 @@ export function appendCanvasPrimitiveToHtml(
               { color: options.boardBackground ?? null },
             ])
           : null;
-      const measuredIsLight =
-        options?.isBoardTarget === true && hostOrBody === doc.body
+      const boxUnderText = topmostBoxContaining(hostOrBody, left, top);
+      const measuredIsLight = boxUnderText
+        ? destinationBackgroundLightness(boxUnderText)
+        : options?.isBoardTarget === true && hostOrBody === doc.body
           ? null
           : destinationBackgroundLightness(hostOrBody);
       const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
