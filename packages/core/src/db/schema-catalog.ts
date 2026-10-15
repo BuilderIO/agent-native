@@ -166,18 +166,19 @@ export async function schemaFingerprint(
   return {
     tables: [...new Set(columns.map((c) => String(c.table_name)))].sort(),
     columns: columns
-      .map(
-        (c) =>
-          `${c.table_name}.${c.column_name} ${c.type}${
-            c.not_null === true || c.not_null === "t" ? " not null" : ""
-          }`,
-      )
+      .map((c) => {
+        const notNull = c.not_null === true || c.not_null === "t";
+        const identity = c.identity ? ` identity:${c.identity}` : "";
+        const defaultExpr =
+          c.default_expr != null ? ` default ${c.default_expr}` : "";
+        return `${c.table_name}.${c.column_name} ${c.type}${notNull ? " not null" : ""}${identity}${defaultExpr}`;
+      })
       .sort(),
     indexes: (await rows(exec, INDEXES_SQL))
-      .map((i) => `${i.table_name}.${i.name}`)
+      .map((i) => String(i.definition))
       .sort(),
     constraints: (await rows(exec, CONSTRAINTS_SQL))
-      .map((c) => `${c.table_name}.${c.name} ${c.kind}`)
+      .map((c) => `${c.table_name}.${c.name} ${c.definition}`)
       .sort(),
   };
 }

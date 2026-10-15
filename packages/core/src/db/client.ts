@@ -2432,6 +2432,9 @@ export function getDbExec(): DbExec {
       }
       const exec = await initializeProxy();
       if (!exec.atomicBatch) {
+        // The proxy is shared: record the missing capability so later feature
+        // detection takes the caller's fallback instead of this throw.
+        Object.assign(proxy, createInitializedProxy(exec));
         throw new Error("This database does not support atomic batches.");
       }
       const batch = async (items: typeof statements) => {

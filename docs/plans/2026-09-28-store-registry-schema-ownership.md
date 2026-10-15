@@ -435,11 +435,18 @@ cannot disagree. A local process with `releaseMigrations` set and a remote
 **Release verification and lock.** After applying, the release step reads
 the ledger once and compares it with every registered store
 (`findUnappliedStoreMigrations`); a disagreement throws and fails the deploy.
-The whole store pass runs under a lease row in `_an_store_migration_lock`, so
-two release steps against one database (a beta and production sharing a
-schema, a retried deploy) take turns. A lease row rather than
-`pg_advisory_lock`, because session locks do not survive transaction poolers
-such as Neon's; a crashed holder's lease expires after 15 minutes.
+The whole release (store pass, Better Auth and every versioned list) runs
+under a lease row in `_an_store_migration_lock`, so two release steps against
+one database (a beta and production sharing a schema, a retried deploy) take
+turns. A lease row rather than `pg_advisory_lock`, because session locks do
+not survive transaction poolers such as Neon's. The holder renews the lease
+every five minutes; a crashed holder's lease expires after 15. A failed unlock
+never masks the migration's own error.
+
+**Release-only stores.** `defineStore({ releaseOnly: true })` never provisions
+from a request, even in hosted apps that do not migrate at release. Identity
+SSO and workspace user groups use it, matching main, where both returned early
+on every hosted runtime.
 
 **Per-database state.** The ledger snapshot and every store's memo are keyed
 to the database client generation (`dbClientGeneration()`), which

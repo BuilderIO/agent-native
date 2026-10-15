@@ -341,6 +341,8 @@ function buildIdentitySsoJtiCreateSql(): string {
 
 export const identitySsoStore = defineStore({
   id: "identity_sso",
+  // Hosted requests never created these tables on main, release-owned or not.
+  releaseOnly: true,
   migrations: [
     {
       name: "baseline",

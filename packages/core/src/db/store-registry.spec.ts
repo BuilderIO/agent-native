@@ -193,7 +193,45 @@ describe("release lock", () => {
     expect(order).toEqual(["first:start", "first:end", "second"]);
   });
 
+  it("is reentrant within one release", async () => {
+    await expect(
+      withStoreMigrationLock(() =>
+        withStoreMigrationLock(async () => "nested", { timeoutMs: 100 }),
+      ),
+    ).resolves.toBe("nested");
+  });
+
+  it("renews the lease while the release runs", async () => {
+    await withStoreMigrationLock(
+      async () => {
+        const before = await getDbExec().execute(
+          "SELECT expires_at FROM _an_store_migration_lock WHERE id = 1",
+        );
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const after = await getDbExec().execute(
+          "SELECT expires_at FROM _an_store_migration_lock WHERE id = 1",
+        );
+        expect(Number(after.rows[0]?.expires_at)).toBeGreaterThan(
+          Number(before.rows[0]?.expires_at),
+        );
+      },
+      { leaseMs: 300 },
+    );
+  });
+
+  it("reports the migration's error when releasing the lease also fails", async () => {
+    await expect(
+      withStoreMigrationLock(async () => {
+        await getDbExec().execute("DROP TABLE _an_store_migration_lock");
+        throw new Error("migration failed");
+      }),
+    ).rejects.toThrow("migration failed");
+  });
+
   it("takes over a lease whose holder never released it", async () => {
+    await getDbExec().execute(
+      "CREATE TABLE IF NOT EXISTS _an_store_migration_lock (id INTEGER PRIMARY KEY, holder TEXT NOT NULL, expires_at BIGINT NOT NULL)",
+    );
     await getDbExec().execute(
       "UPDATE _an_store_migration_lock SET holder = 'crashed', expires_at = 0",
     );
@@ -225,6 +263,25 @@ describe("hosted runtime without release migrations", () => {
       });
       expect(recorded.rows).toEqual([]);
     }
+  });
+
+  it("never provisions a releaseOnly store from a request", async () => {
+    const table = `widgets_${++seq}`;
+    const store = defineStore({
+      id: table,
+      releaseOnly: true,
+      migrations: [
+        {
+          name: "baseline",
+          sql: `CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY)`,
+        },
+      ],
+    });
+    simulateHostedFunction({ releaseMigrations: false });
+
+    await store.ready();
+
+    expect(await tableExists(table)).toBe(false);
   });
 
   it("honors AGENT_NATIVE_SKIP_ENSURE_TABLES", async () => {

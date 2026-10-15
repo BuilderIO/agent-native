@@ -196,6 +196,8 @@ async function ensureWorkspaceUserGroupNameTrigger(
 
 export const workspaceUserGroupsStore = defineStore({
   id: "workspace_user_groups",
+  // Hosted requests never created these tables on main, release-owned or not.
+  releaseOnly: true,
   migrations: [
     {
       name: "baseline",

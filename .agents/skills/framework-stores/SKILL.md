@@ -47,6 +47,8 @@ Drizzle (see `storing-data`).
 - **Never swallow a failure inside a migration.** The ledger would record it as
   applied and it would never retry. Rethrow at release
   (`isMigrationAuthorizedRuntime()`), as `widenIntColumnsToBigInt` does.
+- **`releaseOnly: true`** for a store a request must never create, even in
+  hosted apps that do not migrate at release.
 - **Literal declaration.** Write `export const xStore = defineStore({ id:
   "snake_case_id", migrations: [...] })`; the generator only reads that form,
   and the guard fails on any other. Ids are permanent.

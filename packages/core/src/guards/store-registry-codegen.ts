@@ -5,7 +5,8 @@ import { readFileSafe, relPosix, walk } from "./scan-utils.js";
 export const STORE_REGISTRY_FILE = "src/db/store-registry.generated.ts";
 
 const DEFINE_STORE_RE =
-  /export\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*defineStore\(\s*\{\s*id:\s*"([^"]+)"/g;
+  /export\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*defineStore\s*\(\s*\{\s*id:\s*"([^"]+)"/g;
+const MENTIONS_DEFINE_STORE = /\bdefineStore\s*\(/;
 const SOURCE_EXTENSIONS = /\.(?:ts|tsx|mts|cts)$/i;
 const TEST_FILE = /\.(?:spec|test)\.(?:ts|tsx|mts|cts)$/i;
 
@@ -34,7 +35,7 @@ export function findUndiscoverableStores(coreDir: string): string[] {
       continue;
     }
     const source = readFileSafe(file);
-    if (source === null || !source.includes("defineStore(")) continue;
+    if (source === null || !MENTIONS_DEFINE_STORE.test(source)) continue;
     const code = source
       .replace(/\/\*[\s\S]*?\*\//g, " ")
       .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
@@ -55,7 +56,7 @@ export function discoverStores(coreDir: string): DiscoveredStore[] {
     }
     if (rel.startsWith("src/guards/")) continue;
     const source = readFileSafe(file);
-    if (source === null || !source.includes("defineStore(")) continue;
+    if (source === null || !MENTIONS_DEFINE_STORE.test(source)) continue;
     for (const match of source.matchAll(DEFINE_STORE_RE)) {
       stores.push({ exportName: match[1], id: match[2], file: rel });
     }

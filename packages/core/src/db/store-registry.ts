@@ -13,6 +13,7 @@
  * kept only for that.
  */
 
+import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 import { getDbExec, type DbExec } from "./client.js";
 import {
   appMigratesAtRelease,
@@ -60,6 +61,11 @@ export interface StoreMigration {
 
 export interface StoreDefinition {
   readonly id: string;
+  /**
+   * Never provision from a request, even for hosted apps that do not migrate
+   * at release: the release step (or a versioned list) is the only creator.
+   */
+  readonly releaseOnly?: boolean;
   /**
    * Append-only. Every entry must be idempotent: first runs can race. A
    * migration may only touch this store's own tables: stores apply in registry
@@ -277,17 +283,27 @@ const LOCK_TABLE = "_an_store_migration_lock";
 const LOCK_LEASE_MS = 15 * 60 * 1000;
 const LOCK_POLL_MS = 2_000;
 
+// Async context, not a counter: a second release running concurrently in the
+// same process must wait for the lease, not inherit it.
+const AsyncLocalStorageCtor = getAsyncLocalStorageCtor();
+const heldLock = AsyncLocalStorageCtor
+  ? new AsyncLocalStorageCtor<true>()
+  : undefined;
+
 /**
  * Serializes release steps against one database (a beta and production
- * pointed at the same schema, or a retried deploy). A lease row, not
- * `pg_advisory_lock`: session locks do not survive transaction poolers such as
- * Neon's, where the lock and unlock can land on different connections. A
- * crashed holder's lease expires.
+ * pointed at the same schema, or a retried deploy) for the whole release, not
+ * just the store pass. A lease row, not `pg_advisory_lock`: session locks do
+ * not survive transaction poolers such as Neon's, where the lock and unlock
+ * can land on different connections. The holder renews the lease while it
+ * runs; a crashed holder's lease expires. Reentrant within a process, so the
+ * store pass can take it inside a release that already holds it.
  */
 export async function withStoreMigrationLock<T>(
   run: () => Promise<T>,
   options: { leaseMs?: number; pollMs?: number; timeoutMs?: number } = {},
 ): Promise<T> {
+  if (heldLock?.getStore()) return run();
   const leaseMs = options.leaseMs ?? LOCK_LEASE_MS;
   const pollMs = options.pollMs ?? LOCK_POLL_MS;
   const deadline = Date.now() + (options.timeoutMs ?? leaseMs);
@@ -315,14 +331,51 @@ export async function withStoreMigrationLock<T>(
     }
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
+
+  let lost: Error | undefined;
+  const renew = setInterval(
+    () => {
+      exec
+        .execute({
+          sql: `UPDATE ${LOCK_TABLE} SET expires_at = ? WHERE id = 1 AND holder = ?`,
+          args: [Date.now() + leaseMs, holder],
+        })
+        .then(({ rowsAffected }) => {
+          if (rowsAffected === 0) {
+            lost ??= new Error(
+              `Lost the release migration lease (${LOCK_TABLE}); another release step may have run concurrently.`,
+            );
+          }
+        })
+        .catch((err: unknown) => {
+          lost ??= err instanceof Error ? err : new Error(String(err));
+        });
+    },
+    Math.max(1, Math.floor(leaseMs / 3)),
+  );
+  (renew as { unref?: () => void }).unref?.();
+
+  let result: T;
   try {
-    return await run();
-  } finally {
-    await exec.execute({
-      sql: `DELETE FROM ${LOCK_TABLE} WHERE id = 1 AND holder = ?`,
-      args: [holder],
-    });
+    result = heldLock ? await heldLock.run(true, run) : await run();
+  } catch (err) {
+    clearInterval(renew);
+    // Report the migration's own error; a failed unlock only leaves a lease
+    // that expires.
+    await releaseLease(exec, holder).catch(() => {});
+    throw err;
   }
+  clearInterval(renew);
+  await releaseLease(exec, holder);
+  if (lost) throw lost;
+  return result;
+}
+
+async function releaseLease(exec: DbExec, holder: string): Promise<void> {
+  await exec.execute({
+    sql: `DELETE FROM ${LOCK_TABLE} WHERE id = 1 AND holder = ?`,
+    args: [holder],
+  });
 }
 
 export function defineStore(definition: StoreDefinition): Store {
@@ -354,6 +407,7 @@ export function defineStore(definition: StoreDefinition): Store {
   allPending.add(pending);
   const store: Store = {
     id,
+    releaseOnly: definition.releaseOnly,
     migrations,
     ready() {
       syncWithDatabaseGeneration();
@@ -364,7 +418,9 @@ export function defineStore(definition: StoreDefinition): Store {
         mode === "apply"
           ? applyWithLedger(store)
           : mode === "hosted-replay"
-            ? withMigrationExecutionRuntime(() => replay(store))
+            ? definition.releaseOnly
+              ? Promise.resolve()
+              : withMigrationExecutionRuntime(() => replay(store))
             : mode === "replay"
               ? replay(store)
               : Promise.resolve();
