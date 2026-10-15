@@ -370,8 +370,6 @@ export function semanticScopeForDictionaryEntry(
     entry.metric,
     entry.definition,
     entry.source,
-    entry.table,
-    entry.columnsUsed,
     entry.grain,
     entry.primaryEntity,
     entry.timeDimension,

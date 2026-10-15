@@ -250,6 +250,21 @@ describe("Analytics term matching", () => {
       }),
     ).toBe("product_activity");
     expect(
+      semanticScopeForDictionaryEntry({ columnsUsed: "root_org_id" }),
+    ).toBe("unknown");
+    expect(
+      semanticScopeForDictionaryEntry({
+        definition:
+          "A workspace membership relates an organization to members.",
+      }),
+    ).toBe("membership");
+    expect(
+      semanticScopeForDictionaryEntry({
+        columnsUsed: "root_org_id",
+        semanticScope: "membership",
+      }),
+    ).toBe("membership");
+    expect(
       semanticScopeForDictionaryEntry({
         metric: "weekly_active_builders",
         definition:

@@ -306,7 +306,7 @@ function SourceStatusRowView({
   const formatters = useFormatters();
   const actionLabel =
     row.status === "unknown"
-      ? null
+      ? t("dataSources.manage")
       : row.status === "needs-reauth"
         ? t("dataSources.reconnect")
         : row.status === "connected" ||

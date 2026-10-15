@@ -1,3 +1,5 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 import {
   AgentConnectionRequiredError,
   defineAction,
@@ -274,8 +276,9 @@ type DbtFailureState =
   | "empty_semantic_manifest"
   | "permission_denied";
 
-const METRIC_RESULT_CURSOR_PREFIX = "metric-results-v2.";
-const METRIC_RESULT_CURSOR_V3_PREFIX = "metric-results-v3.";
+const METRIC_RESULT_CURSOR_PREFIX = "metric-results-v4.";
+const METRIC_RESULT_CURSOR_SIGNING_CONTEXT =
+  "agent-native:analytics:dbt-semantic-layer:metric-results:v4:";
 
 type MetricResultCursor = {
   metricName: string;
@@ -288,19 +291,44 @@ type MetricResultCursor = {
   querySpec: MetricQuerySpec;
 };
 
-function encodeMetricResultCursor(cursor: MetricResultCursor): string {
-  return `${METRIC_RESULT_CURSOR_V3_PREFIX}${Buffer.from(JSON.stringify(cursor)).toString("base64url")}`;
+type DecodedMetricResultCursor = MetricResultCursor & {
+  encodedPayload: string;
+  signature: string;
+};
+
+function metricResultCursorSignature(payload: string, token: string): Buffer {
+  return createHmac("sha256", token)
+    .update(`${METRIC_RESULT_CURSOR_SIGNING_CONTEXT}${payload}`)
+    .digest();
 }
 
-function decodeMetricResultCursor(value: string): MetricResultCursor | null {
-  const prefix = value.startsWith(METRIC_RESULT_CURSOR_V3_PREFIX)
-    ? METRIC_RESULT_CURSOR_V3_PREFIX
-    : value.startsWith(METRIC_RESULT_CURSOR_PREFIX)
-      ? METRIC_RESULT_CURSOR_PREFIX
-      : null;
-  if (!prefix) return null;
+function encodeMetricResultCursor(
+  cursor: MetricResultCursor,
+  token: string,
+): string {
+  const payload = Buffer.from(JSON.stringify(cursor)).toString("base64url");
+  const signature = metricResultCursorSignature(payload, token).toString(
+    "base64url",
+  );
+  return `${METRIC_RESULT_CURSOR_PREFIX}${payload}.${signature}`;
+}
+
+function decodeMetricResultCursor(
+  value: string,
+): DecodedMetricResultCursor | null {
+  if (!value.startsWith(METRIC_RESULT_CURSOR_PREFIX)) return null;
   try {
-    const payload = value.slice(prefix.length);
+    const signedPayload = value.slice(METRIC_RESULT_CURSOR_PREFIX.length);
+    const signatureSeparator = signedPayload.lastIndexOf(".");
+    if (signatureSeparator < 1) return null;
+    const payload = signedPayload.slice(0, signatureSeparator);
+    const signature = signedPayload.slice(signatureSeparator + 1);
+    if (
+      !/^[A-Za-z0-9_-]{1,1880}$/.test(payload) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(signature)
+    ) {
+      return null;
+    }
     const parsed = record(
       JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
     );
@@ -332,11 +360,22 @@ function decodeMetricResultCursor(value: string): MetricResultCursor | null {
     return {
       ...(parsed as Omit<MetricResultCursor, "querySpec">),
       querySpec,
+      encodedPayload: payload,
+      signature,
     };
   } catch {
     // coercion-ok: invalid cursor payloads are returned as absent and rejected by the action.
     return null;
   }
+}
+
+function verifyMetricResultCursor(
+  cursor: DecodedMetricResultCursor,
+  token: string,
+): boolean {
+  const actual = Buffer.from(cursor.signature, "base64url");
+  const expected = metricResultCursorSignature(cursor.encodedPayload, token);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
 class DbtSemanticLayerError extends Error {
@@ -692,7 +731,7 @@ export default defineAction({
         .string()
         .max(2_048)
         .regex(
-          /^(?:metric-metadata:[1-9]\d{0,3}|metric-results-v[23]\.[A-Za-z0-9_-]{1,2000})$/,
+          /^(?:metric-metadata:[1-9]\d{0,3}|metric-results-v4\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43})$/,
         )
         .optional()
         .describe(
@@ -742,8 +781,7 @@ export default defineAction({
         });
       }
       const resultCursor = Boolean(
-        nextPage?.startsWith(METRIC_RESULT_CURSOR_PREFIX) ||
-        nextPage?.startsWith(METRIC_RESULT_CURSOR_V3_PREFIX),
+        nextPage?.startsWith(METRIC_RESULT_CURSOR_PREFIX),
       );
       if (queryId && !resultCursor) {
         context.addIssue({
@@ -772,6 +810,7 @@ export default defineAction({
   outputSchema: queryMetricOutputSchema,
   readOnly: true,
   parallelSafe: true,
+  grounding: true,
   mcpTool: true,
   http: { method: "POST" },
   run: async ({
@@ -796,9 +835,9 @@ export default defineAction({
       provider: "dbt",
       includeDisabled: true,
     });
-    const isMetricResultCursor =
-      nextPage?.startsWith(METRIC_RESULT_CURSOR_PREFIX) ||
-      nextPage?.startsWith(METRIC_RESULT_CURSOR_V3_PREFIX);
+    const isMetricResultCursor = nextPage?.startsWith(
+      METRIC_RESULT_CURSOR_PREFIX,
+    );
     const resultCursor = isMetricResultCursor
       ? decodeMetricResultCursor(nextPage!)
       : null;
@@ -881,10 +920,7 @@ export default defineAction({
       });
     }
 
-    if (
-      nextPage?.startsWith(METRIC_RESULT_CURSOR_PREFIX) ||
-      nextPage?.startsWith(METRIC_RESULT_CURSOR_V3_PREFIX)
-    ) {
+    if (nextPage?.startsWith(METRIC_RESULT_CURSOR_PREFIX)) {
       if (
         !resultCursor ||
         !queryId ||
@@ -931,6 +967,13 @@ export default defineAction({
         "Add the dbt Semantic Layer token to this workspace connection, then retry.",
         { provider: "dbt", appId: ANALYTICS_APP_ID },
       );
+    }
+
+    if (resultCursor && !verifyMetricResultCursor(resultCursor, token.value)) {
+      fail("The metric result cursor signature is invalid.", {
+        errorCode: "invalid_metric_result_cursor",
+        statusCode: 400,
+      });
     }
 
     const controller = new AbortController();
@@ -1067,16 +1110,19 @@ export default defineAction({
         }
       }
 
-      initialResultPageCursor = encodeMetricResultCursor({
-        metricName,
-        queryId: activeQueryId,
-        connectionId: selected.id,
-        environmentId,
-        pageNum: 1,
-        rowOffset: 0,
-        rowsBeforePage: 0,
-        querySpec: activeQuerySpec,
-      });
+      initialResultPageCursor = encodeMetricResultCursor(
+        {
+          metricName,
+          queryId: activeQueryId,
+          connectionId: selected.id,
+          environmentId,
+          pageNum: 1,
+          rowOffset: 0,
+          rowsBeforePage: 0,
+          querySpec: activeQuerySpec,
+        },
+        token.value,
+      );
       const resultPageNum = resultCursor?.pageNum ?? 1;
       const resultRowOffset = resultCursor?.rowOffset ?? 0;
       for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
@@ -1154,27 +1200,33 @@ export default defineAction({
             rowsBeforeNextPage >= MAX_METRIC_QUERY_ROWS;
           const nextResultPage =
             nextRowOffset < pageRows.length
-              ? encodeMetricResultCursor({
-                  metricName,
-                  queryId: activeQueryId,
-                  connectionId: selected.id,
-                  environmentId,
-                  pageNum: resultPageNum,
-                  rowOffset: nextRowOffset,
-                  rowsBeforePage,
-                  querySpec: activeQuerySpec,
-                })
-              : resultPageNum < totalPages && !queryRowCapReached
-                ? encodeMetricResultCursor({
+              ? encodeMetricResultCursor(
+                  {
                     metricName,
                     queryId: activeQueryId,
                     connectionId: selected.id,
                     environmentId,
-                    pageNum: resultPageNum + 1,
-                    rowOffset: 0,
-                    rowsBeforePage: rowsBeforeNextPage,
+                    pageNum: resultPageNum,
+                    rowOffset: nextRowOffset,
+                    rowsBeforePage,
                     querySpec: activeQuerySpec,
-                  })
+                  },
+                  token.value,
+                )
+              : resultPageNum < totalPages && !queryRowCapReached
+                ? encodeMetricResultCursor(
+                    {
+                      metricName,
+                      queryId: activeQueryId,
+                      connectionId: selected.id,
+                      environmentId,
+                      pageNum: resultPageNum + 1,
+                      rowOffset: 0,
+                      rowsBeforePage: rowsBeforeNextPage,
+                      querySpec: activeQuerySpec,
+                    },
+                    token.value,
+                  )
                 : undefined;
           const dimensions = Array.isArray(metric.dimensions)
             ? metric.dimensions

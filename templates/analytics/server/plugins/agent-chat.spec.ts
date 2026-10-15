@@ -845,6 +845,203 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard", () => {
+  it("accepts numeric claims only from nonempty successful dbt metric rows", () => {
+    const successful = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              rows: [{ activation_rate: 42 }],
+            }),
+          },
+        ],
+      }),
+    );
+    const empty = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({ status: "success", rows: [] }),
+          },
+        ],
+      }),
+    );
+
+    expect(successful).toBeNull();
+    expect(empty).toMatchObject({
+      retryMessage: expect.stringContaining("returned no metric rows"),
+      fallbackMessage: expect.stringContaining(
+        "does not mean the metric is zero",
+      ),
+    });
+  });
+
+  it("uses status-specific dbt recovery guidance instead of accepting a numeric claim", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({ status: "deployment_not_ready" }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "Wait for a successful dbt deployment run",
+      ),
+      fallbackMessage: expect.stringContaining(
+        "Wait for a successful dbt deployment run",
+      ),
+    });
+  });
+
+  it.each(["query-dbt-semantic-metric", "query_dbt_semantic_metric"])(
+    "does not let a safe no-data draft bypass typed dbt status failure from %s",
+    (toolName) => {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText: "What was the activation rate last week?",
+          draftText:
+            "I can't retrieve this metric because the dbt deployment is not ready.",
+          toolResults: [
+            {
+              name: toolName,
+              isError: false,
+              content: JSON.stringify({ status: "deployment_not_ready" }),
+            },
+          ],
+        }),
+      );
+
+      expect(result).toMatchObject({
+        retryMessage: expect.stringContaining(
+          "Wait for a successful dbt deployment run",
+        ),
+        fallbackMessage: expect.stringContaining(
+          "Wait for a successful dbt deployment run",
+        ),
+      });
+    },
+  );
+
+  it("continues paginated dbt metric rows before accepting a complete answer", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              rows: [{ activation_rate: 42 }],
+              truncated: true,
+              nextPage: "metric-results-v4.cursor.signature",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "Continue with the same metricName, queryId, and nextPage",
+      ),
+      fallbackMessage: expect.stringContaining("result page"),
+    });
+  });
+
+  it("requires partial disclosure when the dbt metric row cap has no cursor", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              rows: [{ activation_rate: 42 }],
+              truncated: true,
+              truncationReason: "query_row_cap",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("1,000-row result cap"),
+      fallbackMessage: expect.stringContaining("returned rows as partial"),
+    });
+  });
+
+  it("preserves safe no-data answers for unrelated provider failures", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get last week?",
+        draftText:
+          "I can't retrieve this analytics result because the query failed.",
+        toolResults: [
+          {
+            name: "bigquery",
+            isError: false,
+            content: JSON.stringify({
+              error: "bigquery_query_failed",
+              message: "Temporary provider failure.",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("keeps cursor-bearing dbt failures on their status-specific recovery path", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Find every account's activation rate for last week.",
+        draftText: "All accounts had an activation rate of 42%.",
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "pending",
+              nextPage: "opaque-cursor",
+              message: "The MetricFlow query is still running.",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("Resume the same MetricFlow query"),
+      fallbackMessage: expect.stringContaining(
+        "Resume the same MetricFlow query",
+      ),
+    });
+  });
+
   it("accepts a grounded answer from a source action no name list ever enumerated", () => {
     const result = realDataFinalGuard(
       guardContext({

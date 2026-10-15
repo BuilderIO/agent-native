@@ -162,6 +162,100 @@ describe("real data action classification", () => {
     ).toBe(true);
   });
 
+  it("grounds dbt metric queries only when a successful result contains rows", () => {
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "query-dbt-semantic-metric",
+          content: JSON.stringify({
+            status: "success",
+            rows: [{ metric_value: 42 }],
+          }),
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "query_dbt_semantic_metric",
+          content: JSON.stringify({ status: "success", rows: [] }),
+        },
+      ]),
+    ).toBe(false);
+
+    const emptyResultFailure = failedDataQueryAttemptMessage([
+      {
+        name: "query-dbt-semantic-metric",
+        content: JSON.stringify({ status: "success", rows: [] }),
+      },
+    ]);
+    expect(emptyResultFailure).toContain("returned no metric rows");
+    expect(emptyResultFailure).toContain("does not mean the metric is zero");
+  });
+
+  it("requires dbt metric result pages to be continued before grounding a complete answer", () => {
+    const paged = {
+      name: "query_dbt_semantic_metric",
+      content: JSON.stringify({
+        status: "success",
+        rows: [{ metric_value: 42 }],
+        truncated: true,
+        nextPage: "metric-results-v4.cursor.signature",
+      }),
+    };
+    const capped = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        rows: [{ metric_value: 42 }],
+        truncated: true,
+        truncationReason: "query_row_cap",
+      }),
+    };
+
+    expect(hasDataQueryAttempt([paged])).toBe(false);
+    expect(failedDataQueryAttemptMessage([paged])).toContain(
+      "Continue with the same metricName, queryId, and nextPage",
+    );
+    expect(hasDataQueryAttempt([capped])).toBe(false);
+    expect(failedDataQueryAttemptMessage([capped])).toContain(
+      "1,000-row result cap",
+    );
+  });
+
+  it.each([
+    ["ambiguous_metric", "ask which exact metric"],
+    ["connection_error", "Repair the dbt workspace connection"],
+    [
+      "connection_selection_required",
+      "select an available dbt workspace connection",
+    ],
+    [
+      "connection_unavailable",
+      "Refresh or reconnect the selected dbt workspace connection",
+    ],
+    ["deployment_not_ready", "Wait for a successful dbt deployment run"],
+    ["empty_semantic_manifest", "no deployed semantic models or metrics"],
+    ["incomplete_result", "Resume the same MetricFlow query"],
+    ["metadata_truncated", "Continue the dbt metadata pagination"],
+    ["no_metrics_available", "no available metrics"],
+    ["permission_denied", "exact dbt permission issue"],
+    ["not_found", "Confirm the exact metric name"],
+    ["pending", "Resume the same MetricFlow query"],
+    ["provider_error", "correct the dbt provider error"],
+  ])(
+    "returns status-specific recovery guidance for dbt status %s",
+    (status, recovery) => {
+      const result = {
+        name: "query-dbt-semantic-metric",
+        content: JSON.stringify({ status }),
+      };
+
+      expect(hasDataQueryAttempt([result])).toBe(false);
+      expect(failedDataQueryAttemptMessage([result])).toContain(recovery);
+    },
+  );
+
   it("normalizes data query action name variants from hosted tool surfaces", () => {
     expect(
       hasDataQueryAttempt([

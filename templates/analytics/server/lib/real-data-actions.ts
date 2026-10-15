@@ -75,6 +75,10 @@ function isToolName(name: string, expected: string): boolean {
   return normalizeActionToolName(name) === expected;
 }
 
+function isDbtSemanticMetricActionName(name: string): boolean {
+  return isToolName(name, "query-dbt-semantic-metric");
+}
+
 let groundingActionNames: ReadonlySet<string> | null = null;
 
 export function deriveGroundingActionNames(
@@ -1002,6 +1006,89 @@ function tryParseJsonContent(content: string): unknown {
   }
 }
 
+const DBT_METRIC_STATUS_RECOVERY: Record<string, string> = {
+  ambiguous_metric:
+    "Inspect the dbt metric metadata and ask which exact metric the user means before retrying.",
+  connection_error:
+    "Repair the dbt workspace connection, then retry the metric query.",
+  connection_selection_required:
+    "Ask the user to select an available dbt workspace connection, then rerun the metric query.",
+  connection_unavailable:
+    "Refresh or reconnect the selected dbt workspace connection, then retry.",
+  deployment_not_ready:
+    "Wait for a successful dbt deployment run before querying this environment.",
+  empty_semantic_manifest:
+    "Report that this environment has no deployed semantic models or metrics; do not substitute a guessed metric.",
+  incomplete_result:
+    "Resume the same MetricFlow query with its continuation cursor until the result is complete.",
+  metadata_truncated:
+    "Continue the dbt metadata pagination before choosing or reporting a metric.",
+  no_metrics_available:
+    "Report that the connected environment has no available metrics; do not infer a numeric value.",
+  not_found:
+    "Confirm the exact metric name against dbt metadata, and do not substitute another metric without telling the user.",
+  pending:
+    "Resume the same MetricFlow query with its continuation cursor before reporting a value.",
+  permission_denied:
+    "Report the exact dbt permission issue and request the missing access; do not infer a value.",
+  provider_error:
+    "Inspect and correct the dbt provider error, then retry the same metric query.",
+};
+
+function dbtSemanticMetricFailure(result: {
+  name?: string;
+  isError?: boolean;
+  content?: string;
+}): string | null {
+  if (!isDbtSemanticMetricActionName(String(result.name ?? ""))) return null;
+  if (result.isError) {
+    return "The dbt Semantic Layer tool call failed before it returned a metric status. Retry the query after addressing the tool error; do not report a numeric value.";
+  }
+
+  const payload = tryParseJsonContent(String(result.content ?? ""));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return "The dbt Semantic Layer returned no structured metric status. Retry the query and do not report a numeric value until it returns rows.";
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (record.status === "success") {
+    if (Array.isArray(record.rows) && record.rows.length > 0) {
+      if (typeof record.nextPage === "string" && record.nextPage.length > 0) {
+        return "The dbt Semantic Layer returned another result page. Continue with the same metricName, queryId, and nextPage before reporting a complete result.";
+      }
+      if (record.truncated === true) {
+        return record.truncationReason === "query_row_cap"
+          ? "The dbt Semantic Layer hit its 1,000-row result cap without a continuation cursor. Narrow the metric query or report only the returned rows as partial; do not claim a complete total."
+          : "The dbt Semantic Layer marked this result as truncated without a continuation cursor. Narrow the query or report only the returned rows as partial; do not claim a complete total.";
+      }
+      return null;
+    }
+    return Array.isArray(record.rows)
+      ? "The dbt Semantic Layer query succeeded but returned no metric rows. This does not mean the metric is zero; verify the metric, date range, and filters, then report the empty result explicitly if it persists."
+      : "The dbt Semantic Layer reported success without a rows array. Retry or inspect the action result before reporting a numeric value.";
+  }
+
+  const status =
+    typeof record.status === "string" && record.status.trim()
+      ? record.status.trim()
+      : "missing_status";
+  const recovery =
+    DBT_METRIC_STATUS_RECOVERY[status] ??
+    "Inspect this dbt status, resolve the reported condition, and retry before reporting a numeric value.";
+  return `The dbt Semantic Layer returned status \`${status}\`, so it did not return a successful metric result. ${recovery}`;
+}
+
+function isSuccessfulDbtSemanticMetricResult(result: {
+  name?: string;
+  isError?: boolean;
+  content?: string;
+}): boolean {
+  return (
+    isDbtSemanticMetricActionName(String(result.name ?? "")) &&
+    !dbtSemanticMetricFailure(result)
+  );
+}
+
 function hasEvidencePayload(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
 
@@ -1128,6 +1215,12 @@ export function hasIncompleteDataEvidence(
     | undefined,
 ): boolean {
   return (toolResults ?? []).some((result) => {
+    if (
+      isDbtSemanticMetricActionName(String(result.name ?? "")) &&
+      dbtSemanticMetricFailure(result)
+    ) {
+      return false;
+    }
     if (!result.content && !result.isError) return false;
     const name = String(result.name ?? "");
     if (
@@ -1189,6 +1282,9 @@ export function hasDataQueryAttempt(
     | undefined,
 ): boolean {
   return (toolResults ?? []).some((result) => {
+    if (isDbtSemanticMetricActionName(String(result.name ?? ""))) {
+      return isSuccessfulDbtSemanticMetricResult(result);
+    }
     if (result.isError) return false;
     if (isProviderErrorOnlyContent(result.content)) return false;
     const name = String(result.name ?? "");
@@ -1205,6 +1301,9 @@ function isFailedDataQueryAttempt(result: {
   content?: string;
 }): boolean {
   const name = String(result.name ?? "");
+  if (isDbtSemanticMetricActionName(name)) {
+    return dbtSemanticMetricFailure(result) !== null;
+  }
   const isDataQuery =
     isGroundingActionName(name) ||
     isMcpDataSourceTool(name) ||
@@ -1229,10 +1328,24 @@ export function failedDataQueryAttemptMessage(
   const failed = (toolResults ?? []).find(isFailedDataQueryAttempt);
   if (!failed) return null;
   const name = String(failed.name ?? "data-source query");
+  const dbtFailure = dbtSemanticMetricFailure(failed);
+  if (dbtFailure) return `I did try \`${name}\`. ${dbtFailure}`;
   return (
     `I did try \`${name}\`, but it did not return a successful data result: ` +
     compactToolFailure(failed.content) +
     "\n\nI need to fix and rerun that query, or report that exact source error instead of giving numbers."
+  );
+}
+
+export function hasFailedDbtSemanticMetricQuery(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some(
+    (result) =>
+      isDbtSemanticMetricActionName(String(result.name ?? "")) &&
+      dbtSemanticMetricFailure(result) !== null,
   );
 }
 

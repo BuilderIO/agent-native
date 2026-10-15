@@ -29,6 +29,7 @@ import {
   draftRestatesPriorEvidence,
   failedDataQueryAttemptMessage,
   hasCatalogSearchAttempt,
+  hasFailedDbtSemanticMetricQuery,
   hasDashboardConstructionAttempt,
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
@@ -1230,6 +1231,9 @@ export function realDataFinalGuard(
     };
   }
   const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
+  const failedDbtMetricQuery = hasFailedDbtSemanticMetricQuery(
+    context.toolResults,
+  );
   // The detector is a heuristic over prose. Once its retries are spent the
   // schema ask is let through (a real ask lets the user answer it, and a false
   // match keeps a correct answer instead of replacing it with a canned
@@ -1318,7 +1322,7 @@ export function realDataFinalGuard(
       }),
     };
   }
-  if (isSafeNoDataAnalyticsResponse(context.text)) {
+  if (isSafeNoDataAnalyticsResponse(context.text) && !failedDbtMetricQuery) {
     if (
       needsDataSourceLink &&
       !includesDataSourcesLink(context.text, setupLink)
