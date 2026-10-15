@@ -809,6 +809,26 @@ them; marking them applied would leave fresh installs without default rows.
    eight different bookkeeping tables in sync. Existing databases need their
    rows copied from those tables into `_an_store_migrations` first, or the
    moved entries re-run. *Exit:* `release-migrations.ts` calls one runner.
+   Split in three PRs:
+   - **2a, done:** runner support and the twelve release-only lists. Each
+     list is appended, whole, to the store that owns its tables
+     (`fromMigrationEntries`), so a fresh database runs it once after the
+     store's own migrations, as main did. Every entry carries a `legacy`
+     reference; a database whose old bookkeeping records it gets a ledger row
+     with `source = 'legacy'` instead of running it again, using the old
+     gating exactly (named entries by name, unnamed by `MAX(version)`).
+     Upgrading the pre-registry fixture imports all 57 entries. List-origin
+     migrations run only in the release step, where they ran on main: local
+     runtimes keep getting those tables from the stores' own migrations, and
+     hosted requests run neither list-origin nor `kind: "data"` migrations. `after:` orders the release
+     pass where a migration reads another store's tables (observability
+     after chat threads).
+   - **2b:** org, context-xray, observational memory and the trigger-event
+     queue, the lists that also run at plugin boot. Hosted apps without
+     release migrations keep running those through their old bookkeeping, as
+     on main; everything else uses the ledger.
+   - **2c:** Better Auth, which needs once-only handling (its v4 expires every
+     signing key).
 3. **Upgrade convergence test (Q9). Done in Phase 1.**
    `release-schema.upgrade.spec.ts` replays a dumped pre-registry schema and
    upgrades it; `db/schema-catalog.ts` is the dump and fingerprint code step 4

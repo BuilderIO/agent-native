@@ -27,6 +27,22 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "agent-harness-sessions-base-table",
+      "checksum": "709f6e82e6323dcb"
+    },
+    {
+      "name": "agent-harness-sessions-state-columns",
+      "checksum": "91875faf324c0ef2"
+    },
+    {
+      "name": "agent-harness-sessions-widen-millisecond-timestamps",
+      "checksum": "1e9e1af1581a9742"
+    },
+    {
+      "name": "agent-harness-sessions-generation",
+      "checksum": "e93055de6007e793"
     }
   ],
   "agent_runs": [
@@ -37,6 +53,30 @@
     {
       "name": "widen-bigint",
       "checksum": null
+    },
+    {
+      "name": "agent-run-base-tables",
+      "checksum": "ac6ed4a256f28116"
+    },
+    {
+      "name": "agent-run-liveness-and-diagnostics-columns",
+      "checksum": "2a9d24ed6ffbea78"
+    },
+    {
+      "name": "agent-run-continuation-order",
+      "checksum": "efb06f1b4c911719"
+    },
+    {
+      "name": "agent-tool-ledger-result-type",
+      "checksum": "d4fe90219a833db8"
+    },
+    {
+      "name": "agent-tool-ledger-chat-ui-result",
+      "checksum": "288137f1126005f6"
+    },
+    {
+      "name": "agent-run-auto-continue-of",
+      "checksum": "00eb09bcf9ca7fb0"
     }
   ],
   "agent_team_run_queue": [
@@ -53,6 +93,10 @@
     {
       "name": "tool-revision",
       "checksum": null
+    },
+    {
+      "name": "agent-tool-approval-policies-table-and-index",
+      "checksum": "bb1c9e53c85d4f40"
     }
   ],
   "agent_tool_approvals": [
@@ -63,6 +107,18 @@
     {
       "name": "tool-revision",
       "checksum": null
+    },
+    {
+      "name": "agent-tool-approvals-table-and-index",
+      "checksum": "8ba8562ff05494fb"
+    },
+    {
+      "name": "agent-tool-approvals-logical-binding-index",
+      "checksum": "6e7debaee18fb19e"
+    },
+    {
+      "name": "agent-tool-approvals-recovery-index",
+      "checksum": "fdca5e603cce164c"
     }
   ],
   "app_resource_changes": [
@@ -111,6 +167,38 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "automation-runs-table",
+      "checksum": "05e4a639e8e40142"
+    },
+    {
+      "name": "automation-runs-claimed-at",
+      "checksum": "9d1c3994e5887d2f"
+    },
+    {
+      "name": "automation-runs-dispatch-pending",
+      "checksum": "110d2c93fba69a3f"
+    },
+    {
+      "name": "automation-runs-app-id",
+      "checksum": "48a8d098bd64ed91"
+    },
+    {
+      "name": "automation-runs-error-code",
+      "checksum": "d31999550cf54e2d"
+    },
+    {
+      "name": "automation-runs-notification-email",
+      "checksum": "db8402925a12ae73"
+    },
+    {
+      "name": "automation-runs-failure-alerted",
+      "checksum": "c6aab02ee88bf93d"
+    },
+    {
+      "name": "automation-runs-failure-alert-delivery",
+      "checksum": "0ad391513d7c511c"
     }
   ],
   "automation_webhook_tokens": [
@@ -143,6 +231,22 @@
     {
       "name": "indexes",
       "checksum": null
+    },
+    {
+      "name": "chat-threads-base-tables",
+      "checksum": "bfeaaa8ca4af1288"
+    },
+    {
+      "name": "chat-threads-scope-and-sharing-columns",
+      "checksum": "76d071b18224f89b"
+    },
+    {
+      "name": "chat-threads-source-backfill",
+      "checksum": "027aa9d753e848a3"
+    },
+    {
+      "name": "chat-thread-shares-notified-at",
+      "checksum": "f2a3dce63fe66310"
     }
   ],
   "checkpoints": [
@@ -259,6 +363,14 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "identity-sso-flow-state-and-jti",
+      "checksum": "0ef131c592e35909"
+    },
+    {
+      "name": "identity-sso-timestamps-bigint",
+      "checksum": "a17c0175452484cc"
     }
   ],
   "integration_campaigns": [
@@ -325,12 +437,48 @@
     {
       "name": "widen-bigint",
       "checksum": null
+    },
+    {
+      "name": "oauth-tokens-table",
+      "checksum": "8c7ddcbbb856d01f"
+    },
+    {
+      "name": "oauth-tokens-owner-column",
+      "checksum": "2b02d7f09707be90"
+    },
+    {
+      "name": "oauth-tokens-display-name-column",
+      "checksum": "ea7cbba8dff602f8"
+    },
+    {
+      "name": "oauth-tokens-owner-backfill",
+      "checksum": "4aa6eb2e77f62037"
+    },
+    {
+      "name": "oauth-tokens-revision-column",
+      "checksum": "73d74fcfed62aa4e"
+    },
+    {
+      "name": "oauth-tokens-revision-backfill",
+      "checksum": "753598f3334087f5"
     }
   ],
   "observability": [
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "observability-org-scope-legacy-traces",
+      "checksum": "5e3e1e7109673004"
+    },
+    {
+      "name": "observability-org-scope-legacy-feedback",
+      "checksum": "1b6cac0ebaa64b44"
+    },
+    {
+      "name": "observability-org-scope-legacy-threads",
+      "checksum": "e9e749744df6b0e4"
     }
   ],
   "observational_memory": [
@@ -391,6 +539,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "remote-device-table-and-indexes",
+      "checksum": "f6b9d7421da71549"
     }
   ],
   "remote_push": [
@@ -457,6 +609,14 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "automation-scheduler-health-table",
+      "checksum": "211a9aced4e5b550"
+    },
+    {
+      "name": "automation-scheduler-health-lease",
+      "checksum": "d6a4998c3d5b4fd1"
     }
   ],
   "search_resources": [
@@ -539,6 +699,18 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "usage-alert-rules-and-events-tables",
+      "checksum": "b0b123d2d2fe1941"
+    },
+    {
+      "name": "usage-alert-default-column",
+      "checksum": "5fc7cb1ccb6873ab"
+    },
+    {
+      "name": "usage-alert-notification-column",
+      "checksum": "6bf0a66d6dd9c131"
     }
   ],
   "usage_budgets": [
@@ -551,12 +723,68 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "v1",
+      "checksum": "90de1807614ef821"
+    },
+    {
+      "name": "v2",
+      "checksum": "2301affd4acb941c"
+    },
+    {
+      "name": "v3",
+      "checksum": "258fd20e2058890a"
+    },
+    {
+      "name": "v4",
+      "checksum": "d1b7e6139ee84514"
+    },
+    {
+      "name": "v5",
+      "checksum": "ad39b83040e92a4b"
+    },
+    {
+      "name": "v6",
+      "checksum": "ac28e025039da66a"
+    },
+    {
+      "name": "v7",
+      "checksum": "27d57be3f9f535ad"
     }
   ],
   "workspace_user_groups": [
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "v8",
+      "checksum": "69b4d474b17225bc"
+    },
+    {
+      "name": "v9",
+      "checksum": "a7fbcc459812be31"
+    },
+    {
+      "name": "v10",
+      "checksum": "6908298ccdce8ea6"
+    },
+    {
+      "name": "v11",
+      "checksum": "9d51b0a350f3732b"
+    },
+    {
+      "name": "v12",
+      "checksum": "9d51b0a350f3732b"
+    },
+    {
+      "name": "v13",
+      "checksum": "f2d372060f300501"
+    },
+    {
+      "name": "v14",
+      "checksum": "75d25dd8c52ada33"
     }
   ]
 }

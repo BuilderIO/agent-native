@@ -61,10 +61,29 @@ export interface StoreMigration {
   readonly kind?: "schema" | "data";
   readonly sql?: string | readonly string[];
   readonly run?: (exec: DbExec) => Promise<void>;
+  /**
+   * The versioned `runMigrations` entry this migration replaces. A database
+   * whose old bookkeeping table already records that entry gets a ledger row
+   * (`source = 'legacy'`) instead of running it again.
+   */
+  readonly legacy?: LegacyMigrationRef;
+}
+
+export interface LegacyMigrationRef {
+  /** The `runMigrations` table, e.g. `_chat_thread_schema_migrations`. */
+  readonly table: string;
+  readonly version: number;
+  /** Set for named entries, which were gated by name, not version. */
+  readonly name?: string;
 }
 
 export interface StoreDefinition {
   readonly id: string;
+  /**
+   * Stores whose migrations must run first at release, for a migration that
+   * reads or alters another store's tables. Registry order is otherwise by id.
+   */
+  readonly after?: readonly string[];
   /**
    * Never provision from a request, even for hosted apps that do not migrate
    * at release: the release step (or a versioned list) is the only creator.
@@ -125,10 +144,12 @@ export function schemaIsReleaseOwned(): boolean {
  * the caller's transaction, so a ledger row written there could claim a
  * migration that production never kept.
  */
+function isReleaseStep(): boolean {
+  return isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime();
+}
+
 function readiness(): Readiness {
-  if (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime()) {
-    return "apply";
-  }
+  if (isReleaseStep()) return "apply";
   // No ledger read here: a cold start does zero schema queries, and a missed
   // release is caught by the release step's own verification, not turned into
   // a sitewide error by every request.
@@ -224,8 +245,19 @@ async function applyPending(
   if (recorded && store.migrations.every((m) => recorded.has(m.name))) return;
 
   const applied = new Set(recorded);
+  const legacy = new LegacyBookkeeping(exec);
+  const isRelease = isReleaseStep();
   for (const migration of store.migrations) {
     if (applied.has(migration.name)) continue;
+    // An entry carried over from a `runMigrations` list ran only in the release
+    // step on main; local runtimes get those tables from the store's own
+    // migrations, and running the list there would need its release-only order.
+    if (migration.legacy && !isRelease) continue;
+    if (migration.legacy && (await legacy.recorded(migration.legacy))) {
+      await recordMigration(exec, store, migration, "legacy");
+      applied.add(migration.name);
+      continue;
+    }
     try {
       await runRecordingStoreMigration(() => runMigration(migration, exec));
     } catch (err) {
@@ -236,26 +268,132 @@ async function applyPending(
         { cause: err },
       );
     }
-    await exec.execute({
-      sql: `INSERT INTO ${STORE_MIGRATIONS_TABLE} (store_id, name, applied_at, checksum, kind, source) VALUES (?, ?, ?, ?, ?, 'step') ON CONFLICT (store_id, name) DO NOTHING`,
-      args: [
-        store.id,
-        migration.name,
-        Date.now(),
-        migrationChecksum(migration),
-        migration.kind ?? "schema",
-      ],
-    });
+    await recordMigration(exec, store, migration, "step");
     applied.add(migration.name);
   }
   state.snapshot = undefined;
 }
 
+async function recordMigration(
+  exec: DbExec,
+  store: StoreDefinition,
+  migration: StoreMigration,
+  source: "step" | "legacy",
+): Promise<void> {
+  await exec.execute({
+    sql: `INSERT INTO ${STORE_MIGRATIONS_TABLE} (store_id, name, applied_at, checksum, kind, source) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (store_id, name) DO NOTHING`,
+    args: [
+      store.id,
+      migration.name,
+      Date.now(),
+      migrationChecksum(migration),
+      migration.kind ?? "schema",
+      source,
+    ],
+  });
+}
+
+/**
+ * Reads a `runMigrations` table's bookkeeping with its own gating: an unnamed
+ * entry counts as applied when its version is at or below `MAX(version)`, a
+ * named one only when its name is in `${table}_named`. A missing table means
+ * nothing was applied. Existence is checked with `to_regclass` so a missing
+ * table never aborts a caller's open transaction.
+ */
+class LegacyBookkeeping {
+  private readonly cache = new Map<
+    string,
+    Promise<{ maxVersion: number; names: Set<string> }>
+  >();
+
+  constructor(private readonly exec: DbExec) {}
+
+  async recorded(ref: LegacyMigrationRef): Promise<boolean> {
+    const state = await this.read(ref.table);
+    return ref.name
+      ? state.names.has(ref.name)
+      : ref.version <= state.maxVersion;
+  }
+
+  private read(table: string) {
+    let pending = this.cache.get(table);
+    if (!pending) this.cache.set(table, (pending = this.load(table)));
+    return pending;
+  }
+
+  private async load(table: string) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) {
+      throw new Error(`Invalid legacy migration table "${table}"`);
+    }
+    const exists = async (name: string) => {
+      const { rows } = await this.exec.execute({
+        sql: "SELECT to_regclass(?) IS NOT NULL AS present",
+        args: [name],
+      });
+      const present = rows[0]?.present;
+      return present === true || present === "t";
+    };
+    let maxVersion = 0;
+    const names = new Set<string>();
+    if (await exists(table)) {
+      const { rows } = await this.exec.execute(
+        `SELECT MAX(version) AS v FROM ${table}`,
+      );
+      maxVersion = Number(rows[0]?.v ?? 0);
+    }
+    if (await exists(`${table}_named`)) {
+      const { rows } = await this.exec.execute(
+        // guard:allow-unbounded-read — one row per applied entry of one migration list
+        `SELECT name FROM ${table}_named`,
+      );
+      for (const row of rows) names.add(String(row.name));
+    }
+    return { maxVersion, names };
+  }
+}
+
 async function replay(store: StoreDefinition): Promise<void> {
   const exec = getDbExec();
   for (const migration of store.migrations) {
+    // A request never runs a backfill or seed, nor an entry carried over from
+    // a release-only `runMigrations` list: neither ever ran in these apps'
+    // requests, and versioned entries are not all safe to repeat.
+    if (migration.kind === "data" || migration.legacy) continue;
     await runMigration(migration, exec);
   }
+}
+
+/**
+ * Registry order with each store's `after` dependencies first. Fails on an
+ * unknown id or a cycle rather than guessing an order.
+ */
+export function orderStoresForRelease<T extends StoreDefinition>(
+  stores: readonly T[],
+): T[] {
+  const byId = new Map(stores.map((store) => [store.id, store]));
+  const ordered: T[] = [];
+  const state = new Map<string, "visiting" | "done">();
+  const visit = (store: T, path: string[]) => {
+    const seen = state.get(store.id);
+    if (seen === "done") return;
+    if (seen === "visiting") {
+      throw new Error(`Store order cycle: ${[...path, store.id].join(" -> ")}`);
+    }
+    state.set(store.id, "visiting");
+    for (const dependency of store.after ?? []) {
+      const before = byId.get(dependency);
+      if (!before) {
+        throw new Error(
+          `Store "${store.id}" must run after unknown store "${dependency}"`,
+        );
+      }
+      visit(before, [...path, store.id]);
+    }
+    state.set(store.id, "done");
+    ordered.push(store);
+  };
+  for (const store of stores) visit(store, []);
+  return ordered;
 }
 
 interface LedgerState {
@@ -463,9 +601,13 @@ export function defineStore(definition: StoreDefinition): Store {
 
   const pending = new Map<Readiness, Promise<void>>();
   allPending.add(pending);
+  // The release step also runs list-origin migrations that local runtimes
+  // skip, so its readiness is memoized separately.
   let applied = new WeakMap<DbExec, Promise<void>>();
+  let appliedAtRelease = new WeakMap<DbExec, Promise<void>>();
   const store: Store = {
     id,
+    after: definition.after,
     releaseOnly: definition.releaseOnly,
     migrations,
     ready() {
@@ -473,15 +615,16 @@ export function defineStore(definition: StoreDefinition): Store {
       const mode = readiness();
       if (mode === "apply") {
         const exec = getDbExec();
-        const existing = applied.get(exec);
+        const memo = isReleaseStep() ? appliedAtRelease : applied;
+        const existing = memo.get(exec);
         if (existing) return existing;
         const tracked = retainRequestDbPoolScope(
           applyWithLedger(store, exec).catch((err) => {
-            if (applied.get(exec) === tracked) applied.delete(exec);
+            if (memo.get(exec) === tracked) memo.delete(exec);
             throw err;
           }),
         );
-        applied.set(exec, tracked);
+        memo.set(exec, tracked);
         return tracked;
       }
       const existing = pending.get(mode);
@@ -506,6 +649,7 @@ export function defineStore(definition: StoreDefinition): Store {
     reset() {
       pending.clear();
       applied = new WeakMap();
+      appliedAtRelease = new WeakMap();
     },
   };
   return store;
