@@ -1071,8 +1071,7 @@ export default function DeckEditor() {
   };
   const generationRetryPending =
     retryEmptyGenerationPending ||
-    (generationContext !== null &&
-      "generationFailureAttemptId" in generationContext &&
+    (typeof generationContext?.generationFailureAttemptId === "string" &&
       generationContext.generationFailureAttemptId !== generationAttemptId);
   useEffect(() => {
     if (
