@@ -51,6 +51,7 @@ function testRect(
 function mockPreparedProbeGeometry(
   parent: HTMLElement,
   onProbeRect?: (element: Element) => void,
+  probeRect = testRect(0, 0, 100, 50),
 ) {
   const getClientRects = vi
     .spyOn(Element.prototype, "getClientRects")
@@ -70,7 +71,7 @@ function mockPreparedProbeGeometry(
         "paste-position-probe"
       ) {
         onProbeRect?.(this);
-        return testRect(0, 0, 100, 50);
+        return probeRect;
       }
       return testRect(0, 0, 0, 0);
     });
@@ -392,6 +393,85 @@ describe("extractLayerPosition", () => {
         'style[data-agent-native-edit-overlay="paste-position-probe-style"]',
       ),
     ).toBeNull();
+  });
+
+  it("measures non-pixel margins with the probe after its anchor", () => {
+    const container = document.createElement("div");
+    container.style.position = "relative";
+    const target = document.createElement("div");
+    target.style.position = "relative";
+    const trailing = document.createElement("span");
+    container.append(target, trailing);
+    document.body.append(container);
+
+    const observed: Array<{
+      positionMatches: boolean;
+      marginLeft: string;
+      marginTop: string;
+    }> = [];
+    const restoreGeometry = mockPreparedProbeGeometry(
+      container,
+      (element) => {
+        const probe = element as HTMLElement;
+        observed.push({
+          positionMatches:
+            probe.parentElement === container &&
+            probe.previousElementSibling === target &&
+            probe.nextElementSibling === trailing,
+          marginLeft: probe.style.marginLeft,
+          marginTop: probe.style.marginTop,
+        });
+      },
+      testRect(17, 23, 100, 50),
+    );
+
+    let measured: ReturnType<typeof measurePreparedCloneVisualOffset>;
+    try {
+      measured = measurePreparedCloneVisualOffset(
+        target,
+        '<div style="width:100px;height:50px;margin-left:auto;margin-top:1em;transform:rotate(2deg)">Card</div>',
+        {
+          placement: "after",
+          view: window,
+          renderOffset: { x: 0, y: 0 },
+        },
+      );
+    } finally {
+      restoreGeometry();
+      container.remove();
+    }
+
+    expect(measured).toEqual({ x: 17, y: 23 });
+    expect(observed).toEqual([
+      { positionMatches: true, marginLeft: "auto", marginTop: "1em" },
+    ]);
+  });
+
+  it("measures an inside-body probe at the final insertion parent", () => {
+    const observedParents: Element[] = [];
+    const restoreGeometry = mockPreparedProbeGeometry(
+      document.body,
+      (element) => observedParents.push(element.parentElement!),
+      testRect(11, 13, 100, 50),
+    );
+
+    let measured: ReturnType<typeof measurePreparedCloneVisualOffset>;
+    try {
+      measured = measurePreparedCloneVisualOffset(
+        document.body,
+        '<div style="width:100px;height:50px;margin:0 auto">Card</div>',
+        {
+          placement: "inside",
+          view: window,
+          renderOffset: { x: 0, y: 0 },
+        },
+      );
+    } finally {
+      restoreGeometry();
+    }
+
+    expect(measured).toEqual({ x: 11, y: 13 });
+    expect(observedParents).toEqual([document.body]);
   });
 
   it("prunes matching same-file root styles and preserves descendant snapshots", () => {

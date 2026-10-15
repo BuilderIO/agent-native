@@ -1382,13 +1382,20 @@ export function measurePreparedCloneVisualOffset(
     styleSnapshot?: PortableStyleSnapshot;
     managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
     preserveSourceAuthoredRootStyles?: boolean;
+    placement?: "before" | "after" | "inside";
     view: Window;
     renderOffset: PositionCoordinateRenderOffset;
   },
 ): { x: number; y: number; styleSnapshot?: PortableStyleSnapshot } | null {
   const doc = target.ownerDocument;
-  const parent = target.parentElement;
-  if (!parent || !target.isConnected || doc.defaultView !== options.view) {
+  const placement = options.placement ?? "before";
+  const insertionParent =
+    placement === "inside" ? target : target.parentElement;
+  if (
+    !insertionParent ||
+    !target.isConnected ||
+    doc.defaultView !== options.view
+  ) {
     return null;
   }
 
@@ -1433,7 +1440,13 @@ export function measurePreparedCloneVisualOffset(
 
     host.setAttribute("data-agent-native-edit-overlay", "paste-position-probe");
     applyProbePresentation(host);
-    parent.insertBefore(prepared.element, target);
+    if (placement === "inside") {
+      insertionParent.appendChild(prepared.element);
+    } else if (placement === "after") {
+      insertionParent.insertBefore(prepared.element, target.nextSibling);
+    } else {
+      insertionParent.insertBefore(prepared.element, target);
+    }
     let styleSnapshot: PortableStyleSnapshot | undefined;
     if (rootSnapshot && options.styleSnapshot) {
       const rootNode = options.styleSnapshot.nodes[rootSnapshot.rootNodeIndex]!;

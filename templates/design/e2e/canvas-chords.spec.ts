@@ -1004,6 +1004,78 @@ test.describe("canvas chords", () => {
     );
   });
 
+  test("Keyboard paste preserves non-pixel margins at exact visual coordinates", async ({
+    app,
+    context,
+  }) => {
+    const { id } = await openChords(
+      app,
+      '<!doctype html><html><body style="margin:0;position:relative;width:1000px;height:800px"></body></html>',
+    );
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: new URL(appPath("/")).origin,
+    });
+    const margins = ["0px auto", "10%", "2em"];
+    const fileId = await app.page
+      .locator("iframe[data-design-preview-iframe]")
+      .first()
+      .getAttribute("data-screen-iframe-id");
+    expect(fileId).not.toBeNull();
+    await app.page.evaluate(
+      async ({ fileId, margins }) => {
+        const clipboardPath = "/app/lib/design-clipboard.ts";
+        const importPath = "/app/lib/design-import.ts";
+        const { getDesignClipboardTrustToken } = await import(clipboardPath);
+        const { serializeDesignClipboardPayload } = await import(importPath);
+        const entries = margins.map((margin, index) => ({
+          html: `<div data-agent-native-node-id="legacy-margin-${index}" data-agent-native-layer-name="Legacy margin ${index}" style="width:60px;height:30px;font-size:20px;margin:${margin};background:rgb(10, 20, 30)">Margin ${index}</div>`,
+          rootNodeId: `legacy-margin-${index}`,
+          sourceFileId: fileId,
+        }));
+        const marker = serializeDesignClipboardPayload(
+          entries.map((entry) => entry.html).join("\n"),
+          { version: 1, entries },
+          getDesignClipboardTrustToken() ?? undefined,
+        );
+        await navigator.clipboard.writeText(marker);
+      },
+      { fileId, margins },
+    );
+    await pressEditorKey(app.page, "Escape");
+    await expect.poll(() => app.selectedLayers()).toEqual([]);
+    await pressEditorKey(app.page, "ControlOrMeta+V");
+    await expect
+      .poll(
+        async () =>
+          [...(await app.savedNodes(id)).values()].filter((node) =>
+            node.attrs["data-agent-native-layer-name"]?.startsWith(
+              "Legacy margin ",
+            ),
+          ).length,
+      )
+      .toBe(3);
+    await app.settled();
+    const nodes = [...(await app.savedNodes(id)).values()];
+    for (const [index, margin] of margins.entries()) {
+      const copy = nodes.find(
+        (node) =>
+          node.attrs["data-agent-native-layer-name"] ===
+          `Legacy margin ${index}`,
+      )!;
+      expect(copy).toBeDefined();
+      const geometry = await renderedBounds(app, copy.id);
+      expect({ x: geometry.x, y: geometry.y }).toEqual({
+        x: 24 + index * 16,
+        y: 24 + index * 16,
+      });
+      expect(
+        await app
+          .node(copy.id)
+          .evaluate((element) => (element as HTMLElement).style.margin),
+      ).toBe(margin);
+    }
+  });
+
   test("clicking an inline child inside a text layer selects it and does not duplicate its text", async ({
     app,
   }) => {

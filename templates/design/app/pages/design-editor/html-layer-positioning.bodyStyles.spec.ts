@@ -225,6 +225,7 @@ describe("flow-insert positioning for code-backed Frames", () => {
     expect(frame.style.top).toBe("auto");
     expect(frame.style.right).toBe("auto");
     expect(frame.style.bottom).toBe("auto");
+    expect(frame.style.getPropertyValue("inset")).toBe("");
     expect(
       frame.querySelector('[data-agent-native-node-id="badge"]'),
     ).not.toBeNull();
@@ -260,6 +261,7 @@ describe("flow-insert positioning for code-backed Frames", () => {
     expect(plain.style.position).toBe("");
     expect(plain.style.left).toBe("");
     expect(plain.style.top).toBe("");
+    expect(plain.style.getPropertyValue("inset")).toBe("");
 
     const forcedPlain = setFlowPositioningOverrideForNodeInHtml(
       authored,
@@ -276,6 +278,7 @@ describe("flow-insert positioning for code-backed Frames", () => {
     expect(forcedPlainElement.style.getPropertyPriority("position")).toBe(
       "important",
     );
+    expect(forcedPlainElement.style.getPropertyValue("inset")).toBe("");
   });
 });
 
@@ -330,6 +333,30 @@ describe("node positioning source shape", () => {
 
     expect(next).toContain('style="position: absolute;left: 100px;top: 90px"');
     expect(next).not.toContain('style=";');
+  });
+
+  it("clears inset constraints when assigning a new absolute position", () => {
+    const content =
+      '<div data-agent-native-node-id="moving-node" style="position:absolute;inset:12px 13px 14px 15px;width:80px;height:40px"></div>';
+
+    const next = setAbsolutePositioningForNodeInHtml(content, "moving-node", {
+      x: 100,
+      y: 90,
+    });
+    const element = new DOMParser()
+      .parseFromString(next, "text/html")
+      .querySelector<HTMLElement>("[data-agent-native-node-id='moving-node']")!;
+
+    expect(element.style.position).toBe("absolute");
+    expect(element.style.left).toBe("100px");
+    expect(element.style.top).toBe("90px");
+    expect(element.style.getPropertyValue("inset")).toBe("");
+    expect(element.style.right).toBe("");
+    expect(element.style.bottom).toBe("");
+    expect([element.style.width, element.style.height]).toEqual([
+      "80px",
+      "40px",
+    ]);
   });
 
   it("preserves escaped quotes, comments, and escaped semicolons in raw CSS", () => {

@@ -15,6 +15,7 @@ const ABS_POSITION_PROPS = [
   "top",
   "right",
   "bottom",
+  "inset",
 ] as const;
 
 const FLEX_ITEM_PROPS = [
@@ -360,6 +361,7 @@ export function setAbsolutePositioningForNodeInHtml(
       element.style.top = `${Math.round(point.y - (pointerOffset?.y ?? 0))}px`;
       element.style.removeProperty("right");
       element.style.removeProperty("bottom");
+      element.style.removeProperty("inset");
       for (const prop of FLEX_ITEM_PROPS) {
         element.style.removeProperty(prop);
       }

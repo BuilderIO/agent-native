@@ -10,6 +10,7 @@ import { findCanvasIframeForScreen } from "@/components/design/multi-screen/ifra
 import type { VisibleCanvasRect } from "@/components/design/multi-screen/types";
 import type {
   ElementInfo,
+  PortableStyleSnapshot,
   RuntimeStructureInsertRequest,
 } from "@/components/design/types";
 import type {
@@ -17,6 +18,7 @@ import type {
   ClipboardContentMutationOrigin,
   ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
+import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
 import type { DesignClipboardScreenEntry } from "@/lib/design-import";
 import {
   extractLayerPosition,
@@ -24,6 +26,7 @@ import {
   planLinkedComponentStructureClone,
   prepareClonedHtmlLayersForLiveInsert,
   portableStyleSnapshotForPasteTarget,
+  type CloneLayerPosition,
 } from "@/pages/design-editor/clone-and-pen-edit";
 import {
   codeLayerSelectorAliases,
@@ -57,6 +60,8 @@ import type { DesignFile } from "@/pages/design-editor/types";
 import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
 
 const ORPHANED_PASTE_INSET = 24;
+const CLONE_SOURCE_FILE_ID_ATTR = "data-agent-native-clone-source-file-id";
+const CLONE_SOURCE_NODE_ID_ATTR = "data-agent-native-clone-source-node-id";
 
 interface PastePosition {
   x: number;
@@ -65,16 +70,119 @@ interface PastePosition {
   fileId?: string;
 }
 
+export interface PreparedPasteVisualOffsetArgs {
+  targetFileId: string;
+  targetSelector?: string;
+  placement: "before" | "after" | "inside";
+  layerHtml: string;
+  styleSnapshot?: PortableStyleSnapshot;
+  managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
+}
+
+type PreparedPasteVisualOffset = { x: number; y: number };
+
+function withPreparedVisualOffsets(
+  positions: Array<CloneLayerPosition | null | undefined> | undefined,
+  args: {
+    getPreparedPasteVisualOffset?: (
+      request: PreparedPasteVisualOffsetArgs,
+    ) => PreparedPasteVisualOffset | null | undefined;
+    targetFileId: string;
+    targetSelector?: string;
+    placement: "before" | "after" | "inside";
+    layerHtmls: string[];
+    styleSnapshots: Array<PortableStyleSnapshot | null | undefined>;
+    managedStyleSnapshots: Array<
+      DesignClipboardManagedStyleSnapshot | undefined
+    >;
+  },
+): Array<CloneLayerPosition | null | undefined> | null | undefined {
+  const { getPreparedPasteVisualOffset } = args;
+  if (!positions || !getPreparedPasteVisualOffset) return positions;
+
+  let invalidMeasurement = false;
+  const measuredPositions = positions.map((position, index) => {
+    if (!position || position.space !== "visual") return position;
+    const visualOffset = getPreparedPasteVisualOffset({
+      targetFileId: args.targetFileId,
+      targetSelector: args.targetSelector,
+      placement: args.placement,
+      layerHtml: args.layerHtmls[index]!,
+      styleSnapshot: args.styleSnapshots[index] ?? undefined,
+      managedStyleSnapshot: args.managedStyleSnapshots[index],
+    });
+    if (visualOffset === null) {
+      invalidMeasurement = true;
+      return position;
+    }
+    if (visualOffset === undefined) return position;
+    if (!Number.isFinite(visualOffset.x) || !Number.isFinite(visualOffset.y)) {
+      invalidMeasurement = true;
+      return position;
+    }
+    return {
+      ...position,
+      visualOffset: { x: visualOffset.x, y: visualOffset.y },
+    };
+  });
+
+  return invalidMeasurement ? null : measuredPositions;
+}
+
 function isSelectedClipboardLayer(
   entries: ReadonlyArray<CanvasLayerClipboardEntry>,
   targetFileId: string,
   selectedNodeId: string | null | undefined,
+  selectedNodeAttributes: Record<string, string> | undefined,
 ) {
-  return Boolean(
-    selectedNodeId &&
-    entries.every((entry) => entry.sourceFileId === targetFileId) &&
-    entries.some((entry) => entry.rootNodeId === selectedNodeId),
+  const clipboardComesFromTarget = entries.every(
+    (entry) => entry.sourceFileId === targetFileId,
   );
+  const directlyCopiedLayer = Boolean(
+    selectedNodeId &&
+    clipboardComesFromTarget &&
+    entries.some(
+      (entry) =>
+        entry.sourceFileId === targetFileId &&
+        entry.rootNodeId === selectedNodeId,
+    ),
+  );
+  const cloneSourceFileId = selectedNodeAttributes?.[CLONE_SOURCE_FILE_ID_ATTR];
+  const cloneSourceNodeId = selectedNodeAttributes?.[CLONE_SOURCE_NODE_ID_ATTR];
+  const copiedCloneLayer = entries.some(
+    (entry) =>
+      cloneSourceFileId &&
+      cloneSourceNodeId &&
+      entry.sourceFileId === cloneSourceFileId &&
+      entry.rootNodeId === cloneSourceNodeId,
+  );
+  return directlyCopiedLayer || copiedCloneLayer;
+}
+
+function clipboardLayerHtml(entry: CanvasLayerClipboardEntry) {
+  const doc = new DOMParser().parseFromString(
+    `<template>${entry.html}</template>`,
+    "text/html",
+  );
+  const template = doc.querySelector("template");
+  const root = template?.content.firstElementChild;
+  if (!template || !root) return entry.html;
+
+  root.removeAttribute(CLONE_SOURCE_FILE_ID_ATTR);
+  root.removeAttribute(CLONE_SOURCE_NODE_ID_ATTR);
+  if (entry.sourceFileId && entry.rootNodeId) {
+    root.setAttribute(CLONE_SOURCE_FILE_ID_ATTR, entry.sourceFileId);
+    root.setAttribute(CLONE_SOURCE_NODE_ID_ATTR, entry.rootNodeId);
+  }
+  return template.innerHTML;
+}
+
+function nodeIdSelector(nodeId: string) {
+  const escaped =
+    typeof CSS !== "undefined" && typeof CSS.escape === "function"
+      ? CSS.escape(nodeId)
+      : nodeId.replace(/["\\]/g, "\\$&");
+  return `[data-agent-native-node-id="${escaped}"]`;
 }
 
 function positionsFromSource(
@@ -152,6 +260,9 @@ export interface PasteSelectionArgs {
   getCanvasClipboardEntries: () => CanvasLayerClipboardEntry[];
   getCanvasScreenClipboardEntries: () => DesignClipboardScreenEntry[];
   getFreshActiveContent: () => string;
+  getPreparedPasteVisualOffset?: (
+    request: PreparedPasteVisualOffsetArgs,
+  ) => PreparedPasteVisualOffset | null | undefined;
   getScreenContent: (screenId: string) => string;
   getVisibleCanvasRect: () => VisibleCanvasRect | null;
   historyOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
@@ -227,6 +338,7 @@ export async function runPasteSelection(
     getCanvasClipboardEntries,
     getCanvasScreenClipboardEntries,
     getFreshActiveContent,
+    getPreparedPasteVisualOffset,
     getScreenContent,
     getVisibleCanvasRect,
     historyOrderRef,
@@ -376,7 +488,7 @@ export async function runPasteSelection(
     });
     return;
   }
-  const layerHtmls = entries.map((entry) => entry.html);
+  const layerHtmls = entries.map(clipboardLayerHtml);
   const styleSnapshots = entries.map((entry) =>
     portableStyleSnapshotForPasteTarget(entry, targetFileId),
   );
@@ -446,7 +558,12 @@ export async function runPasteSelection(
     const cascadeOffset = pasteCascadeRef.current * 16;
     const selectedSourcePositions =
       selectedAnchor &&
-      isSelectedClipboardLayer(entries, targetFileId, selectedAnchor.sourceId)
+      isSelectedClipboardLayer(
+        entries,
+        targetFileId,
+        selectedAnchor.sourceId,
+        undefined,
+      )
         ? positionsFromSource(sourcePositions, cascadeOffset)
         : undefined;
     const positions = selectedAnchor
@@ -478,12 +595,29 @@ export async function runPasteSelection(
                 space: "visual" as const,
               };
         });
+    const preparedPositions = withPreparedVisualOffsets(positions, {
+      getPreparedPasteVisualOffset,
+      targetFileId,
+      targetSelector:
+        selectedAnchor?.selector ??
+        (sourceParentNodeId ? nodeIdSelector(sourceParentNodeId) : "body"),
+      placement: selectedAnchor ? "after" : "inside",
+      layerHtmls,
+      styleSnapshots,
+      managedStyleSnapshots,
+    });
+    if (preparedPositions === null) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
     const prepared = prepareClonedHtmlLayersForLiveInsert(
       targetStoredContent,
       layerHtmls,
       {
         stripRootPosition: Boolean(selectedAnchor),
-        positions,
+        positions: preparedPositions,
         styleSnapshots,
       },
     );
@@ -649,15 +783,14 @@ export async function runPasteSelection(
       buildCodeLayerProjection(baseContent),
       selectedElement,
     );
-    const selectedClipboardRoot =
-      selectedNode?.dataAttributes["data-agent-native-clone-root"] === "true" ||
-      isSelectedClipboardLayer(
-        entries,
-        targetFileId,
-        selectedElement.runtimeSourceId ??
-          selectedElement.sourceId ??
-          selectedElement.id,
-      );
+    const selectedClipboardRoot = isSelectedClipboardLayer(
+      entries,
+      targetFileId,
+      selectedElement.runtimeSourceId ??
+        selectedElement.sourceId ??
+        selectedElement.id,
+      selectedNode?.dataAttributes,
+    );
     const placement = selectedClipboardRoot
       ? "after"
       : (decision?.placement ?? "after");
@@ -823,9 +956,27 @@ export async function runPasteSelection(
           space: "visual" as const,
         };
   });
+  const visualTargetSelectors = pasteAfterOriginalSelectors?.length
+    ? pasteAfterOriginalSelectors
+    : sourceParentSelectors;
+  const preparedPositions = withPreparedVisualOffsets(positions, {
+    getPreparedPasteVisualOffset,
+    targetFileId,
+    targetSelector: visualTargetSelectors?.[0] ?? "body",
+    placement: pasteAfterOriginalSelectors?.length ? "after" : "inside",
+    layerHtmls,
+    styleSnapshots,
+    managedStyleSnapshots,
+  });
+  if (preparedPositions === null) {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), {
+      duration: 4000,
+    });
+    return;
+  }
   const cloneOptions = {
     onUnsupportedStructure,
-    positions,
+    positions: preparedPositions,
     styleSnapshots,
     managedStyleSnapshots,
     componentLinks,

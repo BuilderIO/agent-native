@@ -67,7 +67,10 @@ import {
 import { runInsertFigmaPasteLayers } from "../commands/insert-figma-paste-layers";
 import { runPasteCopiedScreens } from "../commands/paste-copied-screens";
 import { runPasteOverSelection } from "../commands/paste-over-selection";
-import { runPasteSelection } from "../commands/paste-selection";
+import {
+  runPasteSelection,
+  type PasteSelectionArgs,
+} from "../commands/paste-selection";
 import { runPastedSvgLayer } from "../commands/paste-svg-layer";
 import { runPasteToReplace } from "../commands/paste-to-replace";
 import {
@@ -266,13 +269,15 @@ export function useEditorClipboard({
       styleSnapshot?: PortableStyleSnapshot,
       managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot,
       sourceFileId?: string,
+      placement: "before" | "after" | "inside" = "before",
+      targetFileId: string | undefined = activeFile?.id,
     ):
       | { x: number; y: number; styleSnapshot?: PortableStyleSnapshot }
       | null
       | undefined => {
-      if (!activeFile || typeof document === "undefined") return undefined;
+      if (!targetFileId || typeof document === "undefined") return undefined;
       const frame = document.querySelector<HTMLIFrameElement>(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(activeFile.id)}"]`,
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(targetFileId)}"]`,
       );
       if (!frame) return undefined;
       let view: Window | null;
@@ -299,17 +304,41 @@ export function useEditorClipboard({
         return measurePreparedCloneVisualOffset(target, layerHtml, {
           styleSnapshot,
           managedStyleSnapshot,
+          placement,
           preserveSourceAuthoredRootStyles:
-            sourceFileId !== undefined && sourceFileId === activeFile.id,
+            sourceFileId !== undefined && sourceFileId === targetFileId,
           view,
           renderOffset,
         });
       } catch {
-        // coercion-ok: inaccessible preview geometry makes paste-to-replace fail visibly.
+        // coercion-ok: inaccessible preview geometry makes paste fail visibly.
         return null;
       }
     },
     [activeFile?.id],
+  );
+
+  const getPreparedPasteVisualOffset = useCallback<
+    NonNullable<PasteSelectionArgs["getPreparedPasteVisualOffset"]>
+  >(
+    ({
+      targetFileId,
+      targetSelector,
+      placement,
+      layerHtml,
+      styleSnapshot,
+      managedStyleSnapshot,
+    }) =>
+      getPreparedCloneVisualOffset(
+        targetSelector ?? "body",
+        layerHtml,
+        styleSnapshot,
+        managedStyleSnapshot,
+        undefined,
+        placement,
+        targetFileId,
+      ),
+    [getPreparedCloneVisualOffset],
   );
 
   const canUploadDesignMedia =
@@ -628,6 +657,7 @@ export function useEditorClipboard({
           getCanvasClipboardEntries,
           getCanvasScreenClipboardEntries,
           getFreshActiveContent,
+          getPreparedPasteVisualOffset,
           getScreenContent,
           getVisibleCanvasRect: () => visibleCanvasRectRef.current?.() ?? null,
           historyOrderRef,
@@ -666,6 +696,7 @@ export function useEditorClipboard({
       getCanvasClipboardEntries,
       getCanvasScreenClipboardEntries,
       getFreshActiveContent,
+      getPreparedPasteVisualOffset,
       getScreenContent,
       historyOrderRef,
       files,
