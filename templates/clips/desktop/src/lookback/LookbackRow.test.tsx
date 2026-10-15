@@ -136,7 +136,7 @@ describe("LookbackRow with Rewind off", () => {
     expect(menuItemTexts()).toEqual([]);
     expect(document.body.textContent).toContain("Turn on Rewind");
     expect(document.body.textContent).toContain(
-      "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",
+      "To include earlier screen time, first turn on Rewind. While it’s on, Rewind continuously records your screen and keeps recent history on this device.",
     );
     expect(
       document

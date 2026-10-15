@@ -23,7 +23,7 @@ const messages = {
       "Não foi possível desativar o Rewind. Pare a gravação e tente novamente.",
     rewindOffTitle: "Ativar o Rewind",
     rewindOffBody:
-      "Desativado por padrão. O histórico da tela fica neste dispositivo até você incluí-lo em uma gravação ou aprovar uma solicitação para compartilhá-lo.",
+      "Para incluir o tempo de tela anterior, ative primeiro o Rewind. Enquanto estiver ligado, o Rewind grava a tela continuamente e mantém o histórico recente neste dispositivo.",
     requestFailed:
       "Não foi possível incluir o tempo de tela anterior. A gravação continua sem ele.",
     localOnlyUnavailable:

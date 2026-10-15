@@ -20,7 +20,7 @@ const messages = {
     turnOffRewindFailed: "无法关闭 Rewind。请先停止录制，然后重试。",
     rewindOffTitle: "开启 Rewind",
     rewindOffBody:
-      "默认关闭。屏幕历史记录会保留在此设备上，直到你将其加入录制内容或批准共享请求。",
+      "如需包含录制前的屏幕内容，请先开启 Rewind。开启后，Rewind 会持续录制屏幕，并将近期记录保存在此设备上。",
     requestFailed: "无法包含更早的屏幕时间。录制将继续，但不包含这部分。",
     localOnlyUnavailable: "仅本地录制不会保存更早的屏幕时间。",
     saving: "正在保存录制前的 {{window}}…",

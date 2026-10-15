@@ -21,7 +21,7 @@ const messages = {
       "Rewind를 끌 수 없습니다. 녹화를 중지한 후 다시 시도하세요.",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
-      "기본적으로 꺼져 있습니다. 화면 기록은 녹화에 포함하거나 공유 요청을 승인할 때까지 이 기기에 보관됩니다.",
+      "이전 화면 시간을 포함하려면 먼저 Rewind를 켜세요. Rewind가 켜져 있으면 화면을 계속 녹화하고 최근 기록을 이 기기에 보관합니다.",
     requestFailed:
       "이전 화면 시간을 포함하지 못했습니다. 녹화는 이 부분 없이 계속됩니다.",
     localOnlyUnavailable:
