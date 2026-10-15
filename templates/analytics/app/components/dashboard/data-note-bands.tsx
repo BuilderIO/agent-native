@@ -79,7 +79,7 @@ function DataNoteDetails({ note }: { note: DataNote }) {
             ? t("dataNotes.incident")
             : t("dataNotes.dataProblem"),
           note.status === "fixed" ? t("dataNotes.fixed") : null,
-          t("dataNotes.addedBy", { email: note.addedBy }),
+          note.addedBy ? t("dataNotes.addedBy", { email: note.addedBy }) : null,
         ]
           .filter(Boolean)
           .join(" · ")}

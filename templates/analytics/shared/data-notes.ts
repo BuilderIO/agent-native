@@ -35,7 +35,8 @@ export interface DataNote {
   unlessEvents: string[];
   /** Charts the note shows on regardless of their SQL. */
   panels: DataNotePanelRef[];
-  addedBy: string;
+  /** Absent for a reader from another organization. */
+  addedBy?: string;
   updatedAt: string;
 }
 
