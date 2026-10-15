@@ -14,12 +14,14 @@ const mocks = vi.hoisted(() => ({
   notes: [] as unknown[],
   /** False on a dashboard shared from another organization. */
   editable: true,
+  loading: false,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: vi.fn((name: string) => ({
-    data:
-      name === "list-key-dates"
+    data: mocks.loading
+      ? undefined
+      : name === "list-key-dates"
         ? { sets: mocks.sets, editable: mocks.editable }
         : name === "list-data-notes"
           ? { notes: mocks.notes, editable: mocks.editable }
@@ -117,6 +119,7 @@ describe("AnnotationsMenu", () => {
     ];
     mocks.notes = [SETUP_INCIDENT, CONNECT_UNDERCOUNT];
     mocks.editable = true;
+    mocks.loading = false;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -187,6 +190,16 @@ describe("AnnotationsMenu", () => {
     expect(onAnnotationsChange).toHaveBeenLastCalledWith({
       hiddenKeyDateSets: ["launches"],
     });
+  });
+
+  it("holds adding and editing until the lists say whose they are", () => {
+    mocks.loading = true;
+    render();
+    openMenu();
+
+    for (const label of ["Add key date", "Edit key dates", "Add data note"]) {
+      expect(item("menuitem", label), label).toBeUndefined();
+    }
   });
 
   it("lets a viewer see the sets but not change what the dashboard hides", () => {

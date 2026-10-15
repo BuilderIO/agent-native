@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: () => ({ data: { sets: mocks.sets } }),
+  useActionQuery: () => ({ data: { sets: mocks.sets, editable: true } }),
 }));
 
 vi.mock("@/components/dashboard/annotation-mutations", async (actual) => ({

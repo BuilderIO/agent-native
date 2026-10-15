@@ -61,9 +61,10 @@ export function AnnotationsMenu({
     { dashboardId },
     { staleTime: 60_000 },
   );
-  // False on a dashboard shared from another organization.
-  const keyDatesEditable = keyDateData?.editable !== false;
-  const notesEditable = dataNoteData?.editable !== false;
+  // Writes wait for the lists: a shared dashboard's annotations are its
+  // organization's, and a write before that's known would land in the viewer's.
+  const keyDatesEditable = keyDateData?.editable === true;
+  const notesEditable = dataNoteData?.editable === true;
   const returningFocus = useRef(false);
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const sets = keyDateData?.sets ?? [];

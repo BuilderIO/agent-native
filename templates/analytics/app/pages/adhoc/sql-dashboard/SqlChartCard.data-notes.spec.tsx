@@ -6,12 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   dataNotes: [] as unknown[],
+  dataNotesLoaded: true,
   chart: null as null | ((props: { panel: unknown }) => null),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => ({
-    data: name === "list-data-notes" ? { notes: mocks.dataNotes } : undefined,
+    data:
+      name === "list-data-notes" && mocks.dataNotesLoaded
+        ? { notes: mocks.dataNotes, editable: true }
+        : undefined,
   }),
   useActionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -67,6 +71,7 @@ describe("SqlChartCard data-note flag", () => {
     );
     mocks.dataNotes = [CONNECT_UNDERCOUNT];
     mocks.chart = null;
+    mocks.dataNotesLoaded = true;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -140,6 +145,18 @@ describe("SqlChartCard data-note flag", () => {
     );
     expect(menuItem("annotations.hideNoteHere")).toBeUndefined();
   });
+
+  it.each([true, false])(
+    "offers adding a note only once the list says the notes are the viewer's (loaded: %s)",
+    async (loaded) => {
+      mocks.dataNotesLoaded = loaded;
+      await renderCard(clicksByStep, { add: vi.fn(), hide: vi.fn() });
+      await pressEnter(
+        container.querySelector('[aria-label="sqlDashboard.panelOptions"]')!,
+      );
+      expect(menuItem("annotations.addDataNote") !== undefined).toBe(loaded);
+    },
+  );
 
   it.each(["stacked-bar", "stacked-area"])(
     "leaves a legacy %s chart's notes to the chart, which draws them on its dates",
