@@ -83,26 +83,36 @@ vi.mock("../db/client.js", () => ({
         return { rows: entries, rowsAffected: 0 };
       }
       if (
-        /SELECT.*COALESCE.*SUM.*row_count.*FROM staged_datasets WHERE app_id/i.test(
+        /SELECT.*COALESCE.*SUM.*row_count.*FROM staged_datasets WHERE app_id.*AND owner_email/i.test(
           rawSql,
         )
       ) {
         const appId = args[0] as string;
+        const owner = args[1] as string;
         const total = Array.from(_metaStore.values())
-          .filter((e) => e.app_id === appId)
+          .filter((e) => e.app_id === appId && e.owner_email === owner)
           .reduce((sum, e) => sum + Number(e.row_count), 0);
         return { rows: [{ total }], rowsAffected: 0 };
       }
       if (
-        /SELECT.*COALESCE.*SUM.*byte_size.*FROM staged_datasets WHERE app_id/i.test(
+        /SELECT.*COALESCE.*SUM.*byte_size.*FROM staged_datasets WHERE app_id.*AND owner_email/i.test(
           rawSql,
         )
       ) {
         const appId = args[0] as string;
+        const owner = args[1] as string;
         const total = Array.from(_metaStore.values())
-          .filter((e) => e.app_id === appId)
+          .filter((e) => e.app_id === appId && e.owner_email === owner)
           .reduce((sum, e) => sum + Number(e.byte_size), 0);
         return { rows: [{ total }], rowsAffected: 0 };
+      }
+      if (
+        /SELECT app_id, owner_email, row_count, byte_size FROM staged_datasets WHERE id = \?/i.test(
+          rawSql,
+        )
+      ) {
+        const entry = _metaStore.get(args[0] as string);
+        return { rows: entry ? [entry] : [], rowsAffected: 0 };
       }
       if (
         /SELECT id FROM staged_datasets WHERE id = \?$/i.test(rawSql.trim())
@@ -142,15 +152,16 @@ vi.mock("../db/client.js", () => ({
           createdAt,
           updatedAt,
         ] = args;
+        const previous = _metaStore.get(id as string);
         _metaStore.set(id as string, {
           id,
-          app_id: appId,
-          owner_email: owner,
+          app_id: previous?.app_id ?? appId,
+          owner_email: previous?.owner_email ?? owner,
           name,
           columns,
           row_count: rowCount,
           byte_size: byteSize,
-          created_at: createdAt,
+          created_at: previous?.created_at ?? createdAt,
           updated_at: updatedAt,
         });
         return { rows: [], rowsAffected: 1 };
@@ -204,6 +215,7 @@ const {
   upsertStagedDataset,
   getStagedDatasetRows,
   MAX_ROWS_PER_APP,
+  MAX_BYTES_PER_APP,
   _resetInitPromiseForTests,
 } = await import("./staged-datasets-store.js");
 const { createProviderApiRuntime } = await import("./index.js");
@@ -326,6 +338,96 @@ describe("staging caps", () => {
         columns: ["id"],
       }),
     ).rejects.toThrow(/cap exceeded/i);
+  });
+
+  it("does not count another owner's rows or bytes against the caller", async () => {
+    _metaStore.set("ds_other_owner", {
+      id: "ds_other_owner",
+      app_id: "analytics",
+      owner_email: "bob@example.com",
+      name: "other owner's data",
+      columns: '["id"]',
+      row_count: MAX_ROWS_PER_APP,
+      byte_size: MAX_BYTES_PER_APP,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    });
+
+    await expect(
+      upsertStagedDataset({
+        id: "ds_ada_data",
+        appId: "analytics",
+        ownerEmail: "ada@example.com",
+        name: "ada_data",
+        rows: [{ id: 1 }],
+        columns: ["id"],
+      }),
+    ).resolves.toMatchObject({ ownerEmail: "ada@example.com", rowCount: 1 });
+  });
+
+  it("credits existing dataset bytes when replacing it", async () => {
+    const previousBytes = 30 * 1024 * 1024;
+    _metaStore.set("ds_replace", {
+      id: "ds_replace",
+      app_id: "analytics",
+      owner_email: "ada@example.com",
+      name: "old data",
+      columns: '["payload"]',
+      row_count: 1,
+      byte_size: previousBytes,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    });
+    const replacementRows = [{ payload: "x".repeat(25 * 1024 * 1024) }];
+
+    const result = await upsertStagedDataset({
+      id: "ds_replace",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      name: "new data",
+      rows: replacementRows,
+      columns: ["payload"],
+    });
+
+    expect(result.byteSize).toBe(JSON.stringify(replacementRows[0]).length);
+    expect(result.byteSize).toBeLessThan(MAX_BYTES_PER_APP);
+    expect(
+      _executedSql.some(
+        (sql) =>
+          /ON CONFLICT \(id\) DO UPDATE/i.test(sql) &&
+          /WHERE staged_datasets\.app_id = EXCLUDED\.app_id AND staged_datasets\.owner_email = EXCLUDED\.owner_email/i.test(
+            sql,
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not replace a dataset from another owner with a colliding ID", async () => {
+    _metaStore.set("ds_collision", {
+      id: "ds_collision",
+      app_id: "analytics",
+      owner_email: "bob@example.com",
+      name: "bob_data",
+      columns: '["val"]',
+      row_count: 1,
+      byte_size: JSON.stringify({ val: "original" }).length,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    });
+    _rowStore.set("ds_collision", [{ val: "original" }]);
+
+    await expect(
+      upsertStagedDataset({
+        id: "ds_collision",
+        appId: "analytics",
+        ownerEmail: "ada@example.com",
+        name: "ada_data",
+        rows: [{ val: "replacement" }],
+        columns: ["val"],
+      }),
+    ).rejects.toThrow(/already exists/i);
+    expect(_metaStore.get("ds_collision")?.owner_email).toBe("bob@example.com");
+    expect(_rowStore.get("ds_collision")).toEqual([{ val: "original" }]);
   });
 });
 

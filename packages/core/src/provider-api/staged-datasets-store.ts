@@ -107,20 +107,26 @@ export function deriveColumns(rows: Record<string, unknown>[]): string[] {
   return Array.from(seen);
 }
 
-async function getAppRowCount(appId: string): Promise<number> {
+async function getAppRowCount(
+  appId: string,
+  ownerEmail: string,
+): Promise<number> {
   const db = getDbExec();
   const { rows } = await db.execute({
-    sql: `SELECT COALESCE(SUM(row_count), 0) as total FROM staged_datasets WHERE app_id = ?`,
-    args: [appId],
+    sql: `SELECT COALESCE(SUM(row_count), 0) as total FROM staged_datasets WHERE app_id = ? AND owner_email = ?`,
+    args: [appId, ownerEmail],
   });
   return Number(rows[0]?.total ?? 0);
 }
 
-async function getAppByteSize(appId: string): Promise<number> {
+async function getAppByteSize(
+  appId: string,
+  ownerEmail: string,
+): Promise<number> {
   const db = getDbExec();
   const { rows } = await db.execute({
-    sql: `SELECT COALESCE(SUM(byte_size), 0) as total FROM staged_datasets WHERE app_id = ?`,
-    args: [appId],
+    sql: `SELECT COALESCE(SUM(byte_size), 0) as total FROM staged_datasets WHERE app_id = ? AND owner_email = ?`,
+    args: [appId, ownerEmail],
   });
   return Number(rows[0]?.total ?? 0);
 }
@@ -132,6 +138,19 @@ export async function upsertStagedDataset(
   const db = getDbExec();
   const now = Date.now();
   const id = options.id || generateId();
+
+  const { rows: existingDataset } = await db.execute({
+    sql: `SELECT app_id, owner_email, row_count, byte_size FROM staged_datasets WHERE id = ?`,
+    args: [id],
+  });
+  const previous = existingDataset[0];
+  if (
+    previous &&
+    (previous.app_id !== options.appId ||
+      previous.owner_email !== options.ownerEmail)
+  ) {
+    throw new Error("A staged dataset with this ID already exists.");
+  }
 
   let existingRows: Record<string, unknown>[] = [];
   if (options.append) {
@@ -146,16 +165,11 @@ export async function upsertStagedDataset(
     ? [...existingRows, ...options.rows]
     : options.rows;
 
-  const currentAppRows = await getAppRowCount(options.appId);
-  const currentDatasetRows = options.append
-    ? existingRows.length
-    : await (async () => {
-        const { rows } = await db.execute({
-          sql: `SELECT row_count FROM staged_datasets WHERE id = ?`,
-          args: [id],
-        });
-        return Number(rows[0]?.row_count ?? 0);
-      })();
+  const currentAppRows = await getAppRowCount(
+    options.appId,
+    options.ownerEmail,
+  );
+  const currentDatasetRows = Number(previous?.row_count ?? 0);
   const netNewRows = allRows.length - currentDatasetRows;
   if (currentAppRows + netNewRows > MAX_ROWS_PER_APP) {
     throw new Error(
@@ -167,16 +181,11 @@ export async function upsertStagedDataset(
   const serialized = allRows.map((row) => JSON.stringify(row));
   const byteSize = serialized.reduce((sum, s) => sum + s.length, 0);
 
-  const currentAppBytes = await getAppByteSize(options.appId);
-  const existingDatasetBytes = options.append
-    ? await (async () => {
-        const { rows } = await db.execute({
-          sql: `SELECT byte_size FROM staged_datasets WHERE id = ?`,
-          args: [id],
-        });
-        return Number(rows[0]?.byte_size ?? 0);
-      })()
-    : 0;
+  const currentAppBytes = await getAppByteSize(
+    options.appId,
+    options.ownerEmail,
+  );
+  const existingDatasetBytes = Number(previous?.byte_size ?? 0);
   const netNewBytes = byteSize - existingDatasetBytes;
   if (currentAppBytes + netNewBytes > MAX_BYTES_PER_APP) {
     throw new Error(
@@ -208,8 +217,8 @@ export async function upsertStagedDataset(
       }
     }
 
-    await tx.execute({
-      sql: `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, updated_at=EXCLUDED.updated_at`,
+    const result = await tx.execute({
+      sql: `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, updated_at=EXCLUDED.updated_at WHERE staged_datasets.app_id = EXCLUDED.app_id AND staged_datasets.owner_email = EXCLUDED.owner_email`,
       args: [
         id,
         options.appId,
@@ -222,6 +231,9 @@ export async function upsertStagedDataset(
         now,
       ],
     });
+    if (result.rowsAffected === 0) {
+      throw new Error("A staged dataset with this ID already exists.");
+    }
   });
 
   return {
