@@ -113,6 +113,33 @@ describe("create-recording policy", () => {
     calls.track.mockReset();
   });
 
+  it("returns the duration cap only for hosted recordings", async () => {
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<{ maxClipDurationMs: number | null }>;
+    };
+    const context = { userEmail: "owner@example.com" };
+
+    await expect(
+      action.run({ id: "rec-own", recordingPlatform: "web" }, context),
+    ).resolves.toMatchObject({ maxClipDurationMs: null });
+
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "hosted",
+      provider: await calls.uploadProvider(),
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      reservationCreated: false,
+    });
+    await expect(
+      action.run({ id: "rec-hosted", recordingPlatform: "web" }, context),
+    ).resolves.toMatchObject({ maxClipDurationMs: 10 * 60 * 1000 });
+  });
+
   it("saves the new recording's policy before initializing its upload", async () => {
     const action = createRecording as unknown as {
       run: (

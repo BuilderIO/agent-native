@@ -129,7 +129,9 @@ import {
 } from "./lib/capture-mode";
 import {
   hostedClipDurationLimitMs,
+  currentTakeClipLimitMs,
   reachedClipDurationLimit,
+  setTakeClipLimitMs,
 } from "./lib/clip-duration-limit";
 import { callClipsActionFor } from "./lib/clips-action";
 import {
@@ -1406,16 +1408,23 @@ export function App({
   ]);
 
   // Mirrors the web recorder: a hosted take stops itself at the clip cap
-  // instead of failing the upload past the server's size limit.
+  // instead of failing the upload past the server's size limit. The cap the
+  // server returned when it created this take wins over the storage probe.
   useEffect(() => {
-    if (!recorder) return;
+    if (!recorder) {
+      setTakeClipLimitMs(undefined);
+      return;
+    }
     let stopRequested = false;
     const unlisten = listen<{ paused: boolean; elapsedMs: number }>(
       "clips:recorder-state",
       (ev) => {
         if (
           stopRequested ||
-          !reachedClipDurationLimit(ev.payload, hostedClipLimitMsRef.current)
+          !reachedClipDurationLimit(
+            ev.payload,
+            currentTakeClipLimitMs(hostedClipLimitMsRef.current),
+          )
         ) {
           return;
         }

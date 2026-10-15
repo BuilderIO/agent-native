@@ -448,6 +448,10 @@ export default defineAction({
       abortUrl: `/api/uploads/${id}/abort`,
       uploadChunkUrlTemplate: `/api/uploads/${id}/chunk?index={index}&total={total}&isFinal={isFinal}`,
       uploadMode,
+      // Hosted-only per-take cap; the mode was decided above, so recorders
+      // need not trust a stale storage probe. Own storage is uncapped.
+      maxClipDurationMs:
+        storageMode === "hosted" ? storage.maxClipDurationMs : null,
     };
   },
 });

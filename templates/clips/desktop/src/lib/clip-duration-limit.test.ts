@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  currentTakeClipLimitMs,
   hostedClipDurationLimitMs,
   reachedClipDurationLimit,
+  resolveTakeClipLimitMs,
+  setTakeClipLimitMs,
 } from "./clip-duration-limit";
 
 const caps = { maxClipDurationMs: 600_000 };
@@ -30,5 +33,24 @@ describe("desktop clip duration cap", () => {
     expect(reachedClipDurationLimit({ ...live, paused: true }, 600_000)).toBe(
       false,
     );
+  });
+
+  it("lets the cap from create-recording override the storage probe", () => {
+    // Stale cached "configured" probe saw no cap; the server made it hosted.
+    expect(resolveTakeClipLimitMs(600_000, null)).toBe(600_000);
+    expect(resolveTakeClipLimitMs(600_000, 300_000)).toBe(600_000);
+    // Own storage stays uncapped even if an earlier probe saw a hosted cap.
+    expect(resolveTakeClipLimitMs(null, 600_000)).toBeNull();
+    // Older servers omit the field, so the probe value is used.
+    expect(resolveTakeClipLimitMs(undefined, 600_000)).toBe(600_000);
+  });
+
+  it("tracks the per-take cap from the create response until cleared", () => {
+    setTakeClipLimitMs(600_000);
+    expect(currentTakeClipLimitMs(null)).toBe(600_000);
+    setTakeClipLimitMs(null);
+    expect(currentTakeClipLimitMs(600_000)).toBeNull();
+    setTakeClipLimitMs(undefined);
+    expect(currentTakeClipLimitMs(300_000)).toBe(300_000);
   });
 });
