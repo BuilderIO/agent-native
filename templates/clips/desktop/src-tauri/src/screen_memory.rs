@@ -2472,23 +2472,36 @@ fn rotate_segment_with_capture_mode_change(
     ];
     end_rewind_lease(app);
     let install_result = install_mode_change_segment(app, next, &state, &mut reservation);
-    let finalize_result = match finalize_active_segment_at(app, active, ended_at, ended_at_iso) {
-        Ok(segment) if reservation.release_if_clear(&state) => {
-            persist_finalized_segment(app, segment)
+    let finalize_result = if let Some(reason) = sample_active_window(config).1 {
+        mark_active_segment_exclusion_tainted(app);
+        append_event(app, coverage_gap_event(reason));
+        discard_active_segment(active);
+        discard_excluded_mode_change_artifacts(
+            app,
+            &segment_id,
+            &paths,
+            gap_started_at,
+            capture_mode,
+        )
+    } else {
+        match finalize_active_segment_at(app, active, ended_at, ended_at_iso) {
+            Ok(segment) if reservation.release_if_clear(&state) => {
+                persist_finalized_segment(app, segment)
+            }
+            Ok(segment) => {
+                discard_finalized_excluded_segment(app, segment, gap_started_at, capture_mode)
+            }
+            Err(_) if reservation.exclusion_observed_since_reservation(&state) => {
+                discard_excluded_mode_change_artifacts(
+                    app,
+                    &segment_id,
+                    &paths,
+                    gap_started_at,
+                    capture_mode,
+                )
+            }
+            Err(error) => Err(error),
         }
-        Ok(segment) => {
-            discard_finalized_excluded_segment(app, segment, gap_started_at, capture_mode)
-        }
-        Err(_) if reservation.exclusion_observed_since_reservation(&state) => {
-            discard_excluded_mode_change_artifacts(
-                app,
-                &segment_id,
-                &paths,
-                gap_started_at,
-                capture_mode,
-            )
-        }
-        Err(error) => Err(error),
     };
     if let Err(error) = finalize_result {
         record_error(app, error);
