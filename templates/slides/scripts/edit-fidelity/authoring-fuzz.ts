@@ -795,6 +795,7 @@ function outgoingBrowserSessionWarningKind(message: string) {
 function isFinishedRetiredSessionRequest(
   candidate: WatchedRequestNavigationCandidate,
   requestKind: "poll" | "heartbeat",
+  evaluationDelayMs: number,
 ) {
   return (
     candidate.requestFinishedSuccessfully === true &&
@@ -810,7 +811,10 @@ function isFinishedRetiredSessionRequest(
     candidate.responseStatus < 300 &&
     candidate.settledAgeMs !== undefined &&
     candidate.settledAgeMs >= 0 &&
-    candidate.settledAgeMs < reloadNavigationConsoleGraceMs &&
+    // Ages are read when the candidates are evaluated, which is after the grace
+    // wait, so the bound covers that delay to stay a window before the warning.
+    candidate.settledAgeMs <
+      reloadNavigationConsoleGraceMs + evaluationDelayMs &&
     candidate.competingSameTypeRequest !== true
   );
 }
@@ -819,6 +823,8 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
   message: string,
   activePhase: string,
   candidates: WatchedRequestNavigationCandidate[],
+  // How long after the warning the candidates were read.
+  evaluationDelayMs = 0,
 ) {
   const outgoingRequestKind = outgoingBrowserSessionWarningKind(message);
   if (outgoingRequestKind) {
@@ -842,7 +848,11 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
     return aborted > 0
       ? aborted === 1
       : candidates.some((candidate) =>
-          isFinishedRetiredSessionRequest(candidate, outgoingRequestKind),
+          isFinishedRetiredSessionRequest(
+            candidate,
+            outgoingRequestKind,
+            evaluationDelayMs,
+          ),
         );
   }
   const rules =
@@ -879,16 +889,21 @@ export async function isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace(
   message: string,
   activePhase: string,
   getCandidates: () => WatchedRequestNavigationCandidate[],
+  // When the warning was emitted; Firefox normalizes it asynchronously before
+  // this runs, so the caller's own timestamp is the accurate baseline.
+  warnedAt = Date.now(),
 ) {
   if (outgoingBrowserSessionWarningKind(message)) {
     await new Promise<void>((resolve) =>
       setTimeout(resolve, retiredBrowserSessionPollConsoleGraceMs),
     );
   }
+  const candidates = getCandidates();
   return isExpectedSaveReloadBrowserSessionConsoleError(
     message,
     activePhase,
-    getCandidates(),
+    candidates,
+    Math.max(0, Date.now() - warnedAt),
   );
 }
 
@@ -2194,6 +2209,7 @@ export async function runAuthoringFuzz(
           text,
           consolePhase,
           () => reloadNavigationCandidatesAt(Date.now()),
+          now,
         )) ||
         isExpectedWatchedRequestCorsError(
           text,
