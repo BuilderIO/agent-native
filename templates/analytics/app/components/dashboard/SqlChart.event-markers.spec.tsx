@@ -456,6 +456,19 @@ describe("SqlChart key-date markers", () => {
       );
     });
 
+    it.each(["line", "area"] as const)(
+      "shades the whole plot when a %s chart has one row, the note's day",
+      async (chartType) => {
+        mocks.rows = [{ day: "2026-10-10", people: 20 }];
+        await renderInDashboard(failures(chartType));
+        const fill = container.querySelector("[data-data-note-band] rect");
+        expect(Number(fill?.getAttribute("width"))).toBeGreaterThan(
+          CHART_SIZE.width / 2,
+        );
+        expect(container.querySelector("[data-data-note-lines]")).toBeNull();
+      },
+    );
+
     it("keeps a narrow band's whole title, inside the chart at its right edge", async () => {
       const title = "Signups counted twice after the webhook retry";
       mocks.dataNotes = [

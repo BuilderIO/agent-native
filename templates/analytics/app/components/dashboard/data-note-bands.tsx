@@ -173,7 +173,10 @@ export function useDataNoteLayout(
 type XAxisScale = NonNullable<ReturnType<typeof useXAxisScale>>;
 type PlotArea = NonNullable<ReturnType<typeof usePlotArea>>;
 
-/** A point axis maps a value to a line, so pad half a step to cover the day. */
+/**
+ * A point axis maps a value to a line, so pad half a step to cover the day. A
+ * lone point has no step, and its day is the whole plot.
+ */
 function bandEdges(
   scale: XAxisScale,
   plot: PlotArea,
@@ -185,10 +188,13 @@ function bandEdges(
   const end = scale(x2, { position: "end" });
   if (start == null || end == null) return null;
   let pad = 0;
-  if (stepValues.length === 2 && start === scale(x1, { position: "end" })) {
-    const a = scale(stepValues[0]);
-    const b = scale(stepValues[1]);
-    if (a != null && b != null) pad = Math.abs(b - a) / 2;
+  if (start === scale(x1, { position: "end" })) {
+    if (stepValues.length < 2) pad = plot.width;
+    else {
+      const a = scale(stepValues[0]);
+      const b = scale(stepValues[1]);
+      if (a != null && b != null) pad = Math.abs(b - a) / 2;
+    }
   }
   return {
     left: Math.max(plot.x, Math.min(start, end) - pad),
