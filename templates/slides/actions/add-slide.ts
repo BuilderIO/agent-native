@@ -320,6 +320,7 @@ export default defineAction({
         targetSlideCount !== null &&
         realSlideCount !== null &&
         realSlideCount >= targetSlideCount &&
+        postWriteRealSlideCount !== realSlideCount &&
         targetSlideCountOverride === undefined
       ) {
         fail(
