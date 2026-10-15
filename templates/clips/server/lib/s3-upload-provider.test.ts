@@ -42,6 +42,7 @@ import {
   fetchS3ObjectByUrl,
   isS3ObjectUrlBoundToRecording,
   s3FileUploadProvider,
+  s3ObjectSizeBytesByUrl,
 } from "./s3-upload-provider.js";
 
 describe("s3FileUploadProvider", () => {
@@ -590,6 +591,41 @@ describe("s3FileUploadProvider", () => {
         }),
       }),
     );
+  });
+
+  it("reads an object's stored size from a one-byte range, and reports a missing object as unknown", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_REGION: "us-east-1",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("m", {
+          status: 206,
+          headers: { "content-range": "bytes 0-0/4096" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response("", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const url = "https://clips.example.com/api/storage/clips/recording.webm";
+
+    await expect(
+      s3ObjectSizeBytesByUrl(url, { recordingId: "recording" }),
+    ).resolves.toBe(4096);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      headers: expect.objectContaining({ range: "bytes=0-0" }),
+    });
+    await expect(
+      s3ObjectSizeBytesByUrl(url, { recordingId: "recording" }),
+    ).resolves.toBeNull();
   });
 
   it("fails closed when a public S3 request cannot create its dispatcher", async () => {

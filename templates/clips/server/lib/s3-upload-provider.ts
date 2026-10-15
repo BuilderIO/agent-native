@@ -1058,6 +1058,30 @@ export async function fetchS3ObjectByUrl(
   });
 }
 
+/**
+ * Stored size of a recording-bound object, or null when it cannot be read: an
+ * object that is already gone is "unknown", not zero, so a retry never
+ * refunds bytes twice.
+ */
+export async function s3ObjectSizeBytesByUrl(
+  url: string,
+  options: { recordingId: string; storageMode?: ClipsS3StorageMode },
+): Promise<number | null> {
+  const response = await fetchS3ObjectByUrl(url, {
+    ...options,
+    range: "bytes=0-0",
+  });
+  if (!response) return null;
+  await cancelS3ResponseBody(response);
+  const total =
+    response.status === 206
+      ? Number(response.headers.get("content-range")?.match(/\/(\d+)$/)?.[1])
+      : response.status === 200
+        ? Number(response.headers.get("content-length"))
+        : Number.NaN;
+  return Number.isSafeInteger(total) && total >= 0 ? total : null;
+}
+
 function createS3FileUploadProvider(
   storageMode: ClipsS3StorageMode,
 ): FileUploadProvider {

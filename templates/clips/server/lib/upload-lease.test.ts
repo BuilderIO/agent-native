@@ -593,6 +593,50 @@ describe("upload lease", () => {
     expect(rows[0]).toEqual({ video_url: null, video_size_bytes: 0 });
   });
 
+  it("finishes an aborted hosted upload whose session abort failed, once the provider confirms it", async () => {
+    await insertRecording({
+      id: "hosted-aborted",
+      status: "failed",
+      storageMode: "hosted",
+    });
+    await execute(client, {
+      sql: `INSERT INTO clips_hosted_clip_allowances
+            (recording_id, identity_key, user_id, status, quota_bytes, updated_at)
+            VALUES (?, ?, ?, 'reserved', ?, ?)`,
+      args: ["hosted-aborted", "owner@example.com", "user-1", 250, iso(-1_000)],
+    });
+    await execute(client, {
+      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
+      args: [
+        "resumable-session-hosted-aborted",
+        JSON.stringify({
+          providerId: "clips-hosted",
+          sessionId: "hosted-upload",
+          meta: { objectKey: "clips/hosted-aborted.webm" },
+          bytesUploaded: 10,
+        }),
+      ],
+    });
+    await execute(client, {
+      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
+      args: [
+        "recording-upload-hosted-aborted",
+        JSON.stringify({ status: "failed", aborted: true }),
+      ],
+    });
+
+    mockAbortResumableUploadSession.mockClear();
+    mockAbortResumableUploadSession.mockResolvedValueOnce(false);
+    const first = await reapExpiredUploads({ now: NOW });
+    expect(first.hostedReservationsReleased).toBe(0);
+    expect(first.hostedCleanupFailed).toBe(1);
+    expect(mockAbortResumableUploadSession).toHaveBeenCalledTimes(1);
+
+    const second = await reapExpiredUploads({ now: NOW + 1_000 });
+    expect(second.hostedReservationsReleased).toBe(1);
+    expect(mockAbortResumableUploadSession).toHaveBeenCalledTimes(2);
+  });
+
   it("recovers an expired hosted upload when failure was saved before its cleanup marker", async () => {
     await insertRecording({
       id: "hosted-marker-crash",

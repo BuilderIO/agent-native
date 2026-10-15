@@ -573,6 +573,9 @@ export async function handleAbortRecordingUpload(
           recordingId,
           abortedGenerationId,
         );
+    // A session the provider could not abort may still hold uploaded parts; it
+    // stays in app state for the reaper, so the reservation has to stay too.
+    let sessionCleanupConfirmed = true;
     if (!preserveRecoveryState) {
       if (resumableSession) {
         const provider = await resolveResumableUploadProvider(
@@ -600,6 +603,8 @@ export async function handleAbortRecordingUpload(
           await deleteResumableSession(recordingId, abortedGenerationId).catch(
             () => {},
           );
+        } else {
+          sessionCleanupConfirmed = false;
         }
       } else {
         await deleteResumableSession(recordingId, abortedGenerationId).catch(
@@ -614,7 +619,7 @@ export async function handleAbortRecordingUpload(
             recordingId,
           })
         : true;
-      if (mediaDeleted) {
+      if (mediaDeleted && sessionCleanupConfirmed) {
         await releaseHostedClipRecording({
           recordingId,
           userId: authUserId,
@@ -623,6 +628,7 @@ export async function handleAbortRecordingUpload(
       } else {
         console.error("[abort] hosted recording media remains reserved", {
           recordingId,
+          sessionCleanupConfirmed,
         });
       }
     }

@@ -247,7 +247,7 @@ describe("delete-recording-permanent", () => {
     expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
   });
 
-  it("preserves hosted quota when media cleanup is incomplete", async () => {
+  it("keeps the row and hosted quota when hosted media cleanup is incomplete", async () => {
     mockExistingRecording.storageMode = "hosted";
     mockDeleteRecordingMediaObjects.mockResolvedValueOnce({
       attempted: 2,
@@ -256,10 +256,25 @@ describe("delete-recording-permanent", () => {
       errors: [],
     });
 
-    await deleteRecordingPermanent.run({ id: "rec_1" });
+    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
+      /could not be deleted from storage/,
+    );
 
+    expect(mockDb.transaction).not.toHaveBeenCalled();
+    expect(mockDbDelete).not.toHaveBeenCalled();
     expect(mockAdjustHostedClipRecordingBytes).not.toHaveBeenCalled();
     expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
+  });
+
+  it("deletes hosted media before the row so a retry can still find it", async () => {
+    mockExistingRecording.storageMode = "hosted";
+
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(mockDeleteRecordingMediaObjects).toHaveBeenCalledTimes(1);
+    expect(
+      mockDeleteRecordingMediaObjects.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockDbDelete.mock.invocationCallOrder[0]);
   });
 
   it("releases a pending hosted reservation only after media cleanup succeeds", async () => {

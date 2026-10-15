@@ -275,6 +275,36 @@ export async function runLoomImportJob({
   let upload: Awaited<ReturnType<typeof uploadFile>> | null = null;
   let resolvedStorageMode = recording.storageMode;
 
+  // An upload that never reached recordings.videoUrl is invisible to the
+  // reaper, which would leave the object stored and the reservation held.
+  // Linking it before the failure is recorded hands both to the reaper's
+  // delete-then-release path. Returns whether the link landed.
+  const linkUnlinkedHostedUpload = async (): Promise<boolean> => {
+    if (!upload?.url || resolvedStorageMode !== "hosted") return false;
+    try {
+      const linked = await db
+        .update(schema.recordings)
+        .set({ videoUrl: upload.url })
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            eq(schema.recordings.loomImportClaimId, claimId),
+            eq(schema.recordings.status, "processing"),
+            notTakenDown(),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      return linked.length > 0;
+    } catch (error) {
+      console.error("[clips] Failed hosted Loom upload could not be linked", {
+        recordingId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  };
+
   const cleanupUnlinkedHostedUploadAfterTakedown = async () => {
     if (!upload?.url || resolvedStorageMode !== "hosted") return;
     try {
@@ -685,7 +715,9 @@ export async function runLoomImportJob({
     return { status: "ready" };
   } catch (err) {
     await lease.stop();
-    await cleanupUnlinkedHostedUploadAfterTakedown();
+    if (!(await linkUnlinkedHostedUpload())) {
+      await cleanupUnlinkedHostedUploadAfterTakedown();
+    }
     if (lease.failureReason) {
       return { status: "failed", failureReason: lease.failureReason };
     }

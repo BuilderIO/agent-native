@@ -907,6 +907,44 @@ export async function accountHostedClipAdditionalBytes(input: {
   return addHostedClipRetainedBytes(input);
 }
 
+/**
+ * Lowers a consumed recording's retained bytes by an object whose deletion the
+ * provider confirmed. Looked up by recording id: the caller deleted an object
+ * already bound to that recording. A reservation holds no stored bytes, so
+ * anything other than a consumed row reports `adjusted: false`.
+ */
+export async function subtractHostedClipRetainedBytes(input: {
+  recordingId: string;
+  deletedBytes: number;
+  now?: Date;
+}): Promise<{ adjusted: boolean; quotaBytes: number }> {
+  assertByteCount(input.deletedBytes, "deleted byte count");
+  const updatedAt = (input.now ?? new Date()).toISOString();
+
+  return withAllowanceLock(async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(allowanceTable)
+      .where(eq(allowanceTable.recordingId, input.recordingId))
+      .limit(1);
+    if (!current) {
+      throw new HostedClipAllowanceInvariantError(
+        "not_found",
+        "Hosted recording allowance was not found.",
+      );
+    }
+    if (current.status !== "consumed" || input.deletedBytes === 0) {
+      return { adjusted: false, quotaBytes: current.quotaBytes };
+    }
+    const quotaBytes = Math.max(0, current.quotaBytes - input.deletedBytes);
+    await tx
+      .update(allowanceTable)
+      .set({ quotaBytes, updatedAt })
+      .where(eq(allowanceTable.recordingId, input.recordingId));
+    return { adjusted: true, quotaBytes };
+  });
+}
+
 export async function releaseHostedClipAllowance(input: {
   recordingId: string;
   userId: string;

@@ -211,6 +211,28 @@ export default defineAction({
       }
     }
 
+    // Hosted media goes before the row: once the row is gone nothing can find
+    // the objects or the allowance, so an unconfirmed delete would strand both.
+    // Deleting an already-deleted object succeeds, so a retry finishes it.
+    const cleanupProtectedUrls = new Set([...protectedUrls, ...alreadyDeleted]);
+    let hostedMediaCleanup: Awaited<
+      ReturnType<typeof deleteRecordingMediaObjects>
+    > | null = null;
+    if (hostedAllowance) {
+      hostedMediaCleanup = await deleteRecordingMediaObjects(existing, {
+        protectedUrls: cleanupProtectedUrls,
+      });
+      const unprotectedUrls = mediaUrls.filter(
+        (url) => !cleanupProtectedUrls.has(url),
+      );
+      if (hostedMediaCleanup.deleted < unprotectedUrls.length) {
+        fail(
+          "Hosted media for this recording could not be deleted from storage, so the recording was kept. Try again later.",
+          { errorCode: "hosted_media_cleanup_incomplete", statusCode: 502 },
+        );
+      }
+    }
+
     // Footage is trashed before the context rows that name it are deleted, so a
     // failed trash leaves the Clip and its context in place for a retry.
     const contextItems = await db
@@ -275,15 +297,13 @@ export default defineAction({
         .where(eq(schema.recordings.id, args.id));
     });
 
-    const mediaCleanup = await deleteRecordingMediaObjects(existing, {
-      protectedUrls: new Set([...protectedUrls, ...alreadyDeleted]),
-    });
+    const mediaCleanup =
+      hostedMediaCleanup ??
+      (await deleteRecordingMediaObjects(existing, {
+        protectedUrls: cleanupProtectedUrls,
+      }));
 
-    if (
-      hostedAllowance &&
-      mediaCleanup.skipped === 0 &&
-      mediaCleanup.errors.length === 0
-    ) {
+    if (hostedAllowance) {
       if (hostedAllowance.status === "consumed") {
         const adjustment = await adjustHostedClipRecordingBytes({
           recordingId: args.id,

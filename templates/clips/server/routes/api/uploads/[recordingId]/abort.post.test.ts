@@ -665,6 +665,59 @@ describe("/api/uploads/:recordingId/abort route", () => {
     });
   });
 
+  it("keeps the hosted reservation and session when the provider could not abort the session", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        storageMode: "hosted",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "clips-hosted",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+    mockAbortSession.mockRejectedValue(new Error("provider unavailable"));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await handler({} as any);
+
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
+  });
+
+  it("releases the hosted reservation once the session abort is confirmed", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        storageMode: "hosted",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "clips-hosted",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+
+    await handler({} as any);
+
+    expect(mockDeleteResumableSession).toHaveBeenCalled();
+    expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec-1" }),
+    );
+  });
+
   it("aborts provider storage before deleting a resumable session", async () => {
     mockSelectRows.rows = [
       {

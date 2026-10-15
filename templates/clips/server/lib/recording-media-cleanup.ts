@@ -4,7 +4,11 @@ import {
 } from "@agent-native/core/server";
 
 import { isImageRecording } from "../../shared/recording-kind.js";
-import { deleteS3ObjectByUrl } from "./s3-upload-provider.js";
+import { subtractHostedClipRetainedBytes } from "./hosted-clip-allowance.js";
+import {
+  deleteS3ObjectByUrl,
+  s3ObjectSizeBytesByUrl,
+} from "./s3-upload-provider.js";
 import { screenshotLeftoverUrls } from "./screenshot-edits.js";
 
 interface RecordingMediaUrls {
@@ -134,6 +138,51 @@ async function deleteBuilderAssetByUrl(
 }
 
 /**
+ * Deletes one hosted object and, once the provider confirms, lowers the
+ * recording's retained bytes by what it held. An object whose size cannot be
+ * read is still deleted and leaves the ledger high: bytes over-counted until
+ * the clip is removed beat bytes under-counted against the global cap.
+ */
+async function deleteHostedMediaObject(
+  url: string,
+  recordingId: string | undefined,
+): Promise<boolean> {
+  let sizeBytes: number | null = null;
+  if (recordingId) {
+    try {
+      sizeBytes = await s3ObjectSizeBytesByUrl(url, {
+        recordingId,
+        storageMode: "hosted",
+      });
+    } catch (error) {
+      console.warn("[clips] hosted object size unreadable before delete", {
+        recordingId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const deleted = await deleteS3ObjectByUrl(url, {
+    storageMode: "hosted",
+    recordingId,
+  });
+  if (deleted && recordingId && sizeBytes) {
+    try {
+      await subtractHostedClipRetainedBytes({
+        recordingId,
+        deletedBytes: sizeBytes,
+      });
+    } catch (error) {
+      console.error("[clips] hosted retained bytes not reduced after delete", {
+        recordingId,
+        sizeBytes,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return deleted;
+}
+
+/**
  * Delete exactly one stored media object.
  *
  * Redaction needs this: when a screenshot's blurred version replaces the
@@ -152,10 +201,7 @@ export async function deleteStoredMediaUrl(
 ): Promise<boolean> {
   if (!url || url.startsWith("data:")) return false;
   if (options.storageMode === "hosted") {
-    return deleteS3ObjectByUrl(url, {
-      storageMode: "hosted",
-      recordingId: options.recordingId,
-    });
+    return deleteHostedMediaObject(url, options.recordingId);
   }
   const deletedFromS3 = await deleteS3ObjectByUrl(url);
   if (deletedFromS3) {
@@ -184,10 +230,7 @@ export async function deleteRecordingMediaObjects(
     }
     try {
       if (recording.storageMode === "hosted") {
-        const deleted = await deleteS3ObjectByUrl(url, {
-          storageMode: "hosted",
-          recordingId: recording.id,
-        });
+        const deleted = await deleteHostedMediaObject(url, recording.id);
         if (deleted) {
           result.deleted += 1;
         } else {

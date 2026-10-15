@@ -15,6 +15,7 @@ import {
   recordingMediaUrls,
 } from "../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../server/lib/recordings.js";
+import { abortRecordingResumableSession } from "../server/lib/resumable-upload-cleanup.js";
 import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
 import {
   adjustHostedClipRecordingBytes,
@@ -203,6 +204,22 @@ async function main(): Promise<void> {
               error instanceof Error ? error.message : String(error),
             );
           }
+        }
+
+        // An upload still in flight has no media URL; its session and uploaded
+        // parts are the media.
+        try {
+          const sessionCleanup = await abortRecordingResumableSession(
+            recordingId,
+            takedownRow.uploadGenerationId,
+            {
+              hasPersistedMediaUrl: Boolean(takedownRow.videoUrl),
+              label: `takedown-${recordingId}`,
+            },
+          );
+          if (!sessionCleanup.ok) failures.push(sessionCleanup.reason);
+        } catch (error) {
+          failures.push(error instanceof Error ? error.message : String(error));
         }
 
         if (failures.length > 0) {

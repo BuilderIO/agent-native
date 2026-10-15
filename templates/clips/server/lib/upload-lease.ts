@@ -295,8 +295,11 @@ async function readUploadStateStatus(
     }
   }
   if (!parsed || typeof parsed !== "object") return null;
-  const status = (parsed as Record<string, unknown>).status;
-  return typeof status === "string" ? status : null;
+  const state = parsed as Record<string, unknown>;
+  // An explicit abort wrote this state itself; it is not a processing upload
+  // that may have finished remotely.
+  if (state.aborted === true) return "aborted";
+  return typeof state.status === "string" ? state.status : null;
 }
 
 export async function reapExpiredUploads(
@@ -426,9 +429,13 @@ export async function reapExpiredUploads(
           hostedCleanupFailed += 1;
           continue;
         }
+        const uploadStatus = !videoUrl
+          ? await readUploadStateStatus(exec, id)
+          : null;
         if (
           !videoUrl &&
-          (await readUploadStateStatus(exec, id)) !== "uploading"
+          uploadStatus !== "uploading" &&
+          uploadStatus !== "aborted"
         ) {
           // A processing upload without a persisted URL may already have
           // completed remotely, so aborting its old multipart handle is not

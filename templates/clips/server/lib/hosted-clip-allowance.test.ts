@@ -588,6 +588,41 @@ describe("hosted clip allowance", () => {
     ).resolves.toMatchObject({ ok: true, allowance: { quotaBytes: 0 } });
   });
 
+  it("subtracts deleted derivative bytes from a consumed row without going negative or touching a reservation", async () => {
+    await reserve({ recordingId: "shrinking" });
+    await expect(
+      allowance.subtractHostedClipRetainedBytes({
+        recordingId: "shrinking",
+        deletedBytes: 40,
+      }),
+    ).resolves.toEqual({ adjusted: false, quotaBytes: 100 });
+
+    await allowance.consumeHostedClipAllowance({
+      recordingId: "shrinking",
+      userId: "user-1",
+      actualBytes: 100,
+      now: NOW,
+    });
+    await expect(
+      allowance.subtractHostedClipRetainedBytes({
+        recordingId: "shrinking",
+        deletedBytes: 40,
+      }),
+    ).resolves.toEqual({ adjusted: true, quotaBytes: 60 });
+    await expect(
+      allowance.subtractHostedClipRetainedBytes({
+        recordingId: "shrinking",
+        deletedBytes: 500,
+      }),
+    ).resolves.toEqual({ adjusted: true, quotaBytes: 0 });
+    await expect(
+      allowance.subtractHostedClipRetainedBytes({
+        recordingId: "missing",
+        deletedBytes: 1,
+      }),
+    ).rejects.toMatchObject({ code: "not_found" });
+  });
+
   it("reports the same current denial gates without writing", async () => {
     const capped = policy({
       ipPrefixDailyGrantCap: 1,

@@ -297,7 +297,65 @@ describe("runLoomImportJob", () => {
     expect(mockUpdateSet).not.toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready" }),
     );
-    expect(mockReturning).toHaveBeenCalledTimes(3);
+    expect(mockReturning).toHaveBeenCalledTimes(4);
+  });
+
+  it("links an uploaded hosted object whose verification failed so the reaper can delete it and release the reservation", async () => {
+    const videoUrl = "https://clips.example.com/clips/rec_mismatch.mp4";
+    mockSelectRows.queue.push([
+      {
+        id: "rec_mismatch",
+        durationMs: 5_000,
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_mismatch",
+        status: "processing",
+        failureCode: null,
+        storageMode: "hosted",
+        videoUrl: null,
+        videoSizeBytes: 0,
+        videoFormat: "mp4",
+        createdAt: "2020-01-01T00:00:00.000Z",
+      },
+    ]);
+    mockResolveClipsVideoStorage.mockResolvedValue({
+      mode: "hosted",
+      provider: { upload: mockHostedUpload },
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 10,
+      maxClipDurationMs: 60_000,
+    });
+    mockDownloadLoomVideo.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/mp4",
+      sizeBytes: 3,
+      sourceUrl: "https://cdn.loom.com/sessions/transcoded/x.mp4",
+    });
+    mockHostedUpload.mockResolvedValue({
+      url: videoUrl,
+      provider: "clips-hosted",
+      id: "asset_mismatch",
+    });
+    mockVerifyHostedClipMedia.mockResolvedValue(4);
+
+    await expect(
+      runLoomImportJob({
+        recordingId: "rec_mismatch",
+        ownerEmail: "owner@example.com",
+        claimId: "claim_mismatch",
+      }),
+    ).resolves.toMatchObject({ status: "failed" });
+
+    const linkOrder = mockUpdateSet.mock.calls.findIndex(
+      ([values]) => (values as { videoUrl?: string }).videoUrl === videoUrl,
+    );
+    const failOrder = mockUpdateSet.mock.calls.findIndex(
+      ([values]) => (values as { status?: string }).status === "failed",
+    );
+    expect(linkOrder).toBeGreaterThanOrEqual(0);
+    expect(failOrder).toBeGreaterThan(linkOrder);
+    expect(mockConsumeHostedClipRecording).not.toHaveBeenCalled();
+    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
   });
 
   it("renews its claim during media work and refuses ready after lease loss", async () => {

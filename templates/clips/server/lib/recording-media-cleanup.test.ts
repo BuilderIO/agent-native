@@ -3,9 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockDeleteS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockResolveBuilderRequestAuthorization = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
+const mockObjectSize = vi.hoisted(() => vi.fn());
+const mockSubtractBytes = vi.hoisted(() => vi.fn());
 
 vi.mock("./s3-upload-provider.js", () => ({
   deleteS3ObjectByUrl: (...args: unknown[]) => mockDeleteS3ObjectByUrl(...args),
+  s3ObjectSizeBytesByUrl: (...args: unknown[]) => mockObjectSize(...args),
+}));
+
+vi.mock("./hosted-clip-allowance.js", () => ({
+  subtractHostedClipRetainedBytes: (...args: unknown[]) =>
+    mockSubtractBytes(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -25,6 +33,8 @@ describe("recording-media-cleanup", () => {
     vi.clearAllMocks();
     vi.stubGlobal("fetch", mockFetch);
     mockDeleteS3ObjectByUrl.mockResolvedValue(false);
+    mockObjectSize.mockResolvedValue(null);
+    mockSubtractBytes.mockResolvedValue({ adjusted: true, quotaBytes: 0 });
     mockResolveBuilderRequestAuthorization.mockResolvedValue({
       authorization: "Bearer private-key",
       source: "legacy",
@@ -149,6 +159,95 @@ describe("recording-media-cleanup", () => {
       { storageMode: "hosted", recordingId: "rec_1" },
     );
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  describe("hosted retained-byte accounting", () => {
+    const videoUrl = "https://storage.example.com/clips/rec_1/clip.mp4";
+    const filmstripUrl = "https://storage.example.com/clips/rec_1/film.jpg";
+
+    it("subtracts a deleted derivative's bytes from the ledger", async () => {
+      mockDeleteS3ObjectByUrl.mockResolvedValue(true);
+      mockObjectSize.mockResolvedValue(4096);
+
+      await deleteRecordingMediaObjects({
+        id: "rec_1",
+        storageMode: "hosted",
+        filmstripUrl,
+      });
+
+      expect(mockObjectSize).toHaveBeenCalledWith(filmstripUrl, {
+        recordingId: "rec_1",
+        storageMode: "hosted",
+      });
+      expect(mockSubtractBytes).toHaveBeenCalledWith({
+        recordingId: "rec_1",
+        deletedBytes: 4096,
+      });
+    });
+
+    it("also subtracts for a single-object delete", async () => {
+      mockDeleteS3ObjectByUrl.mockResolvedValue(true);
+      mockObjectSize.mockResolvedValue(10);
+
+      await deleteStoredMediaUrl(videoUrl, {
+        storageMode: "hosted",
+        recordingId: "rec_1",
+      });
+
+      expect(mockSubtractBytes).toHaveBeenCalledWith({
+        recordingId: "rec_1",
+        deletedBytes: 10,
+      });
+    });
+
+    it("keeps the ledger when the provider did not confirm the delete", async () => {
+      mockDeleteS3ObjectByUrl.mockResolvedValue(false);
+      mockObjectSize.mockResolvedValue(4096);
+
+      await deleteRecordingMediaObjects({
+        id: "rec_1",
+        storageMode: "hosted",
+        filmstripUrl,
+      });
+
+      expect(mockSubtractBytes).not.toHaveBeenCalled();
+    });
+
+    it("keeps the ledger high rather than guessing when the size is unreadable", async () => {
+      mockDeleteS3ObjectByUrl.mockResolvedValue(true);
+      mockObjectSize.mockRejectedValue(new Error("network"));
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      const result = await deleteRecordingMediaObjects({
+        id: "rec_1",
+        storageMode: "hosted",
+        filmstripUrl,
+      });
+
+      expect(result.deleted).toBe(1);
+      expect(mockSubtractBytes).not.toHaveBeenCalled();
+    });
+
+    it("still reports the object deleted when the ledger write fails, and says so loudly", async () => {
+      mockDeleteS3ObjectByUrl.mockResolvedValue(true);
+      mockObjectSize.mockResolvedValue(10);
+      mockSubtractBytes.mockRejectedValue(new Error("db down"));
+      const errorLog = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+
+      const result = await deleteRecordingMediaObjects({
+        id: "rec_1",
+        storageMode: "hosted",
+        filmstripUrl,
+      });
+
+      expect(result.deleted).toBe(1);
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining("retained bytes not reduced"),
+        expect.objectContaining({ recordingId: "rec_1" }),
+      );
+    });
   });
 
   it("leaves another recording's hosted object untouched", async () => {
