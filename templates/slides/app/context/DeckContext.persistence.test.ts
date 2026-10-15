@@ -5850,6 +5850,118 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck(created.id)).toBeUndefined();
   });
 
+  it("preserves remote style-only edits when undoing deck creation", async () => {
+    window.history.pushState({}, "", "/deck/undo-remote-style-create-deck");
+    const { resolveCreate, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let createdDeck: Deck | undefined;
+    act(() => {
+      createdDeck = result.current.createDeck("Style history deck");
+    });
+    const created = createdDeck;
+    if (!created) throw new Error("Expected the new deck");
+    resolveCreate(new Response("", { status: 200 }));
+    setAccessibleDeck(created);
+    await act(async () => {
+      await result.current.ensureDeckPersisted(created.id);
+    });
+
+    const slide = created.slides[0];
+    if (!slide) throw new Error("Expected a default slide");
+    const remoteContent = `<style>.fmd-slide { outline: 1px solid red; }</style>${slide.content}`;
+    setAccessibleDeck({
+      ...created,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: created.slides.map((entry) =>
+        entry.id === slide.id ? { ...entry, content: remoteContent } : entry,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(created.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    act(() => result.current.undo(created.id));
+
+    expect(result.current.getDeck(created.id)?.slides[0]?.content).toBe(
+      remoteContent,
+    );
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+  });
+
+  it("ignores transient image loading when undoing deck creation", async () => {
+    window.history.pushState({}, "", "/deck/undo-image-loading-create-deck");
+    const { resolveCreate, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let createdDeck: Deck | undefined;
+    act(() => {
+      createdDeck = result.current.createDeck("Image loading history deck");
+    });
+    const created = createdDeck;
+    if (!created) throw new Error("Expected the new deck");
+    resolveCreate(new Response("", { status: 200 }));
+    setAccessibleDeck(created);
+    await act(async () => {
+      await result.current.ensureDeckPersisted(created.id);
+    });
+
+    setAccessibleDeck({
+      ...created,
+      slides: created.slides.map((slide) => ({ ...slide, imageLoading: true })),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(created.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    act(() => result.current.undo(created.id));
+
+    expect(result.current.getDeck(created.id)).toBeUndefined();
+  });
+
+  it("applies consecutive undo calls against the latest local deck state", async () => {
+    const deckId = "consecutive-undo-latest-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: deckId,
+      title: "Consecutive undo deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    let addedSlideId = "";
+    act(() => {
+      addedSlideId = result.current.addSlide(deckId);
+      result.current.updateSlide(deckId, addedSlideId, {
+        content: '<div class="fmd-slide"><p>Edited after adding</p></div>',
+      });
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    act(() => {
+      result.current.undo(deckId);
+      result.current.undo(deckId);
+    });
+
+    expect(result.current.getDeck(deckId)?.slides).toHaveLength(0);
+    expect(toastSpy).not.toHaveBeenCalledWith("History step conflict");
+  });
+
   it("undoes an image move while preserving a remote edit to a different object", async () => {
     window.history.pushState({}, "", "/deck/undo-remote-sibling-deck");
     const initial: Deck = {

@@ -3207,12 +3207,11 @@ function slideUndoContentSignature(content: string): string {
     );
   }
   const document = new DOMParser().parseFromString(content, "text/html");
-  const root = document.querySelector(".fmd-slide") ?? document.body;
-  for (const element of [root, ...root.querySelectorAll("*")]) {
+  for (const element of document.querySelectorAll("*")) {
     element.removeAttribute("data-slide-object-id");
     element.removeAttribute("data-builder-id");
   }
-  return root.outerHTML;
+  return document.documentElement.innerHTML;
 }
 
 function slideMatchesUndoSnapshot(
@@ -3242,8 +3241,9 @@ function deckUndoSignature(deck: Deck): string {
         ...slide,
         content: slideUndoContentSignature(slide.content),
       };
-      // Fit revisions are render bookkeeping, not part of the user's history.
+      // Fit revisions and loading state are transient, not part of user history.
       delete signatureSlide.layoutFitRevision;
+      delete signatureSlide.imageLoading;
       return signatureSlide;
     }),
   });
@@ -4832,16 +4832,14 @@ export function DeckProvider({
             for (const key of staleDraftsToRestore.keys()) drafts?.delete(key);
             if (drafts?.size === 0) staleSlideFieldDrafts.delete(deckId);
             restoredStaleDrafts = true;
-            setDecksLocal(() => startingDecks);
-            notifySaveListeners();
           }
           const appliedOps: DeckUndoOp[] = [];
-          let currentDecks = startingDecks;
+          let resultingDecks = startingDecks;
           for (const op of applicableOps) {
-            const nextDecks = applyUndoOpToDecks(currentDecks, op);
-            if (nextDecks === currentDecks) continue;
+            const nextDecks = applyUndoOpToDecks(resultingDecks, op);
+            if (nextDecks === resultingDecks) continue;
             appliedOps.push(op);
-            currentDecks = nextDecks;
+            resultingDecks = nextDecks;
           }
           const didApply = appliedOps.length > 0 || restoredStaleDrafts;
           if (!didApply) return true;
@@ -4856,21 +4854,14 @@ export function DeckProvider({
                   direction,
                 )
               : null;
-          if (appliedOps.length > 0) {
-            setDecks((prev) => {
-              let next = prev;
-              for (const op of appliedOps) {
-                next = applyUndoOpToDecks(next, op);
-              }
-              return next;
-            });
-          }
+          setDecksLocal(() => resultingDecks);
+          if (restoredStaleDrafts) notifySaveListeners();
           if (reveal) {
             for (const listener of undoRevealListenersRef.current) {
               listener(reveal);
             }
           }
-          currentDecks = startingDecks;
+          let currentDecks = startingDecks;
           for (const op of appliedOps) {
             markDeckDirty(op.deckId);
             if (op.op === "delete-deck") {

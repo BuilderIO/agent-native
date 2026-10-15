@@ -247,6 +247,25 @@ describe("SlideInner source stamps", () => {
       ),
     );
   });
+
+  it("renders stored image geometry changes instead of preserving live geometry", async () => {
+    const slide = { id: "slide-undo-image", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const moved = content.replace("left:40px", "left:90px");
+    rerender(<SlideInner slide={{ ...slide, content: moved }} stampSource />);
+    await waitFor(() =>
+      expect(root.querySelector("img")?.style.left).toBe("90px"),
+    );
+    const movedImage = root.querySelector("img");
+
+    rerender(<SlideInner slide={slide} stampSource />);
+    await waitFor(() =>
+      expect(root.querySelector("img")?.style.left).toBe("40px"),
+    );
+    expect(root.querySelector("img")).not.toBe(movedImage);
+  });
+
   it("never re-renders a root whose text is being edited", () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const slide = { id: "slide-c", content, layout: "blank" } as Slide;

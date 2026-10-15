@@ -793,7 +793,7 @@ const messages = {
     keepEditing: "繼續編輯",
     leaveWithoutSaving: "不儲存並退出",
     editorMarkupNotSaved: "此編輯未儲存，因為它會在投影片中加入編輯器標記。",
-    historyStepConflict: "投影片在其他地方有所變更，因此略過了此歷程步驟。",
+    historyStepConflict: "此歷程步驟與目前簡報衝突，因此已略過。",
     historyStepFailed: "此歷程步驟無法套用，因此已略過。",
     textEditConflictNotSaved:
       "你的文字編輯未儲存，因為同一段文字同時在其他地方被變更。",

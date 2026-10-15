@@ -842,7 +842,7 @@ const messages = {
     editorMarkupNotSaved:
       "Diese Änderung wurde nicht gespeichert, weil sie der Folie Editor-Markup hinzugefügt hätte.",
     historyStepConflict:
-      "Dieser Verlaufsschritt wurde übersprungen, weil die Folie an anderer Stelle geändert wurde.",
+      "Dieser Verlaufsschritt wurde übersprungen, weil er mit der aktuellen Präsentation in Konflikt steht.",
     historyStepFailed:
       "Dieser Verlaufsschritt wurde übersprungen, weil er nicht angewendet werden konnte.",
     textEditConflictNotSaved:

@@ -102,6 +102,18 @@ describe("slide image replacement", () => {
     expect(image.style.left).toBe("184px");
   });
 
+  it("replaces an image when undo changes its saved geometry", () => {
+    const movedContent =
+      '<div class="fmd-slide"><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:90px;top:24px;width:320px;height:180px;"></div>';
+    const restoredContent = movedContent.replace("left:90px", "left:40px");
+    const root = document.createElement("div");
+    root.innerHTML = movedContent;
+
+    expect(swapImageSourcesInPlace(root, movedContent, restoredContent)).toBe(
+      false,
+    );
+  });
+
   it("updates image metadata and fit without overwriting live geometry", () => {
     const previousContent =
       '<div class="fmd-slide"><img src="blob:preview" alt="Preview" width="320" height="180" style="position:absolute;left:40px;width:320px;object-fit:contain;"></div>';

@@ -749,7 +749,23 @@ export function swapImageSourcesInPlace(
 
   const nextSources = nextImages.map((image) => image.getAttribute("src"));
   if (imageStructure(previousDoc) !== imageStructure(nextDoc)) return false;
-
+  // This path preserves live geometry for source echoes. A same-source geometry
+  // change must replace the node so undo/redo can apply its stored position.
+  if (
+    previousImages.some((image, index) => {
+      const nextImage = nextImages[index]!;
+      return (
+        image.getAttribute("src") === nextImage.getAttribute("src") &&
+        LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES.some(
+          (property) =>
+            image.style.getPropertyValue(property) !==
+            nextImage.style.getPropertyValue(property),
+        )
+      );
+    })
+  ) {
+    return false;
+  }
   const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
   if (liveImages.length !== nextSources.length) return false;
   liveImages.forEach((image, index) => {
