@@ -192,6 +192,7 @@ import {
   endPendingTextSession,
   isPendingTextInterceptionOpen,
   isPendingTextRequestLive,
+  isSupersededEmptyTextCommit,
   onPendingTextCaptureCancel,
   owePendingTextCapture,
   peekPendingTextCapture,
@@ -4846,10 +4847,15 @@ export function DesignCanvas({
           // A session that ended before its owed text landed is redelivered as a
           // commit; its empty content here is not the user's, so it must not delete the node.
           if (
-            !value &&
             owner &&
             sourceId &&
-            peekPendingTextCapture(owner, sourceId)
+            ((!value && peekPendingTextCapture(owner, sourceId)) ||
+              isSupersededEmptyTextCommit(
+                owner,
+                sourceId,
+                value,
+                originalValue,
+              ))
           ) {
             return;
           }

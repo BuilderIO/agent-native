@@ -64,6 +64,11 @@ let nextToken = 1;
 const owners = new Map<OwnerIdentity, TextEditOwner>();
 let hostCommit: PendingTextHostCommitFn | null = null;
 const hostCommitQueue = new Set<ActiveCapture>();
+const hostWrittenNodes = new Set<string>();
+
+function hostWrittenKey(owner: OwnerIdentity, nodeId: string): string {
+  return `${owner}\u0000${nodeId}`;
+}
 
 function liveCapture(): ActiveCapture | null {
   if (active?.intercepting && Date.now() > active.interceptUntil) {
@@ -172,6 +177,9 @@ export const HOST_COMMIT_RETRY_DELAYS_MS = [250, 1_000, 3_000];
 function commitOwedHostSide(capture: ActiveCapture): void {
   runTeardown(capture, "revoke");
   const detached = (active === capture ? clearRecord() : null) ?? capture;
+  if (detached.nodeId) {
+    hostWrittenNodes.add(hostWrittenKey(detached.owner, detached.nodeId));
+  }
   detached.committing = true;
   detached.intercepting = false;
   detached.handedOff = false;
@@ -486,6 +494,18 @@ export function takePendingTextCapture(
   capture.handedOff = true;
   capture.pendingBegin = null;
   return buffer;
+}
+
+// A bridge session opened on the still-empty node before the host wrote the captured
+// text never held that text, so its empty commit must not delete what the host wrote.
+export function isSupersededEmptyTextCommit(
+  owner: OwnerIdentity,
+  nodeId: string,
+  value: string,
+  originalValue: string | undefined,
+): boolean {
+  if (!hostWrittenNodes.delete(hostWrittenKey(owner, nodeId))) return false;
+  return !value && !originalValue;
 }
 
 export function peekPendingTextCapture(

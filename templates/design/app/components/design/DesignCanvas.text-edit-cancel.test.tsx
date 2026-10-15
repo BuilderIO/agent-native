@@ -897,6 +897,53 @@ it("commits owed text when Escape ends the session before the text lands, withou
   });
 });
 
+it("keeps text the host wrote on pointer-away when the session opened on the empty node commits empty", async () => {
+  const onTextContentChange = vi.fn();
+  const canvas = await mountCanvas(
+    "text-edit-pointer-away-race-preview-token",
+    {},
+    onTextContentChange,
+  );
+  await canvas.markReady(canvas.iframeWindow);
+  const writer = vi.fn(() => true);
+  unregisterPendingHostCommit = registerPendingTextHostCommit(writer);
+
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind("text-away");
+  await act(async () => {
+    beginTextEditForOwner("screen-live", "text-away");
+  });
+  await act(async () => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "A" }));
+    window.dispatchEvent(new PointerEvent("pointerdown"));
+  });
+  expect(writer).toHaveBeenCalledWith("screen-live", "text-away", "A");
+
+  const emptyCommit = (originalValue: string) =>
+    canvas.fromFrame(canvas.iframeWindow, {
+      type: "text-content-change",
+      selector: '[data-agent-native-node-id="text-away"]',
+      value: "",
+      originalValue,
+      payload: { sourceId: "text-away" },
+    });
+  await emptyCommit("");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  expect(onTextContentChange).not.toHaveBeenCalled();
+
+  await emptyCommit("A");
+  await vi.waitFor(() => {
+    expect(onTextContentChange).toHaveBeenCalledWith(
+      '[data-agent-native-node-id="text-away"]',
+      "",
+      { sourceId: "text-away" },
+      expect.objectContaining({ originalValue: "A" }),
+    );
+  });
+});
+
 it("revokes an owed delivery the frame may already hold when the request stands down", async () => {
   const canvas = await mountCanvas("text-edit-revoke-preview-token");
   await canvas.markReady(canvas.iframeWindow);
