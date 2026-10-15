@@ -1106,6 +1106,8 @@ export default {
     redoFailed: "Dashboard-Änderung konnte nicht wiederholt werden",
     redoFailedWithMessage:
       "Dashboard-Änderung konnte nicht wiederholt werden: {{message}}",
+    keyDatesUnavailable: "Wichtige Termine konnten nicht geladen werden",
+    dataNotesUnavailable: "Datenhinweise konnten nicht geladen werden",
     panelSettings: "Panel-Einstellungen",
     revenueOverTime: "Einnahmen im Zeitverlauf",
     recentSales: "Aktuelle Verkäufe",

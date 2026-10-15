@@ -192,6 +192,8 @@ export default {
     redoSuccess: "Dashboard change redone",
     redoFailed: "Couldn't redo dashboard change",
     redoFailedWithMessage: "Couldn't redo dashboard change: {{message}}",
+    keyDatesUnavailable: "Couldn't load key dates",
+    dataNotesUnavailable: "Couldn't load data notes",
     panelSettings: "Panel settings",
     revenueOverTime: "Revenue over time",
     recentSales: "Recent Sales",

@@ -1057,6 +1057,8 @@ export default {
     redoFailed: "대시보드 변경을 다시 실행할 수 없습니다",
     redoFailedWithMessage:
       "대시보드 변경을 다시 실행할 수 없습니다: {{message}}",
+    keyDatesUnavailable: "주요 날짜를 불러올 수 없습니다",
+    dataNotesUnavailable: "데이터 노트를 불러올 수 없습니다",
     panelSettings: "패널 설정",
     revenueOverTime: "시간 경과에 따른 수익",
     recentSales: "최근 판매",
