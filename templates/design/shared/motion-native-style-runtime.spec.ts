@@ -1072,6 +1072,55 @@ describe("native Figma Motion runtime adapter", () => {
     },
   );
 
+  it("matches fixed TextStagger profiles across floating-point projection noise", () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const style = {
+      ...base,
+      props: {
+        ...base.props,
+        presetStaggerOverlap: 88.4,
+        textDelayTimingMode: "fixed-stagger",
+      },
+    };
+    const authored: MotionTextDocument["animations"][number] = {
+      targetNodeId: "hero",
+      unit: "character",
+      direction: "forward",
+      staggerMs: 58,
+      animationDirection: "in",
+      order: "left-to-right",
+      ignoreSpaces: false,
+      property: "opacity",
+      durationMs: 500,
+      keyframes: [
+        { t: 0, value: "0" },
+        { t: 1, value: "1" },
+      ],
+    };
+
+    expect(motionNativeStylesToTextAnimations([style])[0]?.staggerMs).toBe(
+      57.99999999999997,
+    );
+    expect(
+      motionTextDocumentWithNativeStyles(
+        { version: 2, animations: [authored] },
+        [style],
+      )?.animations,
+    ).toHaveLength(2);
+    expect(() =>
+      motionTextDocumentWithNativeStyles(
+        {
+          version: 2,
+          animations: [{ ...authored, staggerMs: 58.001 }],
+        },
+        [style],
+      ),
+    ).toThrow("their grouping or timing settings differ");
+  });
+
   it("keeps divergent authored text profiles intact when a native effect-only setting changes", () => {
     const first: MotionTextDocument["animations"][number] = {
       targetNodeId: "hero",

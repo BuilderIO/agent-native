@@ -413,7 +413,7 @@ export function MotionDock({
   easingVariables = [],
   onEasingVariablesChange,
   layerLabels,
-  durationMs,
+  durationMs: storedDurationMs,
   defaultEase = "ease",
   open: openProp,
   onOpenChange,
@@ -444,6 +444,13 @@ export function MotionDock({
 
   const [openInternal, setOpenInternal] = useState(false);
   const isOpen = openProp !== undefined ? openProp : openInternal;
+  const [previewContentDurationsMs, setPreviewContentDurationsMs] = useState<
+    Record<string, number>
+  >({});
+  const durationMs = Math.max(
+    storedDurationMs,
+    ...Object.values(previewContentDurationsMs),
+  );
   const setOpen = useCallback(
     (v: boolean) => {
       setOpenInternal(v);
@@ -451,6 +458,65 @@ export function MotionDock({
     },
     [onOpenChange],
   );
+
+  useEffect(() => {
+    const iframe = canvasIframeRef?.current;
+    const iframeWindow = iframe?.contentWindow;
+    if (!iframe || !iframeWindow) return;
+
+    const requestPreviewDuration = () => {
+      iframeWindow.postMessage(
+        { type: "motion-preview-duration-request" },
+        "*",
+      );
+    };
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        event.source !== iframeWindow ||
+        event.data?.type !== "motion-preview-span"
+      ) {
+        return;
+      }
+      const key = event.data.key;
+      const nextDurationMs = event.data.durationMs;
+      if (
+        typeof key !== "string" ||
+        key.length === 0 ||
+        typeof nextDurationMs !== "number" ||
+        !Number.isFinite(nextDurationMs) ||
+        nextDurationMs < 0
+      ) {
+        return;
+      }
+      setPreviewContentDurationsMs((current) => {
+        if (nextDurationMs === 0) {
+          if (!(key in current)) return current;
+          const next = { ...current };
+          delete next[key];
+          return next;
+        }
+        if (current[key] === nextDurationMs) return current;
+        return { ...current, [key]: nextDurationMs };
+      });
+    };
+    const handleLoad = () => {
+      setPreviewContentDurationsMs({});
+      requestPreviewDuration();
+    };
+
+    window.addEventListener("message", handleMessage);
+    iframe.addEventListener("load", handleLoad);
+    if (isOpen) {
+      setPreviewContentDurationsMs((current) =>
+        Object.keys(current).length === 0 ? current : {},
+      );
+      requestPreviewDuration();
+    }
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      iframe.removeEventListener("load", handleLoad);
+    };
+  }, [canvasIframeRef, isOpen]);
 
   const [playhead, setPlayhead] = useState(playheadProp ?? 0);
   const playheadRef = useRef(playheadProp ?? 0);

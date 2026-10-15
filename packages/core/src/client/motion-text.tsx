@@ -154,6 +154,7 @@ const INLINE_TEXT_TAGS = new Set([
 ]);
 const MAX_TEXT_UNITS = 512;
 const PREVIEW_MESSAGE_TYPES = new Set([
+  "motion-preview-duration-request",
   "motion-preview",
   "motion-preview-clear",
 ]);
@@ -347,6 +348,13 @@ export function AgentNativeMotionText({
       (duration, entry) => Math.max(duration, entry.delay + entry.durationMs),
       0,
     );
+    const previewSpanKey = `react:${primaryAnimation.targetNodeId}`;
+    const reportPreviewSpanDuration = (durationMs: number) => {
+      window.parent.postMessage(
+        { type: "motion-preview-span", key: previewSpanKey, durationMs },
+        "*",
+      );
+    };
 
     let isPreviewing = false;
 
@@ -355,6 +363,10 @@ export function AgentNativeMotionText({
         event.source !== window.parent ||
         !isMotionPreviewMessage(event.data)
       ) {
+        return;
+      }
+      if (event.data.type === "motion-preview-duration-request") {
+        reportPreviewSpanDuration(textTimelineDurationMs);
         return;
       }
       if (event.data.type === "motion-preview-clear") {
@@ -373,27 +385,28 @@ export function AgentNativeMotionText({
         return;
       }
       if (requestedTimelineDuration <= 0) return;
+      if (textTimelineDurationMs > requestedTimelineDuration) {
+        reportPreviewSpanDuration(textTimelineDurationMs);
+      }
       if (!isPreviewing) {
         isPreviewing = true;
         for (const entry of previewAnimations) entry.animation.pause();
       }
-      const timelineDuration = Math.max(
-        requestedTimelineDuration,
-        textTimelineDurationMs,
-      );
-      const timelineTime = Math.max(0, Math.min(1, t)) * timelineDuration;
+      const timelineTime =
+        Math.max(0, Math.min(1, t)) * requestedTimelineDuration;
       for (const entry of previewAnimations) {
-        const elapsed = Math.max(0, timelineTime - entry.delay);
         entry.animation.currentTime =
           playbackMode === "once"
-            ? Math.min(entry.durationMs, elapsed)
-            : elapsed;
+            ? Math.min(entry.delay + entry.durationMs, timelineTime)
+            : timelineTime;
       }
     };
     window.addEventListener("message", handlePreviewMessage);
+    reportPreviewSpanDuration(textTimelineDurationMs);
 
     return () => {
       window.removeEventListener("message", handlePreviewMessage);
+      reportPreviewSpanDuration(0);
       for (const entry of previewAnimations) {
         entry.animation.cancel();
       }
@@ -913,7 +926,10 @@ function resolveMotionUnits(
 }
 
 interface MotionPreviewMessage {
-  type: "motion-preview" | "motion-preview-clear";
+  type:
+    | "motion-preview-duration-request"
+    | "motion-preview"
+    | "motion-preview-clear";
   t?: number;
   durationMs?: number;
 }

@@ -618,8 +618,7 @@ export function motionTextDocumentWithNativeStyles(
       authoredAnimations.some(
         (authored) =>
           authored.targetNodeId === animation.targetNodeId &&
-          textAnimationSettingsKey(authored) !==
-            textAnimationSettingsKey(animation),
+          !textAnimationSettingsMatch(authored, animation),
       )
     ) {
       throw new MotionNativeStyleRuntimeError(
@@ -1328,20 +1327,43 @@ function legacyTextProjectionKeys(animation: MotionTextAnimation): string[] {
   return [textAnimationKey(legacyAnimation)];
 }
 
-function textAnimationSettingsKey(animation: MotionTextAnimation): string {
-  return JSON.stringify({
-    unit: animation.unit,
-    direction: animation.direction,
-    staggerMs:
-      animation.overlapPercent === undefined ? animation.staggerMs : undefined,
-    animationDirection: animation.animationDirection ?? "in",
+function textAnimationSettingsMatch(
+  authored: MotionTextAnimation,
+  native: MotionTextAnimation,
+): boolean {
+  const authoredSettings = {
+    unit: authored.unit,
+    direction: authored.direction,
+    animationDirection: authored.animationDirection ?? "in",
     order:
-      animation.order ??
-      (animation.direction === "reverse" ? "right-to-left" : "left-to-right"),
-    overlapPercent: animation.overlapPercent,
+      authored.order ??
+      (authored.direction === "reverse" ? "right-to-left" : "left-to-right"),
+    overlapPercent: authored.overlapPercent,
     ignoreSpaces:
-      animation.unit === "character" ? (animation.ignoreSpaces ?? true) : true,
-  });
+      authored.unit === "character" ? (authored.ignoreSpaces ?? true) : true,
+  };
+  const nativeSettings = {
+    unit: native.unit,
+    direction: native.direction,
+    animationDirection: native.animationDirection ?? "in",
+    order:
+      native.order ??
+      (native.direction === "reverse" ? "right-to-left" : "left-to-right"),
+    overlapPercent: native.overlapPercent,
+    ignoreSpaces:
+      native.unit === "character" ? (native.ignoreSpaces ?? true) : true,
+  };
+  if (JSON.stringify(authoredSettings) !== JSON.stringify(nativeSettings)) {
+    return false;
+  }
+  if (authored.overlapPercent !== undefined) return true;
+  const authoredStaggerMs = authored.staggerMs;
+  const nativeStaggerMs = native.staggerMs;
+  const tolerance =
+    Number.EPSILON *
+    Math.max(1, Math.abs(authoredStaggerMs), Math.abs(nativeStaggerMs)) *
+    4;
+  return Math.abs(authoredStaggerMs - nativeStaggerMs) <= tolerance;
 }
 
 function unsupportedTextStaggerProp(property: string): never {

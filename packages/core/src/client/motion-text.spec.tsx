@@ -329,7 +329,7 @@ describe("AgentNativeMotionText", () => {
     );
     expect(
       mockedAnimations.map(({ animation: handle }) => handle.currentTime),
-    ).toEqual([200, 160, 120, 120]);
+    ).toEqual([200, 200, 145, 185]);
   });
 
   it("plays Text v2 exit animations from the final keyframe back to the first", async () => {
@@ -541,7 +541,7 @@ describe("AgentNativeMotionText", () => {
     ]);
   });
 
-  it("seeks fixed character stagger across whitespace through its actual duration", async () => {
+  it("reports fixed-stagger spans and follows the shared parent timeline", async () => {
     const characterAnimation = {
       ...animation,
       unit: "character",
@@ -563,6 +563,7 @@ describe("AgentNativeMotionText", () => {
       25, 75, 125,
     ]);
 
+    const postMessage = vi.spyOn(window, "postMessage");
     window.dispatchEvent(
       new MessageEvent("message", {
         source: window,
@@ -573,6 +574,61 @@ describe("AgentNativeMotionText", () => {
     expect(
       mockedAnimations.map(({ animation: handle }) => handle.currentTime),
     ).toEqual([200, 200, 200]);
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "motion-preview-span",
+        key: "react:headline",
+        durationMs: 325,
+      },
+      "*",
+    );
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: window,
+        data: { type: "motion-preview", t: 1, durationMs: 325 },
+      }),
+    );
+    expect(
+      mockedAnimations.map(({ animation: handle }) => handle.currentTime),
+    ).toEqual([225, 275, 325]);
+  });
+
+  it("reports its text span when the shared Motion timeline requests it", async () => {
+    const characterAnimation = {
+      ...animation,
+      unit: "character",
+      staggerMs: 50,
+      ignoreSpaces: false,
+      delayMs: 25,
+      durationMs: 200,
+    } as MotionTextAnimation;
+    const postMessage = vi.spyOn(window, "postMessage");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={characterAnimation}>
+          <h1 data-agent-native-node-id="headline">A B</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    postMessage.mockClear();
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: window,
+        data: { type: "motion-preview-duration-request" },
+      }),
+    );
+
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "motion-preview-span",
+        key: "react:headline",
+        durationMs: 325,
+      },
+      "*",
+    );
   });
 
   it.each([
@@ -714,7 +770,7 @@ describe("AgentNativeMotionText", () => {
     );
     expect(
       mockedAnimations.map(({ animation: handle }) => handle.currentTime),
-    ).toEqual([100, 60]);
+    ).toEqual([100, 100]);
     expect(
       mockedAnimations.every(
         ({ animation: handle }) => handle.pause.mock.calls.length === 1,
@@ -729,7 +785,7 @@ describe("AgentNativeMotionText", () => {
     );
     expect(
       mockedAnimations.map(({ animation: handle }) => handle.currentTime),
-    ).toEqual([200, 160]);
+    ).toEqual([200, 200]);
     expect(
       mockedAnimations.every(
         ({ animation: handle }) => handle.pause.mock.calls.length === 1,
@@ -744,7 +800,7 @@ describe("AgentNativeMotionText", () => {
     );
     expect(
       mockedAnimations.map(({ animation: handle }) => handle.currentTime),
-    ).toEqual([200, 200]);
+    ).toEqual([200, 240]);
 
     window.dispatchEvent(
       new MessageEvent("message", {
@@ -796,7 +852,7 @@ describe("AgentNativeMotionText", () => {
       );
       expect(
         mockedAnimations.map(({ animation: handle }) => handle.currentTime),
-      ).toEqual([500, 460]);
+      ).toEqual([500, 500]);
       expect(
         mockedAnimations.every(
           ({ animation: handle }) => handle.pause.mock.calls.length === 1,

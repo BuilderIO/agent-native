@@ -396,6 +396,85 @@ describe("MotionDock audio preview bridge", () => {
   });
 });
 
+describe("MotionDock text preview timeline", () => {
+  it("extends the shared timeline to the reported HTML text stagger span", async () => {
+    const postMessage = vi.fn();
+    const contentWindow = { postMessage };
+    const iframe = {
+      contentWindow,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as HTMLIFrameElement;
+    const canvasIframeRef = { current: iframe };
+    await renderInteractive({
+      canvasIframeRef,
+      durationMs: 2000,
+    });
+
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: "motion-preview-duration-request" },
+      "*",
+    );
+    const handle = container.querySelector<HTMLButtonElement>(
+      "[data-motion-timeline-duration-handle]",
+    );
+    expect(handle?.getAttribute("aria-valuenow")).toBe("2000");
+
+    const reportSpan = async (key: string, durationMs: number) => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "motion-preview-span", key, durationMs },
+            source: contentWindow as unknown as Window,
+          }),
+        );
+      });
+    };
+    await reportSpan("html", 4250);
+
+    expect(handle?.getAttribute("aria-valuenow")).toBe("4250");
+    expect(
+      container
+        .querySelector("[data-motion-scrubber]")
+        ?.getAttribute("aria-valuemax"),
+    ).toBe("4250000");
+
+    await reportSpan("react:headline", 5000);
+    expect(handle?.getAttribute("aria-valuenow")).toBe("5000");
+    const currentTime = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Current time"]',
+    );
+    const setInputValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    expect(currentTime).not.toBeNull();
+    expect(setInputValue).toBeDefined();
+    await act(async () => {
+      currentTime!.focus();
+      setInputValue!.call(currentTime, "4000");
+      currentTime!.dispatchEvent(new Event("input", { bubbles: true }));
+      currentTime!.blur();
+    });
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: "motion-preview", t: 0.8, durationMs: 5000 },
+      "*",
+    );
+
+    await reportSpan("react:headline", 0);
+    expect(handle?.getAttribute("aria-valuenow")).toBe("4250");
+
+    await reportSpan("react:removed-while-closed", 9000);
+    await renderInteractive({ canvasIframeRef, durationMs: 2000, open: false });
+    await renderInteractive({ canvasIframeRef, durationMs: 2000, open: true });
+    expect(handle?.getAttribute("aria-valuenow")).toBe("2000");
+    expect(postMessage).toHaveBeenLastCalledWith(
+      { type: "motion-preview-duration-request" },
+      "*",
+    );
+  });
+});
+
 describe("Motion animation style menu", () => {
   async function renderMenu(
     isText: boolean,

@@ -167,9 +167,12 @@ function executeRuntime(
   withPreviewBridge = false,
   topForUnit?: (unitIndex: number) => number,
   cssVariables: Record<string, string> = {},
-): { sendMessage: (data: unknown) => void } {
+): { sendMessage: (data: unknown) => void; sentMessages: unknown[] } {
   const runtimeTargets = [target];
-  const parent = {};
+  const sentMessages: unknown[] = [];
+  const parent = {
+    postMessage: (data: unknown) => sentMessages.push(data),
+  };
   let messageListener:
     | ((event: { source: unknown; data: unknown }) => void)
     | undefined;
@@ -205,6 +208,7 @@ function executeRuntime(
   });
   return {
     sendMessage: (data) => messageListener?.({ source: parent, data }),
+    sentMessages,
   };
 }
 
@@ -872,8 +876,8 @@ describe("Motion Text source and runtime", () => {
         unit.animations.map((entry) => entry.handle.currentTime),
       ),
     ).toEqual([
-      [160, 135],
-      [200, 160],
+      [200, 200],
+      [200, 185],
     ]);
   });
 
@@ -1008,13 +1012,60 @@ describe("Motion Text source and runtime", () => {
 
     preview.sendMessage({ type: "motion-preview", t: 0.1, durationMs: 2000 });
     expect(units.map((unit) => unit.animations[0]?.handle.currentTime)).toEqual(
-      [160, 200],
+      [200, 200],
     );
 
     preview.sendMessage({ type: "motion-preview-clear" });
     expect(units.map((unit) => unit.animations[0]?.handle.currentTime)).toEqual(
       [0, 0],
     );
+  });
+
+  it("reports fixed-stagger span and follows the shared parent timeline", () => {
+    const staggeredDocument: MotionTextDocument = {
+      version: 2,
+      animations: [
+        {
+          targetNodeId: "headline",
+          unit: "character",
+          direction: "forward",
+          staggerMs: 1500,
+          animationDirection: "in",
+          order: "left-to-right",
+          ignoreSpaces: true,
+          delayMs: 250,
+          property: "opacity",
+          durationMs: 1000,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const target = textTarget("ABC");
+    const preview = executeRuntime(
+      compileMotionTextRuntime(staggeredDocument),
+      target,
+      true,
+    );
+
+    preview.sendMessage({ type: "motion-preview-duration-request" });
+    expect(preview.sentMessages).toContainEqual({
+      type: "motion-preview-span",
+      key: "html",
+      durationMs: 4250,
+    });
+
+    preview.sendMessage({ type: "motion-preview", t: 1, durationMs: 2000 });
+    expect(
+      target.children.map((unit) => unit.animations[0]?.handle.currentTime),
+    ).toEqual([1250, 2000, 2000]);
+
+    preview.sendMessage({ type: "motion-preview", t: 1, durationMs: 4250 });
+    expect(
+      target.children.map((unit) => unit.animations[0]?.handle.currentTime),
+    ).toEqual([1250, 2750, 4250]);
   });
 
   it("segments grapheme characters and animates paragraph elements", () => {

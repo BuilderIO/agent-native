@@ -1123,16 +1123,29 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
       });
     });
   });
+  var previewSpanDurationMs = previewAnimations.reduce(function (duration, entry) {
+    return Math.max(duration, entry.delay + entry.duration);
+  }, 0);
+  function reportPreviewSpanDuration() {
+    if (previewBridge && window.parent && typeof window.parent.postMessage === "function") {
+      window.parent.postMessage({ type: "motion-preview-span", key: "html", durationMs: previewSpanDurationMs }, "*");
+    }
+  }
   if (previewBridge && typeof window.addEventListener === "function") {
     window.addEventListener("message", function (event) {
       if (event.source !== window.parent || !event.data || typeof event.data.type !== "string") return;
+      if (event.data.type === "motion-preview-duration-request") {
+        reportPreviewSpanDuration();
+        return;
+      }
       if (event.data.type === "motion-preview") {
         var t = Number(event.data.t);
         var timelineDuration = Number(event.data.durationMs);
         if (!Number.isFinite(t) || !Number.isFinite(timelineDuration) || timelineDuration <= 0) return;
+        if (previewSpanDurationMs > timelineDuration) reportPreviewSpanDuration();
         var timelineTime = Math.max(0, Math.min(1, t)) * timelineDuration;
         previewAnimations.forEach(function (entry) {
-          entry.animation.currentTime = Math.max(0, Math.min(entry.duration, timelineTime - entry.delay));
+          entry.animation.currentTime = Math.max(0, Math.min(entry.delay + entry.duration, timelineTime));
         });
       } else if (event.data.type === "motion-preview-clear") {
         previewAnimations.forEach(function (entry) { entry.animation.currentTime = 0; });

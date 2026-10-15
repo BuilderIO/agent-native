@@ -5,6 +5,8 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { MOTION_NATIVE_STYLE_INSTANCE_TYPE } from "../shared/motion-native-style";
+import { injectMotionTextRuntime } from "../shared/motion-text-code";
+import type { MotionTextDocument } from "../shared/motion-text-code";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
 import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
@@ -821,7 +823,7 @@ test("HTML Text source round trips through Alpine markup and runs in a browser",
   page,
   request,
 }) => {
-  const document = {
+  const document: MotionTextDocument = {
     version: 2,
     animations: [
       {
@@ -887,6 +889,70 @@ test("HTML Text source round trips through Alpine markup and runs in a browser",
       ),
     )
     .toBe(3);
+});
+
+test("HTML Text preview extends the shared scrub span through fixed-stagger tails", async ({
+  page,
+}) => {
+  const document: MotionTextDocument = {
+    version: 2,
+    animations: [
+      {
+        targetNodeId: "preview-title",
+        unit: "character",
+        direction: "forward",
+        staggerMs: 1500,
+        animationDirection: "in",
+        order: "left-to-right",
+        ignoreSpaces: true,
+        delayMs: 250,
+        property: "opacity",
+        durationMs: 1000,
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ],
+  };
+  const html = injectMotionTextRuntime(
+    '<!doctype html><html><head><script>window.__designMotionPreviewBridge = true;</script></head><body><h1 data-agent-native-node-id="preview-title">ABC</h1></body></html>',
+    document,
+  );
+  await page.setContent(html);
+  const units = page.locator("[data-agent-native-motion-text-unit]");
+  await expect(units).toHaveCount(3);
+
+  const previewSpan = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const onMessage = (event: MessageEvent) => {
+          if (event.data?.type !== "motion-preview-span") return;
+          window.removeEventListener("message", onMessage);
+          resolve(event.data.durationMs);
+        };
+        window.addEventListener("message", onMessage);
+        window.postMessage({ type: "motion-preview-duration-request" }, "*");
+      }),
+  );
+  expect(previewSpan).toBe(4250);
+
+  await page.evaluate(
+    (durationMs) =>
+      new Promise<void>((resolve) => {
+        window.postMessage({ type: "motion-preview", t: 1, durationMs }, "*");
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+    previewSpan,
+  );
+  const progress = await units.evaluateAll((elements) =>
+    elements.map((element) =>
+      element
+        .getAnimations()
+        .map((animation) => animation.effect?.getComputedTiming().progress),
+    ),
+  );
+  expect(progress).toEqual([[1], [1], [1]]);
 });
 
 test("a new motion preset applies to every selected target", async ({
