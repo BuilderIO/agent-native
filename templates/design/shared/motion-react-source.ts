@@ -7,8 +7,18 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import type * as TypeScript from "typescript";
 
 import {
+  importAuthoredCssAnimations,
+  mergeAuthoredCssMotionDocument,
+  parseMotionAuthoredCssSimpleSelector,
+  removeAuthoredCssSourceRanges,
+  type MotionAuthoredCssSourceRange,
+  type MotionAuthoredCssSimpleSelector,
+  type MotionAuthoredCssTargetResolution,
+} from "./motion-authored-css-import";
+import {
   compileMotionCode,
   decodeMotionCodeMetadata,
+  reconcileMotionCodeDocument,
   type MotionAudioClip,
   type MotionCodeDocument,
 } from "./motion-code";
@@ -41,6 +51,7 @@ export type MotionReactSourceErrorCode =
   | "unsupported-root"
   | "ambiguous-managed-style"
   | "invalid-managed-style"
+  | "unsupported-authored-motion"
   | "unsupported-motion-document"
   | "unsupported-motion-text"
   | "invalid-motion-text";
@@ -128,6 +139,17 @@ interface ManagedStyle {
   literal: TypeScript.StringLiteral;
 }
 
+interface AuthoredReactMotion {
+  document: MotionCodeDocument | null;
+  rangesToRemove: MotionAuthoredCssSourceRange[];
+}
+
+interface ReactAuthoredHost {
+  element: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement;
+  ordinal: number;
+  tagName: string;
+}
+
 interface ManagedTextAnimation {
   element: TypeScript.JsxElement;
   child: TypeScript.JsxElement;
@@ -165,6 +187,9 @@ export function applyMotionReactSourceEdit(
     );
   }
 
+  const currentRead = readMotionReactSource(currentSource, args.modulePath);
+  if (currentRead.status === "invalid") throw currentRead.error;
+
   const textDocument = normalizeReactMotionTextDocument(
     args.textDocument ?? null,
   );
@@ -189,7 +214,22 @@ export function applyMotionReactSourceEdit(
     );
   }
 
-  const sourceFile = parseTsx(currentSource);
+  const originalSourceFile = parseTsx(currentSource);
+  const managedStyles = findManagedStyles(originalSourceFile);
+  const authoredMotion = readAuthoredReactMotion(
+    originalSourceFile,
+    args.modulePath,
+    managedStyles,
+    targetNodeIds,
+  );
+  const sourceAfterAdoption = removeAuthoredCssSourceRanges(
+    currentSource,
+    authoredMotion.rangesToRemove,
+  );
+  const sourceFile =
+    sourceAfterAdoption === currentSource
+      ? originalSourceFile
+      : parseTsx(sourceAfterAdoption);
   const targets =
     targetNodeIds.length > 0
       ? findTargets(
@@ -198,16 +238,16 @@ export function applyMotionReactSourceEdit(
           args.modulePath ?? "motion-source.tsx",
         )
       : [];
-  const managedStyles = findManagedStyles(sourceFile);
-  if (managedStyles.length > 1) {
+  const editableManagedStyles = findManagedStyles(sourceFile);
+  if (editableManagedStyles.length > 1) {
     throw new MotionReactSourceError(
       "ambiguous-managed-style",
       "React source contains more than one managed Motion style element.",
     );
   }
   let preservedAudioClips: MotionAudioClip[] | undefined;
-  if (managedStyles.length === 1) {
-    const managedStyle = managedStyles[0];
+  if (editableManagedStyles.length === 1) {
+    const managedStyle = editableManagedStyles[0];
     const owningRoot = findComponentRoot(sourceFile, managedStyle.element);
     assertSupportedRoot(owningRoot);
     const targetRoots = new Set(targets.map((target) => target.componentRoot));
@@ -224,6 +264,16 @@ export function applyMotionReactSourceEdit(
         metadata.status === "invalid"
           ? metadata.error.message
           : "Managed React Motion CSS is missing its versioned source document.",
+      );
+    }
+    try {
+      reconcileMotionCodeDocument(managedStyle.css, metadata.document);
+    } catch (error) {
+      throw new MotionReactSourceError(
+        "invalid-managed-style",
+        error instanceof Error
+          ? error.message
+          : "Managed React Motion CSS cannot be read safely.",
       );
     }
     preservedAudioClips = metadata.document.audioClips;
@@ -247,8 +297,8 @@ export function applyMotionReactSourceEdit(
   }
 
   const edits: Array<{ start: number; end: number; text: string }> = [];
-  if (managedStyles.length === 1) {
-    const managedStyle = managedStyles[0];
+  if (editableManagedStyles.length === 1) {
+    const managedStyle = editableManagedStyles[0];
     edits.push({
       start: managedStyle.literal.getStart(sourceFile),
       end: managedStyle.literal.end,
@@ -268,12 +318,15 @@ export function applyMotionReactSourceEdit(
       root = targets[0].componentRoot;
     }
     assertSupportedRoot(root);
-    const { start, offset, suffix } = rootInsertionPoint(currentSource, root);
+    const { start, offset, suffix } = rootInsertionPoint(
+      sourceAfterAdoption,
+      root,
+    );
     const style = `<style ${MANAGED_STYLE_ATTRIBUTE}>{${JSON.stringify(compiled.css)}}</style>`;
     edits.push({
       start,
       end: offset,
-      text: `${currentSource.slice(start, offset)}${style}${suffix}`,
+      text: `${sourceAfterAdoption.slice(start, offset)}${style}${suffix}`,
     });
   }
 
@@ -370,14 +423,14 @@ export function applyMotionReactSourceEdit(
       text: ` ${NODE_ID_ATTRIBUTE}=${JSON.stringify(target.nodeId)}`,
     });
   }
-  const sourceWithEdits = applySourceEdits(currentSource, edits);
-  const source =
+  const sourceWithEdits = applySourceEdits(sourceAfterAdoption, edits);
+  const output =
     incomingText.size === 0 && managedText.length > 0
       ? removeUnusedMotionTextImport(sourceWithEdits)
       : sourceWithEdits;
 
   return {
-    source,
+    source: output,
     css: compiled.css,
     hash: compiled.hash,
     targetNodeIds,
@@ -387,6 +440,7 @@ export function applyMotionReactSourceEdit(
 /** Reads managed React CSS and Text Motion without treating malformed data as absent. */
 export function readMotionReactSource(
   source: string,
+  modulePath?: string,
 ): MotionReactSourceReadResult {
   try {
     const sourceFile = parseTsx(source);
@@ -424,7 +478,46 @@ export function readMotionReactSource(
             animations: managedText.flatMap((entry) => entry.animations),
           })
         : null;
-    const document = metadata.status === "valid" ? metadata.document : null;
+    let document: MotionCodeDocument | null = null;
+    if (metadata.status === "valid") {
+      try {
+        document = reconcileMotionCodeDocument(css, metadata.document);
+      } catch (error) {
+        throw new MotionReactSourceError(
+          "invalid-managed-style",
+          error instanceof Error
+            ? error.message
+            : "Managed React Motion CSS could not be read safely.",
+        );
+      }
+    }
+    const managedTargetNodeIds = [
+      ...(document?.tracks.map((track) => track.targetNodeId) ?? []),
+      ...(document?.nativeStyles?.map((style) => style.targetNodeId) ?? []),
+      ...(textDocument?.animations.map((animation) => animation.targetNodeId) ??
+        []),
+    ];
+    const authoredMotion = readAuthoredReactMotion(
+      sourceFile,
+      modulePath,
+      managedStyles,
+      managedTargetNodeIds,
+    );
+    if (authoredMotion.document) {
+      try {
+        document = mergeAuthoredCssMotionDocument(
+          document,
+          authoredMotion.document,
+        );
+      } catch (error) {
+        throw new MotionReactSourceError(
+          "unsupported-authored-motion",
+          error instanceof Error
+            ? error.message
+            : "Inline CSS animations cannot share one Motion timeline.",
+        );
+      }
+    }
     const documentPlaybackMode = document
       ? resolveMotionPlaybackMode(document)
       : null;
@@ -458,7 +551,7 @@ export function readMotionReactSource(
         ) ?? []),
       ]),
     ];
-    findStaticTargets(sourceFile, targetNodeIds);
+    findStaticTargets(sourceFile, targetNodeIds, modulePath);
     if (!document && !textDocument) return { status: "absent" };
     return {
       status: "valid",
@@ -490,7 +583,7 @@ export function inspectMotionReactSourceWriteCapability(args: {
   modulePath: string;
   moduleVersionHash: string;
 }): MotionReactSourceWriteCapability {
-  const read = readMotionReactSource(args.source);
+  const read = readMotionReactSource(args.source, args.modulePath);
   const nativeStyleTargetNodeIds =
     read.status === "valid"
       ? (read.document?.nativeStyles?.map((style) => style.targetNodeId) ?? [])
@@ -535,7 +628,39 @@ export function inspectMotionReactSourceWriteCapability(args: {
         findDefaultExportComponentRoot(sourceFile);
       }
     } else {
-      findTargets(sourceFile, targetNodeIds, args.modulePath);
+      const targets = findTargets(sourceFile, targetNodeIds, args.modulePath);
+      const targetRoots = new Set(
+        targets.map((target) => target.componentRoot),
+      );
+      if (targetRoots.size !== 1) {
+        throw new MotionReactSourceError(
+          "unsupported-root",
+          "React Motion source targets must belong to one component root.",
+        );
+      }
+
+      const managedStyles = findManagedStyles(sourceFile);
+      if (managedStyles.length > 1) {
+        throw new MotionReactSourceError(
+          "ambiguous-managed-style",
+          "React source contains more than one managed Motion style element.",
+        );
+      }
+      if (managedStyles.length === 1) {
+        const owningRoot = findComponentRoot(
+          sourceFile,
+          managedStyles[0]!.element,
+        );
+        assertSupportedRoot(owningRoot);
+        if (!targetRoots.has(owningRoot)) {
+          throw new MotionReactSourceError(
+            "ambiguous-managed-style",
+            "The managed Motion style element is outside the component that owns the target layers.",
+          );
+        }
+      } else {
+        assertSupportedRoot(targets[0]!.componentRoot);
+      }
     }
     return { status: "supported", ...capabilityIdentity };
   } catch (error) {
@@ -552,22 +677,34 @@ export function inspectMotionReactSourceWriteCapability(args: {
 /** Removes only the valid managed Motion element; malformed markers fail closed. */
 export function removeMotionReactSource(
   source: string,
+  modulePath?: string,
 ): MotionReactSourceRemoval {
-  const read = readMotionReactSource(source);
+  const read = readMotionReactSource(source, modulePath);
   if (read.status === "invalid") throw read.error;
   if (read.status === "absent") return { source, changed: false };
 
-  const sourceFile = parseTsx(source);
+  const originalSourceFile = parseTsx(source);
+  const authoredMotion = readAuthoredReactMotion(
+    originalSourceFile,
+    modulePath,
+    findManagedStyles(originalSourceFile),
+    read.status === "valid" ? read.targetNodeIds : [],
+  );
+  const withoutAuthored = removeAuthoredCssSourceRanges(
+    source,
+    authoredMotion.rangesToRemove,
+  );
+  const sourceFile = parseTsx(withoutAuthored);
   const edits: Array<{ start: number; end: number; text: string }> = [];
   for (const managedStyle of findManagedStyles(sourceFile)) {
     const start = managedStyle.element.getStart(sourceFile);
     const end = managedStyle.element.end;
-    const lineStart = source.lastIndexOf("\n", start - 1) + 1;
-    const leading = source.slice(lineStart, start);
+    const lineStart = withoutAuthored.lastIndexOf("\n", start - 1) + 1;
+    const leading = withoutAuthored.slice(lineStart, start);
     if (/^[\t ]*$/.test(leading)) {
       let tail = end;
-      if (source.slice(tail, tail + 2) === "\r\n") tail += 2;
-      else if (source[tail] === "\n") tail++;
+      if (withoutAuthored.slice(tail, tail + 2) === "\r\n") tail += 2;
+      else if (withoutAuthored[tail] === "\n") tail++;
       edits.push({ start: lineStart, end: tail, text: "" });
     } else {
       edits.push({ start, end, text: "" });
@@ -582,7 +719,7 @@ export function removeMotionReactSource(
     });
     edits.push({ start: entry.child.end, end: entry.element.end, text: "" });
   }
-  const withoutMotion = applySourceEdits(source, edits);
+  const withoutMotion = applySourceEdits(withoutAuthored, edits);
   const clean = removeUnusedMotionTextImport(withoutMotion);
   return { source: clean, changed: clean !== source };
 }
@@ -612,6 +749,659 @@ function parseTsx(source: string): TypeScript.SourceFile {
     );
   }
   return sourceFile;
+}
+
+function readAuthoredReactMotion(
+  sourceFile: TypeScript.SourceFile,
+  modulePath: string | undefined,
+  managedStyles: readonly ManagedStyle[],
+  managedTargetNodeIds: readonly string[] = [],
+): AuthoredReactMotion {
+  const managedElements = new Set(managedStyles.map((style) => style.element));
+  const authoredStyles: TypeScript.JsxElement[] = [];
+  const visit = (node: TypeScript.Node): void => {
+    if (
+      ts.isJsxElement(node) &&
+      ts.isIdentifier(node.openingElement.tagName) &&
+      node.openingElement.tagName.text === "style" &&
+      !managedElements.has(node)
+    ) {
+      authoredStyles.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  const hosts = findReactAuthoredHosts(sourceFile);
+  const tracks: NonNullable<MotionCodeDocument["tracks"]> = [];
+  const rangesToRemove: MotionAuthoredCssSourceRange[] = [];
+  const importedTargetNodeIds = new Set<string>();
+  const usedKeyframeNames = new Set<string>();
+  const keyframeNameCounts = new Map<string, number>();
+  let durationMs = 1;
+
+  for (const style of authoredStyles) {
+    const content = readStaticReactStyleContent(sourceFile, style);
+    if (!content) {
+      const start = style.openingElement.end;
+      const end = style.closingElement.getStart(sourceFile);
+      const raw = sourceFile.text.slice(start, end);
+      if (raw.trim().length > 0) {
+        throw new MotionReactSourceError(
+          "unsupported-authored-motion",
+          "A React inline style element cannot be inspected because its JSX source is not one lossless static CSS string.",
+        );
+      }
+      continue;
+    }
+
+    const result = importAuthoredCssAnimations(content.css, (selector) => {
+      let styleRoot: TypeScript.JsxElement | TypeScript.JsxFragment;
+      try {
+        styleRoot = findComponentRoot(sourceFile, style);
+      } catch (error) {
+        return {
+          status: "unsupported",
+          reason:
+            error instanceof Error
+              ? error.message
+              : "React inline style animations must belong to one static component root.",
+        };
+      }
+      return resolveAuthoredReactTarget(
+        selector,
+        hosts,
+        modulePath,
+        sourceFile,
+        styleRoot,
+      );
+    });
+    if (result.status === "absent") {
+      for (const name of result.definedKeyframeNames) {
+        keyframeNameCounts.set(name, (keyframeNameCounts.get(name) ?? 0) + 1);
+      }
+      continue;
+    }
+    if (result.status === "unsupported") {
+      throw new MotionReactSourceError(
+        "unsupported-authored-motion",
+        result.reason,
+      );
+    }
+    for (const name of result.definedKeyframeNames) {
+      keyframeNameCounts.set(name, (keyframeNameCounts.get(name) ?? 0) + 1);
+    }
+    for (const name of result.keyframeNames) usedKeyframeNames.add(name);
+    for (const targetNodeId of new Set(
+      result.tracks.map((track) => track.targetNodeId),
+    )) {
+      if (importedTargetNodeIds.has(targetNodeId)) {
+        throw new MotionReactSourceError(
+          "unsupported-authored-motion",
+          `Motion target "${targetNodeId}" has animation rules in multiple inline style blocks, so CSS cascade order cannot be preserved.`,
+        );
+      }
+      importedTargetNodeIds.add(targetNodeId);
+    }
+    assertSupportedAuthoredReactStyle(sourceFile, style);
+    tracks.push(...result.tracks);
+    durationMs = Math.max(durationMs, result.durationMs);
+    rangesToRemove.push(
+      ...result.rangesToRemove.map((range) => ({
+        ...range,
+        start: range.start + content.start,
+        end: range.end + content.start,
+      })),
+    );
+  }
+
+  assertNoUnsupportedReactStylePropAnimations(
+    sourceFile,
+    [...managedTargetNodeIds, ...importedTargetNodeIds],
+    modulePath,
+  );
+  if (tracks.length === 0) return { document: null, rangesToRemove: [] };
+  for (const name of usedKeyframeNames) {
+    if ((keyframeNameCounts.get(name) ?? 0) > 1) {
+      throw new MotionReactSourceError(
+        "unsupported-authored-motion",
+        `Animation "${name}" has duplicate @keyframes definitions across inline style blocks.`,
+      );
+    }
+  }
+  try {
+    return {
+      document: mergeAuthoredCssMotionDocument(null, {
+        tracks,
+        durationMs,
+        defaultEase: "ease",
+      }),
+      rangesToRemove,
+    };
+  } catch (error) {
+    throw new MotionReactSourceError(
+      "unsupported-authored-motion",
+      error instanceof Error
+        ? error.message
+        : "Inline CSS animations cannot be represented by one Motion timeline.",
+    );
+  }
+}
+
+function assertNoUnsupportedReactStylePropAnimations(
+  sourceFile: TypeScript.SourceFile,
+  targetNodeIds: readonly string[],
+  modulePath: string | undefined,
+): void {
+  const targetElements = new Set(
+    targetNodeIds.length > 0
+      ? findStaticTargets(
+          sourceFile,
+          [...new Set(targetNodeIds)],
+          modulePath,
+        ).map((target) => target.element)
+      : [],
+  );
+  const visit = (node: TypeScript.Node): void => {
+    if (ts.isJsxAttribute(node) && node.name.getText(sourceFile) === "style") {
+      const initializer = node.initializer;
+      if (!initializer || !ts.isJsxExpression(initializer)) return;
+      if (!initializer.expression) return;
+      const inspection = inspectReactStyleExpression(
+        initializer.expression,
+        sourceFile,
+        new Set(),
+      );
+      const attributes = node.parent;
+      const opening = attributes.parent;
+      const host = ts.isJsxOpeningElement(opening) ? opening.parent : opening;
+      if (targetElements.has(host) && inspection !== "safe") {
+        throw new MotionReactSourceError(
+          "unsupported-authored-motion",
+          inspection === "motion"
+            ? "React inline style-prop animations and transitions cannot be imported losslessly; use a supported static JSX <style> animation rule."
+            : "A React dynamic style prop on a Motion target cannot be proven free of animation or transition declarations.",
+        );
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+}
+
+type ReactStyleInspection = "safe" | "motion" | "unknown";
+
+function inspectReactStyleExpression(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  resolving: Set<string>,
+): ReactStyleInspection {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+
+  if (expression.kind === ts.SyntaxKind.NullKeyword) return "safe";
+  if (ts.isObjectLiteralExpression(expression)) {
+    for (const property of expression.properties) {
+      if (ts.isSpreadAssignment(property)) return "unknown";
+      const name = ts.isPropertyAssignment(property)
+        ? property.name
+        : ts.isShorthandPropertyAssignment(property)
+          ? property.name
+          : null;
+      const text = name
+        ? ts.isIdentifier(name) || ts.isStringLiteral(name)
+          ? name.text
+          : null
+        : null;
+      if (text && isReactMotionStylePropName(text)) return "motion";
+      if (!text) return "unknown";
+    }
+    return "safe";
+  }
+
+  const resolved = resolveReactStyleExpression(expression, sourceFile);
+  if (!resolved) return "unknown";
+  const declarationKey = `${resolved.start}:${resolved.end}`;
+  if (resolving.has(declarationKey)) return "unknown";
+  resolving.add(declarationKey);
+  const result = inspectReactStyleExpression(
+    resolved.expression,
+    sourceFile,
+    resolving,
+  );
+  resolving.delete(declarationKey);
+  return result;
+}
+
+function resolveReactStyleExpression(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+): { expression: TypeScript.Expression; start: number; end: number } | null {
+  const name = ts.isIdentifier(expression)
+    ? expression.text
+    : ts.isPropertyAccessExpression(expression) &&
+        ts.isIdentifier(expression.expression)
+      ? expression.expression.text
+      : null;
+  if (!name) return null;
+
+  if (hasReactStyleParameterShadow(expression, sourceFile, name)) return null;
+
+  const matches: TypeScript.VariableDeclaration[] = [];
+  const visit = (node: TypeScript.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === name
+    ) {
+      matches.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (matches.length !== 1) return null;
+  const declaration = matches[0]!;
+  const scope = reactVariableDeclarationScope(declaration);
+  if (!scope || !isReactNodeWithinScope(scope, expression)) return null;
+  const initializer = declaration.initializer;
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    initializer &&
+    ts.isObjectLiteralExpression(initializer)
+  ) {
+    const propertyName = expression.name.text;
+    const properties = initializer.properties.filter(
+      (property): property is TypeScript.PropertyAssignment =>
+        ts.isPropertyAssignment(property) &&
+        ((ts.isIdentifier(property.name) &&
+          property.name.text === propertyName) ||
+          (ts.isStringLiteral(property.name) &&
+            property.name.text === propertyName)),
+    );
+    if (properties.length === 1) {
+      return {
+        expression: properties[0]!.initializer,
+        start: properties[0]!.getStart(sourceFile),
+        end: properties[0]!.end,
+      };
+    }
+  }
+  return initializer
+    ? {
+        expression: initializer,
+        start: initializer.getStart(sourceFile),
+        end: initializer.end,
+      }
+    : null;
+}
+
+function hasReactStyleParameterShadow(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  name: string,
+): boolean {
+  for (
+    let node: TypeScript.Node | undefined = expression.parent;
+    node && node !== sourceFile;
+    node = node.parent
+  ) {
+    if (
+      ts.isFunctionLike(node) &&
+      node.parameters.some((parameter) =>
+        reactBindingNameContains(parameter.name, name),
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function reactBindingNameContains(
+  bindingName: TypeScript.BindingName,
+  name: string,
+): boolean {
+  if (ts.isIdentifier(bindingName)) return bindingName.text === name;
+  if (ts.isObjectBindingPattern(bindingName)) {
+    return bindingName.elements.some((element) =>
+      reactBindingNameContains(element.name, name),
+    );
+  }
+  return bindingName.elements.some(
+    (element) =>
+      !ts.isOmittedExpression(element) &&
+      reactBindingNameContains(element.name, name),
+  );
+}
+
+function reactVariableDeclarationScope(
+  declaration: TypeScript.VariableDeclaration,
+): TypeScript.Node | null {
+  for (
+    let node: TypeScript.Node | undefined = declaration.parent;
+    node;
+    node = node.parent
+  ) {
+    if (
+      ts.isBlock(node) ||
+      ts.isModuleBlock(node) ||
+      ts.isSourceFile(node) ||
+      ts.isForStatement(node) ||
+      ts.isForInStatement(node) ||
+      ts.isForOfStatement(node)
+    ) {
+      return node;
+    }
+  }
+  return null;
+}
+
+function isReactNodeWithinScope(
+  scope: TypeScript.Node,
+  node: TypeScript.Node,
+): boolean {
+  for (
+    let current: TypeScript.Node | undefined = node;
+    current;
+    current = current.parent
+  ) {
+    if (current === scope) return true;
+  }
+  return false;
+}
+
+function isReactMotionStylePropName(name: string): boolean {
+  const normalized = name.toLowerCase().replace(/-/g, "");
+  return (
+    /^(?:webkit|moz|ms|o)?animation(?:name|duration|delay|timingfunction|fillmode|iterationcount|direction|playstate|composition|timeline|range(?:start|end)?)?$/.test(
+      normalized,
+    ) ||
+    /^(?:webkit|moz|ms|o)?transition(?:property|duration|delay|timingfunction)?$/.test(
+      normalized,
+    )
+  );
+}
+
+function readStaticReactStyleContent(
+  sourceFile: TypeScript.SourceFile,
+  style: TypeScript.JsxElement,
+): { css: string; start: number } | null {
+  const bodyStart = style.openingElement.end;
+  const bodyEnd = style.closingElement.getStart(sourceFile);
+  const substantiveChildren = style.children.filter((child) => {
+    if (ts.isJsxText(child)) return child.getText(sourceFile).trim() !== "";
+    return !(ts.isJsxExpression(child) && !child.expression);
+  });
+  if (substantiveChildren.length !== 1) return null;
+
+  const child = substantiveChildren[0]!;
+  if (ts.isJsxText(child)) {
+    const raw = sourceFile.text.slice(bodyStart, bodyEnd);
+    if (raw !== child.getText(sourceFile) || raw !== child.text) return null;
+    return { css: raw, start: bodyStart };
+  }
+  if (!ts.isJsxExpression(child) || !child.expression) return null;
+  const expression = child.expression;
+  if (
+    !ts.isStringLiteral(expression) &&
+    !ts.isNoSubstitutionTemplateLiteral(expression)
+  ) {
+    return null;
+  }
+
+  const rawLiteral = expression.getText(sourceFile);
+  const delimiter = ts.isStringLiteral(expression) ? rawLiteral[0] : "`";
+  if (
+    rawLiteral.length < 2 ||
+    (delimiter !== '"' && delimiter !== "'" && delimiter !== "`") ||
+    rawLiteral[0] !== delimiter ||
+    rawLiteral[rawLiteral.length - 1] !== delimiter
+  ) {
+    return null;
+  }
+  const cssStart = expression.getStart(sourceFile) + 1;
+  const cssEnd = expression.end - 1;
+  const before = sourceFile.text.slice(bodyStart, child.getStart(sourceFile));
+  const after = sourceFile.text.slice(child.end, bodyEnd);
+  const raw = sourceFile.text.slice(cssStart, cssEnd);
+  if (
+    !/^\s*$/.test(before) ||
+    !/^\s*$/.test(after) ||
+    raw !== expression.text
+  ) {
+    return null;
+  }
+  return { css: raw, start: cssStart };
+}
+
+function assertSupportedAuthoredReactStyle(
+  sourceFile: TypeScript.SourceFile,
+  style: TypeScript.JsxElement,
+): void {
+  for (const attribute of style.openingElement.attributes.properties) {
+    if (ts.isJsxSpreadAttribute(attribute)) {
+      throw new MotionReactSourceError(
+        "unsupported-authored-motion",
+        "React inline style animations with spread or conditional style attributes are unsupported.",
+      );
+    }
+    const name = attribute.name.getText(sourceFile).toLowerCase();
+    if (["media", "disabled", "title", "scoped"].includes(name)) {
+      throw new MotionReactSourceError(
+        "unsupported-authored-motion",
+        "React inline style animations with conditional or alternate stylesheet attributes are unsupported.",
+      );
+    }
+    if (name === "type") {
+      const value = readStaticJsxAttributeValue(attribute);
+      if (
+        value.status !== "static" ||
+        !/^\s*(?:text\/css)?\s*$/i.test(value.value)
+      ) {
+        throw new MotionReactSourceError(
+          "unsupported-authored-motion",
+          "React inline style animations require a static CSS style element.",
+        );
+      }
+    }
+  }
+
+  let root: TypeScript.JsxElement | TypeScript.JsxFragment;
+  try {
+    root = findComponentRoot(sourceFile, style);
+  } catch (error) {
+    throw new MotionReactSourceError(
+      "unsupported-authored-motion",
+      error instanceof Error
+        ? error.message
+        : "React inline style animations must belong to one static component root.",
+    );
+  }
+  for (
+    let current: TypeScript.Node | undefined = style.parent;
+    current;
+    current = current.parent
+  ) {
+    if (current === root) return;
+    if (ts.isJsxExpression(current) && current.expression) {
+      throw new MotionReactSourceError(
+        "unsupported-authored-motion",
+        "React inline style animations inside conditional or mapped JSX are unsupported.",
+      );
+    }
+  }
+  throw new MotionReactSourceError(
+    "unsupported-authored-motion",
+    "React inline style animation is outside its component's returned JSX root.",
+  );
+}
+
+function findReactAuthoredHosts(
+  sourceFile: TypeScript.SourceFile,
+): ReactAuthoredHost[] {
+  const hosts: ReactAuthoredHost[] = [];
+  let ordinal = 0;
+  const visit = (node: TypeScript.Node): void => {
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const opening = ts.isJsxElement(node) ? node.openingElement : node;
+      const tag = opening.tagName;
+      if (ts.isIdentifier(tag) && isMotionSourceHostElementTag(tag.text)) {
+        hosts.push({ element: node, ordinal, tagName: tag.text.toLowerCase() });
+        ordinal += 1;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return hosts;
+}
+
+function resolveAuthoredReactTarget(
+  selector: string,
+  hosts: readonly ReactAuthoredHost[],
+  modulePath: string | undefined,
+  sourceFile: TypeScript.SourceFile,
+  styleRoot: TypeScript.JsxElement | TypeScript.JsxFragment,
+): MotionAuthoredCssTargetResolution {
+  const parsed = parseMotionAuthoredCssSimpleSelector(selector);
+  if (!parsed) return { status: "unresolved" };
+  if (parsed.kind !== "id") {
+    return {
+      status: "unsupported",
+      reason:
+        "React inline CSS animations can be mapped safely only from a static id selector; type, class, and attribute selectors can also affect elements in other modules.",
+    };
+  }
+  const relevantAttribute = "id";
+  const matches: string[] = [];
+  for (const host of hosts) {
+    const attributes = jsxAttributes(host.element);
+    const hasSpread = attributes.some(ts.isJsxSpreadAttribute);
+    if (relevantAttribute && hasSpread) return { status: "ambiguous" };
+    let matchesSelector = false;
+    let hasDynamicSelectorAttribute = false;
+    for (const attribute of attributes) {
+      if (ts.isJsxSpreadAttribute(attribute)) continue;
+      const sourceName = attribute.name.getText();
+      const domName = normalizeReactDomAttributeName(sourceName);
+      const isRelevant = relevantAttribute === domName;
+      if (!isRelevant) continue;
+      const value = readStaticJsxAttributeValue(attribute);
+      if (value.status !== "static") {
+        hasDynamicSelectorAttribute = true;
+        continue;
+      }
+      if (matchesReactSelectorAttribute(parsed, domName, value.value)) {
+        matchesSelector = true;
+      }
+    }
+    if (hasDynamicSelectorAttribute) return { status: "ambiguous" };
+    if (!matchesSelector) continue;
+
+    try {
+      if (findComponentRoot(sourceFile, host.element) !== styleRoot) {
+        return {
+          status: "unsupported",
+          reason:
+            "React inline CSS animations can only be adopted when the matching target belongs to the same component as the style element.",
+        };
+      }
+    } catch {
+      return {
+        status: "unsupported",
+        reason:
+          "React inline CSS animations cannot be adopted when the matching target has no static component root.",
+      };
+    }
+
+    const identity = readReactAuthoredNodeId(host, modulePath);
+    if (identity.status !== "resolved") return identity;
+    matches.push(identity.targetNodeId);
+  }
+  if (matches.length === 0) return { status: "unresolved" };
+  if (matches.length !== 1) return { status: "ambiguous" };
+  return { status: "resolved", targetNodeId: matches[0]! };
+}
+
+function readReactAuthoredNodeId(
+  host: ReactAuthoredHost,
+  modulePath: string | undefined,
+): MotionAuthoredCssTargetResolution {
+  const attributes = jsxAttributes(host.element);
+  if (attributes.some(ts.isJsxSpreadAttribute)) return { status: "ambiguous" };
+  const identityAttributes = attributes.filter(
+    (attribute): attribute is TypeScript.JsxAttribute =>
+      ts.isJsxAttribute(attribute) &&
+      attribute.name.getText() === NODE_ID_ATTRIBUTE,
+  );
+  if (identityAttributes.length > 1) return { status: "ambiguous" };
+  if (identityAttributes.length === 1) {
+    const identity = readStaticJsxAttributeValue(identityAttributes[0]!);
+    if (
+      identity.status !== "static" ||
+      !/^[A-Za-z0-9_-]+$/.test(identity.value)
+    ) {
+      return { status: "ambiguous" };
+    }
+    return { status: "resolved", targetNodeId: identity.value };
+  }
+  if (!modulePath) return { status: "unresolved" };
+  return {
+    status: "resolved",
+    targetNodeId: generatedMotionNodeId(modulePath, host.ordinal),
+  };
+}
+
+function readStaticJsxAttributeValue(
+  attribute: TypeScript.JsxAttribute,
+): { status: "static"; value: string } | { status: "dynamic" } {
+  if (!attribute.initializer) return { status: "static", value: "" };
+  if (ts.isStringLiteral(attribute.initializer)) {
+    return { status: "static", value: attribute.initializer.text };
+  }
+  if (
+    ts.isJsxExpression(attribute.initializer) &&
+    attribute.initializer.expression &&
+    (ts.isStringLiteral(attribute.initializer.expression) ||
+      ts.isNoSubstitutionTemplateLiteral(attribute.initializer.expression))
+  ) {
+    return {
+      status: "static",
+      value: attribute.initializer.expression.text,
+    };
+  }
+  return { status: "dynamic" };
+}
+
+function normalizeReactDomAttributeName(name: string): string {
+  if (name === "className") return "class";
+  if (name === "htmlFor") return "for";
+  return name.toLowerCase();
+}
+
+function matchesReactSelectorAttribute(
+  selector: MotionAuthoredCssSimpleSelector,
+  attributeName: string,
+  value: string,
+): boolean {
+  if (selector.kind === "type") return false;
+  if (selector.kind === "id") {
+    return attributeName === "id" && value === selector.value;
+  }
+  if (selector.kind === "class") {
+    return (
+      attributeName === "class" &&
+      value.split(/[\t\n\f\r ]+/).includes(selector.value)
+    );
+  }
+  if (attributeName !== selector.name) return false;
+  return selector.value === undefined || value === selector.value;
 }
 
 function findTargets(

@@ -9,6 +9,7 @@ const calls = vi.hoisted(() => ({
   writeState: vi.fn(async () => {}),
   bufferedFallbackAvailable: true,
   streamingEnabled: false,
+  track: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", async (importOriginal) => ({
@@ -21,6 +22,9 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: (...args: unknown[]) =>
     calls.uploadProvider(...args),
+}));
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => calls.track(...args),
 }));
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
@@ -78,6 +82,7 @@ describe("create-recording policy", () => {
     calls.snapshot.mockResolvedValue(false);
     calls.bufferedFallbackAvailable = true;
     calls.streamingEnabled = false;
+    calls.track.mockReset();
   });
 
   it("saves the new recording's policy before initializing its upload", async () => {
@@ -255,5 +260,227 @@ describe("create-recording policy", () => {
       failureCode: "storage_setup_required",
       httpStatus: 401,
     });
+  });
+});
+
+describe("recording_created", () => {
+  const action = createRecording as unknown as {
+    run: (
+      args: Record<string, unknown>,
+      context: { userEmail: string },
+    ) => Promise<unknown>;
+  };
+  const createdCalls = () =>
+    calls.track.mock.calls.filter(([name]) => name === "recording_created");
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    calls.insert.mockResolvedValue(undefined);
+    calls.update.mockResolvedValue(undefined);
+    calls.snapshot.mockResolvedValue(false);
+    calls.bufferedFallbackAvailable = true;
+    calls.streamingEnabled = false;
+    calls.track.mockReset();
+  });
+
+  it("fires once after the row is inserted, naming the recording's platform", async () => {
+    await action.run(
+      { id: "rec-1", recordingPlatform: "desktop", hasCamera: true },
+      { userEmail: "owner@example.com" },
+    );
+
+    expect(createdCalls()).toEqual([
+      [
+        "recording_created",
+        {
+          app_name: "clips",
+          template_name: "clips",
+          output_id: "rec-1",
+          output_type: "clip",
+          recording_attempt_id: "rec-1",
+          recording_platform: "desktop",
+          recording_source: "recorder",
+          has_audio: true,
+          has_camera: true,
+        },
+        expect.objectContaining({ userId: "owner@example.com" }),
+      ],
+    ]);
+    expect(calls.insert.mock.invocationCallOrder[0]).toBeLessThan(
+      calls.track.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("names the caller's take and source when given", async () => {
+    await action.run(
+      {
+        id: "rec-2",
+        recordingPlatform: "mobile",
+        recordingSource: "local_copy_upload",
+        recordingAttemptId: "local-7",
+      },
+      { userEmail: "owner@example.com" },
+    );
+
+    expect(createdCalls()[0][1]).toMatchObject({
+      output_id: "rec-2",
+      recording_attempt_id: "local-7",
+      recording_platform: "mobile",
+      recording_source: "local_copy_upload",
+    });
+  });
+
+  it("treats desktop and extension rows without a source as recorder captures, and nothing else", async () => {
+    await action.run(
+      { id: "rec-ext", recordingPlatform: "extension" },
+      { userEmail: "owner@example.com" },
+    );
+    await action.run(
+      { id: "rec-web", recordingPlatform: "web" },
+      { userEmail: "owner@example.com" },
+    );
+    await action.run(
+      {
+        id: "rec-desk",
+        recordingPlatform: "desktop",
+        recordingSource: "file_upload",
+      },
+      { userEmail: "owner@example.com" },
+    );
+
+    expect(
+      createdCalls().map(([, props]) => [
+        props.output_id,
+        props.recording_source,
+      ]),
+    ).toEqual([
+      ["rec-ext", "recorder"],
+      ["rec-web", "unknown"],
+      ["rec-desk", "file_upload"],
+    ]);
+  });
+
+  it("attributes the native mobile app's captures by its app name, on the row and every event", async () => {
+    calls.bufferedFallbackAvailable = false;
+
+    await expect(
+      action.run(
+        {
+          id: "rec-mob",
+          sourceAppName: "Agent-Native Mobile",
+          titleSource: "upload",
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({ statusCode: 503 });
+
+    expect(calls.insert.mock.calls[0][0]).toMatchObject({
+      recordingPlatform: "mobile",
+    });
+    expect(createdCalls()[0][1]).toMatchObject({
+      recording_platform: "mobile",
+      recording_source: "recorder",
+    });
+    const failed = calls.track.mock.calls.find(
+      ([name]) => name === "recording_failed",
+    );
+    expect(failed?.[1]).toMatchObject({ recording_platform: "mobile" });
+  });
+
+  it("keeps an explicit platform over the app name, and leaves other apps alone", async () => {
+    await action.run(
+      {
+        id: "rec-a",
+        sourceAppName: "Agent-Native Mobile",
+        recordingPlatform: "web",
+      },
+      { userEmail: "owner@example.com" },
+    );
+    await action.run(
+      { id: "rec-b", sourceAppName: "Zoom" },
+      { userEmail: "owner@example.com" },
+    );
+
+    expect(
+      createdCalls().map(([, props]) => [
+        props.output_id,
+        props.recording_platform,
+      ]),
+    ).toEqual([
+      ["rec-a", "web"],
+      ["rec-b", "unknown"],
+    ]);
+  });
+
+  it("reports a recording with no platform as unknown, not a guess", async () => {
+    await action.run({ id: "rec-1" }, { userEmail: "owner@example.com" });
+
+    expect(createdCalls()[0][1]).toMatchObject({
+      recording_platform: "unknown",
+    });
+  });
+
+  it("does not fire when no row is created", async () => {
+    calls.insert.mockRejectedValueOnce(new Error("recording insert failed"));
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toThrow("recording insert failed");
+
+    calls.snapshot.mockRejectedValueOnce(new Error("policy read failed"));
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toThrow("policy read failed");
+
+    await expect(
+      action.run(
+        { id: "rec-1", expectedOwnerEmail: "someone-else@example.com" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "recording_owner_mismatch" });
+
+    expect(createdCalls()).toHaveLength(0);
+  });
+
+  it("is followed by recording_failed when storage is missing, so the row is never silent", async () => {
+    calls.bufferedFallbackAvailable = false;
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "extension" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({ statusCode: 503 });
+
+    const names = calls.track.mock.calls.map(([name]) => name);
+    expect(names).toEqual(["recording_created", "recording_failed"]);
+    expect(calls.track.mock.calls[1][1]).toMatchObject({
+      failure_code: "storage_setup_required",
+      recording_platform: "extension",
+    });
+  });
+
+  it("still creates the recording when tracking throws", async () => {
+    calls.track.mockImplementation(() => {
+      throw new Error("tracker down");
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).resolves.toMatchObject({ id: "rec-1" });
+    expect(calls.writeState).toHaveBeenCalledWith(
+      "recording-upload-rec-1",
+      expect.objectContaining({ status: "uploading" }),
+    );
+    warn.mockRestore();
   });
 });

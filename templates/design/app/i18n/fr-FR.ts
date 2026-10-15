@@ -978,6 +978,14 @@ export default {
         toTopRight: "Vers le haut à droite",
         toBottomLeft: "Vers le bas à gauche",
         toBottomRight: "Vers le bas à droite",
+        fromLeft: "Depuis la gauche",
+        fromRight: "Depuis la droite",
+        fromTop: "Depuis le haut",
+        fromBottom: "Depuis le bas",
+        fromTopLeft: "Depuis le coin supérieur gauche",
+        fromTopRight: "Depuis le coin supérieur droit",
+        fromBottomLeft: "Depuis le coin inférieur gauche",
+        fromBottomRight: "Depuis le coin inférieur droit",
         clockwise: "Sens horaire",
         counterclockwise: "Sens antihoraire",
         easingPresets: {
@@ -1027,6 +1035,8 @@ export default {
         save: "Enregistrer le style",
         createDescription:
           "Enregistrer les pistes de mouvement de la cible sélectionnée comme style réutilisable.",
+        unsupportedSequence:
+          "Ce style ne peut pas être appliqué, car des segments de même propriété se chevauchent ou ne se rejoignent pas.",
         tooMany: "Un style peut inclure jusqu’à 24 animations.",
         limit: "Cette conception a atteint la limite de 64 styles d’animation.",
       },
@@ -1061,6 +1071,9 @@ export default {
       size: "Taille",
       sourceWriteUnavailable:
         "Pour le moment, le code Motion ne peut être écrit que dans des designs HTML intégrés.",
+      sourceConflict:
+        "La source Motion a changé alors que cette timeline contenait des modifications non enregistrées. Rechargez le code pour les abandonner et utiliser la source actuelle.",
+      reloadFromSource: "Recharger le code",
       dockLabel: "Panneau de mouvement",
       collapseDock: "Réduire le panneau de mouvement",
       expandAllTracks: "Développer toutes les pistes",

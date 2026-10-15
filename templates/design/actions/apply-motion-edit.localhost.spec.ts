@@ -224,6 +224,7 @@ const request = {
     connectionId: "connection-1",
     modulePath: "app/routes/home.tsx",
     moduleVersionHash: bridgeVersionHash,
+    timelineVersionHash: bridgeVersionHash,
     renderedNodeIds: ["hero"],
   },
   tracks: [
@@ -393,6 +394,7 @@ describe("apply-motion-edit localhost React source", () => {
         ...request.localSource,
         modulePath: htmlSourcePath,
         moduleVersionHash: htmlVersionHash,
+        timelineVersionHash: htmlVersionHash,
       },
     });
 
@@ -476,6 +478,7 @@ describe("apply-motion-edit localhost React source", () => {
       localSource: {
         ...request.localSource,
         moduleVersionHash: pathSourceHash,
+        timelineVersionHash: pathSourceHash,
       },
       tracks: [],
       nativeStyles: [nativePathStyle],
@@ -504,6 +507,7 @@ describe("apply-motion-edit localhost React source", () => {
       localSource: {
         ...request.localSource,
         moduleVersionHash: managedStyleVersionHash,
+        timelineVersionHash: managedStyleVersionHash,
       },
       tracks: [],
     });
@@ -531,6 +535,23 @@ describe("apply-motion-edit localhost React source", () => {
         },
       }),
     ).rejects.toMatchObject({ statusCode: 409 });
+    expect(mocks.writeLocal).not.toHaveBeenCalled();
+    expect(mocks.insertedRows).toHaveLength(0);
+  });
+
+  it("rejects a stale source-backed timeline before writing newer code", async () => {
+    await expect(
+      action.run({
+        ...request,
+        localSource: {
+          ...request.localSource,
+          timelineVersionHash: "d".repeat(64),
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "motion_local_source_stale_timeline",
+    });
     expect(mocks.writeLocal).not.toHaveBeenCalled();
     expect(mocks.insertedRows).toHaveLength(0);
   });

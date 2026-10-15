@@ -958,6 +958,14 @@ export default {
         toTopRight: "오른쪽 위로",
         toBottomLeft: "왼쪽 아래로",
         toBottomRight: "오른쪽 아래로",
+        fromLeft: "왼쪽에서",
+        fromRight: "오른쪽에서",
+        fromTop: "위쪽에서",
+        fromBottom: "아래쪽에서",
+        fromTopLeft: "왼쪽 위에서",
+        fromTopRight: "오른쪽 위에서",
+        fromBottomLeft: "왼쪽 아래에서",
+        fromBottomRight: "오른쪽 아래에서",
         clockwise: "시계 방향",
         counterclockwise: "시계 반대 방향",
         easingPresets: {
@@ -1007,6 +1015,8 @@ export default {
         save: "스타일 저장",
         createDescription:
           "선택한 대상의 모션 트랙을 재사용 가능한 스타일로 저장합니다.",
+        unsupportedSequence:
+          "같은 속성의 구간이 겹치거나 이어지지 않아 이 스타일을 적용할 수 없습니다.",
         tooMany: "스타일에는 최대 24개의 애니메이션을 포함할 수 있습니다.",
         limit: "이 디자인은 애니메이션 스타일 64개 한도에 도달했습니다.",
       },
@@ -1041,6 +1051,9 @@ export default {
       size: "크기",
       sourceWriteUnavailable:
         "현재 Motion 코드는 인라인 HTML 디자인에만 쓸 수 있습니다.",
+      sourceConflict:
+        "타임라인에 저장되지 않은 변경 사항이 있는 동안 Motion 소스가 변경되었습니다. 코드를 다시 불러오면 해당 변경 사항을 버리고 현재 소스를 사용합니다.",
+      reloadFromSource: "코드 다시 불러오기",
       dockLabel: "모션 독",
       collapseDock: "모션 독 접기",
       expandAllTracks: "모든 트랙 펼치기",

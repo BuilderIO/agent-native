@@ -206,6 +206,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import { readMotionHtmlSource } from "../shared/motion-html-source.js";
 import { applyMotionPathTrimSource } from "../shared/motion-path-trim-source.js";
 import action from "./remove-motion-timeline.js";
 
@@ -260,7 +261,7 @@ describe("remove-motion-timeline", () => {
     expect(result.htmlPatched).toBe(true);
     const content = lastSavedContent();
     expect(content).not.toContain("data-agent-native-motion");
-    expect(content).toBe("<html><body><main></main></body></html>");
+    expect(content).toBe("<html><body>\n<main></main></body></html>");
     expect(mocks.deleteChain.where).toHaveBeenCalled();
   });
 
@@ -290,6 +291,27 @@ describe("remove-motion-timeline", () => {
     expect(mocks.deleteChain.where).toHaveBeenCalled();
   });
 
+  it("removes adopted authored CSS so a later source read cannot recreate the deleted timeline", async () => {
+    setTimeline("timeline-1");
+    setFile(`<html><body><h1 class="hero" data-agent-native-node-id="hero">Hello</h1>
+<style>
+.hero { animation-name: hero-fade; animation-duration: 800ms; animation-fill-mode: both; }
+@keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }
+</style></body></html>`);
+
+    const result = await action.run({
+      designId: "design-1",
+      timelineId: "timeline-1",
+    });
+
+    expect(result.htmlPatched).toBe(true);
+    expect(readMotionHtmlSource(lastSavedContent(), "index.html").status).toBe(
+      "absent",
+    );
+    expect(lastSavedContent()).toContain("@keyframes hero-fade");
+    expect(lastSavedContent()).not.toContain("animation-name: hero-fade");
+  });
+
   it("restores authored pathLength after removing an inline Path trim timeline", async () => {
     setTimeline("timeline-1");
     const original =
@@ -309,7 +331,7 @@ describe("remove-motion-timeline", () => {
     });
 
     expect(result.htmlPatched).toBe(true);
-    expect(lastSavedContent()).toBe(`<html><body>${original}</body></html>`);
+    expect(lastSavedContent()).toBe(`<html><body>\n${original}</body></html>`);
     expect(lastSavedContent()).not.toContain(
       "data-agent-native-motion-path-length",
     );

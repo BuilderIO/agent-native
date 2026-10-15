@@ -1230,6 +1230,7 @@ export default {
     saveViewFailed: "تعذر حفظ العرض",
     saveViewFailedWithMessage: "تعذر حفظ العرض: {{message}}",
     clearAll: "مسح الكل",
+    resetFilters: "إعادة تعيين عوامل التصفية",
     collapseFilters: "طي عوامل التصفية",
     expandFilters: "قم بتوسيع عوامل التصفية",
     filterSeries: "Filter",

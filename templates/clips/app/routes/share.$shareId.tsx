@@ -1565,6 +1565,8 @@ export default function ShareRoute() {
             <div className="mb-4 w-full">
               <StorageSetupCard
                 connectSource="clips_share_page_storage_setup_card"
+                key={recordingId}
+                outputId={recordingId}
                 title={t("sharePage.connectStorageFinishSaving")}
                 description={t("sharePage.chooseStorageCheck")}
                 connectedDescription={t("sharePage.storageConnectedChecking")}

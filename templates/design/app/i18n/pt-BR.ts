@@ -969,6 +969,14 @@ export default {
         toTopRight: "Para o alto à direita",
         toBottomLeft: "Para baixo à esquerda",
         toBottomRight: "Para baixo à direita",
+        fromLeft: "Da esquerda",
+        fromRight: "Da direita",
+        fromTop: "De cima",
+        fromBottom: "De baixo",
+        fromTopLeft: "Do canto superior esquerdo",
+        fromTopRight: "Do canto superior direito",
+        fromBottomLeft: "Do canto inferior esquerdo",
+        fromBottomRight: "Do canto inferior direito",
         clockwise: "Sentido horário",
         counterclockwise: "Sentido anti-horário",
         easingPresets: {
@@ -1018,6 +1026,8 @@ export default {
         save: "Salvar estilo",
         createDescription:
           "Salve as trilhas de movimento do alvo selecionado como um estilo reutilizável.",
+        unsupportedSequence:
+          "Não é possível aplicar este estilo porque segmentos da mesma propriedade se sobrepõem ou não se conectam.",
         tooMany: "Um estilo pode incluir até 24 animações.",
         limit: "Este design atingiu o limite de 64 estilos de animação.",
       },
@@ -1052,6 +1062,9 @@ export default {
       size: "Tamanho",
       sourceWriteUnavailable:
         "No momento, o código de movimento só pode ser gravado em designs HTML inline.",
+      sourceConflict:
+        "O código do Motion mudou enquanto esta linha do tempo tinha alterações não salvas. Recarregue o código para descartá-las e usar a fonte atual.",
+      reloadFromSource: "Recarregar código",
       dockLabel: "Painel de movimento",
       collapseDock: "Recolher painel de movimento",
       expandAllTracks: "Expandir todas as faixas",

@@ -203,10 +203,10 @@ describe("Analytics direct MCP tools", () => {
     }
   });
 
-  it("requires write scope and approval for paid Gong synthesis", () => {
+  it("requires write scope, without a per-call approval, for Gong synthesis", () => {
     const run = actions["run-gong-native-insight"];
     expect(run.readOnly).not.toBe(true);
-    expect(typeof run.needsApproval).toBe("function");
+    expect(run.needsApproval).toBeUndefined();
 
     const discovery = actions["gong-native-insights"];
     expect(discovery.needsApproval).toBeUndefined();

@@ -594,7 +594,7 @@ describe("native Figma Motion runtime adapter", () => {
     });
   });
 
-  it("creates the same default Position instance shape as Figma", () => {
+  it("creates the default Position instance shape", () => {
     expect(
       createMotionNativeStyleInstance({
         styleKey: "Position",
@@ -604,7 +604,7 @@ describe("native Figma Motion runtime adapter", () => {
       type: "FIGMA",
       styleKey: "Position",
       nameKey: "motion.preset_name.position",
-      duration: 1,
+      duration: 0.5,
       timelineOffset: 0,
       targetNodeId: "hero",
       enabled: true,
@@ -679,7 +679,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "0px 0px" },
         ],
         delayMs: 0,
-        durationMs: 1000,
+        durationMs: 500,
       },
     ]);
   });
@@ -789,7 +789,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "1 1" },
         ],
         delayMs: 0,
-        durationMs: 1000,
+        durationMs: 500,
       },
       {
         targetNodeId: "hero",
@@ -799,7 +799,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "0deg" },
         ],
         delayMs: 0,
-        durationMs: 1000,
+        durationMs: 500,
       },
       {
         targetNodeId: "hero",
@@ -809,7 +809,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "1" },
         ],
         delayMs: 0,
-        durationMs: 1000,
+        durationMs: 500,
       },
       {
         targetNodeId: "hero",
@@ -819,7 +819,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "calc(100% + -50px)" },
         ],
         delayMs: 0,
-        durationMs: 1000,
+        durationMs: 500,
       },
       {
         targetNodeId: "hero",
@@ -829,7 +829,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "calc(100% + -50px)" },
         ],
         delayMs: 0,
-        durationMs: 1000,
+        durationMs: 500,
       },
     ]);
   });

@@ -1075,6 +1075,14 @@ export default {
         toTopRight: "向右上",
         toBottomLeft: "向左下",
         toBottomRight: "向右下",
+        fromLeft: "從左側",
+        fromRight: "從右側",
+        fromTop: "從上方",
+        fromBottom: "從下方",
+        fromTopLeft: "從左上方",
+        fromTopRight: "從右上方",
+        fromBottomLeft: "從左下方",
+        fromBottomRight: "從右下方",
         clockwise: "順時針",
         counterclockwise: "逆時針",
         easingPresets: {
@@ -1123,6 +1131,8 @@ export default {
         cancel: "取消",
         save: "儲存樣式",
         createDescription: "將所選目標的動態軌道儲存為可重複使用的樣式。",
+        unsupportedSequence:
+          "此樣式無法套用，因為同一屬性的片段互相重疊或無法銜接。",
         tooMany: "一個樣式最多可包含 24 個動畫。",
         limit: "此設計已達到 64 個動畫樣式的上限。",
       },
@@ -1156,6 +1166,9 @@ export default {
         "關鍵影格時間軸。{{tracks}} 個軌道，{{keyframes}} 個關鍵影格。使用方向鍵或按住空白鍵拖曳來捲動，捏合或使用 Cmd/Ctrl + 滾輪來縮放，拖曳關鍵影格以移動，使用 Shift/Cmd 多選，按兩下以新增關鍵影格。",
       size: "大小",
       sourceWriteUnavailable: "目前，Motion 程式碼只能寫入內嵌 HTML 設計。",
+      sourceConflict:
+        "時間軸有未儲存變更時，Motion 原始碼已變更。重新載入程式碼會捨棄這些變更並使用目前的原始碼。",
+      reloadFromSource: "從程式碼重新載入",
       dockLabel: "動態面板",
       collapseDock: "收起動態面板",
       expandAllTracks: "展開所有軌道",

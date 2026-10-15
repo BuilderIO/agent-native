@@ -456,8 +456,12 @@ and expose thin wrappers around `createQueryStagedDatasetAction`,
 `createListStagedDatasetsAction`, and `createDeleteStagedDatasetAction` (or the
 combined `createStagedDatasetActions`). Set the same `appId` on request and
 staged-dataset factories. Core scopes staged data to that app and the current
-credential owner, so one user's scratch data cannot be queried or deleted by a
-different user or app.
+credential owner: through these actions one user cannot query or delete another
+user's or app's scratch data. The one exception is capacity. The 50 MB and
+200,000-row caps are shared by the whole app, so a write that would exceed them
+evicts the least recently written datasets instead of failing: datasets older
+than 14 days first, then the writer's own, then other owners'. Staged data is
+scratch; re-stage anything a later turn still needs.
 
 ### Credentials and custom providers {#provider-api-authority}
 

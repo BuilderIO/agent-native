@@ -1270,6 +1270,7 @@ export default {
     saveViewFailedWithMessage:
       "Não foi possível salvar a visualização: {{message}}",
     clearAll: "Limpar tudo",
+    resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
     filterSeries: "Filter",

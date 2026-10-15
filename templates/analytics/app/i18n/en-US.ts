@@ -879,6 +879,7 @@ export default {
     saveViewFailed: "Couldn't save view",
     saveViewFailedWithMessage: "Couldn't save view: {{message}}",
     clearAll: "Clear all",
+    resetFilters: "Reset filters",
     collapseFilters: "Collapse filters",
     expandFilters: "Expand filters",
     filterSeries: "Filter",

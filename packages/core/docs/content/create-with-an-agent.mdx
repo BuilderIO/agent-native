@@ -1,0 +1,160 @@
+---
+title: "Create an App with an AI Agent"
+description: "Hand one prompt to Claude, ChatGPT, Codex, Cursor, or another AI agent and have it create and start a new Agent-Native app for you."
+---
+
+# Create an App with an AI Agent
+
+You can ask an AI agent to create your Agent-Native app. You paste one prompt, the agent runs the setup commands, and it shows you a running app when it is done.
+
+If you would rather type the commands yourself, follow [Getting Started](/docs/getting-started) instead.
+
+## Before you start
+
+- An AI agent that can run terminal commands, such as Claude Code, Codex, or Cursor. Agents that only chat, such as ChatGPT or Claude on the web, can still help. See [Agents that can't run commands](#chat-only-agents).
+- [Node.js](https://nodejs.org) 22.22 or later.
+- An empty folder where the new app can live.
+
+You don't need an API key to create the app. You only need one when you want the app's own agent to answer you. See [Connect an LLM](/docs/getting-started#connect-an-llm).
+
+## Paste this prompt
+
+Open your agent in the empty folder and paste the prompt below. Change `my-app` in the first line to the name you want. You only need to change it once.
+
+```markdown
+Create a new Agent-Native app in a new folder named my-app, and start
+it. Use that name wherever a step below says APP_NAME.
+
+1. Check that Node.js is version 22.22 or later and that pnpm is
+   available. If pnpm is missing, run `corepack enable`. If corepack
+   is not available either, run `npm install -g pnpm`. If Node.js is
+   too old, stop and tell me instead of installing it.
+2. Run this command:
+   npx --yes @agent-native/core@latest create APP_NAME \
+    --standalone --template chat
+3. In the new APP_NAME folder, run `pnpm install`.
+4. Read APP_NAME/AGENTS.md so you know how the app is laid out.
+5. Start the app with `pnpm dev` and keep it running in the background.
+6. Read the local URL that `pnpm dev` prints. Check that it responds,
+   for example with `curl -I <url>`. Do not open a browser and do not
+   use headless browser tools. I will open the app myself.
+7. Show me the result. Give me the local URL and the response you got
+   from it. Do not just say that setup is complete.
+
+Rules:
+
+- Do not invent or ask me to paste API keys. Connecting an LLM is
+  optional and I will do it myself.
+- Do not print secrets from any .env file.
+- If a command fails, show me the error and what you tried. Do not hide
+  it.
+```
+
+## What the agent should do
+
+A good run ends with these results, and you can check each one yourself:
+
+- A new app folder, named `my-app` unless you changed it, that contains `actions/`, `app/`, and an `AGENTS.md` file.
+- `pnpm dev` running without errors.
+- A local URL, usually `http://localhost:8080`, that the agent has checked responds.
+
+Then open the local URL in your own browser. On the Welcome screen, choose **Continue as local dev**. The Get started page appears.
+
+If anything is missing, ask the agent to show the last command it ran and its output.
+
+<Callout tone="info">
+
+If the commands fail with peer dependency errors, an old copy of a package in the npx cache may be the cause. Ask the agent to run `npx clear-npx-cache` and try again.
+
+</Callout>
+
+## Pick the right setup for your agent
+
+| Agent type              | Examples                                              | How it works                                            |
+| ----------------------- | ----------------------------------------------------- | ------------------------------------------------------- |
+| Terminal and IDE agents | Claude Code, Codex, Cursor, GitHub Copilot in VS Code | Paste the prompt. The agent runs every command for you. |
+| Chat-only agents        | ChatGPT, Claude on the web                            | Ask for the commands, then run them yourself.           |
+
+### Agents that can't run commands {#chat-only-agents}
+
+A chat-only agent can't open a terminal, so it can't create the app. Paste the prompt anyway and add this line at the top:
+
+```markdown
+You can't run commands. Give me each command to run in my terminal,
+one at a time, and wait for me to tell you what happened before moving
+on.
+```
+
+The agent walks you through the same steps and helps if something goes wrong.
+
+## Your agent and the app's agent
+
+Two agents can work on your app, and they do different jobs.
+
+- **Your own agent** is the one you pasted the prompt into, such as Claude Code, Codex, or Cursor. It lives outside the app, in your terminal or editor.
+- **The app's agent** is the chat that comes built into the app. You open it in the browser while the app runs.
+
+|                                   | Your own agent (outside the app)                                                                                                 | The app's agent (inside the app)                                                                              |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Where you use it                  | Your terminal or editor                                                                                                          | The app's chat in the browser                                                                                 |
+| What it works on                  | Your project's files                                                                                                             | The app's data and the screen you are looking at                                                              |
+| What it can do                    | Create the project, install packages, run `pnpm dev`, write and change actions, pages, and database tables, and prepare a deploy | Call the app's actions as tools, read and update the app's data, and answer questions about what is on screen |
+| Needs an LLM connected to the app | No, it uses its own model                                                                                                        | Yes. See [Connect an LLM](/docs/getting-started#connect-an-llm)                                               |
+| Best for                          | Building and changing the app                                                                                                    | Using the app and doing its everyday work                                                                     |
+
+Your own agent builds the app. The app's agent runs it. When your own agent adds an action, the app's agent can call that action right away because both use the same action.
+
+### Help your own agent build well
+
+The generated app is set up so your own agent works well in it without extra instructions.
+
+- `AGENTS.md` in the app root tells an agent how the app is laid out and which rules to follow.
+- `.agents/skills/` holds short guides for common jobs, such as adding a feature or writing an action.
+- Docs for your exact framework version are bundled with the app. An agent can search them with `pnpm action docs-search --query "<topic>"`.
+
+When you ask for something new, you can tell your agent to read these first. For example: "Read AGENTS.md and the matching skill before you change anything."
+
+To let your own agent use a running app's tools instead of its code, see [External Agents](/docs/external-agents).
+
+## Ask for your first change
+
+With the app running, ask your agent for a small change and watch it work. Here are a few examples:
+
+```markdown
+Add an action named list-notes that returns an empty list, then show
+it on a new /notes page.
+```
+
+```markdown
+Change the hello action so it greets people with "Welcome" instead of
+"Hello", then call it for Alex to confirm.
+```
+
+```markdown
+Read the docs for deploying an app, then tell me which steps I need to
+take to put this app online.
+```
+
+The agent changes the same actions that the UI and the app's own agent use. That shared action model is why one change shows up everywhere. [Key Concepts](/docs/key-concepts) explains how it fits together.
+
+## Next steps
+
+<Cards>
+
+### [Getting Started](/docs/getting-started)
+
+Create the same app by hand and learn how an action works.
+
+### [External Agents](/docs/external-agents)
+
+Connect Claude, ChatGPT, Codex, or Cursor to an app that is already running.
+
+### [Actions](/docs/actions-overview)
+
+Define the capabilities that both your UI and your agents use.
+
+### [Deploy an app](/docs/deploy-an-app)
+
+Move from local development to a real database and a supported host.
+
+</Cards>

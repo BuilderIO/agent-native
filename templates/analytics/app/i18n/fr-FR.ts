@@ -1280,6 +1280,7 @@ export default {
     saveViewFailed: "Impossible d’enregistrer la vue",
     saveViewFailedWithMessage: "Impossible d’enregistrer la vue : {{message}}",
     clearAll: "Tout effacer",
+    resetFilters: "Réinitialiser les filtres",
     collapseFilters: "Réduire les filtres",
     expandFilters: "Développer les filtres",
     filterSeries: "Filter",

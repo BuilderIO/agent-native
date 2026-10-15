@@ -7,6 +7,7 @@ import {
 import {
   allowsSamplingParams,
   anthropicManualThinkingBudget,
+  isGPTReasoningModel,
   normalizeReasoningEffortForModel,
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
@@ -468,6 +469,21 @@ class AISDKEngine implements AgentEngine {
       }
     }
 
+    // @ai-sdk/openai infers reasoning models from its own id prefixes, which
+    // miss gpt-6-*. Without forceReasoning, Chat Completions sends max_tokens,
+    // which OpenAI rejects for reasoning models. isGPTReasoningModel also
+    // matches gpt-5-chat-*, which is not a reasoning model.
+    if (
+      this.usesOpenAiChatCompletions() &&
+      isGPTReasoningModel(opts.model) &&
+      !/^(openai\/)?gpt-5-chat/i.test(opts.model)
+    ) {
+      providerOpts.openai = {
+        ...((providerOpts.openai as object) ?? {}),
+        forceReasoning: true,
+      };
+    }
+
     const samplingAllowed = allowsSamplingParams({
       model: opts.model,
       thinkingEnabled:
@@ -609,6 +625,16 @@ class AISDKEngine implements AgentEngine {
     }
   }
 
+  // Provider construction and the OpenAI reasoning options must agree on the
+  // endpoint shape, so both read this one decision.
+  private usesOpenAiChatCompletions(): boolean {
+    return (
+      this.provider === "openai" &&
+      !this.forceResponses &&
+      isCustomOpenAiBaseUrl(this.baseUrl)
+    );
+  }
+
   private async createProviderModel(model: string): Promise<any> {
     const pkg = PROVIDER_PACKAGES[this.provider];
     let providerModule: any;
@@ -637,9 +663,7 @@ class AISDKEngine implements AgentEngine {
     }
 
     const provider = createFn(config);
-    return this.provider === "openai" &&
-      !this.forceResponses &&
-      isCustomOpenAiBaseUrl(this.baseUrl)
+    return this.usesOpenAiChatCompletions()
       ? provider.chat(model)
       : provider(model);
   }

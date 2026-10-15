@@ -12,6 +12,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { PANEL_RENDERED_PREFIX } from "../../shared/panel-rendered-prefix";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import {
   retrieveAnalyticsPromptReferences,
@@ -319,12 +320,94 @@ export function analyticsExtraContext(): string {
   return `<data-source-guidance>\n${ANALYTICS_PROMPT_RULES.map((rule) => rule.text).join("\n")}\n</data-source-guidance>`;
 }
 
-const SCHEMA_DETAILS_REQUEST_PATTERN =
-  /\b(?:could you|can you|would you|please\s+(?:provide|share|send|tell)|provide|share|send(?: me)?|tell me|i need(?: you to)?|what (?:is|are)|which)\b[\s\S]{0,260}\b(?:bigquery\s+)?(?:dataset(?: name)?s?|table(?: name)?s?|column(?: name)?s?|field(?: name)?s?|schema|sql query)\b/i;
+// A request stays inside one sentence or one bulleted list: a summary of the
+// agent's own work ("tell me if something else is off. ... 43 rows in the
+// table") is not a request, and a cross-sentence match discards a correct
+// answer. "I need" is the agent narrating ("I need the table to reload")
+// unless it names an identifier to supply or asks which one, so it has its own
+// pattern instead of a bare alternative.
+const SCHEMA_DETAILS_MAX_RETRIES = 2;
+const SCHEMA_DETAILS_NOUN =
+  "\\b(?:bigquery\\s+)?(?:dataset(?: name)?s?|table(?: name)?s?|column(?: name)?s?|field(?: name)?s?|schema|sql query)\\b";
+// Bare provide/share/send count only as an imperative opening a sentence or
+// line; mid-sentence they are the agent offering its answer ("I can provide a
+// table of the results").
+const SCHEMA_DETAILS_IMPERATIVE =
+  "(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b";
+// "Would you like me to show ..." is an offer, and verification or feedback
+// ("tell me if ...", "could you confirm the table has 43 rows", "can you share
+// anything else that's off") is never a request for details. A denylist of
+// those verbs, not an allowlist of ask verbs: "could you let me know which
+// table" and "would you mind providing" are real asks. "Confirm", "verify",
+// "check", "see" and "look" are feedback only when they do not ask for an
+// identifier ("could you confirm which table holds usage" is an ask; "confirm
+// the table has 43 rows" is not).
+const SCHEMA_DETAILS_OBJECT =
+  "(?:bigquery\\s+)?(?:dataset|table|column|field)s?";
+const SCHEMA_DETAILS_HOLDS =
+  "(?:holds?|contains?|stores?|tracks?|records?|has|have)";
+// What each feedback verb may go on to ask for before it is an identifier ask:
+// confirm/verify/check/see/look: "which"/"what" or "the <object> name";
+// show/display/open: "the <object> name" or "which <object> holds ...", but not
+// "which table this came from"; explain/describe: "which" or "what the
+// <object> name is", but not "what the table represents".
+const SCHEMA_DETAILS_FEEDBACK_VERB = `(?!(?:\\s+please)?\\s+(?:(?:(?:double-)?confirm|verify|check|see|look)(?!\\s+(?:which|what)\\b|\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?|details)\\b)|(?:show|display|pull up|open|bring up)(?!\\s+(?:me\\s+)?(?:the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?|details)\\b|which\\s+${SCHEMA_DETAILS_OBJECT}\\s+${SCHEMA_DETAILS_HOLDS}\\b))|(?:explain|describe)(?!\\s+(?:which\\b|what\\s+(?:is\\s+)?the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?|details)\\b))|summari[sz]e|walk me through|share anything|let me know (?:if|whether|what else|anything)|tell me (?:if|whether|what else|anything|how|why))\\b)`;
+const SCHEMA_DETAILS_FEEDBACK =
+  "(?! (?:if|whether|what else|anything|how|why)\\b)";
+const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}|do you know|please\\s+(?:provide|share(?! anything)|send|tell me${SCHEMA_DETAILS_FEEDBACK})|tell me${SCHEMA_DETAILS_FEEDBACK}|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
+// A list lead-in must ask to be given something: "Can you tell me what else is
+// off:" followed by a summary bullet that mentions a table is feedback.
+const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}(?: please)? (?:provide|share|send|give|specify|list)|please\\s+(?:provide|share(?! anything)|send)|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
+// "I need <identifier>" is narration when the agent goes on to say it found it
+// ("so I re-ran it", "I looked it up"). The narration has to be tied to the
+// need: in the same sentence, or opening the very next one ("I need the table
+// name. I checked the catalog and it is usage_monthly."), so an unrelated
+// "Separately, I ran the revenue query" does not clear an earlier ask. Only a
+// closed list of discovery verbs counts: "so I can write the query" and "so I
+// cannot continue" are still asks. An attempt that reports it failed ("I
+// searched the catalog, but nothing matched") resolved nothing either.
+const SCHEMA_DETAILS_SENTENCE = "(?:[^.?!\\n]|[.?!](?=\\S))*";
+const SCHEMA_DETAILS_RESOLUTION =
+  "\\bi(?:['’]ve|\\s+have)?\\s+(?:(?:just|then|already)\\s+)?(?:(?:re-?)?(?:ran(?!\\s+into)|run(?!\\s+into)|queried|checked)|looked|searched|found|pulled|fetched|verified|confirmed|opened|inspected|used|listed|read|identified|discovered|resolved)\\b";
+const SCHEMA_DETAILS_FAILED =
+  "(?:\\b(?:but\\s+(?:nothing|none|no)|nothing\\s+(?:matched|came|turned|was|found|there)|found\\s+(?:nothing|none|no\\s+(?!(?:other|more|additional|further|duplicate)\\b))|no\\s+(?:match(?:es|ing)?|results?|luck|such|hits?)|not\\s+found|cannot|could\\s+not|unable|did\\s+not|failed|came\\s+up\\s+empty|returned\\s+(?:nothing|no|zero|0)|(?:was|were|is|are)\\s+empty)|n['’]t\\s+(?:able|find|found|match|see|exist|return|show|work|locate|surface|turn|there))\\b";
+const SCHEMA_DETAILS_FOLLOW_ON =
+  "(?:(?:so|then|and|but|luckily|fortunately|however|instead|first|now)\\b,?\\s+)?";
+const SCHEMA_DETAILS_DISCOVERED = `${SCHEMA_DETAILS_RESOLUTION}(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_FAILED}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_FAILED})`;
+const SCHEMA_DETAILS_RESOLVED = `(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_DISCOVERED}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_FOLLOW_ON}${SCHEMA_DETAILS_DISCOVERED})`;
+// Up to three descriptive words may sit between the interrogative and the noun
+// ("which source table", "which warehouse table"); prepositions and articles
+// may not, so "which row in the table is wrong?" is not an identifier ask.
+const SCHEMA_DETAILS_MODIFIERS =
+  "(?:(?!(?:in|of|on|at|from|by|with|to|for|the|a|an|this|that|these|those|each|every|any|your|our|my|their|is|are|does|do|did|should|would|can|has|have)\\b)[\\w-]+\\s+){0,3}";
+const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
+  `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|stores?|tracks?|records?)\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN}|what\\s+(?:is|are)\\s+the\\s+(?:${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)|(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT})\\b|what\\s+the\\s+${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\s+(?:is|are)\\b|what\\s+${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+${SCHEMA_DETAILS_HOLDS}\\b))${SCHEMA_DETAILS_RESOLVED}`,
+  "i",
+);
+const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
+  `${SCHEMA_DETAILS_LIST_ASK}[^.?!\\n]{0,80}[:?][ \\t]*\\n(?:[ \\t]*\\n)*((?:[ \\t]*(?:[-*•]|\\d+[.)])[^\\n]*\\n?){1,6})`,
+  "i",
+);
+// The interrogative must open the sentence or a framing clause ("For this
+// metric, which table ...?"): "Want me to show which table this came from?" is
+// an offer, not a request for an identifier. It must also ask for the
+// identifier itself: "which table holds usage?", "which table for monthly
+// usage?" and "what is the table name?" do, "which table rows were excluded?"
+// and "what is the table size?" are answer-shaped questions that only mention a
+// table.
+const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
+  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what\\s+(?:is|are)\\s+the\\s+${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|what\\s+(?:is|are)\\s+the\\s+(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\b|what\\s+(?:is|are)\\s+(?:the|your)\\s+(?:schema|sql\\s+quer(?:y|ies))\\b|(?:which|what)\\s+${SCHEMA_DETAILS_MODIFIERS}(?:(?:dataset|table|column|field|schema)s?|sql\\s+quer(?:y|ies))\\s+(?:${SCHEMA_DETAILS_HOLDS}|is|are|does|do|should|would|can|name|for|to)\\b)[^.?!\\n]*\\?`,
+  "i",
+);
 
 function looksLikeSchemaDetailsRequest(text: string): boolean {
-  return SCHEMA_DETAILS_REQUEST_PATTERN.test(
-    stripInjectedAnalyticsGuardContext(String(text ?? "")),
+  const draft = stripInjectedAnalyticsGuardContext(String(text ?? ""));
+  const listItems = SCHEMA_DETAILS_LIST_REQUEST_PATTERN.exec(draft)?.[1];
+  return (
+    SCHEMA_DETAILS_REQUEST_PATTERN.test(draft) ||
+    SCHEMA_DETAILS_QUESTION_PATTERN.test(draft) ||
+    (listItems !== undefined &&
+      new RegExp(SCHEMA_DETAILS_NOUN, "i").test(listItems))
   );
 }
 
@@ -1145,6 +1228,28 @@ export function realDataFinalGuard(
       expandToolSurface: true,
     };
   }
+  const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
+  // The detector is a heuristic over prose. Once its retries are spent the
+  // schema ask is let through (a real ask lets the user answer it, and a false
+  // match keeps a correct answer instead of replacing it with a canned
+  // failure) and the remaining guards below still judge the draft. It runs
+  // before the saved-edit early returns: a verified rename followed by "which
+  // dataset?" is still a request for an identifier.
+  if (
+    context.retryCount < SCHEMA_DETAILS_MAX_RETRIES &&
+    looksLikeSchemaDetailsRequest(context.text)
+  ) {
+    const failedQueryRecovery = failedQueryMessage
+      ? ` ${failedQueryMessage}`
+      : "";
+    return {
+      retryMessage:
+        "The draft asks the user to supply internal dataset, table, column, or SQL details. Do not ask the user for warehouse schema identifiers. Use the configured Analytics tools now: call `find-data` once with the user's metric/entity question, then call `search-bigquery-schema` only when exact live columns or partition metadata remain unknown, and run one authoritative `bigquery` query using the exact discovered references. For a named customer, verify identity and distinguish actual consumption from limits or changelog metadata. If the tools prove the source or metric is unavailable, state that exact evidence gap instead of asking the user to name internal tables." +
+        failedQueryRecovery,
+      maxRetries: SCHEMA_DETAILS_MAX_RETRIES,
+      expandToolSurface: true,
+    };
+  }
   if (
     hasSuccessfulDashboardSave(context.toolResults) &&
     !draftClaimsAnalyticsMetrics(context.text)
@@ -1171,22 +1276,25 @@ export function realDataFinalGuard(
     };
   }
 
-  const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
-  if (looksLikeSchemaDetailsRequest(context.text)) {
-    const failedQueryRecovery = failedQueryMessage
-      ? ` ${failedQueryMessage}`
-      : "";
-    return {
-      retryMessage:
-        "The draft asks the user to supply internal dataset, table, column, or SQL details. Do not ask the user for warehouse schema identifiers. Use the configured Analytics tools now: call `find-data` once with the user's metric/entity question, then call `search-bigquery-schema` only when exact live columns or partition metadata remain unknown, and run one authoritative `bigquery` query using the exact discovered references. For a named customer, verify identity and distinguish actual consumption from limits or changelog metadata. If the tools prove the source or metric is unavailable, state that exact evidence gap instead of asking the user to name internal tables." +
-        failedQueryRecovery,
-      fallbackMessage:
-        "I couldn't complete that lookup from the configured Analytics sources yet. Please retry and I'll inspect the catalog and warehouse schema directly rather than asking you to provide internal table names.",
-      maxRetries: 2,
-      expandToolSurface: true,
-    };
+  // A verified dashboard save that rendered a data panel ran its SQL, so its
+  // receipt is the live-query evidence for the figures the draft quotes. A
+  // save that checked no panel (`noRenderAffected`) or only section and
+  // extension panels proves nothing about data.
+  if (
+    dataQueryAttempted ||
+    hasSuccessfulDashboardSave(
+      (context.toolResults ?? []).filter(
+        ({ receipt }) =>
+          receipt?.verified === true &&
+          receipt.checks?.every((check) => check.ok) &&
+          receipt.checks?.some((check) =>
+            check.detail?.startsWith(PANEL_RENDERED_PREFIX),
+          ),
+      ),
+    )
+  ) {
+    return null;
   }
-  if (dataQueryAttempted) return null;
   const draftMakesAnalyticsClaim =
     draftClaimsAnalyticsMetrics(context.text) ||
     isGenericNoDataFallback(context.text);
