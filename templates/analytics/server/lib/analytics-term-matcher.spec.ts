@@ -245,6 +245,12 @@ describe("Analytics term matching", () => {
     expect(
       semanticScopeForSearch("weekly Agent-Native Analytics app opens"),
     ).toBe("analytics_user");
+    expect(semanticScopeForSearch("Analytics app seats and permissions")).toBe(
+      "membership_roster",
+    );
+    expect(
+      semanticScopeForSearch("weekly Analytics app opens by seat role"),
+    ).toBe("membership");
     expect(
       semanticScopeForSearch("weekly active Builder users by organization"),
     ).toBe("product_activity");
@@ -267,6 +273,9 @@ describe("Analytics term matching", () => {
         definition:
           "A workspace membership relates an organization to members.",
       }),
+    ).toBe("membership");
+    expect(
+      semanticScopeForDictionaryEntry({ table: "workspace_memberships" }),
     ).toBe("membership");
     expect(
       semanticScopeForDictionaryEntry({

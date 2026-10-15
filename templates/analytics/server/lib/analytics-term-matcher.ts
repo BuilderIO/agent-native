@@ -265,12 +265,32 @@ export function semanticScopeForSearch(value: string): string {
   const intent = stripNonPositiveInstructions(value);
   const terms = new Set(searchTerms(intent));
   const has = (...values: string[]) => values.some((term) => terms.has(term));
-  const asksForAnalyticsAppOpens =
+  const hasAnalyticsAppContext =
     /\b(?:agent[ -]?native|analytics)\b/i.test(intent) &&
-    /\b(?:app|application|open(?:ed|ing|s)?|launch(?:ed|ing|es)?)\b/i.test(
+    /\b(?:app|application)\b/i.test(intent);
+  const hasAnalyticsMembershipContext =
+    hasAnalyticsAppContext &&
+    /\b(?:members?|membership|seats?|roles?|permissions?|access|roster|licenses?|billable)\b/i.test(
       intent,
     );
+  const asksForAnalyticsAppOpens =
+    hasAnalyticsAppContext &&
+    /\b(?:open(?:ed|ing|s)?|launch(?:ed|ing|es)?)\b/i.test(intent) &&
+    !hasAnalyticsMembershipContext;
   if (asksForAnalyticsAppOpens) return "analytics_user";
+  const asksForMembershipRows =
+    /\b(?:role|roles|permission|permissions|access|roster|list|row|rows|record|records|who|which)\b/i.test(
+      intent,
+    );
+  const asksForAggregate =
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|annually)\b|\bper\s+(?:day|week|month|quarter|year)\b/i.test(
+      intent,
+    );
+  if (hasAnalyticsMembershipContext) {
+    return asksForMembershipRows && !asksForAggregate
+      ? "membership_roster"
+      : "membership";
+  }
   const asksForTimeScopedActiveUsers =
     /\b(?:active|activity|dau|wau|mau)\b/i.test(intent) &&
     /\b(?:users?|people|persons?)\b/i.test(intent) &&
@@ -308,14 +328,6 @@ export function semanticScopeForSearch(value: string): string {
   ) {
     return "product_activity";
   }
-  const asksForMembershipRows =
-    /\b(?:role|roles|permission|permissions|access|roster|list|row|rows|record|records|who|which)\b/i.test(
-      intent,
-    );
-  const asksForAggregate =
-    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|annually)\b|\bper\s+(?:day|week|month|quarter|year)\b/i.test(
-      intent,
-    );
   if (
     asksForMembershipRows &&
     !asksForAggregate &&
@@ -375,6 +387,7 @@ export function semanticScopeForDictionaryEntry(
     entry.metric,
     entry.definition,
     entry.source,
+    entry.table,
     entry.grain,
     entry.primaryEntity,
     entry.timeDimension,

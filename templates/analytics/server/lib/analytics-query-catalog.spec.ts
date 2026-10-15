@@ -3111,6 +3111,39 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it("routes Analytics app seat and permission questions to membership rosters", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "Analytics app seats and permissions",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "analytics-app-memberships",
+          metric: "Analytics App Membership Roster",
+          definition:
+            "Users, seats, roles, and permissions for each workspace.",
+          table: "workspace_memberships",
+          columnsUsed: "user_id, workspace_id, seat_type, role, permission",
+          semanticScope: "membership_roster",
+          approved: true,
+        },
+        {
+          id: "analytics-app-opens",
+          metric: "Analytics App Opens",
+          definition: "Distinct users who opened the Analytics application.",
+          table: "analytics_app_opens",
+          semanticScope: "analytics_user",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "analytics-app-memberships",
+      semanticScope: "membership_roster",
+    });
+  });
+
   it("keeps both product and Analytics app definitions discoverable for ambiguous active-user wording", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "weekly active users",
