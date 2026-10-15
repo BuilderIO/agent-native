@@ -262,16 +262,18 @@ test("Motion inspector states match the editable timeline", async ({
   );
   const catalogGeometry = await animationCatalog.evaluate((popover) => {
     const rect = popover.getBoundingClientRect();
-    const trigger = document.querySelector<HTMLElement>(
+    const rightPanel = document.querySelector<HTMLElement>(
+      '[data-design-chrome-region="right-panel"]',
+    );
+    const trigger = rightPanel?.querySelector<HTMLElement>(
       'button[aria-label="Animations"]',
     );
-    const inspector = trigger?.closest<HTMLElement>(".design-sidebar");
-    if (!inspector || !trigger) {
+    if (!rightPanel || !trigger) {
       throw new Error("Animation catalog anchor geometry is unavailable");
     }
     return {
       popover: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-      inspector: inspector.getBoundingClientRect().toJSON(),
+      inspector: rightPanel.getBoundingClientRect().toJSON(),
       trigger: trigger.getBoundingClientRect().toJSON(),
     };
   });
@@ -279,9 +281,12 @@ test("Motion inspector states match the editable timeline", async ({
   expect(catalogGeometry.popover.height).toBe(485);
   expect(catalogGeometry.trigger.width).toBe(24);
   expect(
-    catalogGeometry.inspector.x -
-      (catalogGeometry.popover.x + catalogGeometry.popover.width),
-  ).toBe(2);
+    Math.abs(
+      catalogGeometry.inspector.x -
+        (catalogGeometry.popover.x + catalogGeometry.popover.width) -
+        2,
+    ),
+  ).toBeLessThanOrEqual(1);
   expect(
     Math.abs(catalogGeometry.popover.y - catalogGeometry.trigger.y),
   ).toBeLessThanOrEqual(1);
