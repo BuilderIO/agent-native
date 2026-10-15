@@ -5584,7 +5584,13 @@ async function runAuthoringFuzzQa(
     const unavailableCleanupPages = new Set<Page>();
     const cleanupRequestStartTimes = new Map<
       any,
-      { page: Page; startedAt: number }
+      {
+        page: Page;
+        startedAt: number;
+        requestSourceIsMainFrame: boolean;
+        requestFrameUrl: string | null;
+        outgoingDocumentUrl: string | null;
+      }
     >();
     const cleanupRequestFinishedAt = new WeakMap<any, number>();
     const cleanupClaimSequenceByRequest = new WeakMap<any, number>();
@@ -5603,6 +5609,7 @@ async function runAuthoringFuzzQa(
     let cleanupNavigationPage: Page | null = null;
     let cleanupNavigationCompetingClaimStarted = false;
     let cleanupNavigationCompetingRegistrationStarted = false;
+    let cleanupNavigationCompetingPollStarted = false;
     const cleanupNavigationCompetingRequestUrls = new Set<string>();
     const isBrowserSessionRequest = (request: any) =>
       /^\/_agent-native\/browser-sessions(?:\/|$)/.test(
@@ -5621,6 +5628,13 @@ async function runAuthoringFuzzQa(
         /^\/_agent-native\/browser-sessions\/[^/]+\/heartbeat$/.test(
           new URL(request.url()).pathname,
         ));
+    const isCleanupPollRequest = (request: any) => {
+      const requestUrl = new URL(request.url());
+      return (
+        request.method() === "GET" &&
+        requestUrl.pathname === "/_agent-native/poll"
+      );
+    };
     const cleanupRequestTrackingPages = new Map<
       Page,
       {
@@ -5632,6 +5646,13 @@ async function runAuthoringFuzzQa(
     const trackCleanupRequests = (target: Page) => {
       if (cleanupRequestTrackingPages.has(target)) return;
       const onRequest = (request: any) => {
+        const requestUrl = new URL(request.url());
+        let requestFrame: any = null;
+        try {
+          if (request.serviceWorker() === null) requestFrame = request.frame();
+        } catch {
+          requestFrame = null;
+        }
         if (isBrowserSessionClaimRequest(request)) {
           cleanupClaimSequence += 1;
           cleanupClaimSequenceByRequest.set(request, cleanupClaimSequence);
@@ -5645,9 +5666,19 @@ async function runAuthoringFuzzQa(
             cleanupNavigationCompetingRegistrationStarted = true;
           }
         }
+        if (
+          cleanupNavigationStarted &&
+          target === cleanupNavigationPage &&
+          isCleanupPollRequest(request)
+        ) {
+          cleanupNavigationCompetingPollStarted = true;
+        }
         cleanupRequestStartTimes.set(request, {
           page: target,
           startedAt: Date.now(),
+          requestSourceIsMainFrame: requestFrame === target.mainFrame(),
+          requestFrameUrl: requestFrame?.url() ?? null,
+          outgoingDocumentUrl: target.url() || null,
         });
       };
       const onRequestFinished = (request: any) => {
@@ -5878,6 +5909,9 @@ async function runAuthoringFuzzQa(
         method: string;
         startedAt: number;
         sameOrigin: boolean;
+        requestSourceIsMainFrame: boolean;
+        requestFrameUrl: string | null;
+        outgoingDocumentUrl: string | null;
         requestWasPendingAtNavigation: true;
       }> = [];
       let recoveryPage: Page | null = stableCleanupPage;
@@ -5916,7 +5950,9 @@ async function runAuthoringFuzzQa(
                     settledAgeMs: now - finishedAt,
                   }),
               competingRequestStartedAfterNavigation:
-                cleanupNavigationCompetingRequestUrls.has(candidate.url),
+                candidate.pathname === "/_agent-native/poll"
+                  ? cleanupNavigationCompetingPollStarted
+                  : cleanupNavigationCompetingRequestUrls.has(candidate.url),
               competingClaimStartedAfterNavigation:
                 cleanupNavigationCompetingClaimStarted,
               competingRegistrationStartedAfterNavigation:
@@ -6163,7 +6199,7 @@ async function runAuthoringFuzzQa(
               ...cleanupRequestStartTimes.entries(),
             ]
               .filter(([, request]) => request.page === cleanupPage)
-              .map(([request, { startedAt }]) => {
+              .map(([request, tracked]) => {
                 const url = request.url();
                 const requestUrl = new URL(url);
                 return {
@@ -6171,8 +6207,11 @@ async function runAuthoringFuzzQa(
                   url,
                   pathname: requestUrl.pathname,
                   method: request.method(),
-                  startedAt,
+                  startedAt: tracked.startedAt,
                   sameOrigin: requestUrl.origin === cleanupUrl.origin,
+                  requestSourceIsMainFrame: tracked.requestSourceIsMainFrame,
+                  requestFrameUrl: tracked.requestFrameUrl,
+                  outgoingDocumentUrl: tracked.outgoingDocumentUrl,
                   requestWasPendingAtNavigation: true as const,
                 };
               });

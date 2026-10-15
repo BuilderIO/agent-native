@@ -363,6 +363,24 @@ const reloadNavigationConsoleGraceMs = 1_000;
 const retiredBrowserSessionPollConsoleGraceMs = 250;
 const reloadNavigationSuccessfulClaimGraceMs = 250;
 const outgoingBrowserSessionAbortWindowMs = 1_000;
+const authoringFuzzStepStallTimeoutMs = 120_000;
+const authoringFuzzHistoryStallTimeoutMs = 20 * 60_000;
+const authoringFuzzPersistenceStallTimeoutMs = 10 * 60_000;
+
+export function authoringFuzzStallTimeoutMs(phase: string) {
+  if (phase === "undo-all" || phase === "redo-all")
+    return authoringFuzzHistoryStallTimeoutMs;
+  if (phase === "save/reload") return authoringFuzzPersistenceStallTimeoutMs;
+  return authoringFuzzStepStallTimeoutMs;
+}
+
+export function authoringFuzzStallExpired(
+  phase: string,
+  phaseStartedAt: number,
+  now: number,
+) {
+  return now - phaseStartedAt >= authoringFuzzStallTimeoutMs(phase);
+}
 
 const browserSessionRegistrationRequestRule: SaveReloadRequestAbortRule = {
   path: "/_agent-native/browser-sessions",
@@ -373,6 +391,12 @@ const browserSessionRegistrationRequestRule: SaveReloadRequestAbortRule = {
 const browserSessionClaimRequestRule: SaveReloadRequestAbortRule = {
   path: /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/,
   method: "POST",
+  errorTexts: ["Load request cancelled", "cancelled", ...navigationAbortErrors],
+};
+
+const cleanupPollRequestRule: SaveReloadRequestAbortRule = {
+  path: "/_agent-native/poll",
+  method: "GET",
   errorTexts: ["Load request cancelled", "cancelled", ...navigationAbortErrors],
 };
 
@@ -615,7 +639,8 @@ export function isExpectedOutgoingBrowserSessionNavigationAbort(
     candidate.activePhase === "save/reload" &&
     candidate.method === "POST" &&
     (candidate.errorText === "NS_BINDING_ABORTED" ||
-      candidate.errorText === "net::ERR_ABORTED") &&
+      candidate.errorText === "net::ERR_ABORTED" ||
+      candidate.errorText === "Load request cancelled") &&
     candidate.sameOrigin &&
     candidate.resourceType === "fetch" &&
     candidate.requestSourceIsMainFrame &&
@@ -712,7 +737,7 @@ export function isExpectedWatchedRequestCorsError(
     activePhase === "save/reload"
       ? saveReloadRequestAbortRules
       : activePhase === "cleanup/navigation"
-        ? [browserSessionClaimRequestRule]
+        ? [browserSessionClaimRequestRule, cleanupPollRequestRule]
         : null;
   if (!rules) return false;
   const match =
@@ -725,6 +750,12 @@ export function isExpectedWatchedRequestCorsError(
     candidates.filter(
       (candidate) =>
         candidate.url === match[1] &&
+        (candidate.pathname !== "/_agent-native/poll" ||
+          (candidate.method === "GET" &&
+            candidate.requestSourceIsMainFrame === true &&
+            normalizeDocumentUrl(candidate.requestFrameUrl ?? null) !== null &&
+            normalizeDocumentUrl(candidate.requestFrameUrl ?? null) ===
+              normalizeDocumentUrl(candidate.outgoingDocumentUrl ?? null))) &&
         isExpectedWatchedRequestNavigationAbort(
           candidate,
           rules,
@@ -786,10 +817,14 @@ function isExpectedCompletedClaimBeforeReload(
 
 function outgoingBrowserSessionWarningKind(message: string) {
   return message ===
-    "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource."
+    "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource." ||
+    message ===
+      "[Agent-Native browser session] poll failed: TypeError: Load failed"
     ? "poll"
     : message ===
-        "[Agent-Native browser session] heartbeat failed: TypeError: NetworkError when attempting to fetch resource."
+          "[Agent-Native browser session] heartbeat failed: TypeError: NetworkError when attempting to fetch resource." ||
+        message ===
+          "[Agent-Native browser session] heartbeat failed: TypeError: Load failed"
       ? "heartbeat"
       : null;
 }
@@ -871,15 +906,16 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
           retiredBrowserSessionPollConsoleGraceMs &&
         candidate.competingSameTypeRequest !== true,
     ).length;
-    return aborted > 0
-      ? aborted === 1
-      : candidates.some((candidate) =>
-          isFinishedRetiredSessionRequest(
-            candidate,
-            outgoingRequestKind,
-            evaluationDelayMs,
-          ),
-        );
+    if (aborted > 0) return aborted === 1;
+    if (!message.endsWith("TypeError: Load failed")) {
+      return candidates.some((candidate) =>
+        isFinishedRetiredSessionRequest(
+          candidate,
+          outgoingRequestKind,
+          evaluationDelayMs,
+        ),
+      );
+    }
   }
   const rules =
     message ===
@@ -1715,6 +1751,54 @@ const SLASH_COMMANDS = [
   ["quote", "quote"],
   ["divider", "divider"],
 ] as const;
+
+export function isControlledSlashMenuStateReady(state: {
+  listboxRole: string | null;
+  activeRole: string | null;
+  contained: boolean;
+  listboxVisible: boolean;
+  activeVisible: boolean;
+}) {
+  return (
+    state.listboxRole === "listbox" &&
+    state.activeRole === "option" &&
+    state.contained &&
+    state.listboxVisible &&
+    state.activeVisible
+  );
+}
+
+export function controlledSlashMenuIdWhenReady(state: {
+  controls: string | null;
+  listboxRole: string | null;
+  activeRole: string | null;
+  contained: boolean;
+  listboxVisible: boolean;
+  activeVisible: boolean;
+}) {
+  return isControlledSlashMenuStateReady(state) && state.controls
+    ? state.controls
+    : null;
+}
+
+export function isSlashCommandNavigationStateReady(
+  state: {
+    current: string | null;
+    activeRole: string | null;
+    contained: boolean;
+    listboxVisible: boolean;
+    activeVisible: boolean;
+  },
+  expectedCommand: string,
+) {
+  return (
+    state.current === expectedCommand &&
+    state.activeRole === "option" &&
+    state.contained &&
+    state.listboxVisible &&
+    state.activeVisible
+  );
+}
 
 export function authoringFuzzSlashArrowDownCount(
   activeCommand: string | null,
@@ -2758,25 +2842,41 @@ export async function runAuthoringFuzz(
     }
   }, traceEnabled);
 
+  let lastTracePhase = "setup";
+  let lastTracePhaseAt = Date.now();
+  const stallState: { error: Error | null } = { error: null };
   const tracePhase = (phase: string) => {
+    lastTracePhase = phase;
+    lastTracePhaseAt = Date.now();
     if (!traceEnabled) return;
     console.log(
-      `[edit-fidelity] trace seed=${seed} step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${phase} at=${Date.now()}`,
+      `[edit-fidelity] trace seed=${seed} step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${phase} at=${lastTracePhaseAt}`,
     );
   };
-  const traceWatchdog = traceEnabled
-    ? setInterval(() => {
-        const pending = [...pendingRequests.values()]
-          .filter((request) => Date.now() - request.startedAt >= 10_000)
-          .map(
-            (request) =>
-              `${request.method} ${request.path} ${Date.now() - request.startedAt}ms`,
-          );
-        console.log(
-          `[edit-fidelity] trace seed=${seed} node-heartbeat step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${activePhase} pending=${pending.length ? pending.join(" | ") : "none"}`,
-        );
-      }, 15_000)
-    : null;
+  const traceWatchdog = setInterval(() => {
+    const stalledForMs = Date.now() - lastTracePhaseAt;
+    if (
+      !stallState.error &&
+      authoringFuzzStallExpired(activePhase, lastTracePhaseAt, Date.now())
+    ) {
+      stallState.error = new Error(
+        `authoring fuzz stalled for ${stalledForMs}ms at seed=${seed} step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${activePhase}/${lastTracePhase}`,
+      );
+      console.error(`[edit-fidelity] ${stallState.error.message}`);
+      void page.close().catch(() => undefined);
+      return;
+    }
+    if (!traceEnabled) return;
+    const pending = [...pendingRequests.values()]
+      .filter((request) => Date.now() - request.startedAt >= 10_000)
+      .map(
+        (request) =>
+          `${request.method} ${request.path} ${Date.now() - request.startedAt}ms`,
+      );
+    console.log(
+      `[edit-fidelity] trace seed=${seed} node-heartbeat step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${activePhase}/${lastTracePhase} pending=${pending.length ? pending.join(" | ") : "none"}`,
+    );
+  }, 15_000);
   const replay = () => plan.slice(0, Math.max(1, activeIndex + 1));
   const drainRetiredSessionErrors = async () => {
     while (true) {
@@ -5011,6 +5111,7 @@ export async function runAuthoringFuzz(
             return (
               style.display !== "none" &&
               style.visibility !== "hidden" &&
+              element.getClientRects().length > 0 &&
               rect.width > 0 &&
               rect.height > 0
             );
@@ -5027,6 +5128,18 @@ export async function runAuthoringFuzz(
         const activeOption = activeId
           ? document.getElementById(activeId)
           : null;
+        const isRenderedVisible = (element: HTMLElement | null) => {
+          if (!element) return false;
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return (
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            element.getClientRects().length > 0 &&
+            rect.width > 0 &&
+            rect.height > 0
+          );
+        };
         return {
           focused: document.activeElement === root,
           controls: listboxId,
@@ -5036,10 +5149,18 @@ export async function runAuthoringFuzz(
           activeValue: activeOption?.getAttribute("data-value") ?? null,
           contained:
             !!listbox && !!activeOption && listbox.contains(activeOption),
+          listboxVisible: isRenderedVisible(listbox),
+          activeVisible: isRenderedVisible(activeOption),
           listboxes: document.querySelectorAll('[role="listbox"]').length,
           options: document.querySelectorAll('[role="option"]').length,
         };
       });
+      const readyListboxId = controlledSlashMenuIdWhenReady(state);
+      if (readyListboxId) {
+        return page.locator(
+          `[role="listbox"][id=${JSON.stringify(readyListboxId)}]`,
+        );
+      }
       throw new Error(
         `slash menu did not expose a controlled active option (${JSON.stringify(state)}); ${String(error)}`,
       );
@@ -5263,35 +5384,91 @@ export async function runAuthoringFuzz(
           await page.waitForFunction(
             ({ selector, value }: { selector: string; value: string }) => {
               const editingEl = document.querySelector<HTMLElement>(selector);
+              const listboxId = editingEl?.getAttribute("aria-controls");
               const activeId = editingEl?.getAttribute("aria-activedescendant");
+              const listbox = listboxId
+                ? document.getElementById(listboxId)
+                : null;
               const activeOption = activeId
                 ? document.getElementById(activeId)
                 : null;
+              const isRenderedVisible = (element: HTMLElement | null) => {
+                if (!element) return false;
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return (
+                  style.display !== "none" &&
+                  style.visibility !== "hidden" &&
+                  element.getClientRects().length > 0 &&
+                  rect.width > 0 &&
+                  rect.height > 0
+                );
+              };
               return (
                 activeOption?.getAttribute("data-value") === value &&
-                activeOption.getAttribute("role") === "option"
+                activeOption.getAttribute("role") === "option" &&
+                listbox?.getAttribute("role") === "listbox" &&
+                listbox.contains(activeOption) &&
+                isRenderedVisible(listbox) &&
+                isRenderedVisible(activeOption)
               );
             },
             { selector: editorSelector, value: expectedCommand },
             { polling: 50, timeout: 5000 },
           );
         } catch (error) {
-          const navigationState = await page.evaluate((selector: string) => {
-            const editingEl = document.querySelector<HTMLElement>(selector);
-            const activeId = editingEl?.getAttribute("aria-activedescendant");
-            const activeOption = activeId
-              ? document.getElementById(activeId)
-              : null;
-            const traceOwner = window as Window & {
-              __slidesSlashNavigationTrace?: {
-                trace: Array<Record<string, unknown>>;
+          const navigationState = await page.evaluate(
+            ({
+              selector,
+              expected,
+            }: {
+              selector: string;
+              expected: string;
+            }) => {
+              const editingEl = document.querySelector<HTMLElement>(selector);
+              const listboxId = editingEl?.getAttribute("aria-controls");
+              const listbox = listboxId
+                ? document.getElementById(listboxId)
+                : null;
+              const activeId = editingEl?.getAttribute("aria-activedescendant");
+              const activeOption = activeId
+                ? document.getElementById(activeId)
+                : null;
+              const isRenderedVisible = (element: HTMLElement | null) => {
+                if (!element) return false;
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return (
+                  style.display !== "none" &&
+                  style.visibility !== "hidden" &&
+                  element.getClientRects().length > 0 &&
+                  rect.width > 0 &&
+                  rect.height > 0
+                );
               };
-            };
-            return {
-              current: activeOption?.getAttribute("data-value") ?? null,
-              trace: traceOwner.__slidesSlashNavigationTrace?.trace ?? [],
-            };
-          }, editorSelector);
+              const traceOwner = window as Window & {
+                __slidesSlashNavigationTrace?: {
+                  trace: Array<Record<string, unknown>>;
+                };
+              };
+              return {
+                current: activeOption?.getAttribute("data-value") ?? null,
+                expected,
+                activeRole: activeOption?.getAttribute("role") ?? null,
+                contained:
+                  !!listbox && !!activeOption && listbox.contains(activeOption),
+                listboxVisible: isRenderedVisible(listbox),
+                activeVisible: isRenderedVisible(activeOption),
+                trace: traceOwner.__slidesSlashNavigationTrace?.trace ?? [],
+              };
+            },
+            { selector: editorSelector, expected: expectedCommand },
+          );
+          if (
+            isSlashCommandNavigationStateReady(navigationState, expectedCommand)
+          ) {
+            continue;
+          }
           throw new Error(
             `slash navigation to ${command} from ${activeCommand} stalled at ${index + 1}/${arrowDownCount}; expected ${expectedCommand}, current ${navigationState.current}, key trace=${JSON.stringify(navigationState.trace.slice(-8))}; ${String(error)}`,
           );
@@ -6913,14 +7090,22 @@ export async function runAuthoringFuzz(
           break;
         }
         case "shift-tab": {
+          tracePhase("shift-tab:create-list:start");
           const { secondToken } = await createList(operation.list);
+          tracePhase("shift-tab:create-list:end");
+          tracePhase("shift-tab:place-caret:start");
           await placeCaretAtToken(secondToken, "end");
+          tracePhase("shift-tab:place-caret:end");
           if (operation.list === "styled") {
             const original = await rowIndent(secondToken);
+            tracePhase("shift-tab:indent:start");
             await editor.press("Tab");
+            tracePhase("shift-tab:indent:end");
             const indented = await rowIndent(secondToken);
             await snapshotEditorSiblings("capture", operation);
+            tracePhase("shift-tab:outdent:start");
             await page.keyboard.press("Shift+Tab");
+            tracePhase("shift-tab:outdent:end");
             const outdented = await rowIndent(secondToken);
             if (
               original === null ||
@@ -6934,12 +7119,18 @@ export async function runAuthoringFuzz(
               );
             }
           } else {
+            tracePhase("shift-tab:indent:start");
             await editor.press("Tab");
+            tracePhase("shift-tab:indent:end");
             if (!(await isNestedListToken(secondToken)))
               throw new Error(`Tab did not nest the ${operation.list} item`);
+            tracePhase("shift-tab:place-caret-again:start");
             await placeCaretAtToken(secondToken, "end");
+            tracePhase("shift-tab:place-caret-again:end");
             await snapshotEditorSiblings("capture", operation);
+            tracePhase("shift-tab:outdent:start");
             await page.keyboard.press("Shift+Tab");
+            tracePhase("shift-tab:outdent:end");
             if (await isNestedListToken(secondToken))
               throw new Error(
                 `Shift-Tab did not outdent the ${operation.list} item`,
@@ -7753,6 +7944,7 @@ export async function runAuthoringFuzz(
       );
     let currentHtml = finalHtml;
     activePhase = "undo-all";
+    tracePhase("undo-all:start");
     // Drain selection-only snapshots too, past the editor's configured cap.
     const stableHistoryProbeLimit = 3;
     const maxHistoryCalls = historyLimit + stableHistoryProbeLimit;
@@ -7763,7 +7955,9 @@ export async function runAuthoringFuzz(
     const undoDepthBefore = historyDepthFromStats(historyStats, "undo");
     let stableUndo = 0;
     let undoCalls = 0;
+    tracePhase("undo-all:keyboard-start");
     await page.keyboard.press(`${modifier}+Z`);
+    tracePhase("undo-all:keyboard-end");
     undoCalls += 1;
     const afterKeyboardUndo = await readHistoryState();
     if (!afterKeyboardUndo.inside) {
@@ -7781,11 +7975,13 @@ export async function runAuthoringFuzz(
     const undoCount = undoDepthBefore;
     if (undoDepthAfterKeyboard === undoDepthBefore) stableUndo += 1;
     currentHtml = afterKeyboardUndo.html;
+    tracePhase("undo-all:history-batch-start");
     const remainingUndo = await runHistoryBatch({
       direction: "undo",
       maxCalls: maxHistoryCalls - undoCalls,
       stableCalls: stableUndo,
     });
+    tracePhase("undo-all:history-batch-end");
     undoCalls += remainingUndo.calls;
     currentHtml = remainingUndo.html;
     if (remainingUndo.historyDepth !== 0) {
@@ -7817,8 +8013,11 @@ export async function runAuthoringFuzz(
     let stableRedo = 0;
     let redoCalls = 0;
     activePhase = "redo-all";
+    tracePhase("redo-all:start");
     const maxRedoCalls = historyLimit + stableHistoryProbeLimit;
+    tracePhase("redo-all:keyboard-start");
     await page.keyboard.press(`${modifier}+Shift+Z`);
+    tracePhase("redo-all:keyboard-end");
     redoCalls += 1;
     const afterKeyboardRedo = await readHistoryState();
     if (!afterKeyboardRedo.inside) {
@@ -7836,11 +8035,13 @@ export async function runAuthoringFuzz(
     const redoCount = redoDepthBefore;
     if (redoDepthAfterKeyboard === redoDepthBefore) stableRedo += 1;
     currentHtml = afterKeyboardRedo.html;
+    tracePhase("redo-all:history-batch-start");
     const remainingRedo = await runHistoryBatch({
       direction: "redo",
       maxCalls: maxRedoCalls - redoCalls,
       stableCalls: stableRedo,
     });
+    tracePhase("redo-all:history-batch-end");
     redoCalls += remainingRedo.calls;
     currentHtml = remainingRedo.html;
     if (remainingRedo.historyDepth !== 0) {
@@ -7861,6 +8062,7 @@ export async function runAuthoringFuzz(
     );
 
     activePhase = "save/reload";
+    tracePhase("save/reload:start");
     const persistence = await options.finishAndReload(() => {
       browserSessionIdAtReload = currentBrowserSessionId;
       reloadNavigationStartedAt = Date.now();
@@ -7961,6 +8163,7 @@ export async function runAuthoringFuzz(
       }
       recentlyCompletedBrowserSessionRequests.clear();
     });
+    tracePhase("save/reload:end");
     const retiredSessionGraceWaitMs =
       retiredSessionErrorCorrelator.finishNavigation(Date.now());
     if (retiredSessionGraceWaitMs > 0) {
@@ -8002,9 +8205,12 @@ export async function runAuthoringFuzz(
       redoSteps: redoCount,
     };
   } catch (error) {
+    tracePhase("failure:diagnostics");
     const deferredOutgoingAbortErrors = finalizePendingOutgoingAborts();
     clearOutgoingAbortTimers();
-    const unavailableError = getHarnessUnavailableError(error);
+    const unavailableError = stallState.error
+      ? null
+      : getHarnessUnavailableError(error);
     if (unavailableError) {
       if (!deferredOutgoingAbortErrors.length) throw unavailableError;
       throw new CouldNotRun(
@@ -8271,6 +8477,7 @@ export async function runAuthoringFuzz(
       prefix,
       [
         String(error),
+        ...(stallState.error ? [stallState.error.message] : []),
         ...(deferredOutgoingAbortErrors.length
           ? [
               `deferred outgoing request failure(s): ${deferredOutgoingAbortErrors.join("; ")}`,

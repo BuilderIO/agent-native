@@ -10,6 +10,11 @@ import {
   authoringFuzzPrecedingListMergePreservesIdentity,
   authoringFuzzListTagForOperation,
   authoringFuzzSlashArrowDownCount,
+  authoringFuzzStallExpired,
+  authoringFuzzStallTimeoutMs,
+  controlledSlashMenuIdWhenReady,
+  isControlledSlashMenuStateReady,
+  isSlashCommandNavigationStateReady,
   createRetiredBrowserSessionErrorCorrelator,
   browserSessionNavigationRequestIdentity,
   browserSessionIdAfterRequest,
@@ -920,6 +925,91 @@ it("navigates slash choices from the menu's current active command", () => {
   );
 });
 
+it("accepts a slash-menu timeout only when the complete visible state now matches", () => {
+  const visibleState = {
+    listboxRole: "listbox",
+    controls: "slash-listbox",
+    activeRole: "option",
+    contained: true,
+    listboxVisible: true,
+    activeVisible: true,
+  };
+
+  expect(isControlledSlashMenuStateReady(visibleState)).toBe(true);
+  expect(controlledSlashMenuIdWhenReady(visibleState)).toBe("slash-listbox");
+  expect(
+    isControlledSlashMenuStateReady({ ...visibleState, activeVisible: false }),
+  ).toBe(false);
+  expect(
+    isControlledSlashMenuStateReady({ ...visibleState, contained: false }),
+  ).toBe(false);
+  expect(
+    isControlledSlashMenuStateReady({ ...visibleState, listboxRole: null }),
+  ).toBe(false);
+  expect(
+    controlledSlashMenuIdWhenReady({
+      ...visibleState,
+      activeVisible: false,
+    }),
+  ).toBe(null);
+  expect(
+    controlledSlashMenuIdWhenReady({ ...visibleState, controls: null }),
+  ).toBe(null);
+});
+
+it("accepts a slash-navigation timeout only when the expected option remains visible", () => {
+  const visibleState = {
+    current: "heading2",
+    activeRole: "option",
+    contained: true,
+    listboxVisible: true,
+    activeVisible: true,
+  };
+
+  expect(isSlashCommandNavigationStateReady(visibleState, "heading2")).toBe(
+    true,
+  );
+  expect(
+    isSlashCommandNavigationStateReady(
+      { ...visibleState, activeVisible: false },
+      "heading2",
+    ),
+  ).toBe(false);
+  expect(
+    isSlashCommandNavigationStateReady(
+      { ...visibleState, current: "paragraph" },
+      "heading2",
+    ),
+  ).toBe(false);
+});
+
+it("bounds long authoring operations and history replay separately", () => {
+  expect(authoringFuzzStallTimeoutMs("step 300")).toBe(120_000);
+  expect(authoringFuzzStallTimeoutMs("undo-all")).toBe(20 * 60_000);
+  expect(authoringFuzzStallTimeoutMs("redo-all")).toBe(20 * 60_000);
+  expect(authoringFuzzStallTimeoutMs("save/reload")).toBe(10 * 60_000);
+});
+
+it("starts each watchdog budget at its own phase boundary", () => {
+  const undoStartedAt = 1_000;
+  const redoStartedAt = undoStartedAt + 20 * 60_000;
+
+  expect(
+    authoringFuzzStallExpired(
+      "undo-all",
+      undoStartedAt,
+      undoStartedAt + 20 * 60_000,
+    ),
+  ).toBe(true);
+  expect(
+    authoringFuzzStallExpired(
+      "redo-all",
+      redoStartedAt,
+      redoStartedAt + 20 * 60_000 - 1,
+    ),
+  ).toBe(false);
+});
+
 it("creates reproducible authoring plans with full command coverage", () => {
   const first = createAuthoringFuzzPlan(42, 500);
   expect(first).toEqual(createAuthoringFuzzPlan(42, 500));
@@ -1609,6 +1699,16 @@ it("ignores only an in-flight browser-session claim canceled by cleanup navigati
     ]),
   ).toBe(false);
   expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, requestStartedDuringNavigation: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, requestFinishedSuccessfully: true },
+    ]),
+  ).toBe(false);
+  expect(
     isExpectedSaveReloadWatchedRequestCorsConsoleError(
       message,
       "cleanup/navigation",
@@ -1634,6 +1734,63 @@ it("ignores only an in-flight browser-session claim canceled by cleanup navigati
         },
       ],
     ),
+  ).toBe(false);
+});
+
+it("ignores only a pending main-frame collab poll canceled by cleanup navigation", () => {
+  const url = "http://localhost:45715/_agent-native/poll?cursor=cursor-1";
+  const message = `Fetch API cannot load ${url} due to access control checks.\n    at poll`;
+  const candidate = {
+    url,
+    pathname: "/_agent-native/poll",
+    method: "GET",
+    ageMs: 100,
+    sameOrigin: true,
+    requestWasPendingAtNavigation: true,
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost:45715/deck/slide-1#editing",
+    outgoingDocumentUrl: "http://localhost:45715/deck/slide-1",
+    competingRequestStartedAfterNavigation: false,
+  };
+
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      candidate,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, sameOrigin: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, requestSourceIsMainFrame: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, outgoingDocumentUrl: "http://localhost:45715/home" },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, competingRequestStartedAfterNavigation: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "step 12", [candidate]),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      candidate,
+      { ...candidate, ageMs: 200 },
+    ]),
   ).toBe(false);
 });
 
@@ -1971,6 +2128,12 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
   expect(
     isExpectedOutgoingBrowserSessionNavigationAbort({
       ...claimAbort,
+      errorText: "Load request cancelled",
+    }),
+  ).toBe(true);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...claimAbort,
       requestSessionId: "new-session-id",
     }),
   ).toBe(false);
@@ -2057,6 +2220,41 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
   expect(isExpectedOutgoingBrowserSessionNavigationAbort(heartbeatAbort)).toBe(
     true,
   );
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...heartbeatAbort,
+      errorText: "Load request cancelled",
+    }),
+  ).toBe(true);
+
+  const heartbeatLoadWarning =
+    "[Agent-Native browser session] heartbeat failed: TypeError: Load failed";
+  const correlatedHeartbeatAbort = {
+    url: "http://localhost/_agent-native/browser-sessions",
+    pathname: "/_agent-native/browser-sessions",
+    method: "POST",
+    ageMs: 10,
+    outgoingNavigationAbort: true,
+    outgoingRequestKind: "heartbeat" as const,
+    requestSessionId: sessionId,
+    retiredSessionId: sessionId,
+    outgoingAbortWarningAgeMs: 10,
+    competingSameTypeRequest: false,
+  };
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      heartbeatLoadWarning,
+      "save/reload",
+      [correlatedHeartbeatAbort],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      heartbeatLoadWarning,
+      "save/reload",
+      [{ ...correlatedHeartbeatAbort, competingSameTypeRequest: true }],
+    ),
+  ).toBe(false);
 
   const pollWarning =
     "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource.";
