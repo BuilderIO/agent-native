@@ -5,8 +5,17 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-15
 
+### Improved
+
+- Clips stays labeled in the menu bar while idle
+- The recording countdown starts when it appears and plays smoothly while Clips prepares a recording.
+
 ### Fixed
 
+- Rewind can be enabled from Include last without leaving the recorder.
+- Screen Memory checks privacy exclusions during capture recovery
+- Screen Memory retries capture promptly after audio mode changes fail
+- Screen Memory recovers from capture interruptions promptly and preserves privacy-gap history.
 - Earlier screen time keeps recording when audio capture starts or stops, and previews follow your selection.
 
 ## 2026-10-14

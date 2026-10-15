@@ -13,6 +13,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Multi-select dashboard filters can offer presets, named groups of values you pick in one click without changing the other filters.
 - Preview Sigma workbooks in Analytics; SQL import stays blocked until the BigQuery project mapping can be verified.
 
 ### Improved

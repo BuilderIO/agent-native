@@ -7,7 +7,21 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Design Motion keeps supported React and HTML motion edits in sync with their source code.
+- Motion can import supported inline CSS keyframes and round-trip them through the timeline editor.
+- Motion timeline duration fields support keyboard stepping
 - Show Figma fidelity warnings in Home URL imports
+
+### Fixed
+
+- Chats no longer stop with "result is unknown" after a rejected edit; the agent corrects the call and continues.
+- Deselecting a layer keeps Motion open and restores the canvas inspector.
+- Image fills show their picture in the Fill inspector instead of a broken swatch.
+- Motion reports unsupported animation syntax without interrupting Design editing
+- Motion saves now move imported inline HTML animations into managed source
+- Motion source editing now refuses targets with dynamic styles, Alpine transitions, or inline CSS motion declarations that cannot be synchronized safely
+- Screen undo keeps the original order, deselected Screens clear from Layers, and clipboard pastes preserve placement across responsive previews.
+- Selection stays precise in deeply nested layers, and pasted content keeps its size, styling, and editing history
 
 ## 2026-10-13
 
@@ -17,6 +31,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The Tokens panel import menu now imports DTCG token files, CSS or Tailwind files, the clipboard, or tokens generated from the design, and DTCG tokens keep their type.
+- The Tokens panel + menu now creates a token of a chosen kind (color, font size, opacity, and more) as an inline draft row in its group.
 - Fill and effect rows keep the reorder handle outside the field, so OKLCH values show in full.
 - HTML token imports now skip prose and preserve CSS declaration precedence.
 - Left panels keep one width, Tokens search and rows match Layers, the org menu matches other apps, and the import picker names Figma and HTML files.
@@ -24,6 +40,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Home prompt suggestions stay hidden until AI is connected
+- Undo reliably restores screen positions after repeated keyboard nudges
 - Comment pins no longer show in Interact mode or paint over the editor panels.
 - Design token imports now accept trailing commas after quoted values
 - Design token imports now handle size-limited files, attribute-selector CSS, and SCSS interpolation.
