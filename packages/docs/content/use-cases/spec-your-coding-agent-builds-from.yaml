@@ -24,15 +24,9 @@ new_way:
 todays_stack:
   heading: "Where a spec lives today"
   items:
-    - tool: "A doc tool"
-      used_for: "Writing the spec"
-      breaks: "Your coding agent can't open it."
-    - tool: "Your agent's prompt"
-      used_for: "Giving the agent the spec"
-      breaks: "You paste chunks, and the copy goes stale when the doc changes."
-    - tool: "Chat threads"
-      used_for: "Recording decisions"
-      breaks: "Decisions get lost, and the spec never hears about them."
+    - text: "**A doc tool** holds the spec, but your coding agent can't open it."
+    - text: "**Your agent's prompt** gets chunks of the spec pasted in, and that copy goes stale the moment the doc changes."
+    - text: "**Chat threads** are where decisions get made, and the spec never hears about them."
   in_app: "In Content, the spec, the decisions, and the tasks live in pages and databases your coding agent can reach through MCP."
 frequency: per-project
 how_often_label: "Every feature"

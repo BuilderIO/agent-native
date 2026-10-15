@@ -21,15 +21,9 @@ new_way:
 todays_stack:
   heading: "How a screen gets described today"
   items:
-    - tool: "A prompt"
-      used_for: "Describing the layout"
-      breaks: "The agent guesses at what you meant."
-    - tool: "A sketch on paper or a whiteboard"
-      used_for: "Showing the layout"
-      breaks: "The agent can't see it."
-    - tool: "A design tool"
-      used_for: "Detailed mockups"
-      breaks: "More detail than you need before the agent builds a first version."
+    - text: "**A prompt** is where you describe the layout, so the agent guesses at what you meant."
+    - text: "**A sketch on paper or a whiteboard** shows the layout, but the agent can't see it."
+    - text: "**A design tool** gives you detailed mockups, which is more than you need before the agent builds a first version."
   in_app: "In Plans, the wireframes are part of the agent's plan, so your comments go straight back to the agent that will build the screen."
 frequency: per-project
 how_often_label: "Every new screen"

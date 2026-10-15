@@ -21,18 +21,10 @@ new_way:
 todays_stack:
   heading: "Four tools for one pipeline review"
   items:
-    - tool: "Your CRM's reports"
-      used_for: "Standard pipeline views"
-      breaks: "The view you need isn't one of them."
-    - tool: "A spreadsheet export"
-      used_for: "Custom analysis"
-      breaks: "It's rebuilt every week and goes stale in between."
-    - tool: "A call recorder"
-      used_for: "What was said on calls"
-      breaks: "It sits apart from the deal data."
-    - tool: "Slides"
-      used_for: "Presenting the pipeline review"
-      breaks: "Charts get pasted in by hand."
+    - text: "**Your CRM's reports** cover the standard pipeline views, but the view you need usually isn't one of them."
+    - text: "**A spreadsheet export** handles the custom analysis, and it's rebuilt every week."
+    - text: "**A call recorder** captures what was said, but it sits apart from the deal data."
+    - text: "**Slides** carry the pipeline review, with charts pasted in by hand."
   in_app: "In Analytics, your CRM data and the other GTM sources you connect answer plain-English questions, and the answers live in dashboards the team can share."
 frequency: weekly
 how_often_label: "Weekly"

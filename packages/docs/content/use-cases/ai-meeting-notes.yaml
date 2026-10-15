@@ -23,18 +23,10 @@ new_way:
 todays_stack:
   heading: "Four places one meeting ends up"
   items:
-    - tool: "Your video call app"
-      used_for: "Holding the meeting"
-      breaks: "The notes are whatever someone typed while half-listening."
-    - tool: "A note-taker, like Granola"
-      used_for: "Transcribing and summarizing"
-      breaks: "Meeting notes live apart from your screen recordings and dictations."
-    - tool: "A shared doc"
-      used_for: "Keeping notes and decisions"
-      breaks: "Nobody opens it again, and owners and dates get lost."
-    - tool: "Email"
-      used_for: "Sending the recap"
-      breaks: "You rewrite the decisions from memory."
+    - text: "**Your video call app** holds the meeting, but the notes are whatever someone typed while half-listening."
+    - text: "**A note-taker, like Granola,** transcribes and summarizes, but meeting notes live apart from your screen recordings and dictations."
+    - text: "**A shared doc** keeps the notes and decisions, until nobody opens it again and the owners and dates get lost."
+    - text: "**Email** carries the recap, which someone rewrites from memory."
   in_app: "In Clips, meetings from your Google Calendar get a transcript, a summary, notes, and action items, in the same searchable library as your recordings."
 story: null
 faqs:

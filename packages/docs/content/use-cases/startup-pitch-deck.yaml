@@ -21,18 +21,10 @@ new_way:
 todays_stack:
   heading: "What goes into a pitch deck today"
   items:
-    - tool: "A template or last round's deck"
-      used_for: "A starting point"
-      breaks: "You restyle it by hand and hunt for stale numbers."
-    - tool: "A spreadsheet"
-      used_for: "Traction and financials"
-      breaks: "Every number gets pasted into slides by hand."
-    - tool: "Product screenshots"
-      used_for: "Showing the product"
-      breaks: "They go stale as the product changes."
-    - tool: "A general AI chat"
-      used_for: "Drafting the story"
-      breaks: "You still build every slide in your brand yourself."
+    - text: "**A template or last round's deck** is the starting point, so you restyle it by hand and hunt for stale numbers."
+    - text: "**A spreadsheet** holds the traction and financials, and every number gets pasted into slides by hand."
+    - text: "**Product screenshots** show the product, but they go stale as the product changes."
+    - text: "**A general AI chat** can draft the story, but you still build every slide in your brand yourself."
   in_app: "In Slides, the deck is drafted from your brief in your brand, and you edit it slide by slide or with the agent."
 story: null
 faqs:

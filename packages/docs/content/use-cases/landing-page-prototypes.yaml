@@ -21,15 +21,9 @@ new_way:
 todays_stack:
   heading: "How a launch page usually gets made"
   items:
-    - tool: "Last launch's page"
-      used_for: "A starting point"
-      breaks: "You inherit its structure even when the offer is different."
-    - tool: "A page builder"
-      used_for: "Building and publishing the page"
-      breaks: "Good for shipping, harder for comparing directions first."
-    - tool: "Screenshots in chat"
-      used_for: "Getting review"
-      breaks: "Feedback arrives as a list of comments about spacing."
+    - text: "**Last launch's page** is the usual starting point, so you inherit its structure even when the offer is different."
+    - text: "**A page builder** is good for building and publishing, but harder to use for comparing directions before you commit."
+    - text: "**Screenshots in chat** are how review happens, so feedback arrives as a list of comments about spacing."
   in_app: "In Design, you compare versions side by side, pin comments to elements, and export the HTML. Publishing is still a separate step."
 story: null
 faqs:

@@ -21,15 +21,9 @@ new_way:
 todays_stack:
   heading: "Where an agent's plan lives today"
   items:
-    - tool: "The terminal"
-      used_for: "Reading the agent's plan"
-      breaks: "A long text plan is easy to skim and approve."
-    - tool: "A design doc"
-      used_for: "Writing the approach before building"
-      breaks: "It's separate from the plan the agent actually follows."
-    - tool: "A whiteboard or diagram tool"
-      used_for: "Sketching the architecture and screens"
-      breaks: "The diagram lives somewhere the agent doesn't."
+    - text: "**The terminal** is where the agent's plan shows up, as long text that's easy to skim and approve."
+    - text: "**A design doc** captures the approach before building, but it's separate from the plan the agent actually follows."
+    - text: "**A whiteboard or diagram tool** works for sketching the architecture and screens, but the diagram lives somewhere the agent doesn't."
   in_app: "In Plans, the agent's plan comes with diagrams, wireframes, and annotated code, and the agent can read your comments and revise it."
 story: null
 faqs:

@@ -402,6 +402,35 @@ a.campaign-inline-link {
   font-family: var(--font-sans);
 }
 
+.campaign-page .campaign-recipe-card {
+  display: grid;
+  gap: var(--spacing-6);
+  padding: var(--spacing-8);
+}
+
+.campaign-page .campaign-recipe-footer {
+  margin-inline: calc(-1 * var(--spacing-8));
+  margin-block-end: calc(-1 * var(--spacing-8));
+  padding: var(--spacing-8);
+}
+
+@media (min-width: 768px) {
+  .campaign-page .campaign-recipes-grid {
+    row-gap: var(--spacing-6);
+  }
+
+  .campaign-page .campaign-recipe-card {
+    grid-row: span 7;
+    grid-template-rows: subgrid;
+  }
+}
+
+@media (max-width: 767px) {
+  .campaign-page .campaign-recipe-empty {
+    display: none;
+  }
+}
+
 .campaign-page .campaign-faq > div > div:first-child {
   padding-block: var(--spacing-12);
   padding-inline: var(--spacing-8);
@@ -643,13 +672,7 @@ hr {
   font-size: 13px;
 }
 
-.docs-content.campaign-stack-table table {
-  display: table;
-  min-width: 36rem;
-}
-
-.campaign-page .campaign-article-content .docs-content table :is(th, td),
-.campaign-page .docs-content.campaign-stack-table table :is(th, td) {
+.campaign-page .campaign-article-content .docs-content table :is(th, td) {
   color: var(--fg);
   font-family: var(--font-sans);
   font-size: var(--b-t-paragraph-2);

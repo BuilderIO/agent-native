@@ -254,7 +254,7 @@ export function UseCasePage({
       />
       <TemplateSplitFeature
         leading={
-          <div className="campaign-section space-y-[var(--spacing-6)]">
+          <div className="campaign-section flex flex-col gap-[var(--spacing-6)]">
             <SectionHeader
               eyebrow={t("campaign.oldWay")}
               heading={item.old_way.heading}
@@ -272,7 +272,7 @@ export function UseCasePage({
         trailing={
           <div
             id="how-it-works"
-            className="campaign-section scroll-mt-24 space-y-[var(--spacing-6)]"
+            className="campaign-section flex scroll-mt-24 flex-col gap-[var(--spacing-6)]"
           >
             <SectionHeader
               eyebrow={t("campaign.newWay")}
@@ -299,26 +299,17 @@ export function UseCasePage({
             eyebrow={t("campaign.whatItReplaces")}
             heading={item.todays_stack.heading}
           />
-          <div className="campaign-stack-table docs-content max-w-full overflow-x-auto">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">{t("campaign.whatYouUse")}</th>
-                  <th scope="col">{t("campaign.usedFor")}</th>
-                  <th scope="col">{t("campaign.whereItBreaks")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {item.todays_stack.items.map((row, index) => (
-                  <tr key={index}>
-                    <td>{row.tool}</td>
-                    <td>{row.used_for}</td>
-                    <td>{row.breaks}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="campaign-body m-0 list-disc space-y-[var(--spacing-4)] ps-6">
+            {item.todays_stack.items.map(({ text }, index) => (
+              <li key={index}>
+                {text.split(/(\*\*[^*]+\*\*)/g).map((part, partIndex) =>
+                  part.startsWith("**") && part.endsWith("**") ? (
+                    <strong key={partIndex}>{part.slice(2, -2)}</strong>
+                  ) : part,
+                )}
+              </li>
+            ))}
+          </ul>
           <p className="campaign-body m-0">{item.todays_stack.in_app}</p>
         </section>
       ) : null}
@@ -332,61 +323,39 @@ export function UseCasePage({
           </div>
           <div className="campaign-recipes-grid grid gap-px border-t border-[var(--docs-border)] bg-[var(--docs-border)] md:grid-cols-2 lg:grid-cols-3">
             {item.recipes.map((recipe) => (
-              <article
-                key={recipe.id}
-                className="flex min-w-0 flex-col bg-[var(--b-bg-page)]"
-              >
-                <div className="flex flex-1 flex-col gap-[var(--spacing-6)] p-[var(--spacing-8)]">
-                  <div>
-                    <CampaignFrequencyTag text={recipe.how_often} />
-                  </div>
-                  <div className="space-y-[var(--spacing-2)]">
-                    <h3 className="campaign-card-title">{recipe.title}</h3>
-                    <p className="campaign-body m-0 whitespace-pre-line">
-                      {recipe.when}
-                    </p>
-                  </div>
-                  <dl className="m-0 space-y-[var(--spacing-2)]">
-                    <dt className="campaign-label">{t("campaign.recipeDo")}</dt>
-                    <dd className="campaign-body m-0 whitespace-pre-line">
-                      {recipe.do}
-                    </dd>
-                  </dl>
-                  {recipe.prompt ? (
-                    <div className="min-w-0 max-w-full overflow-x-auto">
-                      <CodeBlock
-                        code={recipe.prompt}
-                        lang="text"
-                        className="m-0"
-                        onCopySuccess={() =>
-                          trackEvent("recipe_copy", {
-                            slug: item.slug,
-                            job_id: item.job_id,
-                            recipe_id: recipe.id,
-                          })
-                        }
-                      />
-                    </div>
-                  ) : null}
-                  <dl className="m-0 space-y-[var(--spacing-2)]">
-                    <dt className="campaign-label">
-                      {t("campaign.recipeYouGet")}
-                    </dt>
-                    <dd className="campaign-body m-0 whitespace-pre-line">
-                      {recipe.you_get}
-                    </dd>
-                  </dl>
+              <article key={recipe.id} className="campaign-recipe-card min-w-0 bg-[var(--b-bg-page)]">
+                <div><CampaignFrequencyTag text={recipe.how_often} /></div>
+                <h3 className="campaign-card-title">{recipe.title}</h3>
+                <p className="campaign-body m-0 whitespace-pre-line">{recipe.when}</p>
+                <dl className="m-0 space-y-[var(--spacing-2)]">
+                  <dt className="campaign-label">{t("campaign.recipeDo")}</dt>
+                  <dd className="campaign-body m-0 whitespace-pre-line">{recipe.do}</dd>
+                </dl>
+                <div
+                  className={`min-w-0 max-w-full overflow-x-auto${recipe.prompt ? "" : " campaign-recipe-empty"}`}
+                  aria-hidden={recipe.prompt ? undefined : true}
+                >
+                  {recipe.prompt ? <CodeBlock
+                    code={recipe.prompt}
+                    lang="text"
+                    className="m-0"
+                    onCopySuccess={() => trackEvent("recipe_copy", {
+                      slug: item.slug,
+                      job_id: item.job_id,
+                      recipe_id: recipe.id,
+                    })}
+                  /> : null}
                 </div>
+                <dl className="m-0 space-y-[var(--spacing-2)]">
+                  <dt className="campaign-label">{t("campaign.recipeYouGet")}</dt>
+                  <dd className="campaign-body m-0 whitespace-pre-line">{recipe.you_get}</dd>
+                </dl>
                 {recipe.save ? (
-                  <dl className="m-0 space-y-[var(--spacing-2)] border-t border-[var(--docs-border)] bg-[var(--b-bg-raised)] p-[var(--spacing-8)]">
-                    <dt className="campaign-label">
-                      {t("campaign.recipeSave")}
-                    </dt>
-                    <dd className="campaign-body m-0 whitespace-pre-line">
-                      {recipe.save}
-                    </dd>
+                  <dl className="campaign-recipe-footer m-0 space-y-[var(--spacing-2)] border-t border-[var(--docs-border)] bg-[var(--b-bg-raised)]">
+                    <dt className="campaign-label">{t("campaign.recipeSave")}</dt>
+                    <dd className="campaign-body m-0 whitespace-pre-line">{recipe.save}</dd>
                   </dl>
-                ) : null}
+                ) : <div className="campaign-recipe-empty" aria-hidden="true" />}
               </article>
             ))}
           </div>

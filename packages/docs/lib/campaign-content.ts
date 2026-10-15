@@ -85,7 +85,7 @@ const useCaseSchema = z.object({
   todays_stack: z
     .object({
       heading: text,
-      items: z.array(z.object({ tool: text, used_for: text, breaks: text })),
+      items: z.array(z.object({ text })),
       in_app: text,
     })
     .optional(),

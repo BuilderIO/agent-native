@@ -23,15 +23,9 @@ new_way:
 todays_stack:
   heading: "Where your words go today"
   items:
-    - tool: "Your keyboard"
-      used_for: "Writing prompts, tickets, and messages"
-      breaks: "Long prompts get shortened, and the detail is what gets cut."
-    - tool: "Your operating system's built-in dictation"
-      used_for: "Quick dictation"
-      breaks: "It may struggle with your product and library names, and there's usually no history to search later."
-    - tool: "A dictation app, like Wispr Flow"
-      used_for: "Speaking instead of typing"
-      breaks: "Your dictations live in a separate app from your recordings and meeting notes."
+    - text: "**Typing** is the default, so long prompts get shortened, and the detail is what gets cut."
+    - text: "**Your operating system's built-in dictation** handles quick notes, but it may stumble on product and library names, and there's usually no history to search later."
+    - text: "**A dictation app, like Wispr Flow,** lets you speak instead of type, but your dictations live in a separate app from your recordings and meeting notes."
   in_app: "In Clips, dictations, screen recordings, and meetings share one searchable library, and a personal vocabulary helps with your own terms."
 story: null
 faqs:

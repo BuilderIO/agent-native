@@ -21,18 +21,10 @@ new_way:
 todays_stack:
   heading: "Four tools for one weekly report"
   items:
-    - tool: "Google Analytics"
-      used_for: "Traffic and conversions"
-      breaks: "Its reports don't match the question you were asked."
-    - tool: "Your CRM"
-      used_for: "Leads and pipeline"
-      breaks: "It's separate from the traffic numbers."
-    - tool: "A spreadsheet"
-      used_for: "Putting it together"
-      breaks: "It's rebuilt every week."
-    - tool: "A doc or slides"
-      used_for: "Sharing the report"
-      breaks: "Screenshots go stale."
+    - text: "**Google Analytics** has traffic and conversions, but its reports rarely match the question you were asked."
+    - text: "**Your CRM** has leads and pipeline, separate from the traffic numbers."
+    - text: "**A spreadsheet** is where it all gets combined, and it's rebuilt every week."
+    - text: "**A doc or slides** is how the report gets shared, and the screenshots go stale."
   in_app: "In Analytics, traffic and pipeline data answer the same plain-English questions, and the report lives in a dashboard instead of a screenshot."
 frequency: weekly
 how_often_label: "Weekly"

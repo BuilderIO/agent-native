@@ -26,11 +26,7 @@ export function publicUseCase(item: UseCase): UseCase {
     todays_stack: item.todays_stack
       ? {
           heading: item.todays_stack.heading,
-          items: item.todays_stack.items.map(({ tool, used_for, breaks }) => ({
-            tool,
-            used_for,
-            breaks,
-          })),
+          items: item.todays_stack.items.map(({ text }) => ({ text })),
           in_app: item.todays_stack.in_app,
         }
       : undefined,

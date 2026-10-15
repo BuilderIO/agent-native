@@ -25,15 +25,9 @@ new_way:
 todays_stack:
   heading: "Three tools for one drop-off question"
   items:
-    - tool: "A product analytics tool, like Amplitude or Mixpanel"
-      used_for: "Building the funnel"
-      breaks: "Only a few people know how to build it."
-    - tool: "A session replay tool"
-      used_for: "Seeing what people actually did"
-      breaks: "It's a separate tool from the funnel, so the numbers and the sessions don't line up."
-    - tool: "A spreadsheet or doc"
-      used_for: "Sharing what you found"
-      breaks: "The screenshot is stale by the next standup."
+    - text: "**A product analytics tool, like Amplitude or Mixpanel,** builds the funnel, but only a few people on the team know how."
+    - text: "**A session replay tool** shows what people actually did, but it's separate from the funnel, so the numbers and the sessions don't line up."
+    - text: "**A spreadsheet or doc** is how findings get shared, and the screenshot is stale by the next standup."
   in_app: "In Analytics, plain-English questions, funnels, dashboards, and session replays are in one app, and the agent writes the queries."
 frequency: weekly
 how_often_label: "Weekly"
