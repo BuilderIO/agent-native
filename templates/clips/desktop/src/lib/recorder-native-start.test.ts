@@ -274,6 +274,10 @@ beforeEach(() => {
       return { leaseId: null, suspendedRewind: false };
     }
     if (name === "show_countdown") {
+      const attemptId = (args as { attemptId?: string } | undefined)?.attemptId;
+      setTimeout(() => {
+        void mocks.emit("clips:countdown-presented", { attemptId });
+      }, 0);
       setTimeout(() => {
         void mocks.emit("clips:countdown-done", { cause: "timer" });
       }, 3_600);
@@ -335,8 +339,11 @@ afterEach(() => {
 describe("native recording startup", () => {
   it("starts the full countdown only after a slow overlay has presented", async () => {
     const overlay = deferred<number>();
-    nativeCommands.set("show_countdown", async () => {
+    nativeCommands.set("show_countdown", async (args) => {
       const generation = await overlay.promise;
+      await mocks.emit("clips:countdown-presented", {
+        attemptId: (args as { attemptId?: string } | undefined)?.attemptId,
+      });
       setTimeout(() => {
         void mocks.emit("clips:countdown-done", { cause: "timer" });
       }, 3_600);
@@ -348,6 +355,7 @@ describe("native recording startup", () => {
     expect(calls("show_countdown")).toHaveLength(1);
 
     await vi.advanceTimersByTimeAsync(4_500);
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
     overlay.resolve(1);
     await flush();
     await vi.advanceTimersByTimeAsync(3_600);
@@ -622,7 +630,13 @@ describe("native recording startup", () => {
   });
 
   it("fails startup when the visible countdown never completes", async () => {
-    nativeCommands.set("show_countdown", async () => 1);
+    nativeCommands.set("show_countdown", async (args) => {
+      const attemptId = (args as { attemptId?: string } | undefined)?.attemptId;
+      setTimeout(() => {
+        void mocks.emit("clips:countdown-presented", { attemptId });
+      }, 0);
+      return 1;
+    });
 
     const pending = startRecording(params);
     const failed = expect(pending).rejects.toThrow(
@@ -837,7 +851,7 @@ describe("native recording startup", () => {
     expect(getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("runs the countdown while native warm completes, then begins capture", async () => {
+  it("waits for countdown presentation before native warm starts", async () => {
     const warm = deferred<void>();
     const startupEvents: string[] = [];
     const onCaptureIdentityAvailable = vi.fn((recordingId: string) => {
@@ -848,17 +862,36 @@ describe("native recording startup", () => {
       startupEvents.push(`warm:${recordingId}`);
       return warm.promise;
     });
+    nativeCommands.set("show_countdown", async (_args) => {
+      setTimeout(() => {
+        void mocks.emit("clips:countdown-done", { cause: "timer" });
+      }, 3_600);
+      return 1;
+    });
     const pending = startRecording({ ...params, onCaptureIdentityAvailable });
     await flush();
     const recordingId = createdRecordingId();
     expect(onCaptureIdentityAvailable).toHaveBeenCalledWith(recordingId);
+    expect(startupEvents).toEqual([`identity:${recordingId}`]);
+    expect(calls("show_countdown")).toHaveLength(1);
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(mocks.transcribe).not.toHaveBeenCalled();
+
+    const attemptId = (calls("show_countdown")[0][1] as { attemptId: string })
+      .attemptId;
+    await mocks.emit("clips:countdown-presented", {
+      attemptId: "stale-countdown-attempt",
+    });
+    await flush();
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
+
+    await mocks.emit("clips:countdown-presented", { attemptId });
+    await flush();
     expect(startupEvents).toEqual([
       `identity:${recordingId}`,
       `warm:${recordingId}`,
     ]);
-    expect(calls("show_countdown")).toHaveLength(1);
-    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
-    expect(mocks.transcribe).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(3_600);
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
     warm.resolve();

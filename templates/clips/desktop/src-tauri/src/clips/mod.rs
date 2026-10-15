@@ -608,8 +608,15 @@ fn load_bubble_position(app: &AppHandle) -> Option<BubblePositionPreference> {
 }
 
 #[tauri::command]
-pub async fn show_countdown(app: AppHandle) -> Result<u64, String> {
+pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, String> {
     dlog!("[clips-tray] show_countdown invoked");
+    if attempt_id.len() != 36
+        || !attempt_id
+            .chars()
+            .all(|character| character.is_ascii_hexdigit() || character == '-')
+    {
+        return Err("Invalid countdown attempt ID.".to_string());
+    }
     mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
         stop_countdown_control_tracking();
@@ -623,7 +630,8 @@ pub async fn show_countdown(app: AppHandle) -> Result<u64, String> {
         mx,
         my
     );
-    let win = WebviewWindowBuilder::new(&app, COUNTDOWN_LABEL, build_overlay_url("countdown"))
+    let countdown_route = format!("countdown/{attempt_id}");
+    let win = WebviewWindowBuilder::new(&app, COUNTDOWN_LABEL, build_overlay_url(&countdown_route))
         .title("Countdown")
         .decorations(false)
         .transparent(true)
