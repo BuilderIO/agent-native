@@ -4,6 +4,7 @@ import {
   resolveProviderApiOAuthAccessToken,
 } from "@agent-native/core/provider-api";
 import type { SecretRef } from "@agent-native/core/secrets";
+import { getRequestContext } from "@agent-native/core/server";
 import type { WorkspaceConnectionCredentialResolution } from "@agent-native/core/workspace-connections";
 import {
   resolveWorkspaceConnectionCredentialForApp,
@@ -14,6 +15,13 @@ import {
   resolveCredentialDetailed,
   type CredentialContext,
 } from "./credentials";
+import {
+  parseSigmaDirectCredentials,
+  SIGMA_DIRECT_CREDENTIALS_KEY,
+  SIGMA_DIRECT_CONNECTION_MARKER,
+  SIGMA_PROVIDER_ID,
+  sigmaCredentialField,
+} from "./sigma-connection";
 
 export const ANALYTICS_APP_ID = "analytics";
 
@@ -62,6 +70,105 @@ export interface AnalyticsGongCredentials {
   accessKey: string;
   accessSecret: string;
   sources: AnalyticsProviderCredential[];
+}
+
+interface SigmaDirectCredentialSnapshot {
+  credentials: NonNullable<ReturnType<typeof parseSigmaDirectCredentials>>;
+  connectionLabel: string;
+}
+
+const sigmaDirectCredentialReads = new WeakMap<
+  object,
+  Map<string, Promise<SigmaDirectCredentialSnapshot | null>>
+>();
+
+async function readSigmaDirectCredentials(
+  orgId: string,
+  connectionId: string,
+  ctx: CredentialContext,
+): Promise<SigmaDirectCredentialSnapshot | null> {
+  const requestContext = getRequestContext();
+  if (!requestContext) {
+    throw new Error("Sigma credentials require a request-scoped context.");
+  }
+  let requestCache = sigmaDirectCredentialReads.get(requestContext);
+  if (!requestCache) {
+    requestCache = new Map();
+    sigmaDirectCredentialReads.set(requestContext, requestCache);
+  }
+  const cacheKey = `${orgId}:${connectionId}`;
+  let result = requestCache.get(cacheKey);
+  if (!result) {
+    result = (async () => {
+      const connection = await resolveWorkspaceConnectionForApp({
+        appId: ANALYTICS_APP_ID,
+        provider: SIGMA_PROVIDER_ID,
+        connectionId,
+        requireConnected: true,
+      });
+      if (
+        !connection.available ||
+        connection.connection?.config.analyticsSetup !==
+          SIGMA_DIRECT_CONNECTION_MARKER
+      ) {
+        return null;
+      }
+
+      const directConnection = connection.connection;
+      const credentialRef = directConnection.credentialRefs[0];
+      if (
+        directConnection.allowedApps.length !== 1 ||
+        directConnection.allowedApps[0] !== ANALYTICS_APP_ID ||
+        directConnection.allowedUsers.length > 0 ||
+        (directConnection.allowedUserGroups?.length ?? 0) > 0 ||
+        directConnection.credentialRefs.length !== 1 ||
+        credentialRef?.key !== SIGMA_DIRECT_CREDENTIALS_KEY ||
+        credentialRef.scope !== "org" ||
+        credentialRef.provider !== "sigma"
+      ) {
+        throw new Error(
+          "The Analytics Sigma connection access policy is invalid.",
+        );
+      }
+
+      const resolution = await resolveWorkspaceConnectionCredentialForApp({
+        appId: ANALYTICS_APP_ID,
+        provider: SIGMA_PROVIDER_ID,
+        key: SIGMA_DIRECT_CREDENTIALS_KEY,
+        connectionId,
+        userEmail: ctx.userEmail,
+        orgId,
+        credentialScope: "org",
+      });
+      const provenance = resolution.provenance;
+      if (!resolution.available || !resolution.value || !provenance) {
+        return null;
+      }
+      if (
+        provenance.connectionId !== connectionId ||
+        provenance.credentialRef.source !== "connection" ||
+        provenance.credentialRef.key !== SIGMA_DIRECT_CREDENTIALS_KEY ||
+        provenance.credentialRef.scope !== "org" ||
+        provenance.credentialRef.provider !== "sigma" ||
+        provenance.secretScope !== "org"
+      ) {
+        throw new Error(
+          "The Analytics Sigma connection credential reference is invalid.",
+        );
+      }
+
+      const credentials = parseSigmaDirectCredentials(resolution.value);
+      if (!credentials) {
+        throw new Error("The Analytics Sigma credentials are invalid.");
+      }
+      return {
+        credentials,
+        connectionLabel: provenance.connectionLabel,
+      };
+    })();
+    requestCache.set(cacheKey, result);
+  }
+  return result;
 }
 
 function normalizeKey(key: string): string {
@@ -234,11 +341,37 @@ export async function resolveWorkspaceConnectionProviderCredential(
   const keys = uniqueKeys(options.keys);
   if (keys.length === 0) return null;
 
+  const provider = options.provider.trim().toLowerCase();
+  const connectionId = options.connectionId?.trim();
+  if (provider === SIGMA_PROVIDER_ID && connectionId) {
+    const requestedKey = keys.find((key) => sigmaCredentialField(key));
+    const field = requestedKey ? sigmaCredentialField(requestedKey) : null;
+    if (requestedKey && field && options.ctx.orgId) {
+      const directCredentials = await readSigmaDirectCredentials(
+        options.ctx.orgId,
+        connectionId,
+        options.ctx,
+      );
+      const value = directCredentials?.credentials[field];
+      if (!value) return null;
+      return {
+        value,
+        key: normalizeKey(requestedKey),
+        provider,
+        source: "workspace_connection",
+        connectionId,
+        connectionLabel: directCredentials.connectionLabel,
+        scope: "org",
+        scopeId: options.ctx.orgId,
+      };
+    }
+  }
+
   return resolveViaCoreHelper({
-    provider: options.provider,
+    provider,
     keys,
     ctx: options.ctx,
-    connectionId: options.connectionId,
+    connectionId,
   });
 }
 

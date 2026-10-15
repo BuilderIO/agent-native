@@ -3,8 +3,10 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrgRole } from "@agent-native/core/client/org";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import { useOrgSwitcherAppLinks } from "@agent-native/toolkit/app/org/workspace-app-links";
+import { saveApiKeyValue } from "@agent-native/toolkit/app/settings/api-keys/api-keys-client";
 import {
   IconAlertCircle,
   IconCheck,
@@ -13,7 +15,7 @@ import {
   IconSparkles,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { Link } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -124,6 +127,17 @@ type MigrationArgs = {
 };
 
 type LoadedWorkbookPage = { cursor?: string; workbooks: SigmaWorkbook[] };
+type SigmaConnectionSaveResult = { connectionId: string; status: string };
+type SigmaConnectionSaveArgs =
+  | { operation: "discard"; setupId: string }
+  | { operation: "verify"; setupId: string; useDefaultBaseUrl: boolean };
+
+function sigmaSetupKey(
+  setupId: string,
+  key: "CLIENT_ID" | "CLIENT_SECRET" | "BASE_URL",
+) {
+  return `ANALYTICS_SIGMA_SETUP_${setupId}_${key}`;
+}
 
 const EMPTY_CONNECTIONS: Connection[] = [];
 const EMPTY_WORKBOOKS: SigmaWorkbook[] = [];
@@ -139,7 +153,8 @@ export function SigmaMigrationDialog({
   onImported?: () => void;
 }) {
   const t = useT();
-  const { dispatchHref } = useOrgSwitcherAppLinks(open);
+  const { canManageOrg } = useOrgRole();
+  const { dispatchHref, dispatchVaultHref } = useOrgSwitcherAppLinks(open);
   const { send, isGenerating, codeRequiredDialog } = useSendToAgentChat();
   const [connectionId, setConnectionId] = useState<string | null>(null);
   const [workbookId, setWorkbookId] = useState<string | null>(null);
@@ -339,6 +354,16 @@ export function SigmaMigrationDialog({
     MigrationArgs,
     "migrate-sigma-workbook"
   >("migrate-sigma-workbook");
+  const saveSigmaConnection = useActionMutation<
+    SigmaConnectionSaveResult,
+    SigmaConnectionSaveArgs,
+    "save-sigma-connection"
+  >("save-sigma-connection");
+  const [sigmaClientId, setSigmaClientId] = useState("");
+  const [sigmaClientSecret, setSigmaClientSecret] = useState("");
+  const [sigmaBaseUrl, setSigmaBaseUrl] = useState("");
+  const [sigmaSetupError, setSigmaSetupError] = useState<string | null>(null);
+  const [savingSigmaCredentials, setSavingSigmaCredentials] = useState(false);
 
   const connected = Boolean(
     listStateForCurrentConnection?.connected &&
@@ -438,6 +463,66 @@ export function SigmaMigrationDialog({
       setMigrationError(t("dashboardOverview.sigmaMigrationFailed"));
     }
   };
+
+  const handleSigmaConnect = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSigmaSetupError(null);
+    setSavingSigmaCredentials(true);
+    const setupId = crypto.randomUUID();
+    try {
+      await saveApiKeyValue({
+        name: sigmaSetupKey(setupId, "CLIENT_ID"),
+        value: sigmaClientId.trim(),
+        registered: false,
+        shared: true,
+      });
+      await saveApiKeyValue({
+        name: sigmaSetupKey(setupId, "CLIENT_SECRET"),
+        value: sigmaClientSecret,
+        registered: false,
+        shared: true,
+      });
+      if (sigmaBaseUrl.trim()) {
+        await saveApiKeyValue({
+          name: sigmaSetupKey(setupId, "BASE_URL"),
+          value: sigmaBaseUrl.trim(),
+          registered: false,
+          shared: true,
+        });
+      }
+      const result = await saveSigmaConnection.mutateAsync({
+        operation: "verify",
+        setupId,
+        useDefaultBaseUrl: !sigmaBaseUrl.trim(),
+      });
+      if (
+        !isSigmaConnectionSaveResult(result) ||
+        result.status !== "connected"
+      ) {
+        setSigmaSetupError(t("dashboardOverview.sigmaConnectFailed"));
+        return;
+      }
+      setSigmaClientId("");
+      setSigmaClientSecret("");
+      setSigmaBaseUrl("");
+      setRefreshVersion((current) => current + 1);
+    } catch {
+      setSigmaSetupError(t("dashboardOverview.sigmaConnectFailed"));
+      await saveSigmaConnection
+        .mutateAsync({ operation: "discard", setupId })
+        .catch(() => undefined);
+    } finally {
+      setSavingSigmaCredentials(false);
+    }
+  };
+
+  useEffect(() => {
+    if (open) return;
+    setSigmaClientId("");
+    setSigmaClientSecret("");
+    setSigmaBaseUrl("");
+    setSigmaSetupError(null);
+  }, [open]);
 
   useEffect(() => {
     if (
@@ -545,7 +630,7 @@ export function SigmaMigrationDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-w-xl">
           <DialogHeader className="px-6 pt-6">
-            <DialogTitle>{t("dashboardOverview.previewSigma")}</DialogTitle>
+            <DialogTitle>{t("dashboardOverview.importFromSigma")}</DialogTitle>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-2">
@@ -576,12 +661,98 @@ export function SigmaMigrationDialog({
                 title={t("dashboardOverview.sigmaNoConnection")}
                 detail={t("dashboardOverview.sigmaNoConnectionDescription")}
                 action={
-                  <Button asChild type="button" variant="outline" size="sm">
-                    <a href={dispatchHref} target="_blank" rel="noreferrer">
-                      {t("dashboardOverview.sigmaOpenDispatch")}
-                      <IconExternalLink />
-                    </a>
-                  </Button>
+                  <div className="w-full space-y-4">
+                    {canManageOrg ? (
+                      <form className="space-y-3" onSubmit={handleSigmaConnect}>
+                        <div className="space-y-2">
+                          <Label htmlFor="sigma-client-id">
+                            {t("dashboardOverview.sigmaClientId")}
+                          </Label>
+                          <Input
+                            id="sigma-client-id"
+                            autoComplete="off"
+                            required
+                            value={sigmaClientId}
+                            onChange={(event) =>
+                              setSigmaClientId(event.currentTarget.value)
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="sigma-client-secret">
+                            {t("dashboardOverview.sigmaClientSecret")}
+                          </Label>
+                          <Input
+                            id="sigma-client-secret"
+                            type="password"
+                            autoComplete="new-password"
+                            required
+                            value={sigmaClientSecret}
+                            onChange={(event) =>
+                              setSigmaClientSecret(event.currentTarget.value)
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="sigma-base-url">
+                            {t("dashboardOverview.sigmaBaseUrl")}
+                          </Label>
+                          <Input
+                            id="sigma-base-url"
+                            type="url"
+                            autoComplete="url"
+                            placeholder={t(
+                              "dashboardOverview.sigmaBaseUrlPlaceholder",
+                            )}
+                            value={sigmaBaseUrl}
+                            onChange={(event) =>
+                              setSigmaBaseUrl(event.currentTarget.value)
+                            }
+                          />
+                        </div>
+                        {sigmaSetupError ? (
+                          <p className="text-sm text-destructive" role="alert">
+                            {sigmaSetupError}
+                          </p>
+                        ) : null}
+                        <Button
+                          className="w-full"
+                          type="submit"
+                          disabled={
+                            savingSigmaCredentials ||
+                            saveSigmaConnection.isPending
+                          }
+                        >
+                          {savingSigmaCredentials ||
+                          saveSigmaConnection.isPending ? (
+                            <IconLoader2 className="animate-spin" />
+                          ) : null}
+                          {savingSigmaCredentials ||
+                          saveSigmaConnection.isPending
+                            ? t("dashboardOverview.sigmaConnecting")
+                            : t("dashboardOverview.sigmaConnect")}
+                        </Button>
+                      </form>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                      <Button asChild type="button" variant="outline" size="sm">
+                        <a href={dispatchHref} target="_blank" rel="noreferrer">
+                          {t("dashboardOverview.sigmaOpenDispatch")}
+                          <IconExternalLink />
+                        </a>
+                      </Button>
+                      <Button asChild type="button" variant="ghost" size="sm">
+                        <a
+                          href={dispatchVaultHref}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {t("dashboardOverview.sigmaOpenVault")}
+                          <IconExternalLink />
+                        </a>
+                      </Button>
+                    </div>
+                  </div>
                 }
               />
             ) : showConnectionPicker ||
@@ -1102,6 +1273,16 @@ function isWorkbookListResult(
     (result.nextPage === undefined ||
       result.nextPage === null ||
       typeof result.nextPage === "string")
+  );
+}
+
+function isSigmaConnectionSaveResult(
+  value: unknown,
+): value is SigmaConnectionSaveResult {
+  if (!value || typeof value !== "object") return false;
+  const result = value as SigmaConnectionSaveResult;
+  return (
+    typeof result.connectionId === "string" && typeof result.status === "string"
   );
 }
 

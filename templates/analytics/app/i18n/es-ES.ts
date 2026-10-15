@@ -51,7 +51,7 @@ export default {
     moveDashboard: "Mover panel",
     folderCreateFailed: "No se ha podido crear la carpeta",
     moveFailed: "No se ha podido mover el panel",
-    previewSigma: "Vista previa de Sigma",
+    importFromSigma: "Importar desde Sigma",
     sigmaConnection: "Conexión de Sigma",
     sigmaConnectedTo: "Conectado a {{name}}",
     sigmaChooseConnection: "Conexión de Sigma",
@@ -59,9 +59,18 @@ export default {
     sigmaChooseConnectionDescription:
       "Elige el espacio de trabajo de Sigma para ver sus libros de trabajo.",
     sigmaNoConnection: "Sigma no está conectado",
+    sigmaClientId: "ID de cliente",
+    sigmaClientSecret: "Secreto de cliente",
+    sigmaBaseUrl: "URL base de la API (opcional)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Conectar Sigma",
+    sigmaConnecting: "Conectando a Sigma…",
+    sigmaConnectFailed:
+      "No se ha podido verificar esta conexión de Sigma. Comprueba las credenciales y la región de la API y vuelve a intentarlo.",
     sigmaNoConnectionDescription:
-      "Abre Dispatch y pídele que conecte Sigma con Analytics. Las credenciales permanecen en Vault.",
-    sigmaOpenDispatch: "Configurar en Dispatch",
+      "Introduce aquí las credenciales para crear una conexión exclusiva de Analytics. Las conexiones de Sigma autorizadas para Analytics en Dispatch aparecen aquí automáticamente; solo los administradores de la organización pueden guardar credenciales directamente.",
+    sigmaOpenDispatch: "Conectar en Dispatch",
+    sigmaOpenVault: "Abrir Vault",
     sigmaWorkbooksLoadFailed:
       "No se han podido cargar los libros de trabajo de Sigma",
     sigmaRetryConnection: "Comprueba la conexión e inténtalo de nuevo.",
@@ -74,7 +83,7 @@ export default {
     sigmaStatusImported: "Importado",
     sigmaStatusFailed: "Error al importar",
     sigmaArchived: "Archivado",
-    sigmaPreviewTitle: "Vista previa del libro de trabajo",
+    sigmaPreviewTitle: "Contenido del libro de trabajo",
     sigmaPreviewFailed: "No se ha podido previsualizar este libro de trabajo",
     sigmaRetryPreview: "Vuelve a intentar cargar la vista previa.",
     sigmaImportableCount: "{{count}} importables",

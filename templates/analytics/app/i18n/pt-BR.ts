@@ -51,7 +51,7 @@ export default {
     moveDashboard: "Mover painel",
     folderCreateFailed: "Não foi possível criar a pasta",
     moveFailed: "Não foi possível mover o painel",
-    previewSigma: "Pré-visualizar Sigma",
+    importFromSigma: "Importar do Sigma",
     sigmaConnection: "Conexão do Sigma",
     sigmaConnectedTo: "Conectado a {{name}}",
     sigmaChooseConnection: "Conexão do Sigma",
@@ -59,9 +59,18 @@ export default {
     sigmaChooseConnectionDescription:
       "Escolha o espaço de trabalho do Sigma para ver as pastas de trabalho.",
     sigmaNoConnection: "O Sigma não está conectado",
+    sigmaClientId: "ID do cliente",
+    sigmaClientSecret: "Segredo do cliente",
+    sigmaBaseUrl: "URL base da API (opcional)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Conectar Sigma",
+    sigmaConnecting: "Conectando ao Sigma…",
+    sigmaConnectFailed:
+      "Não foi possível verificar esta conexão do Sigma. Confira as credenciais e a região da API e tente novamente.",
     sigmaNoConnectionDescription:
-      "Abra o Dispatch e peça para conectar o Sigma ao Analytics. As credenciais permanecem no Vault.",
-    sigmaOpenDispatch: "Configurar no Dispatch",
+      "Insira as credenciais aqui para criar uma conexão exclusiva do Analytics. As conexões do Sigma concedidas ao Analytics no Dispatch aparecem aqui automaticamente; somente administradores da organização podem salvar credenciais diretamente.",
+    sigmaOpenDispatch: "Conectar no Dispatch",
+    sigmaOpenVault: "Abrir Vault",
     sigmaWorkbooksLoadFailed:
       "Não foi possível carregar as pastas de trabalho do Sigma",
     sigmaRetryConnection: "Verifique a conexão e tente novamente.",
@@ -74,7 +83,7 @@ export default {
     sigmaStatusImported: "Importado",
     sigmaStatusFailed: "Falha na importação",
     sigmaArchived: "Arquivado",
-    sigmaPreviewTitle: "Prévia da pasta de trabalho",
+    sigmaPreviewTitle: "Conteúdo da pasta de trabalho",
     sigmaPreviewFailed: "Não foi possível visualizar esta pasta de trabalho",
     sigmaRetryPreview: "Tente carregar a prévia da pasta novamente.",
     sigmaImportableCount: "{{count}} importáveis",
