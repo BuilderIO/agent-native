@@ -1697,6 +1697,8 @@ async function snapshotDashboardRevision(
     comparableJson(latest.config) === config
   ) {
     if (changeSummary) {
+      // The chat context stays: it ties this state to the agent turn that
+      // produced it, and chat's "restore to this turn" still needs that link.
       await db
         .update(schema.dashboardRevisions)
         .set({
@@ -2304,7 +2306,7 @@ async function restoreDashboardRevisionAt(
     .limit(1);
   if (!revisionRow) return null;
   const revision = rowToDashboardRevision(revisionRow);
-  const updatedAt = nowIso();
+  const updatedAt = nextDashboardVersion(existing.updatedAt);
   const nameChanged =
     normalizeDashboardName(existing.title) !==
     normalizeDashboardName(revision.title);

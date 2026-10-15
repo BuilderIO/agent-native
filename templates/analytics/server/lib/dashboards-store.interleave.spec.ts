@@ -1158,6 +1158,52 @@ describe("revision change summaries", () => {
     expect(readPanelIds()).toEqual(["a"]);
   });
 
+  it("moves the version forward on a restore even when the clock hasn't", async () => {
+    const replaced = "2099-01-01T00:00:00.000Z";
+    state.dashboard.updatedAt = replaced;
+    state.revisions = [
+      {
+        id: "before-b",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "Traffic",
+        config: JSON.stringify({ name: "Traffic", panels: [] }),
+        createdAt: "2026-07-09T00:01:00.000Z",
+        createdBy: "alice@example.com",
+        chatContext: null,
+      },
+    ];
+
+    await restoreDashboardRevision("traffic", "before-b", ctx, replaced);
+
+    expect(state.dashboard.updatedAt > replaced).toBe(true);
+  });
+
+  it("keeps a reused snapshot's link to the agent turn that produced it", async () => {
+    state.dashboard.config = JSON.stringify(signupsTable(120));
+    await createDashboardRevisionSnapshot("traffic", ctx, {
+      threadId: "thread-1",
+      turnId: "turn-1",
+    });
+
+    await upsertDashboard(
+      "traffic",
+      "sql",
+      signupsTable(220),
+      { email: "bob@example.com", orgId: null },
+      state.dashboard.updatedAt,
+    );
+
+    await expect(
+      listDashboardRevisionMetadata("traffic", ctx),
+    ).resolves.toMatchObject([
+      {
+        createdBy: "bob@example.com",
+        chatContext: { threadId: "thread-1", turnId: "turn-1" },
+      },
+    ]);
+  });
+
   it("records no change for a snapshot taken outside a save", async () => {
     await createDashboardRevisionSnapshot("traffic", ctx);
 
