@@ -680,6 +680,25 @@ describe("VideoPlayer playback", () => {
       vi.advanceTimersByTime(32);
     });
     expect(onTimeUpdate).toHaveBeenCalledWith(1020, 10_000);
+
+    video.currentTime = 2.5;
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    const frames = vi.spyOn(window, "requestAnimationFrame");
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(frames).not.toHaveBeenCalled();
+
+    video.currentTime = 0.5;
+    act(() => {
+      video.dispatchEvent(new Event("timeupdate"));
+    });
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    expect(frames).toHaveBeenCalled();
   });
 
   it("shows the edited duration without exposing cut ranges", () => {

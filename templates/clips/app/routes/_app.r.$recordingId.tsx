@@ -2491,6 +2491,9 @@ export default function RecordingPage() {
           />
           <div className="min-h-0 flex-1">
             <TranscriptPanel
+              // A file picked on one clip must not be confirmed onto the
+              // next one this page shows.
+              key={recording.id}
               segments={transcriptSegments}
               fullText={transcriptFullText}
               durationMs={recording.durationMs}

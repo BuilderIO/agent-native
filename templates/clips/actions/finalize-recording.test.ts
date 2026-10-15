@@ -18,6 +18,7 @@ const mockState = vi.hoisted(() => ({
   uploadState: null as Record<string, unknown> | null,
   chunkRows: [] as Array<{ key: string }>,
   selectRows: [] as Array<Array<Record<string, unknown>>>,
+  transcriptRows: null as Array<Record<string, unknown>> | null,
 }));
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
@@ -59,10 +60,22 @@ const mockUpdateWhere = vi.hoisted(() =>
 const mockUpdateSet = vi.hoisted(() =>
   vi.fn(() => ({ where: mockUpdateWhere })),
 );
+const mockInsertOnConflictDoNothing = vi.hoisted(() =>
+  vi.fn(async () => undefined),
+);
+const mockInsertValues = vi.hoisted(() =>
+  vi.fn(() => ({ onConflictDoNothing: mockInsertOnConflictDoNothing })),
+);
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => ({
-    from: vi.fn(() => ({
+    from: vi.fn((table: { recordingId?: string }) => ({
       where: vi.fn(async () => {
+        if (
+          table?.recordingId === "recordingTranscripts.recordingId" &&
+          mockState.transcriptRows
+        ) {
+          return mockState.transcriptRows;
+        }
         const next = mockState.selectRows.shift();
         return next ?? [mockState.existingRecording];
       }),
@@ -72,7 +85,7 @@ const mockDb = vi.hoisted(() => ({
     set: mockUpdateSet,
   })),
   insert: vi.fn(() => ({
-    values: vi.fn(async () => undefined),
+    values: mockInsertValues,
   })),
 }));
 
@@ -259,6 +272,7 @@ describe("finalize-recording chunk completeness", () => {
     };
     mockState.chunkRows = [];
     mockState.selectRows = [];
+    mockState.transcriptRows = null;
     mockState.existingRecording.status = "uploading";
     mockState.existingRecording.uploadAttemptId = null;
     mockState.existingRecording.uploadGenerationId = null;
@@ -617,6 +631,7 @@ describe("finalize-recording media serve verification", () => {
     mockState.uploadState = null;
     mockState.chunkRows = [];
     mockState.selectRows = [];
+    mockState.transcriptRows = null;
     mockWriteAppState.mockResolvedValue(undefined);
     mockDeleteAppState.mockResolvedValue(undefined);
     mockClearSeekableRepairPending.mockResolvedValue(undefined);
@@ -1527,6 +1542,25 @@ describe("finalize-recording media serve verification", () => {
     }
   });
 
+  it("creates the pending transcript row without failing when an import created it first", async () => {
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
+    mockState.transcriptRows = [];
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", status: "pending" }),
+    );
+    expect(mockInsertOnConflictDoNothing).toHaveBeenCalledWith({
+      target: "recordingTranscripts.recordingId",
+    });
+  });
+
   it("parks a recording waiting for storage on a days-long lease", async () => {
     seedBufferedRecording();
     mockUploadFile.mockResolvedValue(null);
@@ -1964,6 +1998,7 @@ describe("finalize-recording resumable recovery", () => {
     mockState.existingRecording.status = "uploading";
     mockState.existingRecording.uploadGenerationId = null;
     mockState.selectRows = [];
+    mockState.transcriptRows = null;
     mockReadAppState.mockImplementation(async (key: string) =>
       key === "recording-upload-rec_1" ? mockState.uploadState : null,
     );

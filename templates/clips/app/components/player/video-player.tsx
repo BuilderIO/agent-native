@@ -1600,7 +1600,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     nextCaptionBoundaryRef.current = transcriptSegments?.length
       ? nextTranscriptBoundaryMs(transcriptSegments, currentMs)
       : Number.POSITIVE_INFINITY;
-    const hasTranscriptSegments = Boolean(transcriptSegments?.length);
+    // Past the last cue there is nothing left to land on time; a seek back
+    // makes a boundary finite again and restarts the loop.
+    const hasCaptionBoundaryAhead = Number.isFinite(
+      nextCaptionBoundaryRef.current,
+    );
 
     // `timeupdate` fires only about four times a second, which leaves
     // captions and the transcript highlight up to a quarter second behind
@@ -1608,7 +1612,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // crosses a caption boundary, so the player doesn't re-render per frame.
     useEffect(() => {
       const v = playbackVideoEl;
-      if (!v || !isPlaying || !hasTranscriptSegments) return;
+      if (!v || !isPlaying || !hasCaptionBoundaryAhead) return;
       let frame = requestAnimationFrame(function tick() {
         if (v.currentTime * 1000 >= nextCaptionBoundaryRef.current) {
           syncPlaybackTimeRef.current(v);
@@ -1616,7 +1620,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         frame = requestAnimationFrame(tick);
       });
       return () => cancelAnimationFrame(frame);
-    }, [playbackVideoEl, isPlaying, hasTranscriptSegments]);
+    }, [playbackVideoEl, isPlaying, hasCaptionBoundaryAhead]);
 
     const showEndCta =
       cta &&

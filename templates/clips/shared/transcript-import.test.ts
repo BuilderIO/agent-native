@@ -264,6 +264,26 @@ describe("parseTranscriptImport", () => {
     });
   });
 
+  it("starts a new cue at a timing line with no blank line before it", () => {
+    const result = parseTranscriptImport(
+      [
+        "1",
+        "00:00:01,000 --> 00:00:02,000",
+        "Hello",
+        "2",
+        "00:00:02,000 --> 00:00:03,000",
+        "x --> y",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 1000, endMs: 2000, text: "Hello" },
+        { startMs: 2000, endMs: 3000, text: "x --> y" },
+      ],
+    });
+  });
+
   it("reads a cue written straight under the WEBVTT header", () => {
     const result = parseTranscriptImport(
       "WEBVTT\nLanguage: fr\n00:00.000 --> 00:01.000\nBonjour\n\n00:01.000 --> 00:02.000\nSalut",

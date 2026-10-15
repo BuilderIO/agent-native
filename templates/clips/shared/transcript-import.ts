@@ -155,7 +155,7 @@ function parseCues(lines: string[], format: "vtt" | "srt"): ParsedLines {
       if (match) language = match[1];
     }
   }
-  for (const block of blocks) {
+  for (const block of blocks.flatMap(splitAtCueTimings)) {
     const first = block[0].text.trim();
     if (/^(?:NOTE|STYLE|REGION)(?:\s|$)/.test(first)) continue;
 
@@ -383,6 +383,31 @@ function decodeEntities(text: string): string {
       return NAMED_ENTITIES[body.toLowerCase()] ?? entity;
     },
   );
+}
+
+// Like WebVTT's own parser, a timing line starts a new cue even without a
+// blank line before it, so the next cue is not read as this one's text. An
+// SRT index right above that line moves with it.
+function splitAtCueTimings(
+  block: Array<{ text: string; number: number }>,
+): Array<Array<{ text: string; number: number }>> {
+  const parts: Array<Array<{ text: string; number: number }>> = [];
+  let start = 0;
+  let seenTiming = false;
+  for (const [index, line] of block.entries()) {
+    if (!CUE_TIMING.test(line.text)) continue;
+    if (seenTiming) {
+      const cut =
+        index - 1 > start && /^\d+$/.test(block[index - 1].text.trim())
+          ? index - 1
+          : index;
+      parts.push(block.slice(start, cut));
+      start = cut;
+    }
+    seenTiming = true;
+  }
+  parts.push(block.slice(start));
+  return parts;
 }
 
 function splitBlocks(
