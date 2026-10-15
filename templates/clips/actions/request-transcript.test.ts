@@ -1057,6 +1057,59 @@ describe("requestTranscript regeneration", () => {
       expect(cloudTextWrites()).toHaveLength(0);
     });
 
+    it("lets a regenerate replace an import with the Loom transcript", async () => {
+      const startedFrom = {
+        ...importedRow,
+        updatedAt: "2026-07-09T00:00:00.000Z",
+      };
+      mockFetchLoomTranscript.mockResolvedValueOnce({
+        language: "en",
+        segments: [{ startMs: 0, endMs: 4000, text: "Loom words." }],
+        fullText: "Loom words.",
+      });
+      mockSelectRows.queue = [
+        [startedFrom],
+        [
+          {
+            ...recordingRow,
+            videoUrl: "https://www.loom.com/embed/abcDEF_123456",
+            sourceAppName: "Loom",
+            sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          },
+        ],
+        [{ recordingId: "rec_imported" }],
+      ];
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+        regenerate: true,
+      });
+
+      const loomWrite = mockUpdateSet.mock.calls.findIndex(
+        ([values]) =>
+          (values as { fullText?: string }).fullText === "Loom words.",
+      );
+      expect(mockUpdateSet.mock.calls[loomWrite][0]).toMatchObject({
+        source: null,
+      });
+      expect(mockUpdateWhere.mock.calls[loomWrite][0]).toContainEqual({
+        or: [
+          {
+            or: [
+              { isNull: "recordingTranscripts.source" },
+              { ne: ["recordingTranscripts.source", "imported"] },
+            ],
+          },
+          {
+            column: "recordingTranscripts.updatedAt",
+            value: startedFrom.updatedAt,
+          },
+        ],
+      });
+      expect(result).toMatchObject({ status: "ready", provider: "loom" });
+    });
+
     it("lets a regenerate replace only the import it started from", async () => {
       const startedFrom = {
         ...importedRow,

@@ -567,6 +567,7 @@ export async function importLoomTranscriptForRecording({
   recording,
   now,
   context,
+  replaceTranscriptUpdatedAt,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
@@ -574,6 +575,8 @@ export async function importLoomTranscriptForRecording({
   recording: RecordingMediaRow;
   now: string;
   context?: ActionRunContext;
+  /** See upsertTranscriptRow: set only by an explicit regenerate. */
+  replaceTranscriptUpdatedAt?: string;
 }) {
   const shareUrl = resolveLoomTranscriptShareUrl(recording);
   let reason = shareUrl
@@ -596,6 +599,7 @@ export async function importLoomTranscriptForRecording({
           segmentsJson: JSON.stringify(transcript.segments),
           fullText: transcript.fullText,
           now,
+          replaceTranscriptUpdatedAt,
         });
         if (kept) return kept;
         await writeAppState("refresh-signal", { ts: Date.now() });
@@ -1171,6 +1175,9 @@ const requestTranscriptAction = defineAction({
           recording: rec,
           now,
           context,
+          replaceTranscriptUpdatedAt: regeneratingReadyTranscript
+            ? existingNativeTranscript?.updatedAt
+            : undefined,
         });
       }
 
