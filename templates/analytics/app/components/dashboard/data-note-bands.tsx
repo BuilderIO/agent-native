@@ -18,7 +18,14 @@ import {
   IconFlagFilled,
   IconPencil,
 } from "@tabler/icons-react";
-import { useMemo, type ReactNode, type SyntheticEvent } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
 import { ReferenceArea, usePlotArea, useXAxisScale } from "recharts";
 
 import { Button } from "@/components/ui/button";
@@ -103,7 +110,7 @@ function DataNoteDetails({
             ? t("dataNotes.incident")
             : t("dataNotes.dataProblem"),
           note.status === "fixed" ? t("dataNotes.fixed") : null,
-          t("dataNotes.addedBy", { email: note.addedBy }),
+          note.addedBy ? t("dataNotes.addedBy", { email: note.addedBy }) : null,
         ]
           .filter(Boolean)
           .join(" · ")}
@@ -205,6 +212,13 @@ export interface ShadedDataNote {
   bands: DataNoteBand[];
 }
 
+const UnplacedDataNotesContext = createContext<
+  ((notes: readonly DataNote[]) => void) | null
+>(null);
+
+/** Hears which notes a time chart writes under its plot, so its card can flag them by the title. */
+export const UnplacedDataNotesListener = UnplacedDataNotesContext.Provider;
+
 /**
  * Where each note falls on a chart's x values: bands over the dates it
  * covers, or a line under the chart when it can't be placed on them.
@@ -214,7 +228,7 @@ export function useDataNoteLayout(
   rows: readonly Record<string, unknown>[],
   xKey: string,
 ): { shaded: ShadedDataNote[]; unplaced: DataNote[] } {
-  return useMemo(() => {
+  const layout = useMemo(() => {
     if (notes.length === 0) return { shaded: [], unplaced: [] };
     const shown = dataNotesOnChart(
       notes,
@@ -227,6 +241,13 @@ export function useDataNoteLayout(
       ),
     };
   }, [notes, rows, xKey]);
+  const listen = useContext(UnplacedDataNotesContext);
+  useEffect(() => {
+    if (!listen) return;
+    listen(layout.unplaced);
+    return () => listen([]);
+  }, [listen, layout.unplaced]);
+  return layout;
 }
 
 type XAxisScale = NonNullable<ReturnType<typeof useXAxisScale>>;

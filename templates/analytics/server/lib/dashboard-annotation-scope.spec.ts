@@ -23,13 +23,12 @@ describe("dashboardAnnotationScope", () => {
   });
 
   it("reads a dashboard shared from another organization in that organization", async () => {
-    mocks.getDashboard.mockResolvedValue({
-      ownerEmail: "owner@example.test",
-      orgId: "org-owner",
-    });
+    const shared = { ownerEmail: "owner@example.test", orgId: "org-owner" };
+    mocks.getDashboard.mockResolvedValue(shared);
     await expect(dashboardAnnotationScope("shared", viewer)).resolves.toEqual({
       scope: { email: "owner@example.test", orgId: "org-owner" },
       editable: false,
+      dashboard: shared,
     });
     expect(mocks.getDashboard).toHaveBeenCalledWith("shared", viewer);
   });
