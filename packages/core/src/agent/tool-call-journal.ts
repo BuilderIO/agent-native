@@ -266,6 +266,7 @@ function isNonCompletedToolDone(
 
   return (
     result.startsWith("Error: Unknown tool") ||
+    result.startsWith("Error: Tool no longer available") ||
     result.startsWith("Error running ") ||
     result.startsWith("Invalid action parameters for ") ||
     result.startsWith("Plan mode blocked ") ||

@@ -864,6 +864,7 @@ export default {
     selectAll: "Select all",
     selectOnly: "Only",
     selectOnlyValue: "Only {{value}}",
+    presets: "Presets",
     untitledDashboard: "Untitled Dashboard",
     dashboardFallback: "dashboard",
     viewOnly: "You have view-only access to this dashboard.",

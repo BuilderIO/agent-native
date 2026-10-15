@@ -58,6 +58,7 @@ const mocks = vi.hoisted(() => ({
       _context: string,
       _options?: {
         submitMessageId?: string;
+        submissionExpiresAt?: number;
         targetTabId?: string;
         openSidebar?: boolean;
         generationAttemptId?: string;
@@ -386,6 +387,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 
 import { SLIDES_GENERATION_STARTED_EVENT } from "@/hooks/use-agent-generating";
 
+import { NEW_DECK_GENERATION_START_TIMEOUT_MS } from "../lib/generation-state.js";
 import DeckEditor from "./DeckEditor";
 
 function HomeRouteProbe() {
@@ -1999,8 +2001,8 @@ describe("DeckEditor generation signal wiring", () => {
 
     await waitFor(() =>
       expect(mocks.deck.generationContext).toMatchObject({
-        generationFailureCode: null,
-        generationFailureAttemptId: null,
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "attempt-1",
       }),
     );
     await waitFor(() =>
@@ -2289,6 +2291,135 @@ describe("DeckEditor generation signal wiring", () => {
       expect.stringContaining("Continue the original deck generation"),
       expect.objectContaining({ generationOutputId: "deck-1" }),
     );
+  });
+
+  it("allows another retry when an accepted retry never starts", async () => {
+    vi.useFakeTimers();
+    const originalPrompt = "Create a deck about coastal restoration.";
+    Object.assign(mocks.deck.generationContext, {
+      originalPrompt,
+      generationFailureCode: "no_output",
+      generationFailureAttemptId: "attempt-1",
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+    expect(
+      (mocks.deck.generationContext as Record<string, unknown>)
+        .generationFailureAttemptId,
+    ).toBe("attempt-1");
+    act(publishAgentGeneratingChange);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "deckEditor.tryAgain",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_DECK_GENERATION_START_TIMEOUT_MS);
+    });
+
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+    expect(mocks.deck.generationContext).toMatchObject({
+      generationFailureCode: "start_timeout",
+      generationFailureAttemptId:
+        mocks.deck.generationContext.generationAttemptId,
+    });
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "deckEditor.tryAgain",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+
+    const firstRetryAttemptId =
+      mocks.deck.generationContext.generationAttemptId;
+    expect(firstRetryAttemptId).not.toBe("attempt-1");
+
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+
+    expect(mocks.submitAndConfirm).toHaveBeenCalledTimes(2);
+    expect(mocks.submitAndConfirm).toHaveBeenNthCalledWith(
+      2,
+      originalPrompt,
+      expect.stringContaining("Continue the original deck generation"),
+      expect.objectContaining({
+        generationOutputId: "deck-1",
+        submissionExpiresAt:
+          (mocks.deck.generationContext.generationStartedAt as number) +
+          NEW_DECK_GENERATION_START_TIMEOUT_MS,
+      }),
+    );
+    expect(mocks.deck.generationContext.generationAttemptId).not.toBe(
+      firstRetryAttemptId,
+    );
+  });
+
+  it("keeps retry protection when accepted-delivery recovery storage fails", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(localStorageStub, "setItem").mockImplementation((key, value) => {
+      const recovery = JSON.parse(String(value)) as { kind?: string };
+      if (recovery.kind === "retry_accepted") {
+        throw new Error("Storage is full");
+      }
+      localStorageState.set(key, String(value));
+    });
+    const originalPrompt = "Create a deck about coastal restoration.";
+    Object.assign(mocks.deck.generationContext, {
+      originalPrompt,
+      generationFailureCode: "no_output",
+      generationFailureAttemptId: "attempt-1",
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "deckEditor.tryAgain",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_DECK_GENERATION_START_TIMEOUT_MS);
+    });
+
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+    expect(mocks.deck.generationContext).toMatchObject({
+      generationFailureCode: "start_timeout",
+      generationFailureAttemptId:
+        mocks.deck.generationContext.generationAttemptId,
+    });
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "deckEditor.tryAgain",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
   });
 
   it("keeps the original request visible and reusable after a retry fails", async () => {

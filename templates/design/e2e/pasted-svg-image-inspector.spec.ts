@@ -301,8 +301,7 @@ async function readBoardContent(
   }
   return board.content as string;
 }
-// fixme: product bug: With Fit target selected, the pasted SVG is saved as a static child of <main> and renders at the Screen's 0,0, over Fit target. The paste
-test.fixme("pasted SVG is an editable sized layer and image scale mode writes object-fit", async ({
+test("pasted SVG is an editable sized layer and image scale mode writes object-fit", async ({
   app,
   page,
 }, testInfo) => {

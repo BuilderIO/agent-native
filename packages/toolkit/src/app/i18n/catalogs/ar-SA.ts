@@ -671,6 +671,10 @@ const messages: ToolkitAgentChatTranslation = {
     "رفض مزوّد النموذج هذا الطلب لأنه غير صالح، لذلك لم تُعد المحاولة. أعد المحاولة، أو ابدأ محادثة جديدة إذا استمر الأمر.",
   "errorMessages.requestTooLarge":
     "تجاوز هذا الطلب حد الحجم على الخادم (HTTP 413). ابدأ دردشة جديدة أو أزل المرفقات أو المراجع الكبيرة، ثم حاول مرة أخرى.",
+  "errorMessages.capabilityUnavailable":
+    "تعذّر إرسال رسالتك الآن. يُرجى المحاولة مرة أخرى بعد قليل.",
+  "errorMessages.capabilityUnsupported":
+    "لا يمكن لهذا التطبيق إعادة محاولة المطالبة المحفوظة بأمان بعد. حدّث التطبيق ثم حاول مرة أخرى.",
   "errorMessages.runInterrupted": "توقف الوكيل قبل أن يُكمل.",
   "errorMessages.runFailed": "فشل تشغيل الوكيل.",
   "errorMessages.runUnverified":

@@ -133,6 +133,7 @@ export function runLayerMarqueeSelectionChange(
         screenId: item.screenId,
         node,
         elementInfo: canonical,
+        projection,
       };
     })
     .filter(
@@ -142,11 +143,48 @@ export function runLayerMarqueeSelectionChange(
         screenId: string;
         node: CodeLayerNode;
         elementInfo: ElementInfo;
+        projection: CodeLayerProjection;
       } => Boolean(item),
     );
 
-  const hitLayerIds = dedupeStringIds(resolved.map((item) => item.node.id));
-  resolved.forEach((item) => {
+  let selectedResolved = resolved;
+  if (intent.metaKey === true || intent.ctrlKey === true) {
+    const hitIdsByScreen = new Map<string, Set<string>>();
+    const nodesByScreen = new Map<string, Map<string, CodeLayerNode>>();
+    for (const item of resolved) {
+      const hitIds = hitIdsByScreen.get(item.screenId) ?? new Set<string>();
+      hitIds.add(item.node.id);
+      hitIdsByScreen.set(item.screenId, hitIds);
+      if (!nodesByScreen.has(item.screenId)) {
+        nodesByScreen.set(
+          item.screenId,
+          new Map(item.projection.nodes.map((node) => [node.id, node])),
+        );
+      }
+    }
+    const hitAncestorKeys = new Set<string>();
+    for (const item of resolved) {
+      const nodes = nodesByScreen.get(item.screenId);
+      const hitIds = hitIdsByScreen.get(item.screenId);
+      let ancestorId = item.node.parentId;
+      const visited = new Set<string>();
+      while (ancestorId && !visited.has(ancestorId)) {
+        visited.add(ancestorId);
+        if (hitIds?.has(ancestorId)) {
+          hitAncestorKeys.add(`${item.screenId}:${ancestorId}`);
+        }
+        ancestorId = nodes?.get(ancestorId)?.parentId;
+      }
+    }
+    selectedResolved = resolved.filter(
+      (item) => !hitAncestorKeys.has(`${item.screenId}:${item.node.id}`),
+    );
+  }
+
+  const hitLayerIds = dedupeStringIds(
+    selectedResolved.map((item) => item.node.id),
+  );
+  selectedResolved.forEach((item) => {
     renderedElementInfoByLayerKeyRef?.current.set(
       `${item.screenId}:${item.node.id}`,
       item.elementInfo,
@@ -171,14 +209,14 @@ export function runLayerMarqueeSelectionChange(
     setOverviewSelectedScreenIds([]);
   }
 
-  const primary = resolved[resolved.length - 1];
+  const primary = selectedResolved[selectedResolved.length - 1];
   if (primary) {
     setActiveFileId(primary.screenId);
     setSelectedElement(primary.elementInfo);
   } else if (
     hasActiveSelectionRef.current &&
     shouldClearBridgeSelectionOnEmptyMarquee({
-      resolvedCount: resolved.length,
+      resolvedCount: selectedResolved.length,
       additive,
     })
   ) {

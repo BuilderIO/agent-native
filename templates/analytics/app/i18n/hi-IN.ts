@@ -1203,6 +1203,7 @@ export default {
     selectAll: "सभी चुनें",
     selectOnly: "केवल",
     selectOnlyValue: "केवल {{value}}",
+    presets: "प्रीसेट",
     untitledDashboard: "शीर्षक रहित डैशबोर्ड",
     dashboardFallback: "डैशबोर्ड",
     viewOnly: "आपके पास इस डैशबोर्ड तक केवल देखने की पहुंच है।",

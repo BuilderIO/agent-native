@@ -310,11 +310,65 @@ pub async fn screen_memory_configure(
 #[tauri::command]
 pub async fn screen_memory_start(app: AppHandle) -> Result<ScreenMemoryStatus, String> {
     let mut feature_config = crate::config::feature_config(&app);
+    let previous_screen_memory = feature_config.screen_memory.clone();
     feature_config.screen_memory.enabled = true;
     feature_config.screen_memory.paused = false;
     feature_config.screen_memory = normalize_screen_memory_config(feature_config.screen_memory);
     crate::config::set_feature_config(app.clone(), feature_config).await?;
-    build_status(&app)
+    let status = match build_status(&app) {
+        Ok(status) => status,
+        Err(error) => {
+            return Err(rollback_screen_memory_start(&app, &previous_screen_memory, error).await);
+        }
+    };
+    if let Some(error) =
+        screen_memory_start_error(&status, crate::rewind_capture_suspension::is_active(&app))
+    {
+        return Err(rollback_screen_memory_start(&app, &previous_screen_memory, error).await);
+    }
+    Ok(status)
+}
+
+async fn rollback_screen_memory_start(
+    app: &AppHandle,
+    previous: &ScreenMemoryConfig,
+    error: String,
+) -> String {
+    let mut current_config = crate::config::feature_config(app);
+    restore_screen_memory_start_config(&mut current_config.screen_memory, previous);
+    match crate::config::set_feature_config(app.clone(), current_config).await {
+        Ok(()) => error,
+        Err(rollback_error) => {
+            format!("{error}; restoring the previous Rewind setting also failed: {rollback_error}")
+        }
+    }
+}
+
+fn screen_memory_start_error(
+    status: &ScreenMemoryStatus,
+    capture_suspended: bool,
+) -> Option<String> {
+    if capture_suspended {
+        return None;
+    }
+    (status.config.enabled
+        && !status.config.paused
+        && status.active_segment.is_none()
+        && !status.exclusion_active)
+        .then(|| {
+            status
+                .last_error
+                .clone()
+                .unwrap_or_else(|| "Rewind did not start recording.".to_string())
+        })
+}
+
+fn restore_screen_memory_start_config(
+    current: &mut ScreenMemoryConfig,
+    previous: &ScreenMemoryConfig,
+) {
+    current.enabled = previous.enabled;
+    current.paused = previous.paused;
 }
 
 #[tauri::command]
@@ -3369,6 +3423,61 @@ fn now_iso() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screen_memory_start_reports_a_failed_capture_start() {
+        let mut status = ScreenMemoryStatus {
+            available: true,
+            state: ScreenMemoryRuntimeState::Idle,
+            config: ScreenMemoryConfig {
+                enabled: true,
+                paused: false,
+                ..ScreenMemoryConfig::default()
+            },
+            storage_dir: PathBuf::from("/tmp/screen-memory"),
+            active_segment: None,
+            recent_segments: Vec::new(),
+            last_error: Some("Screen capture permission is required.".into()),
+            exclusion_active: false,
+            coverage: String::new(),
+        };
+
+        assert_eq!(
+            screen_memory_start_error(&status, false).as_deref(),
+            Some("Screen capture permission is required.")
+        );
+        assert_eq!(screen_memory_start_error(&status, true), None);
+
+        status.last_error = None;
+        assert_eq!(
+            screen_memory_start_error(&status, false).as_deref(),
+            Some("Rewind did not start recording.")
+        );
+
+        status.exclusion_active = true;
+        assert_eq!(screen_memory_start_error(&status, false), None);
+    }
+
+    #[test]
+    fn failed_screen_memory_start_restores_only_enabled_and_paused_config() {
+        let previous = ScreenMemoryConfig {
+            enabled: false,
+            paused: false,
+            ..ScreenMemoryConfig::default()
+        };
+        let mut current = ScreenMemoryConfig {
+            enabled: true,
+            paused: false,
+            retention_hours: 6,
+            ..ScreenMemoryConfig::default()
+        };
+
+        restore_screen_memory_start_config(&mut current, &previous);
+
+        assert!(!current.enabled);
+        assert!(!current.paused);
+        assert_eq!(current.retention_hours, 6);
+    }
 
     #[test]
     fn codex_agent_connection_replaces_only_its_own_mcp_footprint() {

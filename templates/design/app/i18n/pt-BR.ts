@@ -1060,6 +1060,8 @@ export default {
       timelineDescription:
         "Linha do tempo de quadros-chave. {{tracks}} trilhas, {{keyframes}} quadros-chave. Use as setas ou Espaço + arrastar para rolar, pince ou use Cmd/Ctrl + roda para ampliar, arraste para mover quadros-chave, use Shift/Cmd para seleção múltipla e clique duas vezes para adicionar.",
       size: "Tamanho",
+      sourceReadUnavailable:
+        "O Motion não pode ler esta animação sem alterar seu comportamento.",
       sourceWriteUnavailable:
         "No momento, o código de movimento só pode ser gravado em designs HTML inline.",
       sourceConflict:
