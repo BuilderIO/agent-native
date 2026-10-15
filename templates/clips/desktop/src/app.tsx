@@ -279,6 +279,10 @@ import {
   saveRecentLookbackSeconds,
 } from "./lookback/lookback-settings";
 import { LookbackRow } from "./lookback/LookbackRow";
+import {
+  takePendingLookbackContext,
+  type PendingLookbackContext,
+} from "./lookback/pending-lookback-context";
 import { processRecordingContextItem } from "./lookback/worker";
 import { PillLogo } from "./overlays/pill-logo";
 import {
@@ -1214,13 +1218,9 @@ export function App({
   const [lookbackRewindConsentError, setLookbackRewindConsentError] = useState<
     string | null
   >(null);
-  // The context request for the current recording. It keeps its own target so
-  // a later cancel removes the item from the server that created it.
-  const lookbackContextRef = useRef<{
-    recordingId: string;
-    target: { serverUrl: string; authToken: string };
-    item: Promise<RecordingContextItem | null>;
-  } | null>(null);
+  // Failed starts can settle after a newer request begins, so keep each
+  // cleanup target keyed until its recording fails, is cancelled, or stops.
+  const lookbackContextRef = useRef(new Map<string, PendingLookbackContext>());
   const processingLookbackIdsRef = useRef<Set<string>>(new Set());
   // Pending items whose footage was captured on another device. Session-scoped,
   // so a restart checks them against local origins again.
@@ -1902,7 +1902,6 @@ export function App({
   // Runs beside the recording, never ahead of it: a failed request only raises
   // the notice, and the recording continues.
   function requestLookbackForRecording(seconds: number) {
-    lookbackContextRef.current = null;
     if (seconds <= 0) return;
     const recordingId = sessionRecordingIdRef.current;
     const origin = recordingId ? getRewindClipOrigin(recordingId) : null;
@@ -1928,7 +1927,11 @@ export function App({
         onRequestError(error);
         return null;
       });
-      lookbackContextRef.current = { recordingId, target, item };
+      lookbackContextRef.current.set(recordingId, {
+        recordingId,
+        target,
+        item,
+      });
     } catch (error) {
       onRequestError(error);
     }
@@ -1936,10 +1939,11 @@ export function App({
 
   // A discarded recording must not keep an item that the worker would export.
   function removeLookbackContext(recordingId?: string) {
-    const pending = lookbackContextRef.current;
-    if (!pending || (recordingId && pending.recordingId !== recordingId))
-      return;
-    lookbackContextRef.current = null;
+    const pending = takePendingLookbackContext(
+      lookbackContextRef.current,
+      recordingId ?? sessionRecordingIdRef.current,
+    );
+    if (!pending) return;
     void pending.item
       .then((item) =>
         item ? removeRecordingContext(pending.target, item.id) : null,
@@ -3451,6 +3455,10 @@ export function App({
       }
       await loadPendingUploads();
     } finally {
+      takePendingLookbackContext(
+        lookbackContextRef.current,
+        stoppingRecordingId ?? stopResult?.recordingId,
+      );
       recordingStopFinalizingRef.current = false;
       setRecordingStopFinalizing(false);
       setRecError((message) => clearResolvedFinalizationError(message, false));
