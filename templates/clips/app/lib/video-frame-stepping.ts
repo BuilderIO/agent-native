@@ -41,6 +41,18 @@ export function frameTimeMs(mediaTimeSeconds: number): number {
 }
 
 /**
+ * `frameTimeMs`, kept out of cuts. Rounding up crosses into a cut that starts
+ * inside the frame's first millisecond, where no whole millisecond both shows
+ * the frame and is kept, so this takes the kept one just before the cut.
+ */
+export function keptFrameTimeMs(
+  mediaTimeSeconds: number,
+  cuts: readonly ExcludedRange[],
+): number {
+  return beforeCut(frameTimeMs(mediaTimeSeconds), cuts);
+}
+
+/**
  * Follows the frames a video element actually presents, through
  * `requestVideoFrameCallback`, and learns the clip's frame length from
  * consecutive frames during playback.
@@ -197,8 +209,9 @@ class StepOvertaken extends Error {}
 
 /**
  * Moves a paused video one presented frame forward or back. Resolves false
- * when another seek or playback took over first, so steps queued behind this
- * one shouldn't run from wherever that left the video.
+ * when it couldn't step from a frame confirmed on screen, because another
+ * seek or playback took over or a seek never showed its frame, so steps
+ * queued behind this one shouldn't run.
  */
 export async function stepVideoFrame(
   target: FrameStepTarget,
@@ -217,8 +230,10 @@ export async function stepVideoFrame(
     return true;
   }
   const sought = video.currentTime;
-  const start = (await clock.settledFrameStart()) ?? video.currentTime;
-  if (overtaken(video, sought)) return false;
+  // Stepping from the seek target instead would override a seek still in
+  // flight, and a step back from mid-frame would stay on the same frame.
+  const start = await clock.settledFrameStart();
+  if (start === null || overtaken(video, sought)) return false;
   try {
     if (direction < 0) {
       await stepBack(target, clock, start);

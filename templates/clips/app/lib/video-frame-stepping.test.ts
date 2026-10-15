@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   type ExcludedRange,
   frameTimeMs,
+  keptFrameTimeMs,
   stepVideoFrame,
   VideoFrameClock,
 } from "./video-frame-stepping";
@@ -19,6 +20,8 @@ type FrameCallback = (
 class FakeVideo {
   paused = true;
   seeking = false;
+  /** Seeks start but never finish, as on a stalled network. */
+  stalled = false;
   duration: number;
   private time = 0;
   private presented = 0;
@@ -43,6 +46,7 @@ class FakeVideo {
     this.seeking = true;
     const seek = ++this.seeks;
     this.emit("seeking");
+    if (this.stalled) return;
     // Chromium presents the sought frame before it reports the seek done.
     setTimeout(() => {
       if (seek !== this.seeks) return;
@@ -140,6 +144,17 @@ describe("frameTimeMs", () => {
     expect(frameTimeMs(0.042)).toBe(42);
     expect(frameTimeMs(1)).toBe(1000);
     expect(frameTimeMs(0)).toBe(0);
+  });
+});
+
+describe("keptFrameTimeMs", () => {
+  it("stays before a cut that starts inside the frame's first millisecond", () => {
+    // At 24 fps frame 11 starts at 458.33 ms, and the cut starts at 459 ms.
+    const cuts = [{ startMs: 459, endMs: 1500 }];
+
+    expect(keptFrameTimeMs(11 / 24, cuts)).toBe(458);
+    expect(keptFrameTimeMs(10 / 24, cuts)).toBe(417);
+    expect(keptFrameTimeMs(36 / 24, cuts)).toBe(1500);
   });
 });
 
@@ -243,6 +258,25 @@ describe("stepVideoFrame", () => {
 
     expect(await stepping).toBe(false);
     expect(fake.shownFrame()).toBe(20);
+  });
+
+  it("doesn't step from a seek that never shows its frame", async () => {
+    vi.useFakeTimers();
+    try {
+      const frames = frameStarts(24, 48, true);
+      const { fake, step, seekMs } = setup(frames);
+      fake.stalled = true;
+      const soughtMs = frameTimeMs(frames[10]);
+      seekMs(soughtMs);
+
+      const stepping = step(1);
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(await stepping).toBe(false);
+      expect(fake.currentTime).toBe(soughtMs / 1000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("steps onto the last frame before a cut, then across it", async () => {

@@ -53,7 +53,7 @@ import {
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 import {
-  frameTimeMs,
+  keptFrameTimeMs,
   stepVideoFrame,
   VideoFrameClock,
 } from "@/lib/video-frame-stepping";
@@ -1129,7 +1129,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 },
                 next,
               );
-              // A seek elsewhere drops the steps queued before it.
+              // A step that couldn't run from the frame on screen drops the
+              // steps queued behind it.
               if (!kept) break;
               next = queue.pending.shift();
             }
@@ -1156,7 +1157,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         seek: seekToVisibleMs,
         getCurrentOriginalMs: () => {
           const presented = frameClockRef.current?.presentedFrameStart();
-          if (presented != null) return frameTimeMs(presented);
+          if (presented != null) {
+            return keptFrameTimeMs(presented, excludedRangesRef.current);
+          }
           const v = videoRef.current;
           const liveOriginalMs =
             v &&
