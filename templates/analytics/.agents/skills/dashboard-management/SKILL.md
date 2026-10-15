@@ -259,6 +259,10 @@ The patch replaces the whole list, so include the sets already hidden.
   badge, and label text, including on combo charts. Labels sit in rows above the
   plot: same-day labels join, a long one wraps at words, and days that find no
   room are counted, not cut.
+- Human Review previews of a dashboard draw the key dates of the dashboard's
+  organization, minus the sets it hides, even when the reviewer is in another
+  organization: `get-sql-dashboard` with `reviewPreview` returns them as
+  `keyDates`.
 
 ## Reusable Native Dashboard Patterns
 

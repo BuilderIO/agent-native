@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import type { DashboardAnnotations } from "../app/pages/adhoc/sql-dashboard/types";
 import {
   buildDashboardAgentContext,
   buildDashboardSeedAgentContext,
@@ -19,6 +20,8 @@ import {
   getDashboard,
   getDashboardForReview,
 } from "../server/lib/dashboards-store";
+import { listKeyDateSets } from "../server/lib/key-dates-store";
+import { keyDateEvents } from "../shared/key-dates";
 
 export default defineAction({
   description:
@@ -42,7 +45,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Human Review only: read a saved dashboard for an organization owner/admin. Cross-organization reads are limited to the single organization configured as this app's observability super organization.",
+        "Human Review only: read a saved dashboard for an organization owner/admin. Cross-organization reads are limited to the single organization configured as this app's observability super organization. The result adds `keyDates`: the dashboard organization's key dates, minus the sets the dashboard hides.",
       ),
     reviewOrgId: z
       .string()
@@ -141,6 +144,19 @@ export default defineAction({
       config: repairKnownFirstPartyDashboardQueries(args.id, dash.config)
         .config,
     };
-    return buildDashboardAgentContext(dashboard, detail);
+    const context = buildDashboardAgentContext(dashboard, detail);
+    if (!args.reviewPreview) return context;
+    // The reviewer may be in another organization, so list-key-dates would
+    // return their key dates, not the ones this dashboard draws.
+    return {
+      ...context,
+      keyDates: keyDateEvents(
+        await listKeyDateSets({
+          email: dashboard.ownerEmail,
+          orgId: dashboard.orgId,
+        }),
+        dashboard.config.annotations as DashboardAnnotations | undefined,
+      ),
+    };
   },
 });

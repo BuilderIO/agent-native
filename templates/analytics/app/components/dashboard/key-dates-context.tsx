@@ -63,6 +63,29 @@ export function DashboardKeyDatesProvider({
   );
 }
 
+/**
+ * Draws key dates already resolved for one dashboard. A Human Review preview
+ * can show another organization's dashboard, whose key dates list-key-dates
+ * does not return, so get-sql-dashboard sends them with it.
+ */
+export function ResolvedKeyDatesProvider({
+  keyDates,
+  children,
+}: {
+  keyDates: readonly PanelEvent[];
+  children: ReactNode;
+}) {
+  const value = useMemo<DashboardKeyDatesValue>(
+    () => ({ keyDates, keyDatesFailed: false }),
+    [keyDates],
+  );
+  return (
+    <KeyDatesContext.Provider value={value}>
+      {children}
+    </KeyDatesContext.Provider>
+  );
+}
+
 /** A panel's own events plus the dashboard's key dates, for `useEventMarkerGroups`. */
 export function usePanelEvents(
   panel: Pick<SqlPanel, "chartType" | "config">,
