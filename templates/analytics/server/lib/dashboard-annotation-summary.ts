@@ -36,8 +36,9 @@ export interface DataNoteSummary {
   endDate?: string;
   /**
    * Charts on this dashboard the note is on. A time chart draws it only over
-   * the dates it plots, so not at all when they miss the note's; the server
-   * never sees those dates, so this can't promise a mark.
+   * the dates it plots, so not at all when they miss the note's, and one whose
+   * x values aren't dates lists it only while it is recent. The server never
+   * sees those values, so this can't promise a mark.
    */
   panelIds: string[];
   /** Charts the note belongs on that this dashboard hides it from. */
@@ -77,7 +78,11 @@ function hiddenPanelIds(
   );
 }
 
-/** As `SqlChartCard` does: time charts shade a note over its dates, other charts list it only while it is recent. */
+/**
+ * As `SqlChartCard` does: time charts shade a note over its dates, other
+ * charts list it only while it is recent. The chart type stands in for the
+ * x-axis, which the server never sees.
+ */
 function panelsShowingNote(
   note: Pick<DataNote, "endDate" | "matchEvents" | "unlessEvents" | "panels">,
   dashboardId: string,
