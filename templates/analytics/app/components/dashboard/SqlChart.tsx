@@ -123,6 +123,7 @@ import type {
 } from "@/pages/adhoc/sql-dashboard/types";
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
+import { renderEventMarkers } from "./event-markers";
 
 export { limitChartRows };
 
@@ -2709,6 +2710,7 @@ function BarRenderer({
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const [eventHovered, setEventHovered] = useState(false);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2753,6 +2755,7 @@ function BarRenderer({
             vertical={false}
           />
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             cursor={BAR_TOOLTIP_CURSOR_PROPS}
             labelFormatter={xTooltipLabelFormatter}
@@ -2782,6 +2785,13 @@ function BarRenderer({
               isAnimationActive={false}
             />
           ))}
+          {renderEventMarkers(
+            panel.config?.events,
+            rows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
         </BarChart>
       </ChartResponsiveContainer>
     </ChartFrame>
@@ -2814,6 +2824,7 @@ function ComboRenderer({
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const [eventHovered, setEventHovered] = useState(false);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2859,6 +2870,7 @@ function ComboRenderer({
             vertical={false}
           />
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             cursor={BAR_TOOLTIP_CURSOR_PROPS}
             labelFormatter={xTooltipLabelFormatter}
@@ -2898,6 +2910,13 @@ function ComboRenderer({
               />
             ),
           )}
+          {renderEventMarkers(
+            panel.config?.events,
+            rows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
         </ComposedChart>
       </ChartResponsiveContainer>
     </ChartFrame>
@@ -2929,6 +2948,7 @@ function TimeSeriesRenderer({
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const [eventHovered, setEventHovered] = useState(false);
   const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
     useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
@@ -2982,6 +3002,7 @@ function TimeSeriesRenderer({
               vertical={false}
             />
             <Tooltip
+              active={eventHovered ? false : undefined}
               {...CHART_TOOLTIP_PROPS}
               labelFormatter={xTooltipLabelFormatter}
               content={
@@ -3024,6 +3045,13 @@ function TimeSeriesRenderer({
                   isAnimationActive={false}
                 />
               ) : null,
+            )}
+            {renderEventMarkers(
+              panel.config?.events,
+              chartRows,
+              xKey,
+              dualAxis.enabled ? "left" : undefined,
+              setEventHovered,
             )}
           </LineChart>
         </ChartResponsiveContainer>
@@ -3085,6 +3113,7 @@ function TimeSeriesRenderer({
             vertical={false}
           />
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             labelFormatter={xTooltipLabelFormatter}
             content={
@@ -3132,6 +3161,13 @@ function TimeSeriesRenderer({
                 isAnimationActive={false}
               />
             ) : null,
+          )}
+          {renderEventMarkers(
+            panel.config?.events,
+            chartRows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
           )}
         </AreaChart>
       </ChartResponsiveContainer>

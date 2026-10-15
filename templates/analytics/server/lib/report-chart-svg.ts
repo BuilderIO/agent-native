@@ -13,6 +13,8 @@ export { estimateTextWidth };
 
 export type ReportChartType = "bar" | "line" | "area" | "pie" | "funnel";
 
+export type ReportChartEvent = { index: number; label: string; color?: string };
+
 export type ReportChartAxis = "left" | "right";
 
 export type ReportChartValueFormatter = "number" | "currency" | "percent";
@@ -359,11 +361,13 @@ function renderCartesianChartSvg({
   fontFamily,
   stacked,
   fit,
+  events,
 }: {
   title: string;
   subtitle: string;
   labels: string[];
   series: ResolvedSeries[];
+  events?: ReportChartEvent[];
   type: "bar" | "line" | "area";
   width: number;
   height: number;
@@ -625,6 +629,16 @@ function renderCartesianChartSvg({
       : ""
   }`;
 
+  const eventMarkup = (events ?? [])
+    .filter((event) => event.index >= 0 && event.index < labels.length)
+    .map((event) => {
+      const x = centerFor(event.index);
+      const color = safeColor(event.color, theme.labelColor);
+      const rightHalf = x > chartLeft + plotWidth / 2;
+      return `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${chartTop}" y2="${chartBottom}" stroke="${color}" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="3 3"/><text x="${(x + (rightHalf ? -5 : 5)).toFixed(1)}" y="${chartTop + 10}" text-anchor="${rightHalf ? "end" : "start"}" font-size="10" fill="${color}">${escapeXml(truncate(event.label, 40))}</text><circle cx="${x.toFixed(1)}" cy="${chartBottom}" r="5" fill="${color}" stroke="${theme.background}" stroke-width="2"/>`;
+    })
+    .join("");
+
   const legendEntries = legendLayout
     ? legendLayout.rows
         .map((row, rowIndex) => {
@@ -661,6 +675,7 @@ function renderCartesianChartSvg({
     ${axis}
     ${marks}
     ${xLabels}
+    ${eventMarkup}
   </g>
 </svg>`;
 }
@@ -920,7 +935,9 @@ export function renderReportChartSvg({
   width,
   height,
   stacked,
+  events,
 }: {
+  events?: ReportChartEvent[];
   title?: string;
   subtitle?: string;
   labels: string[];
@@ -968,5 +985,6 @@ export function renderReportChartSvg({
     fontFamily: REPORT_CHART_FONT_FAMILY,
     stacked: stacked ?? false,
     fit: true,
+    events,
   });
 }

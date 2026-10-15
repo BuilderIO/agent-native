@@ -78,8 +78,15 @@ export type DashboardTimeScope =
   | "cohort-history"
   | "all-time";
 
+export interface PanelEvent {
+  date: string;
+  label: string;
+  color?: string;
+}
+
 export interface SqlPanelConfig {
   timeScope?: DashboardTimeScope;
+  events?: PanelEvent[];
   xKey?: string;
   yKey?: string;
   yKeys?: string[];

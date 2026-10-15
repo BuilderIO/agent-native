@@ -681,3 +681,18 @@ describe("report category axis", () => {
     expect(svg).not.toContain("rotate(");
   });
 });
+
+describe("renderReportChartSvg events", () => {
+  it("draws a labelled badge on the x-axis for each event", () => {
+    const svg = renderReportChartSvg({
+      labels: ["2026-10-12", "2026-10-13", "2026-10-14"],
+      series: [{ label: "WAU", data: [1, 2, 3] }],
+      type: "area",
+      width: 720,
+      height: 320,
+      events: [{ index: 2, label: "Beta launch" }],
+    });
+    expect(svg).toContain("Beta launch");
+    expect(svg).toContain('stroke-dasharray="3 3"');
+  });
+});

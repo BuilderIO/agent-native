@@ -209,6 +209,27 @@ flattens into the baseline and reads as "no data."
 - Scheduled email reports render the same two scales, so a dual-axis panel is
   safe to put on a subscribed dashboard.
 
+## Key-Date Event Markers
+
+Mark a launch, release, or incident on a `line`, `area`, `bar`, or `combo`
+chart with a date x-axis using `config.events`. Do not add a fake series or an
+extension for this.
+
+```json
+"config": {
+  "events": [{ "date": "2026-10-14", "label": "Agent Native beta launch date" }]
+}
+```
+
+- Each event is `{ date: "YYYY-MM-DD", label, color? }`; multiple are allowed.
+- A badge sits on the x-axis at the date with a faint dashed guide line.
+  Hovering the badge shows the label and date. It adds no legend entry and does
+  not change the series tooltip.
+- A date missing from the data snaps to the nearest x value; a date outside the
+  visible range is hidden; a non-date x-axis shows nothing.
+- `mutate-dashboard` rejects malformed events and other chart types.
+- Scheduled email reports draw the guide line, badge, and label text.
+
 ## Reusable Native Dashboard Patterns
 
 The recent extension-backed dashboards in Builder Analytics cluster into a few
