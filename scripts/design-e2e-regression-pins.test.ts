@@ -30,6 +30,17 @@ const REQUIRED_CORE_COVERAGE = [
       "Select layer on a non-active overview screen preserves exact screen and layer identity",
   },
   {
+    shard: "inspector-3b",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard paste preserves non-pixel margins at exact visual coordinates",
+  },
+  {
+    shard: "position-3",
+    file: "canvas-chords.spec.ts",
+    title: "Keyboard paste and replacement preserve board-layer geometry",
+  },
+  {
     shard: "drag-1a",
     file: "interaction-selection.spec.ts",
     title: "cmd+click deep-selects Kid B directly with no prior selection",
@@ -271,7 +282,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 80);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 82);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,

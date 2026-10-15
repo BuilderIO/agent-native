@@ -64,4 +64,42 @@ describe("withMeasuredGeometry clipboard placement", () => {
 
     expect(measured.absoluteSiblingVisualOrigin).toEqual({ x: 45, y: 57 });
   });
+
+  it("measures from an explicitly supplied board preview iframe", () => {
+    const frame = document.createElement("iframe");
+    frame.dataset.designPreviewIframe = "";
+    document.body.append(frame);
+    frames.push(frame);
+
+    const preview = frame.contentDocument!;
+    const parent = preview.createElement("div");
+    parent.style.cssText = "position:relative;width:300px;height:200px";
+    mockRect(parent, { x: 100, y: 200, width: 300, height: 200 });
+    const target = preview.createElement("button");
+    target.dataset.agentNativeNodeId = "board-target";
+    target.style.cssText =
+      "position:static;left:45px;top:57px;width:80px;height:40px";
+    mockRect(target, { x: 145, y: 257, width: 80, height: 40 });
+    parent.append(target);
+    preview.body.append(parent);
+
+    const measured = withMeasuredGeometry(
+      {
+        tagName: "button",
+        selector: '[data-agent-native-node-id="board-target"]',
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 0, y: 0, width: 80, height: 40 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      } satisfies ElementInfo,
+      "board-file",
+      {
+        measureAbsoluteSiblingVisualOrigin: true,
+        previewIframe: frame,
+      },
+    );
+
+    expect(measured.absoluteSiblingVisualOrigin).toEqual({ x: 45, y: 57 });
+  });
 });

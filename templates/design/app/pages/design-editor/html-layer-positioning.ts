@@ -356,12 +356,12 @@ export function setAbsolutePositioningForNodeInHtml(
     nodeAttrId,
     changedProperties,
     (element) => {
+      element.style.removeProperty("inset");
       element.style.position = "absolute";
       element.style.left = `${Math.round(point.x - (pointerOffset?.x ?? 0))}px`;
       element.style.top = `${Math.round(point.y - (pointerOffset?.y ?? 0))}px`;
       element.style.removeProperty("right");
       element.style.removeProperty("bottom");
-      element.style.removeProperty("inset");
       for (const prop of FLEX_ITEM_PROPS) {
         element.style.removeProperty(prop);
       }

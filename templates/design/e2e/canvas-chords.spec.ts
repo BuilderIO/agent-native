@@ -495,6 +495,37 @@ async function pressEditorKey(page: Page, key: string): Promise<void> {
   await page.keyboard.press(key);
 }
 
+async function writeLegacyMarginClipboard(
+  app: App,
+  context: BrowserContext,
+  fileId: string,
+  margins: string[],
+): Promise<void> {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(appPath("/")).origin,
+  });
+  await app.page.evaluate(
+    async ({ fileId, margins }) => {
+      const clipboardPath = "/app/lib/design-clipboard.ts";
+      const importPath = "/app/lib/design-import.ts";
+      const { getDesignClipboardTrustToken } = await import(clipboardPath);
+      const { serializeDesignClipboardPayload } = await import(importPath);
+      const entries = margins.map((margin, index) => ({
+        html: `<div data-agent-native-node-id="legacy-margin-${index}" data-agent-native-layer-name="Legacy margin ${index}" style="width:60px;height:30px;font-size:20px;margin:${margin};background:rgb(10, 20, 30)">Margin ${index}</div>`,
+        rootNodeId: `legacy-margin-${index}`,
+        sourceFileId: fileId,
+      }));
+      const marker = serializeDesignClipboardPayload(
+        entries.map((entry) => entry.html).join("\n"),
+        { version: 1, entries },
+        getDesignClipboardTrustToken() ?? undefined,
+      );
+      await navigator.clipboard.writeText(marker);
+    },
+    { fileId, margins },
+  );
+}
+
 test.describe("canvas chords", () => {
   test("Shift+A wraps one rectangle where it stands, not at the frame origin", async ({
     app,
@@ -1012,35 +1043,13 @@ test.describe("canvas chords", () => {
       app,
       '<!doctype html><html><body style="margin:0;position:relative;width:1000px;height:800px"></body></html>',
     );
-    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-      origin: new URL(appPath("/")).origin,
-    });
     const margins = ["0px auto", "10%", "2em"];
     const fileId = await app.page
       .locator("iframe[data-design-preview-iframe]")
       .first()
       .getAttribute("data-screen-iframe-id");
     expect(fileId).not.toBeNull();
-    await app.page.evaluate(
-      async ({ fileId, margins }) => {
-        const clipboardPath = "/app/lib/design-clipboard.ts";
-        const importPath = "/app/lib/design-import.ts";
-        const { getDesignClipboardTrustToken } = await import(clipboardPath);
-        const { serializeDesignClipboardPayload } = await import(importPath);
-        const entries = margins.map((margin, index) => ({
-          html: `<div data-agent-native-node-id="legacy-margin-${index}" data-agent-native-layer-name="Legacy margin ${index}" style="width:60px;height:30px;font-size:20px;margin:${margin};background:rgb(10, 20, 30)">Margin ${index}</div>`,
-          rootNodeId: `legacy-margin-${index}`,
-          sourceFileId: fileId,
-        }));
-        const marker = serializeDesignClipboardPayload(
-          entries.map((entry) => entry.html).join("\n"),
-          { version: 1, entries },
-          getDesignClipboardTrustToken() ?? undefined,
-        );
-        await navigator.clipboard.writeText(marker);
-      },
-      { fileId, margins },
-    );
+    await writeLegacyMarginClipboard(app, context, fileId!, margins);
     await pressEditorKey(app.page, "Escape");
     await expect.poll(() => app.selectedLayers()).toEqual([]);
     await pressEditorKey(app.page, "ControlOrMeta+V");
@@ -1073,6 +1082,134 @@ test.describe("canvas chords", () => {
           .node(copy.id)
           .evaluate((element) => (element as HTMLElement).style.margin),
       ).toBe(margin);
+    }
+  });
+
+  test("Keyboard paste and replacement preserve board-layer geometry", async ({
+    app,
+    context,
+  }) => {
+    const boardHtml =
+      '<!doctype html><html><body style="margin:0;position:relative;width:1000px;height:800px"><div data-agent-native-node-id="board-anchor" data-agent-native-layer-name="Board anchor" style="position:absolute;left:0;top:0;width:1px;height:1px"></div></body></html>';
+    const id = await app.seed("<!doctype html><html><body></body></html>", {
+      files: { "__board__.html": boardHtml },
+    });
+    const record = await app.savedRecord(id);
+    const fileId = record.files.find(
+      (file) => file.filename === "__board__.html",
+    )!.id;
+    const removed = await app.page.request.post(
+      appPath("/_agent-native/actions/delete-file"),
+      {
+        data: {
+          id: record.files.find((file) => file.filename === "index.html")!.id,
+        },
+      },
+    );
+    expect(removed.ok()).toBe(true);
+    const linked = await app.page.request.post(
+      appPath("/_agent-native/actions/update-design"),
+      {
+        data: {
+          id,
+          dataOperations: [{ op: "set", path: ["boardFileId"], value: fileId }],
+        },
+      },
+    );
+    expect(linked.ok()).toBe(true);
+    await app.open(id);
+    await app.settled();
+    const frame = app.page.locator(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+    );
+    await expect(frame).toBeVisible();
+    const margins = ["0px auto", "10%", "2em"];
+    await writeLegacyMarginClipboard(app, context, fileId, margins);
+    await selectLayerRow(app.page, "Board anchor");
+    await pressEditorKey(app.page, "Escape");
+    await expect.poll(() => app.selectedLayers()).toEqual([]);
+    await pressEditorKey(app.page, "ControlOrMeta+V");
+    await expect
+      .poll(
+        async () =>
+          [...(await app.savedNodes(id, "__board__.html")).values()].filter(
+            (node) =>
+              node.attrs["data-agent-native-layer-name"]?.startsWith(
+                "Legacy margin ",
+              ),
+          ).length,
+      )
+      .toBe(3);
+    await app.settled();
+    const nodes = [...(await app.savedNodes(id, "__board__.html")).values()];
+    const readBoardGeometry = async (nodeId: string) => {
+      return frame
+        .contentFrame()
+        .locator(`[data-agent-native-node-id="${nodeId}"]`)
+        .evaluate((element) => {
+          const offset = element.ownerDocument.querySelector(
+            "style[data-agent-native-content-offset]",
+          );
+          const readOffset = (attribute: string) => {
+            if (!offset) return 0;
+            const value = offset.getAttribute(attribute);
+            if (!value?.trim()) throw new Error("Missing board content offset");
+            return Number(value);
+          };
+          const x = readOffset("data-agent-native-content-offset-x");
+          const y = readOffset("data-agent-native-content-offset-y");
+          if (!Number.isFinite(x) || !Number.isFinite(y))
+            throw new Error("Unreadable board content offset");
+          const rect = element.getBoundingClientRect();
+          return {
+            x: rect.left - x,
+            y: rect.top - y,
+            margin: (element as HTMLElement).style.margin,
+          };
+        });
+    };
+    for (const [index, margin] of margins.entries()) {
+      const copy = nodes.find(
+        (node) =>
+          node.attrs["data-agent-native-layer-name"] ===
+          `Legacy margin ${index}`,
+      )!;
+      expect(copy).toBeDefined();
+      const geometry = await readBoardGeometry(copy.id);
+      expect(geometry).toEqual({
+        x: 24 + index * 16,
+        y: 24 + index * 16,
+        margin,
+      });
+    }
+    const beforeReplacement = await app.savedNodes(id, "__board__.html");
+    await selectLayerRow(app.page, "Legacy margin 0");
+    await pressEditorKey(app.page, "ControlOrMeta+C");
+    await selectLayerRow(app.page, "Board anchor");
+    await pressEditorKey(app.page, "ControlOrMeta+Shift+R");
+    await expect
+      .poll(async () =>
+        (await app.savedNodes(id, "__board__.html")).has("board-anchor"),
+      )
+      .toBe(false);
+    await app.settled();
+    const afterReplacement = await app.savedNodes(id, "__board__.html");
+    const replacement = newNodes(beforeReplacement, afterReplacement);
+    expect(replacement).toHaveLength(1);
+    expect(replacement[0]!.parent).toBe(
+      beforeReplacement.get("board-anchor")!.parent,
+    );
+    expect(await readBoardGeometry(replacement[0]!.id)).toEqual({
+      x: 0,
+      y: 0,
+      margin: margins[0],
+    });
+    for (const node of nodes.filter((candidate) =>
+      candidate.attrs["data-agent-native-layer-name"]?.startsWith(
+        "Legacy margin ",
+      ),
+    )) {
+      expect(afterReplacement.get(node.id)).toEqual(node);
     }
   });
 

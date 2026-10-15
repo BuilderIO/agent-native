@@ -359,6 +359,40 @@ describe("node positioning source shape", () => {
     ]);
   });
 
+  it("writes destination coordinates after clearing CSSOM inset longhands", () => {
+    const originalRemoveProperty = CSSStyleDeclaration.prototype.removeProperty;
+    const removePropertySpy = vi
+      .spyOn(CSSStyleDeclaration.prototype, "removeProperty")
+      .mockImplementation(function (this: CSSStyleDeclaration, property) {
+        const removed = originalRemoveProperty.call(this, property);
+        if (property === "inset") {
+          for (const longhand of ["top", "right", "bottom", "left"]) {
+            originalRemoveProperty.call(this, longhand);
+          }
+        }
+        return removed;
+      });
+
+    try {
+      const next = setAbsolutePositioningForNodeInHtml(
+        '<div data-agent-native-node-id="moving-node" style="position:absolute;inset:12px 13px 14px 15px;width:80px;height:40px"></div>',
+        "moving-node",
+        { x: 100, y: 90 },
+      );
+      const element = new DOMParser()
+        .parseFromString(next, "text/html")
+        .querySelector<HTMLElement>(
+          "[data-agent-native-node-id='moving-node']",
+        )!;
+
+      expect(element.style.left).toBe("100px");
+      expect(element.style.top).toBe("90px");
+      expect(element.style.getPropertyValue("inset")).toBe("");
+    } finally {
+      removePropertySpy.mockRestore();
+    }
+  });
+
   it("preserves escaped quotes, comments, and escaped semicolons in raw CSS", () => {
     const content = String.raw`<div data-agent-native-node-id="moving-node" style='content: "quoted\"; left: 999px"; /* ; left: 888px */ left: 20px; --raw: token\; left: 777px; top: 30px'></div>`;
 

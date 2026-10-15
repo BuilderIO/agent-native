@@ -483,6 +483,17 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title:
       "Select layer on a non-active overview screen preserves exact screen and layer identity",
   },
+  {
+    shard: "inspector-3b",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard paste preserves non-pixel margins at exact visual coordinates",
+  },
+  {
+    shard: "position-3",
+    file: "canvas-chords.spec.ts",
+    title: "Keyboard paste and replacement preserve board-layer geometry",
+  },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 
 function escapeRegExp(value: string): string {

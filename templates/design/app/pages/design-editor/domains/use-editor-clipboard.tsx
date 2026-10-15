@@ -19,6 +19,7 @@ import type {
 } from "@/components/design/design-canvas/iframe-events";
 import { DESIGN_FILE_STORAGE_REQUIRED_EVENT } from "@/components/design/editor/DesignBottomToolbar";
 import { FigmaPasteImagesNotice } from "@/components/design/FigmaPasteImagesNotice";
+import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
 import { getCurrentBoardSelectionWorldBounds } from "@/components/design/multi-screen/overview-layout";
 import { readPortableStyleSnapshot } from "@/components/design/multi-screen/read-portable-style-snapshot";
 import type {
@@ -70,6 +71,7 @@ import { runPasteOverSelection } from "../commands/paste-over-selection";
 import {
   runPasteSelection,
   type PasteSelectionArgs,
+  type PastedClipboardLayerSource,
 } from "../commands/paste-selection";
 import { runPastedSvgLayer } from "../commands/paste-svg-layer";
 import { runPasteToReplace } from "../commands/paste-to-replace";
@@ -253,14 +255,20 @@ export function useEditorClipboard({
         candidate.selectors.includes(selector),
       );
       if (!node) return null;
+      const frame = findCanvasIframeForScreen(
+        canvasContainerRef.current,
+        activeFile.id,
+        boardFileId,
+      );
+      if (!frame) return null;
       const measured = withMeasuredGeometry(
         elementInfoFromCodeLayerNode(node),
         activeFile.id,
-        { measureAbsoluteSiblingVisualOrigin: true },
+        { measureAbsoluteSiblingVisualOrigin: true, previewIframe: frame },
       );
       return measured.absoluteSiblingVisualOrigin ? measured : null;
     },
-    [activeFile, getFreshActiveContent],
+    [activeFile, boardFileId, canvasContainerRef, getFreshActiveContent],
   );
   const getPreparedCloneVisualOffset = useCallback(
     (
@@ -276,8 +284,10 @@ export function useEditorClipboard({
       | null
       | undefined => {
       if (!targetFileId || typeof document === "undefined") return undefined;
-      const frame = document.querySelector<HTMLIFrameElement>(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(targetFileId)}"]`,
+      const frame = findCanvasIframeForScreen(
+        canvasContainerRef.current,
+        targetFileId,
+        boardFileId,
       );
       if (!frame) return undefined;
       let view: Window | null;
@@ -315,7 +325,7 @@ export function useEditorClipboard({
         return null;
       }
     },
-    [activeFile?.id],
+    [activeFile?.id, boardFileId, canvasContainerRef],
   );
 
   const getPreparedPasteVisualOffset = useCallback<
@@ -361,6 +371,9 @@ export function useEditorClipboard({
   const lastWrittenClipboardMarkerRef = useRef<string | null>(null);
   const lastWrittenClipboardPlainTextRef = useRef<string | null>(null);
   const pasteCascadeRef = useRef(0);
+  const pastedClipboardLayerSourcesRef = useRef(
+    new Map<string, PastedClipboardLayerSource>(),
+  );
   const figmaPasteImportingRef = useRef(false);
   const [figmaHydrationOpen, setFigmaHydrationOpen] = useState(false);
   const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>(
@@ -665,6 +678,7 @@ export function useEditorClipboard({
           overviewScreens,
           overviewSelectedScreenIds,
           pasteCascadeRef,
+          pastedClipboardLayerSourcesRef,
           pasteCopiedScreens,
           pendingLocalFileContentsRef,
           publishAuthoritativeClipboardMutation,

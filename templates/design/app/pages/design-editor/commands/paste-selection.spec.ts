@@ -32,7 +32,11 @@ import type { GeometryHistorySelection } from "@/pages/design-editor/history";
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
-import { runPasteSelection, type PasteSelectionArgs } from "./paste-selection";
+import {
+  runPasteSelection,
+  type PasteSelectionArgs,
+  type PastedClipboardLayerSource,
+} from "./paste-selection";
 
 const RECT_HTML = `<div data-agent-native-node-id="rect-1" data-an-primitive="rectangle" data-agent-native-layer-name="Rectangle" style="position:absolute;left:40px;top:120px;width:200px;height:100px;background:rgb(255 0 0)"></div>`;
 
@@ -98,6 +102,9 @@ function harness(
     >;
     selectedScreenIds?: string[];
     pasteCascade?: number;
+    pastedClipboardLayerSourcesRef?: RefObject<
+      Map<string, PastedClipboardLayerSource>
+    >;
   } = {},
 ): Harness {
   const files = overrides.files ?? [
@@ -123,6 +130,9 @@ function harness(
   ];
 
   const lineageRef = ref(new Map<string, ClipboardContentLineage>());
+  const pastedClipboardLayerSourcesRef =
+    overrides.pastedClipboardLayerSourcesRef ??
+    ref(new Map<string, PastedClipboardLayerSource>());
 
   const args: PasteSelectionArgs = {
     activeFile,
@@ -156,6 +166,7 @@ function harness(
     getCanvasClipboardEntries: () => entries,
     getCanvasScreenClipboardEntries: () => [],
     getFreshActiveContent: () => contentByFileId.get(activeFile.id) ?? "",
+    pastedClipboardLayerSourcesRef,
     getScreenContent: (screenId) => contentByFileId.get(screenId) ?? "",
     getVisibleCanvasRect: () => overrides.visibleRect ?? null,
     historyOrderRef: ref(
@@ -1132,9 +1143,7 @@ describe("clipboard source placement", () => {
         targetFileId: "target",
         targetSelector: "body",
         placement: "inside",
-        layerHtml: expect.stringContaining(
-          'data-agent-native-clone-source-node-id="card"',
-        ),
+        layerHtml: card,
       }),
     );
     const copy = pastedCopies(writes[0]!.content).find(
@@ -1174,6 +1183,14 @@ describe("clipboard source placement", () => {
       "text/html",
     ).body.firstElementChild as HTMLElement;
     expect([copy.style.left, copy.style.top]).toEqual(["195px", "203px"]);
+    expect(
+      args.pastedClipboardLayerSourcesRef?.current.get(
+        JSON.stringify([
+          "live",
+          copy.getAttribute("data-agent-native-node-id"),
+        ]),
+      ),
+    ).toEqual({ sourceFileId: "live", rootNodeId: "runtime-group-child" });
   });
 
   it("measures visual paste inside its shared source parent", async () => {
@@ -1259,6 +1276,85 @@ describe("clipboard source placement", () => {
     expect(runtimeInsertRequests[0]?.placement).toBe("inside");
   });
 
+  it("uses the session map to paste a selected live URL clone beside itself", async () => {
+    const sourceHtml =
+      '<div data-agent-native-node-id="runtime-group-child" style="position:absolute;left:40px;top:120px;width:200px;height:100px;transform:translateX(20px) rotate(12deg)"></div>';
+    const { args, runtimeInsertRequests } = harness({
+      files: [designFile("live", "live.html", "https://example.com/live")],
+      activeFileId: "live",
+      entries: [
+        {
+          html: sourceHtml,
+          rootNodeId: "runtime-group-child",
+          sourceFileId: "live",
+        },
+      ],
+    });
+    args.viewModeRef.current = "single";
+
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(1);
+    const firstRequest = runtimeInsertRequests[0]!;
+    expect(firstRequest.screenId).toBe("live");
+    expect(firstRequest.anchor).toEqual({ selector: "body" });
+    expect(firstRequest.placement).toBe("inside");
+    const firstCopy = new DOMParser().parseFromString(
+      firstRequest.html,
+      "text/html",
+    ).body.firstElementChild as HTMLElement;
+    const firstCopyId = firstCopy.getAttribute("data-agent-native-node-id")!;
+    expect(firstCopyId).not.toBe("runtime-group-child");
+    expect([firstCopy.style.left, firstCopy.style.top]).toEqual([
+      "40px",
+      "120px",
+    ]);
+    expect(
+      args.pastedClipboardLayerSourcesRef!.current.get(
+        JSON.stringify(["live", firstCopyId]),
+      ),
+    ).toEqual({
+      sourceFileId: "live",
+      rootNodeId: "runtime-group-child",
+    });
+
+    const selector = `[data-agent-native-node-id="${firstCopyId}"]`;
+    args.selectedElement = {
+      ...selected(firstCopyId),
+      tagName: "div",
+      runtimeSourceId: firstCopyId,
+      runtimeSelector: selector,
+    };
+    args.selectedCanvasSelector = selector;
+
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(2);
+    const repeatedRequest = runtimeInsertRequests[1]!;
+    expect(repeatedRequest.screenId).toBe("live");
+    expect(repeatedRequest.anchor).toEqual({
+      selector,
+      sourceId: firstCopyId,
+    });
+    expect(repeatedRequest.placement).toBe("after");
+    const repeatedCopy = new DOMParser().parseFromString(
+      repeatedRequest.html,
+      "text/html",
+    ).body.firstElementChild as HTMLElement;
+    expect(repeatedCopy.getAttribute("data-agent-native-node-id")).not.toBe(
+      firstCopyId,
+    );
+    expect([repeatedCopy.style.left, repeatedCopy.style.top]).toEqual([
+      "56px",
+      "136px",
+    ]);
+    expect([
+      repeatedCopy.style.width,
+      repeatedCopy.style.height,
+      repeatedCopy.style.transform,
+    ]).toEqual(["200px", "100px", "translateX(20px) rotate(12deg)"]);
+  });
+
   it("refuses visual paste when prepared geometry is invalid", async () => {
     const target =
       '<!doctype html><html><body data-agent-native-node-id="target-body"></body></html>';
@@ -1310,11 +1406,22 @@ describe("clipboard source placement", () => {
     )!;
     expect(previous.getAttribute("data-agent-native-clone-root")).toBe("true");
     expect(
-      previous.getAttribute("data-agent-native-clone-source-file-id"),
-    ).toBe("home");
+      previous.hasAttribute("data-agent-native-clone-source-file-id"),
+    ).toBe(false);
     expect(
-      previous.getAttribute("data-agent-native-clone-source-node-id"),
-    ).toBe("card");
+      previous.hasAttribute("data-agent-native-clone-source-node-id"),
+    ).toBe(false);
+    expect([
+      ...firstPaste.args.pastedClipboardLayerSourcesRef!.current.values(),
+    ]).toContainEqual({ sourceFileId: "home", rootNodeId: "card" });
+    expect(
+      firstPaste.args.pastedClipboardLayerSourcesRef!.current.get(
+        JSON.stringify([
+          "target",
+          previous.getAttribute("data-agent-native-node-id"),
+        ]),
+      ),
+    ).toEqual({ sourceFileId: "home", rootNodeId: "card" });
 
     const repeatedPaste = harness({
       files: [
@@ -1333,6 +1440,8 @@ describe("clipboard source placement", () => {
       selectedElement: selected(
         previous.getAttribute("data-agent-native-node-id")!,
       ),
+      pastedClipboardLayerSourcesRef:
+        firstPaste.args.pastedClipboardLayerSourcesRef!,
     });
     repeatedPaste.args.selectedCanvasSelector =
       repeatedPaste.args.selectedElement!.selector!;
@@ -1385,7 +1494,34 @@ describe("clipboard source placement", () => {
     expect([copy.style.left, copy.style.top]).toEqual(["72px", "88px"]);
   });
 
-  it("replaces inherited clone provenance with the current clipboard identity", async () => {
+  it("ignores matching legacy clone attributes without a current paste record", async () => {
+    const previous = card.replace(
+      'data-agent-native-node-id="card"',
+      'data-agent-native-node-id="previous" data-agent-native-clone-root="true" data-agent-native-clone-source-file-id="home" data-agent-native-clone-source-node-id="card"',
+    );
+    const target = `<!doctype html><html><body data-agent-native-node-id="target-body">${previous}</body></html>`;
+    const { args, writes } = harness({
+      files: [
+        designFile("home", "index.html", source),
+        designFile("target", "target.html", target),
+      ],
+      activeFileId: "target",
+      entries: [{ html: card, rootNodeId: "card", sourceFileId: "home" }],
+      selectedElement: selected("previous"),
+    });
+
+    await runPasteSelection(args);
+
+    const copy = pastedCopies(writes[0]!.content).find(
+      (node) => node.tagName === "SECTION",
+    )!;
+    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "previous",
+    );
+    expect([copy.style.left, copy.style.top]).toEqual(["40px", "60px"]);
+  });
+
+  it("preserves legacy clone attributes from clipboard HTML without rewriting them", async () => {
     const inherited = card.replace(
       'data-agent-native-node-id="card"',
       'data-agent-native-node-id="copied-card" data-agent-native-clone-source-file-id="stale-file" data-agent-native-clone-source-node-id="stale-card"',
@@ -1411,10 +1547,10 @@ describe("clipboard source placement", () => {
       (node) => node.tagName === "SECTION",
     )!;
     expect(copy.getAttribute("data-agent-native-clone-source-file-id")).toBe(
-      "target",
+      "stale-file",
     );
     expect(copy.getAttribute("data-agent-native-clone-source-node-id")).toBe(
-      "copied-card",
+      "stale-card",
     );
   });
 

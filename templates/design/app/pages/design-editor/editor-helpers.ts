@@ -175,16 +175,21 @@ export function reloadRunningAppPreviewFrames(): void {
 export function withMeasuredGeometry(
   info: ElementInfo,
   screenId?: string,
-  options?: { measureAbsoluteSiblingVisualOrigin?: boolean },
+  options?: {
+    measureAbsoluteSiblingVisualOrigin?: boolean;
+    previewIframe?: HTMLIFrameElement;
+  },
 ): ElementInfo {
   if (typeof document === "undefined") return info;
   const selector = info.runtimeSelector ?? info.selector;
   if (!selector) return info;
-  const owning = screenId
-    ? document.querySelector<HTMLIFrameElement>(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
-      )
-    : null;
+  const owning =
+    options?.previewIframe ??
+    (screenId
+      ? document.querySelector<HTMLIFrameElement>(
+          `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+        )
+      : null);
   if (screenId && !owning) return info;
   const frames = owning
     ? [owning]
