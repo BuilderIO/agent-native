@@ -63,7 +63,7 @@ export function DashboardKeyDatesProvider({
   );
 }
 
-/** A panel's own events plus the dashboard's key dates, for `renderEventMarkers`. */
+/** A panel's own events plus the dashboard's key dates, for `useEventMarkerGroups`. */
 export function usePanelEvents(
   panel: Pick<SqlPanel, "chartType" | "config">,
 ): unknown {

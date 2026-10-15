@@ -123,7 +123,7 @@ import type {
 } from "@/pages/adhoc/sql-dashboard/types";
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
-import { renderEventMarkers } from "./event-markers";
+import { renderEventMarkers, useEventMarkerGroups } from "./event-markers";
 import { usePanelEvents } from "./key-dates-context";
 
 export { limitChartRows };
@@ -2713,6 +2713,7 @@ function BarRenderer({
     formatSeriesLabelForPanel(panel, name);
   const [eventHovered, setEventHovered] = useState(false);
   const panelEvents = usePanelEvents(panel);
+  const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2788,9 +2789,7 @@ function BarRenderer({
             />
           ))}
           {renderEventMarkers(
-            panelEvents,
-            rows,
-            xKey,
+            eventGroups,
             dualAxis.enabled ? "left" : undefined,
             setEventHovered,
           )}
@@ -2828,6 +2827,7 @@ function ComboRenderer({
     formatSeriesLabelForPanel(panel, name);
   const [eventHovered, setEventHovered] = useState(false);
   const panelEvents = usePanelEvents(panel);
+  const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2914,9 +2914,7 @@ function ComboRenderer({
             ),
           )}
           {renderEventMarkers(
-            panelEvents,
-            rows,
-            xKey,
+            eventGroups,
             dualAxis.enabled ? "left" : undefined,
             setEventHovered,
           )}
@@ -2977,6 +2975,7 @@ function TimeSeriesRenderer({
           },
     [rows, xKey, yKeys, splitPartialDay],
   );
+  const eventGroups = useEventMarkerGroups(panelEvents, chartRows, xKey);
 
   if (chartType === "line") {
     return (
@@ -3051,9 +3050,7 @@ function TimeSeriesRenderer({
               ) : null,
             )}
             {renderEventMarkers(
-              panelEvents,
-              chartRows,
-              xKey,
+              eventGroups,
               dualAxis.enabled ? "left" : undefined,
               setEventHovered,
             )}
@@ -3167,9 +3164,7 @@ function TimeSeriesRenderer({
             ) : null,
           )}
           {renderEventMarkers(
-            panelEvents,
-            chartRows,
-            xKey,
+            eventGroups,
             dualAxis.enabled ? "left" : undefined,
             setEventHovered,
           )}

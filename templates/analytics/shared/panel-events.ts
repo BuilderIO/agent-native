@@ -31,7 +31,7 @@ export function isIsoCalendarDate(value: string): boolean {
 export function isValidTimeZone(value: unknown): value is string {
   if (typeof value !== "string" || value.trim() === "") return false;
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    zoneClock(value);
     return true;
     // coercion-ok: Intl's RangeError is its only signal for an unknown zone.
   } catch {
@@ -76,10 +76,13 @@ export function isValidPanelEvent(value: unknown): value is PanelEvent {
   return panelEventProblem(value) === null;
 }
 
-/** Milliseconds a zone's wall clock is ahead of UTC at `instant`. */
-function zoneOffsetMs(instant: number, timeZone: string): number {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
+const zoneClocks = new Map<string, Intl.DateTimeFormat>();
+
+/** One formatter per zone: building one costs far more than formatting with it. */
+function zoneClock(timeZone: string): Intl.DateTimeFormat {
+  let clock = zoneClocks.get(timeZone);
+  if (!clock) {
+    clock = new Intl.DateTimeFormat("en-US", {
       timeZone,
       hourCycle: "h23",
       year: "numeric",
@@ -88,7 +91,16 @@ function zoneOffsetMs(instant: number, timeZone: string): number {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
-    })
+    });
+    zoneClocks.set(timeZone, clock);
+  }
+  return clock;
+}
+
+/** Milliseconds a zone's wall clock is ahead of UTC at `instant`. */
+function zoneOffsetMs(instant: number, timeZone: string): number {
+  const parts = Object.fromEntries(
+    zoneClock(timeZone)
       .formatToParts(instant)
       .map((part) => [part.type, part.value]),
   );
@@ -145,7 +157,10 @@ function xInstant(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string") return null;
   const text = value.trim();
-  if (ISO_DATE.test(text)) return Date.parse(text);
+  if (ISO_DATE.test(text)) {
+    const ms = Date.parse(text);
+    return Number.isFinite(ms) ? ms : null;
+  }
   if (!ISO_DATE.test(text.slice(0, 10))) return null;
   // SQL timestamps without a zone are UTC; Date.parse would read them as local.
   const normalized = text.replace(" ", "T");
@@ -156,38 +171,71 @@ function xInstant(value: unknown): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function nearestPoint(points: readonly number[], target: number): number {
-  let best = 0;
-  for (let i = 1; i < points.length; i++) {
-    if (Math.abs(points[i] - target) < Math.abs(points[best] - target))
-      best = i;
+/** Each distinct point once, ascending, with the first position that holds it. */
+interface SortedPoints {
+  values: number[];
+  first: number[];
+}
+
+function sortPoints(points: readonly number[]): SortedPoints {
+  const order = points
+    .map((_, position) => position)
+    .sort((a, b) => points[a] - points[b] || a - b);
+  const sorted: SortedPoints = { values: [], first: [] };
+  for (const position of order) {
+    if (sorted.values[sorted.values.length - 1] === points[position]) continue;
+    sorted.values.push(points[position]);
+    sorted.first.push(position);
   }
-  return best;
+  return sorted;
+}
+
+/** The index of the last value at or before `target`, or -1 when none is. */
+function lastAtOrBefore(values: readonly number[], target: number): number {
+  let low = 0;
+  let high = values.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (values[middle] <= target) low = middle + 1;
+    else high = middle - 1;
+  }
+  return high;
+}
+
+/** The nearest point; of two equally near, the one written first. */
+function nearestPoint({ values, first }: SortedPoints, target: number): number {
+  const below = lastAtOrBefore(values, target);
+  if (below < 0) return first[0];
+  if (below === values.length - 1 || values[below] === target) {
+    return first[below];
+  }
+  const gapBelow = target - values[below];
+  const gapAbove = values[below + 1] - target;
+  if (gapBelow === gapAbove) return Math.min(first[below], first[below + 1]);
+  return gapBelow < gapAbove ? first[below] : first[below + 1];
 }
 
 /** An event marks the bucket it falls in: 3:50 belongs to 3:00, not the nearer 4:00. */
-function containingBucket(points: readonly number[], target: number): number {
-  let best = -1;
-  for (let i = 0; i < points.length; i++) {
-    if (points[i] <= target && (best < 0 || points[i] > points[best])) best = i;
-  }
-  return best;
+function containingBucket(
+  { values, first }: SortedPoints,
+  target: number,
+): number {
+  const at = lastAtOrBefore(values, target);
+  return at < 0 ? -1 : first[at];
 }
 
-/** The earliest row written on `day`, or -1 when no row is. */
-function firstRowOfDay(
+/** The earliest row written on each day. */
+function firstRowsByDay(
   rows: readonly { instant: number; day: number }[],
-  day: number,
-): number {
-  let best = -1;
-  for (let i = 0; i < rows.length; i++) {
-    if (
-      rows[i].day === day &&
-      (best < 0 || rows[i].instant < rows[best].instant)
-    )
-      best = i;
-  }
-  return best;
+): Map<number, number> {
+  const byDay = new Map<number, number>();
+  rows.forEach((entry, position) => {
+    const best = byDay.get(entry.day);
+    if (best === undefined || entry.instant < rows[best].instant) {
+      byDay.set(entry.day, position);
+    }
+  });
+  return byDay;
 }
 
 /**
@@ -234,22 +282,34 @@ export function resolvePanelEvents(
           .filter((gap) => gap > 0),
       )
     : 0;
+  const sorted = sortPoints(points);
+  const firstRowByDay = firstRowsByDay(rows);
+  // An event's instant is under two days from its date's midnight in any
+  // zone, so a date further than that outside the axis cannot land on a row.
+  const earliest = min - 2 * DAY_MS;
+  const latest = max + step + 2 * DAY_MS;
 
   const rowFor = (event: PanelEvent): number => {
     // Not UTC midnight: on offset rows that is an hour of another day, and in
     // a window that starts later in the day it is before the first row.
     if (subDaily && !event.time) {
-      return firstRowOfDay(rows, Date.parse(event.date));
+      return firstRowByDay.get(Date.parse(event.date)) ?? -1;
     }
     const target = subDaily ? panelEventInstant(event) : Date.parse(event.date);
     if (target < min || target >= max + Math.max(step, 1)) return -1;
     return subDaily
-      ? containingBucket(points, target)
-      : nearestPoint(points, target);
+      ? containingBucket(sorted, target)
+      : nearestPoint(sorted, target);
   };
 
   const resolved: ResolvedPanelEvent[] = [];
   for (const event of events) {
+    // Most of a long key-date list falls outside any one chart: skip those
+    // on their date alone, before validating them.
+    const date = event?.date;
+    if (typeof date !== "string") continue;
+    const day = Date.parse(date);
+    if (Number.isNaN(day) || day < earliest || day > latest) continue;
     if (!isValidPanelEvent(event)) continue;
     const best = rowFor(event);
     if (best < 0) continue;
