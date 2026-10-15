@@ -165,21 +165,22 @@ export function SqlChartCard({
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
   );
-  // While viewing, dragging a column edge sizes it for this person only; the
-  // dashboard's own widths change only in edit mode, through onSaveColumns.
+  // While viewing, dragging a column edge sizes it for this person only. A
+  // table offers rename, reorder, and format whenever it gets onSaveColumns,
+  // so only edit mode passes it on.
   const personalColumnWidths = usePersonalColumnWidths(
     dashboardId,
     panel.id,
     panel.config?.columns,
   );
-  const viewerResizesColumns =
-    !editable && !!dashboardId && panel.chartType === "table";
-  const columnWidthProps = viewerResizesColumns
-    ? {
-        columnWidths: personalColumnWidths.widths,
-        onColumnWidthChange: personalColumnWidths.setWidth,
-      }
-    : {};
+  const tableColumnProps = editable
+    ? { onSaveColumns }
+    : dashboardId && panel.chartType === "table"
+      ? {
+          columnWidths: personalColumnWidths.widths,
+          onColumnWidthChange: personalColumnWidths.setWidth,
+        }
+      : {};
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -827,8 +828,7 @@ export function SqlChartCard({
             dashboardId={dashboardId}
             onExportCsvChange={handleExportCsvChange}
             onCopyTableChange={handleCopyTableChange}
-            onSaveColumns={onSaveColumns}
-            {...columnWidthProps}
+            {...tableColumnProps}
             extensionContext={extensionContext}
           />
         </CardContent>
@@ -849,8 +849,7 @@ export function SqlChartCard({
                 reportScreenshot={reportScreenshot}
                 refreshToken={refreshToken}
                 onRefreshRequested={handleRefresh}
-                onSaveColumns={onSaveColumns}
-                {...columnWidthProps}
+                {...tableColumnProps}
                 dashboardId={dashboardId}
                 extensionContext={extensionContext}
               />

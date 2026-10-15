@@ -412,9 +412,7 @@ const PanelCell = memo(function PanelCell({
         onRemove={() => onRemovePanel(panel.id)}
         onEdit={() => onEditPanel(panel)}
         onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
-        onSaveColumns={
-          editable ? (columns) => onSaveColumns(panel.id, columns) : undefined
-        }
+        onSaveColumns={(columns) => onSaveColumns(panel.id, columns)}
         editable={editable}
         eagerLoad={eagerLoad}
         reportScreenshot={reportScreenshot}
