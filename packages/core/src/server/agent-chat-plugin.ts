@@ -234,7 +234,6 @@ import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
 import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
-import { registerAgentChatDevModeResolver } from "./agent-chat-mode.js";
 import {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,
@@ -1221,7 +1220,6 @@ export function createAgentChatPlugin(
       // `canToggle` means "this environment allows toggling" (static); this
       // function means "the user currently has dev mode ON" (live).
       const isDevMode = () => currentDevMode;
-      registerAgentChatDevModeResolver(nitroApp, isDevMode);
 
       // Resolve the framework's own tool surface once, folding the deprecated
       // `databaseTools` / `extensionTools` into `frameworkTools` so every
