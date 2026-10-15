@@ -192,6 +192,33 @@ function renderCampaign(node: React.ReactNode, entry = "/") {
 function dom(html: string) {
   return new DOMParser().parseFromString(html, "text/html");
 }
+function expectRecipeSlots(
+  card: Element,
+  recipe: NonNullable<UseCase["recipes"]>[number],
+) {
+  const slots = [
+    ["campaign-recipe-tag", "DIV"],
+    ["campaign-recipe-title", "H3"],
+    ["campaign-recipe-when", "P"],
+    ["campaign-recipe-do", "DL"],
+    ...(recipe.prompt ? [["campaign-recipe-prompt", "DIV"]] : []),
+    ["campaign-recipe-result", "DL"],
+    ...(recipe.save ? [["campaign-recipe-footer", "DL"]] : []),
+  ];
+  expect([...card.children].map((node) => node.tagName)).toEqual(
+    slots.map(([, tag]) => tag),
+  );
+  for (const [index, [className]] of slots.entries())
+    expect(card.children[index].classList.contains(className)).toBe(true);
+  expect(card.querySelector(".campaign-recipe-empty")).toBeNull();
+  expect(card.querySelector(":scope > [aria-hidden]")).toBeNull();
+  expect(
+    card.querySelectorAll(":scope > .campaign-recipe-prompt"),
+  ).toHaveLength(recipe.prompt ? 1 : 0);
+  expect(
+    card.querySelectorAll(":scope > .campaign-recipe-footer"),
+  ).toHaveLength(recipe.save ? 1 : 0);
+}
 
 describe("public campaign frontend", () => {
   const stack = {
@@ -228,6 +255,9 @@ describe("public campaign frontend", () => {
     )!;
     expect(list).toBeDefined();
     const section = list.closest("section")!;
+    expect(section.classList.contains("campaign-stack-section")).toBe(true);
+    expect(list.classList.contains("campaign-stack-list")).toBe(true);
+    expect(list.classList.contains("list-disc")).toBe(true);
     expect(section.querySelector("h2")?.textContent).toBe(stack.heading);
     expect(section.textContent).toContain("What it replaces");
     expect(document.querySelector("table, thead, tbody, th, td")).toBeNull();
@@ -1323,18 +1353,9 @@ describe("public campaign frontend", () => {
     for (const [index, item] of [recipe, second].entries()) {
       const card = recipes[index];
       expect(card.classList.contains("campaign-recipe-card")).toBe(true);
-      expect([...card.children].map((node) => node.tagName)).toEqual([
-        "DIV",
-        "H3",
-        "P",
-        "DL",
-        "DIV",
-        "DL",
-        index === 0 ? "DL" : "DIV",
-      ]);
-      const [tag, title, when, action, prompt, output, save] = [
-        ...card.children,
-      ];
+      expectRecipeSlots(card, item);
+      const [tag, title, when, action] = [...card.children];
+      const output = card.querySelector(":scope > .campaign-recipe-result")!;
       expect(
         tag
           .querySelector(".campaign-frequency-tag")
@@ -1355,19 +1376,6 @@ describe("public campaign frontend", () => {
           : ["Do", "You get"],
       );
       expect(card.textContent).not.toMatch(/How often|When/);
-      if (index === 0) {
-        expect(prompt.getAttribute("aria-hidden")).toBeNull();
-        expect(prompt.classList.contains("campaign-recipe-empty")).toBe(false);
-        expect(save.classList.contains("campaign-recipe-footer")).toBe(true);
-      } else {
-        for (const placeholder of [prompt, save]) {
-          expect(placeholder.classList.contains("campaign-recipe-empty")).toBe(
-            true,
-          );
-          expect(placeholder.getAttribute("aria-hidden")).toBe("true");
-          expect(placeholder.childNodes).toHaveLength(0);
-        }
-      }
     }
     const footer = recipes[0].lastElementChild!;
     expect(footer.classList.contains("border-t")).toBe(true);
@@ -1376,8 +1384,13 @@ describe("public campaign frontend", () => {
     expect(recipes[0].querySelector("pre code")?.textContent).toBe(
       recipe.prompt!.trim(),
     );
-    expect(recipes[1].children).toHaveLength(7);
-    expect(recipes[1].querySelector("button")).toBeNull();
+    expect(recipes[0].children).toHaveLength(7);
+    expect(recipes[1].children).toHaveLength(5);
+    expect(
+      recipes[1].querySelector("pre, code, button, .code-block"),
+    ).toBeNull();
+    expect(recipes[1].textContent).not.toContain("Save for next time");
+    expect(recipes[1].textContent).not.toContain(recipe.save);
     expect(document.querySelector("#how-it-works")?.textContent).toContain(
       "Works with: Test calendar, Test CRM",
     );
@@ -1403,6 +1416,8 @@ describe("public campaign frontend", () => {
   it.each([
     { prompt: recipe.prompt, save: undefined },
     { prompt: undefined, save: recipe.save },
+    { prompt: recipe.prompt, save: recipe.save },
+    { prompt: undefined, save: undefined },
   ])(
     "renders recipe prompt and saved artifact independently (%#)",
     ({ prompt, save }) => {
@@ -1427,29 +1442,25 @@ describe("public campaign frontend", () => {
       expect(
         rendered.querySelector(".campaign-frequency-tag")?.textContent,
       ).toBe(recipe.how_often);
-      expect(rendered.children).toHaveLength(7);
-      const promptSlot = rendered.children[4];
-      expect(promptSlot.tagName).toBe("DIV");
-      expect(promptSlot.getAttribute("aria-hidden")).toBe(
-        prompt ? null : "true",
+      expectRecipeSlots(rendered, { ...recipe, prompt, save });
+      expect(rendered.children).toHaveLength(
+        5 + Number(!!prompt) + Number(!!save),
       );
-      expect(promptSlot.classList.contains("campaign-recipe-empty")).toBe(
-        !prompt,
-      );
-      if (!prompt) expect(promptSlot.childNodes).toHaveLength(0);
+      if (prompt) {
+        expect(
+          rendered.querySelector(".campaign-recipe-prompt pre code")
+            ?.textContent,
+        ).toBe(prompt.trim());
+      } else {
+        expect(rendered.querySelector("pre, code, button")).toBeNull();
+      }
       const footer = rendered.querySelector(":scope > .campaign-recipe-footer");
       if (save) {
         expect(footer?.classList.contains("border-t")).toBe(true);
         expect(footer?.querySelector("dd")?.textContent).toBe(save);
       } else {
         expect(footer).toBeNull();
-        const placeholder = rendered.children[6];
-        expect(placeholder.tagName).toBe("DIV");
-        expect(placeholder.classList.contains("campaign-recipe-empty")).toBe(
-          true,
-        );
-        expect(placeholder.getAttribute("aria-hidden")).toBe("true");
-        expect(placeholder.childNodes).toHaveLength(0);
+        expect(rendered.textContent).not.toContain("Save for next time");
         expect(rendered.textContent).not.toContain(recipe.save);
       }
     },
@@ -1888,6 +1899,33 @@ describe("public campaign frontend", () => {
       [...expected].sort(),
     );
     const document = dom(markup(<UseCasePage {...data} />));
+    const recipes = [...document.querySelectorAll(".campaign-recipe-card")];
+    expect(data.item.recipes!.map((recipe) => recipe.prompt)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(data.item.recipes!.map((recipe) => !!recipe.save)).toEqual([
+      true,
+      false,
+      false,
+    ]);
+    expect(recipes.map((card) => card.children.length)).toEqual([6, 5, 5]);
+    expect(document.querySelector(".campaign-recipe-empty")).toBeNull();
+    for (const [index, card] of recipes.entries()) {
+      expectRecipeSlots(card, data.item.recipes![index]);
+      expect(
+        card.querySelector(".campaign-recipe-prompt, pre, code, button"),
+      ).toBeNull();
+    }
+    expect(document.querySelectorAll(".campaign-recipe-footer")).toHaveLength(
+      1,
+    );
+    expect(
+      recipes[0].querySelector(".campaign-recipe-footer dd")?.textContent,
+    ).toBe(data.item.recipes![0].save);
+    for (const card of recipes.slice(1))
+      expect(card.textContent).not.toContain("Save for next time");
     const section = [...document.querySelectorAll("section")].find(
       (node) => node.querySelector("h2")?.textContent === "What to do next",
     )!;
@@ -1907,7 +1945,7 @@ describe("public campaign frontend", () => {
     ).toBe(crm.item.title);
   });
 
-  it("SSR renders all fourteen real replacement lists and seven recipe slots without tables or column headings", async () => {
+  it("SSR renders all fourteen real replacement lists and only present recipe slots without tables or column headings", async () => {
     const actual = await vi.importActual<
       typeof import("../../../lib/campaign-content.server")
     >("../../../lib/campaign-content.server");
@@ -1921,6 +1959,11 @@ describe("public campaign frontend", () => {
       const section = [...document.querySelectorAll("section")].find(
         (node) => node.querySelector("h2")?.textContent === stack.heading,
       )!;
+      expect(section.classList.contains("campaign-stack-section")).toBe(true);
+      const list = section.querySelector(":scope > ul")!;
+      expect(list.classList.contains("campaign-stack-list")).toBe(true);
+      expect(list.classList.contains("list-disc")).toBe(true);
+      expect(list.nextElementSibling?.tagName).toBe("P");
       expect(section.querySelector(":scope > p")?.textContent).toBe(
         stack.in_app,
       );
@@ -1937,15 +1980,7 @@ describe("public campaign frontend", () => {
       expect(cards, item.slug).toHaveLength(3);
       for (const [index, card] of cards.entries()) {
         const recipe = item.recipes![index];
-        expect([...card.children].map((node) => node.tagName)).toEqual([
-          "DIV",
-          "H3",
-          "P",
-          "DL",
-          "DIV",
-          "DL",
-          recipe.save ? "DL" : "DIV",
-        ]);
+        expectRecipeSlots(card, recipe);
         expect(
           card.children[0].querySelector(".campaign-frequency-tag")
             ?.textContent,
@@ -1959,17 +1994,27 @@ describe("public campaign frontend", () => {
             ? ["Do", "You get", "Save for next time"]
             : ["Do", "You get"],
         );
-        for (const [slot, present] of [
-          [card.children[4], !!recipe.prompt],
-          [card.children[6], !!recipe.save],
-        ] as const) {
-          expect(slot.classList.contains("campaign-recipe-empty")).toBe(
-            !present,
+        expect(card.querySelector(".campaign-recipe-do dd")?.textContent).toBe(
+          recipe.do,
+        );
+        expect(
+          card.querySelector(".campaign-recipe-result dd")?.textContent,
+        ).toBe(recipe.you_get);
+        if (recipe.prompt) {
+          expect(card.querySelector("pre code")?.textContent).toBe(
+            recipe.prompt.trim(),
           );
-          expect(slot.getAttribute("aria-hidden")).toBe(
-            present ? null : "true",
-          );
-          if (!present) expect(slot.childNodes).toHaveLength(0);
+        } else {
+          expect(
+            card.querySelector("pre, code, button, .code-block"),
+          ).toBeNull();
+        }
+        if (recipe.save) {
+          expect(
+            card.querySelector(".campaign-recipe-footer dd")?.textContent,
+          ).toBe(recipe.save);
+        } else {
+          expect(card.textContent).not.toContain("Save for next time");
         }
       }
     }

@@ -334,7 +334,9 @@ export function UseCasePage({
                 <div className="campaign-recipe-tag">
                   <CampaignFrequencyTag text={recipe.how_often} />
                 </div>
-                <h3 className="campaign-recipe-title campaign-card-title">{recipe.title}</h3>
+                <h3 className="campaign-recipe-title campaign-card-title">
+                  {recipe.title}
+                </h3>
                 <p className="campaign-recipe-when campaign-body m-0 whitespace-pre-line">
                   {recipe.when}
                 </p>

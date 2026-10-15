@@ -434,7 +434,8 @@ a.campaign-inline-link {
   padding-block-start: 8px;
 }
 
-.campaign-page :is(.campaign-recipe-do, .campaign-recipe-prompt, .campaign-recipe-result) {
+.campaign-page
+  :is(.campaign-recipe-do, .campaign-recipe-prompt, .campaign-recipe-result) {
   padding-block-start: 20px;
 }
 
@@ -453,13 +454,27 @@ a.campaign-inline-link {
     grid-template-rows: subgrid;
   }
 
-  .campaign-page .campaign-recipe-tag { grid-row: 1; }
-  .campaign-page .campaign-recipe-title { grid-row: 2; }
-  .campaign-page .campaign-recipe-when { grid-row: 3; }
-  .campaign-page .campaign-recipe-do { grid-row: 4; }
-  .campaign-page .campaign-recipe-prompt { grid-row: 5; }
-  .campaign-page .campaign-recipe-result { grid-row: 6; }
-  .campaign-page .campaign-recipe-footer { grid-row: 7; }
+  .campaign-page .campaign-recipe-tag {
+    grid-row: 1;
+  }
+  .campaign-page .campaign-recipe-title {
+    grid-row: 2;
+  }
+  .campaign-page .campaign-recipe-when {
+    grid-row: 3;
+  }
+  .campaign-page .campaign-recipe-do {
+    grid-row: 4;
+  }
+  .campaign-page .campaign-recipe-prompt {
+    grid-row: 5;
+  }
+  .campaign-page .campaign-recipe-result {
+    grid-row: 6;
+  }
+  .campaign-page .campaign-recipe-footer {
+    grid-row: 7;
+  }
 }
 
 .campaign-page .campaign-faq > div > div:first-child {
