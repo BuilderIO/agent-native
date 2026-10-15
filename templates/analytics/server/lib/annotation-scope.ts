@@ -3,7 +3,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
-import { and, eq, isNull, sql, type Column } from "drizzle-orm";
+import { and, eq, isNull, sql, type Column, type SQL } from "drizzle-orm";
 
 /** Who key dates and data notes are read and written for. */
 export type AnnotationScope = { email: string; orgId: string | null };
@@ -31,4 +31,20 @@ export function inAnnotationScope(
         isNull(table.orgId),
         sql`lower(${table.ownerEmail}) = ${scope.email.toLowerCase()}`,
       );
+}
+
+/**
+ * Serializes a scope's annotation writes until `tx` ends, so a read, its
+ * checks and the write that depends on them see no other writer in between.
+ */
+export async function lockAnnotationScope(
+  tx: { execute(query: SQL): Promise<unknown> },
+  scope: AnnotationScope,
+): Promise<void> {
+  const key = scope.orgId
+    ? `org:${scope.orgId}`
+    : `user:${scope.email.toLowerCase()}`;
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext('analytics-annotations:' || ${key}))`,
+  );
 }
