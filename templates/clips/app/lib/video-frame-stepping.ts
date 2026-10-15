@@ -4,8 +4,14 @@ export const FALLBACK_FRAME_SECONDS = 1 / 30;
 const DURATION_SAMPLES = 15;
 const MAX_DURATION_SAMPLE_SECONDS = 1;
 const PRESENTED_FRAME_TIMEOUT_MS = 1000;
-const MAX_FORWARD_PROBES = 8;
-const MAX_NARROWING_PROBES = 12;
+// Doubling from 1.5 frames, this reaches past any clip, so a long-held still
+// screen can't stall a step; seeking past the clip's end stops it sooner.
+const MAX_FORWARD_PROBES = 24;
+// Each narrowing probe halves the span, so this covers the widest probe.
+const MAX_NARROWING_PROBES = MAX_FORWARD_PROBES + 2;
+// A paused video reports the seek target as its time; anything further off
+// means another seek took over.
+const SEEK_MATCH_SECONDS = 0.001;
 
 interface FrameMetadata {
   mediaTime: number;
@@ -192,7 +198,13 @@ export async function stepVideoFrame(
 ): Promise<void> {
   const { video, clock, seekMs } = target;
   if (!clock) {
-    seekMs((video.currentTime + direction * FALLBACK_FRAME_SECONDS) * 1000);
+    // The player floors to whole milliseconds; rounding up keeps a 30 fps
+    // step from landing back on the frame it started from.
+    seekMs(
+      Math.ceil(
+        (video.currentTime + direction * FALLBACK_FRAME_SECONDS) * 1000,
+      ),
+    );
     return;
   }
   const start = (await clock.settledFrameStart()) ?? video.currentTime;
@@ -203,28 +215,48 @@ export async function stepVideoFrame(
   }
 }
 
+/**
+ * Seeks and returns the start of the frame it shows, or null when no frame
+ * arrives or another seek or playback took over before it did.
+ */
+async function showAt(
+  { video, seekMs }: FrameStepTarget,
+  clock: VideoFrameClock,
+  ms: number,
+): Promise<number | null> {
+  seekMs(ms);
+  const sought = video.currentTime;
+  const shown = await clock.nextPresentedFrame();
+  if (
+    !video.paused ||
+    Math.abs(video.currentTime - sought) > SEEK_MATCH_SECONDS
+  ) {
+    return null;
+  }
+  return shown;
+}
+
 async function stepBack(
-  { seekMs, excludedRanges }: FrameStepTarget,
+  target: FrameStepTarget,
   clock: VideoFrameClock,
   start: number,
 ) {
   // Just before this frame starts is inside the previous one, whatever its
   // length. A cut there would bounce the seek forward, so aim before the cut.
   let targetMs = frameTimeMs(start) - 1;
-  const cut = excludedRanges.find(
+  const cut = target.excludedRanges.find(
     (range) => targetMs >= range.startMs && targetMs < range.endMs,
   );
   if (cut) targetMs = cut.startMs - 1;
   if (targetMs < 0) return;
-  seekMs(targetMs);
-  const shown = await clock.nextPresentedFrame();
+  const shown = await showAt(target, clock, targetMs);
   if (!cut && shown !== null && shown < start) {
     clock.recordFrameSeconds(start - shown);
   }
 }
 
 async function stepForward(
-  { video, seekMs }: FrameStepTarget,
+  target: FrameStepTarget,
   clock: VideoFrameClock,
   start: number,
 ) {
@@ -237,8 +269,7 @@ async function stepForward(
   let shownNow = start;
   for (let probe = 0; probe < MAX_FORWARD_PROBES; probe++) {
     const probeMs = Math.round((start + reach) * 1000);
-    seekMs(probeMs);
-    const shown = await clock.nextPresentedFrame();
+    const shown = await showAt(target, clock, probeMs);
     if (shown === null) return;
     shownNow = shown;
     if (shown > start) {
@@ -246,7 +277,7 @@ async function stepForward(
       break;
     }
     // The seek stopped short of the probe: this is the clip's last frame.
-    if (video.currentTime * 1000 < probeMs - 1) return;
+    if (target.video.currentTime * 1000 < probeMs - 1) return;
     lo = start + reach;
     reach *= 2;
   }
@@ -260,15 +291,13 @@ async function stepForward(
     probe++
   ) {
     const mid = (lo + next) / 2;
-    seekMs(Math.round(mid * 1000));
-    const shown = await clock.nextPresentedFrame();
+    const shown = await showAt(target, clock, Math.round(mid * 1000));
     if (shown === null) return;
     shownNow = shown;
     if (shown > start && shown < next) next = shown;
     else lo = mid;
   }
   if (shownNow !== next) {
-    seekMs(frameTimeMs(next));
-    await clock.nextPresentedFrame();
+    await showAt(target, clock, frameTimeMs(next));
   }
 }

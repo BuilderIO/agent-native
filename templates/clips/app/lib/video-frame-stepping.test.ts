@@ -117,13 +117,16 @@ function setup(frames: number[], excludedRanges: ExcludedRange[] = []) {
     if (cut) target = cut.endMs;
     fake.currentTime = target / 1000;
   };
-  const step = (direction: 1 | -1) =>
-    stepVideoFrame({ video, clock, seekMs, excludedRanges }, direction);
+  const step = (direction: 1 | -1, stepSeekMs = seekMs) =>
+    stepVideoFrame(
+      { video, clock, seekMs: stepSeekMs, excludedRanges },
+      direction,
+    );
   const goToFrame = async (index: number) => {
     seekMs(frameTimeMs(frames[index]));
     await clock?.nextPresentedFrame();
   };
-  return { fake, clock, step, goToFrame };
+  return { fake, clock, step, goToFrame, seekMs };
 }
 
 const frameStarts = (fps: number, count: number, round = false) =>
@@ -201,6 +204,33 @@ describe("stepVideoFrame", () => {
     expect(fake.shownFrame()).toBe(24);
   });
 
+  it("steps past a still screen held longer than a few seconds", async () => {
+    const frames = [...frameStarts(24, 25, true), 31, 31 + 1 / 24];
+    const { fake, step, goToFrame } = setup(frames);
+    await goToFrame(24);
+
+    await step(1);
+
+    expect(fake.shownFrame()).toBe(25);
+  });
+
+  it("leaves a seek made mid-step alone", async () => {
+    // A screen recording holds a still screen from 1 s to 3 s.
+    const frames = [...frameStarts(24, 25, true), 3, 3 + 1 / 24, 3 + 2 / 24];
+    const { fake, step, goToFrame, seekMs } = setup(frames);
+    await goToFrame(24);
+    const userSeekMs = frameTimeMs(frames[27]);
+    let probes = 0;
+
+    await step(1, (ms) => {
+      seekMs(ms);
+      // The viewer clicks the scrubber while the second probe is in flight.
+      if (++probes === 2) queueMicrotask(() => seekMs(userSeekMs));
+    });
+
+    expect(fake.shownFrame()).toBe(27);
+  });
+
   it("steps back over a cut to the frame before it", async () => {
     const frames = frameStarts(24, 48, true);
     const { fake, step, goToFrame } = setup(frames, [
@@ -228,20 +258,19 @@ describe("stepVideoFrame", () => {
     const fake = new FakeVideo(frameStarts(30, 60), false);
     const video = fake as unknown as HTMLVideoElement;
     expect(VideoFrameClock.attach(video)).toBeNull();
+    // Frame 30 starts at 1 s; its neighbours start at 0.9667 s and 1.0333 s.
     fake.currentTime = 1;
     const seeks: number[] = [];
+    const target = {
+      video,
+      clock: null,
+      seekMs: (ms: number) => seeks.push(ms),
+      excludedRanges: [],
+    };
 
-    await stepVideoFrame(
-      {
-        video,
-        clock: null,
-        seekMs: (ms) => seeks.push(ms),
-        excludedRanges: [],
-      },
-      1,
-    );
+    await stepVideoFrame(target, 1);
+    await stepVideoFrame(target, -1);
 
-    expect(seeks).toHaveLength(1);
-    expect(seeks[0]).toBeCloseTo(1000 + 1000 / 30);
+    expect(seeks).toEqual([1034, 967]);
   });
 });
