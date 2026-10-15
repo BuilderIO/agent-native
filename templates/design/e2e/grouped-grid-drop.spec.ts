@@ -319,5 +319,8 @@ test("dropping a two-item group on an occupied grid cell keeps every item inside
   await app.settled();
   expectOnlyChanged(dropped, await app.savedNodes(designId), []);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect.poll(() => targetGridBoxes(app)).toEqual(boxes);
+  // A reload re-boots the editor, which alone takes ~12 s on CI runners.
+  await expect
+    .poll(() => targetGridBoxes(app), { timeout: 45_000 })
+    .toEqual(boxes);
 });

@@ -437,6 +437,8 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
   app,
   page,
 }) => {
+  // Opens or reloads the editor several times; each cold open takes ~12 s on CI runners.
+  test.setTimeout(180_000);
   await mkdir(ARTIFACT_DIR, { recursive: true });
   const designId = await app.seed(CHROME_FIXTURE, { title: "Chrome geometry" });
   await gotoEditor(page, designId);

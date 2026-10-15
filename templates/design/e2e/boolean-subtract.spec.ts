@@ -203,6 +203,8 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
   app,
   page,
 }) => {
+  // Opens or reloads the editor several times; each cold open takes ~12 s on CI runners.
+  test.setTimeout(180_000);
   const designId = await app.seed(FIXTURE, {
     files: {
       "about.html":

@@ -159,7 +159,8 @@ test.describe("URL-backed React JSX writeback", () => {
         )
         .contentFrame()
         .locator("[data-card]");
-    await expect(card()).toHaveText("Card");
+    // The first paint waits for the editor and the spawned app's cold dev server.
+    await expect(card()).toHaveText("Card", { timeout: 60_000 });
     await expect(card()).toHaveCSS("color", "rgb(255, 0, 0)");
 
     const sourceRef = {

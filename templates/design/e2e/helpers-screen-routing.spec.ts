@@ -18,6 +18,8 @@ test("screen route aliases target the authored iframe, not a board or neighborin
   app,
   page,
 }) => {
+  // Opens or reloads the editor several times; each cold open takes ~12 s on CI runners.
+  test.setTimeout(180_000);
   const designId = await app.seed(screenHtml("first-target"), {
     files: { "settings.html": screenHtml("second-target") },
   });

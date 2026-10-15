@@ -105,6 +105,14 @@ test.describe("interaction: button component", () => {
     await app.page.keyboard.type("Button");
     await app.page.keyboard.press("Escape");
     await app.settled();
+    // On a slow runner the text commit can start after settled() saw a quiet window.
+    await expect
+      .poll(async () =>
+        [...(await app.savedNodes(id)).values()]
+          .filter((node) => !before.has(node.id))
+          .map((node) => node.text),
+      )
+      .toEqual(["Button"]);
 
     const after = await app.savedNodes(id);
     const created = [...after.keys()].filter((nodeId) => !before.has(nodeId));

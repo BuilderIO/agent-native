@@ -202,6 +202,24 @@ test("Screen mode draws one new top-level screen at the dragged box and no board
 
   await drawBox(app, { x: 440, y: -200, width: 160, height: 120 });
 
+  // The drawn geometry is saved by a design write that follows create-file, which
+  // can land after settled() has already seen a quiet window.
+  await expect
+    .poll(async () => {
+      const record = await app.savedRecord(id);
+      const created = record.files.find(
+        (file) => !before.files.some((old) => old.id === file.id),
+      );
+      const frame = created
+        ? (
+            record.data as {
+              canvasFrames?: Record<string, { x: number; y: number }>;
+            }
+          ).canvasFrames?.[created.id]
+        : undefined;
+      return frame ? [Math.round(frame.x), Math.round(frame.y)] : null;
+    })
+    .toEqual([440, -200]);
   const after = await app.savedRecord(id);
   const newFiles = after.files.filter(
     (file) => !before.files.some((old) => old.id === file.id),
