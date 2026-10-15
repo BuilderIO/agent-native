@@ -228,6 +228,7 @@ import {
   listenForRecordingShortcutStopAcks,
   requestRecordingShortcutStop,
 } from "./lib/recording-shortcut-stop";
+import { settleRecordingStart } from "./lib/recording-start";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
@@ -1880,21 +1881,28 @@ export function App({
       setLookbackNotice(t("lookbackContext.localOnlyUnavailable"));
       return;
     }
-    const target = lookbackTarget();
-    const item = requestRecordingContext(target, {
-      recordingId,
-      seconds,
-      endedAt: origin.startedAt,
-      deviceId: clipsDeviceId(),
-    }).catch((error: unknown) => {
+    const onRequestError = (error: unknown) => {
       console.error(
         "[clips-popover] earlier screen time request failed:",
         error,
       );
       setLookbackNotice(t("lookbackContext.requestFailed"));
-      return null;
-    });
-    lookbackContextRef.current = { target, item };
+    };
+    try {
+      const target = lookbackTarget();
+      const item = requestRecordingContext(target, {
+        recordingId,
+        seconds,
+        endedAt: origin.startedAt,
+        deviceId: clipsDeviceId(),
+      }).catch((error: unknown) => {
+        onRequestError(error);
+        return null;
+      });
+      lookbackContextRef.current = { target, item };
+    } catch (error) {
+      onRequestError(error);
+    }
   }
 
   // A discarded recording must not keep an item that the worker would export.
@@ -3925,20 +3933,27 @@ export function App({
         attempt.ensureActive();
       }
       attempt.captureSuspension = null;
-      // Capture already began: an abandoned start stops and keeps the take.
-      if (
-        (stopRequestedDuringStart || attempt.signal.aborted) &&
-        captureStartRequestedDuringStart
-      ) {
-        stoppedDuringStart = true;
-        await finishRecordingStopRef.current(
-          started,
-          sessionRecordingIdRef.current,
-        );
-      } else {
-        handle = started;
-        console.log("[clips-popover] recorder handle received");
-      }
+      const settled = await settleRecordingStart(started, {
+        stopRequested:
+          (stopRequestedDuringStart || attempt.signal.aborted) &&
+          captureStartRequestedDuringStart,
+        requestLookback: () =>
+          requestLookbackForRecording(
+            effectiveLookbackSeconds({
+              labEnabled: lookbackLabEnabled,
+              rewindOn,
+              seconds: lookbackSeconds,
+            }),
+          ),
+        finishStop: (recording) =>
+          finishRecordingStopRef.current(
+            recording,
+            sessionRecordingIdRef.current,
+          ),
+      });
+      handle = settled.handle;
+      stoppedDuringStart = settled.stoppedDuringStart;
+      if (handle) console.log("[clips-popover] recorder handle received");
     } catch (err) {
       startError = err;
       if (!isRecordingStartCancellation(err)) {
@@ -3986,13 +4001,6 @@ export function App({
     if (handle) {
       recorderRef.current = handle;
       setRecorder(handle);
-      requestLookbackForRecording(
-        effectiveLookbackSeconds({
-          labEnabled: lookbackLabEnabled,
-          rewindOn,
-          seconds: lookbackSeconds,
-        }),
-      );
       return handle;
     }
     if (stoppedDuringStart) return null;
