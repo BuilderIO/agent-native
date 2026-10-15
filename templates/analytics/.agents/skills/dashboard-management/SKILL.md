@@ -289,8 +289,9 @@ only the fields given); remove with `delete-data-note`.
 - People add a note from a chart's menu ("Add data note", pinned to that chart)
   or the Annotations menu; a note's hover card offers Edit, Mark fixed, and
   Hide on this chart.
-- Scheduled email reports shade the same ranges and write each note's text under
-  the chart.
+- Scheduled email reports shade the same ranges, title each band in the label
+  rows above the plot alongside key dates (a title with no room left is
+  counted), and write each note's text under the chart.
 
 ## Reusable Native Dashboard Patterns
 
