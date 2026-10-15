@@ -59,7 +59,13 @@ async function vectorIn(app: App, html: string, nodeId: string) {
       return {
         pen: element.getAttribute("data-an-pen-nodes"),
         viewBox: element.getAttribute("viewBox"),
-        style: element.getAttribute("style"),
+        // Saved text keeps its authored spacing; the live node's is re-serialized.
+        style: Array.from((element as SVGElement).style)
+          .sort()
+          .map(
+            (property) =>
+              `${property}:${(element as SVGElement).style.getPropertyValue(property)}`,
+          ),
         d: path?.getAttribute("d") ?? null,
         fill: path?.getAttribute("fill") ?? null,
         stroke: path?.getAttribute("stroke") ?? null,

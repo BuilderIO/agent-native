@@ -774,6 +774,23 @@ function setRootLayerPosition(
   if (!offset || !Number.isFinite(offset.x) || !Number.isFinite(offset.y)) {
     return false;
   }
+  const measuredVisualOffset =
+    position.space === "visual" && position.visualOffset !== undefined;
+  const preserveFractional =
+    measuredVisualOffset || position.positionMode === "relative";
+  const left = formatClonePosition(position.x - offset.x, preserveFractional);
+  const top = formatClonePosition(position.y - offset.y, preserveFractional);
+  const mode = position.positionMode === "relative" ? "relative" : "absolute";
+  // Any CSSOM write re-serializes the layer's authored style text.
+  if (
+    host.style.position === mode &&
+    host.style.left === left &&
+    host.style.top === top &&
+    (mode === "relative" ||
+      (!host.style.right && !host.style.bottom && !host.style.inset))
+  ) {
+    return true;
+  }
   if (position.positionMode === "relative") {
     host.style.position = "relative";
   } else {
@@ -782,18 +799,8 @@ function setRootLayerPosition(
     host.style.right = "";
     host.style.bottom = "";
   }
-  const measuredVisualOffset =
-    position.space === "visual" && position.visualOffset !== undefined;
-  const preserveFractional =
-    measuredVisualOffset || position.positionMode === "relative";
-  host.style.left = formatClonePosition(
-    position.x - offset.x,
-    preserveFractional,
-  );
-  host.style.top = formatClonePosition(
-    position.y - offset.y,
-    preserveFractional,
-  );
+  host.style.left = left;
+  host.style.top = top;
   return true;
 }
 

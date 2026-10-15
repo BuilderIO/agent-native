@@ -1712,27 +1712,6 @@ describe("applyVisualEdit CSS border gradients", () => {
 });
 
 describe("applyVisualEdit", () => {
-  it("drops a padding shorthand once all four sides are set after it", () => {
-    let html = `<div data-agent-native-node-id="frame" style="gap: 8px; padding: 6px"></div>`;
-    for (const property of [
-      "padding-top",
-      "padding-right",
-      "padding-bottom",
-      "padding-left",
-    ]) {
-      html = applyVisualEdit(html, {
-        kind: "style",
-        target: { nodeId: "frame" },
-        property,
-        value: "8px",
-      }).content;
-    }
-
-    expect(html).toContain(
-      'style="gap: 8px; padding-top: 8px; padding-right: 8px; padding-bottom: 8px; padding-left: 8px"',
-    );
-  });
-
   it("applies safe inline style edits to a targeted node", () => {
     const html = `<div><button data-testid="cta" style="color: red">Buy</button></div>`;
     const intent: EditIntent = {

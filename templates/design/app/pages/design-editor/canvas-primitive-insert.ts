@@ -596,19 +596,22 @@ export function appendCanvasPrimitiveToHtml(
             height: pathViewBoxHeight,
           }
         : { left: hostLeft, top: hostTop, width, height };
-      svg.style.cssText = [
-        "position:absolute",
-        `left:${box.left}px`,
-        `top:${box.top}px`,
-        `width:${box.width}px`,
-        `height:${box.height}px`,
-        "overflow:visible",
-        `${VECTOR_START_ENDPOINT_PROPERTY}:${endpoints.startPoint}`,
-        `${VECTOR_END_ENDPOINT_PROPERTY}:${endpoints.endPoint}`,
-        geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
-      ]
-        .filter(Boolean)
-        .join(";");
+      svg.setAttribute(
+        "style",
+        [
+          "position:absolute",
+          `left:${box.left}px`,
+          `top:${box.top}px`,
+          `width:${box.width}px`,
+          `height:${box.height}px`,
+          "overflow:visible",
+          `${VECTOR_START_ENDPOINT_PROPERTY}:${endpoints.startPoint}`,
+          `${VECTOR_END_ENDPOINT_PROPERTY}:${endpoints.endPoint}`,
+          geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
+        ]
+          .filter(Boolean)
+          .join(";"),
+      );
       svg.appendChild(path);
       return finishPrimitive(svg);
     }
@@ -633,17 +636,20 @@ export function appendCanvasPrimitiveToHtml(
       svg.setAttribute("data-agent-native-layer-name", layerName);
       svg.setAttribute("data-an-primitive", primitive.kind);
       svg.setAttribute("preserveAspectRatio", "none");
-      svg.style.cssText = [
-        "position:absolute",
-        `left:${hostLeft}px`,
-        `top:${hostTop}px`,
-        `width:${width}px`,
-        `height:${height}px`,
-        "overflow:visible",
-        geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
-      ]
-        .filter(Boolean)
-        .join(";");
+      svg.setAttribute(
+        "style",
+        [
+          "position:absolute",
+          `left:${hostLeft}px`,
+          `top:${hostTop}px`,
+          `width:${width}px`,
+          `height:${height}px`,
+          "overflow:visible",
+          geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
+        ]
+          .filter(Boolean)
+          .join(";"),
+      );
       svg.appendChild(shapePath);
       updateCanvasPolygonSvgGeometry(svg, primitive.kind, width, height);
       return finishPrimitive(svg);

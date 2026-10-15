@@ -1684,34 +1684,6 @@ function setStyleDeclaration(
     if (appended.important) appended.raws.important = " !important";
     parsed.declarations.push(appended);
   }
-  removeOverriddenShorthands(parsed);
-}
-
-const BOX_SHORTHAND_LONGHANDS: Record<string, readonly string[]> = {
-  padding: ["padding-top", "padding-right", "padding-bottom", "padding-left"],
-  margin: ["margin-top", "margin-right", "margin-bottom", "margin-left"],
-  inset: ["top", "right", "bottom", "left"],
-  gap: ["row-gap", "column-gap"],
-  "border-radius": [
-    "border-top-left-radius",
-    "border-top-right-radius",
-    "border-bottom-right-radius",
-    "border-bottom-left-radius",
-  ],
-};
-
-function removeOverriddenShorthands(parsed: ParsedStyleDeclarations): void {
-  const keys = parsed.declarations.map((declaration) =>
-    cssPropertyKey(declaration.prop),
-  );
-  parsed.declarations = parsed.declarations.filter((declaration, index) => {
-    const longhands = BOX_SHORTHAND_LONGHANDS[keys[index]!];
-    if (!longhands || declaration.important) return true;
-    const later = keys.slice(index + 1);
-    if (!longhands.every((longhand) => later.includes(longhand))) return true;
-    declaration.remove();
-    return false;
-  });
 }
 
 function removeStyleDeclarations(

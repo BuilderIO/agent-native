@@ -91,9 +91,9 @@ export function applyPortableStyles(
       return;
     }
     // The layer's own declarations travel with it (unless they read a var() the
-    // destination may lack); the snapshot lists each longhand separately too.
+    // destination may lack); a partly authored shorthand still carries what it inherited.
     if (
-      longhandsOf(host.ownerDocument, cssPropertyName(property)).some(
+      longhandsOf(host.ownerDocument, cssPropertyName(property)).every(
         authoredWithoutVar,
       )
     ) {
