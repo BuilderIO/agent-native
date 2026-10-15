@@ -94,12 +94,14 @@ import type {
   MotionTrack,
 } from "../shared/motion-timeline.js";
 import {
+  isMotionTrackId,
   readTimelinePlaybackMode,
   motionTimelineDurationForContent,
   MOTION_PATH_MAX_CONTROL_OFFSET_PX,
   MOTION_TIMELINE_DEFAULT_DURATION_MS,
   MOTION_TIMELINE_MAX_DURATION_MS,
   parseMotionPosition,
+  withMotionTrackIdsFromExisting,
   withTimelinePlaybackMode,
 } from "../shared/motion-timeline.js";
 import {
@@ -401,6 +403,12 @@ const motionAnimationStylesSchema = z
 
 const trackSchema = z
   .object({
+    id: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
     targetNodeId: z
       .string()
       .describe(
@@ -1239,15 +1247,18 @@ export default defineAction({
         ),
       );
     }
-    const inputTracks = [
-      ...requestedTracks,
-      ...legacyAuthoredTracks.filter(
-        (track) =>
-          !requestedTrackKeys.has(
-            motionTrackKey(track.targetNodeId, track.property),
-          ),
-      ),
-    ];
+    const inputTracks = withMotionTrackIdsFromExisting(
+      [
+        ...requestedTracks,
+        ...legacyAuthoredTracks.filter(
+          (track) =>
+            !requestedTrackKeys.has(
+              motionTrackKey(track.targetNodeId, track.property),
+            ),
+        ),
+      ],
+      existingMotionDocument?.tracks ?? [],
+    );
 
     if (
       inputTracks.length === 0 &&
@@ -1301,8 +1312,22 @@ export default defineAction({
     }
 
     const seenTrackKeys = new Set<string>();
+    const seenTrackIds = new Set<string>();
     for (const track of inputTracks) {
       assertSafeMotionCssProperty(track.property, "track.property");
+      if (!isMotionTrackId(track.id)) {
+        fail("Motion track ids must be stable CSS-safe identifiers.", {
+          errorCode: "motion_invalid_track_id",
+          statusCode: 422,
+        });
+      }
+      if (seenTrackIds.has(track.id)) {
+        fail(`Duplicate motion track id "${track.id}".`, {
+          errorCode: "motion_duplicate_track_id",
+          statusCode: 422,
+        });
+      }
+      seenTrackIds.add(track.id);
       const trackKey = motionTrackKey(track.targetNodeId, track.property);
       if (seenTrackKeys.has(trackKey)) {
         throw new Error(

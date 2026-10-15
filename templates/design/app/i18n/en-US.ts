@@ -884,7 +884,7 @@ export default {
         rotateOut: "Rotate out",
         resizeIn: "Resize in",
         resizeOut: "Resize out",
-        fadeIn: "Fade in",
+        fadeIn: "Fade In",
         fadeOut: "Fade out",
         custom: "Custom",
         toLeft: "To left",

@@ -307,7 +307,7 @@ const AMOUNT_FIELDS: Partial<
   Position: { key: "distance", unit: "" },
   Scale: { key: "amount", unit: "%" },
   Rotation: { key: "amount", unit: "°" },
-  Size: { key: "amount", unit: "px" },
+  Size: { key: "amount", unit: "" },
   Opacity: { key: "amount", unit: "%" },
 };
 
@@ -532,11 +532,13 @@ export function MotionNativeStyleEditor({
                   {isRunnableStyle(instance.styleKey) ? (
                     <PopoverContent
                       align="start"
+                      alignOffset={-4}
                       side="left"
+                      sideOffset={10}
                       className="w-60 p-0"
                     >
                       <div>
-                        <div className="flex h-8 items-center justify-between border-b border-border px-2">
+                        <div className="flex h-10 items-center justify-between border-b border-border px-4">
                           <div className="min-w-0 flex-1">
                             <SelectControl
                               id={`${id}-style-name`}
@@ -715,7 +717,7 @@ function NativeStyleDetails({
   }
 
   return (
-    <div className="flex flex-col gap-1 px-2.5 py-2" id={id}>
+    <div className="flex flex-col gap-2 px-4 pb-5 pt-4" id={id}>
       <Field id={typeId} label={t("designEditor.motion.type")}>
         <SelectControl
           id={typeId}

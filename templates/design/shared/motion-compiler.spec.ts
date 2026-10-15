@@ -225,6 +225,68 @@ describe("compile — property is emitted safely", () => {
     expect(css).toContain("animation-fill-mode: both, both;");
   });
 
+  it("keeps repeated property animations uniquely named and in input order", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.durationMs = 900;
+    timeline.tracks = [
+      {
+        id: "opacity-first",
+        targetNodeId: "node1",
+        property: "opacity",
+        delayMs: 100,
+        durationMs: 300,
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "0.4" },
+        ],
+      },
+      {
+        id: "opacity-second",
+        targetNodeId: "node1",
+        property: "opacity",
+        delayMs: 250,
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "0.4" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+
+    const { css } = compile(timeline);
+    const names = [...css.matchAll(/@keyframes\s+(\S+)/g)].map((match) =>
+      match[1]!.replace("{", ""),
+    );
+    const parsed = parse(css);
+
+    expect(names).toEqual([
+      "an-motion-node1--opacity--track-opacity-first",
+      "an-motion-node1--opacity--track-opacity-second",
+    ]);
+    expect(new Set(names).size).toBe(2);
+    expect(
+      parsed.map((track) => ({
+        id: track.id,
+        firstValue: track.keyframes[0]?.value,
+        delayMs: track.delayMs,
+        durationMs: track.durationMs,
+      })),
+    ).toEqual([
+      {
+        id: "opacity-first",
+        firstValue: "0",
+        delayMs: 100,
+        durationMs: 300,
+      },
+      {
+        id: "opacity-second",
+        firstValue: "0.4",
+        delayMs: 250,
+        durationMs: 500,
+      },
+    ]);
+  });
+
   it("rejects unsafe keyframe values and easing while compiling", () => {
     const unsafeValue = makeTimeline("opacity");
     unsafeValue.tracks[0].keyframes[0].value = "0; body { display: none }";

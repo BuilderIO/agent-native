@@ -110,7 +110,7 @@ describe("HTML Motion source adapter", () => {
     );
     expect(edit.source).toContain('<script src="./head.js"></script>');
     expect(edit.source).toContain('<script src="./page.js"></script>');
-    expect(edit.source).toContain("agent-native-motion-source:v3:");
+    expect(edit.source).toContain("agent-native-motion-source:v4:");
     expect(edit.targetNodeIds).toEqual(["hero-title"]);
 
     const read = readMotionHtmlSource(edit.source);
@@ -260,7 +260,7 @@ describe("HTML Motion source adapter", () => {
     expect(stripManagedStyle(next.source)).toBe(
       stripManagedStyle(first.source),
     );
-    expect(next.source.match(/agent-native-motion-source:v3:/g)).toHaveLength(
+    expect(next.source.match(/agent-native-motion-source:v4:/g)).toHaveLength(
       1,
     );
     expect(readMotionHtmlSource(next.source)).toMatchObject({
@@ -278,6 +278,66 @@ describe("HTML Motion source adapter", () => {
         ],
       },
     });
+  });
+
+  it("round-trips repeated property tracks through HTML source by id", () => {
+    const timeline: MotionTimeline = {
+      ...makeTimeline(),
+      tracks: [
+        {
+          id: "opacity-first",
+          targetNodeId: "hero-title",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "0.4" },
+          ],
+        },
+        {
+          id: "opacity-second",
+          targetNodeId: "hero-title",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0.4" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const edit = apply(html, { timeline });
+    const read = readMotionHtmlSource(edit.source);
+
+    expect(read).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "opacity-first", property: "opacity" },
+          { id: "opacity-second", property: "opacity" },
+        ],
+      },
+    });
+    if (read.status === "valid" && read.document) {
+      expect(
+        read.document.tracks.map((track) =>
+          track.keyframes.map((keyframe) => keyframe.value),
+        ),
+      ).toEqual([
+        ["0", "0.4"],
+        ["0.4", "1"],
+      ]);
+      const rewritten = apply(edit.source, {
+        timeline: { ...timeline, tracks: read.document.tracks },
+      });
+      expect(readMotionHtmlSource(rewritten.source)).toMatchObject({
+        status: "valid",
+        document: {
+          tracks: [
+            { id: "opacity-first", property: "opacity" },
+            { id: "opacity-second", property: "opacity" },
+          ],
+        },
+      });
+    }
   });
 
   it("reads source-authored CSS changes and preserves them on a later Motion write", () => {
@@ -331,7 +391,7 @@ describe("HTML Motion source adapter", () => {
       },
     });
     expect(
-      written.source.match(/agent-native-motion-source:v3:/g),
+      written.source.match(/agent-native-motion-source:v4:/g),
     ).toHaveLength(1);
   });
 

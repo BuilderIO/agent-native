@@ -197,6 +197,7 @@ export function AnimationStyleBrowser({
             className="pointer-events-none absolute start-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
           />
           <Input
+            autoFocus
             aria-label={t("designEditor.motion.animationStyles.search")}
             placeholder={t(
               "designEditor.motion.animationStyles.searchPlaceholder",

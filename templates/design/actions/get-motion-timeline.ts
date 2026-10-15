@@ -62,6 +62,7 @@ import {
   MOTION_TIMELINE_DEFAULT_DURATION_MS,
   motionTimelineDurationForContent,
   readTimelinePlaybackMode,
+  withMotionTrackIds,
 } from "../shared/motion-timeline.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import {
@@ -131,7 +132,7 @@ function parseTrackJson(raw: string | null): MotionTrack[] {
       statusCode: 500,
     });
   }
-  return parsed as MotionTrack[];
+  return withMotionTrackIds(parsed as MotionTrack[]);
 }
 
 function parseStoredMotionTextDocument(

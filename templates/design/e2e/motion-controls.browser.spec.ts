@@ -248,6 +248,17 @@ test("Motion inspector states match the editable timeline", async ({
       has: page.getByRole("button", { name: "Close", exact: true }),
     });
   await expect(animationCatalog).toBeVisible();
+  const gallerySearch = animationCatalog.getByRole("textbox").first();
+  const galleryCategoryFilter = animationCatalog.getByRole("combobox").first();
+  const firstBasicAction = animationCatalog.getByRole("button", {
+    name: "Position",
+    exact: true,
+  });
+  await expect(gallerySearch).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(galleryCategoryFilter).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(firstBasicAction).toBeFocused();
   for (const action of ["Position", "Scale", "Rotation", "Size", "Opacity"]) {
     await expect(
       animationCatalog.getByRole("button", { name: action, exact: true }),
@@ -396,6 +407,26 @@ test("Motion inspector states match the editable timeline", async ({
   await nativeStyleInspector
     .getByRole("button", { name: "Position", exact: true })
     .click();
+  const positionEditorPopup = page
+    .locator("[data-radix-popper-content-wrapper]")
+    .filter({ has: page.getByRole("combobox", { name: "Type" }) });
+  const positionEditorRect = await positionEditorPopup.boundingBox();
+  const positionStyleTriggerRect = await nativeStyleInspector
+    .getByRole("button", { name: "Position", exact: true })
+    .boundingBox();
+  const rightPanelLeft = await page
+    .locator('[data-design-chrome-region="right-panel"]')
+    .evaluate((element) => element.getBoundingClientRect().x);
+  expect(positionEditorRect).not.toBeNull();
+  expect(positionStyleTriggerRect).not.toBeNull();
+  expect(positionEditorRect!.y - positionStyleTriggerRect!.y).toBeCloseTo(
+    -4,
+    0,
+  );
+  expect(
+    positionEditorRect!.x + positionEditorRect!.width - (rightPanelLeft - 1),
+  ).toBeCloseTo(0, 0);
+  expect(positionEditorRect!.height).toBeCloseTo(270, 0);
   await expect(page.getByRole("combobox", { name: "Type" })).toHaveText(
     "Slide in",
   );
@@ -576,6 +607,66 @@ test("Motion inspector states match the editable timeline", async ({
   await captureReferenceState(page, "motion-controls-add-menu");
   await page.keyboard.press("Escape");
 
+  for (const style of [
+    { name: "Scale", type: "Scale in", amount: "120" },
+    {
+      name: "Rotation",
+      type: "Rotate in",
+      amount: "180",
+      direction: "Clockwise",
+    },
+    { name: "Size", type: "Resize in", amount: "50" },
+    { name: "Opacity", type: "Fade In", amount: "0" },
+  ]) {
+    const appliedStyle = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await addAnimation.click();
+    await page.getByRole("menuitem", { name: style.name, exact: true }).click();
+    const appliedStyleResponse = await appliedStyle;
+    expect(appliedStyleResponse.ok(), await appliedStyleResponse.text()).toBe(
+      true,
+    );
+    expect(await appliedStyleResponse.json()).toMatchObject({
+      persisted: true,
+    });
+
+    await nativeStyleInspector
+      .getByRole("button", { name: style.name, exact: true })
+      .click();
+    await expect(page.getByRole("combobox", { name: "Type" })).toHaveText(
+      style.type,
+    );
+    if (style.direction) {
+      await expect(
+        page.getByRole("combobox", { name: "Direction" }),
+      ).toHaveText(style.direction);
+    }
+    await expect(page.getByRole("spinbutton", { name: "Amount" })).toHaveValue(
+      style.amount,
+    );
+    if (style.name === "Size") {
+      const sizeEditorPopup = page
+        .locator("[data-radix-popper-content-wrapper]")
+        .filter({
+          has: page.getByRole("spinbutton", { name: "Amount" }),
+        });
+      await expect(
+        sizeEditorPopup.getByText("px", { exact: true }),
+      ).toHaveCount(0);
+    }
+    await expect(page.getByRole("spinbutton", { name: "Delay" })).toHaveValue(
+      "0",
+    );
+    await expect(
+      page.getByRole("spinbutton", { name: "Duration" }),
+    ).toHaveValue("500");
+    await expect(page.getByRole("button", { name: "Ease out" })).toBeVisible();
+  }
+
   const origin = page.getByRole("button", { name: "Origin", exact: true });
   await expect(origin).toBeVisible();
   await page.keyboard.press("Alt+r");
@@ -586,7 +677,9 @@ test("Motion inspector states match the editable timeline", async ({
   await expect(page.getByRole("radio")).toHaveCount(9);
   await expect(page.getByRole("textbox", { name: "Origin X" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Origin Y" })).toBeVisible();
-  const originPopover = page.getByRole("dialog");
+  const originPopover = page
+    .getByRole("dialog")
+    .filter({ has: page.getByRole("textbox", { name: "Origin X" }) });
   await originPopover.evaluate(async (popover) => {
     const finiteAnimations = popover
       .getAnimations()

@@ -41,6 +41,25 @@ describe("apply-motion-edit Text stagger validation", () => {
     expect(action.schema.safeParse(input).success).toBe(true);
   });
 
+  it("preserves stable track ids in validated edit input", () => {
+    const parsed = action.schema.safeParse({
+      ...input,
+      tracks: [
+        {
+          id: "track-opacity-a",
+          targetNodeId: "target-1",
+          property: "opacity",
+          keyframes: [{ t: 0, value: "0" }],
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.tracks[0]?.id).toBe("track-opacity-a");
+    }
+  });
+
   it("keeps fixed stagger bounded by the source duration limit", () => {
     const { overlapPercent: _overlapPercent, ...legacyAnimation } = animation;
 

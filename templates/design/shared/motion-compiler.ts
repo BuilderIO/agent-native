@@ -19,12 +19,14 @@ import {
   MOTION_DEFAULT_PLAYBACK_MODE,
   getMotionTrackTiming,
   formatMotionPosition,
+  isMotionTrackId,
   isMotionPathSegmentV1,
   motionPathCubicPoints,
   motionPathSegmentLength,
   motionTimelineDurationForTracks,
   parseMotionPosition,
   readTimelinePlaybackMode,
+  withMotionTrackIds,
   type MotionPathPoint,
 } from "./motion-timeline";
 
@@ -49,7 +51,20 @@ export function compile(
   options: MotionCompileOptions = {},
 ): CompileResult {
   const { defaultEase } = timeline;
-  const tracks = timeline.tracks.filter((track) => track.enabled !== false);
+  const identifiedTracks = withMotionTrackIds(timeline.tracks);
+  const seenTrackIds = new Set<string>();
+  for (const track of identifiedTracks) {
+    if (!isMotionTrackId(track.id)) {
+      throw new Error(
+        "Invalid track.id: expected a stable CSS-safe identifier.",
+      );
+    }
+    if (seenTrackIds.has(track.id)) {
+      throw new Error(`Duplicate motion track id "${track.id}".`);
+    }
+    seenTrackIds.add(track.id);
+  }
+  const tracks = identifiedTracks.filter((track) => track.enabled !== false);
   const easingVariables = options.easingVariables ?? [];
   assertValidMotionEasingVariables(easingVariables);
   assertSafeMotionCssToken(defaultEase, "defaultEase");
@@ -86,10 +101,21 @@ export function compile(
     }
   >();
 
-  const sorted = [...tracks].sort((a, b) => {
-    const cmp = a.targetNodeId.localeCompare(b.targetNodeId);
-    return cmp !== 0 ? cmp : a.property.localeCompare(b.property);
-  });
+  const duplicateCounts = new Map<string, number>();
+  for (const track of identifiedTracks) {
+    if (!track.keyframes || track.keyframes.length === 0) continue;
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    duplicateCounts.set(key, (duplicateCounts.get(key) ?? 0) + 1);
+  }
+  const sorted = tracks
+    .map((track, index) => ({ track, index }))
+    .sort((a, b) => {
+      const target = a.track.targetNodeId.localeCompare(b.track.targetNodeId);
+      if (target !== 0) return target;
+      const property = a.track.property.localeCompare(b.track.property);
+      return property !== 0 ? property : a.index - b.index;
+    })
+    .map(({ track }) => track);
 
   for (const track of sorted) {
     const { targetNodeId, property, keyframes } = track;
@@ -98,7 +124,12 @@ export function compile(
 
     const sortedKeyframes = [...keyframes].sort((a, b) => a.t - b.t);
 
-    const name = animationName(targetNodeId, property);
+    const pairKey = JSON.stringify([targetNodeId, property]);
+    const name = animationName(
+      targetNodeId,
+      property,
+      duplicateCounts.get(pairKey)! > 1 ? track.id : undefined,
+    );
     const spatialPath = compileSpatialPath(property, sortedKeyframes);
     kfBlocks.push(
       property === "path-trim"
@@ -222,6 +253,7 @@ export function parse(css: string): MotionTrack[] {
       );
     }
     const track: MotionTrack = {
+      ...(decoded.id ? { id: decoded.id } : {}),
       targetNodeId: info?.targetNodeId ?? decoded.targetNodeId,
       property: decoded.property,
       keyframes,
@@ -340,23 +372,43 @@ export function assertSafeMotionCssProperty(
 const CSS_TOKEN_BREAKOUT_RE = /[;{}<>]|\/\*|\*\/|\burl\s*\(/i;
 const CSS_TOKEN_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-function animationName(nodeId: string, property: string): string {
+function animationName(
+  nodeId: string,
+  property: string,
+  trackId?: string,
+): string {
   const safe = (s: string) => s.replace(/[^a-zA-Z0-9-]/g, "_");
   const safeNode = safe(nodeId);
   const suffix =
     safeNode === nodeId ? "" : `_${djb2Num(nodeId).toString(36).slice(-4)}`;
-  return `an-motion-${safeNode}${suffix}--${safe(property)}`;
+  return (
+    `an-motion-${safeNode}${suffix}--${safe(property)}` +
+    (trackId ? `--track-${trackId}` : "")
+  );
 }
 
 function decodeAnimationName(
   name: string,
-): { targetNodeId: string; property: string } | null {
+): { targetNodeId: string; property: string; id?: string } | null {
   const prefix = "an-motion-";
   if (!name.startsWith(prefix)) return null;
-  const rest = name.slice(prefix.length);
-  const sep = rest.indexOf("--");
+  let rest = name.slice(prefix.length);
+  let id: string | undefined;
+  const idSeparator = rest.lastIndexOf("--track-");
+  if (idSeparator !== -1) {
+    const candidate = rest.slice(idSeparator + "--track-".length);
+    if (/^[A-Za-z0-9_-]{1,128}$/.test(candidate)) {
+      id = candidate;
+      rest = rest.slice(0, idSeparator);
+    }
+  }
+  const sep = rest.lastIndexOf("--");
   if (sep === -1) return null;
-  return { targetNodeId: rest.slice(0, sep), property: rest.slice(sep + 2) };
+  return {
+    targetNodeId: rest.slice(0, sep),
+    property: rest.slice(sep + 2),
+    ...(id ? { id } : {}),
+  };
 }
 
 function keyframesBlock(
@@ -622,6 +674,11 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
       if (duration !== null) entry.durationMs = duration;
       const delay = parseCssTimeMs(delays[index] ?? delays[0] ?? "");
       if (delay !== null) entry.delayMs = delay;
+      if (byName.has(name)) {
+        throw new MotionCssSourceParseError(
+          `Motion CSS reuses the animation name "${name}" for multiple tracks.`,
+        );
+      }
       byName.set(name, entry);
     });
   }

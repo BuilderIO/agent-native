@@ -35,13 +35,15 @@ import type {
   MotionTrack,
 } from "./motion-timeline";
 import {
+  isMotionTrackId,
   isMotionPathSegmentV1,
   motionTimelineDurationForTracks,
   MOTION_TIMELINE_MAX_DURATION_MS,
   parseMotionPosition,
+  withMotionTrackIds,
 } from "./motion-timeline";
 
-export const MOTION_CODE_METADATA_VERSION = 3 as const;
+export const MOTION_CODE_METADATA_VERSION = 4 as const;
 const LEGACY_MOTION_CODE_METADATA_VERSION = 1;
 export const MOTION_SOURCE_MARKER_NAME = "agent-native-motion-source";
 export const MOTION_SOURCE_WRITE_UNAVAILABLE =
@@ -130,7 +132,7 @@ export function motionCodeDocumentFromTimeline(
       audioEndMs,
     ),
     defaultEase: timeline.defaultEase,
-    tracks: timeline.tracks,
+    tracks: withMotionTrackIds(timeline.tracks),
     ...(timeline.playbackMode ? { playbackMode: timeline.playbackMode } : {}),
     ...(timeline.animationStyles
       ? { animationStyles: timeline.animationStyles }
@@ -150,6 +152,7 @@ export function compileMotionCode(
   options: MotionCodeCompileOptions = {},
 ) {
   const audioEndMs = motionAudioClipsEndTimeMs(options.audioClips ?? []);
+  const tracks = withMotionTrackIds(timeline.tracks);
   const nativeTracks = motionNativeStylesToTracks(timeline.nativeStyles ?? []);
   const nativeStyleEndMs = Math.ceil(
     Math.max(
@@ -160,14 +163,14 @@ export function compileMotionCode(
   const compiled = compile(
     {
       ...timeline,
-      tracks: [...timeline.tracks, ...nativeTracks],
+      tracks: [...tracks, ...nativeTracks],
       durationMs: Math.max(timeline.durationMs, nativeStyleEndMs, audioEndMs),
     },
     options,
   );
   const css = withMotionCodeMetadata(
     compiled.css,
-    motionCodeDocumentFromTimeline(timeline, options),
+    motionCodeDocumentFromTimeline({ ...timeline, tracks }, options),
   );
   return { css, hash: hashCss(css) };
 }
@@ -428,22 +431,44 @@ export function reconcileMotionCodeDocument(
     );
   }
   const cssDurations = animationDurationsByName(root);
+  const storedTracksById = new Map(
+    stored.tracks.map((track) => [track.id, track] as const),
+  );
+  const storedTracksByPair = new Map<string, MotionTrack[]>();
+  for (const track of stored.tracks) {
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    const matches = storedTracksByPair.get(key) ?? [];
+    matches.push(track);
+    storedTracksByPair.set(key, matches);
+  }
+  const matchedStoredTracks = new Set(
+    parsedTracks.flatMap((track) => {
+      const storedTrack = track.id ? storedTracksById.get(track.id) : undefined;
+      return storedTrack ? [storedTrack] : [];
+    }),
+  );
   parsedTracks = parsedTracks.map((track, index) => {
     const name = keyframeNames[index];
     const durationMs = name ? cssDurations.get(name) : undefined;
-    const storedTrack = stored.tracks.find(
-      (candidate) =>
-        candidate.targetNodeId === track.targetNodeId &&
-        candidate.property === track.property,
-    );
+    const pairKey = JSON.stringify([track.targetNodeId, track.property]);
+    const storedTrack = track.id
+      ? storedTracksById.get(track.id)
+      : storedTracksByPair
+          .get(pairKey)
+          ?.find((candidate) => !matchedStoredTracks.has(candidate));
+    if (!track.id && storedTrack) {
+      matchedStoredTracks.add(storedTrack);
+    }
+    const identifiedTrack =
+      track.id || !storedTrack?.id ? track : { ...track, id: storedTrack.id };
     if (
       durationMs === undefined ||
       !storedTrack ||
       (storedTrack.durationMs === undefined && durationMs === stored.durationMs)
     ) {
-      return track;
+      return identifiedTrack;
     }
-    return { ...track, durationMs };
+    return { ...identifiedTrack, durationMs };
   });
   if (
     parsedTracks.some(
@@ -611,9 +636,16 @@ export function reconcileMotionCodeDocument(
     (_track, index) => !consumedTrackIndices.has(index),
   );
 
-  const disabledTracks = stored.tracks.filter(
-    (track) => track.enabled === false,
-  );
+  const consumedParsedTracks = new Set<MotionTrack>();
+  const reconciledTracks = stored.tracks.flatMap((storedTrack) => {
+    if (storedTrack.enabled === false) return [storedTrack];
+    const parsedTrack = parsedTracks.find(
+      (track) => track.id === storedTrack.id,
+    );
+    if (!parsedTrack) return [];
+    consumedParsedTracks.add(parsedTrack);
+    return [parsedTrack];
+  });
   const playbackMode = parsePlaybackMode(css);
   const document: MotionCodeDocument = {
     ...stored,
@@ -622,7 +654,10 @@ export function reconcileMotionCodeDocument(
     (playbackModes.size === 1 ? [...playbackModes][0] : null))
       ? { playbackMode: playbackMode ?? [...playbackModes][0]! }
       : {}),
-    tracks: [...parsedTracks, ...disabledTracks],
+    tracks: withMotionTrackIds([
+      ...reconciledTracks,
+      ...parsedTracks.filter((track) => !consumedParsedTracks.has(track)),
+    ]),
     nativeStyles,
     easingVariables,
   };
@@ -689,7 +724,13 @@ function assertManagedMotionCssShape(root: postcss.Root): void {
   };
   const assertKeyframes = (rule: postcss.AtRule) => {
     const name = rule.params.trim();
-    const match = /^an-motion-.+--(-?[a-zA-Z][a-zA-Z0-9-]*)$/.exec(name);
+    const identitySuffix = /--track-([A-Za-z0-9_-]{1,128})$/.exec(name);
+    const nameWithoutIdentity = identitySuffix
+      ? name.slice(0, identitySuffix.index)
+      : name;
+    const match = /^an-motion-.+--(-?[a-zA-Z][a-zA-Z0-9-]*)$/.exec(
+      nameWithoutIdentity,
+    );
     if (!match) return rejectUnmanagedCss();
     const property = match[1]!.toLowerCase();
     const allowedProperties = new Set([
@@ -1000,9 +1041,14 @@ function decodeMarker(body: string): MotionCodeDocument {
               "animationStyles",
               "nativeStyles",
               "easingVariables",
+              ...(markerVersion >= 3 ? ["audioClips"] : []),
             ],
       );
-      document = { ...parsed, version: MOTION_CODE_METADATA_VERSION };
+      document = {
+        ...parsed,
+        version: MOTION_CODE_METADATA_VERSION,
+        tracks: addLegacyMotionTrackIds(parsed.tracks),
+      };
     }
     assertMotionCodeDocument(document);
   } catch (error) {
@@ -1080,6 +1126,15 @@ function isMotionMarkerBody(body: string): boolean {
   if (!candidate.startsWith(MOTION_SOURCE_MARKER_NAME)) return false;
   const next = candidate[MOTION_SOURCE_MARKER_NAME.length];
   return next === undefined || next === ":" || /\s/.test(next);
+}
+
+function addLegacyMotionTrackIds(tracks: unknown): unknown {
+  if (!Array.isArray(tracks)) return tracks;
+  return tracks.map((track, index) =>
+    isRecord(track) && track.id === undefined
+      ? { ...track, id: `legacy-track-${index.toString(36)}` }
+      : track,
+  );
 }
 
 function assertMotionCodeDocument(
@@ -1171,10 +1226,12 @@ function assertMotionCodeDocument(
     }
   }
 
+  const trackIds = new Set<string>();
   for (const [trackIndex, track] of value.tracks.entries()) {
     if (!isRecord(track))
       invalidDocument(`tracks[${trackIndex}] must be an object`);
     assertOnlyKeys(track, [
+      "id",
       "targetNodeId",
       "property",
       "keyframes",
@@ -1183,6 +1240,14 @@ function assertMotionCodeDocument(
       "durationMs",
       "timelinePlaybackMode",
     ]);
+    requireString(track.id, `tracks[${trackIndex}].id`);
+    if (!isMotionTrackId(track.id)) {
+      invalidDocument(`tracks[${trackIndex}].id is invalid`);
+    }
+    if (trackIds.has(track.id)) {
+      invalidDocument(`tracks[${trackIndex}].id must be unique`);
+    }
+    trackIds.add(track.id);
     requireString(track.targetNodeId, `tracks[${trackIndex}].targetNodeId`);
     if (track.targetNodeId.trim().length === 0) {
       invalidDocument(`tracks[${trackIndex}].targetNodeId must not be empty`);

@@ -127,9 +127,72 @@ describe("React Motion source adapter", () => {
     expect(metadata.status).toBe("valid");
     if (metadata.status === "valid") {
       expect(metadata.document.version).toBe(MOTION_CODE_METADATA_VERSION);
-      expect(metadata.document.tracks).toEqual(makeTimeline().tracks);
+      expect(metadata.document.tracks).toMatchObject(makeTimeline().tracks);
+      expect(metadata.document.tracks[0]?.id).toBe("legacy-track-0");
     }
     expect(edit.css).toBe(compileMotionCode(makeTimeline()).css);
+  });
+
+  it("round-trips repeated property tracks through React source by id", () => {
+    const timeline: MotionTimeline = {
+      ...makeTimeline(),
+      tracks: [
+        {
+          id: "opacity-first",
+          targetNodeId: "hero-title",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "0.4" },
+          ],
+        },
+        {
+          id: "opacity-second",
+          targetNodeId: "hero-title",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0.4" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const edit = apply(source, { timeline });
+    const read = readMotionReactSource(edit.source, "Card.tsx");
+
+    expect(read).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "opacity-first", property: "opacity" },
+          { id: "opacity-second", property: "opacity" },
+        ],
+      },
+    });
+    if (read.status === "valid" && read.document) {
+      expect(
+        read.document.tracks.map((track) =>
+          track.keyframes.map((keyframe) => keyframe.value),
+        ),
+      ).toEqual([
+        ["0", "0.4"],
+        ["0.4", "1"],
+      ]);
+      const rewritten = apply(edit.source, {
+        timeline: { ...timeline, tracks: read.document.tracks },
+      });
+      expect(readMotionReactSource(rewritten.source, "Card.tsx")).toMatchObject(
+        {
+          status: "valid",
+          document: {
+            tracks: [
+              { id: "opacity-first", property: "opacity" },
+              { id: "opacity-second", property: "opacity" },
+            ],
+          },
+        },
+      );
+    }
   });
 
   it("reads direct CSS edits, then writes the reconciled timeline back cleanly", () => {

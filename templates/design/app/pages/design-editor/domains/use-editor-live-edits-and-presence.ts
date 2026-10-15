@@ -37,7 +37,10 @@ import {
   type MotionTextDocument,
 } from "@shared/motion-text-code";
 import type { MotionPlaybackMode } from "@shared/motion-timeline";
-import { MOTION_TIMELINE_DEFAULT_DURATION_MS } from "@shared/motion-timeline";
+import {
+  createMotionTrackId,
+  MOTION_TIMELINE_DEFAULT_DURATION_MS,
+} from "@shared/motion-timeline";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useTheme } from "next-themes";
 import {
@@ -1368,6 +1371,7 @@ export function useEditorLiveEditsAndPresence({
           .filter((track) => nodeIdMap.has(track.targetNodeId))
           .map((track) => ({
             ...track,
+            id: createMotionTrackId(),
             targetNodeId: nodeIdMap.get(track.targetNodeId)!,
           }));
         if (cloned.length === 0) return current;
