@@ -2527,13 +2527,20 @@ describe("Slides prompt-led home", () => {
     ]);
   });
 
-  it("hides suggestions until the agent engine is ready", async () => {
+  it("shows fallback prompts while agent engine readiness is unavailable", async () => {
     agentEngine.state = "unavailable";
     agentEngine.missing = false;
     const { rerenderHome } = renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
 
-    expect(screen.queryByLabelText("home.suggestedPrompts")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", {
+        name: "Create a product pitch deck",
+      }).disabled,
+    ).toBe(true);
     expect(suggestionQuery.enabled).toBe(false);
 
     agentEngine.state = "configured";
@@ -2638,7 +2645,9 @@ describe("Slides prompt-led home", () => {
     const { rerenderHome } = renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
 
-    expect(screen.queryByLabelText("home.suggestedPrompts")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeTruthy();
 
     suggestionQuery.cachedReady = false;
     agentEngine.state = "configured";
@@ -2731,7 +2740,7 @@ describe("Slides prompt-led home", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "gates suggestions and model controls for $state (missing=$missing)",
+    "keeps fallback prompts visible and gates model controls for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       agentEngine.state = state;
       agentEngine.missing = missing;
@@ -2746,25 +2755,30 @@ describe("Slides prompt-led home", () => {
       });
       expect(promptProps.mock.lastCall![0].onBeforeSubmit).toBeUndefined();
       expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
-      const suggestionBar = screen.queryByLabelText("home.suggestedPrompts");
-      expect(Boolean(suggestionBar)).toBe(ready);
+      const suggestionBar = screen.getByLabelText("home.suggestedPrompts");
       expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBeNull();
       if (ready) {
         expect(
           await screen.findByRole("button", { name: "Build a pitch" }),
         ).toBeTruthy();
       }
-      expect(
-        screen.queryByRole("button", {
-          name: "Create a product pitch deck",
-        }),
-      ).toBeNull();
       if (ready) {
+        expect(
+          screen.queryByRole("button", {
+            name: "Create a product pitch deck",
+          }),
+        ).toBeNull();
         expect(
           screen.getByRole<HTMLButtonElement>("button", {
             name: "Build a pitch",
           }).disabled,
         ).toBe(false);
+      } else {
+        expect(
+          screen.getByRole<HTMLButtonElement>("button", {
+            name: "Create a product pitch deck",
+          }).disabled,
+        ).toBe(true);
       }
       expect(suggestionQuery.enabled).toBe(false);
     },

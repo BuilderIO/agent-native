@@ -2855,7 +2855,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       }
       quickActions={
-        isHome && showNewDeckPrompt && quickActionsEnabled ? (
+        isHome && showNewDeckPrompt ? (
           <AgentSuggestionBar
             loading={false}
             announceUpdates
