@@ -1597,20 +1597,14 @@ fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
 }
 
 fn screen_memory_capture_missing(app: &AppHandle) -> Result<bool, String> {
-    let runtime = app
-        .state::<ScreenMemoryState>()
-        .inner
-        .lock()
-        .map_err(|error| error.to_string())?;
+    let state = app.state::<ScreenMemoryState>();
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
     Ok(runtime.active.is_none() && !runtime.exclusion_active)
 }
 
 fn screen_memory_exclusion_active(app: &AppHandle) -> Result<bool, String> {
-    let runtime = app
-        .state::<ScreenMemoryState>()
-        .inner
-        .lock()
-        .map_err(|error| error.to_string())?;
+    let state = app.state::<ScreenMemoryState>();
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
     Ok(runtime.exclusion_active)
 }
 
@@ -1620,11 +1614,8 @@ fn screen_memory_mode_change_pending(app: &AppHandle) -> Result<bool, String> {
         return Ok(false);
     }
     let capture_mode = effective_capture_mode(app, config.capture_mode);
-    let runtime = app
-        .state::<ScreenMemoryState>()
-        .inner
-        .lock()
-        .map_err(|error| error.to_string())?;
+    let state = app.state::<ScreenMemoryState>();
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
     Ok(!runtime.exclusion_active
         && runtime
             .active
