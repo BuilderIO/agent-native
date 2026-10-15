@@ -68,7 +68,7 @@ function RevisionChanges({ revision }: { revision: DashboardRevision }) {
   if (!line) return null;
   return (
     <p className="mt-0.5 flex min-w-0 items-baseline gap-1 text-[11px] text-foreground/80">
-      <span className="truncate">{line.first}</span>
+      <span className="min-w-0 break-words">{line.first}</span>
       {line.moreCount > 0 ? (
         <Tooltip>
           <TooltipTrigger asChild>

@@ -91,6 +91,16 @@ function nameOf(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? shortName(value) : null;
 }
 
+/** Null when the two names read the same once shortened (spacing, say). */
+function renamed(
+  before: unknown,
+  after: unknown,
+): { from: string; to: string } | null {
+  const from = nameOf(before);
+  const to = nameOf(after);
+  return from && to && from !== to ? { from, to } : null;
+}
+
 function dashboardName(config: JsonRecord): unknown {
   return config.name ?? config.title;
 }
@@ -177,9 +187,8 @@ function describePanel(
   for (const field of fields) {
     if (field === "id") continue;
     if (field === "title") {
-      const from = nameOf(before.title);
-      const to = nameOf(after.title);
-      if (from && to) changes.push({ kind: "panel-renamed", from, to });
+      const rename = renamed(before.title, after.title);
+      if (rename) changes.push({ kind: "panel-renamed", ...rename });
       else other = true;
     } else if (PANEL_QUERY_FIELDS.has(field)) query = true;
     else if (PANEL_DISPLAY_FIELDS.has(field)) display = true;
@@ -346,9 +355,8 @@ export function describeDashboardChanges(
   let other = false;
 
   if (!sameValue(dashboardName(before), dashboardName(after))) {
-    const from = nameOf(dashboardName(before));
-    const to = nameOf(dashboardName(after));
-    if (from && to) changes.push({ kind: "dashboard-renamed", from, to });
+    const rename = renamed(dashboardName(before), dashboardName(after));
+    if (rename) changes.push({ kind: "dashboard-renamed", ...rename });
     else other = true;
   }
   if (!sameValue(before.description, after.description)) {
@@ -365,9 +373,15 @@ export function describeDashboardChanges(
   return changes;
 }
 
+/**
+ * What a write stores. A write always changed something, even when its config
+ * didn't (a kind change, say), so the stored list is never empty.
+ */
 export function summarizeDashboardChanges(
-  changes: DashboardChange[],
+  described: DashboardChange[],
 ): DashboardChangeSummary {
+  const changes: DashboardChange[] =
+    described.length > 0 ? described : [{ kind: "other" }];
   return {
     changes: changes.slice(0, MAX_STORED_DASHBOARD_CHANGES),
     omitted: Math.max(0, changes.length - MAX_STORED_DASHBOARD_CHANGES),
@@ -424,7 +438,8 @@ function isDashboardChange(value: unknown): value is DashboardChange {
 /**
  * Reads a stored summary. Rows saved before summaries existed have none
  * ("absent"); a stored value that is not a well-formed summary, including one
- * naming a kind this code doesn't know, is "unreadable", never an empty list.
+ * naming a kind this code doesn't know or listing no change, is "unreadable",
+ * never an empty list.
  */
 export function parseDashboardChangeSummary(
   raw: unknown,
@@ -440,6 +455,7 @@ export function parseDashboardChangeSummary(
   if (
     !isRecord(value) ||
     !Array.isArray(value.changes) ||
+    value.changes.length === 0 ||
     typeof value.omitted !== "number" ||
     !Number.isInteger(value.omitted) ||
     value.omitted < 0 ||

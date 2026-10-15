@@ -1015,23 +1015,26 @@ describe("revision change summaries", () => {
     ]);
   });
 
-  it("keeps a save's change when the state it replaces was already snapshotted", async () => {
+  it("keeps a save's change, author, and time when the state it replaces was already snapshotted", async () => {
     state.dashboard.config = JSON.stringify(signupsTable(120));
     await createDashboardRevisionSnapshot("traffic", ctx);
+    const snapshotAt = state.revisions[0].createdAt;
 
     await upsertDashboard(
       "traffic",
       "sql",
       signupsTable(220),
-      ctx,
+      { email: "bob@example.com", orgId: null },
       state.dashboard.updatedAt,
     );
 
     expect(state.revisions).toHaveLength(1);
+    expect(state.revisions[0].createdAt > snapshotAt).toBe(true);
     await expect(
       listDashboardRevisionMetadata("traffic", ctx),
     ).resolves.toMatchObject([
       {
+        createdBy: "bob@example.com",
         changesStatus: "valid",
         changes: [{ kind: "column-resized", direction: "wider" }],
       },
@@ -1115,6 +1118,44 @@ describe("revision change summaries", () => {
       ],
       omitted: 0,
     });
+  });
+
+  it("describes a restore against the version it actually replaced", async () => {
+    state.dashboard.config = JSON.stringify({
+      name: "Traffic",
+      panels: [panel("a"), panel("b")],
+    });
+    state.revisions = [
+      {
+        id: "before-b",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "Traffic",
+        config: JSON.stringify({ name: "Traffic", panels: [panel("a")] }),
+        createdAt: "2026-07-09T00:01:00.000Z",
+        createdBy: "alice@example.com",
+        chatContext: null,
+      },
+    ];
+    // A peer adds a panel between the restore's read and its write.
+    state.loseNextCas = true;
+
+    const restored = await restoreDashboardRevision("traffic", "before-b", ctx);
+
+    const snapshot = state.revisions.find(
+      (row) => row.id === restored?.snapshotRevisionId,
+    );
+    expect(JSON.parse(snapshot.config).panels.map((p: any) => p.id)).toEqual([
+      "a",
+      "b",
+      "writer-a",
+    ]);
+    expect(JSON.parse(snapshot.changeSummary).changes).toEqual([
+      { kind: "version-restored" },
+      { kind: "panel-removed", title: "b" },
+      { kind: "panel-removed", title: "writer-a" },
+    ]);
+    expect(readPanelIds()).toEqual(["a"]);
   });
 
   it("records no change for a snapshot taken outside a save", async () => {

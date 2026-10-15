@@ -58,6 +58,18 @@ describe("describeDashboardChanges", () => {
     ]);
   });
 
+  it("doesn't call a change in spacing a rename", () => {
+    expect(
+      describeDashboardChanges(
+        dashboard(),
+        dashboard({
+          name: "Growth ",
+          panels: [panel("dau", { title: " DAU" }), panel("wau")],
+        }),
+      ),
+    ).toEqual([{ kind: "other" }]);
+  });
+
   it("names added, removed, and renamed panels", () => {
     expect(
       describeDashboardChanges(
@@ -325,6 +337,13 @@ describe("summarizeDashboardChanges", () => {
       omitted: 0,
     });
   });
+
+  it("never stores an empty list for a write", () => {
+    expect(summarizeDashboardChanges([])).toEqual({
+      changes: [{ kind: "other" }],
+      omitted: 0,
+    });
+  });
 });
 
 describe("parseDashboardChangeSummary", () => {
@@ -360,16 +379,12 @@ describe("parseDashboardChangeSummary", () => {
         omitted: 0,
       }),
       JSON.stringify({ changes: [{ kind: "other" }], omitted: -1 }),
+      JSON.stringify({ changes: [], omitted: 0 }),
+      JSON.stringify({ changes: [], omitted: 3 }),
     ]) {
       expect(parseDashboardChangeSummary(raw)).toEqual({
         status: "unreadable",
       });
     }
-  });
-
-  it("reads a valid empty summary as valid, not absent", () => {
-    expect(
-      parseDashboardChangeSummary(JSON.stringify({ changes: [], omitted: 0 })),
-    ).toEqual({ status: "valid", summary: { changes: [], omitted: 0 } });
   });
 });
