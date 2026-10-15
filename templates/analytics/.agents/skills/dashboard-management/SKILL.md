@@ -67,9 +67,9 @@ guessing from times. `changesStatus` is `absent` for revisions saved before
 changes were recorded and `unreadable` when the stored list is corrupt; say you
 can't tell what those changed rather than treating them as empty.
 
-On the page, each of an editor's own saves shows a toast that names the change,
-says "Saved for everyone" (org or public visibility; "Saved" when private),
-counts the others who have the dashboard open, and offers Undo. That Undo
+On the page, an editor's own saves show a toast that names the change its Undo
+takes back, says "Saved for everyone" (org or public visibility; "Saved" when
+private), and counts the others who have the dashboard open. That Undo
 restores the revision its save left (a full-config `update-dashboard` save
 returns it as `revisionId`), but only while the dashboard is as that save left
 it: once someone else has saved, it fails rather than taking their change back.

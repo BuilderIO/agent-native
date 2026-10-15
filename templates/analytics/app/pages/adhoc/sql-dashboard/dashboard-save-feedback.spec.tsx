@@ -193,6 +193,24 @@ describe("useDashboardSaveFeedback", () => {
     expect(toastMock.success).toHaveBeenCalledOnce();
   });
 
+  it("names the write Undo takes back, not a newer save that changed nothing", async () => {
+    render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
+    const wrote = deferred<SaveOutcome>();
+    const unchanged = deferred<SaveOutcome>();
+
+    act(() => {
+      void track(wrote.promise, [{ kind: "layout-changed" }]);
+      void track(unchanged.promise, [{ kind: "other" }]);
+    });
+    await act(async () => wrote.resolve(WROTE));
+    await act(async () => unchanged.resolve({ changed: false }));
+
+    expect(toastMock.success).toHaveBeenCalledOnce();
+    expect(toastMock.success.mock.calls[0][0]).toBe(
+      "Rearranged the panels · Saved for everyone",
+    );
+  });
+
   it("offers no Undo for a write that didn't say which revision it left", async () => {
     render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
     const save = deferred<SaveOutcome>();
@@ -223,15 +241,17 @@ describe("useDashboardSaveFeedback", () => {
     const failed = deferred<SaveOutcome>();
 
     act(() => {
-      void track(wrote.promise);
-      void track(failed.promise, [{ kind: "layout-changed" }]).catch(() => {});
+      void track(wrote.promise, [{ kind: "layout-changed" }]);
+      void track(failed.promise, [{ kind: "other" }]).catch(() => {});
     });
     await act(async () => wrote.resolve(WROTE));
     await act(async () => failed.reject(new Error("Conflict")));
 
     expect(toastMock.success).toHaveBeenCalledOnce();
-    // The failed save's change didn't land, so the toast doesn't name it.
-    expect(toastMock.success.mock.calls[0][0]).toBe("Saved for everyone");
+    // The failed save's change didn't land, so the toast names the earlier one.
+    expect(toastMock.success.mock.calls[0][0]).toBe(
+      "Rearranged the panels · Saved for everyone",
+    );
     toastMock.success.mock.calls[0][1].action.onClick();
     expect(onUndo).toHaveBeenCalledExactlyOnceWith({
       revisionId: "rev1",

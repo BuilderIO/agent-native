@@ -34,13 +34,13 @@ export type DashboardSaveUndo = {
 
 /**
  * Gives the page's saves one toast, replaced in place from "Saving…" to
- * "Saved" with Undo, naming what the save changed when the caller passes
- * `changes`. Only the newest save on the open dashboard updates it, and it
- * offers Undo only when a save it covers changed the dashboard, even if the
- * newest one then failed. `onUndo` gets that write's revision and version, so
- * it undoes exactly that write, and a newer save by someone else makes it fail
- * instead of taking their change back. It must be stable; the toast calls it
- * after later renders.
+ * "Saved" with Undo. Only the newest save on the open dashboard updates it,
+ * and it offers Undo only when a save it covers changed the dashboard, even if
+ * the newest one then failed or changed nothing. The toast names that write's
+ * `changes` when the caller passed them, and `onUndo` gets its revision and
+ * version, so it undoes exactly that write, and a newer save by someone else
+ * makes it fail instead of taking their change back. It must be stable; the
+ * toast calls it after later renders.
  */
 export function useDashboardSaveFeedback({
   dashboardId,
@@ -67,6 +67,7 @@ export function useDashboardSaveFeedback({
   const newestWriteRef = useRef<{
     save: number;
     undo: DashboardSaveUndo;
+    changes: DashboardChange[] | null | undefined;
   } | null>(null);
 
   // Undo restores a revision of the open dashboard, so a toast must not
@@ -100,7 +101,7 @@ export function useDashboardSaveFeedback({
         { id: toastId },
       );
       // Runs once the newest save settles, whether or not it succeeded.
-      const settle = (named: DashboardChange[] | null | undefined) => {
+      const settle = () => {
         const write = newestWriteRef.current;
         const wrote = !!write && write.save >= firstCoveredSaveRef.current;
         firstCoveredSaveRef.current = 0;
@@ -109,7 +110,9 @@ export function useDashboardSaveFeedback({
           return;
         }
         const viewers = otherViewersRef.current;
-        toast.success(savedToastTitle(t, shared, named), {
+        // Named from the write Undo takes back, not the newest save, which
+        // may have changed nothing or failed.
+        toast.success(savedToastTitle(t, shared, write.changes), {
           id: toastId,
           description:
             viewers === 1
@@ -130,14 +133,14 @@ export function useDashboardSaveFeedback({
             newestWriteRef.current = {
               save: saveNumber,
               undo: { revisionId, updatedAt },
+              changes,
             };
           }
-          if (isNewest()) settle(changes);
+          if (isNewest()) settle();
         },
         () => {
-          // The caller reports the failure itself. These changes didn't
-          // land, so a toast for an earlier write doesn't name them.
-          if (isNewest()) settle(null);
+          // The caller reports the failure itself.
+          if (isNewest()) settle();
         },
       );
       return save;
