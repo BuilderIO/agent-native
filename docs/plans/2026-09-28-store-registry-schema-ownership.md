@@ -1,10 +1,10 @@
 # Store registry: release-owned schema, verify-only runtime
 
-**Status:** Proposal for the framework working group, with a reference
-implementation in the working tree. Rebased onto main 2026-10-13: 68 stores,
-main's runtime model, and a measured fresh-install section.
-**Scope:** `packages/core` framework stores. Template-owned tables are in scope
-for a follow-up (see [Open questions](#open-questions)).
+**Status:** Proposal for the framework working group. Phase 1 has a reference
+implementation in PR #6240, rebased onto main 2026-10-13. Phase 2 is the next
+piece of work and is specified here, not implemented.
+**Scope:** Phase 1 covers `packages/core` framework stores. Phase 2 covers the
+first-time install of a new app, framework tables first, then templates.
 
 ---
 
@@ -29,6 +29,22 @@ This proposal makes schema a **release artifact** instead of a runtime concern:
   applied.
 - Local development and self-hosted servers keep today's self-provisioning
   behavior through the same migration definitions.
+
+### Roadmap
+
+Two phases, in this order. Phase 1 is a prerequisite for Phase 2.
+
+| Phase                          | Goal                                                                                       | Status                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------ | ---------------------------- |
+| **1. Store behavior**          | Each store owns its schema through `defineStore`; request runtimes never probe or issue DDL | This proposal, PR #6240      |
+| **2. First-time install** | A new app's first release, or first `pnpm dev`, loads a schema snapshot instead of replaying the full migration history | Next; [specified below](#next-phase-2-first-time-install) |
+
+Phase 1 alone does **not** make a fresh install cheaper. It makes *every
+install after the first* cheap, and makes the ledger that Phase 2 depends on.
+The [measurements](#where-phase-1-leaves-a-fresh-install) are below. Later work
+(templates on `defineStore`, removing `ensure*()` call sites, declarative
+baselines, table namespacing) is listed under [Later phases](#later-phases)
+and [Future work](#future-work-not-scheduled).
 
 ### At a glance
 
@@ -235,6 +251,7 @@ it ran.
 - Changing how templates own their tables in `server/plugins/db.ts`.
 - Removing the 664 `await ensure*()` call sites in this change. They now cost a
   resolved promise; removing them is a mechanical follow-up.
+- Reducing the cost of a fresh install. That is Phase 2.
 
 ---
 
@@ -647,64 +664,111 @@ because the old ensure bodies had the same gaps:
 - **Migration bookkeeping `version` columns** differ between `INTEGER` and
   `BIGINT`. Harmless.
 
-Nothing checks for drift like this today. Open question 9 proposes a
+Nothing checks for drift like this today. Phase 2 (step 3) adds a
 permanent upgrade test.
 
 ---
 
-## Fresh installs: what Phase 1 does and does not fix
+## Next: Phase 2, first-time install
 
-The goal behind this work is that a brand-new app does not run hundreds of
-schema statements. Phase 1 does not get there on its own. Measured on main
-(2026-10-13), running `runFrameworkSchemaEnsures` then
-`runFrameworkReleaseMigrations` inside `withMigrationRuntime` against a fresh
-PGlite:
+### Where Phase 1 leaves a fresh install
 
-| Source                                                     | Static count                          | Fresh release                                                                 | Second release                                |
-| ---------------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------- |
-| Store ensures (`release-schema.ts`)                         | 68 stores                             | 1,682 calls: 119 CREATE TABLE, 167 CREATE INDEX, 34 ALTER, 746 catalog probes | 220 calls, still 22 ALTER, 176 probes         |
-| Versioned lists, Better Auth, automation                   | 112 entries (org alone is 34)         | 697 calls: 90 CREATE TABLE, 100 CREATE INDEX, 105 ALTER                       | 59 ledger reads                               |
-| **Release total**                                          |                                       | **2,379 calls, ~600 DDL, ~4.4 s; 186 tables, 456 indexes**                    | **279 calls, ~1 s**                           |
-| Template lists (not in the release total above)            | analytics 160, content 126, mail 38, dispatch 9, chat 0 | one or more statements each                                              | one ledger read per list                      |
+The goal is that creating a new app does not run hundreds of schema
+statements. Measured 2026-10-13: the full release step
+(`runFrameworkSchemaEnsures`, then `runFrameworkReleaseMigrations`) inside
+`withMigrationRuntime`, against an empty PGlite database. Each number counts
+calls to the database.
 
-What Phase 1 changes on a fresh database: the ~750 catalog probes around the
-store ensures go away, and a second release becomes ledger reads. What it does
-not change: the ~600 DDL statements, the 112 versioned entries, the template
-lists, and empty-table backfills. Every historical step still replays, in
-every environment, forever.
+|                                                    | Main, fresh                                  | Phase 1, fresh                               | Main, second release | Phase 1, second release |
+| -------------------------------------------------- | -------------------------------------------- | -------------------------------------------- | -------------------- | ----------------------- |
+| Store ensures / store migrations (68 to 70 stores) | 1,682 (746 catalog probes)                   | 1,948 (769 catalog probes, 123 ledger rows)  | 220                  | 3                       |
+| Versioned lists, Better Auth, automation (112 entries) | 697                                      | 697                                          | 59                   | 59                      |
+| **Total**                                          | **2,379 (~600 DDL), 186 tables, 456 indexes** | **~2,645**                                   | **279**              | **62**                  |
 
-Local development is where a new user feels this first (`agent-native create`,
-then `pnpm dev` on a fresh `pglite:` database). There, Phase 1 keeps `replay`:
+Template lists come on top of that: analytics has 160 entries, content 126,
+mail 38, dispatch 9, chat 0. The default `agent-native create` workspace is
+dispatch plus chat.
+
+Phase 1 makes a fresh install slightly **more** expensive. Its baselines are
+the old ensure bodies and still probe through `ddl-guard` so they converge old
+tables, and every migration now writes a ledger row. Its payoff is everything
+after the first install: a second release drops from 279 calls to 62, and a
+hosted cold start drops to one query.
+
+Local development is where a new user meets this first: `agent-native create`,
+then `pnpm dev` on a fresh `pglite:` database. There, Phase 1 keeps `replay`, so
 every store migration runs on first use in **every** process, not once per
-database. Org, context-xray, observational-memory, Better Auth and the
-template's lists run at plugin boot (ledgered).
+database.
 
-To reach the goal, the order of the roadmap below changes: the squashed
-snapshot (previously Future work 2) becomes Phase 2, with its prerequisites.
+### Approach: a squashed schema snapshot
 
-1. **Ledger in dev (Q1, recommended).** `replay` becomes `apply` for local
-   databases, so each migration runs once per database instead of once per
-   process. `apply` already consults the shared snapshot first, so a warm dev
-   boot is one query. Test fakes that mock `getDbExec` need a ledger stub.
-2. **One ledger (Q6).** Fold the 112 versioned entries into store migrations so
-   one runner and one ledger cover all framework schema. Without this, a
-   snapshot has to mark seven different bookkeeping tables.
-3. **Upgrade convergence in CI (Q9).** The prerequisite that proves a snapshot
-   equals the step-by-step path. The `notified_at` drift this proposal found
-   by hand shipped as a production failure before it was fixed (#7505), which
-   is the cost of not having this check.
-4. **Snapshot for fresh databases.** A generated `schema.sql` per release, plus
-   the full list of ledger rows it implies, checked in and kept current by the
-   same staleness guard as `store-registry.generated.ts`. On a database with no
-   ledger and no framework tables, the release step (and dev `apply`) executes
-   the snapshot in one transaction and inserts every ledger row, then runs only
-   migrations added after it. Expected fresh-install cost: a handful of
-   statements instead of ~2,400 calls.
-5. **Templates (Q7).** The same snapshot applies to template-owned tables once
-   templates use `defineStore`; analytics alone has 160 entries.
+This is what Rails (`schema.rb` / `db:schema:load`), Django
+(`squashmigrations`) and Prisma (baselining) do. A fresh database loads one
+snapshot of the current schema and is marked as having applied every
+migration the snapshot contains. Only migrations added after the snapshot run
+step by step. Existing databases never see the snapshot and keep upgrading
+step by step, which is why Phase 1's baselines must still converge old tables.
 
-Feature-scoped stores (Future work 3) shrink the snapshot further but are not
-needed to hit the goal.
+```mermaid
+flowchart TD
+  A["Release step, hosted-apply, or dev apply"] --> B{"Ledger exists, or any<br/>snapshot table exists?"}
+  B -->|"no: fresh database"| C["In one transaction: run schema snapshot,<br/>insert every ledger row it covers"]
+  B -->|"yes: existing database"| D["Run pending migrations step by step"]
+  C --> E["Run migrations added after the snapshot"]
+  D --> F["Converged schema"]
+  E --> F
+```
+
+The fresh check has to look at tables, not only the ledger. A database
+created before the ledger existed has framework tables and no ledger rows, and
+must take the step-by-step path so its baselines can add missing columns.
+
+### Steps, in order
+
+1. **Ledger in local dev (Q1).** `replay` becomes `apply` for local databases,
+   so each migration runs once per database instead of once per process. A
+   warm dev boot becomes the shared ledger read. Unit tests that mock
+   `getDbExec` need a ledger stub. *Exit:* a warm `pnpm dev` boot issues no
+   per-migration statements.
+2. **One ledger (Q6).** Move the 112 versioned entries (`ORG_MIGRATIONS`,
+   `AGENT_RUN_MIGRATIONS` and the rest) into store migrations, so one runner and
+   one ledger cover all framework schema. Without this, a snapshot has to fill
+   seven different bookkeeping tables in sync. *Exit:* `release-migrations.ts`
+   calls one runner.
+3. **Upgrade convergence test (Q9).** In CI, compare the catalog (tables,
+   columns, types, indexes) of a database created fresh against one upgraded
+   from a checked-in old dump. This is what proves step 4's snapshot matches
+   the step-by-step path. The `notified_at` gap this proposal found by hand
+   reached production before #7505 fixed it; this test is what catches that.
+   *Exit:* the test runs on every PR that touches a store.
+4. **Framework snapshot.** `pnpm gen:schema-snapshot` runs the release step on
+   an empty PGlite database and writes two checked-in files: the resulting
+   schema as SQL, and the ledger rows it implies. The generator backs a
+   staleness guard, as `store-registry.generated.ts` does, so adding a
+   migration without regenerating fails CI. The runner applies the snapshot as
+   in the diagram above. *Exit:* a fresh framework release runs a handful of
+   statements instead of ~2,400 calls, and the convergence test also compares
+   snapshot-fresh against step-by-step-fresh.
+5. **Templates (Q7).** Generate the same snapshot for each template's own
+   tables once templates declare them with `defineStore`. This matters most
+   for analytics (160) and content (126). *Exit:* `agent-native create` with
+   any public template, then first `pnpm dev`, applies snapshots only.
+
+Steps 1 to 3 are each useful on their own and can ship separately. Steps 4 and
+5 depend on all three.
+
+### Open points for Phase 2
+
+- **Producing the dump.** PGlite has no `pg_dump` binary on the path. Options
+  are a dump built from catalog queries, or a PGlite-compatible dump tool.
+  Decide in step 4; whichever is chosen, the generated SQL must be
+  deterministic so the staleness guard does not flap.
+- **A support floor.** Once a snapshot exists, migrations older than the
+  oldest supported release can eventually be deleted. Apps older than the
+  floor would upgrade one release line at a time. This needs its own decision
+  and is not part of Phase 2.
+- **Feature-scoped stores** ([Future work 2](#2-every-app-gets-every-framework-table))
+  would shrink the snapshot further, but Phase 2 does not need them.
 
 ---
 
@@ -720,54 +784,60 @@ needed to hit the goal.
 
 ---
 
+## Later phases
+
+After Phase 2: remove the `ensure*()` call sites in favor of a store handle
+(Q2), make baselines declarative and delete `schemaEnsureDisabled()` (Q3), and
+checksum applied migrations (Q4). None of these changes what a user sees on a
+first install, so none of them blocks Phase 2.
+
 ## Open questions
 
-The questions map onto a phased roadmap. Phase 1 is this change.
+Each question names the phase that has to answer it.
 
 ```mermaid
 flowchart LR
   P1["Phase 1, this change<br/>defineStore, registry, ledger,<br/>68 stores converted, client guard fix"]
-  P2["Phase 2: fresh installs<br/>ledger in dev (Q1), one ledger (Q6),<br/>upgrade test (Q9), snapshot"]
-  P3["Phase 3<br/>templates on defineStore (Q7),<br/>remove ensure call sites (Q2)"]
-  P4["Phase 4<br/>declarative baselines, checksums,<br/>delete schemaEnsureDisabled (Q3, Q4)"]
-  P1 --> P2 --> P3 --> P4
+  P2["Phase 2, next: first-time install<br/>ledger in dev (Q1), one ledger (Q6),<br/>upgrade test (Q9), snapshot,<br/>templates (Q7)"]
+  P3["Later<br/>remove ensure call sites (Q2),<br/>declarative baselines, checksums (Q3, Q4)"]
+  P1 --> P2 --> P3
   classDef done fill:#e9f7ef,stroke:#2a7
   classDef next fill:#f4f4f4,stroke:#888,stroke-dasharray: 5 5
   class P1 done
-  class P2,P3,P4 next
+  class P2,P3 next
 ```
 
-1. **Should replay mode use the ledger too?** Recommended yes for Phase 2; see
-   [Fresh installs](#fresh-installs-what-phase-1-does-and-does-not-fix). Today replay re-runs every
+1. **Should replay mode use the ledger too?** *(Phase 2, step 1. Recommended
+   yes.)* Today replay re-runs every
    migration once per process, which matches the old behavior, keeps tests that
    mock `getDbExec` unchanged, and avoids a ledger table in unit-test fakes. Using
    the ledger locally would make backfills run once per database everywhere, at
    the cost of one more query per store per dev process and broader test churn.
-2. **Remove the 664 call sites.** Options: keep `await ensure*()` (now a
+2. **Remove the 664 call sites.** *(Later.)* Options: keep `await ensure*()` (now a
    resolved promise), or codemod to a store-scoped handle such as
    `await installationsStore.db()` that returns the executor after `ready()`.
    The handle would make "which tables does this code touch" answerable from
    the registry and let a guard forbid raw `getDbExec()` in store modules.
-3. **Declarative baselines.** Baselines still call the ddl-guard helpers so a
+3. **Declarative baselines.** *(Later.)* Baselines still call the ddl-guard helpers so a
    release against a busy production table does not take `SHARE` locks for an
    index that already exists. Converting them to plain SQL would let us delete
    `schemaEnsureDisabled()`, the probe snapshot, and most of `ddl-guard.ts`, but
    needs a release-time `lock_timeout` policy instead.
-4. **Migration checksums.** Record a hash of each `sql` migration in the ledger
+4. **Migration checksums.** *(Later.)* Record a hash of each `sql` migration in the ledger
    and fail the release when an applied migration's text changed.
-5. **Advisory lock at release.** Two release steps against one database (beta
+5. **Advisory lock at release.** *(Phase 1 or 2.)* Two release steps against one database (beta
    and production sharing a schema owner) currently rely on idempotency. A
    `pg_advisory_xact_lock` per store would serialize them.
-6. **One ledger.** Fold the versioned `runMigrations` lists (`_org_migrations`,
+6. **One ledger.** *(Phase 2, step 2.)* Fold the versioned `runMigrations` lists (`_org_migrations`,
    `agent_run_migrations`, ...) into store migrations so there is one ledger and
    one runner.
-7. **Templates.** Extend the generator to `templates/*/server/**` so app-owned
+7. **Templates.** *(Phase 2, step 5.)* Extend the generator to `templates/*/server/**` so app-owned
    tables use `defineStore` too, and move each template's
    `server/plugins/db.ts` onto the same runner.
-8. **Verify eagerly or lazily?** The ledger is read on first store use. Reading it
+8. **Verify eagerly or lazily?** *(Phase 1.)* The ledger is read on first store use. Reading it
    during server boot would surface a missing release earlier, at the cost of a
    query on cold starts that never touch the database.
-9. **Upgrade convergence in CI.** Check in a schema dump produced by an old
+9. **Upgrade convergence in CI.** *(Phase 2, step 3.)* Check in a schema dump produced by an old
    release (for example the oldest core version we still support), run the
    current release step on it in PGlite, and fail when its tables, columns,
    types, or indexes differ from a fresh database. The one-off version of this
@@ -777,24 +847,23 @@ flowchart LR
 
 ---
 
-## Future work (out of scope for this proposal)
+## Future work (not scheduled)
 
-The registry and ledger make four longer-running problems solvable. None of
-them is part of this change. They are listed so the working group can judge the
-design against where it needs to go.
+The registry and ledger make three more long-running problems solvable. None
+is scheduled. They are listed so the working group can judge the design against
+where it needs to go. The squashed snapshot that used to be listed here is now
+[Phase 2](#next-phase-2-first-time-install).
 
 ```mermaid
 flowchart LR
-  L["Store registry + ledger<br/>(this proposal)"] --> N["1. Namespaced<br/>framework tables"]
-  L --> S["2. Squashed snapshot<br/>for fresh installs"]
-  L --> F["3. Feature-scoped<br/>stores"]
-  L --> R["4. Retiring stores<br/>and orphan detection"]
-  Q9["Upgrade convergence test (Q9)"] --> S
-  Q9 --> N
+  L["Store registry + ledger<br/>(Phase 1)"] --> N["1. Namespaced<br/>framework tables"]
+  L --> F["2. Feature-scoped<br/>stores"]
+  L --> R["3. Retiring stores<br/>and orphan detection"]
+  Q9["Upgrade convergence test<br/>(Phase 2)"] --> N
   classDef done fill:#e9f7ef,stroke:#2a7
   classDef next fill:#f4f4f4,stroke:#888,stroke-dasharray: 5 5
   class L done
-  class N,S,F,R,Q9 next
+  class N,F,R,Q9 next
 ```
 
 ### 1. A naming convention for framework tables
@@ -851,36 +920,7 @@ sequenceDiagram
 A cheaper first step: new stores go into `agent_native` from day one, existing
 stores move later. The drawback is that for a while there are two conventions.
 
-### 2. Fresh installs replay the whole history
-
-Promoted to Phase 2; see
-[Fresh installs](#fresh-installs-what-phase-1-does-and-does-not-fix) for the
-measurement and sequence. The original sketch follows.
-
-**Problem.** A new app today runs 96 store migrations plus every versioned
-list, including backfills that do nothing on empty tables. It costs seconds,
-once per deploy, so it is not a performance problem. The problem is that the
-list only grows, and every historical step stays load-bearing forever.
-
-**Proposal.** A squashed snapshot per release line, as in Rails `schema.rb`,
-Django `squashmigrations`, and Prisma baselining:
-
-```mermaid
-flowchart TD
-  A["Release step"] --> B{"Ledger and framework<br/>tables exist?"}
-  B -->|"no: fresh database"| C["Load snapshot for this release line<br/>mark every migration up to it as applied"]
-  B -->|yes| D["Run pending migrations step by step"]
-  C --> E["Run migrations added after the snapshot"]
-  D --> F["Converged schema"]
-  E --> F
-```
-
-Once snapshots exist, a supported-version floor lets migrations older than the
-oldest supported release be deleted. Apps older than the floor upgrade one
-release line at a time. The upgrade convergence test (Q9) is a prerequisite: it
-is what proves a snapshot matches the step-by-step path.
-
-### 3. Every app gets every framework table
+### 2. Every app gets every framework table
 
 **Problem.** An app that never uses extensions, A2A, remote devices, usage
 budgets, or review suggestions still gets their tables.
@@ -892,7 +932,7 @@ its tables. A disabled feature's store fails with `SchemaNotMigratedError` if
 code touches it, rather than with a missing relation. Core stores (auth,
 settings, application state, resources, sync) are always on.
 
-### 4. Retiring stores and finding orphans
+### 3. Retiring stores and finding orphans
 
 **Problem.** Additive-only is right for rolling deploys, but there is no way
 to retire a table after a refactor. The old `extensions` table lived on after
@@ -917,7 +957,7 @@ stateDiagram-v2
 ```
 
 - A retired store stays in the registry with a `retired` marker. Snapshots
-  (item 2) stop creating it and nothing new reads it.
+  ([Phase 2](#next-phase-2-first-time-install)) stop creating it and nothing new reads it.
 - The ledger makes orphans visible: a store id in `_an_store_migrations` with
   no registered store. `agent-native db prune --dry-run` lists them with row
   counts, and only an explicit, reviewed command drops anything. The framework
@@ -935,7 +975,7 @@ stateDiagram-v2
   error naming them; DDL through `getDbExec()` is rejected in a hosted runtime
   even after the client is initialized; replay provisions a fresh database.
 - `server/release-schema.cold-start.spec.ts`: after a real release pass on
-  PGlite, a simulated hosted cold start readies all 64 stores with exactly one
+  PGlite, a simulated hosted cold start readies all 70 stores with exactly one
   statement, the ledger read.
 - One-off upgrade check: a database built by the Aug 19 release step upgrades
   to the same tables, indexes, and ledger as a fresh one, and a second release

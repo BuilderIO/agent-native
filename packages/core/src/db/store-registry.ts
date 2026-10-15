@@ -130,8 +130,10 @@ async function applyWithLedger(store: StoreDefinition): Promise<void> {
   const recorded = known?.get(store.id);
   if (recorded && store.migrations.every((m) => recorded.has(m.name))) return;
 
-  await retryOnDdlRace(() => exec.execute(LEDGER_DDL));
-  ledgerPresent = true;
+  if (!ledgerPresent) {
+    await retryOnDdlRace(() => exec.execute(LEDGER_DDL));
+    ledgerPresent = true;
+  }
   const { rows } = await exec.execute({
     sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
     args: [store.id],
