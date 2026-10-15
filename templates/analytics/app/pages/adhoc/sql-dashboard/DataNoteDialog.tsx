@@ -4,6 +4,7 @@ import {
   MAX_DATA_NOTE_EVENTS,
   dataNoteAppliesTo,
   dataNoteEventsFit,
+  panelDrawsDataNotes,
   type DataNote,
   type DataNoteKind,
   type DataNotePanelRef,
@@ -177,10 +178,7 @@ function DataNoteForm({
     setForm((current) => ({ ...current, ...patch }));
 
   const existing = draft.note;
-  const charts = useMemo(
-    () => panels.filter((panel) => panel.chartType !== "section"),
-    [panels],
-  );
+  const charts = useMemo(() => panels.filter(panelDrawsDataNotes), [panels]);
   const hiddenHere = useMemo(() => {
     if (!existing) return [];
     const hiddenIds = new Set(
@@ -431,7 +429,7 @@ function DataNoteForm({
               <Label>{t("annotations.charts")}</Label>
               <div className="flex flex-wrap items-center gap-1.5">
                 {pinnedHere.map((ref) => {
-                  const panel = charts.find((p) => p.id === ref.panelId);
+                  const panel = panels.find((p) => p.id === ref.panelId);
                   const title = panel?.title ?? ref.panelId;
                   return (
                     <Badge

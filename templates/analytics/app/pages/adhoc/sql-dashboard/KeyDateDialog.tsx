@@ -1,7 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import type { KeyDate } from "@shared/key-dates";
-import { useId, useMemo, useRef, useState } from "react";
+import type { KeyDate, KeyDateSet } from "@shared/key-dates";
+import { useId, useRef, useState } from "react";
 
 import {
   isPendingAnnotation,
@@ -27,12 +27,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 /** An existing key date to edit, or the set a new one goes in. */
 export type KeyDateDraft = { keyDate?: KeyDate; setId?: string };
 
 const NEW_SET = "__new__";
+
+/** The set a new date starts in: the list's first confirmed one, or a new one. */
+const firstSetId = (sets: readonly KeyDateSet[]) =>
+  sets.find((set) => !isPendingAnnotation(set.id))?.id ?? NEW_SET;
 
 const COMMON_TIME_ZONES = [
   "UTC",
@@ -73,19 +78,15 @@ function KeyDateForm({
 }: KeyDateDialogProps & { draft: KeyDateDraft }) {
   const t = useT();
   const ids = useId();
-  const { data } = useActionQuery("list-key-dates", undefined, {
+  const { data, isError } = useActionQuery("list-key-dates", undefined, {
     staleTime: 60_000,
   });
-  const sets = useMemo(() => data?.sets ?? [], [data]);
+  const sets = data?.sets;
   const saveKeyDate = useSaveKeyDate();
   const deleteKeyDate = useDeleteKeyDate();
   const existing = draft.keyDate;
-  const [initial] = useState(() => ({
-    setId:
-      existing?.setId ??
-      draft.setId ??
-      sets.find((set) => !isPendingAnnotation(set.id))?.id ??
-      NEW_SET,
+  const [initial, setInitial] = useState(() => ({
+    setId: existing?.setId ?? draft.setId ?? (sets && firstSetId(sets)),
     label: existing?.label ?? "",
     date: existing?.date ?? "",
     time: existing?.time ?? "",
@@ -93,7 +94,14 @@ function KeyDateForm({
     // the viewer's zone.
     timeZone: existing?.time ? (existing.timeZone ?? "UTC") : viewerTimeZone(),
   }));
-  const [setId, setSetId] = useState(initial.setId);
+  // The list can arrive after the dialog opens. Its first set is taken then
+  // and kept: taken again from a later list, it could swap the set out from
+  // under someone naming a new one.
+  if (initial.setId === undefined && sets) {
+    setInitial({ ...initial, setId: firstSetId(sets) });
+  }
+  const [pickedSetId, setPickedSetId] = useState<string>();
+  const setId = pickedSetId ?? initial.setId;
   const [setName, setSetName] = useState("");
   const [label, setLabel] = useState(initial.label);
   const [date, setDate] = useState(initial.date);
@@ -108,15 +116,18 @@ function KeyDateForm({
     time !== initial.time ||
     timeZone !== initial.timeZone;
 
-  const newSet = setId === NEW_SET || !sets.some((set) => set.id === setId);
+  const chosenSet = sets?.find((set) => set.id === setId);
   const canSave =
-    label.trim() !== "" && date !== "" && (!newSet || setName.trim() !== "");
+    sets !== undefined &&
+    label.trim() !== "" &&
+    date !== "" &&
+    (chosenSet !== undefined || setName.trim() !== "");
 
   const handleSave = () => {
     if (!canSave) return;
     const input: KeyDateInput = {
       ...(existing ? { id: existing.id } : {}),
-      ...(newSet ? { setName: setName.trim() } : { setId }),
+      ...(chosenSet ? { setId: chosenSet.id } : { setName: setName.trim() }),
       date,
       label: label.trim(),
       // An edit keeps a time it leaves out, so a cleared time is sent as null.
@@ -158,34 +169,47 @@ function KeyDateForm({
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-1">
           <div className="space-y-1.5">
             <Label>{t("annotations.set")}</Label>
-            <Select value={newSet ? NEW_SET : setId} onValueChange={setSetId}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {sets.map((set) => (
-                  <SelectItem
-                    key={set.id}
-                    value={set.id}
-                    disabled={isPendingAnnotation(set.id)}
-                  >
-                    {set.name}
-                  </SelectItem>
-                ))}
-                <SelectItem value={NEW_SET}>
-                  {t("annotations.newSet")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            {newSet ? (
-              <Input
-                aria-label={t("annotations.setName")}
-                placeholder={t("annotations.setName")}
-                value={setName}
-                maxLength={80}
-                onChange={(event) => setSetName(event.target.value)}
-              />
-            ) : null}
+            {sets ? (
+              <>
+                <Select
+                  value={chosenSet?.id ?? NEW_SET}
+                  onValueChange={setPickedSetId}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sets.map((set) => (
+                      <SelectItem
+                        key={set.id}
+                        value={set.id}
+                        disabled={isPendingAnnotation(set.id)}
+                      >
+                        {set.name}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={NEW_SET}>
+                      {t("annotations.newSet")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {chosenSet ? null : (
+                  <Input
+                    aria-label={t("annotations.setName")}
+                    placeholder={t("annotations.setName")}
+                    value={setName}
+                    maxLength={80}
+                    onChange={(event) => setSetName(event.target.value)}
+                  />
+                )}
+              </>
+            ) : isError ? (
+              <p className="flex h-8 items-center text-xs text-destructive">
+                {t("dashboard.keyDatesUnavailable")}
+              </p>
+            ) : (
+              <Skeleton className="h-8 w-full" />
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor={`${ids}-label`}>{t("annotations.label")}</Label>

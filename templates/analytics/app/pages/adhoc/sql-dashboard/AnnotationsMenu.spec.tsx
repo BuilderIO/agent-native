@@ -298,4 +298,29 @@ describe("AnnotationsMenu", () => {
     act(() => item("menuitem", "Add data note").click());
     expect(onAddDataNote).toHaveBeenCalled();
   });
+
+  it("leaves out a note pinned only to an extension card, which draws no notes", () => {
+    mocks.notes = [
+      {
+        ...CONNECT_UNDERCOUNT,
+        panels: [{ dashboardId: "dash", panelId: "custom" }],
+      },
+    ];
+    render({
+      panels: [
+        ...panels,
+        {
+          id: "custom",
+          title: "Pipeline widget",
+          sql: "",
+          source: "first-party",
+          chartType: "extension",
+          width: 1,
+          config: { extensionId: "extension-123" },
+        },
+      ],
+    });
+    openMenu();
+    expect(item("menuitem", CONNECT_UNDERCOUNT.title)).toBeUndefined();
+  });
 });
