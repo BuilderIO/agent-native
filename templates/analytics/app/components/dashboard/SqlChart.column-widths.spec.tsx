@@ -4,9 +4,16 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
+const ROWS = vi.hoisted(() => [
+  { name: "Ada", count: 3 },
+  { name: "Grace", count: 5 },
+]);
+
 vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionMutation: () => ({ mutate: () => {}, isPending: false }),
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
@@ -20,7 +27,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("@/lib/sql-query", () => ({
   useSqlQuery: () => ({
-    data: undefined,
+    data: { rows: ROWS },
     isLoading: false,
     isFetching: false,
     error: null,
@@ -32,12 +39,13 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 
-import { SqlChart } from "./SqlChart";
+vi.mock("@/pages/adhoc/sql-dashboard/ViewSqlPopover", () => ({
+  ViewSqlPopover: () => null,
+}));
 
-const ROWS = [
-  { name: "Ada", count: 3 },
-  { name: "Grace", count: 5 },
-];
+import { SqlChartCard } from "@/pages/adhoc/sql-dashboard/SqlChartCard";
+
+import { SqlChart } from "./SqlChart";
 
 const TABLE: SqlPanel = {
   id: "p",
@@ -64,6 +72,7 @@ describe("SqlChart table column widths", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    localStorage.clear();
     vi.unstubAllGlobals();
   });
 
@@ -75,6 +84,56 @@ describe("SqlChart table column widths", () => {
     const header = container.querySelector("th");
     if (!header) throw new Error("table header not rendered");
     return header;
+  }
+
+  async function doubleClick(target: Element) {
+    await act(async () => {
+      target.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+  }
+
+  async function renderCard(editable: boolean, onSaveColumns: () => void) {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <SqlChartCard
+            panel={TABLE}
+            dashboardId="d"
+            editable={editable}
+            eagerLoad
+            onRemove={() => {}}
+            onSaveColumns={onSaveColumns}
+          />
+        </TooltipProvider>,
+      );
+    });
+  }
+
+  async function dropColumn(fromKey: string, onto: HTMLElement) {
+    const event = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", {
+      value: { getData: () => fromKey },
+    });
+    await act(async () => {
+      onto.dispatchEvent(event);
+    });
+  }
+
+  async function openColumnMenu() {
+    await act(async () => {
+      nameHeader().dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+      );
+    });
+    return document.body.querySelector('[role="menu"]');
+  }
+
+  function nameLabel(): HTMLElement {
+    const label = Array.from(nameHeader().querySelectorAll("span")).find(
+      (span) => span.childElementCount === 0 && span.textContent === "name",
+    );
+    if (!label) throw new Error("column label not rendered");
+    return label;
   }
 
   async function drag(handle: HTMLElement, toX: number) {
@@ -153,5 +212,51 @@ describe("SqlChart table column widths", () => {
       );
     });
     expect(nameHeader().style.width).toBe("260px");
+  });
+
+  it("lets a viewer size a dashboard table's columns but not rename, reorder, or format them", async () => {
+    const onSaveColumns = vi.fn();
+    await renderCard(false, onSaveColumns);
+
+    expect(nameHeader().getAttribute("draggable")).toBe("false");
+    await dropColumn("count", nameHeader());
+    await doubleClick(nameLabel());
+    expect(container.querySelector("th input")).toBeNull();
+    expect(await openColumnMenu()).toBeNull();
+
+    const [handle] = separators();
+    expect(handle?.title).toBe("dashboardMode.columnResizePersonal");
+    await drag(handle!, 200);
+    expect(nameHeader().style.width).toBe("200px");
+    await doubleClick(handle!);
+    expect(nameHeader().style.width).toBe("90px");
+
+    expect(onSaveColumns).not.toHaveBeenCalled();
+  });
+
+  it("keeps renaming, reordering, and the column menu in edit mode", async () => {
+    const onSaveColumns = vi.fn();
+    await renderCard(true, onSaveColumns);
+
+    expect(nameHeader().getAttribute("draggable")).toBe("true");
+    await dropColumn("count", nameHeader());
+    expect(onSaveColumns).toHaveBeenLastCalledWith([
+      { key: "count" },
+      { key: "name", width: 90 },
+    ]);
+
+    await doubleClick(nameLabel());
+    const input = container.querySelector<HTMLInputElement>("th input");
+    expect(input).not.toBeNull();
+
+    await act(async () => {
+      input!.value = "Person";
+      input!.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(onSaveColumns).toHaveBeenLastCalledWith([
+      { key: "name", width: 90, label: "Person" },
+      { key: "count" },
+    ]);
+    expect(await openColumnMenu()).not.toBeNull();
   });
 });
