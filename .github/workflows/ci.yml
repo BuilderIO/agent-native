@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # No `branches` filter: a stacked PR targets its parent PR's branch, and the
+  # required checks must report on it too.
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}

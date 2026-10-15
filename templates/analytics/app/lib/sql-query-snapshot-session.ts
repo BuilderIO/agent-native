@@ -7,6 +7,7 @@ import {
 import {
   clearSqlQuerySnapshots,
   readSqlQuerySnapshot,
+  removeSqlQuerySnapshot,
   writeSqlQuerySnapshot,
   type SqlQuerySnapshotClear,
   type SqlQuerySnapshotInput,
@@ -77,6 +78,13 @@ export function readSqlQuerySnapshotForSession(options: {
     });
   }
   return read;
+}
+
+export function removeSqlQuerySnapshotForSession(options: {
+  accountScope: string;
+  queryKey: string;
+}): SqlQuerySnapshotClear {
+  return warnIfNotCleared(removeSqlQuerySnapshot(options));
 }
 
 export function writeSqlQuerySnapshotForSession(options: {

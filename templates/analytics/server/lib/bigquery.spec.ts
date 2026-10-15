@@ -1140,7 +1140,10 @@ describe("runQuery cancellation", () => {
     });
     expect(unreported.fetchedAt).toBe("2026-10-14T12:10:00.000Z");
     expect(unreported).not.toHaveProperty("providerCacheHit");
-    expect(hit).not.toHaveProperty("cached");
+    // Every one of these reached BigQuery, so none was served by the app cache.
+    for (const fresh of [hit, miss, unreported]) {
+      expect(fresh).toMatchObject({ cached: false });
+    }
     // Metadata comes from the existing getQueryResults response: one submit and
     // one poll per query, with an unchanged job configuration.
     expect(fetchMock).toHaveBeenCalledTimes(6);
@@ -1185,6 +1188,31 @@ describe("runQuery cancellation", () => {
         providerCacheHit: true,
       });
     }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("flags a fresh scan as an app-cache miss without persisting the flag", async () => {
+    const cache = useCacheDatabase();
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "4096",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT 1 AS app_cache_miss_flag";
+
+    const miss = await runQuery(sql);
+    const hit = await runQuery(sql);
+
+    expect(miss).toMatchObject({ cached: false, bytesProcessed: 4096 });
+    expect(hit).toMatchObject({ cached: true, bytesProcessed: 4096 });
+    for (const entry of cache.values()) {
+      expect(JSON.parse(entry.result)).not.toHaveProperty("cached");
+    }
+    // The second read was served by the app cache, not a second BigQuery job.
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -1252,7 +1280,7 @@ describe("runQuery cancellation", () => {
       fetchedAt: "2026-10-14T12:30:00.000Z",
       providerCacheHit: false,
     });
-    expect(refreshed).not.toHaveProperty("cached");
+    expect(refreshed).toMatchObject({ cached: false });
     expect(cachedAfter).toMatchObject({
       cached: true,
       fetchedAt: "2026-10-14T12:30:00.000Z",
@@ -1293,7 +1321,7 @@ describe("runQuery cancellation", () => {
       rows: [],
       totalRows: 0,
     });
-    expect(result).not.toHaveProperty("cached");
+    expect(result).toMatchObject({ cached: false });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(execute).toHaveBeenCalledTimes(1);

@@ -188,6 +188,14 @@ test("passes the pull request title to the change-scope guard", () => {
   );
 });
 
+test("runs CI for pull requests into any base branch", () => {
+  const triggers = readFileSync(".github/workflows/ci.yml", "utf8").split(
+    /^jobs:/mu,
+  )[0];
+  assert.match(triggers, /^ {2}pull_request:\s*$/mu);
+  assert.doesNotMatch(triggers, /^\s*branches(?:-ignore)?:/mu);
+});
+
 test("selects Slides caret CI for exact package roots and Creative Context", () => {
   const filtersFor = (path: string) =>
     JSON.stringify(workspaceFiltersForPaths([path]));

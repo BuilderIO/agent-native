@@ -1397,7 +1397,8 @@ export async function runQuery(
       else await releaseCacheQuery(cacheKey, cacheFence);
     }
 
-    return result;
+    // The cached copy stays unflagged: every read of it sets `cached: true`.
+    return { ...result, cached: false };
   } catch (error) {
     if (jobId) cancelJob = true;
     if (cancelJob && jobId && token) {

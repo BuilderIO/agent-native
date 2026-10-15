@@ -301,6 +301,28 @@ export function writeSqlQuerySnapshot(
   }
 }
 
+export function removeSqlQuerySnapshot(
+  options: Pick<StorageOptions, "storage"> & {
+    accountScope: string;
+    queryKey: string;
+  },
+): SqlQuerySnapshotClear {
+  const identity = resolveIdentity(options.accountScope, options.queryKey);
+  if ("status" in identity) return identity;
+  const storage = resolveStorage(options.storage);
+  if ("status" in storage) return storage;
+  try {
+    const matches = listEntries(storage).entries.filter(
+      (entry) =>
+        entry.scopeId === identity.scopeId && entry.keyId === identity.keyId,
+    );
+    for (const entry of matches) storage.removeItem(entry.name);
+    return { status: "cleared", removed: matches.length };
+  } catch (error) {
+    return storageFailure(error);
+  }
+}
+
 /**
  * Drops snapshots for logout or an account/org switch. With
  * `exceptAccountScope` it keeps only that scope's entries; without a valid

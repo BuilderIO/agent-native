@@ -20,10 +20,17 @@ import {
 } from "./sql-query-freshness";
 import {
   readSqlQuerySnapshotForSession,
+  removeSqlQuerySnapshotForSession,
   writeSqlQuerySnapshotForSession,
 } from "./sql-query-snapshot-session";
 
 export { DASHBOARD_REPORT_ACTION_TIMEOUT_MS };
+
+function isAccessDenied(error: unknown): error is Error & { status: number } {
+  if (!(error instanceof Error) || !("status" in error)) return false;
+  // callAction preserves the HTTP response status on its thrown Error.
+  return error.status === 401 || error.status === 403 || error.status === 404;
+}
 
 export interface SqlQueryResult {
   rows: Record<string, unknown>[];
@@ -432,6 +439,10 @@ export function useSqlQuery(
   const previousRefreshToken = useRef(refreshToken);
   const previousEnabled = useRef(enabled);
   const snapshotKey = JSON.stringify([queryKey, sql, source]);
+  const restoredCopy = useRef<{
+    id: string;
+    result: SqlQueryResult | null;
+  } | null>(null);
   const queryClient = useQueryClient();
   const query = useQuery<SqlQueryResult>({
     queryKey: scopedQueryKey,
@@ -446,6 +457,30 @@ export function useSqlQuery(
           forceRefresh,
         });
       } catch (error) {
+        if (isAccessDenied(error)) {
+          if (
+            lastShown.current?.accountScope === accountScope &&
+            lastShown.current?.retainScope === retainScope
+          ) {
+            lastShown.current = null;
+          }
+          restoredCopy.current = null;
+          removeSqlQuerySnapshotForSession({
+            accountScope,
+            queryKey: snapshotKey,
+          });
+          // React Query retains data on failed revalidation by default. Remove
+          // just this denied result while letting it commit the real error.
+          queryClient
+            .getQueryCache()
+            .find({ queryKey: scopedQueryKey, exact: true })
+            ?.setState({
+              data: undefined,
+              dataUpdatedAt: 0,
+              error,
+              status: "error",
+            });
+        }
         // The request stays pending for the cache bypass, but a later success
         // is not the one the user asked for.
         if (manual && forceRefresh && !signal.aborted) manual.failed = true;
@@ -476,15 +511,22 @@ export function useSqlQuery(
     refetchOnMount: options?.refetchOnMount ?? false,
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
-    retry: options?.retry ?? false,
+    retry: (failureCount, error) => {
+      if (isAccessDenied(error)) return false;
+      const retry = options?.retry ?? false;
+      return typeof retry === "number" ? failureCount < retry : retry;
+    },
     staleTime:
       options?.staleTime ??
       (options?.reuseCompletedOnEnable ? Infinity : 5 * 60 * 1000),
   });
   const refetch = query.refetch;
+  const accessDenied = isAccessDenied(query.error);
 
   useEffect(() => {
-    if (query.data && sessionReady && retainScope !== undefined) {
+    if (accessDenied) {
+      lastShown.current = null;
+    } else if (query.data && sessionReady && retainScope !== undefined) {
       lastShown.current = {
         data: query.data,
         queryKeyHash,
@@ -497,7 +539,14 @@ export function useSqlQuery(
     ) {
       lastShown.current = null;
     }
-  }, [query.data, sessionReady, retainScope, queryKeyHash, accountScope]);
+  }, [
+    query.data,
+    sessionReady,
+    retainScope,
+    queryKeyHash,
+    accountScope,
+    accessDenied,
+  ]);
 
   useEffect(() => {
     const wasEnabled = previousEnabled.current;
@@ -531,14 +580,12 @@ export function useSqlQuery(
   // The saved copy is read once per account and query, and only for a query
   // with nothing in memory. Once the query has data the copy is spent, so a
   // later cache eviction cannot bring back rows older than ones already shown.
-  const restoredCopy = useRef<{
-    id: string;
-    result: SqlQueryResult | null;
-  } | null>(null);
   const restoreId = `${accountScope}
 ${snapshotKey}`;
   let restored: SqlQueryResult | null = null;
-  if (options?.snapshots && sessionReady && query.data === undefined) {
+  if (accessDenied) {
+    restoredCopy.current = { id: restoreId, result: null };
+  } else if (options?.snapshots && sessionReady && query.data === undefined) {
     if (restoredCopy.current?.id !== restoreId) {
       const read = readSqlQuerySnapshotForSession({
         accountScope,
@@ -574,6 +621,16 @@ ${snapshotKey}`;
       data: undefined,
       isPlaceholderData: false,
       isLoading: true,
+      freshness: undefined,
+      completedManualRefreshToken: undefined,
+    };
+  }
+  if (accessDenied) {
+    return {
+      ...query,
+      data: undefined,
+      isPlaceholderData: false,
+      isLoading: false,
       freshness: undefined,
       completedManualRefreshToken: undefined,
     };
