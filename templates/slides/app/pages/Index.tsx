@@ -1418,7 +1418,6 @@ export default function Index({ active = true }: { active?: boolean }) {
       }
     };
 
-    let deckPersisted = false;
     if (!sourceImprovementRequest) {
       updateDeck(deckId, {
         generationContext: { ...initialGenerationContext },
@@ -1443,7 +1442,6 @@ export default function Index({ active = true }: { active?: boolean }) {
         );
         return;
       }
-      deckPersisted = true;
     }
 
     void navigate(
@@ -1574,8 +1572,6 @@ export default function Index({ active = true }: { active?: boolean }) {
         );
         return;
       }
-      deckPersisted = true;
-
       try {
         importedSourceDeck = await importUploadedDeckIntoDeck(
           filesForSourceImprovement,
