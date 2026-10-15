@@ -17,6 +17,7 @@ import {
   isSlashCommandNavigationStateReady,
   createRetiredBrowserSessionErrorCorrelator,
   browserSessionNavigationRequestIdentity,
+  cleanupNavigationSessionRequestKey,
   browserSessionIdAfterRequest,
   authoringFuzzBrowserSessionCorsHeaders,
   authoringFuzzBrowserSessionResponse,
@@ -2520,6 +2521,30 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
       failedClaim,
     ]),
   ).toBe(false);
+});
+
+it("correlates cleanup registrations by their shared endpoint", () => {
+  const registrationKey = (sessionId: string) =>
+    cleanupNavigationSessionRequestKey({
+      kind: "heartbeat",
+      sessionId,
+      pathname: "/_agent-native/browser-sessions",
+    });
+
+  expect(registrationKey("old-session")).toBe(registrationKey("new-session"));
+  expect(
+    cleanupNavigationSessionRequestKey({
+      kind: "heartbeat",
+      sessionId: "old-session",
+      pathname: "/_agent-native/browser-sessions/old-session/heartbeat",
+    }),
+  ).not.toBe(
+    cleanupNavigationSessionRequestKey({
+      kind: "heartbeat",
+      sessionId: "new-session",
+      pathname: "/_agent-native/browser-sessions/new-session/heartbeat",
+    }),
+  );
 });
 
 it("accepts Firefox's retired-session warning when the request finished during the reload", () => {

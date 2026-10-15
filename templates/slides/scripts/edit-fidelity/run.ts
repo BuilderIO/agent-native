@@ -31,6 +31,7 @@ import {
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
   browserSessionNavigationRequestIdentity,
+  cleanupNavigationSessionRequestKey,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
   isFirefoxBrowserSessionConsoleError,
@@ -5586,6 +5587,7 @@ async function runAuthoringFuzzQa(
     type CleanupSessionIdentity = {
       kind: "poll" | "heartbeat";
       sessionId: string;
+      pathname: string;
     };
     const cleanupRequestStartTimes = new Map<
       any,
@@ -5618,8 +5620,7 @@ async function runAuthoringFuzzQa(
     let cleanupNavigationCompetingPollStarted = false;
     const cleanupNavigationCompetingRequestUrls = new Set<string>();
     const cleanupNavigationCompetingSessionRequests = new Set<string>();
-    const cleanupSessionRequestKey = (identity: CleanupSessionIdentity) =>
-      `${identity.kind}:${identity.sessionId}`;
+    const cleanupSessionRequestKey = cleanupNavigationSessionRequestKey;
     const cleanupSessionIdentityFor = (
       request: any,
     ): CleanupSessionIdentity | null => {
@@ -5643,7 +5644,11 @@ async function runAuthoringFuzzQa(
         postData,
       );
       if (identity?.status === "identified") {
-        return { kind: identity.kind, sessionId: identity.sessionId };
+        return {
+          kind: identity.kind,
+          sessionId: identity.sessionId,
+          pathname: requestUrl.pathname,
+        };
       }
       return null;
     };

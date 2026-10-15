@@ -599,6 +599,17 @@ export function browserSessionNavigationRequestIdentity(
   return { status: "identified", kind, sessionId: sessionIds[0] };
 }
 
+export function cleanupNavigationSessionRequestKey(identity: {
+  kind: "poll" | "heartbeat";
+  sessionId: string;
+  pathname: string;
+}) {
+  return identity.kind === "heartbeat" &&
+    identity.pathname === "/_agent-native/browser-sessions"
+    ? "heartbeat:registration"
+    : `${identity.kind}:${identity.sessionId}`;
+}
+
 type IdentifiedBrowserSessionRequest = Extract<
   NonNullable<ReturnType<typeof browserSessionNavigationRequestIdentity>>,
   { status: "identified" }
