@@ -285,6 +285,35 @@ describe("recording upload tickets", () => {
     expect(stored).toHaveLength(20);
   });
 
+  it("releases one reservation and leaves the others", async () => {
+    const {
+      createRecordingUploadTicket,
+      releaseRecordingUploadTicket,
+      requireRecordingUploadTicketOwner,
+    } = await import("./recording-upload-ticket.js");
+    const kept = await createRecordingUploadTicket(
+      "owner@example.com",
+      "rec-1",
+    );
+    const released = await createRecordingUploadTicket(
+      "owner@example.com",
+      "rec-2",
+    );
+
+    await releaseRecordingUploadTicket("owner@example.com", "rec-2");
+    await releaseRecordingUploadTicket("owner@example.com", "rec-2");
+
+    expect(Object.keys(JSON.parse(settings.get(storageKey)!).tickets)).toEqual([
+      "rec-1",
+    ]);
+    await expect(
+      requireRecordingUploadTicketOwner(ticketEvent(released.token), "rec-2"),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    await expect(
+      requireRecordingUploadTicketOwner(ticketEvent(kept.token), "rec-1"),
+    ).resolves.toMatchObject({ recordingId: "rec-1" });
+  });
+
   it("keeps other recordings' tickets when issuing a new one", async () => {
     const { createRecordingUploadTicket, requireRecordingUploadTicketOwner } =
       await import("./recording-upload-ticket.js");

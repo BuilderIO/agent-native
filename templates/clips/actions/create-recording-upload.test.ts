@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   createRecordingRun: vi.fn(),
   createRecordingUploadTicket: vi.fn(),
   getRequestContext: vi.fn(),
+  releaseRecordingUploadTicket: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -21,6 +22,7 @@ vi.mock("../server/lib/public-agent-context.js", () => ({
 
 vi.mock("../server/lib/recording-upload-ticket.js", () => ({
   createRecordingUploadTicket: mocks.createRecordingUploadTicket,
+  releaseRecordingUploadTicket: mocks.releaseRecordingUploadTicket,
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
@@ -137,6 +139,23 @@ describe("create-recording-upload", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 429 });
     expect(mocks.createRecordingRun).not.toHaveBeenCalled();
+  });
+
+  it("releases the reserved ticket when creating the recording fails", async () => {
+    const failure = new Error("storage is not configured");
+    mocks.createRecordingRun.mockRejectedValue(failure);
+    mocks.releaseRecordingUploadTicket.mockRejectedValue(new Error("busy"));
+
+    await expect(
+      (action as any).run(
+        { visibility: "org", mimeType: "video/mp4", sizeBytes: MIB },
+        { caller: "mcp", userEmail: "owner@example.com" },
+      ),
+    ).rejects.toBe(failure);
+    expect(mocks.releaseRecordingUploadTicket).toHaveBeenCalledWith(
+      "owner@example.com",
+      "rec-1",
+    );
   });
 
   it("refuses files over the upload limit before creating a recording", () => {

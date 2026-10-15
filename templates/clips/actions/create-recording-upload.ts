@@ -8,7 +8,10 @@ import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { z } from "zod";
 
 import { getServerAppBasePath } from "../server/lib/public-agent-context.js";
-import { createRecordingUploadTicket } from "../server/lib/recording-upload-ticket.js";
+import {
+  createRecordingUploadTicket,
+  releaseRecordingUploadTicket,
+} from "../server/lib/recording-upload-ticket.js";
 import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
 import createRecording from "./create-recording.js";
 
@@ -72,21 +75,39 @@ export default defineAction({
     // is left stranded in "uploading" with nothing able to finish it.
     const recordingId = nanoid();
     const ticket = await createRecordingUploadTicket(ownerEmail, recordingId);
-    const created = await createRecording.run(
-      {
-        id: recordingId,
-        title: args.title,
-        visibility: args.visibility,
-        mimeType: args.mimeType,
-        width: args.width,
-        height: args.height,
-        hasAudio: true,
-        hasCamera: false,
-        recordingSource: "agent_upload",
-        requestStreaming: true,
-      },
-      actionContext,
-    );
+    let created: Awaited<ReturnType<typeof createRecording.run>>;
+    try {
+      created = await createRecording.run(
+        {
+          id: recordingId,
+          title: args.title,
+          visibility: args.visibility,
+          mimeType: args.mimeType,
+          width: args.width,
+          height: args.height,
+          hasAudio: true,
+          hasCamera: false,
+          recordingSource: "agent_upload",
+          requestStreaming: true,
+        },
+        actionContext,
+      );
+    } catch (error) {
+      // create-recording fails its own half-made row, or the lease reaper does;
+      // only the ticket, which the agent never received, is ours to release.
+      await releaseRecordingUploadTicket(ownerEmail, recordingId).catch(
+        (releaseError) => {
+          console.warn("[create-recording-upload] ticket release failed", {
+            recordingId,
+            error:
+              releaseError instanceof Error
+                ? releaseError.message
+                : String(releaseError),
+          });
+        },
+      );
+      throw error;
+    }
 
     const appUrl = `${new URL(getRequestContext()?.requestOrigin || getAppProductionUrl()).origin}${getServerAppBasePath()}`;
     const totalChunks = Math.max(

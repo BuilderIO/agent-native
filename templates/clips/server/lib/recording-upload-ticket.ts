@@ -10,10 +10,11 @@ import { ownerEmailMatches } from "./recordings.js";
 
 const SETTING_KEY = "clips-recording-upload-ticket";
 const TOKEN_PREFIX = "clipsup_";
-// Sized for the 2 GiB cap at ~2.4 Mbps upstream, so a ticket is never renewed
-// per chunk. Finalize ends it sooner: the agent chunk route only accepts a
-// ticket while its recording is still "uploading".
-export const RECORDING_UPLOAD_TICKET_TTL_MS = 2 * 60 * 60 * 1000;
+// A backstop, not the main bound: the agent chunk route only accepts a ticket
+// while its recording is "uploading", and the lease reaper fails an upload idle
+// for an hour. Sized for the 2 GiB cap at ~0.8 Mbps so a slow but live upload
+// is never cut off, since tickets are not renewed per chunk.
+export const RECORDING_UPLOAD_TICKET_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_PENDING_TICKETS = 20;
 const MAX_CAS_ATTEMPTS = 8;
 
@@ -187,7 +188,7 @@ export async function createRecordingUploadTicket(
     if (Object.keys(live).length >= MAX_PENDING_TICKETS) {
       throw createError({
         statusCode: 429,
-        message: `${MAX_PENDING_TICKETS} agent uploads are still in progress. Finish one before starting another; an abandoned upload frees its slot within two hours.`,
+        message: `${MAX_PENDING_TICKETS} agent uploads are still in progress. Finish one before starting another; an abandoned upload frees its slot once it has been idle for an hour.`,
       });
     }
     const tickets = { ...live, [recordingId]: ticket };
@@ -196,6 +197,20 @@ export async function createRecordingUploadTicket(
     }
   }
   throw new Error("Could not reserve a recording upload ticket");
+}
+
+/** For a reservation whose recording was never created. */
+export async function releaseRecordingUploadTicket(
+  ownerEmail: string,
+  recordingId: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
+    const { raw, collection } = await readTicketsRow(ownerEmail);
+    if (!collection.tickets[recordingId]) return;
+    const { [recordingId]: _released, ...tickets } = collection.tickets;
+    if (await compareAndSwapTickets(ownerEmail, raw, { tickets })) return;
+  }
+  throw new Error("Could not release a recording upload ticket");
 }
 
 /** Read-only, so a refused chunk request writes nothing. */
