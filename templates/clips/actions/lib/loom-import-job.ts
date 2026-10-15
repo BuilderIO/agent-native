@@ -21,6 +21,7 @@ import {
   loomEmbedUrlForId,
   normalizeLoomShareUrl,
 } from "../../shared/loom.js";
+import { notImportedTranscript } from "./imported-transcript.js";
 import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
@@ -407,7 +408,12 @@ export async function runLoomImportJob({
         await db
           .update(schema.recordingTranscripts)
           .set(transcriptValues)
-          .where(eq(schema.recordingTranscripts.recordingId, recordingId));
+          .where(
+            and(
+              eq(schema.recordingTranscripts.recordingId, recordingId),
+              notImportedTranscript(),
+            ),
+          );
       } else {
         await db.insert(schema.recordingTranscripts).values({
           recordingId,

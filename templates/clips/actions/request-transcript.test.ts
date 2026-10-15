@@ -78,6 +78,9 @@ vi.mock("@agent-native/core/tracking", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  isNull: vi.fn((column: unknown) => ({ isNull: column })),
+  ne: vi.fn((column: unknown, value: unknown) => ({ ne: [column, value] })),
+  or: vi.fn((...args: unknown[]) => ({ or: args })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -105,6 +108,7 @@ vi.mock("../server/db/index.js", () => ({
       updatedAt: "recordingTranscripts.updatedAt",
       language: "recordingTranscripts.language",
       retryCount: "recordingTranscripts.retryCount",
+      source: "recordingTranscripts.source",
     },
   },
 }));
@@ -967,6 +971,119 @@ describe("requestTranscript regeneration", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("with an imported transcript", () => {
+    const pendingRow = {
+      status: "pending",
+      fullText: "",
+      segmentsJson: "[]",
+      updatedAt: "2026-07-09T00:00:00.000Z",
+      language: "en",
+      retryCount: 0,
+      source: null,
+    };
+    // Mostly CJK text under the default "en" language: an automatic
+    // transcript like this would be retried as language-mismatched.
+    const importedRow = {
+      status: "ready",
+      fullText: "このプルリクエストはチャートの不具合を三つ直します。",
+      segmentsJson: JSON.stringify([
+        {
+          startMs: 0,
+          endMs: 4000,
+          text: "このプルリクエストはチャートの不具合を三つ直します。",
+        },
+      ]),
+      language: "en",
+      source: "imported",
+    };
+    const recordingRow = {
+      videoUrl: "https://cdn.example.com/recording.mp4",
+      videoFormat: "mp4",
+      hasAudio: true,
+      durationMs: 4000,
+      title: "PR 7419",
+    };
+    const titleRow = {
+      title: "PR 7419",
+      titleSource: "manual",
+      description: "Saved",
+      durationMs: 4000,
+    };
+    const cloudTextWrites = () =>
+      mockUpdateSet.mock.calls.filter(
+        ([values]) =>
+          (values as { fullText?: string }).fullText === "Fresh transcript.",
+      );
+
+    it("keeps an import that finished before the job started", async () => {
+      mockSelectRows.queue = [[importedRow], [titleRow]];
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(result).toMatchObject({ status: "ready", provider: "existing" });
+      expect(mockTranscribeWithBuilder).not.toHaveBeenCalled();
+      expect(cloudTextWrites()).toHaveLength(0);
+    });
+
+    it("keeps an import that lands while cloud transcription runs", async () => {
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [recordingRow],
+        [importedRow],
+        [titleRow],
+      ];
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+      expect(cloudTextWrites()).toHaveLength(0);
+    });
+
+    it("never writes the cloud result over an import that lands just before the write", async () => {
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [recordingRow],
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [importedRow],
+        [titleRow],
+      ];
+      mockUpdateReturning
+        .mockResolvedValueOnce([{ recordingId: "rec_imported" }])
+        .mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      const [cloudWrite] = cloudTextWrites();
+      expect(cloudWrite).toBeDefined();
+      const cloudWriteIndex = mockUpdateSet.mock.calls.indexOf(cloudWrite);
+      expect(mockUpdateWhere.mock.calls[cloudWriteIndex][0]).toContainEqual({
+        or: [
+          { isNull: "recordingTranscripts.source" },
+          { ne: ["recordingTranscripts.source", "imported"] },
+        ],
+      });
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+      expect(mockTrack).not.toHaveBeenCalledWith(
+        "recording_completed",
+        expect.anything(),
+        expect.anything(),
+      );
+    });
   });
 });
 

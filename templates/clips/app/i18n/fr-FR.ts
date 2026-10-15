@@ -633,6 +633,30 @@ const messages = {
     nativeSpeechPrimary:
       "La reconnaissance vocale native reste la source principale de transcription.",
   },
+  transcriptImport: {
+    addFile: "Ajouter un fichier de transcription",
+    imported: "Importée",
+    replaceTitle: "Remplacer la transcription ?",
+    replaceDescription: "{{fileName}} remplacera la transcription actuelle.",
+    replace: "Remplacer",
+    added: "Transcription ajoutée",
+    replaced: "Transcription remplacée",
+    failed: "Impossible d’ajouter la transcription",
+    invalidFile: "Impossible de lire {{fileName}}",
+    errorEmpty: "Le fichier ne contient aucun texte de transcription.",
+    errorTooLarge: "Le fichier est trop volumineux pour être importé.",
+    errorMissingTiming:
+      "Ligne {{line}} : une ligne de minutage de sous-titre était attendue, par exemple 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming:
+      "Ligne {{line}} : le minutage du sous-titre n’a pas pu être lu.",
+    errorBadRange:
+      "Ligne {{line}} : le sous-titre se termine avant de commencer.",
+    errorMissingTimestamp:
+      "Ligne {{line}} : une heure de début était attendue, par exemple 0:21 ou [0:21].",
+    errorOutOfOrder:
+      "Ligne {{line}} : cette heure est antérieure à la précédente.",
+    errorPastEnd: "Ligne {{line}} : cette heure dépasse la fin de la vidéo.",
+  },
   thumbnailPicker: {
     failedCapture: "Échec de la capture de l'image",
     failedGif: "Échec de la génération de GIF : essayez une portée plus courte",

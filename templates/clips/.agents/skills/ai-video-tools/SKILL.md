@@ -140,6 +140,18 @@ different people in different parts. If any part still fails after one retry, no
 `transcript-cleanup-<id>` in application state records which part failed and
 the provider error. Retry with `request-transcript` and `force: true`.
 
+**Imported transcripts.** When a good transcript already exists (a video's
+narration captions, a YouTube transcript), import it with `import-transcript`
+instead of transcribing: pass the file text as WebVTT, SRT, or timestamped text
+(`0:21` or `[0:21]` starting each line or line pair). The file's own timings are
+stored verbatim and the transcript's `source` is `imported`. Automatic
+transcription never replaces an imported transcript; `request-transcript` with
+`regenerate: true` does, so use it only when the user asks. Importing over a
+ready transcript fails with `transcript_exists` until you confirm with the user
+and pass `replace: true`. A malformed file fails with
+`transcript_import_invalid` naming the line, and the stored transcript is left
+as it was. Import leaves chapters alone; set them with `set-chapters`.
+
 The transcript included by `view-screen` is only a bounded preview. When its
 `previewTruncated` field is true, the preview may end mid-sentence and does not
 show where transcription ended. Call `get-recording-player-data` before

@@ -1242,6 +1242,12 @@ export const migrations = runMigrations(
         `ALTER TABLE IF EXISTS clips_dictations ADD COLUMN IF NOT EXISTS cleanup_version BIGINT NOT NULL DEFAULT 0`,
       ].join("; "),
     },
+    {
+      version: 86,
+      name: "recording-transcripts-source",
+      // Additive. Mirrors `source` on `recordingTranscripts` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS source TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

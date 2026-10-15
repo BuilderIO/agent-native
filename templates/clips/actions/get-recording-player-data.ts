@@ -443,6 +443,7 @@ export default defineAction({
               ? "failed"
               : transcriptPresentation.status,
             language: transcript.language,
+            source: transcript.source ?? null,
             fullText: agentTranscript?.fullText ?? transcript.fullText,
             ...(agentTranscript
               ? {

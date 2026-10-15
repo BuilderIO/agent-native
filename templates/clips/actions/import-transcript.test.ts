@@ -1,0 +1,224 @@
+import { createRequire } from "node:module";
+
+const { PGlite } = createRequire(
+  new URL("../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+import { drizzle } from "drizzle-orm/pglite";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+
+let client: PGliteClient;
+let db: ReturnType<typeof drizzle>;
+const mocks = vi.hoisted(() => ({
+  dispatchPostFinalizeJob: vi.fn(async () => undefined),
+  writeAppState: vi.fn(async () => undefined),
+}));
+
+vi.mock("../server/db/index.js", async () => {
+  const schema = await import("../server/db/schema.js");
+  return { getDb: () => db, schema };
+});
+vi.mock("@agent-native/core/action", () => ({
+  defineAction: (options: unknown) => options,
+  fail: (message: string, options: Record<string, unknown>) => {
+    throw Object.assign(new Error(message), options);
+  },
+}));
+vi.mock("@agent-native/core/application-state", () => ({
+  writeAppState: mocks.writeAppState,
+}));
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: vi.fn(async () => ({ role: "owner" })),
+}));
+vi.mock("../server/lib/recordings.js", () => ({
+  getCurrentOwnerEmail: () => "owner@example.com",
+}));
+vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
+  dispatchPostFinalizeJob: mocks.dispatchPostFinalizeJob,
+}));
+
+import importTranscript from "./import-transcript";
+
+const VTT = `WEBVTT
+
+00:00:00.000 --> 00:00:04.000
+<v Sarah>This PR fixes three chart bugs.
+
+00:00:04.000 --> 00:00:09.000
+First, the axis labels overlapped.
+`;
+
+async function insertTranscript(row: {
+  status: string;
+  fullText?: string;
+  segmentsJson?: string;
+  source?: string | null;
+}) {
+  await client.query(
+    `INSERT INTO recording_transcripts (recording_id, status, full_text, segments_json, source)
+     VALUES ('rec_1', $1, $2, $3, $4)`,
+    [row.status, row.fullText ?? "", row.segmentsJson ?? "[]", row.source],
+  );
+}
+
+async function readTranscript() {
+  const { rows } = await client.query(
+    `SELECT status, full_text, segments_json, source FROM recording_transcripts WHERE recording_id = 'rec_1'`,
+  );
+  return rows[0] as
+    | {
+        status: string;
+        full_text: string;
+        segments_json: string;
+        source: string | null;
+      }
+    | undefined;
+}
+
+function run(args: { text: string; replace?: boolean }) {
+  return (importTranscript as any).run({
+    recordingId: "rec_1",
+    replace: false,
+    ...args,
+  });
+}
+
+beforeEach(async () => {
+  client = await PGlite.create("memory://");
+  db = drizzle(client);
+  await client.query(`CREATE TABLE recordings (
+    id TEXT PRIMARY KEY, status TEXT NOT NULL, duration_ms INTEGER,
+    title TEXT NOT NULL, title_source TEXT, description TEXT
+  )`);
+  await client.query(`CREATE TABLE recording_transcripts (
+    recording_id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    language TEXT NOT NULL DEFAULT 'en',
+    segments_json TEXT NOT NULL DEFAULT '[]',
+    full_text TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    failure_reason TEXT, failure_code TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    source TEXT,
+    created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+  )`);
+  await client.query(
+    `INSERT INTO recordings (id, status, duration_ms, title, title_source, description)
+     VALUES ('rec_1', 'ready', 10000, 'PR 7419', 'manual', 'Chart fixes')`,
+  );
+  vi.clearAllMocks();
+});
+
+afterEach(async () => {
+  await client.close();
+});
+
+describe("import-transcript", () => {
+  it("stores the file's own timings over a pending transcript and labels it imported", async () => {
+    await insertTranscript({ status: "pending" });
+
+    const result = await run({ text: VTT });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      source: "imported",
+      format: "vtt",
+      segments: 2,
+      replaced: false,
+    });
+    const row = await readTranscript();
+    expect(row).toMatchObject({
+      status: "ready",
+      source: "imported",
+      full_text:
+        "This PR fixes three chart bugs. First, the axis labels overlapped.",
+    });
+    expect(JSON.parse(row!.segments_json)).toEqual([
+      {
+        startMs: 0,
+        endMs: 4000,
+        text: "This PR fixes three chart bugs.",
+        speaker: "Sarah",
+      },
+      {
+        startMs: 4000,
+        endMs: 9000,
+        text: "First, the axis labels overlapped.",
+      },
+    ]);
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "refresh-signal",
+      expect.anything(),
+    );
+  });
+
+  it("creates the transcript row when the recording has none yet", async () => {
+    await run({ text: "0:00 Hello there.\n0:05 Bye." });
+
+    expect(await readTranscript()).toMatchObject({
+      status: "ready",
+      source: "imported",
+      full_text: "Hello there. Bye.",
+    });
+  });
+
+  it("refuses to replace a ready transcript without replace, and leaves it alone", async () => {
+    await insertTranscript({
+      status: "ready",
+      fullText: "Automatic words.",
+      segmentsJson: JSON.stringify([
+        { startMs: 0, endMs: 1000, text: "Automatic words." },
+      ]),
+    });
+
+    await expect(run({ text: VTT })).rejects.toMatchObject({
+      errorCode: "transcript_exists",
+      statusCode: 409,
+    });
+    expect(await readTranscript()).toMatchObject({
+      full_text: "Automatic words.",
+      source: null,
+    });
+
+    const result = await run({ text: VTT, replace: true });
+    expect(result).toMatchObject({ replaced: true });
+    expect(await readTranscript()).toMatchObject({ source: "imported" });
+  });
+
+  it("names the bad line and leaves the existing transcript untouched", async () => {
+    await insertTranscript({
+      status: "ready",
+      fullText: "Keep me.",
+      source: "imported",
+    });
+
+    await expect(
+      run({
+        text: "1\n00:00:01,000 --> 00:00:02,000\nok\n\n2\n00:00:05,000 --> later\nbad",
+        replace: true,
+      }),
+    ).rejects.toMatchObject({
+      message:
+        "Line 6: the cue timing couldn't be read. Use 00:00:01.000 --> 00:00:04.000.",
+      errorCode: "transcript_import_invalid",
+      statusCode: 422,
+      details: { reason: "bad-timing", line: 6, format: "srt" },
+    });
+    expect(await readTranscript()).toMatchObject({ full_text: "Keep me." });
+  });
+
+  it("queues title and summary generation when the recording still needs them", async () => {
+    await client.query(
+      `UPDATE recordings SET title_source = 'default', description = NULL WHERE id = 'rec_1'`,
+    );
+
+    const result = await run({ text: VTT });
+
+    expect(result).toMatchObject({ metadataQueued: true });
+    expect(mocks.dispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      kind: "transcript",
+    });
+  });
+});

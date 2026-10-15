@@ -9,6 +9,10 @@ import {
   isBuilderCreditsExhaustedMessage,
 } from "@shared/builder-credits";
 import {
+  formatSrt,
+  IMPORTED_TRANSCRIPT_SOURCE,
+} from "@shared/transcript-import";
+import {
   IconSearch,
   IconCopy,
   IconDownload,
@@ -18,10 +22,11 @@ import {
   IconBolt,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { useAiSetupHref } from "@/components/settings/settings-links";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -34,6 +39,10 @@ import { isExcluded, parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 
 import { TranscriptSegmentRow } from "../transcript/transcript-segment-row";
+import {
+  TranscriptImportButton,
+  type TranscriptImportRequest,
+} from "./transcript-import-button";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -57,6 +66,9 @@ export interface TranscriptPanelProps {
   onRetry?: () => void;
   onRegenerate?: () => void;
   isRegenerating?: boolean;
+  transcriptSource?: string | null;
+  onImportTranscript?: (request: TranscriptImportRequest) => void;
+  isImporting?: boolean;
 }
 
 const DISPLAY_MAX_WORDS = 36;
@@ -156,6 +168,9 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     onRetry,
     onRegenerate,
     isRegenerating = false,
+    transcriptSource,
+    onImportTranscript,
+    isImporting = false,
   } = props;
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
@@ -219,7 +234,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   }
 
   function downloadSrt() {
-    const srt = toSrt(
+    const srt = formatSrt(
       visibleSegments.length > 0 ? visibleSegments : displaySegments,
     );
     const blob = new Blob([srt], { type: "text/srt;charset=utf-8" });
@@ -230,6 +245,28 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     a.click();
     URL.revokeObjectURL(url);
   }
+
+  const hasReadyTranscript =
+    status === "ready" && (segments.length > 0 || Boolean(fullText?.trim()));
+  const importButton = (variant: "icon" | "button") =>
+    onImportTranscript ? (
+      <TranscriptImportButton
+        variant={variant}
+        durationMs={durationMs}
+        hasReadyTranscript={hasReadyTranscript}
+        isImporting={isImporting}
+        onImport={onImportTranscript}
+      />
+    ) : null;
+  const withImport = (content: ReactNode) =>
+    onImportTranscript ? (
+      <div>
+        {content}
+        <div className="px-4 pb-4">{importButton("button")}</div>
+      </div>
+    ) : (
+      content
+    );
 
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
@@ -249,21 +286,21 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   }
 
   if (status === "failed" && builderCreditsPaused) {
-    return (
+    return withImport(
       <div className="p-4">
         <BuilderCreditsPausedNotice onRetry={onRetry} />
-      </div>
+      </div>,
     );
   }
 
   if (status === "failed" && needsSetup) {
-    return (
-      <TranscriptSetupCard failureReason={failureReason} onRetry={onRetry} />
+    return withImport(
+      <TranscriptSetupCard failureReason={failureReason} onRetry={onRetry} />,
     );
   }
 
   if (status === "pending") {
-    return (
+    return withImport(
       <div className="p-4 text-sm text-muted-foreground flex items-start gap-2">
         <IconLoader2 className="h-4 w-4 animate-spin mt-0.5 shrink-0" />
         <div>
@@ -272,12 +309,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             {t("transcriptPanel.pendingDescription")}
           </p>
         </div>
-      </div>
+      </div>,
     );
   }
 
   if (status === "failed" && noSpeechFailure) {
-    return (
+    return withImport(
       <div className="p-4 space-y-3">
         <div>
           <p className="text-sm font-medium">
@@ -302,12 +339,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
               : t("transcriptPanel.regenerate")}
           </Button>
         ) : null}
-      </div>
+      </div>,
     );
   }
 
   if (status === "failed") {
-    return (
+    return withImport(
       <div className="p-4 space-y-3">
         <div className="text-sm text-destructive">
           {t("transcriptPanel.transcriptUnavailable", {
@@ -331,7 +368,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             </Button>
           ) : null}
         </div>
-      </div>
+      </div>,
     );
   }
 
@@ -349,6 +386,11 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             className="pl-8 text-xs"
           />
         </div>
+        {transcriptSource === IMPORTED_TRANSCRIPT_SOURCE ? (
+          <Badge variant="secondary" className="shrink-0 font-medium">
+            {t("transcriptImport.imported")}
+          </Badge>
+        ) : null}
         <div className="flex items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -382,6 +424,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             </TooltipTrigger>
             <TooltipContent>{t("transcriptPanel.downloadSrt")}</TooltipContent>
           </Tooltip>
+          {importButton("icon")}
           {onRegenerate ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -486,24 +529,6 @@ function highlight(text: string, q: string): string {
     (match) =>
       `<mark class="rounded bg-primary/15 px-0.5 text-foreground">${match}</mark>`,
   );
-}
-
-function msToSrtTime(ms: number): string {
-  const h = String(Math.floor(ms / 3600000)).padStart(2, "0");
-  const m = String(Math.floor((ms % 3600000) / 60000)).padStart(2, "0");
-  const s = String(Math.floor((ms % 60000) / 1000)).padStart(2, "0");
-  const millis = String(ms % 1000).padStart(3, "0");
-  return `${h}:${m}:${s},${millis}`;
-}
-
-function toSrt(segments: TranscriptSegment[]): string {
-  return segments
-    .map((seg, i) => {
-      return `${i + 1}\n${msToSrtTime(seg.startMs)} --> ${msToSrtTime(
-        seg.endMs,
-      )}\n${seg.text}\n`;
-    })
-    .join("\n");
 }
 
 function sanitizeFilename(s: string): string {

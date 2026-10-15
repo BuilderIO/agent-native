@@ -2,16 +2,18 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { isAutoTitleReplaceable } from "../shared/title-source.js";
+import { IMPORTED_TRANSCRIPT_SOURCE } from "../shared/transcript-import.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
 import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
+import { notImportedTranscript } from "./lib/imported-transcript.js";
 
 function nativeSegmentsJson(
   fullText: string,
@@ -87,6 +89,7 @@ export default defineAction({
         status: schema.recordingTranscripts.status,
         fullText: schema.recordingTranscripts.fullText,
         segmentsJson: schema.recordingTranscripts.segmentsJson,
+        source: schema.recordingTranscripts.source,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -137,6 +140,13 @@ export default defineAction({
     const savedFailureReason = truncated ? failureReason : null;
 
     if (current) {
+      if (current.source === IMPORTED_TRANSCRIPT_SOURCE) {
+        return {
+          recordingId: args.recordingId,
+          status: "skipped" as const,
+          reason: "Imported transcript is kept",
+        };
+      }
       if (hasReadySegments && !args.overwriteReady) {
         return {
           recordingId: args.recordingId,
@@ -155,7 +165,12 @@ export default defineAction({
           failureReason: savedFailureReason,
           updatedAt: now,
         })
-        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
+        .where(
+          and(
+            eq(schema.recordingTranscripts.recordingId, args.recordingId),
+            notImportedTranscript(),
+          ),
+        );
     } else {
       await db.insert(schema.recordingTranscripts).values({
         recordingId: args.recordingId,

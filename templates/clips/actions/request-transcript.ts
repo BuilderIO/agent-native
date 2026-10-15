@@ -23,6 +23,7 @@ import {
   transcriptFailureMessage,
   type TranscriptFailureCode,
 } from "../shared/transcript-failure.js";
+import { IMPORTED_TRANSCRIPT_SOURCE } from "../shared/transcript-import.js";
 import {
   buildCaptionSegmentsFromText,
   normalizeTranscriptSegments,
@@ -48,6 +49,7 @@ import {
   transcribeAudioChunks,
 } from "./lib/chunked-transcription.js";
 import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
+import { notImportedTranscript } from "./lib/imported-transcript.js";
 import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
@@ -908,6 +910,7 @@ async function preserveReadyTranscriptIfAvailable({
       fullText: schema.recordingTranscripts.fullText,
       segmentsJson: schema.recordingTranscripts.segmentsJson,
       language: schema.recordingTranscripts.language,
+      source: schema.recordingTranscripts.source,
     })
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, recordingId))
@@ -916,6 +919,7 @@ async function preserveReadyTranscriptIfAvailable({
   if (current?.status === "ready" && current.fullText?.trim()) {
     if (
       !allowLikelyLanguageMismatch &&
+      current.source !== IMPORTED_TRANSCRIPT_SOURCE &&
       isLikelyMismatchedTranscriptLanguage(current.language, current.fullText)
     ) {
       console.warn(
@@ -1050,6 +1054,7 @@ const requestTranscriptAction = defineAction({
         updatedAt: schema.recordingTranscripts.updatedAt,
         language: schema.recordingTranscripts.language,
         retryCount: schema.recordingTranscripts.retryCount,
+        source: schema.recordingTranscripts.source,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -1073,6 +1078,7 @@ const requestTranscriptAction = defineAction({
       existingNativeTranscript.fullText?.trim()
     ) {
       if (
+        existingNativeTranscript.source !== IMPORTED_TRANSCRIPT_SOURCE &&
         isLikelyMismatchedTranscriptLanguage(
           existingNativeTranscript.language,
           existingNativeTranscript.fullText,
@@ -1242,7 +1248,7 @@ const requestTranscriptAction = defineAction({
         }
 
         if (fullText) {
-          await upsertTranscriptRow(db, {
+          const written = await upsertTranscriptRow(db, {
             recordingId: args.recordingId,
             ownerEmail,
             status: "ready",
@@ -1251,7 +1257,16 @@ const requestTranscriptAction = defineAction({
             segmentsJson: JSON.stringify(normalizedTranscript.segments),
             fullText,
             now,
+            replaceImported: regeneratingReadyTranscript,
           });
+          if (!written) {
+            const preserved = await preserveReadyTranscriptIfAvailable({
+              db,
+              recordingId: args.recordingId,
+              ownerEmail,
+            });
+            if (preserved) return preserved;
+          }
           await writeAppState("refresh-signal", { ts: Date.now() });
           await finalizeEndedMeetingsForRecording(db, args.recordingId);
           await queueBrainExport(args.recordingId);
@@ -1414,8 +1429,10 @@ async function upsertTranscriptRow(
     fullText?: string;
     now: string;
     retryCount?: number;
+    /** Only an explicit regenerate may write over an imported transcript. */
+    replaceImported?: boolean;
   },
-): Promise<void> {
+): Promise<boolean> {
   const [existing] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })
     .from(schema.recordingTranscripts)
@@ -1426,8 +1443,9 @@ async function upsertTranscriptRow(
   const updatedAt = new Date().toISOString();
 
   if (existing) {
-    await db
-      .update(schema.recordingTranscripts)
+    const t = schema.recordingTranscripts;
+    const updated = await db
+      .update(t)
       .set({
         ownerEmail: row.ownerEmail,
         status: row.status,
@@ -1437,9 +1455,16 @@ async function upsertTranscriptRow(
         ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
         ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
         ...(retryCount !== undefined ? { retryCount } : {}),
+        ...(row.replaceImported ? { source: null } : {}),
         updatedAt,
       })
-      .where(eq(schema.recordingTranscripts.recordingId, row.recordingId));
+      .where(
+        row.replaceImported
+          ? eq(t.recordingId, row.recordingId)
+          : and(eq(t.recordingId, row.recordingId), notImportedTranscript()),
+      )
+      .returning({ recordingId: t.recordingId });
+    return updated.length > 0;
   } else {
     await db.insert(schema.recordingTranscripts).values({
       recordingId: row.recordingId,
@@ -1454,6 +1479,7 @@ async function upsertTranscriptRow(
       createdAt: row.now,
       updatedAt,
     });
+    return true;
   }
 }
 

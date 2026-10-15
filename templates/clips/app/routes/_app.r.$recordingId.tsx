@@ -1744,6 +1744,21 @@ export default function RecordingPage() {
     startTranscriptToast(t("transcriptPanel.transcribing"));
     requestTranscript.mutate(args as any);
   };
+  const importTranscript = useActionMutation("import-transcript" as any, {
+    onSuccess: (result: any) => {
+      toast.success(
+        result?.replaced
+          ? t("transcriptImport.replaced")
+          : t("transcriptImport.added"),
+      );
+      void playerDataQ.refetch();
+    },
+    onError: (err: Error) => {
+      toast.error(t("transcriptImport.failed"), {
+        description: actionErrorMessage(err) ?? t("recordingPage.networkError"),
+      });
+    },
+  });
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
@@ -2502,6 +2517,18 @@ export default function RecordingPage() {
                   : undefined
               }
               isRegenerating={requestTranscript.isPending}
+              transcriptSource={playerDataQ.data?.transcript?.source}
+              onImportTranscript={
+                canEdit
+                  ? ({ text, replace }) =>
+                      importTranscript.mutate({
+                        recordingId: recording.id,
+                        text,
+                        replace,
+                      } as any)
+                  : undefined
+              }
+              isImporting={importTranscript.isPending}
             />
           </div>
         </TabsContent>

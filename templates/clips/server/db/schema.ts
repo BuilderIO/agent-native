@@ -255,6 +255,9 @@ export const recordingTranscripts = table("recording_transcripts", {
   failureReason: text("failure_reason"),
   failureCode: text("failure_code"),
   retryCount: integer("retry_count").notNull().default(0),
+  // "imported" when the owner or an agent supplied the transcript file.
+  // Automatic transcription never writes over an imported row.
+  source: text("source", { enum: ["imported"] }),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

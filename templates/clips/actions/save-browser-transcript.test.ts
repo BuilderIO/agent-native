@@ -38,7 +38,11 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  isNull: vi.fn((column: unknown) => ({ isNull: column })),
+  ne: vi.fn((column: unknown, value: unknown) => ({ ne: [column, value] })),
+  or: vi.fn((...args: unknown[]) => ({ or: args })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
