@@ -665,6 +665,8 @@ const messages = {
     invalidFile: "Impossible de lire {{fileName}}",
     errorEmpty: "Le fichier ne contient aucun texte de transcription.",
     errorTooLarge: "Le fichier est trop volumineux pour être importé.",
+    errorNotUtf8:
+      "Le fichier n'est pas du texte UTF-8. Enregistrez-le en UTF-8 et réessayez.",
     errorMissingTiming:
       "Ligne {{line}} : une ligne de minutage de sous-titre était attendue, par exemple 00:00:01.000 --> 00:00:04.000.",
     errorBadTiming:

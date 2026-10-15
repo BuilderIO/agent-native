@@ -672,6 +672,8 @@ const messages = {
     invalidFile: "{{fileName}} konnte nicht gelesen werden",
     errorEmpty: "Die Datei enthält keinen Transkripttext.",
     errorTooLarge: "Die Datei ist zu groß für den Import.",
+    errorNotUtf8:
+      "Die Datei ist kein UTF-8-Text. Speichere sie als UTF-8 und versuche es erneut.",
     errorMissingTiming:
       "Zeile {{line}}: Erwartet wurde eine Zeitzeile für den Untertitel wie 00:00:01.000 --> 00:00:04.000.",
     errorBadTiming:

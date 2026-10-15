@@ -218,6 +218,18 @@ describe("import-transcript", () => {
     expect(await readTranscript()).toMatchObject({ language: "es" });
   });
 
+  it("reports a saved import as saved when the refresh signal fails", async () => {
+    mocks.writeAppState.mockRejectedValueOnce(new Error("state store down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await run({ text: VTT });
+
+    expect(result).toMatchObject({ status: "ready", source: "imported" });
+    expect(await readTranscript()).toMatchObject({ source: "imported" });
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("queues the transcript follow-up job for a ready recording", async () => {
     const result = await run({ text: VTT });
 

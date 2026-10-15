@@ -582,6 +582,7 @@ const messages = {
     invalidFile: "Couldn't read {{fileName}}",
     errorEmpty: "The file has no transcript text.",
     errorTooLarge: "The file is too large to import.",
+    errorNotUtf8: "The file isn't UTF-8 text. Save it as UTF-8 and try again.",
     errorMissingTiming:
       "Line {{line}}: expected a cue timing line like 00:00:01.000 --> 00:00:04.000.",
     errorBadTiming: "Line {{line}}: the cue timing couldn't be read.",

@@ -96,12 +96,23 @@ export function TranscriptImportButton({
       rejectFile(file.name, { code: "too-large", line: null });
       return;
     }
-    let text: string;
+    let bytes: ArrayBuffer;
     try {
-      text = await file.text();
+      bytes = await file.arrayBuffer();
     } catch {
       // The file can be moved, or lose its permission, after it is picked.
       toast.error(t("transcriptImport.invalidFile", { fileName: file.name }));
+      return;
+    }
+    let text: string;
+    try {
+      // file.text() would turn a legacy-encoded file's accents into U+FFFD
+      // and store that as the transcript of record.
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      toast.error(t("transcriptImport.invalidFile", { fileName: file.name }), {
+        description: t("transcriptImport.errorNotUtf8"),
+      });
       return;
     }
     const parsed = parseTranscriptImport(text, { durationMs });

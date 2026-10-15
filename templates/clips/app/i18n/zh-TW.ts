@@ -613,6 +613,7 @@ const messages = {
     invalidFile: "無法讀取 {{fileName}}",
     errorEmpty: "檔案中沒有逐字稿內容。",
     errorTooLarge: "檔案太大，無法匯入。",
+    errorNotUtf8: "檔案不是 UTF-8 文字。請另存為 UTF-8 後再試一次。",
     errorMissingTiming:
       "第 {{line}} 行：應為字幕時間行，例如 00:00:01.000 --> 00:00:04.000。",
     errorBadTiming: "第 {{line}} 行：無法讀取字幕時間。",

@@ -154,6 +154,15 @@ function createDb(firstReadyImportId: string | null) {
   return { select: mocks.select } as any;
 }
 
+// Inserts are awaited directly, apart from the transcript row's upsert.
+function insertValuesMock(
+  onConflictDoUpdate = vi.fn(async (_: unknown) => undefined),
+) {
+  return vi.fn((_: unknown) =>
+    Object.assign(Promise.resolve(undefined), { onConflictDoUpdate }),
+  );
+}
+
 describe("first imported recording transactional email", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -236,7 +245,7 @@ describe("first imported recording transactional email", () => {
   });
 
   it("preserves WebM format and filename for direct imports", async () => {
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     const db = {
       insert: vi.fn(() => ({ values: insertValues })),
       select: vi.fn(() => ({
@@ -291,7 +300,7 @@ describe("first imported recording transactional email", () => {
   });
 
   it("does not hide a failed direct-import thumbnail enqueue", async () => {
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     const db = {
       insert: vi.fn(() => ({ values: insertValues })),
       select: vi.fn(() => ({
@@ -361,7 +370,7 @@ describe("first imported recording transactional email", () => {
       select: vi.fn(() => ({
         from: vi.fn(() => ({ where: selectWhere })),
       })),
-      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      insert: vi.fn(() => ({ values: insertValuesMock() })),
       update: vi.fn(() => ({
         set: (values: unknown) => {
           updateValues(values);
@@ -415,6 +424,7 @@ describe("first imported recording transactional email", () => {
   it("retries a direct import in place after the reaper expired its storage wait", async () => {
     const sourceUrl = "https://media.example.com/source.mp4";
     const updateValues = vi.fn();
+    const transcriptUpsert = vi.fn(async (_: unknown) => undefined);
     const existing = {
       id: "recording-expired",
       organizationId: "org-1",
@@ -443,7 +453,7 @@ describe("first imported recording transactional email", () => {
             .mockResolvedValueOnce([{ recordingId: existing.id }]),
         })),
       })),
-      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      insert: vi.fn(() => ({ values: insertValuesMock(transcriptUpsert) })),
       update: vi.fn(() => ({
         set: (values: unknown) => {
           updateValues(values);
@@ -489,17 +499,13 @@ describe("first imported recording transactional email", () => {
     expect(updateValues).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready", failureReason: null }),
     );
-    expect(mocks.and).toHaveBeenCalledWith(
-      {
-        column: "recording_transcripts.recordingId",
-        value: "recording-expired",
-      },
-      "not-imported-transcript",
+    expect(transcriptUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ setWhere: "not-imported-transcript" }),
     );
   });
 
   it("completes a persisted import when transactional email enqueue fails", async () => {
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     const db = {
       insert: vi.fn(() => ({ values: insertValues })),
       select: vi.fn(() => ({
@@ -566,7 +572,7 @@ describe("Loom imports", () => {
   });
 
   it("leases background imports so the reaper can close a lost job", async () => {
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     mocks.getDb.mockReturnValue({
       insert: vi.fn(() => ({ values: insertValues })),
     });
@@ -614,7 +620,7 @@ describe("Loom imports", () => {
   });
 
   it("parks an import without storage on the days-long waiting lease", async () => {
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     mocks.getDb.mockReturnValue({
       insert: vi.fn(() => ({ values: insertValues })),
     });

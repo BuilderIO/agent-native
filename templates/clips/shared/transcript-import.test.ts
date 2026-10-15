@@ -206,6 +206,12 @@ describe("parseTranscriptImport", () => {
       3,
     ],
     [
+      "a cue timing with 99 minutes and no hours",
+      "WEBVTT\n\n99:00.000 --> 99:01.000\nhello",
+      "bad-timing",
+      3,
+    ],
+    [
       "a start time with 90 seconds",
       "0:00 hello\n0:90 world",
       "missing-timestamp",

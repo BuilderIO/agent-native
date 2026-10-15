@@ -133,7 +133,9 @@ describe("transcript file import", () => {
     const onImport = vi.fn();
     render(onImport);
     const file = new File([VTT], "moved.vtt");
-    vi.spyOn(file, "text").mockRejectedValue(new Error("NotReadableError"));
+    vi.spyOn(file, "arrayBuffer").mockRejectedValue(
+      new Error("NotReadableError"),
+    );
 
     await pick(file);
 
@@ -143,16 +145,31 @@ describe("transcript file import", () => {
     );
   });
 
+  it("rejects a file that isn't UTF-8 instead of importing replacement characters", async () => {
+    const onImport = vi.fn();
+    render(onImport);
+    // "0:00 Café" saved as Latin-1, where é is the single byte 0xE9.
+    const latin1 = [...new TextEncoder().encode("0:00 Caf"), 0xe9];
+
+    await pick(new File([new Uint8Array(latin1)], "legacy.txt"));
+
+    expect(onImport).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      "transcriptImport.invalidFile legacy.txt",
+      { description: "transcriptImport.errorNotUtf8" },
+    );
+  });
+
   it("rejects a file over the size cap without reading it", async () => {
     const onImport = vi.fn();
     render(onImport);
     const file = new File([VTT], "huge.vtt");
     Object.defineProperty(file, "size", { value: 8_000_001 });
-    const text = vi.spyOn(file, "text");
+    const read = vi.spyOn(file, "arrayBuffer");
 
     await pick(file);
 
-    expect(text).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
     expect(onImport).not.toHaveBeenCalled();
     expect(toastError).toHaveBeenCalledWith(
       "transcriptImport.invalidFile huge.vtt",

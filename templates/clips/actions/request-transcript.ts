@@ -1119,13 +1119,14 @@ const requestTranscriptAction = defineAction({
 
     if (await resolveHasBuilderGatewayCredential()) {
       if (!regeneratingReadyTranscript) {
-        await upsertTranscriptRow(db, {
+        const kept = await writeTranscriptOrKeepImport(db, {
           recordingId: args.recordingId,
           ownerEmail,
           status: "pending",
           failureReason: null,
           now,
         });
+        if (kept) return kept;
         await writeAppState("refresh-signal", { ts: Date.now() });
       }
 

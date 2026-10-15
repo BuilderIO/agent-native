@@ -1133,6 +1133,27 @@ describe("requestTranscript regeneration", () => {
       );
     });
 
+    it("stops before transcribing when an import lands just before the pending write", async () => {
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [importedRow],
+        [titleRow],
+      ];
+      mockUpdateReturning.mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "pending" }),
+      );
+      expect(mockTranscribeWithBuilder).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+    });
+
     it("reports an import that lands just before a failure write, not the failure", async () => {
       mockTranscribeWithBuilder.mockRejectedValue(new Error("provider down"));
       mockSelectRows.queue = [

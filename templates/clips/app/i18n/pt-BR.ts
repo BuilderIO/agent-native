@@ -660,6 +660,8 @@ const messages = {
     invalidFile: "Não foi possível ler {{fileName}}",
     errorEmpty: "O arquivo não tem texto de transcrição.",
     errorTooLarge: "O arquivo é grande demais para importar.",
+    errorNotUtf8:
+      "O arquivo não está em texto UTF-8. Salve-o como UTF-8 e tente novamente.",
     errorMissingTiming:
       "Linha {{line}}: era esperada uma linha de tempo da legenda como 00:00:01.000 --> 00:00:04.000.",
     errorBadTiming: "Linha {{line}}: não foi possível ler o tempo da legenda.",

@@ -128,7 +128,16 @@ export default defineAction({
       );
     }
 
-    await writeAppState("refresh-signal", { ts: Date.now() });
+    // The import is saved by now. A missed signal only delays other open
+    // views, and failing here would make a retry hit transcript_exists.
+    await writeAppState("refresh-signal", { ts: Date.now() }).catch(
+      (err: unknown) => {
+        console.warn(
+          `[clips] imported transcript refresh signal failed for ${args.recordingId}:`,
+          (err as Error)?.message ?? String(err),
+        );
+      },
+    );
 
     // The transcript job keeps an imported transcript; from it, it fills a
     // missing title or summary and refreshes the brain export.

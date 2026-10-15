@@ -642,6 +642,8 @@ const messages = {
     invalidFile: "تعذّرت قراءة {{fileName}}",
     errorEmpty: "لا يحتوي الملف على نص.",
     errorTooLarge: "الملف كبير جدًا للاستيراد.",
+    errorNotUtf8:
+      "الملف ليس نصًا بترميز UTF-8. احفظه بترميز UTF-8 ثم حاول مرة أخرى.",
     errorMissingTiming:
       "السطر {{line}}: كان المتوقع سطر توقيت للترجمة مثل 00:00:01.000 --> 00:00:04.000.",
     errorBadTiming: "السطر {{line}}: تعذّرت قراءة توقيت الترجمة.",

@@ -645,6 +645,8 @@ const messages = {
     invalidFile: "{{fileName}}을(를) 읽지 못했습니다",
     errorEmpty: "파일에 스크립트 텍스트가 없습니다.",
     errorTooLarge: "파일이 너무 커서 가져올 수 없습니다.",
+    errorNotUtf8:
+      "파일이 UTF-8 텍스트가 아닙니다. UTF-8로 저장한 후 다시 시도하세요.",
     errorMissingTiming:
       "{{line}}번째 줄: 00:00:01.000 --> 00:00:04.000 같은 자막 타이밍 줄이 필요합니다.",
     errorBadTiming: "{{line}}번째 줄: 자막 타이밍을 읽을 수 없습니다.",

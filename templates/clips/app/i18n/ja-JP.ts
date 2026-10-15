@@ -660,6 +660,8 @@ const messages = {
     invalidFile: "{{fileName}} を読み取れませんでした",
     errorEmpty: "ファイルにトランスクリプトのテキストがありません。",
     errorTooLarge: "ファイルが大きすぎるためインポートできません。",
+    errorNotUtf8:
+      "ファイルが UTF-8 のテキストではありません。UTF-8 で保存してから、もう一度お試しください。",
     errorMissingTiming:
       "{{line}} 行目: 00:00:01.000 --> 00:00:04.000 のような字幕のタイミング行が必要です。",
     errorBadTiming: "{{line}} 行目: 字幕のタイミングを読み取れませんでした。",
