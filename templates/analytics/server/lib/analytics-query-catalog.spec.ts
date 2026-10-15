@@ -640,7 +640,7 @@ describe("analytics query catalog", () => {
           id: "daily-refreshed-current-workspace-roles",
           metric: "Current workspace user roles",
           definition:
-            "Current snapshot of latest workspace memberships and assigned roles; refreshes daily.",
+            "Current workspace memberships and assigned roles, refreshed daily from the nightly snapshot.",
           table: "workspace_member_role_bridge",
           columnsUsed: "user_id, workspace_id, role",
           grain: "One row per user-workspace membership",
@@ -2206,6 +2206,98 @@ describe("analytics query catalog", () => {
       kind: "dashboard-panel",
       dashboardId: "workspace-role-name-roster",
       panelId: "role-roster",
+    });
+  });
+
+  it("accepts reversed member-key join operands with narrowing filters", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "workspace-role-reversed-join-roster",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "role-roster",
+                title: "Users by role",
+                sql: "SELECT u.email, w.name, m.role FROM workspace_memberships m JOIN users u ON u.id = m.user_id AND m.user_id IS NOT NULL JOIN workspaces w ON w.id = m.workspace_id",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "dashboard-panel",
+      dashboardId: "workspace-role-reversed-join-roster",
+      panelId: "role-roster",
+    });
+  });
+
+  it.each([
+    "SELECT u.email, w.name, m.role FROM workspace_memberships m JOIN users u ON TRUE JOIN workspaces w ON TRUE",
+    "SELECT u.email, w.name, m.role FROM workspace_memberships m JOIN users u ON m.user_id = u.id JOIN workspaces w ON TRUE",
+    "SELECT u.email, w.name, m.role FROM workspace_memberships m JOIN users u ON m.user_id = u.id OR TRUE JOIN workspaces w ON m.workspace_id = w.id",
+    "SELECT u.email, w.name, m.role FROM workspace_memberships m JOIN users u ON m.workspace_id = u.id JOIN workspaces w ON m.user_id = w.id",
+    "SELECT u.email, w.name, m.role FROM workspace_memberships m JOIN users u ON u.id = w.id JOIN workspaces w ON w.id = m.workspace_id",
+    "SELECT u.email, m.role FROM workspace_memberships m CROSS JOIN users u ON m.user_id = u.id",
+  ])("rejects membership panels without verified identity joins: %s", (sql) => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "unrelated-membership-joins",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "role-roster",
+                title: "Users by role",
+                sql,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("strips BigQuery hash comments without treating hash literals as comments", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "bigquery-hash-comment-roster",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "role-roster",
+                title: "Users by role",
+                sql: "#standardSQL\nSELECT '# retained GROUP BY COUNT(*)', m.user_id, m.workspace_id, m.role # ignored GROUP BY COUNT(*)\nFROM workspace_memberships m # ignored JOIN users u ON TRUE",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "dashboard-panel",
+      dashboardId: "bigquery-hash-comment-roster",
     });
   });
 

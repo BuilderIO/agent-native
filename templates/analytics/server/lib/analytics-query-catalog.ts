@@ -410,17 +410,63 @@ function hasTemporalMembershipSnapshotShape(
   const normalize = (value: string | undefined) =>
     (value ?? "").toLowerCase().replace(/[_-]+/g, " ");
   const grain = normalize(candidate.grain);
-  const descriptor = [
-    candidate.metric,
-    candidate.table,
+  const hasMembershipRowGrain = hasDeclaredMembershipRowGrain(candidate);
+  const explicitTemporalGrain =
+    /\b(?:one|single)\s+row\s+per\s+(?:date|day|week|month|quarter|year)\b/.test(
+      grain,
+    ) ||
+    /\b(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b/.test(
+      grain,
+    ) ||
+    /\b(?:snapshot|snapshots)\s+(?:by|per)\s+(?:date|day|week|month|quarter|year)\b/.test(
+      grain,
+    ) ||
+    /\b(?:historical|history)\b/.test(grain);
+  const describesExplicitSnapshot = (value: string | undefined) => {
+    const normalized = normalize(value);
+    return (
+      /\b(?:historical|history)\b[\s\S]{0,60}\bsnapshots?\b|\bsnapshots?\b[\s\S]{0,60}\b(?:historical|history)\b/.test(
+        normalized,
+      ) ||
+      /\b(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)(?:\s+(?:user|member|membership|workspace|organization|org|team|role)){0,2}\s+snapshots?\b/.test(
+        normalized,
+      ) ||
+      /\b(?:month|quarter|year)[ -]end\s+snapshots?\b/.test(normalized) ||
+      /\bsnapshots?\s+(?:by|per)\s+(?:date|day|week|month|quarter|year)\b/.test(
+        normalized,
+      )
+    );
+  };
+  const definitionDescribesSnapshot = describesExplicitSnapshot(
     candidate.definition,
+  );
+  const structuredDescriptor = [
+    candidate.metric,
     candidate.primaryEntity,
     candidate.semanticModel,
   ]
     .map(normalize)
     .filter(Boolean)
     .join(" ");
+  const structuredDescriptorDescribesSnapshot =
+    describesExplicitSnapshot(structuredDescriptor);
+  // A declared membership grain describes the row shape. Refresh cadence in
+  // descriptive prose must not turn that current-state relation into a
+  // historical snapshot. Only explicit temporal grain or snapshot labels can do so.
+  if (
+    hasMembershipRowGrain &&
+    !explicitTemporalGrain &&
+    !definitionDescribesSnapshot &&
+    !structuredDescriptorDescribesSnapshot
+  ) {
+    return false;
+  }
+  const descriptor = [
+    structuredDescriptor,
+    definitionDescribesSnapshot ? normalize(candidate.definition) : "",
+  ].join(" ");
   return (
+    explicitTemporalGrain ||
     /\b(?:per\s+)?(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b/.test(
       grain,
     ) ||
@@ -865,6 +911,9 @@ function stripSqlComments(sql: string): string | null {
     } else if (character === "-" && sql[index + 1] === "-") {
       while (index < sql.length && sql[index] !== "\n") index += 1;
       if (sql[index] === "\n") output.push("\n");
+    } else if (character === "#") {
+      while (index < sql.length && sql[index] !== "\n") index += 1;
+      if (sql[index] === "\n") output.push("\n");
     } else if (character === "/" && sql[index + 1] === "*") {
       blockComment = true;
       output.push(" ");
@@ -1123,6 +1172,9 @@ type DashboardRelationReference = {
   name: string;
   alias: string;
   derived: boolean;
+  start: number;
+  end: number;
+  joinKind: string | null;
 };
 
 const DERIVED_DASHBOARD_RELATION = "__derived_relation__";
@@ -1299,6 +1351,13 @@ function dashboardTopLevelRelationReferences(
       .filter(
         (match): match is { start: number; end: number } => match !== null,
       )
+      .map((match) => ({
+        ...match,
+        keyword:
+          sqlKeywordEndAt(sql, match.start, "from") === match.end
+            ? "from"
+            : "join",
+      }))
       .sort((left, right) => left.start - right.start)[0];
     if (!next) break;
 
@@ -1335,7 +1394,22 @@ function dashboardTopLevelRelationReferences(
           : name;
       if (alias !== name && candidateAlias) cursor = candidateAlias.end;
     }
-    relations.push({ name, alias, derived });
+    const joinPrefix = sql
+      .slice(0, next.start)
+      .match(
+        /\b((?:(?:natural)\s+)?(?:cross|inner|left|right|full)(?:\s+outer)?|natural)\s*$/i,
+      );
+    relations.push({
+      name,
+      alias,
+      derived,
+      start: next.start,
+      end: cursor,
+      joinKind:
+        next.keyword === "join"
+          ? (joinPrefix?.[1]?.toLowerCase().replace(/\s+/g, " ") ?? "inner")
+          : null,
+    });
     searchStart = Math.max(next.end, cursor);
   }
   return relations;
@@ -1414,18 +1488,196 @@ function dashboardPhysicalRelationNames(
   for (const [name, definition] of dashboardCteDefinitions(query)) {
     ctes.set(name, definition);
   }
-  return dashboardTopLevelRelationReferences(query).flatMap((relation) => {
-    if (relation.derived) return [];
-    const definition = ctes.get(relation.name);
-    if (!definition || visiting.has(relation.name)) return [relation.name];
-    const nextVisiting = new Set(visiting).add(relation.name);
-    const branches = parseSimpleDashboardMembershipQuery(definition.query);
+  return dashboardTopLevelRelationReferences(query).flatMap((relation) =>
+    dashboardPhysicalRelationNamesForReference(relation, ctes, visiting),
+  );
+}
+
+function dashboardPhysicalRelationNamesForReference(
+  relation: DashboardRelationReference,
+  inheritedCtes: Map<string, DashboardCteDefinition>,
+  visiting: Set<string> = new Set(),
+): string[] {
+  if (relation.derived) return [];
+  const definition = inheritedCtes.get(relation.name);
+  if (!definition || visiting.has(relation.name)) return [relation.name];
+  const nextVisiting = new Set(visiting).add(relation.name);
+  const branches = parseSimpleDashboardMembershipQuery(definition.query);
+  return (
+    branches?.flatMap((branch) =>
+      dashboardPhysicalRelationNames(branch.sql, inheritedCtes, nextVisiting),
+    ) ?? []
+  );
+}
+
+function dashboardJoinOnExpression(
+  query: string,
+  relation: DashboardRelationReference,
+): string | null {
+  const clauseEnd = [
+    "join",
+    "where",
+    "group by",
+    "having",
+    "qualify",
+    "order by",
+    "limit",
+    "fetch",
+    "union",
+    "intersect",
+    "except",
+  ]
+    .map((keyword) => findTopLevelSqlKeyword(query, keyword, relation.end))
+    .filter((match): match is { start: number; end: number } => match !== null)
+    .reduce((end, match) => Math.min(end, match.start), query.length);
+  const joinBody = query.slice(relation.end, clauseEnd);
+  const on = findTopLevelSqlKeyword(joinBody, "on");
+  if (!on) return null;
+  return joinBody.slice(on.end).trim();
+}
+
+function dashboardJoinIdentityRole(
+  column: string,
+  role: "user" | "organization",
+  relationNames: string[],
+): boolean {
+  const normalizedColumn = column.replace(/[_-]+/g, " ").toLowerCase();
+  const normalizedRelations = relationNames
+    .join(" ")
+    .replace(/[_-]+/g, " ")
+    .toLowerCase();
+  if (role === "user") {
     return (
-      branches?.flatMap((branch) =>
-        dashboardPhysicalRelationNames(branch.sql, ctes, nextVisiting),
-      ) ?? []
+      /\b(?:users?|members?|people|persons?)\b/.test(normalizedRelations) &&
+      /^(?:id|user id|member id|person id|user key|member key|person key)$/.test(
+        normalizedColumn,
+      )
     );
-  });
+  }
+  return (
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(
+      normalizedRelations,
+    ) &&
+    /^(?:id|organization id|org id|workspace id|team id|organization key|org key|workspace key|team key)$/.test(
+      normalizedColumn,
+    )
+  );
+}
+
+function dashboardJoinConnectsMembershipIdentity(
+  expression: string,
+  joinedAlias: string,
+  joinedRole: "user" | "organization",
+  joinedRelations: string[],
+  membershipAliases: Map<string, string[]>,
+): boolean {
+  const safeExpression = maskSqlStringLiterals(expression);
+  if (/\bor\b/i.test(safeExpression)) return false;
+  const identifier =
+    '(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*)';
+  const equality = new RegExp(
+    `(${identifier})\\s*\\.\\s*(${identifier})\\s*=\\s*(${identifier})\\s*\\.\\s*(${identifier})`,
+    "gi",
+  );
+  for (const match of safeExpression.matchAll(equality)) {
+    const [, leftAliasRaw, leftColumnRaw, rightAliasRaw, rightColumnRaw] =
+      match;
+    const leftAlias = leftAliasRaw!.replace(/["`]/g, "").toLowerCase();
+    const leftColumn = leftColumnRaw!.replace(/["`]/g, "").toLowerCase();
+    const rightAlias = rightAliasRaw!.replace(/["`]/g, "").toLowerCase();
+    const rightColumn = rightColumnRaw!.replace(/["`]/g, "").toLowerCase();
+    const otherAlias =
+      leftAlias === joinedAlias
+        ? rightAlias
+        : rightAlias === joinedAlias
+          ? leftAlias
+          : null;
+    const otherColumn =
+      leftAlias === joinedAlias
+        ? rightColumn
+        : rightAlias === joinedAlias
+          ? leftColumn
+          : null;
+    const joinedColumn =
+      leftAlias === joinedAlias
+        ? leftColumn
+        : rightAlias === joinedAlias
+          ? rightColumn
+          : null;
+    if (!otherAlias || !otherColumn || !joinedColumn) continue;
+    const membershipRelations = membershipAliases.get(otherAlias);
+    if (
+      !membershipRelations?.some((relation) =>
+        hasDashboardIdentityColumnAtSource(otherColumn, relation, joinedRole),
+      ) ||
+      !dashboardJoinIdentityRole(joinedColumn, joinedRole, joinedRelations)
+    ) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+function dashboardJoinsPreserveMembershipIdentity(
+  query: string,
+  inheritedCtes: Map<string, DashboardCteDefinition>,
+): boolean {
+  const relations = dashboardTopLevelRelationReferences(query);
+  const joins = relations.filter((relation) => relation.joinKind !== null);
+  if (!joins.length) return true;
+  if (
+    joins.some((relation) =>
+      /\b(?:cross|natural|right|full)\b/.test(relation.joinKind ?? ""),
+    )
+  ) {
+    return false;
+  }
+
+  const memberships = new Map<string, string[]>();
+  const joinedRoles = new Map<string, "user" | "organization">();
+  const physicalRelationsByAlias = new Map<string, string[]>();
+  for (const relation of relations) {
+    const physical = dashboardPhysicalRelationNamesForReference(
+      relation,
+      inheritedCtes,
+    );
+    if (
+      hasMembershipRelationEvidence(physical.join(" ").replace(/[_-]+/g, " "))
+    ) {
+      memberships.set(relation.alias, physical);
+      continue;
+    }
+    const normalized = physical.join(" ").replace(/[_-]+/g, " ");
+    const isUser = /\b(?:users?|members?|people|persons?)\b/i.test(normalized);
+    const isOrganization =
+      /\b(?:organizations?|orgs?|workspaces?|teams?)\b/i.test(normalized);
+    if (isUser === isOrganization) continue;
+    physicalRelationsByAlias.set(relation.alias, physical);
+    joinedRoles.set(relation.alias, isUser ? "user" : "organization");
+  }
+  if (!memberships.size) return false;
+
+  const sql = stripSqlComments(query);
+  if (!sql) return false;
+  for (const join of joins) {
+    const role = joinedRoles.get(join.alias);
+    const on = dashboardJoinOnExpression(sql, join);
+    if (
+      !role ||
+      !on ||
+      !dashboardJoinConnectsMembershipIdentity(
+        on,
+        join.alias,
+        role,
+        physicalRelationsByAlias.get(join.alias) ?? [],
+        memberships,
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function hasDashboardIdentityColumnAtSource(
@@ -1577,6 +1829,7 @@ function hasRowLevelDashboardMembershipOutput(
     );
     if (
       dashboardHasTopLevelCommaJoin(branch.sql) ||
+      !dashboardJoinsPreserveMembershipIdentity(branch.sql, inheritedCtes) ||
       !physicalRelations.length ||
       !hasMembershipRelationEvidence(
         physicalRelations
