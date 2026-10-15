@@ -3439,6 +3439,16 @@ async function runAuthoringParityQa(
         tailInBullet: authoredListText.some((value) => value.includes("Tail")),
         retainedSourceText: text.includes("Alpha"),
         hasTypedText: text.includes("Tail"),
+        markerFontSizesMatchText: bulletRows.every((row) => {
+          const marker = row.firstElementChild;
+          const text = row.lastElementChild;
+          return (
+            marker instanceof HTMLElement &&
+            text instanceof HTMLElement &&
+            getComputedStyle(marker).fontSize ===
+              getComputedStyle(text).fontSize
+          );
+        }),
         html: root.innerHTML,
       };
     });
@@ -3446,7 +3456,8 @@ async function runAuthoringParityQa(
       state.bulletCount === 0 ||
       !state.tailInBullet ||
       !state.retainedSourceText ||
-      !state.hasTypedText
+      !state.hasTypedText ||
+      !state.markerFontSizesMatchText
     ) {
       throw new Error(
         `bullet shortcut did not create a new bullet containing the inserted text: ${JSON.stringify(state)}`,
@@ -3807,7 +3818,7 @@ async function runAuthoringParityQa(
           }
           await editor.press(lineEndKey);
           await editor.press("Enter");
-          await editor.press("Enter");
+          await editor.press("Backspace");
           await editor.pressSequentially("Plain");
           await assertPlainLine(editor);
         } else {
@@ -3826,7 +3837,7 @@ async function runAuthoringParityQa(
           }
           await editor.press(lineEndKey);
           await editor.press("Enter");
-          await editor.press("Enter");
+          await editor.press("Backspace");
           await editor.pressSequentially("Plain");
           await assertPlainLine(editor);
         }

@@ -2564,10 +2564,8 @@ export function startInPlaceTextSession(
         ? item.previousElementSibling
         : item.nextElementSibling;
     if (direction === "backward") {
-      if (hasRenderedContent(item)) {
-        splitListItemToParagraph(item, false);
-        return true;
-      }
+      splitListItemToParagraph(item, !hasRenderedContent(item));
+      return true;
     } else if (sibling instanceof HTMLElement && sibling.tagName === "LI") {
       joinListItems(item, sibling);
       return true;

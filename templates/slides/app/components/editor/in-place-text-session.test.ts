@@ -2353,24 +2353,24 @@ describe("in-place text session: deleting", () => {
     expect(remainingList.style.paddingLeft).toBe("1.25em");
   });
 
-  it("lets Backspace fall through at an empty sole top-level list item", () => {
-    const el = mount('<ul id="t"><li>\u200b</li></ul>');
-    session = startInPlaceTextSession(el);
-    const item = el.querySelector("li")!;
-    const text = item.firstChild as Text;
-    caret(text, text.length);
-    const before = session.element.innerHTML;
-    const modify = vi
-      .spyOn(window.getSelection()!, "modify")
-      .mockImplementation(() => {});
+  it.each(["ul", "ol"] as const)(
+    "clears an empty sole top-level %s item on Backspace",
+    (listTag) => {
+      const el = mount(`<${listTag} id="t"><li>\u200b</li></${listTag}>`);
+      session = startInPlaceTextSession(el);
+      const item = el.querySelector("li")!;
+      const text = item.firstChild as Text;
+      caret(text, text.length);
 
-    beforeInput(session.element, "deleteContentBackward");
+      const event = beforeInput(session.element, "deleteContentBackward");
 
-    expect(modify).toHaveBeenCalledWith("extend", "backward", "character");
-    expect(session.element.innerHTML).toBe(before);
-    expect(session.changed).toBe(false);
-    expect(session.undo()).toBe(false);
-  });
+      expect(event.defaultPrevented).toBe(true);
+      expect(session.element.querySelector("ul, ol, li")).toBeNull();
+      expect(session.element.firstElementChild?.tagName).toBe("P");
+      expect(session.element.firstElementChild?.textContent).toBe(ZWSP);
+      expect(session.changed).toBe(true);
+    },
+  );
 
   it("preserves the ordinal after lifting the first ordered item", () => {
     const liftFirst = (el: HTMLElement) => {
