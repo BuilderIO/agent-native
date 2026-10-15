@@ -34,6 +34,7 @@ import {
   downloadDirectVideo,
   isCandidateDirectVideoUrl,
 } from "./lib/direct-video.js";
+import { notImportedTranscript } from "./lib/imported-transcript.js";
 import {
   enqueueFirstImportEmailIfEligible,
   failLoomImport,
@@ -548,7 +549,12 @@ export default defineAction({
       await db
         .update(schema.recordingTranscripts)
         .set(transcriptValues)
-        .where(eq(schema.recordingTranscripts.recordingId, id));
+        .where(
+          and(
+            eq(schema.recordingTranscripts.recordingId, id),
+            notImportedTranscript(),
+          ),
+        );
     } else {
       await db.insert(schema.recordingTranscripts).values({
         recordingId: id,

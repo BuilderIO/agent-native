@@ -116,6 +116,10 @@ vi.mock("../server/lib/video-storage.js", () => ({
     mocks.hasRequestVideoStorage(...args),
 }));
 
+vi.mock("./lib/imported-transcript.js", () => ({
+  notImportedTranscript: () => "not-imported-transcript",
+}));
+
 vi.mock("./lib/direct-video.js", () => ({
   downloadDirectVideo: (...args: unknown[]) =>
     mocks.downloadDirectVideo(...args),
@@ -435,7 +439,7 @@ describe("first imported recording transactional email", () => {
           where: vi
             .fn()
             .mockResolvedValueOnce([existing])
-            .mockResolvedValueOnce([]),
+            .mockResolvedValueOnce([{ recordingId: existing.id }]),
         })),
       })),
       insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
@@ -483,6 +487,13 @@ describe("first imported recording transactional email", () => {
     });
     expect(updateValues).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready", failureReason: null }),
+    );
+    expect(mocks.and).toHaveBeenCalledWith(
+      {
+        column: "recording_transcripts.recordingId",
+        value: "recording-expired",
+      },
+      "not-imported-transcript",
     );
   });
 
