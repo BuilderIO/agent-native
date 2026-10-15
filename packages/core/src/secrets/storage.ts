@@ -130,22 +130,13 @@ function usesThisProcessKey(row: Record<string, unknown>): boolean {
 
 async function assertWriteKeepsSecretsReadable(ref: SecretRef): Promise<void> {
   if (!isDevelopmentProcessOnSharedDatabase()) return;
-  const client = getDbExec();
-  const target = await client.execute({
-    sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
-    args: [ref.scope, ref.scopeId, ref.key],
+  // Check the whole scope: a new key has no row of its own, and a scope can
+  // mix rows from processes with different key material.
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ?`,
+    args: [ref.scope, ref.scopeId],
   });
-  let probe = target.rows[0];
-  if (!probe) {
-    // A new key has no row of its own, so check the key material against
-    // another secret in the same scope, preferring one with shared ciphertext.
-    const sibling = await client.execute({
-      sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ? ORDER BY shared_encrypted_value IS NULL LIMIT 1`,
-      args: [ref.scope, ref.scopeId],
-    });
-    probe = sibling.rows[0];
-  }
-  if (probe && !usesThisProcessKey(probe)) {
+  if (!rows.every((row) => usesThisProcessKey(row))) {
     throw new AppSecretKeyMismatchError(ref);
   }
 }

@@ -1116,6 +1116,29 @@ describe("development process on a shared database", () => {
     });
   });
 
+  it("refuses a new key when any secret in the scope uses other key material", async () => {
+    useDevelopmentKeys();
+    await mod.writeAppSecret({ ...orgRef, value: "development-value" });
+
+    useDeploymentKeys();
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "deployed-function");
+    await mod.writeAppSecret({
+      ...orgRef,
+      key: "OPENAI_API_KEY",
+      value: "deployment-value",
+    });
+
+    useDevelopmentKeys();
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", undefined);
+    await expect(
+      mod.writeAppSecret({
+        ...orgRef,
+        key: "BUILDER_PRIVATE_KEY",
+        value: "development-value",
+      }),
+    ).rejects.toBeInstanceOf(mod.AppSecretKeyMismatchError);
+  });
+
   it("writes when the scope's secrets use its preferred key", async () => {
     useDevelopmentKeys();
     await mod.writeAppSecret({ ...orgRef, value: "first-value" });
