@@ -1665,7 +1665,7 @@ async function pruneDashboardRevisions(
  * Records `dashboard` as a restore point. For a save, that is the state the
  * save replaces, and `changeSummary` is what the save changes. A save whose
  * prior state is already the newest revision (the agent's end-of-turn
- * snapshot, say) adds no row, so what it changed goes unrecorded.
+ * snapshot, say) adds no row and records what it changed on that one.
  */
 async function snapshotDashboardRevision(
   db: any,
@@ -1695,6 +1695,12 @@ async function snapshotDashboardRevision(
     latest.title === dashboard.title &&
     comparableJson(latest.config) === config
   ) {
+    if (changeSummary) {
+      await db
+        .update(schema.dashboardRevisions)
+        .set({ changeSummary: JSON.stringify(changeSummary) })
+        .where(eq(schema.dashboardRevisions.id, latest.id));
+    }
     return latest.id;
   }
   const id = revisionId("dashrev", dashboard.id, latest?.id, {
@@ -1900,18 +1906,19 @@ async function upsertDashboardWithOutcome(
       persistedDashboard = rowToDashboard(row);
     }
   };
-  if (nameChanged) {
-    await db.transaction(async (tx: any) => {
+  // The update and the history entry it leaves commit together; otherwise a
+  // peer can save on top of this write before its entry lands, and the newest
+  // entry ends up describing the older save.
+  await db.transaction(async (tx: any) => {
+    if (nameChanged) {
       await lockDashboardNames(tx, [
         title,
         ...(existing ? [existing.title] : []),
       ]);
       await assertDashboardNameIsAvailable(title, ctx, existing?.id, tx);
-      await persist(tx);
-    });
-  } else {
-    await persist(db);
-  }
+    }
+    await persist(tx);
+  });
   if (!persistedDashboard) {
     throw new Error(`Dashboard "${id}" write returned no persisted row.`);
   }

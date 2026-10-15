@@ -89,6 +89,8 @@ const state = vi.hoisted(() => ({
   alwaysLoseCas: false,
   updateAttempts: 0,
   peerAfterNextUpdate: false,
+  inTransaction: false,
+  writes: [] as Array<{ table: string; inTransaction: boolean }>,
 }));
 
 function columnName(column: unknown): string | null {
@@ -289,6 +291,10 @@ vi.mock("../db/index.js", () => {
         }
         if (table === schema.dashboardRevisions) {
           state.revisions.push({ ...row });
+          state.writes.push({
+            table: "dashboardRevisions",
+            inTransaction: state.inTransaction,
+          });
         }
         if (table === schema.analysisRevisions) {
           state.analysisRevisions.push({ ...row });
@@ -328,8 +334,18 @@ vi.mock("../db/index.js", () => {
               state.analysis = { ...state.analysis, ...values };
               return { rowsAffected: 1 };
             }
+            if (table === schema.dashboardRevisions) {
+              state.revisions = state.revisions.map((row) =>
+                matchesRow(predicate, row) ? { ...row, ...values } : row,
+              );
+              return { rowsAffected: 1 };
+            }
             if (table !== schema.dashboards) return { rowsAffected: 0 };
             state.updateAttempts += 1;
+            state.writes.push({
+              table: "dashboards",
+              inTransaction: state.inTransaction,
+            });
             if (state.alwaysLoseCas) {
               state.dashboard = {
                 ...state.dashboard,
@@ -386,8 +402,14 @@ vi.mock("../db/index.js", () => {
         },
       }),
     }),
-    transaction: async (callback: (transactionDb: any) => unknown) =>
-      callback(db),
+    transaction: async (callback: (transactionDb: any) => unknown) => {
+      state.inTransaction = true;
+      try {
+        return await callback(db);
+      } finally {
+        state.inTransaction = false;
+      }
+    },
   };
 
   return { schema, getDb: () => db };
@@ -432,6 +454,8 @@ beforeEach(() => {
   state.alwaysLoseCas = false;
   state.updateAttempts = 0;
   state.peerAfterNextUpdate = false;
+  state.inTransaction = false;
+  state.writes = [];
 });
 
 describe("dashboards-store concurrency", () => {
@@ -986,6 +1010,76 @@ describe("revision change summaries", () => {
             direction: "wider",
           },
         ],
+        omittedChanges: 0,
+      },
+    ]);
+  });
+
+  it("keeps a save's change when the state it replaces was already snapshotted", async () => {
+    state.dashboard.config = JSON.stringify(signupsTable(120));
+    await createDashboardRevisionSnapshot("traffic", ctx);
+
+    await upsertDashboard(
+      "traffic",
+      "sql",
+      signupsTable(220),
+      ctx,
+      state.dashboard.updatedAt,
+    );
+
+    expect(state.revisions).toHaveLength(1);
+    await expect(
+      listDashboardRevisionMetadata("traffic", ctx),
+    ).resolves.toMatchObject([
+      {
+        changesStatus: "valid",
+        changes: [{ kind: "column-resized", direction: "wider" }],
+      },
+    ]);
+  });
+
+  it("commits a save and the history entry it leaves together", async () => {
+    state.dashboard.config = JSON.stringify(signupsTable(120));
+
+    await upsertDashboard(
+      "traffic",
+      "sql",
+      signupsTable(220),
+      ctx,
+      state.dashboard.updatedAt,
+    );
+
+    expect(state.writes).toEqual([
+      { table: "dashboards", inTransaction: true },
+      { table: "dashboardRevisions", inTransaction: true },
+    ]);
+  });
+
+  it("describes a retried save against the version it actually replaced", async () => {
+    state.dashboard.config = JSON.stringify(signupsTable(120));
+    state.loseNextCas = true;
+
+    await upsertDashboardWithRetry("traffic", ctx, (existing) => {
+      const config = existing.config as ReturnType<typeof signupsTable>;
+      return {
+        kind: "sql" as const,
+        body: {
+          ...config,
+          panels: config.panels.map((p) =>
+            p.id === "signups" ? signupsTable(220).panels[0] : p,
+          ),
+        },
+      };
+    });
+
+    expect(readPanelIds()).toEqual(["signups", "writer-a"]);
+    expect(state.revisions).toHaveLength(1);
+    await expect(
+      listDashboardRevisionMetadata("traffic", ctx),
+    ).resolves.toMatchObject([
+      {
+        changesStatus: "valid",
+        changes: [{ kind: "column-resized", direction: "wider" }],
         omittedChanges: 0,
       },
     ]);
