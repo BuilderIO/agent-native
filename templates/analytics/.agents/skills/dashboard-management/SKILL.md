@@ -299,7 +299,8 @@ its owner organization's. Read them with `list-data-notes`, passing
   date shade each run of the note's rows, never a row between them, under one
   title. Incidents are red; open data problems amber; fixed data problems grey.
   Other charts flag the note by the title and write it under the chart while it
-  is ongoing or ended in the last 30 days.
+  is ongoing or ended in the last 30 days, as does a time chart whose x values
+  aren't dates.
 - A dashboard hides a note on one chart with
   `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
   keeping `hiddenKeyDateSets` and the notes already hidden in the same object.

@@ -2,7 +2,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
-import { dataNoteIsRecent } from "@shared/data-notes";
+import { dataNoteIsRecent, type DataNote } from "@shared/data-notes";
 import { isKeyDateChartType } from "@shared/key-dates";
 import {
   IconGripVertical,
@@ -26,6 +26,7 @@ import { usePanelDataNotes } from "@/components/dashboard/dashboard-annotations-
 import {
   DataNoteFlag,
   DataNoteLines,
+  UnplacedDataNotesListener,
 } from "@/components/dashboard/data-note-bands";
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import {
@@ -165,14 +166,18 @@ export function SqlChartCard({
 }: SqlChartCardProps) {
   const t = useT();
   const panelDataNotes = usePanelDataNotes(panel);
-  // Time charts draw notes as bands over their dates; other charts flag the recent ones.
-  const flaggedDataNotes = useMemo(
+  const timeChart = isKeyDateChartType(panel.chartType);
+  // Other charts list the recent notes under the card. A time chart shades
+  // notes over its dates and lists, under its plot, the ones it can't place.
+  const listedDataNotes = useMemo(
     () =>
-      isKeyDateChartType(panel.chartType)
-        ? []
-        : panelDataNotes.filter((note) => dataNoteIsRecent(note)),
-    [panel.chartType, panelDataNotes],
+      timeChart ? [] : panelDataNotes.filter((note) => dataNoteIsRecent(note)),
+    [timeChart, panelDataNotes],
   );
+  const [unplacedDataNotes, setUnplacedDataNotes] = useState<
+    readonly DataNote[]
+  >([]);
+  const flaggedDataNotes = timeChart ? unplacedDataNotes : listedDataNotes;
   const timeRange = timeRangeDays(filters?.timeRange);
   const timeRangeOverrideLabel = timeRangeFilter?.options?.find(
     (option) => option.value === timeRangeOverride,
@@ -819,21 +824,23 @@ export function SqlChartCard({
           </div>
         </CardHeader>
         <CardContent className="dashboard-chart-content flex flex-1 flex-col overflow-visible pt-0">
-          <SqlChart
-            panel={panel}
-            resolvedSql={resolvedSql}
-            loadData={shouldLoadData}
-            timeRange={timeRange}
-            reportScreenshot={reportScreenshot}
-            refreshToken={refreshToken}
-            onRefreshRequested={handleRefresh}
-            dashboardId={dashboardId}
-            onExportCsvChange={handleExportCsvChange}
-            onCopyTableChange={handleCopyTableChange}
-            onSaveColumns={onSaveColumns}
-            extensionContext={extensionContext}
-          />
-          <DataNoteLines notes={flaggedDataNotes} />
+          <UnplacedDataNotesListener value={setUnplacedDataNotes}>
+            <SqlChart
+              panel={panel}
+              resolvedSql={resolvedSql}
+              loadData={shouldLoadData}
+              timeRange={timeRange}
+              reportScreenshot={reportScreenshot}
+              refreshToken={refreshToken}
+              onRefreshRequested={handleRefresh}
+              dashboardId={dashboardId}
+              onExportCsvChange={handleExportCsvChange}
+              onCopyTableChange={handleCopyTableChange}
+              onSaveColumns={onSaveColumns}
+              extensionContext={extensionContext}
+            />
+          </UnplacedDataNotesListener>
+          <DataNoteLines notes={listedDataNotes} />
         </CardContent>
       </Card>
 
