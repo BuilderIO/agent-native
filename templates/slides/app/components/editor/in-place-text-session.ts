@@ -531,17 +531,6 @@ function hasRenderedContent(node: Node): boolean {
   );
 }
 
-/** A block with nothing on it: placeholders, or the lone `<br>` that holds it open. */
-function isBlankBlock(block: Element): boolean {
-  if (!hasRenderedContent(block)) return true;
-  const rendered = block.querySelectorAll(RENDERED_ELEMENTS);
-  return (
-    rendered.length === 1 &&
-    rendered[0].tagName === "BR" &&
-    !block.textContent?.replaceAll(ZERO_WIDTH_SPACE, "").trim()
-  );
-}
-
 /**
  * Whether a line holds anything the author put there. Unlike
  * `hasRenderedContent`, a typed space or nbsp is content: Enter on it splits
@@ -552,6 +541,20 @@ function hasLineContent(node: Node): boolean {
   return (
     (node instanceof Element || node instanceof DocumentFragment) &&
     node.querySelector(RENDERED_ELEMENTS) !== null
+  );
+}
+
+/**
+ * A block with nothing in it, nested lists included: placeholders, or the lone
+ * `<br>` that holds it open. A typed space or nbsp is content.
+ */
+function isEmptyBlock(block: Element): boolean {
+  if (!hasLineContent(block)) return true;
+  const rendered = block.querySelectorAll(RENDERED_ELEMENTS);
+  return (
+    rendered.length === 1 &&
+    rendered[0].tagName === "BR" &&
+    !block.textContent?.replace(COLLAPSIBLE_OR_PLACEHOLDER, "")
   );
 }
 
@@ -4251,7 +4254,7 @@ export function startInPlaceTextSession(
     }
 
     if (block === el) {
-      if (isBlankBlock(el)) {
+      if (isEmptyBlock(el)) {
         if (el.tagName !== "DIV") retagRoot("DIV");
         el.replaceChildren(blocks);
         placeCaret(el, el.childNodes.length);
@@ -4278,7 +4281,7 @@ export function startInPlaceTextSession(
       keepTextLook(before, look);
       keepTextLook(after, look);
       const headBlock = hasRenderedContent(before) ? before : null;
-      const continuation = isBlankBlock(after) ? null : after;
+      const continuation = isEmptyBlock(after) ? null : after;
       el.replaceChildren(
         ...(headBlock ? [headBlock] : []),
         blocks,
@@ -4298,7 +4301,7 @@ export function startInPlaceTextSession(
       return true;
     }
 
-    const blankLine = isBlankBlock(block);
+    const blankLine = isEmptyBlock(block);
     splitBlock(block, caret);
     const continuation = block.nextElementSibling;
     if (!(continuation instanceof HTMLElement)) {
@@ -4309,7 +4312,7 @@ export function startInPlaceTextSession(
     // A lone `<br>` before the caret is an authored empty line unless the
     // whole block was only that placeholder.
     const prefix = !blankLine && hasRenderedContent(block) ? block : null;
-    const suffix = isBlankBlock(continuation) ? null : continuation;
+    const suffix = isEmptyBlock(continuation) ? null : continuation;
     // Nothing before the caret: the original block, with the identity the
     // split stripped from its copy, keeps the text and follows the paste.
     if (!prefix && suffix) {
