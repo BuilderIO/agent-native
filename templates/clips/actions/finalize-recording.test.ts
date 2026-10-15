@@ -1883,7 +1883,7 @@ describe("finalize-recording media serve verification", () => {
 describe("finalize-recording resumable recovery", () => {
   it("fails a confirmed empty hosted session before releasing its allowance", async () => {
     vi.clearAllMocks();
-    const { deleteResumableSession, getResumableSession } =
+    const { getResumableSession } =
       await import("../server/lib/resumable-session.js");
     const { resolveResumableUploadProvider } =
       await import("../server/lib/resumable-upload-provider.js");
