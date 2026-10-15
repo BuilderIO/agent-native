@@ -222,6 +222,11 @@ async function waitUpTo(ms: number, work: Promise<unknown>): Promise<void> {
   clearTimeout(giveUp);
 }
 
+// GitHub Actions ends a cancelled step about ten seconds after the first signal
+// (SIGTERM at 7.5 s, SIGKILL 2.5 s later), so everything a cancellation waits
+// for before cleanup shares this one deadline and leaves the rest to cleanup.
+const INTERRUPT_WAIT_MS = 3_000;
+
 async function stopActiveRuns(): Promise<void> {
   const running = [...activeRuns];
   const closed = Promise.all(
@@ -233,8 +238,8 @@ async function stopActiveRuns(): Promise<void> {
   for (const child of running) killGroup(child, "SIGTERM");
   const killer = setTimeout(() => {
     for (const child of running) killGroup(child, "SIGKILL");
-  }, 5_000);
-  await waitUpTo(10_000, closed);
+  }, 1_500);
+  await closed;
   clearTimeout(killer);
 }
 
@@ -1077,8 +1082,10 @@ async function main(): Promise<void> {
   const interrupted = async (signal: NodeJS.Signals) => {
     interruptedBy ??= signal;
     log(`received ${signal}; cleaning up`);
-    await stopActiveRuns();
-    await waitUpTo(10_000, Promise.allSettled([...creations]));
+    await waitUpTo(
+      INTERRUPT_WAIT_MS,
+      Promise.all([stopActiveRuns(), Promise.allSettled([...creations])]),
+    );
     await finish(null);
   };
   process.once("SIGINT", () => void interrupted("SIGINT"));
