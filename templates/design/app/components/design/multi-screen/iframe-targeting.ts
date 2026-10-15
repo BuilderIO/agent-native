@@ -89,3 +89,27 @@ export function findCanvasIframeForScreen(
     `[data-screen-iframe-id="${CSS.escape(targetIframeId)}"]`,
   );
 }
+
+export function readCanvasPreviewMeasurementContext(
+  frame: HTMLIFrameElement | null,
+  expectedBreakpointPreview: boolean,
+): { view: Window; doc: Document } | null | undefined {
+  const unavailable = expectedBreakpointPreview ? null : undefined;
+  if (!frame) return unavailable;
+
+  try {
+    const view = frame.contentWindow;
+    const doc = frame.contentDocument;
+    return view && doc ? { view, doc } : unavailable;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      error.name === "SecurityError"
+    ) {
+      return unavailable;
+    }
+    throw error;
+  }
+}

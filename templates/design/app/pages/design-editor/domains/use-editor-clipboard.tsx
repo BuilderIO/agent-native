@@ -19,7 +19,10 @@ import type {
 } from "@/components/design/design-canvas/iframe-events";
 import { DESIGN_FILE_STORAGE_REQUIRED_EVENT } from "@/components/design/editor/DesignBottomToolbar";
 import { FigmaPasteImagesNotice } from "@/components/design/FigmaPasteImagesNotice";
-import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
+import {
+  findCanvasIframeForScreen,
+  readCanvasPreviewMeasurementContext,
+} from "@/components/design/multi-screen/iframe-targeting";
 import { getCurrentBoardSelectionWorldBounds } from "@/components/design/multi-screen/overview-layout";
 import { readPortableStyleSnapshot } from "@/components/design/multi-screen/read-portable-style-snapshot";
 import type {
@@ -294,33 +297,25 @@ export function useEditorClipboard({
       | null
       | undefined => {
       if (!targetFileId || typeof document === "undefined") return undefined;
+      const breakpointWidth =
+        viewModeRef.current === "overview"
+          ? activeBreakpointWidthStateRef.current
+          : undefined;
       const frame = findCanvasIframeForScreen(
         canvasContainerRef.current,
         targetFileId,
         boardFileId,
-        viewModeRef.current === "overview"
-          ? activeBreakpointWidthStateRef.current
-          : undefined,
+        breakpointWidth,
       );
-      if (!frame) return undefined;
-      let view: Window | null;
-      let doc: Document | null;
+      const expectedBreakpointPreview =
+        breakpointWidth !== undefined && targetFileId !== boardFileId;
       try {
-        view = frame.contentWindow;
-        doc = frame.contentDocument;
-      } catch (error) {
-        if (
-          typeof error === "object" &&
-          error !== null &&
-          "name" in error &&
-          error.name === "SecurityError"
-        ) {
-          return undefined;
-        }
-        throw error;
-      }
-      if (!view || !doc) return undefined;
-      try {
+        const preview = readCanvasPreviewMeasurementContext(
+          frame,
+          expectedBreakpointPreview,
+        );
+        if (!preview) return preview;
+        const { view, doc } = preview;
         const target = doc.querySelector(selector);
         const renderOffset = positionCoordinateRenderOffsetForWindow(view);
         if (!target || !renderOffset) return null;

@@ -1525,6 +1525,503 @@ describe("clipboard source placement", () => {
     ]);
   });
 
+  it("repeats mixed HTML clipboard roots from a selected positioned clone", async () => {
+    const flow =
+      '<p data-agent-native-node-id="flow" data-agent-native-layer-name="Flow" style="position:static">Flow</p>';
+    const first =
+      '<div data-agent-native-node-id="first" data-agent-native-layer-name="First" style="position:absolute;left:40px;top:60px">First</div>';
+    const anchor =
+      '<section data-agent-native-node-id="anchor" data-agent-native-layer-name="Anchor" style="position:absolute;left:340px;top:80px">Anchor</section>';
+    const content = `<!doctype html><html><body>${flow}${first}${anchor}</body></html>`;
+    const entries = [
+      { html: flow, rootNodeId: "flow", sourceFileId: "home" },
+      { html: first, rootNodeId: "first", sourceFileId: "home" },
+      { html: anchor, rootNodeId: "anchor", sourceFileId: "home" },
+    ];
+    const { args, writes } = harness({
+      files: [designFile("home", "index.html", content)],
+      activeFileId: "home",
+      entries,
+      selectedElement: selected("anchor"),
+    });
+    args.selectedCanvasSelector = args.selectedElement!.selector!;
+    toastError.mockClear();
+
+    const selectRoot = (root: HTMLElement) => {
+      const id = root.getAttribute("data-agent-native-node-id")!;
+      args.selectedElement = {
+        ...selected(id),
+        tagName: root.tagName.toLowerCase(),
+      };
+      args.selectedCanvasSelector = args.selectedElement.selector!;
+    };
+
+    await runPasteSelection(args);
+
+    const firstCopies = pastedCopies(writes[0]!.content);
+    const firstFlow = firstCopies.find(
+      (root) => root.getAttribute("data-agent-native-layer-name") === "Flow",
+    )!;
+    const firstPositioned = firstCopies.find(
+      (root) => root.getAttribute("data-agent-native-layer-name") === "First",
+    )!;
+    const firstAnchor = firstCopies.find(
+      (root) => root.getAttribute("data-agent-native-layer-name") === "Anchor",
+    )!;
+    expect([firstPositioned.style.left, firstPositioned.style.top]).toEqual([
+      "40px",
+      "60px",
+    ]);
+    expect([firstAnchor.style.left, firstAnchor.style.top]).toEqual([
+      "340px",
+      "80px",
+    ]);
+    expect([
+      firstFlow.style.position,
+      firstFlow.style.left,
+      firstFlow.style.top,
+    ]).toEqual(["static", "", ""]);
+
+    selectRoot(firstAnchor);
+    await runPasteSelection(args);
+
+    expect(writes).toHaveLength(2);
+    const previousIds = new Set(
+      firstCopies.map((root) => root.getAttribute("data-agent-native-node-id")),
+    );
+    const repeatedCopies = pastedCopies(writes[1]!.content).filter(
+      (root) =>
+        !previousIds.has(root.getAttribute("data-agent-native-node-id")),
+    );
+    const repeatedFlow = repeatedCopies.find(
+      (root) => root.getAttribute("data-agent-native-layer-name") === "Flow",
+    )!;
+    const repeatedPositioned = repeatedCopies.find(
+      (root) => root.getAttribute("data-agent-native-layer-name") === "First",
+    )!;
+    const repeatedAnchor = repeatedCopies.find(
+      (root) => root.getAttribute("data-agent-native-layer-name") === "Anchor",
+    )!;
+    expect([
+      repeatedPositioned.style.left,
+      repeatedPositioned.style.top,
+    ]).toEqual(["56px", "76px"]);
+    expect([repeatedAnchor.style.left, repeatedAnchor.style.top]).toEqual([
+      "356px",
+      "96px",
+    ]);
+    expect([
+      repeatedFlow.style.position,
+      repeatedFlow.style.left,
+      repeatedFlow.style.top,
+    ]).toEqual(["static", "", ""]);
+    expect(repeatedFlow.parentElement).toBe(repeatedAnchor.parentElement);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("repeats mixed live URL roots from a selected positioned clone", async () => {
+    const first =
+      '<div data-agent-native-node-id="first" data-agent-native-layer-name="First" style="position:absolute;left:40px;top:60px">First</div>';
+    const anchor =
+      '<section data-agent-native-node-id="anchor" data-agent-native-layer-name="Anchor" style="position:absolute;left:340px;top:80px">Anchor</section>';
+    const flow =
+      '<p data-agent-native-node-id="flow" data-agent-native-layer-name="Flow" style="position:static">Flow</p>';
+    const { args, runtimeInsertRequests } = harness({
+      files: [
+        designFile("home", "index.html", ""),
+        designFile("live", "live.html", "https://example.com/live"),
+      ],
+      activeFileId: "live",
+      entries: [
+        { html: first, rootNodeId: "first", sourceFileId: "home" },
+        { html: anchor, rootNodeId: "anchor", sourceFileId: "home" },
+        { html: flow, rootNodeId: "flow", sourceFileId: "home" },
+      ],
+    });
+    args.viewModeRef.current = "single";
+    toastError.mockClear();
+
+    const requestRoots = (index: number) => {
+      const request = runtimeInsertRequests[index]!;
+      return [request.html, ...(request.additionalHtml ?? [])].map(
+        (html) =>
+          new DOMParser().parseFromString(html, "text/html").body
+            .firstElementChild as HTMLElement,
+      );
+    };
+    const selectRoot = (root: HTMLElement) => {
+      const id = root.getAttribute("data-agent-native-node-id")!;
+      const selector = `[data-agent-native-node-id="${id}"]`;
+      args.selectedElement = {
+        ...selected(id),
+        tagName: root.tagName.toLowerCase(),
+        runtimeSourceId: id,
+        runtimeSelector: selector,
+        inlineStyles: {
+          position: root.style.position,
+          left: root.style.left,
+          top: root.style.top,
+        },
+      };
+      args.selectedCanvasSelector = selector;
+    };
+
+    await runPasteSelection(args, { x: 200, y: 220 });
+
+    const firstCopies = requestRoots(0);
+    expect(
+      firstCopies.map((root) => [root.style.left, root.style.top]),
+    ).toEqual([
+      ["200px", "220px"],
+      ["500px", "240px"],
+      ["232px", "252px"],
+    ]);
+    selectRoot(firstCopies[1]!);
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(2);
+    const repeatedCopies = requestRoots(1);
+    expect(
+      repeatedCopies.map((root) => [root.style.left, root.style.top]),
+    ).toEqual([
+      ["216px", "236px"],
+      ["516px", "256px"],
+      ["", ""],
+    ]);
+    expect(repeatedCopies[2]!.style.position).toBe("");
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("refuses to repeat when the selected flow clone has unreadable positioned coordinates", async () => {
+    const flow =
+      '<p data-agent-native-node-id="flow" data-agent-native-layer-name="Flow">Flow</p>';
+    const { args, runtimeInsertRequests } = harness({
+      files: [designFile("live", "live.html", "https://example.com/live")],
+      activeFileId: "live",
+      entries: [{ html: flow, rootNodeId: "flow", sourceFileId: "home" }],
+    });
+    args.viewModeRef.current = "single";
+    toastError.mockClear();
+
+    await runPasteSelection(args, { x: 200, y: 220 });
+
+    const firstCopy = new DOMParser().parseFromString(
+      runtimeInsertRequests[0]!.html,
+      "text/html",
+    ).body.firstElementChild as HTMLElement;
+    const firstCopyId = firstCopy.getAttribute("data-agent-native-node-id")!;
+    const selector = `[data-agent-native-node-id="${firstCopyId}"]`;
+    args.selectedElement = {
+      ...selected(firstCopyId),
+      runtimeSourceId: firstCopyId,
+      runtimeSelector: selector,
+      inlineStyles: {
+        position: "absolute",
+        left: "calc(50% - 8px)",
+        top: "220px",
+      },
+    };
+    args.selectedCanvasSelector = selector;
+
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(1);
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.layerMoveFailed",
+      { duration: 4000 },
+    );
+  });
+
+  it.each([
+    {
+      kind: "class",
+      rootNodeId: "class-layer",
+      html: '<div class="canvas-absolute" data-agent-native-node-id="class-layer">Class layer</div>',
+    },
+    {
+      kind: "bare tag",
+      rootNodeId: "tag-layer",
+      html: '<div data-agent-native-node-id="tag-layer">Tag layer</div>',
+    },
+  ])(
+    "refuses mixed repeats when an unclassified $kind root may be positioned",
+    async ({ html: unclassified, rootNodeId }) => {
+      const peer =
+        '<div data-agent-native-node-id="peer" style="position:absolute;left:340px;top:80px">Peer</div>';
+      const { args, runtimeInsertRequests } = harness({
+        files: [designFile("live", "live.html", "https://example.com/live")],
+        activeFileId: "live",
+        entries: [
+          {
+            html: unclassified,
+            rootNodeId,
+            sourceFileId: "home",
+          },
+          { html: peer, rootNodeId: "peer", sourceFileId: "home" },
+        ],
+      });
+      args.viewModeRef.current = "single";
+      toastError.mockClear();
+
+      await runPasteSelection(args, { x: 200, y: 220 });
+
+      const firstCopy = new DOMParser().parseFromString(
+        runtimeInsertRequests[0]!.html,
+        "text/html",
+      ).body.firstElementChild as HTMLElement;
+      const firstCopyId = firstCopy.getAttribute("data-agent-native-node-id")!;
+      const selector = `[data-agent-native-node-id="${firstCopyId}"]`;
+      args.selectedElement = {
+        ...selected(firstCopyId),
+        runtimeSourceId: firstCopyId,
+        runtimeSelector: selector,
+        inlineStyles: {},
+      };
+      args.selectedCanvasSelector = selector;
+
+      await runPasteSelection(args);
+
+      expect(runtimeInsertRequests).toHaveLength(1);
+      expect(toastError).toHaveBeenCalledWith(
+        "designEditor.toasts.layerMoveFailed",
+        { duration: 4000 },
+      );
+    },
+  );
+
+  it("preserves relative pixel coordinates when repeating a mixed clipboard", async () => {
+    const relative =
+      '<div data-agent-native-node-id="relative" style="position:relative;left:40px;top:60px">Relative</div>';
+    const peer =
+      '<div data-agent-native-node-id="peer" style="position:absolute;left:340px;top:80px">Peer</div>';
+    const { args, runtimeInsertRequests } = harness({
+      files: [designFile("live", "live.html", "https://example.com/live")],
+      activeFileId: "live",
+      entries: [
+        { html: relative, rootNodeId: "relative", sourceFileId: "home" },
+        { html: peer, rootNodeId: "peer", sourceFileId: "home" },
+      ],
+    });
+    args.viewModeRef.current = "single";
+    toastError.mockClear();
+
+    await runPasteSelection(args, { x: 200, y: 220 });
+
+    const firstCopy = new DOMParser().parseFromString(
+      runtimeInsertRequests[0]!.html,
+      "text/html",
+    ).body.firstElementChild as HTMLElement;
+    const firstCopyId = firstCopy.getAttribute("data-agent-native-node-id")!;
+    const selector = `[data-agent-native-node-id="${firstCopyId}"]`;
+    args.selectedElement = {
+      ...selected(firstCopyId),
+      runtimeSourceId: firstCopyId,
+      runtimeSelector: selector,
+      inlineStyles: {
+        position: "relative",
+        left: "200px",
+        top: "220px",
+      },
+    };
+    args.selectedCanvasSelector = selector;
+
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(2);
+    const repeatedRoots = [
+      runtimeInsertRequests[1]!.html,
+      ...(runtimeInsertRequests[1]!.additionalHtml ?? []),
+    ].map(
+      (html) =>
+        new DOMParser().parseFromString(html, "text/html").body
+          .firstElementChild as HTMLElement,
+    );
+    expect(
+      repeatedRoots.map((root) => [root.style.left, root.style.top]),
+    ).toEqual([
+      ["216px", "236px"],
+      ["516px", "256px"],
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it.each(["calc(50% - 8px)", "50%"])(
+    "refuses mixed repeats when an absolute root has non-pixel source geometry (%s)",
+    async (left) => {
+      const anchor =
+        '<section data-agent-native-node-id="anchor" data-agent-native-layer-name="Anchor" style="position:absolute;left:340px;top:80px">Anchor</section>';
+      const unresolved = `<div data-agent-native-node-id="unresolved" data-agent-native-layer-name="Unresolved" style="position:absolute;left:${left};top:90px">Unresolved</div>`;
+      const { args, runtimeInsertRequests } = harness({
+        files: [
+          designFile("home", "index.html", ""),
+          designFile("live", "live.html", "https://example.com/live"),
+        ],
+        activeFileId: "live",
+        entries: [
+          { html: anchor, rootNodeId: "anchor", sourceFileId: "home" },
+          {
+            html: unresolved,
+            rootNodeId: "unresolved",
+            sourceFileId: "home",
+          },
+        ],
+      });
+      args.viewModeRef.current = "single";
+      toastError.mockClear();
+
+      await runPasteSelection(args, { x: 200, y: 220 });
+
+      expect(runtimeInsertRequests).toHaveLength(1);
+      const firstAnchor = new DOMParser().parseFromString(
+        runtimeInsertRequests[0]!.html,
+        "text/html",
+      ).body.firstElementChild as HTMLElement;
+      const firstId = firstAnchor.getAttribute("data-agent-native-node-id")!;
+      const selector = `[data-agent-native-node-id="${firstId}"]`;
+      args.selectedElement = {
+        ...selected(firstId),
+        runtimeSourceId: firstId,
+        runtimeSelector: selector,
+        inlineStyles: {
+          position: firstAnchor.style.position,
+          left: firstAnchor.style.left,
+          top: firstAnchor.style.top,
+        },
+      };
+      args.selectedCanvasSelector = selector;
+
+      await runPasteSelection(args);
+
+      expect(runtimeInsertRequests).toHaveLength(1);
+      expect(toastError).toHaveBeenCalledWith(
+        "designEditor.toasts.layerMoveFailed",
+        { duration: 4000 },
+      );
+    },
+  );
+
+  it("refuses an all-unpositioned mixed repeat when the selected flow root has no clone position", async () => {
+    const flow =
+      '<p data-agent-native-node-id="flow" data-agent-native-layer-name="Flow">Flow</p>';
+    const unresolved =
+      '<div data-agent-native-node-id="unresolved" data-agent-native-layer-name="Unresolved" style="position:absolute;left:calc(50% - 8px);top:90px">Unresolved</div>';
+    const { args, runtimeInsertRequests } = harness({
+      files: [
+        designFile("home", "index.html", ""),
+        designFile("live", "live.html", "https://example.com/live"),
+      ],
+      activeFileId: "live",
+      entries: [
+        { html: flow, rootNodeId: "flow", sourceFileId: "home" },
+        {
+          html: unresolved,
+          rootNodeId: "unresolved",
+          sourceFileId: "home",
+        },
+      ],
+    });
+    args.viewModeRef.current = "single";
+    toastError.mockClear();
+
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(1);
+    const firstFlow = new DOMParser().parseFromString(
+      runtimeInsertRequests[0]!.html,
+      "text/html",
+    ).body.firstElementChild as HTMLElement;
+    const firstId = firstFlow.getAttribute("data-agent-native-node-id")!;
+    const selector = `[data-agent-native-node-id="${firstId}"]`;
+    args.selectedElement = {
+      ...selected(firstId),
+      tagName: "p",
+      runtimeSourceId: firstId,
+      runtimeSelector: selector,
+      inlineStyles: {
+        position: firstFlow.style.position,
+        left: firstFlow.style.left,
+        top: firstFlow.style.top,
+      },
+    };
+    args.selectedCanvasSelector = selector;
+
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(1);
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.layerMoveFailed",
+      { duration: 4000 },
+    );
+  });
+
+  it("keeps mixed roots repeatable when the selected clone is natural flow", async () => {
+    const flow =
+      '<p data-agent-native-node-id="flow" data-agent-native-layer-name="Flow" style="position:static">Flow</p>';
+    const first =
+      '<div data-agent-native-node-id="first" data-agent-native-layer-name="First" style="position:absolute;left:40px;top:60px">First</div>';
+    const anchor =
+      '<section data-agent-native-node-id="anchor" data-agent-native-layer-name="Anchor" style="position:absolute;left:340px;top:80px">Anchor</section>';
+    const content = `<!doctype html><html><body>${flow}${first}${anchor}</body></html>`;
+    const { args, writes } = harness({
+      files: [designFile("home", "index.html", content)],
+      activeFileId: "home",
+      entries: [
+        { html: flow, rootNodeId: "flow", sourceFileId: "home" },
+        { html: first, rootNodeId: "first", sourceFileId: "home" },
+        { html: anchor, rootNodeId: "anchor", sourceFileId: "home" },
+      ],
+      selectedElement: selected("flow"),
+    });
+    args.selectedCanvasSelector = args.selectedElement!.selector!;
+    toastError.mockClear();
+
+    await runPasteSelection(args);
+
+    const firstCopies = pastedCopies(writes[0]!.content);
+    const firstFlow = firstCopies.find(
+      (root) => root.getAttribute("data-agent-native-layer-name") === "Flow",
+    )!;
+    args.selectedElement = {
+      ...selected(firstFlow.getAttribute("data-agent-native-node-id")!),
+      tagName: "p",
+    };
+    args.selectedCanvasSelector = args.selectedElement.selector!;
+
+    await runPasteSelection(args);
+
+    expect(writes).toHaveLength(2);
+    const previousIds = new Set(
+      firstCopies.map((root) => root.getAttribute("data-agent-native-node-id")),
+    );
+    const repeatedCopies = pastedCopies(writes[1]!.content).filter(
+      (root) =>
+        !previousIds.has(root.getAttribute("data-agent-native-node-id")),
+    );
+    const repeatedFlow = repeatedCopies.find(
+      (root) => root.getAttribute("data-agent-native-layer-name") === "Flow",
+    )!;
+    const repeatedPositioned = repeatedCopies.find(
+      (root) => root.getAttribute("data-agent-native-layer-name") === "First",
+    )!;
+    const repeatedAnchor = repeatedCopies.find(
+      (root) => root.getAttribute("data-agent-native-layer-name") === "Anchor",
+    )!;
+    expect([
+      repeatedPositioned.style.left,
+      repeatedPositioned.style.top,
+    ]).toEqual(["56px", "76px"]);
+    expect([repeatedAnchor.style.left, repeatedAnchor.style.top]).toEqual([
+      "356px",
+      "96px",
+    ]);
+    expect([
+      repeatedFlow.style.position,
+      repeatedFlow.style.left,
+      repeatedFlow.style.top,
+    ]).toEqual(["static", "", ""]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
   it("keeps repeated natural-flow copies after the selected clone", async () => {
     const flowCard =
       '<section data-agent-native-node-id="flow-card">Flow card</section>';

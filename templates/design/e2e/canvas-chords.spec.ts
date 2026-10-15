@@ -1085,6 +1085,92 @@ test.describe("canvas chords", () => {
     }
   });
 
+  test("Keyboard repeat paste preserves mixed positioned and flow roots", async ({
+    app,
+    context,
+  }) => {
+    const positioned =
+      '<div data-agent-native-node-id="mixed-positioned" data-agent-native-layer-name="Mixed positioned" style="position:absolute;left:240px;top:180px;width:60px;height:30px">Positioned</div>';
+    const flow =
+      '<div data-agent-native-node-id="mixed-flow" data-agent-native-layer-name="Mixed flow" style="position:static;width:60px;height:30px;margin:0">Flow</div>';
+    const { id, before } = await openChords(
+      app,
+      `<!doctype html><html><body style="margin:0;position:relative;width:900px;height:600px">${positioned}${flow}</body></html>`,
+    );
+    const fileId = (await app.savedRecord(id)).files.find(
+      (file) => file.filename === "index.html",
+    )!.id;
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: new URL(appPath("/")).origin,
+    });
+    await app.page.evaluate(
+      async ({ fileId, positioned, flow }) => {
+        const clipboardPath = "/app/lib/design-clipboard.ts";
+        const importPath = "/app/lib/design-import.ts";
+        const { getDesignClipboardTrustToken } = await import(clipboardPath);
+        const { serializeDesignClipboardPayload } = await import(importPath);
+        const entries = [
+          { html: flow, rootNodeId: "mixed-flow", sourceFileId: fileId },
+          {
+            html: positioned,
+            rootNodeId: "mixed-positioned",
+            sourceFileId: fileId,
+          },
+        ];
+        await navigator.clipboard.writeText(
+          serializeDesignClipboardPayload(
+            entries.map((entry) => entry.html).join("\n"),
+            { version: 1, entries },
+            getDesignClipboardTrustToken() ?? undefined,
+          ),
+        );
+      },
+      { fileId, positioned, flow },
+    );
+    await selectLayerRow(app.page, "Mixed positioned");
+    let previous = before;
+    for (let generation = 0; generation < 3; generation += 1) {
+      await pressEditorKey(app.page, "ControlOrMeta+V");
+      await expect
+        .poll(async () => (await app.savedNodes(id)).size)
+        .toBe(before.size + (generation + 1) * 2);
+      await app.settled();
+      const after = await app.savedNodes(id);
+      const copies = newNodes(previous, after);
+      expect(copies).toHaveLength(2);
+      const positionedCopy = copies.find(
+        (node) =>
+          node.attrs["data-agent-native-layer-name"] === "Mixed positioned",
+      )!;
+      const flowCopy = copies.find(
+        (node) => node.attrs["data-agent-native-layer-name"] === "Mixed flow",
+      )!;
+      expect(positionedCopy).toBeDefined();
+      expect(flowCopy).toBeDefined();
+      expect(styleOf(positionedCopy)).toEqual({
+        ...styleOf(before.get("mixed-positioned")),
+        left: `${240 + generation * 16}px`,
+        top: `${180 + generation * 16}px`,
+      });
+      expect(await app.designRect(positionedCopy.id)).toEqual({
+        x: 240 + generation * 16,
+        y: 180 + generation * 16,
+        width: 60,
+        height: 30,
+      });
+      expect(styleOf(flowCopy)).toEqual(styleOf(before.get("mixed-flow")));
+      expect(after.get("mixed-positioned")).toEqual(
+        before.get("mixed-positioned"),
+      );
+      const originalFlow = before.get("mixed-flow")!;
+      expect(after.get("mixed-flow")).toEqual({
+        ...originalFlow,
+        index: originalFlow.index + 2 * (generation + 1),
+      });
+      previous = after;
+    }
+  });
+
   test("Keyboard paste and replacement measure the active breakpoint preview", async ({
     app,
     context,
