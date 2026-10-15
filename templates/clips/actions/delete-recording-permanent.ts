@@ -9,6 +9,7 @@ import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { deleteAppActivityBlob } from "../server/lib/app-activity.js";
 import { countPendingRedactions } from "../server/lib/pending-redactions.js";
 import {
   deleteRecordingMediaObjects,
@@ -208,6 +209,14 @@ export default defineAction({
       ]),
     );
 
+    const [diagnostics] = await db
+      .select({
+        appActivityBlobJson:
+          schema.recordingBrowserDiagnostics.appActivityBlobJson,
+      })
+      .from(schema.recordingBrowserDiagnostics)
+      .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
+
     await db.transaction(async (tx) => {
       // Cascade delete every related row before deleting remote objects. If any
       // DB delete fails, the transaction rolls back and provider media stays put.
@@ -258,6 +267,9 @@ export default defineAction({
     const mediaCleanup = await deleteRecordingMediaObjects(existing, {
       protectedUrls: new Set([...protectedUrls, ...alreadyDeleted]),
     });
+    const appActivityCleanup = diagnostics?.appActivityBlobJson
+      ? await deleteAppActivityBlob(diagnostics.appActivityBlobJson, args.id)
+      : null;
 
     await deleteAppStateByPrefix(`recording-chunks-${args.id}-`);
     await deleteAppState(`recording-upload-${args.id}`);
@@ -273,6 +285,6 @@ export default defineAction({
     console.log(
       `Permanently deleted recording "${existing.title}" (${args.id})`,
     );
-    return { success: true, id: args.id, mediaCleanup };
+    return { success: true, id: args.id, mediaCleanup, appActivityCleanup };
   },
 });

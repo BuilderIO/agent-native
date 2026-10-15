@@ -1,5 +1,22 @@
 # @agent-native/toolkit
 
+## 0.209.1
+
+### Patch Changes
+
+- e90b90a: One-click Builder.io account creation now records `cta_clicked` for its `builder_connect_clicked` click, like the sign-in popup path, and tags its `builder_connect_failed` event with `connect_url_kind: "provision"`. The tracking docs now name `builder_connect_clicked`, the event that counts clicks on both paths.
+- 5b201d1: Keep the outer corners of joined button groups rounded when hidden helper elements (file inputs, dialogs) trail the last button.
+- ce01559: When a run no longer has a tool the conversation used or loaded earlier, calling it returns `Error: Tool no longer available` instead of `Unknown tool`, the run's first request names loaded tools that went away, and a call the user approved stops the run instead of handing the model a "go ahead". Action entries accept an optional `revision`; one-time approvals record it, and "Always allow" takes the revision of the approval the user clicked (`set-tool-approval-policy` accepts `approvalId`), so a changed revision asks the user again. Existing approval rows keep matching entries without a revision. The chat approval card no longer offers "Always allow" for approvals that cannot persist. `resolveAdditionalActions` also receives `threadId`, `requestedTurnId`, and `internalContinuation` for chat.
+- Release all public npm packages with a patch version bump.
+- c139e35: Expire queued chat submissions when their retry window closes, and require peer support before sending deadline-bound retries.
+- c139e35: Fix server expiry preservation during queued prompt recovery and localize the older-server retry message.
+- e5a64ae: Expose a run's resolved thinking effort on its request run context and to `onEngineResolved`. `onEngineResolved` is also called before each model call, so the run context follows a rate-limit fallback to another model and the lower effort an empty-response retry steps down to; an action records the model and effort its call actually used. `runAgentLoop` reports these through `onModelSettings`. Each custom agent profile loop runs in its own copy of the run context, carrying its own model and effort and starting with no tool-search or extension reads, so an action called there records that profile's model and parallel profiles never overwrite each other or the run. Delegated A2A and `ask_app` runs keep the run context on the model and effort each call uses the same way. Export the composer's `MentionChip` so sent messages can draw mentions exactly as the composer does. `InlineMarkdown` protects spans in one pass, so a shorter span is never matched again inside a longer one's label, and a span can name the one occurrence it protects with `at`. The `@` popover can show why host mention items failed to load, with a Retry action, through `mentionItemsError` and `onRetryMentionItems`; Retry is a row above the items, so the arrow keys reach it and Enter or Tab runs it. The composer handle's `setText` and the new `initialReferences` prop take chips for ranges of the text, so a restored draft gets its chips back in place, with a space after a chip that ends it. The `@` that `insertTextAtCursor` places opens a popover that filters as you type, and picking from it keeps the space before the `@`. A chip's plain text is spaced from a word right beside it, so the text always reads each chip as its own `@name`.
+- e6e1f56: Keep explicit sidebar URL intent reliable across remounts and manual closes.
+- 73da788: Give suggestion chips more breathing room above the chat composer.
+- Updated dependencies
+- Updated dependencies [c139e35]
+  - @agent-native/agentkit@0.209.1
+
 ## 0.209.0
 
 ### Patch Changes
@@ -1199,11 +1216,5 @@
 - 24a5a20: Make extension creation and discovery opt-in, including authenticated REST
   creation, label SQL-backed extensions as sandboxed custom blocks, and let
   editors promote them into app code through a server-verified Builder handoff.
-
-## 0.10.12
-
-### Patch Changes
-
-- 279e855: Default MCP connections to personal OAuth, keep personal MCP setup available to organization members, hide unusable organization controls, and honor app preset filters in ejected UIs.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

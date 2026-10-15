@@ -1,4 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { recorder } from "@agent-native/core/client/recorder";
+import { readVisualScrubInputs } from "@agent-native/toolkit/design-tweaks";
 import {
   alphaToOpacity,
   normalizeCssColor,
@@ -555,6 +557,7 @@ interface EditPanelProps {
   motionAudioDurationMs?: number;
   onMotionAudioDurationChange?: (durationMs: number) => void;
   motionWriteUnavailable?: boolean;
+  motionWriteUnavailableReason?: string;
   breakpointContext?: {
     breakpointWidths: readonly number[];
     baseWidthPx: number;
@@ -2281,6 +2284,7 @@ export const EditPanel = memo(function EditPanel({
   motionAudioDurationMs = 1000,
   onMotionAudioDurationChange,
   motionWriteUnavailable = false,
+  motionWriteUnavailableReason,
   breakpointContext,
 }: EditPanelProps) {
   const recentFillColorRef = useRef<string | undefined>(undefined);
@@ -2291,6 +2295,14 @@ export const EditPanel = memo(function EditPanel({
   );
   const [interactionState, setInteractionState] =
     useState<ActiveInteractionState>(null);
+  useEffect(
+    () =>
+      recorder.watch("inspector", () => ({
+        state: interactionState ?? "default",
+        fields: readVisualScrubInputs(),
+      })),
+    [interactionState],
+  );
   const [interactionStateMenuOpen, setInteractionStateMenuOpen] =
     useState(false);
   const [animationStyleBrowserOpen, setAnimationStyleBrowserOpen] =
@@ -3161,9 +3173,10 @@ export const EditPanel = memo(function EditPanel({
                                 }
                                 disabledReason={
                                   motionWriteUnavailable
-                                    ? t(
+                                    ? (motionWriteUnavailableReason ??
+                                      t(
                                         "designEditor.motion.sourceWriteUnavailable",
-                                      )
+                                      ))
                                     : undefined
                                 }
                                 onCreateTrack={

@@ -20,6 +20,7 @@ import {
 } from "../lib/analytics-agent-context";
 import { ANALYTICS_MCP } from "../lib/analytics-mcp";
 import { enqueueAnalyticsMemoryCapture } from "../lib/analytics-memory-capture.js";
+import "../lib/sigma-setup-secret-sweep.js";
 import { credentialProviderConfigs } from "../lib/credential-keys";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import {

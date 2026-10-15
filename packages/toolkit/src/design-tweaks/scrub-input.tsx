@@ -91,6 +91,17 @@ interface PendingScrubTextCommit {
 }
 
 const activeScrubCancelCallbacks = new Set<() => void>();
+const mountedScrubInputs = new Set<() => ScrubInputDisplay>();
+
+export interface ScrubInputDisplay {
+  label: string;
+  shown: string;
+}
+
+/** What each mounted scrub input is showing right now. */
+export function readVisualScrubInputs(): ScrubInputDisplay[] {
+  return [...mountedScrubInputs].map((read) => read());
+}
 
 export function cancelActiveScrubInputs() {
   for (const cancel of [...activeScrubCancelCallbacks]) cancel();
@@ -180,6 +191,14 @@ export function VisualScrubInput({
     },
     [],
   );
+
+  useEffect(() => {
+    const read = () => ({ label: ariaLabel ?? label, shown: draftRef.current });
+    mountedScrubInputs.add(read);
+    return () => {
+      mountedScrubInputs.delete(read);
+    };
+  }, [ariaLabel, label]);
 
   useEffect(() => {
     if (mixed) {

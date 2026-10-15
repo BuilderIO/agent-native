@@ -132,6 +132,26 @@ describe("VideoPlayer playback", () => {
     return controls;
   }
 
+  it("renders without throwing when a stored video URL is malformed", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="http://["
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toBe("http://[");
+  });
+
   it("toggles play/pause on the real video element when the surface is clicked", () => {
     const surface = getPlayerSurface();
     const video = getVideo();

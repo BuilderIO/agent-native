@@ -53,7 +53,8 @@ vi.mock("@agent-native/core/file-upload", () => ({
 }));
 vi.mock("@agent-native/core/server", () => ({ buildDeepLink: vi.fn() }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: (...args: unknown[]) => mocks.and(...args),
   asc: (...args: unknown[]) => mocks.asc(...args),
   eq: (...args: unknown[]) => mocks.eq(...args),

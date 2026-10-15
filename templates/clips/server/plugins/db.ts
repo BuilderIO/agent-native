@@ -1244,6 +1244,16 @@ export const migrations = runMigrations(
     },
     {
       version: 86,
+      name: "recording-browser-diagnostics-app-activity",
+      // Additive. Mirrors `appActivitySummaryJson` and `appActivityBlobJson`
+      // in server/db/schema.ts.
+      sql: [
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_summary_json TEXT`,
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_blob_json TEXT`,
+      ].join("; "),
+    },
+    {
+      version: 87,
       name: "recording-transcripts-source",
       // Additive. Mirrors `source` on `recordingTranscripts` in server/db/schema.ts.
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS source TEXT`,

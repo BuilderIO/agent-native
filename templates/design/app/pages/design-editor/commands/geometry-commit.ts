@@ -185,11 +185,11 @@ export function runGeometryCommit(
       ...designDataJsonRef.current,
       canvasFrames: afterSnapshot,
     };
+    queueFrameGeometrySave(afterSnapshot);
     queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
       if (!old || typeof old !== "object") return old;
       return { ...old, data: JSON.stringify(nextData) };
     });
-    queueFrameGeometrySave(afterSnapshot);
     designDataJsonRef.current = nextData;
     liveFrameGeometryRef.current = cloneCanvasFrameGeometry(afterSnapshot);
   } else {

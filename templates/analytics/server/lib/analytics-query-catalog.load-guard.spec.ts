@@ -670,7 +670,16 @@ describe("searchAnalyticsQueryCatalog", () => {
     });
     state.readSourceIndex.mockResolvedValueOnce({
       status: "available",
-      bundle: { generatedAt: "2026-10-13T00:00:00.000Z" } as never,
+      bundle: {
+        generatedAt: "2026-10-13T00:00:00.000Z",
+        sources: [
+          {
+            id: "dbt",
+            revision: "abcdef123456",
+            generatedAt: "2026-10-13T00:00:00.000Z",
+          },
+        ],
+      } as never,
     });
     state.sourceIndexDictionaryEntries.mockReturnValueOnce([
       {
@@ -722,7 +731,16 @@ describe("searchAnalyticsQueryCatalog", () => {
     ];
     state.readSourceIndex.mockResolvedValueOnce({
       status: "available",
-      bundle: { generatedAt: "2026-10-13T00:00:00.000Z" } as never,
+      bundle: {
+        generatedAt: "2026-10-13T00:00:00.000Z",
+        sources: [
+          {
+            id: "dbt",
+            revision: "abcdef123456",
+            generatedAt: "2026-10-13T00:00:00.000Z",
+          },
+        ],
+      } as never,
     });
     state.sourceIndexDictionaryEntries.mockReturnValueOnce([
       {

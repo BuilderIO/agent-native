@@ -6,6 +6,7 @@ const messages = {
     includeLast: "直前を含める",
     whatIsThis: "これは何ですか？",
     off: "オフ",
+    none: "なし",
     custom: "カスタム…",
     customLabel: "カスタムの長さ",
     customAmount: "長さ",
@@ -17,6 +18,26 @@ const messages = {
     customErrorInvalid: "秒または分の整数で入力してください。",
     customErrorTooLong: "5分以内にしてください。",
     turnOnRewind: "Rewindをオンにする",
+    turnOffRewind: "オフにする",
+    turnOffRewindFailed:
+      "Rewindをオフにできませんでした。録画を停止してからもう一度お試しください。",
+    turnOnRewindFailed:
+      "Rewindをオンにできませんでした。もう一度お試しください。",
+    turnOnRewindPermissionFailed:
+      "システム設定 > プライバシーとセキュリティ > 画面収録とシステムオーディオ収録でClipsの画面収録を許可し、Clipsを再起動してからもう一度お試しください。",
+    turnOnRewindUnsupported: "Rewindの画面収録はmacOSでのみ利用できます。",
+    turnOnRewindNoSpace:
+      "Rewindを開始するためのディスク空き容量が不足しています。空き容量を確保して、もう一度お試しください。",
+    turnOnRewindStopClip:
+      "Rewindをオンにする前に、現在のClipを停止してください。",
+    turnOnRewindStorageFailed:
+      "Rewindの保存領域にアクセスできません。ディスクの空き容量とフォルダのアクセス権を確認して、もう一度お試しください。",
+    rewindConsentTitle: "Rewindをオンにしますか？",
+    rewindConsentBody:
+      "Clipsは画面を継続的に録画し、このデバイスに保存します。エージェントにはテキストの抜粋が提供され、動画は承認した場合にのみ共有されます。",
+    rewindConsentCancel: "今はしない",
+    rewindConsentConfirm: "Rewindをオンにする",
+    rewindConsentBusy: "Rewindをオンにしています…",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
       "初期設定ではオフです。画面履歴はこのデバイスに保存され、録画に含めるか共有リクエストを承認するまで外部に送信されません。",
@@ -2309,9 +2330,15 @@ const messages = {
     issues: "問題",
     consoleSource: "コンソール",
     networkSource: "ネットワーク",
+    appSource: "アプリのアクティビティ",
+    appEvent: "イベント",
+    appData: "データ",
+    appFailureSummary: "アプリの失敗 {{count}} 件",
+    appUnavailable: "アプリのアクティビティを読み込めませんでした。",
     consoleCount: "コンソール {{count}}",
     networkCount: "ネットワーク {{count}}",
     afterRecording: "録画終了後",
+    beforeRecording: "録画開始前",
     seekToTime: "{{time}} に移動",
     occurrences: "発生時刻",
     message: "メッセージ",
@@ -2323,6 +2350,7 @@ const messages = {
     noIssuesTitle: "ブラウザの問題は検出されませんでした",
     noConsoleTitle: "コンソールイベントはありません",
     noNetworkTitle: "ネットワークリクエストはありません",
+    noAppTitle: "アプリのアクティビティはありません",
     capturedDescription: "この録画の診断情報を取得しました。",
   },
   timeline: { clipStartedHere: "クリップはここから開始" },

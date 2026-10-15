@@ -3594,6 +3594,47 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(disposeSession).toHaveBeenCalledOnce();
   });
 
+  it("tells the approval card its server approval id and whether it can persist", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "agent-tool-approval-1",
+        askId: "agent-tool-approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish?",
+        allowPersistentApproval: false,
+      };
+    }
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(approvalEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          tools: { events: true, approvals: true },
+        },
+      }),
+    );
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish")],
+    });
+    const events = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "approval.requested",
+        request: expect.objectContaining({
+          metadata: expect.objectContaining({
+            approvalAskId: "agent-tool-approval-1",
+            allowPersistentApproval: false,
+          }),
+        }),
+      }),
+    );
+  });
+
   it("binds approval decisions to the exact pending request and fails closed", async () => {
     const continueTurn = vi.fn(
       async (input?: {

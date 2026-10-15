@@ -214,7 +214,7 @@ function candidateContent(candidate: AnalyticsQueryCatalogCandidate): string {
           : `Subject scope: ${candidate.semanticScope}.`
         : "",
       candidate.origin === "source-index"
-        ? `Generated source index snapshot: ${candidate.sourceIndexGeneratedAt ?? "unknown time"}; age: ${candidate.sourceIndexAgeDays ?? "unknown"} days; freshness: ${staleSourceIndex ? "stale" : "within refresh window or unreported"}; source revisions: ${candidate.sourceIndexSources ?? "not recorded"}; source path: ${candidate.sourcePath ?? "not recorded"}; entry revision: ${candidate.sourceRevision ?? "not recorded"}. Static metadata is a search aid, not proof of runtime behavior; verify model grain, lineage, and current live schema before SQL.`
+        ? `Source metadata freshness timestamp: ${candidate.sourceIndexGeneratedAt ?? "unknown time"}; age: ${candidate.sourceIndexAgeDays ?? "unknown"} days; freshness: ${staleSourceIndex ? "stale" : "within refresh window or unreported"}; source revisions: ${candidate.sourceIndexSources ?? "not recorded"}; source path: ${candidate.sourcePath ?? "not recorded"}; entry revision: ${candidate.sourceRevision ?? "not recorded"}. Static metadata is a search aid, not proof of runtime behavior; verify model grain, lineage, and current live schema before SQL.`
         : "",
       candidate.source?.toLowerCase().includes("bigquery")
         ? "Source dialect: BigQuery GoogleSQL; use STRING, not TEXT, and avoid ILIKE."

@@ -696,8 +696,18 @@ describe("LayersPanel row hierarchy", () => {
       ":scope > [data-layer-row-indents] > [data-layer-row-indent]",
     );
     expect(
-      Array.from(nestedIndents, (indent) => indent.classList.contains("w-6")),
+      Array.from(nestedIndents, (indent) =>
+        indent.classList.contains("max-w-6"),
+      ),
     ).toEqual([true, true, true]);
+    expect(
+      Array.from(nestedIndents, (indent) =>
+        indent.classList.contains("flex-[1_1_24px]"),
+      ),
+    ).toEqual([true, true, true]);
+    expect(nestedIndents[0]?.classList.contains("min-w-0")).toBe(true);
+    expect(nestedIndents[1]?.classList.contains("min-w-0")).toBe(true);
+    expect(nestedIndents[2]?.classList.contains("min-w-4")).toBe(true);
     expect(
       Array.from(nestedIndents, (indent) =>
         indent.classList.contains("justify-start"),
@@ -706,6 +716,13 @@ describe("LayersPanel row hierarchy", () => {
     expect(rows.every((row) => row.classList.contains("pl-2.5"))).toBe(true);
     expect(
       rows.every((row) => row.classList.contains("[--design-icon-size:16px]")),
+    ).toBe(true);
+    expect(
+      rows.every((row) =>
+        row
+          .querySelector<HTMLElement>("[data-layer-row-button]")
+          ?.classList.contains("min-w-[44px]"),
+      ),
     ).toBe(true);
 
     expect(

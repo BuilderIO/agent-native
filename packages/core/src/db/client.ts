@@ -767,33 +767,7 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
   }
 }
 
-export async function retryOnDdlRace<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (e: any) {
-    if (!isPgCatalogRace(e)) throw e;
-    return await fn();
-  }
-}
-
-function isPgCatalogRace(e: any): boolean {
-  const msg = String(e?.message ?? "");
-  if (e?.code === "42P07") return true;
-  if (e?.code === "42710") {
-    const routine = String(e?.routine ?? "");
-    return routine === "TypeCreate" || /type .* already exists/i.test(msg);
-  }
-  if (e?.code !== "23505") return false;
-  const constraint = String(e?.constraint_name ?? e?.constraint ?? "");
-  const detail = String(e?.detail ?? "");
-  return (
-    constraint.startsWith("pg_type") ||
-    constraint.startsWith("pg_class") ||
-    detail.includes("pg_type") ||
-    detail.includes("pg_class") ||
-    /relation .* already exists/i.test(msg)
-  );
-}
+export { retryOnDdlRace } from "./runtime-facts.js";
 
 export function isUniqueViolation(e: any): boolean {
   if (e?.code === "23505") return true;
@@ -1722,6 +1696,7 @@ function disposePostgresPoolEventually(
 }
 
 let _exec: DbExec | undefined;
+let _proxy: DbExec | undefined;
 let _initPromise: Promise<void> | undefined;
 let _dbExecGeneration = 0;
 let _dbExecClosePromise: Promise<void> | undefined;
@@ -2347,7 +2322,8 @@ export function getScopedDbExec(): DbExec | undefined {
 export function getDbExec(): DbExec {
   const scoped = scopedDbExec.getStore();
   if (scoped) return scoped;
-  if (_exec) return _exec;
+  // Never hand out the raw `_exec`: it bypasses the schema-mutation guard.
+  if (_proxy) return _proxy;
 
   function sanitize(
     sql: string | { sql: string; args?: unknown[] },
@@ -2456,6 +2432,9 @@ export function getDbExec(): DbExec {
       }
       const exec = await initializeProxy();
       if (!exec.atomicBatch) {
+        // The proxy is shared: record the missing capability so later feature
+        // detection takes the caller's fallback instead of this throw.
+        Object.assign(proxy, createInitializedProxy(exec));
         throw new Error("This database does not support atomic batches.");
       }
       const batch = async (items: typeof statements) => {
@@ -2472,6 +2451,7 @@ export function getDbExec(): DbExec {
       return batch(statements);
     },
   };
+  _proxy = proxy;
   return proxy;
 }
 
@@ -2483,6 +2463,7 @@ export async function closeDbExec(): Promise<void> {
   notifyDbClientsClosing();
   _exec = undefined;
   _initPromise = undefined;
+  _proxy = undefined;
   const closePromise = (async () => {
     await closeSharedDbPools();
     await closePgliteClients();

@@ -29,6 +29,7 @@ use crate::util::{
 };
 
 const COUNTDOWN_LABEL: &str = "countdown";
+static COUNTDOWN_SHOW_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 const TOOLBAR_LABEL: &str = "toolbar";
 static TOOLBAR_TOPMOST_GENERATION: AtomicU64 = AtomicU64::new(0);
 const COUNTDOWN_CONTROL_OFFSET_X: f64 = 200.0;
@@ -70,6 +71,14 @@ const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 const POPOVER_MIN_HEIGHT_LOGICAL: f64 = 260.0;
 const POPOVER_SCREEN_MARGIN_LOGICAL: f64 = 16.0;
 const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
+
+async fn with_countdown_show_lock<T>(operation: impl std::future::Future<Output = T>) -> T {
+    let _show_guard = COUNTDOWN_SHOW_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
+    operation.await
+}
 
 #[cfg(target_os = "macos")]
 #[link(name = "AppKit", kind = "framework")]
@@ -608,56 +617,103 @@ fn load_bubble_position(app: &AppHandle) -> Option<BubblePositionPreference> {
 }
 
 #[tauri::command]
-pub async fn show_countdown(app: AppHandle) -> Result<u64, String> {
+pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, String> {
     dlog!("[clips-tray] show_countdown invoked");
-    mark_popover_shown(&app);
-    if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
-        stop_countdown_control_tracking();
-        let _ = existing.close();
+    if attempt_id.len() != 36
+        || !attempt_id
+            .chars()
+            .all(|character| character.is_ascii_hexdigit() || character == '-')
+    {
+        return Err("Invalid countdown attempt ID.".to_string());
     }
-    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
-    dlog!(
-        "[clips-tray] countdown target {}x{} at ({},{}) physical",
-        mw,
-        mh,
-        mx,
-        my
-    );
-    let win = WebviewWindowBuilder::new(&app, COUNTDOWN_LABEL, build_overlay_url("countdown"))
-        .title("Countdown")
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .shadow(false)
-        .visible(false)
-        .focused(true)
-        .build()
-        .map_err(|e| {
-            eprintln!("[clips-tray] countdown build failed: {}", e);
-            e.to_string()
-        })?;
-    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
-    let _ = win.set_position(PhysicalPosition::new(mx, my));
-    let _ = win.set_ignore_cursor_events(true);
-    set_capture_excluded(&win);
-    configure_overlay_behavior(&win);
-    let generation = match crate::shortcuts::prepare_countdown_shortcuts(app.clone()).await {
-        Ok(generation) => generation,
-        Err(error) => {
-            let _ = win.close();
-            return Err(error);
+    // Keep the shared window label and shortcut generation on the same attempt.
+    with_countdown_show_lock(async move {
+        mark_popover_shown(&app);
+        // Retire the previous generation before reusing the countdown window label.
+        crate::shortcuts::retire_countdown_shortcuts(app.clone()).await?;
+        if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
+            stop_countdown_control_tracking();
+            let _ = existing.close();
         }
-    };
-    present_interactive_window(&win);
-    start_countdown_control_tracking(&app);
-    dlog!("[clips-tray] countdown shown");
-    Ok(generation)
+        let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+        dlog!(
+            "[clips-tray] countdown target {}x{} at ({},{}) physical",
+            mw,
+            mh,
+            mx,
+            my
+        );
+        let countdown_route = format!("countdown/{attempt_id}");
+        let win =
+            WebviewWindowBuilder::new(&app, COUNTDOWN_LABEL, build_overlay_url(&countdown_route))
+                .title("Countdown")
+                .decorations(false)
+                .transparent(true)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .shadow(false)
+                .visible(false)
+                .focused(true)
+                .build()
+                .map_err(|e| {
+                    eprintln!("[clips-tray] countdown build failed: {}", e);
+                    e.to_string()
+                })?;
+        let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+        let _ = win.set_position(PhysicalPosition::new(mx, my));
+        let _ = win.set_ignore_cursor_events(true);
+        set_capture_excluded(&win);
+        configure_overlay_behavior(&win);
+        let generation =
+            match crate::shortcuts::prepare_countdown_shortcuts(app.clone(), attempt_id).await {
+                Ok(generation) => generation,
+                Err(error) => {
+                    let _ = win.close();
+                    return Err(error);
+                }
+            };
+        present_interactive_window(&win);
+        start_countdown_control_tracking(&app);
+        dlog!("[clips-tray] countdown shown");
+        Ok(generation)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn finish_countdown_shortcuts(app: AppHandle, generation: u64) -> Result<(), String> {
     crate::shortcuts::finish_countdown_shortcuts(app, generation).await
+}
+
+#[tauri::command]
+pub async fn dismiss_countdown_for_generation(
+    app: AppHandle,
+    generation: u64,
+) -> Result<(), String> {
+    with_countdown_show_lock(async move {
+        if crate::shortcuts::is_active_countdown_generation(generation) {
+            stop_countdown_control_tracking();
+            let close_result = match app.get_webview_window(COUNTDOWN_LABEL) {
+                Some(countdown) => countdown
+                    .close()
+                    .map_err(|error| format!("Failed to close countdown window: {error}")),
+                None => Ok(()),
+            };
+            let shortcuts_result =
+                crate::shortcuts::finish_countdown_shortcuts(app, generation).await;
+            match (close_result, shortcuts_result) {
+                (Ok(()), Ok(())) => Ok(()),
+                (Err(close_error), Ok(())) => Err(close_error),
+                (Ok(()), Err(shortcuts_error)) => Err(shortcuts_error),
+                (Err(close_error), Err(shortcuts_error)) => Err(format!(
+                    "{close_error}; shortcut cleanup also failed: {shortcuts_error}"
+                )),
+            }
+        } else {
+            Ok(())
+        }
+    })
+    .await
 }
 
 fn cursor_over_countdown_control(window: &WebviewWindow) -> bool {
@@ -3532,4 +3588,62 @@ pub fn position_popover_with_size(
         .clamp(min_x, max_x.max(min_x));
     let y = (mon_pos.y + margin_top).clamp(min_y, max_y.max(min_y));
     let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
+#[cfg(test)]
+mod countdown_show_tests {
+    use super::with_countdown_show_lock;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use tokio::sync::oneshot;
+
+    #[tokio::test]
+    async fn serializes_setup_through_presentation() {
+        let phase = Arc::new(AtomicUsize::new(0));
+        let first_phase = Arc::clone(&phase);
+        let (first_started_tx, first_started_rx) = oneshot::channel();
+        let (present_first_tx, present_first_rx) = oneshot::channel();
+        let first = tokio::spawn(with_countdown_show_lock(async move {
+            first_phase.store(1, Ordering::SeqCst);
+            first_started_tx.send(()).unwrap();
+            present_first_rx.await.unwrap();
+            first_phase.store(2, Ordering::SeqCst);
+        }));
+        first_started_rx.await.unwrap();
+
+        let second_phase = Arc::clone(&phase);
+        let (second_waiting_tx, second_waiting_rx) = oneshot::channel();
+        let (second_started_tx, mut second_started_rx) = oneshot::channel();
+        let second = tokio::spawn(async move {
+            second_waiting_tx.send(()).unwrap();
+            with_countdown_show_lock(async move {
+                second_started_tx
+                    .send(second_phase.load(Ordering::SeqCst))
+                    .unwrap();
+            })
+            .await;
+        });
+        second_waiting_rx.await.unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), &mut second_started_rx)
+                .await
+                .is_err()
+        );
+
+        present_first_tx.send(()).unwrap();
+        first.await.unwrap();
+        assert_eq!(second_started_rx.await.unwrap(), 2);
+        second.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn releases_lock_when_setup_fails() {
+        let failed = with_countdown_show_lock(async { Err::<(), _>("build failed") }).await;
+        assert_eq!(failed, Err("build failed"));
+
+        let succeeded = with_countdown_show_lock(async { Ok::<(), &str>(()) }).await;
+        assert_eq!(succeeded, Ok(()));
+    }
 }

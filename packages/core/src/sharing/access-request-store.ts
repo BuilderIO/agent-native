@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import type { ShareRole } from "./schema.js";
 
 /**
@@ -38,14 +38,15 @@ export interface AccessRequestRow {
 
 const TABLE = "resource_access_requests";
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      await ensureTableExists(
-        TABLE,
-        `CREATE TABLE IF NOT EXISTS ${TABLE} (
+export const resourceAccessRequestsStore = defineStore({
+  id: "resource_access_requests",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(
+          TABLE,
+          `CREATE TABLE IF NOT EXISTS ${TABLE} (
           id TEXT PRIMARY KEY,
           resource_type TEXT NOT NULL,
           resource_id TEXT NOT NULL,
@@ -62,26 +63,26 @@ export async function ensureTable(): Promise<void> {
           granted_role TEXT,
           delivery TEXT
         )`,
-      );
-      await ensureIndexExists(
-        "idx_resource_access_requests_requester",
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_resource_access_requests_requester ON ${TABLE} (resource_type, resource_id, requester_email)`,
-      );
-      await ensureIndexExists(
-        "idx_resource_access_requests_requester_recent",
-        `CREATE INDEX IF NOT EXISTS idx_resource_access_requests_requester_recent ON ${TABLE} (requester_email, requested_at)`,
-      );
-      await ensureIndexExists(
-        "idx_resource_access_requests_owner_recent",
-        `CREATE INDEX IF NOT EXISTS idx_resource_access_requests_owner_recent ON ${TABLE} (owner_email, requested_at)`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+        );
+        await ensureIndexExists(
+          "idx_resource_access_requests_requester",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_resource_access_requests_requester ON ${TABLE} (resource_type, resource_id, requester_email)`,
+        );
+        await ensureIndexExists(
+          "idx_resource_access_requests_requester_recent",
+          `CREATE INDEX IF NOT EXISTS idx_resource_access_requests_requester_recent ON ${TABLE} (requester_email, requested_at)`,
+        );
+        await ensureIndexExists(
+          "idx_resource_access_requests_owner_recent",
+          `CREATE INDEX IF NOT EXISTS idx_resource_access_requests_owner_recent ON ${TABLE} (owner_email, requested_at)`,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return resourceAccessRequestsStore.ready();
 }
 
 function optionalString(value: unknown): string | null {

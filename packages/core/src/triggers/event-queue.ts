@@ -1,3 +1,4 @@
+// guard:allow-unreleased-schema — owned by the versioned AUTOMATION_TRIGGER_EVENT_MIGRATIONS list in release-migrations.ts until Phase 2 folds versioned lists into stores
 import { randomUUID } from "node:crypto";
 
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
