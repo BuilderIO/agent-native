@@ -1,6 +1,6 @@
 import { type BrowserContext, type Locator, type Page } from "@playwright/test";
 
-import { appPath, designFrame } from "./helpers";
+import { appPath, designFrame, panTargetIntoUnobscuredCanvas } from "./helpers";
 import {
   childrenOf,
   expect,
@@ -1083,6 +1083,153 @@ test.describe("canvas chords", () => {
           .evaluate((element) => (element as HTMLElement).style.margin),
       ).toBe(margin);
     }
+  });
+
+  test("Keyboard paste and replacement measure the active breakpoint preview", async ({
+    app,
+    context,
+  }) => {
+    const id = await app.seed(
+      '<!doctype html><html><head><style>[data-agent-native-node-id="breakpoint-target"]{position:absolute;left:160px;top:200px;width:20px;height:20px}@media(max-width:480px){[data-agent-native-node-id="breakpoint-target"]{left:40px;top:80px}}</style></head><body style="margin:0;position:relative;height:800px"><div data-agent-native-node-id="breakpoint-target" data-agent-native-layer-name="Breakpoint target"></div></body></html>',
+    );
+    const fileId = (await app.savedRecord(id)).files.find(
+      (file) => file.filename === "index.html",
+    )!.id;
+    const configured = await app.page.request.post(
+      appPath("/_agent-native/actions/update-design"),
+      {
+        data: {
+          id,
+          dataOperations: [
+            {
+              op: "set",
+              path: ["breakpointSet"],
+              value: {
+                id: "clipboard-breakpoints",
+                breakpoints: [
+                  {
+                    id: "narrow",
+                    label: "Narrow",
+                    widthPx: 480,
+                    prefix: "base",
+                  },
+                ],
+              },
+            },
+            {
+              op: "set",
+              path: ["screenMetadata", fileId],
+              value: { sourceType: "inline", width: 1280, height: 800 },
+            },
+            {
+              op: "set",
+              path: ["canvasFrames", fileId],
+              value: { x: 0, y: 0, width: 1280, height: 800, z: 0 },
+            },
+          ],
+        },
+      },
+    );
+    expect(configured.ok()).toBe(true);
+    await app.page.setViewportSize({ width: 2200, height: 1000 });
+    await app.open(id);
+    const zoom = app.page.getByRole("button", { name: /^\d+%$/ }).first();
+    await zoom.click();
+    await app.page.getByRole("menuitem", { name: "Zoom to 50%" }).click();
+    await expect(zoom).toHaveText("50%");
+    const preview = app.page.locator(
+      `iframe[data-screen-iframe-id="${fileId}::bp-480"]`,
+    );
+    await expect(preview).toBeVisible();
+    const breakpointTitle = app.page
+      .locator("[data-breakpoint-frame]")
+      .filter({ has: preview })
+      .locator("[data-frame-title]");
+    await panTargetIntoUnobscuredCanvas(
+      app.page,
+      breakpointTitle,
+      "breakpoint title",
+    );
+    await breakpointTitle.click();
+    await expect(
+      app.page.getByRole("combobox", { name: "Responsive edit scope" }),
+    ).toBeVisible();
+    await panTargetIntoUnobscuredCanvas(
+      app.page,
+      breakpointTitle,
+      "active breakpoint title",
+    );
+    await breakpointTitle.click({ modifiers: ["Shift"] });
+    await expect.poll(() => app.selectedLayers()).toEqual([]);
+    await expect
+      .poll(async () => {
+        const response = await app.page.request.get(
+          appPath(
+            `/_agent-native/application-state/design-active-breakpoint:${id}`,
+          ),
+        );
+        expect(response.ok()).toBe(true);
+        const state = (await response.json()) as {
+          activeBreakpointId?: string;
+        } | null;
+        return state?.activeBreakpointId;
+      })
+      .toBe("narrow");
+    await writeLegacyMarginClipboard(app, context, fileId, ["10%"]);
+    await pressEditorKey(app.page, "ControlOrMeta+V");
+    await expect
+      .poll(
+        async () =>
+          [...(await app.savedNodes(id)).values()].filter(
+            (node) =>
+              node.attrs["data-agent-native-layer-name"] === "Legacy margin 0",
+          ).length,
+      )
+      .toBe(1);
+    await app.settled();
+    const before = await app.savedNodes(id);
+    const copy = [...before.values()].find(
+      (node) =>
+        node.attrs["data-agent-native-layer-name"] === "Legacy margin 0",
+    )!;
+    const geometry = async (nodeId: string) =>
+      preview
+        .contentFrame()
+        .locator(`[data-agent-native-node-id="${nodeId}"]`)
+        .evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            margin: (element as HTMLElement).style.margin,
+          };
+        });
+    expect(await geometry(copy.id)).toEqual({ x: 24, y: 24, margin: "10%" });
+    await selectLayerRow(app.page, "Legacy margin 0");
+    await pressEditorKey(app.page, "ControlOrMeta+C");
+    await selectLayerRow(app.page, "Breakpoint target");
+    expect(await geometry("breakpoint-target")).toEqual({
+      x: 40,
+      y: 80,
+      margin: "",
+    });
+    await pressEditorKey(app.page, "ControlOrMeta+Shift+R");
+    await expect
+      .poll(async () => (await app.savedNodes(id)).has("breakpoint-target"))
+      .toBe(false);
+    await app.settled();
+    const after = await app.savedNodes(id);
+    const replacement = newNodes(before, after);
+    expect(replacement).toHaveLength(1);
+    expect(replacement[0]!.parent).toBe(
+      before.get("breakpoint-target")!.parent,
+    );
+    expect(await geometry(replacement[0]!.id)).toEqual({
+      x: 40,
+      y: 80,
+      margin: "10%",
+    });
+    expect(after.get(copy.id)).toEqual(copy);
   });
 
   test("Keyboard paste and replacement preserve board-layer geometry", async ({

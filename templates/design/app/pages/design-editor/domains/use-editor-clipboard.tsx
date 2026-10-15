@@ -259,6 +259,9 @@ export function useEditorClipboard({
         canvasContainerRef.current,
         activeFile.id,
         boardFileId,
+        viewModeRef.current === "overview"
+          ? activeBreakpointWidthStateRef.current
+          : undefined,
       );
       if (!frame) return null;
       const measured = withMeasuredGeometry(
@@ -268,7 +271,14 @@ export function useEditorClipboard({
       );
       return measured.absoluteSiblingVisualOrigin ? measured : null;
     },
-    [activeFile, boardFileId, canvasContainerRef, getFreshActiveContent],
+    [
+      activeFile,
+      activeBreakpointWidthStateRef,
+      boardFileId,
+      canvasContainerRef,
+      getFreshActiveContent,
+      viewModeRef,
+    ],
   );
   const getPreparedCloneVisualOffset = useCallback(
     (
@@ -288,6 +298,9 @@ export function useEditorClipboard({
         canvasContainerRef.current,
         targetFileId,
         boardFileId,
+        viewModeRef.current === "overview"
+          ? activeBreakpointWidthStateRef.current
+          : undefined,
       );
       if (!frame) return undefined;
       let view: Window | null;
@@ -325,7 +338,13 @@ export function useEditorClipboard({
         return null;
       }
     },
-    [activeFile?.id, boardFileId, canvasContainerRef],
+    [
+      activeFile?.id,
+      activeBreakpointWidthStateRef,
+      boardFileId,
+      canvasContainerRef,
+      viewModeRef,
+    ],
   );
 
   const getPreparedPasteVisualOffset = useCallback<

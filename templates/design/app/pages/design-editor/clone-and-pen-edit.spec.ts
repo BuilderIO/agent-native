@@ -119,6 +119,45 @@ describe("extractLayerPosition", () => {
     );
   });
 
+  it("clears an authored inset before positioning a clone", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div style="position:absolute;inset:10px 20px 30px 40px;width:100px;height:50px">Source</div>',
+      ],
+      { positions: [{ x: 50, y: 60 }] },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+    expect(clone.style.getPropertyValue("inset")).toBe("");
+    expect([clone.style.position, clone.style.left, clone.style.top]).toEqual([
+      "absolute",
+      "50px",
+      "60px",
+    ]);
+    expect([clone.style.right, clone.style.bottom]).toEqual(["", ""]);
+  });
+
+  it("clears an authored inset when stripping root placement", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div style="position:absolute;inset:10px 20px 30px 40px;width:100px;height:50px">Source</div>',
+      ],
+      { stripRootPosition: true },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+    expect([
+      clone.style.position,
+      clone.style.getPropertyValue("inset"),
+      clone.style.left,
+      clone.style.top,
+      clone.style.right,
+      clone.style.bottom,
+    ]).toEqual(["", "", "", "", "", ""]);
+  });
+
   it("preserves live node identity when preparing a move", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,

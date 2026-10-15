@@ -73,6 +73,7 @@ export function findCanvasIframeForScreen(
   root: HTMLElement | null,
   iframeId: string,
   boardFileId?: string,
+  breakpointWidth?: number,
 ): HTMLIFrameElement | null {
   if (!root) return null;
   if (boardFileId && iframeId === boardFileId) {
@@ -80,7 +81,11 @@ export function findCanvasIframeForScreen(
       "[data-board-surface-layer] iframe[data-design-preview-iframe]",
     );
   }
+  const targetIframeId =
+    breakpointWidth === undefined
+      ? iframeId
+      : getBreakpointIframeId(iframeId, breakpointWidth);
   return root.querySelector<HTMLIFrameElement>(
-    `[data-screen-iframe-id="${CSS.escape(iframeId)}"]`,
+    `[data-screen-iframe-id="${CSS.escape(targetIframeId)}"]`,
   );
 }

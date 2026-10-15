@@ -529,6 +529,37 @@ export function updateExplicitOverviewScreenSelection(args: {
   return explicit;
 }
 
+export function reconcileSelectedLayerIdsForOverviewScreens(args: {
+  selectedLayerIds: readonly string[];
+  screenFileIds: ReadonlySet<string>;
+  selectedScreenIds: readonly string[];
+}): string[] {
+  const selectedScreens = new Set(args.selectedScreenIds);
+  return args.selectedLayerIds.filter(
+    (id) => !args.screenFileIds.has(id) || selectedScreens.has(id),
+  );
+}
+
+export function shouldResetBreakpointAfterOverviewSelectionClear(args: {
+  selectedScreenIds: readonly string[];
+  previousSelectedScreenIds: readonly string[];
+  viewMode: "single" | "overview";
+  activeBreakpointWidth: number | undefined;
+  intent: ElementSelectionIntent | undefined;
+}): boolean {
+  return (
+    args.selectedScreenIds.length === 0 &&
+    args.previousSelectedScreenIds.length > 0 &&
+    args.viewMode === "overview" &&
+    args.activeBreakpointWidth !== undefined &&
+    args.intent?.source === "marquee" &&
+    args.intent.final === true &&
+    args.intent.additive !== true &&
+    args.intent.cancelled !== true &&
+    args.intent.screenSelectionToggle === undefined
+  );
+}
+
 export function applyExplicitOverviewScreenSelectionToggle(args: {
   currentExplicitScreenIds: readonly string[];
   screenId: string;

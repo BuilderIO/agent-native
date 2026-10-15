@@ -95,7 +95,7 @@ function recordPastedClipboardLayerSources(
   ref: RefObject<Map<string, PastedClipboardLayerSource>> | undefined,
   targetFileId: string,
   generatedRootNodeIds: string[],
-  entries: ReadonlyArray<CanvasLayerClipboardEntry>,
+  entries: readonly CanvasLayerClipboardEntry[],
 ) {
   if (!ref) return;
   generatedRootNodeIds.forEach((generatedRootNodeId, index) => {
@@ -106,6 +106,107 @@ function recordPastedClipboardLayerSources(
       { sourceFileId: entry.sourceFileId, rootNodeId: entry.rootNodeId },
     );
   });
+}
+
+interface SelectedPastedClipboardLayer {
+  entryIndex: number;
+}
+
+function directlyCopiedClipboardLayer(
+  entries: readonly CanvasLayerClipboardEntry[],
+  targetFileId: string,
+  selectedNodeId: string | null | undefined,
+) {
+  return Boolean(
+    selectedNodeId &&
+    entries.every((entry) => entry.sourceFileId === targetFileId) &&
+    entries.some(
+      (entry) =>
+        entry.sourceFileId === targetFileId &&
+        entry.rootNodeId === selectedNodeId,
+    ),
+  );
+}
+
+function selectedPastedClipboardLayer(
+  entries: readonly CanvasLayerClipboardEntry[],
+  targetFileId: string,
+  selectedTargetNodeIds: (string | null | undefined)[],
+  pastedClipboardLayerSourcesRef:
+    | RefObject<Map<string, PastedClipboardLayerSource>>
+    | undefined,
+): SelectedPastedClipboardLayer | undefined {
+  if (!pastedClipboardLayerSourcesRef) return undefined;
+  for (const nodeId of selectedTargetNodeIds) {
+    if (!nodeId) continue;
+    const source = pastedClipboardLayerSourcesRef.current.get(
+      pastedClipboardLayerSourceKey(targetFileId, nodeId),
+    );
+    if (!source) continue;
+    const entryIndex = entries.findIndex(
+      (entry) =>
+        entry.sourceFileId === source.sourceFileId &&
+        entry.rootNodeId === source.rootNodeId,
+    );
+    if (entryIndex >= 0) return { entryIndex };
+  }
+  return undefined;
+}
+
+function isPixelPosition(
+  left: string | undefined,
+  top: string | undefined,
+): { x: number; y: number } | null {
+  const parse = (value: string | undefined) => {
+    const match = value?.trim().match(/^(-?(?:\d+\.?\d*|\.\d+))px$/i);
+    if (!match) return null;
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const x = parse(left);
+  const y = parse(top);
+  return x === null || y === null ? null : { x, y };
+}
+
+function positionsFromSelectedClipboardClone(
+  sourcePositions: Array<{ x: number; y: number } | null>,
+  selectedEntryIndex: number,
+  selectedClonePosition: { x: number; y: number } | null,
+): CloneLayerPosition[] | null | undefined {
+  if (selectedEntryIndex < 0 || selectedEntryIndex >= sourcePositions.length) {
+    return null;
+  }
+  if (sourcePositions.every((source) => source === null)) {
+    if (!selectedClonePosition) return undefined;
+    if (
+      !Number.isFinite(selectedClonePosition.x) ||
+      !Number.isFinite(selectedClonePosition.y)
+    ) {
+      return null;
+    }
+    return sourcePositions.map((_, index) => ({
+      x: selectedClonePosition.x + (index - selectedEntryIndex + 1) * 16,
+      y: selectedClonePosition.y + (index - selectedEntryIndex + 1) * 16,
+      space: "layout",
+    }));
+  }
+  const selectedSourcePosition = sourcePositions[selectedEntryIndex];
+  if (
+    !selectedSourcePosition ||
+    !selectedClonePosition ||
+    !Number.isFinite(selectedClonePosition.x) ||
+    !Number.isFinite(selectedClonePosition.y) ||
+    sourcePositions.some((source) => !source)
+  ) {
+    return null;
+  }
+  const offsetX = selectedClonePosition.x - selectedSourcePosition.x + 16;
+  const offsetY = selectedClonePosition.y - selectedSourcePosition.y + 16;
+  return sourcePositions.map((source) => ({
+    x: source!.x + offsetX,
+    y: source!.y + offsetY,
+    space: "layout",
+  }));
 }
 
 function withPreparedVisualOffsets(
@@ -156,47 +257,6 @@ function withPreparedVisualOffsets(
   return invalidMeasurement ? null : measuredPositions;
 }
 
-function isSelectedClipboardLayer(
-  entries: ReadonlyArray<CanvasLayerClipboardEntry>,
-  targetFileId: string,
-  selectedNodeId: string | null | undefined,
-  pastedClipboardLayerSourcesRef:
-    | RefObject<Map<string, PastedClipboardLayerSource>>
-    | undefined,
-  selectedTargetNodeIds: Array<string | null | undefined>,
-) {
-  const clipboardComesFromTarget = entries.every(
-    (entry) => entry.sourceFileId === targetFileId,
-  );
-  const directlyCopiedLayer = Boolean(
-    selectedNodeId &&
-    clipboardComesFromTarget &&
-    entries.some(
-      (entry) =>
-        entry.sourceFileId === targetFileId &&
-        entry.rootNodeId === selectedNodeId,
-    ),
-  );
-  const copiedCloneLayer = Boolean(
-    pastedClipboardLayerSourcesRef &&
-    selectedTargetNodeIds.some((nodeId) => {
-      if (!nodeId) return false;
-      const pastedSource = pastedClipboardLayerSourcesRef.current.get(
-        pastedClipboardLayerSourceKey(targetFileId, nodeId),
-      );
-      return Boolean(
-        pastedSource &&
-        entries.some(
-          (entry) =>
-            entry.sourceFileId === pastedSource.sourceFileId &&
-            entry.rootNodeId === pastedSource.rootNodeId,
-        ),
-      );
-    }),
-  );
-  return directlyCopiedLayer || copiedCloneLayer;
-}
-
 function nodeIdSelector(nodeId: string) {
   const escaped =
     typeof CSS !== "undefined" && typeof CSS.escape === "function"
@@ -221,7 +281,7 @@ function positionsFromSource(
 }
 
 function commonClipboardSourceParentNodeId(
-  entries: ReadonlyArray<CanvasLayerClipboardEntry>,
+  entries: readonly CanvasLayerClipboardEntry[],
   targetFileId: string,
 ) {
   const sourceParentNodeId = entries[0]?.sourceParentNodeId;
@@ -580,17 +640,40 @@ export async function runPasteSelection(
         }
       : { x: 120, y: 120 };
     const cascadeOffset = pasteCascadeRef.current * 16;
-    const selectedSourcePositions =
-      selectedAnchor &&
-      isSelectedClipboardLayer(
-        entries,
-        targetFileId,
-        selectedAnchor.sourceId,
-        pastedClipboardLayerSourcesRef,
-        [selectedAnchor.sourceId],
-      )
+    const selectedPastedLayer = selectedAnchor
+      ? selectedPastedClipboardLayer(
+          entries,
+          targetFileId,
+          [selectedAnchor.sourceId],
+          pastedClipboardLayerSourcesRef,
+        )
+      : undefined;
+    const selectedClonePosition = selectedPastedLayer
+      ? isPixelPosition(
+          selectedElement?.inlineStyles?.left,
+          selectedElement?.inlineStyles?.top,
+        )
+      : null;
+    const selectedSourcePositions = selectedPastedLayer
+      ? positionsFromSelectedClipboardClone(
+          sourcePositions,
+          selectedPastedLayer.entryIndex,
+          selectedClonePosition,
+        )
+      : selectedAnchor &&
+          directlyCopiedClipboardLayer(
+            entries,
+            targetFileId,
+            selectedAnchor.sourceId,
+          )
         ? positionsFromSource(sourcePositions, cascadeOffset)
         : undefined;
+    if (selectedSourcePositions === null) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
     const positions = selectedAnchor
       ? selectedSourcePositions
       : entries.map((_, index) => {
@@ -834,13 +917,19 @@ export async function runPasteSelection(
       selectedElement.id,
       selectedNode?.id,
     ];
-    const selectedClipboardRoot = isSelectedClipboardLayer(
+    const directlySelectedClipboardRoot = directlyCopiedClipboardLayer(
       entries,
       targetFileId,
       selectedNodeId,
-      pastedClipboardLayerSourcesRef,
-      selectedTargetNodeIds,
     );
+    const selectedPastedLayer = selectedPastedClipboardLayer(
+      entries,
+      targetFileId,
+      selectedTargetNodeIds,
+      pastedClipboardLayerSourcesRef,
+    );
+    const selectedClipboardRoot =
+      directlySelectedClipboardRoot || Boolean(selectedPastedLayer);
     const placement = selectedClipboardRoot
       ? "after"
       : (decision?.placement ?? "after");
@@ -852,11 +941,26 @@ export async function runPasteSelection(
       !selectedNode.layout.isFlexContainer &&
       !selectedNode.layout.isGridContainer;
     const cascadeOffset = pasteCascadeRef.current * 16;
+    const selectedClonePosition =
+      selectedPastedLayer && selectedNode?.source
+        ? extractLayerPosition(
+            baseContent.slice(
+              selectedNode.source.start,
+              selectedNode.source.end,
+            ),
+          )
+        : null;
     const selectedSourcePositions = selectedClipboardRoot
-      ? positionsFromSource(
-          entries.map((entry) => extractLayerPosition(entry.html)),
-          cascadeOffset,
-        )
+      ? selectedPastedLayer
+        ? positionsFromSelectedClipboardClone(
+            entries.map((entry) => extractLayerPosition(entry.html)),
+            selectedPastedLayer.entryIndex,
+            selectedClonePosition,
+          )
+        : positionsFromSource(
+            entries.map((entry) => extractLayerPosition(entry.html)),
+            cascadeOffset,
+          )
       : insideFreeContainer
         ? entries.map((entry, index) => {
             const source = extractLayerPosition(entry.html);
@@ -867,6 +971,12 @@ export async function runPasteSelection(
             };
           })
         : undefined;
+    if (selectedSourcePositions === null) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
     const cloneOptions = {
       onUnsupportedStructure,
       targetSelectors: [selector],

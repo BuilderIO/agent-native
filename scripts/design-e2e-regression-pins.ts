@@ -494,6 +494,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     file: "canvas-chords.spec.ts",
     title: "Keyboard paste and replacement preserve board-layer geometry",
   },
+  {
+    shard: "inspector-3b",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard paste and replacement measure the active breakpoint preview",
+  },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 
 function escapeRegExp(value: string): string {

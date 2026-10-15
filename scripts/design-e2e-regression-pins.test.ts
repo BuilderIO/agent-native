@@ -24,6 +24,12 @@ import {
 
 const REQUIRED_CORE_COVERAGE = [
   {
+    shard: "inspector-3b",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard paste and replacement measure the active breakpoint preview",
+  },
+  {
     shard: "position-1b",
     file: "select-layer-context-menu.spec.ts",
     title:
@@ -282,7 +288,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 82);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 83);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,

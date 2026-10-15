@@ -15097,7 +15097,6 @@ function GroupSelectionBox({
       chromeSettling={chromeSettling}
       showRotate={!!onStartRotate}
       handlesEnabled={handlesEnabled}
-      filled
       onStartDrag={onStartDrag}
       onStartResize={onStartResize}
       onStartRotate={onStartRotate ?? (() => {})}

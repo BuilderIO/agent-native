@@ -126,3 +126,34 @@ describe("shouldRenderBoardSelectionBox", () => {
     ).toBe(false);
   });
 });
+
+describe("findCanvasIframeForScreen breakpoint measurement", () => {
+  it("uses the active breakpoint preview instead of the primary layout", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<iframe data-screen-iframe-id="screen-a"></iframe><iframe data-screen-iframe-id="screen-a::bp-480"></iframe>';
+    const breakpoint = root.querySelector<HTMLIFrameElement>(
+      '[data-screen-iframe-id="screen-a::bp-480"]',
+    );
+    expect(findCanvasIframeForScreen(root, "screen-a", undefined, 480)).toBe(
+      breakpoint,
+    );
+  });
+
+  it("does not measure the primary layout when the selected breakpoint is absent", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<iframe data-screen-iframe-id="screen-a"></iframe>';
+    expect(
+      findCanvasIframeForScreen(root, "screen-a", undefined, 480),
+    ).toBeNull();
+  });
+
+  it("keeps board geometry in its board preview when a breakpoint is selected", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      "<div data-board-surface-layer><iframe data-design-preview-iframe></iframe></div>";
+    expect(findCanvasIframeForScreen(root, "board-a", "board-a", 480)).toBe(
+      root.querySelector("iframe"),
+    );
+  });
+});

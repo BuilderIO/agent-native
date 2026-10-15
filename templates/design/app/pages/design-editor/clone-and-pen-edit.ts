@@ -599,6 +599,7 @@ export function cloneHtmlLayerAtPosition(
 function clearRootLayerPosition(element: Element) {
   const host = styleHost(element);
   if (!host) return;
+  host.style.removeProperty("inset");
   host.style.position = "";
   host.style.left = "";
   host.style.top = "";
@@ -753,6 +754,7 @@ function setRootLayerPosition(
   if (!offset || !Number.isFinite(offset.x) || !Number.isFinite(offset.y)) {
     return false;
   }
+  host.style.removeProperty("inset");
   host.style.position = "absolute";
   const measuredVisualOffset =
     position.space === "visual" && position.visualOffset !== undefined;

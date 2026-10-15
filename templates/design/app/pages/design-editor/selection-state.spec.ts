@@ -9,6 +9,7 @@ import {
   elementInfoForSelectionSnapshot,
   getOverviewScreenContentKey,
   explicitOverviewScreenSelectionForHistory,
+  reconcileSelectedLayerIdsForOverviewScreens,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
   isUserOriginatedSelectionIntent,
@@ -23,6 +24,7 @@ import {
   shouldClearSelectionForReviewThreadTarget,
   shouldDisableExportsUntilCanvasFramesExist,
   shouldEscapeToOverview,
+  shouldResetBreakpointAfterOverviewSelectionClear,
   updateExplicitOverviewScreenSelection,
 } from "./selection-state";
 
@@ -439,6 +441,95 @@ describe("pendingEditTargetsSelectedElement", () => {
         editSelector: ".card",
         selectedSourceId: null,
         selectedSelector: null,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("reconcileSelectedLayerIdsForOverviewScreens", () => {
+  it("removes deselected file IDs but keeps selected screens and owner-derived layers", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: ["home", "about", "layer:hero", "layer:card"],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: ["about"],
+      }),
+    ).toEqual(["about", "layer:hero", "layer:card"]);
+  });
+
+  it("clears stale file IDs when the accepted canvas selection is empty", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: ["home", "about", "layer:hero"],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: [],
+      }),
+    ).toEqual(["layer:hero"]);
+  });
+});
+
+describe("shouldResetBreakpointAfterOverviewSelectionClear", () => {
+  const base = {
+    activeBreakpointWidth: 480,
+    previousSelectedScreenIds: ["screen-a"],
+    selectedScreenIds: [],
+    viewMode: "overview" as const,
+  };
+
+  it("resets after a completed empty-canvas marquee", () => {
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: {
+          source: "marquee",
+          final: true,
+          additive: false,
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the breakpoint when Shift explicitly deselects a screen title", () => {
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: {
+          source: "pointer",
+          additive: true,
+          shiftKey: true,
+          screenSelectionToggle: {
+            screenId: "screen-a",
+            selected: false,
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("does not reset for a cancelled/additive marquee or an initial empty echo", () => {
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: { source: "marquee", final: true, cancelled: true },
+      }),
+    ).toBe(false);
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: { source: "marquee", final: true, additive: true },
+      }),
+    ).toBe(false);
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        previousSelectedScreenIds: [],
+        intent: { source: "marquee", final: true },
+      }),
+    ).toBe(false);
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: undefined,
       }),
     ).toBe(false);
   });
