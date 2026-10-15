@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
   attemptRunErrorCode: null as string | null,
   attemptTimedOut: false,
   attemptCanContinueAfterStall: false,
+  clearStartedGenerationAttempt: vi.fn(),
   targetTabId: "target-tab",
   guidedQuestions: [] as Array<{
     id: string;
@@ -87,6 +88,7 @@ vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
 
   return {
     ...original,
+    clearStartedGenerationAttempt: mocks.clearStartedGenerationAttempt,
     getStartedGenerationAttemptTabId: () => mocks.startedTabId,
     useAgentGenerating: (options?: { tabId: string | null }) => {
       useSyncExternalStore(
@@ -483,6 +485,7 @@ describe("DeckEditor generation signal wiring", () => {
       publishAgentGeneratingChange();
     });
     mocks.flushDeckSave.mockReset().mockResolvedValue(undefined);
+    mocks.clearStartedGenerationAttempt.mockClear();
     mocks.refreshOpenDeck.mockReset().mockResolvedValue(mocks.deck);
     mocks.submitAndConfirm
       .mockReset()
@@ -805,6 +808,11 @@ describe("DeckEditor generation signal wiring", () => {
   it("persists the prompt when the guided-question check fails", async () => {
     const originalPrompt = "Make a deck about sustainable product design.";
     mocks.deck.generationContext.originalPrompt = originalPrompt;
+    let resolveGenerationFailureSave!: () => void;
+    const generationFailureSave = new Promise<void>((resolve) => {
+      resolveGenerationFailureSave = resolve;
+    });
+    mocks.flushDeckSave.mockImplementationOnce(() => generationFailureSave);
     mocks.guidedQuestionRefetchPending.mockImplementation(async () => ({
       status: "error",
       error: new Error("question check failed"),
@@ -812,7 +820,10 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.attemptGenerating = true;
     mocks.attemptObservedRun = true;
     router = createMemoryRouter(
-      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/home", element: <div>Decks home</div> },
+      ],
       {
         initialEntries: [
           "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
@@ -841,17 +852,25 @@ describe("DeckEditor generation signal wiring", () => {
         expect.objectContaining({ reason: "guided_question_refetch_failed" }),
       ),
     );
+    await waitFor(() =>
+      expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1"),
+    );
     expect(mocks.deck.generationContext).toMatchObject({
       generationFailureCode: "outcome_unresolved",
       generationFailureAttemptId: "attempt-1",
       originalPrompt,
     });
-    expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
     expect(
       window.localStorage.getItem(
         "slides:empty-generation-retry-recovery:deck-1",
       ),
-    ).toBeNull();
+    ).toBe(
+      JSON.stringify({
+        kind: "generation_failure",
+        attemptId: "attempt-1",
+        failureCode: "outcome_unresolved",
+      }),
+    );
     expect(trackEvent).not.toHaveBeenCalledWith(
       "generation_failed",
       expect.anything(),
@@ -860,6 +879,39 @@ describe("DeckEditor generation signal wiring", () => {
       screen.getByRole("button", { name: "deckEditor.checkedDeckTryAgain" }),
     ).toBeTruthy();
     expect(screen.getByText(originalPrompt)).toBeTruthy();
+
+    await act(async () => {
+      void router?.navigate("/home");
+    });
+    await waitFor(() => expect(router?.state.location.pathname).toBe("/home"));
+    expect(mocks.clearStartedGenerationAttempt).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveGenerationFailureSave();
+      await generationFailureSave;
+    });
+    await waitFor(() =>
+      expect(mocks.clearStartedGenerationAttempt).toHaveBeenCalledWith(
+        "attempt-1",
+        "deck-1",
+      ),
+    );
+    expect(
+      window.localStorage.getItem(
+        "slides:empty-generation-retry-recovery:deck-1",
+      ),
+    ).toBeNull();
+
+    await act(async () => {
+      void router?.navigate("/deck/deck-1");
+    });
+    await waitFor(() =>
+      expect(router?.state.location.pathname).toBe("/deck/deck-1"),
+    );
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "deckEditor.checkedDeckTryAgain" }),
+    ).toBeTruthy();
     await act(async () => {
       screen
         .getByRole("button", { name: "deckEditor.checkedDeckTryAgain" })
@@ -875,21 +927,6 @@ describe("DeckEditor generation signal wiring", () => {
     expect(mocks.toastError).toHaveBeenCalledWith(
       "deckEditor.generationOutcomeUnresolved",
     );
-
-    cleanup();
-    router?.dispose();
-    mocks.attemptObservedRun = false;
-    mocks.attemptRunError = false;
-    router = createMemoryRouter(
-      [{ path: "/deck/:id", element: <DeckEditor /> }],
-      { initialEntries: ["/deck/deck-1"] },
-    );
-    render(<RouterProvider router={router} />);
-
-    expect(screen.getByText(originalPrompt)).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "deckEditor.checkedDeckTryAgain" }),
-    ).toBeTruthy();
   });
 
   it("rechecks guided questions after saving the retry context", async () => {

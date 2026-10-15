@@ -2076,7 +2076,6 @@ export default function DeckEditor() {
           return;
         }
         if (pendingQuestionCheck.status === "error") {
-          pausedForQuestionOrRun = true;
           await persistUnresolvedGuidedQuestionCheck();
           return;
         }
@@ -2115,7 +2114,6 @@ export default function DeckEditor() {
           return;
         }
         if (finalPendingQuestionCheck.status === "error") {
-          pausedForQuestionOrRun = true;
           await persistUnresolvedGuidedQuestionCheck();
           return;
         }
