@@ -635,6 +635,7 @@ export type CloneLayerPosition = {
   y: number;
   space?: ClonePositionSpace;
   visualOffset?: { x: number; y: number };
+  positionMode?: "relative";
 };
 
 function cssLength(value: string, reference: number): number {
@@ -754,20 +755,26 @@ function setRootLayerPosition(
   if (!offset || !Number.isFinite(offset.x) || !Number.isFinite(offset.y)) {
     return false;
   }
-  host.style.removeProperty("inset");
-  host.style.position = "absolute";
+  if (position.positionMode === "relative") {
+    host.style.position = "relative";
+  } else {
+    host.style.removeProperty("inset");
+    host.style.position = "absolute";
+    host.style.right = "";
+    host.style.bottom = "";
+  }
   const measuredVisualOffset =
     position.space === "visual" && position.visualOffset !== undefined;
+  const preserveFractional =
+    measuredVisualOffset || position.positionMode === "relative";
   host.style.left = formatClonePosition(
     position.x - offset.x,
-    measuredVisualOffset,
+    preserveFractional,
   );
   host.style.top = formatClonePosition(
     position.y - offset.y,
-    measuredVisualOffset,
+    preserveFractional,
   );
-  host.style.right = "";
-  host.style.bottom = "";
   return true;
 }
 

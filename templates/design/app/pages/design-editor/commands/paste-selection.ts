@@ -172,10 +172,42 @@ type ClipboardRepeatLayerLayout =
   | {
       kind: "flow";
       position: { x: number; y: number } | null;
+      positionMode?: "relative";
       unknownPosition: boolean;
     }
   | { kind: "positioned"; position: { x: number; y: number } }
   | { kind: "unavailable" };
+
+type ClipboardRepeatPositionedLayout =
+  | Extract<ClipboardRepeatLayerLayout, { kind: "positioned" }>
+  | (Extract<ClipboardRepeatLayerLayout, { kind: "flow" }> & {
+      position: { x: number; y: number };
+    });
+
+function hasClipboardRepeatPosition(
+  layout: ClipboardRepeatLayerLayout,
+): layout is ClipboardRepeatPositionedLayout {
+  return layout.kind !== "unavailable" && layout.position !== null;
+}
+
+function cloneLayerPositionForRepeat(
+  layout: ClipboardRepeatPositionedLayout,
+  x: number,
+  y: number,
+  modeOverride?: "absolute" | "relative",
+): CloneLayerPosition {
+  const positionMode =
+    modeOverride ??
+    (layout.kind === "flow" && layout.positionMode === "relative"
+      ? "relative"
+      : "absolute");
+  return {
+    x,
+    y,
+    space: "layout",
+    ...(positionMode === "relative" ? { positionMode } : {}),
+  };
+}
 
 function clipboardRepeatLayerLayout(args: {
   position?: string;
@@ -194,6 +226,7 @@ function clipboardRepeatLayerLayout(args: {
     return {
       kind: "flow",
       position: isPixelPosition(args.left, args.top),
+      positionMode: "relative",
       unknownPosition: false,
     };
   }
@@ -329,15 +362,17 @@ function positionsFromSelectedClipboardClone(
     ) {
       return null;
     }
-    return sourcePositions.map((source) =>
-      source
-        ? {
-            x: source.x + cascadeOffset,
-            y: source.y + cascadeOffset,
-            space: "layout",
-          }
-        : undefined,
-    );
+    return sourcePositions.map((source, index) => {
+      const layout = sourceLayouts[index];
+      if (!source || !layout || layout.kind !== "positioned") {
+        return undefined;
+      }
+      return cloneLayerPositionForRepeat(
+        layout,
+        source.x + cascadeOffset,
+        source.y + cascadeOffset,
+      );
+    });
   }
   if (
     !selectedClonePosition ||
@@ -347,17 +382,27 @@ function positionsFromSelectedClipboardClone(
   ) {
     return null;
   }
+  const selectedFlowWasMoved =
+    sourceLayouts[selectedEntryIndex]?.kind === "flow" &&
+    (selectedClonePosition.x !== selectedSourcePosition.x ||
+      selectedClonePosition.y !== selectedSourcePosition.y);
   const offsetX = selectedClonePosition.x - selectedSourcePosition.x + 16;
   const offsetY = selectedClonePosition.y - selectedSourcePosition.y + 16;
-  return sourcePositions.map((source) =>
-    source
-      ? {
-          x: source.x + offsetX,
-          y: source.y + offsetY,
-          space: "layout",
-        }
-      : undefined,
-  );
+  return sourcePositions.map((source, index) => {
+    const layout = sourceLayouts[index];
+    if (!source || !layout || !hasClipboardRepeatPosition(layout)) {
+      return undefined;
+    }
+    if (layout.kind === "flow" && !selectedFlowWasMoved) return undefined;
+    return cloneLayerPositionForRepeat(
+      layout,
+      source.x + offsetX,
+      source.y + offsetY,
+      index === selectedEntryIndex && selectedCloneLayout.kind === "positioned"
+        ? "absolute"
+        : undefined,
+    );
+  });
 }
 
 function withPreparedVisualOffsets(
@@ -417,18 +462,28 @@ function nodeIdSelector(nodeId: string) {
 }
 
 function positionsFromSource(
-  sourcePositions: Array<{ x: number; y: number } | null>,
+  sourceLayouts: ClipboardRepeatLayerLayout[],
   cascadeOffset = 0,
 ) {
-  const positionedSources = sourcePositions.filter(
-    (source): source is { x: number; y: number } => Boolean(source),
+  if (cascadeOffset === 0) return undefined;
+  if (
+    sourceLayouts.some(
+      (layout) =>
+        layout.kind === "unavailable" ||
+        (layout.kind === "flow" && layout.unknownPosition),
+    )
+  ) {
+    return undefined;
+  }
+  return sourceLayouts.map((layout) =>
+    layout.kind === "positioned"
+      ? cloneLayerPositionForRepeat(
+          layout,
+          layout.position.x + cascadeOffset,
+          layout.position.y + cascadeOffset,
+        )
+      : undefined,
   );
-  if (positionedSources.length !== sourcePositions.length) return undefined;
-  return positionedSources.map((source) => ({
-    x: source.x + cascadeOffset,
-    y: source.y + cascadeOffset,
-    space: "layout" as const,
-  }));
 }
 
 function commonClipboardSourceParentNodeId(
@@ -799,6 +854,14 @@ export async function runPasteSelection(
           pastedClipboardLayerSourcesRef,
         )
       : undefined;
+    const directlyCopiedAnchor = Boolean(
+      selectedAnchor &&
+      directlyCopiedClipboardLayer(
+        entries,
+        targetFileId,
+        selectedAnchor.sourceId,
+      ),
+    );
     const selectedCloneLayout = selectedPastedLayer
       ? clipboardRepeatSelectedCloneLayout({
           inlineStyles: selectedElement?.inlineStyles,
@@ -811,13 +874,11 @@ export async function runPasteSelection(
           selectedCloneLayout ?? { kind: "unavailable" },
           cascadeOffset,
         )
-      : selectedAnchor &&
-          directlyCopiedClipboardLayer(
-            entries,
-            targetFileId,
-            selectedAnchor.sourceId,
+      : directlyCopiedAnchor
+        ? positionsFromSource(
+            entries.map(clipboardRepeatSourceLayout),
+            cascadeOffset,
           )
-        ? positionsFromSource(sourcePositions, cascadeOffset)
         : undefined;
     if (selectedSourcePositions === null) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
@@ -875,7 +936,9 @@ export async function runPasteSelection(
       targetStoredContent,
       layerHtmls,
       {
-        stripRootPosition: Boolean(selectedAnchor),
+        stripRootPosition: Boolean(
+          selectedAnchor && !selectedPastedLayer && !directlyCopiedAnchor,
+        ),
         positions: preparedPositions,
         styleSnapshots,
       },
@@ -1114,7 +1177,7 @@ export async function runPasteSelection(
             cascadeOffset,
           )
         : positionsFromSource(
-            entries.map((entry) => extractLayerPosition(entry.html)),
+            entries.map(clipboardRepeatSourceLayout),
             cascadeOffset,
           )
       : insideFreeContainer

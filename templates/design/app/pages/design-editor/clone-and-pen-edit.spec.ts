@@ -138,6 +138,70 @@ describe("extractLayerPosition", () => {
     expect([clone.style.right, clone.style.bottom]).toEqual(["", ""]);
   });
 
+  it("preserves opposing relative offsets and RTL when moving a fractional clone", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div dir="rtl" data-agent-native-node-id="source" data-note="kept" style="position:relative;left:40.25px;top:12.5px;right:7.75px;bottom:9.25px;margin:3px 4px">Source</div>',
+      ],
+      {
+        positions: [
+          { x: 56.25, y: 28.5, positionMode: "relative", space: "layout" },
+        ],
+      },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+    expect([
+      clone.style.position,
+      clone.style.left,
+      clone.style.top,
+      clone.style.right,
+      clone.style.bottom,
+      clone.style.margin,
+      clone.getAttribute("dir"),
+    ]).toEqual([
+      "relative",
+      "56.25px",
+      "28.5px",
+      "7.75px",
+      "9.25px",
+      "3px 4px",
+      "rtl",
+    ]);
+    expect(clone.getAttribute("data-note")).toBe("kept");
+    expect(clone.textContent).toBe("Source");
+  });
+
+  it("keeps a relative inset shorthand when updating fractional coordinates", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div dir="rtl" data-agent-native-node-id="source" style="position:relative;inset:12.5px 7.75px 9.25px 40.25px">Source</div>',
+      ],
+      {
+        positions: [
+          { x: 56.25, y: 28.5, positionMode: "relative", space: "layout" },
+        ],
+      },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+    expect([
+      clone.style.position,
+      clone.style.left,
+      clone.style.top,
+      clone.style.getPropertyValue("inset"),
+      clone.getAttribute("dir"),
+    ]).toEqual([
+      "relative",
+      "56.25px",
+      "28.5px",
+      "12.5px 7.75px 9.25px 40.25px",
+      "rtl",
+    ]);
+  });
+
   it("clears an authored inset when stripping root placement", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,

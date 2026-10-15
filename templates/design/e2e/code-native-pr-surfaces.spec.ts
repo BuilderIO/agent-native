@@ -175,12 +175,14 @@ async function openAndFit(app: App, designId: string) {
 }
 
 async function selectOnCanvas(app: App, nodeId: string, layerName: string) {
-  const rect = await app.designRect(nodeId);
-  const point = await app.pagePoint(
-    rect.x + rect.width / 2,
-    rect.y + rect.height / 2,
-  );
-  await app.page.mouse.click(point.x, point.y);
+  const node = app.node(nodeId);
+  await expect(node).toBeVisible();
+  const rect = await node.boundingBox();
+  if (!rect) throw new Error(`Canvas node ${nodeId} has no rendered bounds`);
+  await app.page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await expect(
+    app.page.getByRole("button", { name: "More", exact: true }),
+  ).not.toBeFocused();
   await expect.poll(() => app.selectedLayers()).toEqual([layerName]);
 }
 
@@ -191,6 +193,9 @@ function motionDock(page: Page) {
 async function openMotionDockFromMenu(page: Page) {
   await openAppMenuSubmenu(page, "View");
   await page.getByRole("menuitem", { name: "Motion", exact: true }).click();
+  await expect(
+    page.getByRole("menu", { name: "More", exact: true }),
+  ).toHaveCount(0);
   await expect(motionDock(page)).toBeVisible();
 }
 

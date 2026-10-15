@@ -1093,9 +1093,11 @@ test.describe("canvas chords", () => {
       '<div data-agent-native-node-id="mixed-positioned" data-agent-native-layer-name="Mixed positioned" style="position:absolute;left:240px;top:180px;width:60px;height:30px">Positioned</div>';
     const flow =
       '<div data-agent-native-node-id="mixed-flow" data-agent-native-layer-name="Mixed flow" style="position:static;width:60px;height:30px;margin:0">Flow</div>';
+    const relative =
+      '<div data-agent-native-node-id="mixed-relative" data-agent-native-layer-name="Mixed relative" style="position:relative;left:40px;top:12px;width:60px;height:30px;margin:0">Relative flow</div>';
     const { id, before } = await openChords(
       app,
-      `<!doctype html><html><body style="margin:0;position:relative;width:900px;height:600px">${positioned}${flow}</body></html>`,
+      `<!doctype html><html><body style="margin:0;position:relative;width:900px;height:600px">${positioned}${flow}${relative}</body></html>`,
     );
     const fileId = (await app.savedRecord(id)).files.find(
       (file) => file.filename === "index.html",
@@ -1104,13 +1106,18 @@ test.describe("canvas chords", () => {
       origin: new URL(appPath("/")).origin,
     });
     await app.page.evaluate(
-      async ({ fileId, positioned, flow }) => {
+      async ({ fileId, positioned, flow, relative }) => {
         const clipboardPath = "/app/lib/design-clipboard.ts";
         const importPath = "/app/lib/design-import.ts";
         const { getDesignClipboardTrustToken } = await import(clipboardPath);
         const { serializeDesignClipboardPayload } = await import(importPath);
         const entries = [
           { html: flow, rootNodeId: "mixed-flow", sourceFileId: fileId },
+          {
+            html: relative,
+            rootNodeId: "mixed-relative",
+            sourceFileId: fileId,
+          },
           {
             html: positioned,
             rootNodeId: "mixed-positioned",
@@ -1125,7 +1132,7 @@ test.describe("canvas chords", () => {
           ),
         );
       },
-      { fileId, positioned, flow },
+      { fileId, positioned, flow, relative },
     );
     await selectLayerRow(app.page, "Mixed positioned");
     let previous = before;
@@ -1133,11 +1140,11 @@ test.describe("canvas chords", () => {
       await pressEditorKey(app.page, "ControlOrMeta+V");
       await expect
         .poll(async () => (await app.savedNodes(id)).size)
-        .toBe(before.size + (generation + 1) * 2);
+        .toBe(before.size + (generation + 1) * 3);
       await app.settled();
       const after = await app.savedNodes(id);
       const copies = newNodes(previous, after);
-      expect(copies).toHaveLength(2);
+      expect(copies).toHaveLength(3);
       const positionedCopy = copies.find(
         (node) =>
           node.attrs["data-agent-native-layer-name"] === "Mixed positioned",
@@ -1145,6 +1152,19 @@ test.describe("canvas chords", () => {
       const flowCopy = copies.find(
         (node) => node.attrs["data-agent-native-layer-name"] === "Mixed flow",
       )!;
+      const relativeCopy = copies.find(
+        (node) =>
+          node.attrs["data-agent-native-layer-name"] === "Mixed relative",
+      )!;
+      expect(relativeCopy).toBeDefined();
+      expect(styleOf(relativeCopy)).toEqual(
+        styleOf(before.get("mixed-relative")),
+      );
+      expect(
+        await app
+          .node(relativeCopy.id)
+          .evaluate((element) => getComputedStyle(element).position),
+      ).toBe("relative");
       expect(positionedCopy).toBeDefined();
       expect(flowCopy).toBeDefined();
       expect(styleOf(positionedCopy)).toEqual({
@@ -1165,7 +1185,12 @@ test.describe("canvas chords", () => {
       const originalFlow = before.get("mixed-flow")!;
       expect(after.get("mixed-flow")).toEqual({
         ...originalFlow,
-        index: originalFlow.index + 2 * (generation + 1),
+        index: originalFlow.index + 3 * (generation + 1),
+      });
+      const originalRelative = before.get("mixed-relative")!;
+      expect(after.get("mixed-relative")).toEqual({
+        ...originalRelative,
+        index: originalRelative.index + 3 * (generation + 1),
       });
       previous = after;
     }
