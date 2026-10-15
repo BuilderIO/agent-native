@@ -55,11 +55,17 @@ export interface DashboardChatContextResult {
 const REQUEST_MARKER = new RegExp(REAL_DATA_REQUIRED_MARKER, "gi");
 
 /**
- * Dashboard and panel titles are free text, and the chat guard reads any chat
- * context carrying the request marker as the request itself.
+ * Titles, ids, and the URL's query are all free text an author or a link
+ * controls, and the chat guard reads any chat context carrying the request
+ * marker as the request itself. Rewrite whole published text, not chosen fields.
  */
-function displayTitle(title: string): string {
-  return title.replace(REQUEST_MARKER, (marker) => marker.replace(/_/g, " "));
+function withoutRequestMarker(text: string): string {
+  return text.replace(REQUEST_MARKER, (marker) => marker.replace(/_/g, " "));
+}
+
+/** As encodeURIComponent, with "_" escaped too, so an id can't spell the request marker. */
+function encodeSelectionPart(part: string): string {
+  return encodeURIComponent(part).replace(/_/g, "%5F");
 }
 
 function dashboardContext(
@@ -92,9 +98,9 @@ function dashboardContext(
 }
 
 function panelSelectionMarker(dashboardId: string, panelId: string): string {
-  return `Analytics panel selection: dashboard=${encodeURIComponent(
+  return `Analytics panel selection: dashboard=${encodeSelectionPart(
     dashboardId,
-  )}; panel=${encodeURIComponent(panelId)}`;
+  )}; panel=${encodeSelectionPart(panelId)}`;
 }
 
 function parsePanelSelection(
@@ -153,8 +159,8 @@ export function useDashboardChatContext(
       if (!id) return;
       if (options.openSidebar !== true && !isAgentSidebarOpen) return;
       suppressDashboardContextRef.current = false;
-      const displayDashboardTitle = displayTitle(title?.trim() || id);
-      const displayPanelTitle = displayTitle(
+      const displayDashboardTitle = withoutRequestMarker(title?.trim() || id);
+      const displayPanelTitle = withoutRequestMarker(
         panel.panelTitle.trim() || panel.panelId,
       );
       const contextLines = [
@@ -191,7 +197,7 @@ export function useDashboardChatContext(
       setAgentChatContextItem({
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         title: displayPanelTitle,
-        context: contextLines.join("\n"),
+        context: withoutRequestMarker(contextLines.join("\n")),
         openSidebar: options.openSidebar === true,
         focus: options.focus ?? false,
       });
@@ -250,19 +256,21 @@ export function useDashboardChatContext(
   useEffect(() => {
     if (!id) return;
     suppressDashboardContextRef.current = false;
-    const dashboardTitle = displayTitle(title?.trim() || id);
+    const dashboardTitle = withoutRequestMarker(title?.trim() || id);
     const timer = setTimeout(() => {
       if (suppressDashboardContextRef.current) return;
       setAgentChatContextItem({
         key: DASHBOARD_CONTEXT_KEY,
         title: `Dashboard: ${dashboardTitle}`,
-        context: dashboardContext({
-          id,
-          kind,
-          title: dashboardTitle,
-          panelCount,
-          canEdit,
-        }),
+        context: withoutRequestMarker(
+          dashboardContext({
+            id,
+            kind,
+            title: dashboardTitle,
+            panelCount,
+            canEdit,
+          }),
+        ),
         openSidebar: false,
         focus: false,
       });
@@ -273,7 +281,7 @@ export function useDashboardChatContext(
   useEffect(() => {
     if (!id || hasSelectedPanel) return;
     if (suppressDashboardContextRef.current) return;
-    const dashboardTitle = displayTitle(title?.trim() || id);
+    const dashboardTitle = withoutRequestMarker(title?.trim() || id);
     const selection: SelectedDashboardObject = {
       type: "dashboard",
       id,
