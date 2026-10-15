@@ -432,6 +432,7 @@ const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   bar: "bar",
   line: "line",
   area: "area",
+  combo: "combo",
   pie: "pie",
   funnel: "funnel",
   "stacked-bar": "bar",
@@ -488,6 +489,7 @@ function buildChartInput(
   const dualAxis = resolveDualAxis(plotted, config);
   const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
     dualAxis.formatterFor(key);
+  const barKeys = new Set(config?.barKeys ?? []);
 
   const events =
     chartType === "pie"
@@ -505,6 +507,9 @@ function buildChartInput(
       color: colors[index],
       ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
       ...(formatterFor(key) ? { formatter: formatterFor(key) } : {}),
+      ...(chartType === "combo"
+        ? { mark: barKeys.has(key) ? ("bar" as const) : ("line" as const) }
+        : {}),
     })),
     pointLimit: chartPointLimit(rows, panel.chartType, xKey),
   };

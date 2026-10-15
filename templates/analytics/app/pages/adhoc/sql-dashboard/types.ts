@@ -79,7 +79,12 @@ export type DashboardTimeScope =
   | "all-time";
 
 export interface PanelEvent {
+  /** Calendar date in the event's own time zone, "YYYY-MM-DD". */
   date: string;
+  /** Optional 24-hour time of day, "HH:MM". */
+  time?: string;
+  /** IANA zone for `time`, e.g. "America/New_York"; UTC when omitted. */
+  timeZone?: string;
   label: string;
   color?: string;
 }

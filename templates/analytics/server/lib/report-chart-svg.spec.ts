@@ -695,4 +695,105 @@ describe("renderReportChartSvg events", () => {
     expect(svg).toContain("Beta launch");
     expect(svg).toContain('stroke-dasharray="3 3"');
   });
+
+  const days = Array.from(
+    { length: 30 },
+    (_, index) => `2026-09-${String(index + 15).padStart(2, "0")}`,
+  );
+  const eventLabels = (svg: string) =>
+    [
+      ...svg.matchAll(
+        /<text x="([\d.]+)" y="([\d.]+)" text-anchor="(start|end)" font-size="10"[^>]*>([^<]*)<\/text>/g,
+      ),
+    ].map(([, x, y, anchor, text]) => ({
+      x: Number(x),
+      y: Number(y),
+      anchor,
+      text,
+    }));
+
+  it("joins same-day labels into one instead of printing them on top of each other", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: [
+        { index: 29, label: "Product Hunt live" },
+        { index: 29, label: "Launch posts on X, LinkedIn" },
+      ],
+    });
+    const labels = eventLabels(svg);
+    expect(labels).toHaveLength(1);
+    expect(labels[0].text).toBe(
+      "Product Hunt live · Launch posts on X, LinkedIn",
+    );
+    expect(svg.match(/stroke-dasharray="3 3"/g)).toHaveLength(1);
+  });
+
+  it("opens a label near the right edge toward the chart", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: [
+        { index: 1, label: "Role step first" },
+        { index: 29, label: "Agent-Native launch" },
+      ],
+    });
+    expect(eventLabels(svg).map((label) => label.anchor)).toEqual([
+      "start",
+      "end",
+    ]);
+  });
+
+  it("moves a label to a new row when it would overlap its neighbor", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: [
+        { index: 7, label: "Role step moved before Connect" },
+        { index: 9, label: "One-click Builder.io accounts" },
+        { index: 20, label: "Apart" },
+      ],
+    });
+    const [first, second, apart] = eventLabels(svg);
+    expect(second.y).toBeGreaterThan(first.y);
+    expect(apart.y).toBe(first.y);
+  });
+});
+
+describe("renderReportChartSvg combo", () => {
+  it("draws bar series as bars and the rest as a line, with markers", () => {
+    const labels = ["2026-10-12", "2026-10-13", "2026-10-14"];
+    const svg = renderReportChartSvg({
+      labels,
+      series: [
+        { label: "Signups", data: [10, 12, 30], mark: "bar" },
+        {
+          label: "Conversion",
+          data: [0.8, 0.82, 0.9],
+          mark: "line",
+          axis: "right",
+        },
+      ],
+      type: "combo",
+      width: 720,
+      height: 320,
+      events: [{ index: 2, label: "Launch" }],
+    });
+    expect(
+      svg.match(
+        /<rect x="[\d.]+" y="[\d.]+" width="[\d.]+" height="[\d.]+" rx="4"/g,
+      ),
+    ).toHaveLength(3);
+    expect(svg).toMatch(/<path d="M [^"]+" fill="none" stroke=/);
+    expect(svg).toContain("Launch");
+  });
 });

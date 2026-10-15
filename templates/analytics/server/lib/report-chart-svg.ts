@@ -11,7 +11,13 @@ import { formatDollars } from "../../shared/format-dollars";
 
 export { estimateTextWidth };
 
-export type ReportChartType = "bar" | "line" | "area" | "pie" | "funnel";
+export type ReportChartType =
+  | "bar"
+  | "line"
+  | "area"
+  | "combo"
+  | "pie"
+  | "funnel";
 
 export type ReportChartEvent = { index: number; label: string; color?: string };
 
@@ -25,6 +31,8 @@ export type ReportChartSeries = {
   color?: string;
   axis?: ReportChartAxis;
   formatter?: ReportChartValueFormatter;
+  /** Combo charts only: draw this series as bars or as a line. */
+  mark?: "bar" | "line";
 };
 
 export type ChartSvgTheme = {
@@ -301,6 +309,7 @@ type ResolvedSeries = {
   data: Array<number | null>;
   axis?: ReportChartAxis;
   formatter?: ReportChartValueFormatter;
+  mark?: "bar" | "line";
 };
 
 type AxisScale = {
@@ -349,6 +358,74 @@ function stackSegments(
   return segments;
 }
 
+const EVENT_LABEL_FONT_SIZE = 10;
+const EVENT_LABEL_ROW_HEIGHT = 13;
+const EVENT_LABEL_MAX_ROWS = 3;
+const EVENT_LABEL_GAP = 8;
+
+type EventGroup = { index: number; label: string; color?: string };
+
+/** Same-day events share one line, so their labels join instead of overprinting. */
+function groupEventsByIndex(
+  events: readonly ReportChartEvent[],
+  labelCount: number,
+): EventGroup[] {
+  const groups = new Map<number, ReportChartEvent[]>();
+  for (const event of events) {
+    if (event.index < 0 || event.index >= labelCount) continue;
+    groups.set(event.index, [...(groups.get(event.index) ?? []), event]);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([index, members]) => ({
+      index,
+      label: members.map((member) => member.label).join(" · "),
+      color: members[0].color,
+    }));
+}
+
+type PlacedEventLabel = EventGroup & {
+  x: number;
+  row: number;
+  anchor: "start" | "end";
+};
+
+/**
+ * Puts each label on the first row where it clears the labels already there.
+ * Labels open toward the side with room, so one near the right edge is never
+ * cut off by the chart boundary.
+ */
+function layoutEventLabels(
+  groups: readonly EventGroup[],
+  centerFor: (index: number) => number,
+  chartLeft: number,
+  chartRight: number,
+): PlacedEventLabel[] {
+  const rows: Array<Array<[number, number]>> = [];
+  const maxWidth = (chartRight - chartLeft) / 2;
+  return groups.map((group) => {
+    const x = centerFor(group.index);
+    const label = trimToWidth(group.label, EVENT_LABEL_FONT_SIZE, maxWidth);
+    const width = estimateTextWidth(label, EVENT_LABEL_FONT_SIZE);
+    const anchor: "start" | "end" =
+      x + 5 + width > chartRight ? "end" : "start";
+    const span: [number, number] =
+      anchor === "end" ? [x - 5 - width, x] : [x, x + 5 + width];
+    let row = rows.findIndex((spans) =>
+      spans.every(
+        ([start, end]) =>
+          span[1] + EVENT_LABEL_GAP <= start ||
+          span[0] >= end + EVENT_LABEL_GAP,
+      ),
+    );
+    if (row === -1) {
+      row = Math.min(rows.length, EVENT_LABEL_MAX_ROWS - 1);
+    }
+    (rows[row] ??= []).push(span);
+    return { ...group, x, row, anchor, label };
+  });
+}
+
 function renderCartesianChartSvg({
   title,
   subtitle,
@@ -368,7 +445,7 @@ function renderCartesianChartSvg({
   labels: string[];
   series: ResolvedSeries[];
   events?: ReportChartEvent[];
-  type: "bar" | "line" | "area";
+  type: "bar" | "line" | "area" | "combo";
   width: number;
   height: number;
   theme: ChartSvgTheme;
@@ -527,6 +604,19 @@ function renderCartesianChartSvg({
           })
           .join("");
 
+  const barIndexes =
+    type === "combo"
+      ? series.flatMap((entry, index) => (entry.mark === "bar" ? [index] : []))
+      : type === "bar"
+        ? series.map((_, index) => index)
+        : [];
+  const lineIndexes =
+    type === "combo"
+      ? series.flatMap((entry, index) => (entry.mark === "bar" ? [] : [index]))
+      : type === "bar"
+        ? []
+        : series.map((_, index) => index);
+
   let marks = "";
   if (stackedBars) {
     marks = labels
@@ -545,20 +635,24 @@ function renderCartesianChartSvg({
           .join("");
       })
       .join("");
-  } else if (type === "bar") {
+  } else {
     const groupWidth = slot * 0.72;
-    const barWidth = Math.max(4, groupWidth / Math.max(series.length, 1) - 2);
+    const barWidth = Math.max(
+      4,
+      groupWidth / Math.max(barIndexes.length, 1) - 2,
+    );
     marks = labels
       .map((_, labelIndex) =>
-        series
-          .map((entry, seriesIndex) => {
+        barIndexes
+          .map((seriesIndex, barSlot) => {
+            const entry = series[seriesIndex];
             const value = entry.data[labelIndex];
             if (value === null) return "";
             const x =
               chartLeft +
               slot * labelIndex +
               slot * 0.14 +
-              seriesIndex * (barWidth + 2);
+              barSlot * (barWidth + 2);
             const { yFor, zeroY } = scaleFor(seriesIndex);
             const y = yFor(value);
             return `<rect x="${x.toFixed(1)}" y="${Math.min(zeroY, y).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(2, Math.abs(zeroY - y)).toFixed(1)}" rx="4" fill="${entry.color}"/>`;
@@ -566,9 +660,9 @@ function renderCartesianChartSvg({
           .join(""),
       )
       .join("");
-  } else {
-    marks = series
-      .map((entry, seriesIndex) => {
+    marks += lineIndexes
+      .map((seriesIndex) => {
+        const entry = series[seriesIndex];
         const { yFor, zeroY } = scaleFor(seriesIndex);
         const zeroText = formatCoord(zeroY);
         const segments: Array<{
@@ -629,13 +723,17 @@ function renderCartesianChartSvg({
       : ""
   }`;
 
-  const eventMarkup = (events ?? [])
-    .filter((event) => event.index >= 0 && event.index < labels.length)
-    .map((event) => {
-      const x = centerFor(event.index);
-      const color = safeColor(event.color, theme.labelColor);
-      const rightHalf = x > chartLeft + plotWidth / 2;
-      return `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${chartTop}" y2="${chartBottom}" stroke="${color}" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="3 3"/><text x="${(x + (rightHalf ? -5 : 5)).toFixed(1)}" y="${chartTop + 10}" text-anchor="${rightHalf ? "end" : "start"}" font-size="10" fill="${color}">${escapeXml(truncate(event.label, 40))}</text><circle cx="${x.toFixed(1)}" cy="${chartBottom}" r="5" fill="${color}" stroke="${theme.background}" stroke-width="2"/>`;
+  const eventMarkup = layoutEventLabels(
+    groupEventsByIndex(events ?? [], labels.length),
+    centerFor,
+    chartLeft,
+    chartRight,
+  )
+    .map(({ x, label, color: rawColor, row, anchor }) => {
+      const color = safeColor(rawColor, theme.labelColor);
+      const labelX = anchor === "end" ? x - 5 : x + 5;
+      const labelY = chartTop + 10 + row * EVENT_LABEL_ROW_HEIGHT;
+      return `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${chartTop}" y2="${chartBottom}" stroke="${color}" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="3 3"/><text x="${labelX.toFixed(1)}" y="${labelY}" text-anchor="${anchor}" font-size="${EVENT_LABEL_FONT_SIZE}" fill="${color}" stroke="${theme.background}" stroke-width="3" paint-order="stroke">${escapeXml(label)}</text><circle cx="${x.toFixed(1)}" cy="${chartBottom}" r="5" fill="${color}" stroke="${theme.background}" stroke-width="2"/>`;
     })
     .join("");
 
@@ -974,6 +1072,7 @@ export function renderReportChartSvg({
       color: safeColor(entry.color, palette[index % palette.length]),
       axis: entry.axis,
       ...(entry.formatter ? { formatter: entry.formatter } : {}),
+      ...(type === "combo" && entry.mark ? { mark: entry.mark } : {}),
       data: normalizedLabels.map((_, dataIndex) =>
         exactValue(entry.data?.[dataIndex]),
       ),

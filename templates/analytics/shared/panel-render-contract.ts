@@ -11,13 +11,13 @@ import {
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
+import { isValidPanelEvent } from "./panel-events";
 import {
   NON_APP_SERIES_COLORS,
   UNKNOWN_APP_COLOR,
   appSeriesColor,
   isUnknownApp,
 } from "./tokens/app-series-colors";
-import { isValidPanelEvent } from "./panel-events";
 
 export { PANEL_CHART_TYPES };
 
@@ -261,7 +261,7 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
   events: {
     valid: (value) => Array.isArray(value) && value.every(isValidPanelEvent),
     expected:
-      'an array of { date: "YYYY-MM-DD", label: non-empty string, color?: string }',
+      'an array of { date: "YYYY-MM-DD", label: non-empty string, time?: "HH:MM", timeZone?: IANA zone (with time), color?: string }',
   },
   pivot: {
     valid: (value) =>

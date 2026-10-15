@@ -12,17 +12,17 @@ Dashboards are the canonical SQL-backed Analytics resources. New dashboards, sav
 
 Current storage:
 
-| Table              | Purpose                                      |
-| ------------------ | -------------------------------------------- |
-| `dashboards`       | Explorer and SQL dashboard records           |
-| `dashboard_folders` | Personal and shared SQL dashboard folders  |
-| `dashboard_views`  | Saved filter presets per dashboard           |
-| `dashboard_shares` | Standard framework share grants              |
-| `dashboard_folder_shares` | Standard folder share grants          |
-| `dashboard_revisions` | Bounded dashboard history snapshots       |
-| `analyses`         | Saved ad-hoc analysis records                |
-| `analysis_revisions` | Bounded analysis history snapshots        |
-| `analysis_shares`  | Standard framework share grants for analyses |
+| Table                     | Purpose                                      |
+| ------------------------- | -------------------------------------------- |
+| `dashboards`              | Explorer and SQL dashboard records           |
+| `dashboard_folders`       | Personal and shared SQL dashboard folders    |
+| `dashboard_views`         | Saved filter presets per dashboard           |
+| `dashboard_shares`        | Standard framework share grants              |
+| `dashboard_folder_shares` | Standard folder share grants                 |
+| `dashboard_revisions`     | Bounded dashboard history snapshots          |
+| `analyses`                | Saved ad-hoc analysis records                |
+| `analysis_revisions`      | Bounded analysis history snapshots           |
+| `analysis_shares`         | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
 
@@ -123,7 +123,7 @@ those CTEs needs its own `{{timeRange}}`/`{{<id>Start}}`/`{{<id>End}}`
 reference or literal date bound — not just the final `SELECT` or one sibling
 CTE. A CTE that computes something like "this user's first-ever active day"
 by scanning `analytics_events` with no bound at all will full-table-scan on
-every render even though the panel *looks* time-bound overall (root cause of
+every render even though the panel _looks_ time-bound overall (root cause of
 a 2026-07-25 production incident: several dashboards had exactly this shape).
 Server validation checks each top-level CTE independently now, so this fails
 at save time — but write it right the first time: bound every CTE, or use
@@ -217,18 +217,29 @@ extension for this.
 
 ```json
 "config": {
-  "events": [{ "date": "2026-10-14", "label": "Agent Native beta launch date" }]
+  "events": [
+    { "date": "2026-10-14", "time": "00:01", "timeZone": "America/Los_Angeles", "label": "Product Hunt live" },
+    { "date": "2026-10-14", "time": "12:00", "timeZone": "America/New_York", "label": "Launch posts on X, LinkedIn" }
+  ]
 }
 ```
 
-- Each event is `{ date: "YYYY-MM-DD", label, color? }`; multiple are allowed.
+- Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
+  multiple are allowed. `date` is the calendar date in the event's own zone.
+  Give `time` when the moment matters (a launch hour); `timeZone` is an IANA
+  zone and needs a `time`. Without a zone, the time is UTC.
 - A badge sits on the x-axis at the date with a faint dashed guide line.
-  Hovering the badge shows the label and date. It adds no legend entry and does
-  not change the series tooltip.
+  Hovering the badge lists every event on that day with its time, shown in the
+  event's own zone ("12:01 AM PT"). It adds no legend entry and does not change
+  the series tooltip.
+- Events on the same day share one badge; on an hourly axis each timed event
+  sits in its own hour.
 - A date missing from the data snaps to the nearest x value; a date outside the
   visible range is hidden; a non-date x-axis shows nothing.
 - `mutate-dashboard` rejects malformed events and other chart types.
-- Scheduled email reports draw the guide line, badge, and label text.
+- Scheduled email reports draw the guide line, badge, and label text, including
+  on combo charts. Same-day labels join into one; labels that would overlap
+  move to a second row.
 
 ## Reusable Native Dashboard Patterns
 
@@ -236,12 +247,12 @@ The recent extension-backed dashboards in Builder Analytics cluster into a few
 repeatable compositions. Prefer these native panels, with a real SQL or Data
 Program result behind each one, when creating a replacement or a new dashboard:
 
-| Pattern | Native composition |
-| --- | --- |
-| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative |
-| Account engagement / outreach | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts |
-| GTM pipeline / cross-sell | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up |
-| Win/loss analysis | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
+| Pattern                          | Native composition                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative            |
+| Account engagement / outreach    | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts                  |
+| GTM pipeline / cross-sell        | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up                      |
+| Win/loss analysis                | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
 
 Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
 non-negative count or value. The renderer preserves the SQL row order, shows
