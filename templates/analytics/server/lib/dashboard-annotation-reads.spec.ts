@@ -30,7 +30,7 @@ import {
 import * as dbModule from "../db/index.js";
 import {
   loadDashboardAnnotationSummary,
-  readDashboardConfigForAnnotations,
+  readDashboardForPlacement,
 } from "./dashboard-annotation-reads.js";
 import { DATA_NOTES_MIGRATION_SQL } from "./data-notes-migration.js";
 import { saveDataNote } from "./data-notes-store.js";
@@ -79,7 +79,7 @@ describe("dashboard annotation reads", () => {
     await client.close();
   });
 
-  it("summarizes the caller's organization's key dates and notes for one dashboard", async () => {
+  it("summarizes one organization's key dates and notes for a dashboard", async () => {
     await saveKeyDate(alice, {
       setName: "Launches",
       date: "2026-10-14",
@@ -94,7 +94,11 @@ describe("dashboard annotation reads", () => {
       title: "Another organization's note",
     });
 
-    const summary = await loadDashboardAnnotationSummary(alice, "dash", config);
+    const summary = await loadDashboardAnnotationSummary(
+      { scope: alice, editable: true },
+      "dash",
+      config,
+    );
 
     expect(summary).toEqual({
       keyDateSets: [
@@ -130,7 +134,11 @@ describe("dashboard annotation reads", () => {
   it("says the annotations could not be read when a store fails", async () => {
     await client.exec("DROP TABLE analytics_data_notes");
 
-    const summary = await loadDashboardAnnotationSummary(alice, "dash", config);
+    const summary = await loadDashboardAnnotationSummary(
+      { scope: alice, editable: true },
+      "dash",
+      config,
+    );
 
     expect(summary).toEqual({
       annotationsError: expect.stringContaining(
@@ -139,23 +147,62 @@ describe("dashboard annotation reads", () => {
     });
   });
 
+  it("marks another organization's annotations as not the caller's", async () => {
+    await saveDataNote(carol, noteInput(SETUP_INCIDENT));
+
+    const summary = await loadDashboardAnnotationSummary(
+      { scope: carol, editable: false },
+      "dash",
+      config,
+    );
+
+    expect(summary).toMatchObject({
+      dataNotes: [{ title: "Builder.io account setup failures" }],
+      editable: false,
+    });
+  });
+
   it("reads a saved dashboard's config, falls back to its seed, and fails when neither exists", async () => {
-    mocks.getDashboard.mockResolvedValueOnce({ kind: "sql", config });
-    await expect(
-      readDashboardConfigForAnnotations("dash", alice),
-    ).resolves.toEqual(config);
+    const stored = { kind: "sql", ownerEmail: alice.email, orgId: alice.orgId };
+    mocks.getDashboard.mockResolvedValueOnce({ ...stored, config });
+    await expect(readDashboardForPlacement("dash", alice)).resolves.toEqual({
+      config,
+    });
     expect(mocks.getDashboard).toHaveBeenCalledWith("dash", alice);
 
     mocks.getDashboard.mockResolvedValueOnce(null);
     mocks.loadDashboardSeed.mockReturnValueOnce(config);
-    await expect(
-      readDashboardConfigForAnnotations("seeded", alice),
-    ).resolves.toEqual(config);
+    await expect(readDashboardForPlacement("seeded", alice)).resolves.toEqual({
+      config,
+    });
 
     mocks.getDashboard.mockResolvedValueOnce(null);
     mocks.loadDashboardSeed.mockReturnValueOnce(null);
-    await expect(
-      readDashboardConfigForAnnotations("gone", alice),
-    ).rejects.toThrow('Dashboard "gone" was not found.');
+    await expect(readDashboardForPlacement("gone", alice)).rejects.toThrow(
+      'Dashboard "gone" was not found.',
+    );
+  });
+
+  it("says why a dashboard can't draw the caller's markers instead of failing", async () => {
+    mocks.getDashboard.mockResolvedValueOnce({
+      kind: "explorer",
+      ownerEmail: alice.email,
+      orgId: alice.orgId,
+      config: {},
+    });
+    await expect(readDashboardForPlacement("explore", alice)).resolves.toEqual({
+      unavailable: expect.stringContaining("Explorer dashboard"),
+    });
+
+    mocks.getDashboard.mockResolvedValueOnce({
+      kind: "sql",
+      ownerEmail: carol.email,
+      orgId: carol.orgId,
+      config,
+    });
+    await expect(readDashboardForPlacement("shared", alice)).resolves.toEqual({
+      unavailable: expect.stringContaining("another organization's"),
+    });
+    expect(mocks.loadDashboardSeed).not.toHaveBeenCalled();
   });
 });

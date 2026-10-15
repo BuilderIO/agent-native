@@ -12,6 +12,7 @@ import {
 } from "../server/lib/agent-readable-resource-context";
 import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
 import { loadDashboardAnnotationSummary } from "../server/lib/dashboard-annotation-reads";
+import { storedDashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
@@ -209,7 +210,7 @@ export default defineAction({
               buildDashboardAgentContext(dashboard, {
                 forAgent: true,
                 annotationSummary: await loadDashboardAnnotationSummary(
-                  { email, orgId },
+                  storedDashboardAnnotationScope(dashboard, { email, orgId }),
                   dashboard.id,
                   dashboard.config as Record<string, unknown>,
                 ),

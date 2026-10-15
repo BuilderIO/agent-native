@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { readDashboardConfigForAnnotations } from "../server/lib/dashboard-annotation-reads.js";
+import { readDashboardForPlacement } from "../server/lib/dashboard-annotation-reads.js";
 import { keyDatePlacement } from "../server/lib/dashboard-annotation-summary.js";
 import {
   requireKeyDateScope,
@@ -52,15 +52,17 @@ export default defineAction({
   }),
   run: async ({ dashboardId, ...input }) => {
     const scope = requireKeyDateScope();
-    const config = dashboardId
-      ? await readDashboardConfigForAnnotations(dashboardId, scope)
+    const check = dashboardId
+      ? await readDashboardForPlacement(dashboardId, scope)
       : undefined;
     const keyDate = await saveKeyDate(scope, input);
-    return dashboardId && config
-      ? {
-          ...keyDate,
-          dashboard: keyDatePlacement(keyDate.setId, dashboardId, config),
-        }
-      : keyDate;
+    if (!dashboardId || !check) return keyDate;
+    return {
+      ...keyDate,
+      dashboard:
+        "config" in check
+          ? keyDatePlacement(keyDate.setId, dashboardId, check.config)
+          : { dashboardId, hint: check.unavailable },
+    };
   },
 });

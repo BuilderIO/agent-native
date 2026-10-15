@@ -1076,7 +1076,10 @@ describe("view-screen dashboard summary", () => {
     const out = await runScreen();
 
     expect(loadDashboardAnnotationSummary).toHaveBeenCalledWith(
-      { email: "user@example.test", orgId: "org-1" },
+      {
+        scope: { email: "owner@example.test", orgId: "org-1" },
+        editable: true,
+      },
       "dash-1",
       expect.objectContaining({ name: "Weekly" }),
     );

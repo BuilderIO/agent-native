@@ -154,6 +154,60 @@ describe("summarizeDashboardAnnotations", () => {
     );
   });
 
+  it("orders dates by when they happened in their own zones", () => {
+    const tokyo = ["09:00", "10:00", "11:00", "12:00", "13:00"].map((time) =>
+      keyDate("2026-10-14", `Tokyo session ${time}`, {
+        time,
+        timeZone: "Asia/Tokyo",
+      }),
+    );
+    const newYork = keyDate("2026-10-14", "New York session", {
+      time: "08:00",
+      timeZone: "America/New_York",
+    });
+
+    const summary = summarizeDashboardAnnotations(
+      "dash",
+      { panels },
+      [{ ...launches, dates: [...tokyo, newYork] }],
+      [],
+    );
+
+    expect(
+      summary.keyDateSets[0].recentDates?.map(({ label }) => label),
+    ).toEqual([
+      "New York session",
+      "Tokyo session 13:00",
+      "Tokyo session 12:00",
+      "Tokyo session 11:00",
+      "Tokyo session 10:00",
+    ]);
+  });
+
+  it("counts a date without a time from midnight UTC", () => {
+    const summary = summarizeDashboardAnnotations(
+      "dash",
+      { panels },
+      [
+        {
+          ...launches,
+          dates: [
+            keyDate("2026-10-13", "Late evening in Los Angeles", {
+              time: "20:00",
+              timeZone: "America/Los_Angeles",
+            }),
+            keyDate("2026-10-14", "All day"),
+          ],
+        },
+      ],
+      [],
+    );
+
+    expect(
+      summary.keyDateSets[0].recentDates?.map(({ label }) => label),
+    ).toEqual(["Late evening in Los Angeles", "All day"]);
+  });
+
   it("lists the notes that reach this dashboard by chart, and where it hides them", () => {
     const summary = summarizeDashboardAnnotations(
       "dash",

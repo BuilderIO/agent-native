@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   dashboardAnnotationScope: vi.fn(),
 }));
 const reads = vi.hoisted(() => ({
-  readDashboardConfigForAnnotations: vi.fn(),
+  readDashboardForPlacement: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -67,9 +67,11 @@ describe("key-date actions", () => {
   });
 
   it("says when the dashboard on screen hides the new date's set", async () => {
-    reads.readDashboardConfigForAnnotations.mockResolvedValue({
-      panels: [{ id: "signups", title: "Signups", chartType: "line" }],
-      annotations: { hiddenKeyDateSets: ["launches"] },
+    reads.readDashboardForPlacement.mockResolvedValue({
+      config: {
+        panels: [{ id: "signups", title: "Signups", chartType: "line" }],
+        annotations: { hiddenKeyDateSets: ["launches"] },
+      },
     });
     mocks.saveKeyDate.mockResolvedValueOnce({
       id: "date-1",
@@ -92,6 +94,25 @@ describe("key-date actions", () => {
       dashboardId: "dash",
       setShown: false,
       hint: expect.stringContaining("hides the date's set"),
+    });
+  });
+
+  it("saves the date even when the dashboard on screen can't draw it", async () => {
+    reads.readDashboardForPlacement.mockResolvedValue({
+      unavailable: "Only SQL dashboards draw key dates and data notes.",
+    });
+
+    const result = await actions.save.run({
+      setName: "Launches",
+      date: "2026-10-14",
+      label: "Product Hunt live",
+      dashboardId: "explore",
+    });
+
+    expect(mocks.saveKeyDate).toHaveBeenCalled();
+    expect(result.dashboard).toEqual({
+      dashboardId: "explore",
+      hint: "Only SQL dashboards draw key dates and data notes.",
     });
   });
 

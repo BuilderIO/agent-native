@@ -13,6 +13,7 @@ import {
   type KeyDate,
   type KeyDateSet,
 } from "../../shared/key-dates.js";
+import { panelEventInstant } from "../../shared/panel-events.js";
 
 /** Latest dates listed per set; `dateCount` says how many there are, and `list-key-dates` has them all. */
 export const SUMMARY_DATES_PER_SET = 5;
@@ -42,6 +43,8 @@ export interface DataNoteSummary {
 export interface DashboardAnnotationSummary {
   keyDateSets: KeyDateSetSummary[];
   dataNotes: DataNoteSummary[];
+  /** Set when they are another organization's, which the caller can't change. */
+  editable?: false;
 }
 
 /** Why the summary is missing; never confuse it with a dashboard that has no annotations. */
@@ -84,8 +87,13 @@ function panelsShowingNote(
   );
 }
 
-const newestFirst = (a: KeyDate, b: KeyDate) =>
-  `${b.date} ${b.time ?? ""}`.localeCompare(`${a.date} ${a.time ?? ""}`);
+/** By the instant each happened in its own zone; a date without a time counts from midnight UTC. */
+function newestFirst(dates: readonly KeyDate[]): KeyDate[] {
+  return dates
+    .map((date) => ({ date, at: panelEventInstant(date) }))
+    .sort((a, b) => b.at - a.at)
+    .map(({ date }) => date);
+}
 
 /** The key-date sets and data notes a dashboard's charts draw, for an agent explaining them. */
 export function summarizeDashboardAnnotations(
@@ -104,8 +112,7 @@ export function summarizeDashboardAnnotations(
       name: set.name,
       shown: !hiddenSets.has(set.id),
       dateCount: set.dates.length,
-      recentDates: [...set.dates]
-        .sort(newestFirst)
+      recentDates: newestFirst(set.dates)
         .slice(0, SUMMARY_DATES_PER_SET)
         .map(({ date, time, timeZone, label }) => ({
           date,

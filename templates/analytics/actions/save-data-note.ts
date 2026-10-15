@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { readDashboardConfigForAnnotations } from "../server/lib/dashboard-annotation-reads.js";
+import { readDashboardForPlacement } from "../server/lib/dashboard-annotation-reads.js";
 import { dataNotePlacement } from "../server/lib/dashboard-annotation-summary.js";
 import {
   requireDataNoteScope,
@@ -94,12 +94,17 @@ export default defineAction({
   }),
   run: async ({ dashboardId, ...input }) => {
     const scope = requireDataNoteScope();
-    const config = dashboardId
-      ? await readDashboardConfigForAnnotations(dashboardId, scope)
+    const check = dashboardId
+      ? await readDashboardForPlacement(dashboardId, scope)
       : undefined;
     const note = await saveDataNote(scope, input);
-    return dashboardId && config
-      ? { ...note, dashboard: dataNotePlacement(note, dashboardId, config) }
-      : note;
+    if (!dashboardId || !check) return note;
+    return {
+      ...note,
+      dashboard:
+        "config" in check
+          ? dataNotePlacement(note, dashboardId, check.config)
+          : { dashboardId, hint: check.unavailable },
+    };
   },
 });

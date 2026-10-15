@@ -16,6 +16,7 @@ import {
 } from "../server/lib/agent-readable-resource-context";
 import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
 import { loadDashboardAnnotationSummary } from "../server/lib/dashboard-annotation-reads";
+import { storedDashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import {
   getDashboard,
@@ -137,7 +138,11 @@ export default defineAction({
         return buildDashboardSeedAgentContext(args.id, config, {
           ...detail,
           annotationSummary: detail.forAgent
-            ? await loadDashboardAnnotationSummary(ctx, args.id, config)
+            ? await loadDashboardAnnotationSummary(
+                { scope: ctx, editable: true },
+                args.id,
+                config,
+              )
             : undefined,
         });
       }
@@ -150,12 +155,13 @@ export default defineAction({
       config: repairKnownFirstPartyDashboardQueries(args.id, dash.config)
         .config,
     };
+    const annotationScope = storedDashboardAnnotationScope(dashboard, ctx);
     const context = buildDashboardAgentContext(dashboard, {
       ...detail,
       annotationSummary:
         detail.forAgent && !args.reviewPreview
           ? await loadDashboardAnnotationSummary(
-              ctx,
+              annotationScope,
               args.id,
               dashboard.config as Record<string, unknown>,
             )
@@ -167,10 +173,7 @@ export default defineAction({
     return {
       ...context,
       keyDates: keyDateEvents(
-        await listKeyDateSets({
-          email: dashboard.ownerEmail,
-          orgId: dashboard.orgId,
-        }),
+        await listKeyDateSets(annotationScope.scope),
         dashboard.config.annotations as DashboardAnnotations | undefined,
       ),
     };

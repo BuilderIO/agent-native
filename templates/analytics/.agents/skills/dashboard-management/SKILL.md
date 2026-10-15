@@ -332,13 +332,16 @@ Pass the open dashboard's id as `dashboardId` to `save-key-date` or
 lists the charts it shows on in `shownOn`; a key date says only whether the
 dashboard shows its set, in `setShown`. Neither promises a mark: a time chart
 draws one only over the dates it plots. When `hint` says it shows on none, fix
-the event names, or tell the person why. A set or note the dashboard hides is
-that dashboard's choice, so ask before showing it.
+the event names, or tell the person why. A `hint` with neither `shownOn` nor
+`setShown` means the dashboard can't draw it at all (an Explorer dashboard, or
+another organization's); it is still saved. A set or note the dashboard hides
+is that dashboard's choice, so ask before showing it.
 
 To explain a spike or dip, read `keyDateSets` and `dataNotes` from
 `get-sql-dashboard` or `view-screen` first and cite what they say. If
 `annotationsError` is there instead, say the markers could not be read rather
-than that there are none.
+than that there are none. `editable: false` means they are the owner
+organization's, so cite them but don't change them.
 
 ## Reusable Native Dashboard Patterns
 

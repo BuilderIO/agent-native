@@ -590,13 +590,33 @@ describe("get-sql-dashboard agent reads", () => {
 
     expect(mocks.loadDashboardAnnotationSummary).toHaveBeenCalledTimes(1);
     expect(mocks.loadDashboardAnnotationSummary).toHaveBeenCalledWith(
-      { email: "alice@example.com", orgId: "org-a" },
+      { scope: { email: "alice@example.com", orgId: "org-a" }, editable: true },
       "weekly",
       expect.objectContaining({ panels: dashboard.config.panels }),
     );
     expect(forAgent).toMatchObject(summary);
     expect(forUi).not.toHaveProperty("keyDateSets");
     expect(forUi).not.toHaveProperty("dataNotes");
+  });
+
+  it("reads a shared dashboard's key dates and notes from its owner's organization", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      ...savedDashboard([sqlPanel("failures")]),
+      ownerEmail: "carol@example.com",
+      orgId: "org-b",
+      role: "viewer",
+    });
+
+    await getSqlDashboard.run({ id: "weekly" }, agent);
+
+    expect(mocks.loadDashboardAnnotationSummary).toHaveBeenCalledWith(
+      {
+        scope: { email: "carol@example.com", orgId: "org-b" },
+        editable: false,
+      },
+      "weekly",
+      expect.anything(),
+    );
   });
 
   it("says when key dates and data notes could not be read instead of returning none", async () => {

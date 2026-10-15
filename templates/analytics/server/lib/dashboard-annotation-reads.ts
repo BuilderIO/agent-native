@@ -3,6 +3,10 @@ import { fail } from "@agent-native/core/action";
 import type { AnnotationScope } from "./annotation-scope.js";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair.js";
 import {
+  storedDashboardAnnotationScope,
+  type DashboardAnnotationScope,
+} from "./dashboard-annotation-scope.js";
+import {
   summarizeDashboardAnnotations,
   type DashboardAnnotationSummary,
   type DashboardAnnotationsUnreadable,
@@ -12,9 +16,9 @@ import { getDashboard } from "./dashboards-store.js";
 import { listDataNotes } from "./data-notes-store.js";
 import { listKeyDateSets } from "./key-dates-store.js";
 
-/** The caller's key-date sets and data notes as they apply to one dashboard. */
+/** The key-date sets and data notes one dashboard draws, read from the scope it draws them from. */
 export async function loadDashboardAnnotationSummary(
-  scope: AnnotationScope,
+  { scope, editable }: DashboardAnnotationScope,
   dashboardId: string,
   config: Record<string, unknown>,
 ): Promise<DashboardAnnotationSummary | DashboardAnnotationsUnreadable> {
@@ -23,7 +27,13 @@ export async function loadDashboardAnnotationSummary(
       listKeyDateSets(scope),
       listDataNotes(scope),
     ]);
-    return summarizeDashboardAnnotations(dashboardId, config, sets, notes);
+    const summary = summarizeDashboardAnnotations(
+      dashboardId,
+      config,
+      sets,
+      notes,
+    );
+    return editable ? summary : { ...summary, editable: false };
   } catch (error) {
     return {
       annotationsError: `Key dates and data notes could not be read: ${error instanceof Error ? error.message : String(error)}`,
@@ -31,21 +41,46 @@ export async function loadDashboardAnnotationSummary(
   }
 }
 
-/** The config a dashboard's charts render, for checking where a marker lands. */
-export async function readDashboardConfigForAnnotations(
+/** The config to check a marker the caller saves against, or why the dashboard can't draw it. */
+export type DashboardPlacementCheck =
+  | { config: Record<string, unknown> }
+  | { unavailable: string };
+
+/**
+ * Where a marker the caller saves could draw on one dashboard. Fails, before
+ * anything is saved, only for a dashboard the caller can't open: one that
+ * can't draw the marker still lets it save.
+ */
+export async function readDashboardForPlacement(
   dashboardId: string,
-  scope: AnnotationScope,
-): Promise<Record<string, unknown>> {
-  const dashboard = await getDashboard(dashboardId, scope);
-  const config =
-    dashboard?.kind === "sql"
-      ? (dashboard.config as Record<string, unknown>)
-      : loadDashboardSeed(dashboardId);
+  caller: AnnotationScope,
+): Promise<DashboardPlacementCheck> {
+  const dashboard = await getDashboard(dashboardId, caller);
+  if (dashboard && dashboard.kind !== "sql") {
+    return {
+      unavailable:
+        "Only SQL dashboards draw key dates and data notes, and this is an Explorer dashboard.",
+    };
+  }
+  if (
+    dashboard &&
+    !storedDashboardAnnotationScope(dashboard, caller).editable
+  ) {
+    return {
+      unavailable:
+        "This dashboard is another organization's and draws that organization's key dates and data notes, not yours, so it doesn't show this one.",
+    };
+  }
+  const config = dashboard
+    ? (dashboard.config as Record<string, unknown>)
+    : loadDashboardSeed(dashboardId);
   if (!config) {
     fail(`Dashboard "${dashboardId}" was not found.`, {
       errorCode: "dashboard_not_found",
       statusCode: 404,
     });
   }
-  return repairKnownFirstPartyDashboardQueries(dashboardId, config).config;
+  return {
+    config: repairKnownFirstPartyDashboardQueries(dashboardId, config).config,
+  };
 }
