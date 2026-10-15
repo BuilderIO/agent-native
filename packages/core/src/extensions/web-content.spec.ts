@@ -92,9 +92,15 @@ describe("processWebContent", () => {
   it.each(["links", "metadata"] as const)(
     "preserves the raw body when HTML parser rejection leaves %s mode without extraction",
     async (responseMode) => {
-      const { processWebContent, formatWebContentResult } = await import(
-        "./web-content.js"
-      );
+      vi.doMock("linkedom/worker", () => ({
+        parseHTML: () => {
+          throw new Error(
+            "Cannot destructure property 'firstElementChild' of 'documentElement' as it is null.",
+          );
+        },
+      }));
+      const { processWebContent, formatWebContentResult } =
+        await import("./web-content.js");
 
       const result = await processWebContent({
         url: "https://example.com/",
@@ -111,9 +117,15 @@ describe("processWebContent", () => {
   it.each(["links", "metadata"] as const)(
     "truncates the structured-mode fallback body for %s when maxChars is set",
     async (responseMode) => {
-      const { processWebContent, formatWebContentResult } = await import(
-        "./web-content.js"
-      );
+      vi.doMock("linkedom/worker", () => ({
+        parseHTML: () => {
+          throw new Error(
+            "Cannot destructure property 'firstElementChild' of 'documentElement' as it is null.",
+          );
+        },
+      }));
+      const { processWebContent, formatWebContentResult } =
+        await import("./web-content.js");
       const body = `Access denied ${"x".repeat(40)}`;
       const maxChars = 20;
 

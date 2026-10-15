@@ -178,7 +178,9 @@ export async function processWebContent(
   const shouldExtract =
     html &&
     !emptyHtmlBody &&
-    (mode !== "raw" || hasWebContentSearch(search) || options.saveContentFormat);
+    (mode !== "raw" ||
+      hasWebContentSearch(search) ||
+      options.saveContentFormat);
   const extracted = shouldExtract
     ? await safeExtractHtml(
         options.body,
