@@ -149,8 +149,8 @@ export function useDataNoteLayout(
         bands
           .filter(
             (other) =>
-              other.band.startIndex <= band.endIndex &&
-              band.startIndex <= other.band.endIndex,
+              band.endIndex >= other.band.startIndex &&
+              other.band.endIndex >= band.startIndex,
           )
           .map((other) => other.row),
       );
