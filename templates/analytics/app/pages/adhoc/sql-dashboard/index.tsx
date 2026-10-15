@@ -2660,7 +2660,10 @@ function SqlDashboardPageContent({
     </DashboardReportCaptureSurface>
   );
   return (
-    <DashboardKeyDatesProvider annotations={dashboard.annotations}>
+    <DashboardKeyDatesProvider
+      dashboardId={dashboardId}
+      annotations={dashboard.annotations}
+    >
       {content}
     </DashboardKeyDatesProvider>
   );

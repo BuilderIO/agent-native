@@ -22,13 +22,14 @@ function keyDatesData(sets: unknown[]) {
 }
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: (name: string) =>
+  useActionQuery: vi.fn((name: string) =>
     name !== "list-key-dates"
       ? { data: undefined, isError: false }
       : {
           data: mocks.keyDateSets && keyDatesData(mocks.keyDateSets),
           isError: mocks.keyDatesFailed,
         },
+  ),
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
@@ -66,6 +67,7 @@ vi.mock("@shared/panel-events", async (importOriginal) => {
   return { ...actual, resolvePanelEvents: vi.fn(actual.resolvePanelEvents) };
 });
 
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { resolvePanelEvents } from "@shared/panel-events";
 
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
@@ -338,6 +340,21 @@ describe("SqlChart key-date markers", () => {
 
       expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(2);
       expect(resolvePanelEvents).toHaveBeenCalledTimes(1);
+    });
+
+    it("loads the key dates of the dashboard it draws, not the viewer's", async () => {
+      await act(async () => {
+        root.render(
+          <DashboardKeyDatesProvider dashboardId="shared-dashboard">
+            <SqlChart panel={unmarked("line")} />
+          </DashboardKeyDatesProvider>,
+        );
+      });
+      expect(useActionQuery).toHaveBeenCalledWith(
+        "list-key-dates",
+        { dashboardId: "shared-dashboard" },
+        expect.anything(),
+      );
     });
 
     it("stays quiet when there are no key dates", async () => {

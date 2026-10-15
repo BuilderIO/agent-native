@@ -28,18 +28,26 @@ const KeyDatesContext = createContext<DashboardKeyDatesValue>({
   keyDatesFailed: false,
 });
 
-/** Draws the organization's key dates, minus the sets this dashboard hides, on every time chart inside. */
+/**
+ * Draws the dashboard's key dates, minus the sets it hides, on every time
+ * chart inside. They are its owner organization's, which differ from the
+ * viewer's when it was shared from another organization.
+ */
 export function DashboardKeyDatesProvider({
+  dashboardId,
   annotations,
   children,
 }: {
+  dashboardId?: string | null;
   annotations?: DashboardAnnotations;
   children: ReactNode;
 }) {
   const t = useT();
-  const { data, isError } = useActionQuery("list-key-dates", undefined, {
-    staleTime: 60_000,
-  });
+  const { data, isError } = useActionQuery(
+    "list-key-dates",
+    dashboardId ? { dashboardId } : undefined,
+    { staleTime: 60_000 },
+  );
   // A failed refresh keeps the last list in `data`; it still has to say so.
   const keyDatesFailed = isError;
   useEffect(() => {

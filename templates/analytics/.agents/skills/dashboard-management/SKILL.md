@@ -218,7 +218,8 @@ for this. They live in two places:
 - **Key-date sets** hold moments that matter across charts, such as Launches or
   Product changes. A set belongs to the organization (to the user when there is
   no organization) and draws on every time chart of every dashboard. Read sets
-  with `list-key-dates`; add or edit a date with `save-key-date` (name the set
+  with `list-key-dates`, passing `dashboardId` for the ones a dashboard draws;
+  add or edit a date with `save-key-date` (name the set
   with `setName` and it is created if missing); rename or create a set with
   `save-key-date-set`; remove with `delete-key-date` or `delete-key-date-set`.
   Prefer a set to copying one date into many panels.
@@ -259,10 +260,11 @@ The patch replaces the whole list, so include the sets already hidden.
   badge, and label text, including on combo charts. Labels sit in rows above the
   plot: same-day labels join, a long one wraps at words, and days that find no
   room are counted, not cut.
-- Human Review previews of a dashboard draw the key dates of the dashboard's
-  organization, minus the sets it hides, even when the reviewer is in another
-  organization: `get-sql-dashboard` with `reviewPreview` returns them as
-  `keyDates`.
+- A dashboard draws the key dates of its owner's organization, minus the sets
+  it hides, even for a viewer or reviewer in another organization. There
+  `list-key-dates` returns `editable: false`: a date you save lands in your
+  own organization's sets, not on that dashboard. Human Review previews get
+  them from `get-sql-dashboard` with `reviewPreview` as `keyDates`.
 
 ## Reusable Native Dashboard Patterns
 
