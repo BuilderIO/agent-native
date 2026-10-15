@@ -66,13 +66,13 @@ import {
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
 import { useExtensionIframeMetaCsp } from "./iframe-display-sources.js";
-import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 import {
   announceOpenUrlSupport,
   EXTENSION_OPEN_URL_MESSAGE,
   openExtensionLink,
   readOpenUrlToken,
 } from "./open-extension-link.js";
+import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -785,7 +785,11 @@ export function ExtensionViewer({
       if (message.type === "agent-native-extension-binding") {
         if (bindingLatchedRef.current) return;
         bindingLatchedRef.current = true;
-        openUrlTokenRef.current = readOpenUrlToken(message);
+        // Inside an MCP chat embed this page is itself sandboxed, so its
+        // window.open can't escape either; leave links native there.
+        openUrlTokenRef.current = isEmbedMcpChatBridgeActive()
+          ? null
+          : readOpenUrlToken(message);
         if (openUrlTokenRef.current) announceOpenUrlSupport(event.source);
         const binding = message.binding ?? {};
         const role: ExtensionBridgeRole =
@@ -1086,7 +1090,6 @@ export function ExtensionViewer({
     setIframeReady(false);
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
-    openUrlTokenRef.current = null;
   }, [extensionId, extension?.updatedAt, refreshKey]);
 
   const startRename = useCallback(() => {

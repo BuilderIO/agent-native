@@ -617,17 +617,14 @@ export function buildExtensionHtml(
     var _extensionBinding = ${bindingJson};
     // Proves an open-url request comes from this shell document, not from a
     // page the iframe later navigated to. Announced with the binding below.
-    var _openUrlToken = (function() {
-      try {
-        var bytes = new Uint8Array(16);
-        crypto.getRandomValues(bytes);
-        return Array.prototype.map.call(bytes, function(b) {
-          return ('0' + b.toString(16)).slice(-2);
-        }).join('');
-      } catch (_) {
-        return String(Math.random()).slice(2) + String(Date.now());
-      }
-    })();
+    // Without secure randomness there is no token, the host never offers to
+    // open links, and links keep their native behavior.
+    var _openUrlToken =
+      window.crypto && typeof window.crypto.getRandomValues === 'function'
+        ? Array.prototype.map.call(window.crypto.getRandomValues(new Uint8Array(16)), function(b) {
+            return ('0' + b.toString(16)).slice(-2);
+          }).join('')
+        : '';
     window.extensionBinding = _extensionBinding;
     // Legacy alias for extension bodies authored before the rename.
     window.toolBinding = _extensionBinding;
@@ -648,13 +645,53 @@ export function buildExtensionHtml(
         '*',
       );
     } catch (_) {}
-    // Listen for the host's reply here, before extension content can delay it.
-    var _hostOpensLinks = false;
-    window.addEventListener('message', function(event) {
-      if (event.source !== window.parent) return;
-      var msg = event.data;
-      if (msg && msg.type === 'agent-native-extension-open-url-ready') _hostOpensLinks = true;
-    });
+    // A tab opened from this sandboxed iframe inherits the sandbox (an opaque
+    // origin with no cookies), so apps like HubSpot render blank. Once the host
+    // says it can, hand new-tab web links to it: it opens them unsandboxed with
+    // noopener, so the new tab gets no handle on the host page. Without that
+    // reply (no host, a standalone /render, or no token) links stay native, and
+    // window.open is never touched. Set up here, before extension content runs,
+    // so the reply can't be missed and extension globals can't interfere.
+    (function(token) {
+      if (!token) return;
+      var hostOpensLinks = false;
+      window.addEventListener('message', function(event) {
+        if (event.source !== window.parent) return;
+        var msg = event.data;
+        if (msg && msg.type === 'agent-native-extension-open-url-ready') hostOpensLinks = true;
+      });
+      function linkOf(e) {
+        var path = typeof e.composedPath === 'function' ? e.composedPath() : [e.target];
+        for (var i = 0; i < path.length; i++) {
+          var node = path[i];
+          if ((node instanceof HTMLAnchorElement || node instanceof HTMLAreaElement) && node.hasAttribute('href')) {
+            return node;
+          }
+        }
+        return null;
+      }
+      function targetOf(link) {
+        if (link.hasAttribute('target')) return link.getAttribute('target');
+        var base = document.querySelector('base[target]');
+        return base ? base.getAttribute('target') : '';
+      }
+      function route(e) {
+        if (!hostOpensLinks || e.defaultPrevented) return;
+        var link = linkOf(e);
+        if (!link || link.hasAttribute('download')) return;
+        if (link.protocol !== 'http:' && link.protocol !== 'https:') return;
+        var newTab = e.type === 'auxclick'
+          ? e.button === 1
+          : e.button === 0 && !e.altKey &&
+            (e.metaKey || e.ctrlKey || e.shiftKey || /^_blank$/i.test(targetOf(link)));
+        if (!newTab) return;
+        e.preventDefault();
+        window.parent.postMessage({ type: 'agent-native-extension-open-url', url: link.href, token: token }, '*');
+      }
+      // On window, so extension handlers delegated on document run first.
+      window.addEventListener('click', route);
+      window.addEventListener('auxclick', route);
+    })(_openUrlToken);
     // SECURITY: when the viewer is not the author of this extension, emit a
     // clear console warning. The bridge currently runs every helper with the
     // viewer's session — a malicious shared extension can call any action,
@@ -1137,59 +1174,6 @@ export function buildExtensionHtml(
 	        }
 	      }
 	    });
-
-	    // A tab opened from this sandboxed iframe would inherit the sandbox (an
-	    // opaque origin with no cookies), so apps like HubSpot render blank. Once
-	    // the host says it can, ask it to open web links instead: it opens them
-	    // unsandboxed with noopener, so the new tab gets no handle on the host
-	    // page. Without a host (a standalone /render), links behave as before.
-	    // _hostOpensLinks is set next to the binding announcement above.
-	    function _webUrl(href) {
-	      try {
-	        var url = new URL(String(href), document.baseURI);
-	        return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
-	      } catch (e) {
-	        return null;
-	      }
-	    }
-	    function _opensNewTab(target) {
-	      if (!target) return false;
-	      if (target === '_blank') return true;
-	      if (target.charAt(0) === '_') return false;
-	      // A named target opens a new tab unless it names a frame in this page.
-	      try {
-	        return !document.querySelector('iframe[name="' + CSS.escape(target) + '"]');
-	      } catch (e) {
-	        return false;
-	      }
-	    }
-	    function _openInHost(url) {
-	      window.parent.postMessage({ type: 'agent-native-extension-open-url', url: url, token: _openUrlToken }, '*');
-	    }
-	    function _routeLinkClick(e) {
-	      if (!_hostOpensLinks || e.defaultPrevented) return;
-	      var el = e.target && e.target.closest ? e.target.closest('a[href]') : null;
-	      if (!el) return;
-	      var newTab = e.type === 'auxclick'
-	        ? e.button === 1
-	        : _opensNewTab(el.getAttribute('target') || '') || e.metaKey || e.ctrlKey || e.shiftKey;
-	      if (!newTab) return;
-	      var url = _webUrl(el.href);
-	      if (!url) return;
-	      e.preventDefault();
-	      _openInHost(url);
-	    }
-	    document.addEventListener('click', _routeLinkClick);
-	    document.addEventListener('auxclick', _routeLinkClick);
-	    var _origWindowOpen = window.open;
-	    window.open = function(href, target, features) {
-	      var url = !_hostOpensLinks || href === undefined || href === '' ? null : _webUrl(href);
-	      if (!url || (target !== undefined && target !== '' && !_opensNewTab(String(target)))) {
-	        return _origWindowOpen.apply(window, arguments);
-	      }
-	      _openInHost(url);
-	      return null;
-	    };
 
 	    document.addEventListener('keydown', function(e) {
 	      if ((e.metaKey || e.ctrlKey) && !e.altKey) {

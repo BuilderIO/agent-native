@@ -138,30 +138,20 @@ describe("buildExtensionHtml", () => {
     expect(html).not.toContain("clientSecret");
   });
 
-  it("asks the host to open new-tab web links instead of opening sandboxed popups", () => {
-    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+  it("sets up link routing before extension content can run", () => {
+    const html = buildExtensionHtml(
+      "<main id=extension-content></main>",
+      ":root{}",
+      false,
+      "extension-1",
+    );
+    const content = html.indexOf("<main id=extension-content>");
 
-    // The token is announced with the binding, before extension content runs.
+    // Behavior is covered in toolkit's extension-link-routing.spec.ts.
     expect(html.indexOf("openUrlToken: _openUrlToken")).toBeGreaterThan(-1);
-    expect(html.indexOf("openUrlToken: _openUrlToken")).toBeLessThan(
-      html.indexOf("<div/>"),
-    );
-    // So is the listener for the host's reply.
-    expect(
-      html.indexOf("msg.type === 'agent-native-extension-open-url-ready'"),
-    ).toBeLessThan(html.indexOf("<div/>"));
-    expect(html).toContain(
-      "window.parent.postMessage({ type: 'agent-native-extension-open-url', url: url, token: _openUrlToken }, '*');",
-    );
-    expect(html).toContain(
-      "if (!_hostOpensLinks || e.defaultPrevented) return;",
-    );
-    expect(html).toContain(
-      "document.addEventListener('auxclick', _routeLinkClick);",
-    );
-    expect(html).toContain(
-      "return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;",
-    );
+    expect(html.indexOf("openUrlToken: _openUrlToken")).toBeLessThan(content);
+    expect(html.indexOf("})(_openUrlToken);")).toBeGreaterThan(-1);
+    expect(html.indexOf("})(_openUrlToken);")).toBeLessThan(content);
   });
 
   it("exposes a chat bridge helper to extension code", () => {

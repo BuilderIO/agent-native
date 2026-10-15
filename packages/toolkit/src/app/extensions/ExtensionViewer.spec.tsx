@@ -127,6 +127,7 @@ describe("ExtensionViewer MCP embeds", () => {
     act(() => root.unmount());
     queryClient.clear();
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -211,6 +212,41 @@ describe("ExtensionViewer MCP embeds", () => {
     post({ type: "agent-native-extension-open-url", url, token });
     expect(open).toHaveBeenCalledTimes(1);
     expect(open).toHaveBeenCalledWith(url, "_blank", "noopener,noreferrer");
+  });
+
+  it("leaves links native inside MCP chat embeds, where the host can't escape the sandbox either", async () => {
+    embedState.active = true;
+    document.body.appendChild(container);
+    const iframe = await renderViewer();
+    const frameWindow = iframe.contentWindow as Window;
+    const replies: unknown[] = [];
+    vi.spyOn(frameWindow, "postMessage").mockImplementation((data: unknown) => {
+      replies.push(data);
+    });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const token = "d".repeat(32);
+    const post = (data: unknown) =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", { data, source: frameWindow }),
+        );
+      });
+
+    post({
+      type: "agent-native-extension-binding",
+      binding: { role: "viewer" },
+      openUrlToken: token,
+    });
+    post({
+      type: "agent-native-extension-open-url",
+      url: "https://example.com/",
+      token,
+    });
+
+    expect(replies).not.toContainEqual({
+      type: "agent-native-extension-open-url-ready",
+    });
+    expect(open).not.toHaveBeenCalled();
   });
 
   it("uses sandboxed srcdoc inside MCP chat embeds to avoid a blocked nested route frame", async () => {

@@ -43,13 +43,13 @@ import {
   type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
-import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 import {
   announceOpenUrlSupport,
   EXTENSION_OPEN_URL_MESSAGE,
   openExtensionLink,
   readOpenUrlToken,
 } from "./open-extension-link.js";
+import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 interface Extension {
   id: string;
@@ -208,9 +208,8 @@ export function EmbeddedExtension({
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
-    openUrlTokenRef.current = null;
     readyFiredRef.current = false;
-  }, [extensionId, extension?.updatedAt]);
+  }, [extensionId, slotId, extension?.updatedAt]);
 
   const appearance = useAppearance();
 

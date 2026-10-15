@@ -43,6 +43,7 @@ describe("InlineExtensionFrame", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -251,6 +252,54 @@ describe("InlineExtensionFrame", () => {
       submit: true,
       openSidebar: true,
     });
+  });
+
+  it("keeps opening links with the live document's token after a re-render that doesn't reload it", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const extension = {
+      id: "inline-links",
+      mode: "transient" as const,
+      name: "Links",
+      content: '<a href="https://app.hubspot.com/x" target="_blank">x</a>',
+    };
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame extension={extension} initialHeight={200} />,
+      );
+    });
+    const iframe = container.querySelector("iframe");
+    const frameWindow = iframe?.contentWindow as Window;
+    const post = (data: unknown) =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", { source: frameWindow, data }),
+        );
+      });
+    const token = "c".repeat(32);
+    post({
+      type: "agent-native-extension-binding",
+      binding: { role: "owner", isAuthor: true },
+      openUrlToken: token,
+    });
+
+    // initialHeight resets the binding latch, but the iframe keeps its document.
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame extension={extension} initialHeight={320} />,
+      );
+    });
+    expect(container.querySelector("iframe")?.contentWindow).toBe(frameWindow);
+
+    post({
+      type: "agent-native-extension-open-url",
+      url: "https://app.hubspot.com/x",
+      token,
+    });
+    expect(open).toHaveBeenCalledWith(
+      "https://app.hubspot.com/x",
+      "_blank",
+      "noopener,noreferrer",
+    );
   });
 
   it("dispatches passive output events from generated UI", async () => {
