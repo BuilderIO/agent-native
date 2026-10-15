@@ -2317,6 +2317,17 @@ describe("DeckEditor generation signal wiring", () => {
       (mocks.deck.generationContext as Record<string, unknown>)
         .generationFailureAttemptId,
     ).toBeNull();
+    Object.assign(mocks.deck.generationContext, {
+      generationFailureCode: "no_output",
+    });
+    act(publishAgentGeneratingChange);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "deckEditor.tryAgain",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(NEW_DECK_GENERATION_START_TIMEOUT_MS);

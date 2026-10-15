@@ -177,6 +177,7 @@ import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
   getNewDeckGenerationRecoveryState,
+  NEW_DECK_GENERATION_START_TIMEOUT_MS,
   shouldClearPartialGenerationFailure,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
@@ -689,6 +690,8 @@ export default function DeckEditor() {
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
     useState(false);
+  const [retryAwaitingStartAttemptId, setRetryAwaitingStartAttemptId] =
+    useState<string | null>(null);
   const questionFlowTargetTabIdRef = useRef<string | null>(null);
   const submitQuestionContinuation = useCallback(
     ({ message, context }: { message: string; context: string }) => {
@@ -1069,10 +1072,6 @@ export default function DeckEditor() {
       ? { generationAttemptId: generationContext.generationAttemptId }
       : {}),
   };
-  const generationRetryPending =
-    retryEmptyGenerationPending ||
-    (typeof generationContext?.generationFailureAttemptId === "string" &&
-      generationContext.generationFailureAttemptId !== generationAttemptId);
   useEffect(() => {
     if (
       !isRestoringPromptBeforeLeavingGeneration ||
@@ -1397,7 +1396,8 @@ export default function DeckEditor() {
       !generationContext ||
       !generationLifecycleOwnedByEditor ||
       !canEdit ||
-      retryEmptyGenerationInFlightRef.current
+      retryEmptyGenerationInFlightRef.current ||
+      retryAwaitingStartAttemptId === generationAttemptId
     ) {
       return;
     }
@@ -1650,6 +1650,7 @@ export default function DeckEditor() {
         toast.error(t("settings.saveFailed"));
         return;
       }
+      setRetryAwaitingStartAttemptId(retryAttemptId);
       trackEvent("generation_started", {
         app_name: "slides",
         template_name: "slides",
@@ -1688,6 +1689,7 @@ export default function DeckEditor() {
     generationLifecycleOwnedByEditor,
     id,
     retryRecoveryStorageKey,
+    retryAwaitingStartAttemptId,
     searchParams,
     setSearchParams,
     submitGenerationAttemptAndConfirm,
@@ -2316,6 +2318,44 @@ export default function DeckEditor() {
       waitingOnQuestions: waitingOnNewDeckQuestions,
       slideCount,
     });
+  useEffect(() => {
+    if (retryAwaitingStartAttemptId !== generationAttemptId) return;
+    if (
+      !attemptObservedRun &&
+      !newDeckGenerationSignal &&
+      !attemptRunError &&
+      !attemptTimedOut &&
+      !attemptStopReason
+    ) {
+      return;
+    }
+    setRetryAwaitingStartAttemptId((current) =>
+      current === generationAttemptId ? null : current,
+    );
+  }, [
+    attemptObservedRun,
+    attemptRunError,
+    attemptStopReason,
+    attemptTimedOut,
+    generationAttemptId,
+    newDeckGenerationSignal,
+    retryAwaitingStartAttemptId,
+  ]);
+  useEffect(() => {
+    if (!retryAwaitingStartAttemptId) return;
+    const attemptId = retryAwaitingStartAttemptId;
+    const timeout = window.setTimeout(() => {
+      setRetryAwaitingStartAttemptId((current) =>
+        current === attemptId ? null : current,
+      );
+    }, NEW_DECK_GENERATION_START_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [retryAwaitingStartAttemptId]);
+  const generationRetryPending =
+    retryEmptyGenerationPending ||
+    retryAwaitingStartAttemptId === generationAttemptId ||
+    (typeof generationContext?.generationFailureAttemptId === "string" &&
+      generationContext.generationFailureAttemptId !== generationAttemptId);
   const generationState = {
     slideCount,
     hasGenerationContext: generationContext !== null,
