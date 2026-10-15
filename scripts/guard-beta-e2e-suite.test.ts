@@ -12,6 +12,8 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { parse } from "yaml";
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -36,6 +38,26 @@ const GUARDED_FILES = [
 ];
 
 type Files = Record<string, string>;
+type WorkflowStep = {
+  name?: unknown;
+  uses?: unknown;
+  if?: unknown;
+  run?: unknown;
+  env?: Record<string, unknown>;
+  with?: Record<string, unknown>;
+};
+type WorkflowJob = {
+  if?: unknown;
+  env?: Record<string, unknown>;
+  steps?: WorkflowStep[];
+};
+type ParsedWorkflow = {
+  on?: Record<
+    string,
+    { inputs?: Record<string, { required?: unknown; default?: unknown }> }
+  >;
+  jobs?: Record<string, WorkflowJob>;
+};
 
 function runGuard(mutate: (files: Files) => void = () => {}): {
   status: number | null;
@@ -187,6 +209,147 @@ describe("guard:beta-e2e-suite", () => {
           "needs: discover",
         ),
       /authed after the gate job/,
+    );
+  });
+
+  it("keeps saved-thread recovery opt-in and validates its manual request", () => {
+    const workflow = parse(
+      readFileSync(
+        path.join(repoRoot, ".github/workflows/beta-e2e.yml"),
+        "utf8",
+      ),
+    ) as ParsedWorkflow;
+    const dispatchInputs = workflow.on?.workflow_dispatch?.inputs;
+    const callInputs = workflow.on?.workflow_call?.inputs;
+    assert.equal(dispatchInputs?.diagnostic_run?.required, false);
+    assert.equal(dispatchInputs?.diagnostic_run?.default, "");
+    assert.equal(callInputs?.diagnostic_run, undefined);
+
+    const jobs = workflow.jobs ?? {};
+    for (const name of ["public", "fleet", "advisory", "signup", "report"]) {
+      assert.match(String(jobs[name]?.if), /inputs\.diagnostic_run == ''/);
+    }
+    assert.match(String(jobs.gate?.if), /inputs\.diagnostic_run != ''/);
+    const gateSteps = jobs.gate?.steps ?? [];
+    const checkoutIndex = gateSteps.findIndex(
+      (step) =>
+        typeof step.uses === "string" && step.uses.includes("actions/checkout"),
+    );
+    const validationIndex = gateSteps.findIndex(
+      (step) => step.name === "Validate read-only recovery request",
+    );
+    const gateSetupIndex = gateSteps.findIndex(
+      (step) => step.uses === "./.github/actions/beta-e2e-setup",
+    );
+    const typecheckIndex = gateSteps.findIndex(
+      (step) => step.name === "Typecheck the suite",
+    );
+    const helperTestIndex = gateSteps.findIndex(
+      (step) => step.name === "Test beta E2E helper contracts",
+    );
+    assert.ok(checkoutIndex >= 0);
+    assert.equal(validationIndex, checkoutIndex + 1);
+    assert.ok(gateSetupIndex > validationIndex);
+    assert.ok(typecheckIndex > gateSetupIndex);
+    assert.ok(helperTestIndex > typecheckIndex);
+    assert.match(
+      String(gateSteps[validationIndex]?.if),
+      /diagnostic_run != ''/,
+    );
+    assert.equal(gateSteps[typecheckIndex]?.if, undefined);
+    assert.equal(gateSteps[helperTestIndex]?.if, undefined);
+
+    assert.match(
+      String(jobs.authed?.if),
+      /needs\.discover\.result == 'success'/,
+    );
+    assert.match(
+      String(jobs.authed?.env?.SHARD_SELECTED),
+      /inputs\.diagnostic_run == ''[\s\S]*needs\.discover\.outputs\.apps/,
+    );
+
+    const steps = jobs.authed?.steps ?? [];
+    const browserSetup = steps.find(
+      (step) => step.uses === "./.github/actions/beta-e2e-setup",
+    );
+    const regular = steps.find(
+      (step) => step.name === "Authenticated ${{ matrix.slot }}",
+    );
+    const diagnostic = steps.find(
+      (step) => step.name === "Read saved thread provenance",
+    );
+    const upload = steps.find(
+      (step) =>
+        typeof step.uses === "string" &&
+        step.uses.includes("actions/upload-artifact"),
+    );
+    assert.match(
+      String(browserSetup?.with?.browser),
+      /inputs\.diagnostic_run == ''[\s\S]*'false'/,
+    );
+    assert.match(String(regular?.if), /inputs\.diagnostic_run == ''/);
+    assert.match(String(diagnostic?.if), /inputs\.diagnostic_run != ''/);
+    assert.match(String(upload?.if), /inputs\.diagnostic_run == ''/);
+    assert.equal(jobs.authed?.env?.BETA_E2E_OPENAI_API_KEY, undefined);
+    assert.equal(
+      regular?.env?.BETA_E2E_OPENAI_API_KEY,
+      "${{ secrets.BETA_E2E_OPENAI_API_KEY }}",
+    );
+    assert.equal(diagnostic?.env?.BETA_E2E_OPENAI_API_KEY, undefined);
+    assert.equal(diagnostic?.env?.BETA_E2E_SESSION_TOKEN_CONTENT, undefined);
+    assert.equal(diagnostic?.env?.BETA_E2E_SESSION_TOKEN_DISPATCH, undefined);
+
+    const validationStep = (jobs.gate?.steps ?? []).find(
+      (step) => step.name === "Validate read-only recovery request",
+    );
+    assert.ok(validationStep);
+    const script = String(validationStep.run).match(
+      /node <<'NODE'\n([\s\S]*?)\nNODE\s*$/,
+    )?.[1];
+    assert.ok(
+      script,
+      "manual recovery validation script must remain extractable",
+    );
+
+    const invoke = (
+      inputs: Record<string, unknown>,
+      repository = "BuilderIO/agent-native",
+    ) => {
+      const dir = mkdtempSync(path.join(tmpdir(), "beta-recovery-input-"));
+      try {
+        const eventPath = path.join(dir, "event.json");
+        writeFileSync(
+          eventPath,
+          JSON.stringify({ repository: { full_name: repository }, inputs }),
+        );
+        return spawnSync(process.execPath, ["-e", script], {
+          cwd: repoRoot,
+          encoding: "utf8",
+          env: {
+            GITHUB_EVENT_NAME: "workflow_dispatch",
+            GITHUB_REPOSITORY: "BuilderIO/agent-native",
+            GITHUB_EVENT_PATH: eventPath,
+          },
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    const valid = (apps: string) => ({
+      diagnostic_run: "123456789",
+      apps,
+      lane: "authed",
+      grep: String.raw`\[chat-reliability\] refresh mid-run restores the complete answer`,
+    });
+    assert.equal(invoke(valid("content")).status, 0);
+    assert.equal(invoke(valid("content,dispatch")).status, 0);
+    assert.equal(invoke({ ...valid("slides") }).status, 2);
+    assert.equal(invoke({ ...valid("content"), lane: "public" }).status, 2);
+    assert.equal(invoke({ ...valid("content"), grep: "other test" }).status, 2);
+    assert.equal(invoke(valid("content"), "other/repository").status, 2);
+    assert.equal(
+      invoke({ ...valid("content"), diagnostic_run: "123; echo bad" }).status,
+      2,
     );
   });
 

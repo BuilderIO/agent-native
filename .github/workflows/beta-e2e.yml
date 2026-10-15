@@ -116,6 +116,10 @@ on:
         description: "Only run tests whose title matches this (optional)"
         required: false
         default: ""
+      diagnostic_run:
+        description: "Read a prior failed refresh-test thread only; requires lane=authed, apps=content/dispatch, and the exact refresh-test grep."
+        required: false
+        default: ""
 
 # One group per kind of run. Runs that sign in share the e2e account and its
 # user-scoped OpenAI key, so they queue behind each other. The public lane (the
@@ -147,7 +151,7 @@ jobs:
       - name: Build the host matrix
         id: matrix
         env:
-          REQUESTED_APPS: ${{ inputs.apps }}
+          REQUESTED_APPS: ${{ inputs.diagnostic_run != '' && 'content,dispatch' || inputs.apps }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -194,11 +198,44 @@ jobs:
   # stops the authenticated shards before any token is spent.
   gate:
     name: Typecheck and helper tests
-    if: ${{ inputs.lane != 'public' && inputs.lane != 'signup' }}
+    if: ${{ inputs.diagnostic_run != '' || inputs.lane != 'public' && inputs.lane != 'signup' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Validate read-only recovery request
+        if: ${{ inputs.diagnostic_run != '' }}
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const fail = () => {
+            console.error("Invalid read-only recovery request.");
+            process.exit(2);
+          };
+          try {
+            const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+            const inputs = event.inputs;
+            const runId = inputs?.diagnostic_run;
+            const apps = inputs?.apps;
+            const grep = inputs?.grep;
+            const exactGrep = String.raw`\[chat-reliability\] refresh mid-run restores the complete answer`;
+            if (
+              process.env.GITHUB_EVENT_NAME !== "workflow_dispatch" ||
+              process.env.GITHUB_REPOSITORY !== "BuilderIO/agent-native" ||
+              event.repository?.full_name !== "BuilderIO/agent-native" ||
+              typeof runId !== "string" ||
+              !/^[1-9]\d{0,14}$/.test(runId) ||
+              !Number.isSafeInteger(Number(runId)) ||
+              inputs?.lane !== "authed" ||
+              !["content", "dispatch", "content,dispatch"].includes(apps) ||
+              grep !== exactGrep
+            ) {
+              fail();
+            }
+          } catch {
+            fail();
+          }
+          NODE
       - uses: ./.github/actions/beta-e2e-setup
         with:
           browser: "false"
@@ -212,7 +249,7 @@ jobs:
   public:
     name: ${{ matrix.app }} public sweep
     needs: discover
-    if: ${{ needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
+    if: ${{ inputs.diagnostic_run == '' && needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -250,7 +287,7 @@ jobs:
   fleet:
     name: Fleet-wide checks
     needs: discover
-    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
+    if: ${{ always() && !cancelled() && inputs.diagnostic_run == '' && needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -298,8 +335,11 @@ jobs:
   authed:
     name: Authenticated ${{ matrix.slot }}
     needs: [discover, gate]
-    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && needs.gate.result == 'success' && inputs.lane != 'public' && inputs.lane != 'signup' }}
+    if: ${{ always() && !cancelled() && inputs.lane != 'public' && inputs.lane != 'signup' && needs.gate.result == 'success' && needs.discover.result == 'success' }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
@@ -390,7 +430,7 @@ jobs:
       # A shard with `app` runs only that app, and only when the run selected
       # it; the unsharded slots run whenever something other than design alone
       # was selected (design has its own slot).
-      SHARD_SELECTED: ${{ matrix.app == '' && needs.discover.outputs.apps != 'design' || matrix.app != '' && contains(format(',{0},', needs.discover.outputs.apps), format(',{0},', matrix.app)) }}
+      SHARD_SELECTED: ${{ inputs.diagnostic_run != '' && matrix.cluster == 'chat' && (matrix.app == 'content' || matrix.app == 'dispatch') && contains(format(',{0},', inputs.apps), format(',{0},', matrix.app)) || inputs.diagnostic_run == '' && (matrix.app == '' && needs.discover.outputs.apps != 'design' || matrix.app != '' && contains(format(',{0},', needs.discover.outputs.apps), format(',{0},', matrix.app))) }}
       BETA_E2E_APPS: ${{ matrix.app || needs.discover.outputs.apps }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
       # True when the caller narrowed the run (an app list or a title filter), so
@@ -402,20 +442,23 @@ jobs:
       BETA_E2E_CLUSTER: ${{ matrix.cluster }}
       BETA_E2E_REPORT_SLOT: authed-${{ matrix.slot }}
       BETA_E2E_GLOBAL_TIMEOUT_MINUTES: ${{ matrix.global_timeout }}
-      BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
-      BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
-      BETA_E2E_SESSION_TOKEN_CRM: ${{ secrets.BETA_E2E_SESSION_TOKEN_CRM }}
-      BETA_E2E_SESSION_TOKEN_CHAT: ${{ secrets.BETA_E2E_SESSION_TOKEN_CHAT }}
-      BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
-      BETA_E2E_SHARED_OPENAI_API_KEY: ${{ inputs.key_source == 'shared' && secrets.OPENAI_API_KEY || '' }}
-      BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         if: ${{ env.SHARD_SELECTED == 'true' }}
       - uses: ./.github/actions/beta-e2e-setup
         if: ${{ env.SHARD_SELECTED == 'true' }}
+        with:
+          browser: ${{ inputs.diagnostic_run == '' && 'true' || 'false' }}
       - name: Authenticated ${{ matrix.slot }}
-        if: ${{ env.SHARD_SELECTED == 'true' }}
+        if: ${{ env.SHARD_SELECTED == 'true' && inputs.diagnostic_run == '' }}
+        env:
+          BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
+          BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
+          BETA_E2E_SESSION_TOKEN_CRM: ${{ secrets.BETA_E2E_SESSION_TOKEN_CRM }}
+          BETA_E2E_SESSION_TOKEN_CHAT: ${{ secrets.BETA_E2E_SESSION_TOKEN_CHAT }}
+          BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
+          BETA_E2E_SHARED_OPENAI_API_KEY: ${{ inputs.key_source == 'shared' && secrets.OPENAI_API_KEY || '' }}
+          BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
         # Global setup fails loudly if a credential is missing rather than
         # degrading to an anonymous run that would pass without testing
         # anything. The clusters are separate so a provider failure cannot
@@ -460,8 +503,16 @@ jobs:
             exit "$selection_status"
           fi
           pnpm e2e:beta "${select_args[@]}"
+      - name: Read saved thread provenance
+        if: ${{ env.SHARD_SELECTED == 'true' && inputs.diagnostic_run != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BETA_E2E_APPS: ${{ matrix.app }}
+          BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
+          BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
+        run: pnpm exec tsx e2e/beta/read-saved-thread.ts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ always() && env.SHARD_SELECTED == 'true' }}
+        if: ${{ always() && inputs.diagnostic_run == '' && env.SHARD_SELECTED == 'true' }}
         with:
           name: beta-e2e-authed-${{ matrix.slot }}-${{ github.run_id }}
           path: |
@@ -472,7 +523,7 @@ jobs:
 
   advisory:
     name: Advisory findings (non-gating)
-    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
+    if: ${{ always() && !cancelled() && inputs.diagnostic_run == '' && needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
     needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -505,7 +556,7 @@ jobs:
 
   signup:
     name: Signup canary
-    if: ${{ inputs.lane == 'signup' }}
+    if: ${{ inputs.diagnostic_run == '' && inputs.lane == 'signup' }}
     outputs:
       outcome: ${{ steps.classify.outputs.outcome }}
     runs-on: ubuntu-latest
@@ -570,6 +621,7 @@ jobs:
     if: >-
       ${{ always()
       && github.event_name == 'workflow_dispatch'
+      && inputs.diagnostic_run == ''
       && github.workflow == 'Beta E2E (browser)' }}
     needs: [discover, gate, public, fleet, authed, advisory, signup]
     uses: ./.github/workflows/beta-e2e-report.yml
