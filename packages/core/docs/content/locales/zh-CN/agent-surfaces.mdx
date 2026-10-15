@@ -188,6 +188,56 @@ createAgentChatPlugin({
 Agent 会继承同一操作范围。由于不受限制的 shell 无法强制执行严格的操作
 边界，trusted shell 工具会自动降为按请求过滤的 sandbox。
 
+### 请求级附加操作
+
+当调用方可用的操作只有在请求时才能确定（例如用户在服务器运行期间注册的工具）时，
+请使用 `resolveAdditionalActions`。该回调会在每个经过身份验证的交互式聊天运行（
+生产和开发）中执行一次，先于 `tool-search` 和 `resolveActionSurface`，因此二者都
+能看到返回的条目。这些条目仅在该次运行中加入该调用方的注册表。只有当你在
+`additionalActionSurfaces` 中列出相应界面时，A2A 任务和 MCP 的 `ask_app` 调用才
+会收到它们；`surface` 会告诉回调是哪个界面在请求。
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+请将返回的条目视为不可信输入。当条目名称不是 1–64 个字母、数字、`_` 或 `-` 时，
+当名称属于任何模板、框架、开发或 MCP 操作（包括对智能体隐藏的操作）时，当它是调
+用方看不到的 `mcp__` 名称时，或当其工具定义无法使用时，框架会忽略该条目，并只记
+录一次警告。描述中的隐藏控制字符会被移除并限制长度。`parameters` 必须是根为
+`object`、描述纯 JSON 数据的有界 schema，且只能使用常见的校验和注解关键字。未知关键
+字、`pattern`、`patternProperties`、`uniqueItems`、`$async`、`$id`、锚点，以及任
+何递归的或指向 schema 之外的 `$ref` 都会被拒绝。模型看到的是经过检查的 schema 副本，
+参数过大而无法据此校验的调用会被拒绝。`readOnly` 和 `access` 等标志是你的应
+用自己的声明，框架会像信任 `run` 一样信任它们：请根据你的代码实际执行的操作来设置
+它们，切勿依据用户注册的元数据来设置。
+
+每个条目都绑定到解析它时所针对的调用方。无论由哪个调度器发起，每次调用都会拒绝为
+不同的用户或组织执行，强制执行该条目的 `access` 策略，并在不做类型强制转换的情况
+下按其 schema 验证参数。
+
+只有当托管的聊天轮次作为持久后台运行继续时，名称才会被固定。回调会再次运行，该轮
+次对这些条目和调用方的 MCP 工具都保留原有名称：新条目不会加入，已消失的名称在被调
+用时会返回错误，仍然存在的名称会运行其当前定义。其他所有请求都会重新解析，包括本
+地边栏上的每次继续；断开的流重新连接到其运行时不会解析任何内容。
+
+请把绑定的身份放进名称里，例如窗口 id 或作用域（`notes_window_42_insert`），这样
+重新绑定读起来就是一个工具离开、另一个工具出现。“始终允许”的批准跟随工具名称，因
+此当同一个名称之后表示新的内容时，批准仍会沿用。
+
+这些条目仅是智能体循环使用的原生工具。与调用方的 MCP 工具一样，无法从 `run-code`
+或 `tool-orchestration` 访问它们。
+
+`event` 在 `chat` 和 `a2a` 中设置；`ask_app` 调用没有该字段。对于匿名请求、计划
+任务、自动化或智能体团队的子智能体，不会调用该回调。回调抛出的错误会使请求失败。
+
 ## 原生内联 UI {#native-inline-ui}
 
 当你的动作返回结构化数据——记录列表、图表数据集、状态摘要——且这些数据应在聊天会话中以真实 UI 组件而非纯文字描述的形式渲染时，请使用此功能。你在动作上定义一个 `chatUI` 渲染器，Agent-Native 会将其渲染为第一方 React 组件：无 iframe，无独立渲染路径。

@@ -870,7 +870,6 @@ export default {
       tokens: "Jetons",
       threads: "Discussions",
       label: "Espace de travail Design",
-      account: "Compte",
       collapse: "Réduire la barre latérale",
       expand: "Développer la barre latérale",
     },
@@ -1197,24 +1196,48 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "Importer des jetons",
-      importTitle: "Importer des jetons",
-      importHint:
-        "Utilisez design.md, CSS, les fichiers de thème ou le design actuel avant d'ajouter des jetons à la main.",
-      files: "Fichiers",
-      folder: "Dossier",
-      current: "Actuel",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "Importer les jetons collés",
+      importDtcg: "Fichier DTCG…",
+      importCssOrTailwind: "Fichier CSS ou Tailwind…",
+      importClipboard: "Coller depuis le presse-papiers",
+      importFromDesign: "Générer depuis le design",
+      importFailed: "Impossible d’importer les tokens : {{message}}",
+      clipboardBlocked:
+        "Impossible de lire le presse-papiers. Autorisez l’accès et réessayez.",
+      clipboardEmpty: "Le presse-papiers est vide",
       importedCount: "{{count}} jetons importés",
+      importing: "Importation des jetons…",
+      importedWithSkipped:
+        "{{count}} jetons importés. {{skipped}} valeurs ou fichiers non valides ignorés.",
+      importedWithOmissions:
+        "{{count}} jetons importés. {{skipped}} éléments non valides ignorés. Non traités en raison des limites (jetons : {{omittedTokens}}, fichiers : {{omittedFiles}}).",
+      importedWithReadFailures:
+        "{{count}} jetons importés, mais {{readFailures}} fichiers n'ont pas pu être lus. Sélectionnez-les à nouveau et réessayez.",
+      importedWithReadFailuresAndOmissions:
+        "{{count}} jetons importés. {{readFailures}} fichiers n'ont pas pu être lus. {{skipped}} éléments non valides ont aussi été ignorés, et les limites ont laissé {{omittedTokens}} jetons et {{omittedFiles}} fichiers non traités. Sélectionnez à nouveau les fichiers illisibles et réessayez.",
+      noTokensFound:
+        "Aucun jeton valide trouvé. Vérifiez le format du fichier et les valeurs.",
       count: "{{count}} jetons",
       search: "Rechercher des jetons",
       noMatches: "Aucun jeton correspondant",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "Impossible d’ajouter le token : {{message}}",
+      types: {
+        color: "Couleur",
+        fontFamily: "Famille de police",
+        fontWeight: "Graisse",
+        fontSize: "Taille de police",
+        lineHeight: "Hauteur de ligne",
+        letterSpacing: "Espacement des lettres",
+        spacing: "Espacement",
+        container: "Conteneur",
+        breakpoint: "Point de rupture",
+        radius: "Rayon",
+        shadow: "Ombre",
+        opacity: "Opacité",
+      },
       editColor: "Modifier la couleur de {{name}}",
     },
     import: {
@@ -1296,7 +1319,7 @@ export default {
       figUploadProcessing: "Conversion…",
       figImportWarningTitle: "Importation .fig volumineuse",
       figImportWarningDescription:
-        "Ce fichier contient {{frames}} cadres et {{nodes}} calques. Tout importer peut ralentir l’éditeur. Choisissez les cadres nécessaires.",
+        "Ce fichier contient {{frames}} cadres et {{nodes}} calques. Tout importer peut ralentir l’éditeur. Choisissez les pages nécessaires.",
       figImportFrameCount: "{{selected}} cadres sur {{total}} sélectionnés",
       figImportSelectAll: "Tout sélectionner",
       figImportClearAll: "Tout effacer",
@@ -1305,6 +1328,12 @@ export default {
       figImportAll: "Tout importer",
       figImportAnalyzing: "Analyse…",
       figImportSaving: "Enregistrement de {{saved}} cadres sur {{total}}",
+      figImportFrameLimit:
+        "Choisissez des pages totalisant {{max}} cadres au maximum.",
+      figImportFramesSkippedWarning:
+        "{{count}} cadres trop complexes ont été ignorés : {{names}}",
+      figUploadLimits:
+        "Jusqu’à {{size}} Go · {{frames}} cadres par importation",
       figUploadDescriptionShort:
         "Importation locale — sans quota de l’API Figma. Les images intégrées compatibles sont incluses.",
       figUploadImagesSkippedWarning:
@@ -1332,6 +1361,7 @@ export default {
       htmlPlaceholder: "<main>Collez le HTML autonome ici...</main>",
       importHtml: "Importer HTML",
       chooseHtmlFile: "Choisir un fichier HTML",
+      allSupportedFiles: "Tous les fichiers pris en charge",
       githubTitle: "GitHub",
       githubDescription:
         "Bientôt : importer des écrans et composants directement depuis un dépôt.",
@@ -2258,6 +2288,7 @@ export default {
     figmaLink: "Lien Figma",
     importFromFigma: "Importer depuis Figma",
     figmaFile: "Fichier Figma (.fig)",
+    figmaFileMaxSize: "Jusqu’à {{max}} Go",
     openImport: "Ouvrir l’importation",
     importSelectedFile: "Importer le fichier sélectionné",
     starterSaasPrompt:

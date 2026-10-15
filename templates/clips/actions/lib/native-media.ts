@@ -1,3 +1,5 @@
+import { fail } from "@agent-native/core/action";
+
 import { isLoomEmbedBackedRecording } from "../../shared/loom.js";
 import { isImageRecording } from "../../shared/recording-kind.js";
 
@@ -25,10 +27,16 @@ export function assertNativeRecordingMedia(
   recording: RecordingMediaLike,
 ): void {
   if (isImageRecording(recording)) {
-    throw new Error(SCREENSHOT_MESSAGE);
+    fail(SCREENSHOT_MESSAGE, {
+      errorCode: "native_media_required",
+      statusCode: 422,
+    });
   }
   if (isLoomRecording(recording)) {
-    throw new Error(LOOM_NATIVE_MEDIA_MESSAGE);
+    fail(LOOM_NATIVE_MEDIA_MESSAGE, {
+      errorCode: "native_media_required",
+      statusCode: 422,
+    });
   }
 }
 

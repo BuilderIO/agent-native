@@ -15,7 +15,269 @@ read credentials or call an embedding provider. The action allowlist contains
 only `find-data`; warehouse and connected-data actions are unavailable to the
 loop.
 
-## Current v14 comparison (candidate snapshot `ba536105`)
+## Diagnostic-only v15 artifact (not a valid comparison)
+
+The preserved v15 CSV is not valid evidence: all 46 baseline rows failed
+before `find-data` ran, so it measured a broken evaluation path rather than
+baseline retrieval. The comparison validator now requires at least 90% of the
+runs in each phase to complete the production path. Keep this CSV only as a
+record of the harness failure; use a comparison whose baseline and candidate
+both meet that completion threshold.
+
+## Latest measured v21 comparison
+
+The v21 artifact compares the freshly fetched `origin/main` snapshot
+`8961aeb5a901eb8be8e821c10b957fa9203796c7` with the Analytics PR candidate
+snapshot `a92e2383750d13563ee12331ec9708e6b93cd1e9`. It uses the same
+twenty-four synthetic retrieval cases, each run twice in each phase.
+
+Top-1 retrieval rose from 44/48 (91.7%) to 48/48 (100%). Hit@5 rose from 46/48
+(95.8%) to 48/48 (100%). All 96 runs completed the production path without
+aborts; each made one `find-data` call and no other or failed action. The
+stale-index marker appears in four rows in each phase.
+
+Evaluated-code hashes are
+`sha256:75bd47c16935eabe816f1f00ec52ddf45b537eb303674dae577e86ee886c3030`
+before and
+`sha256:6a91fd523eb3630b8f10e4338b3204d29595fcde9557a42bba1df49e7837b299`
+after. Both phases used the same harness bytes,
+`sha256:523b5b1b338cf9326f5d8739358080ef7e2f5bb3e617388bc9ce75b151a59f06`.
+The validator pins the source revisions and hashes, case IDs, and harness
+hash, and checks paired runs, the safe CSV schema, production-path completion,
+and stale-index markers.
+
+To reproduce the before phase, check out the pinned baseline, copy the
+candidate `production-path.spec.ts` to the same relative path in that checkout,
+install the workspace dependencies, build the Analytics dependencies, and run:
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm --filter 'analytics^...' run build
+```
+
+Then run:
+
+```sh
+ANALYTICS_EVAL_PHASE=before \
+ANALYTICS_EVAL_GIT_REVISION=8961aeb5a901eb8be8e821c10b957fa9203796c7 \
+ANALYTICS_EVAL_HARNESS_REVISION=a92e2383750d13563ee12331ec9708e6b93cd1e9 \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+corepack pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+Install workspace dependencies and build the Analytics dependencies in the
+candidate checkout as well, then run the after phase from that clean checkout:
+
+```sh
+ANALYTICS_EVAL_PHASE=after \
+ANALYTICS_EVAL_GIT_REVISION=a92e2383750d13563ee12331ec9708e6b93cd1e9 \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+corepack pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+Each invocation prints 48 CSV rows between
+`ANALYTICS_PRODUCTION_PATH_CSV_BEGIN` and
+`ANALYTICS_PRODUCTION_PATH_CSV_END`. The before checkout requires the candidate
+harness to be the only changed file; the after checkout must be clean.
+
+This is a deterministic synthetic in-memory evaluation. It does not call a
+hosted model, Builder.io BigQuery, or a connected data source, and its
+latencies are not production latency measurements. It measures retrieval over
+fixture-backed catalog data, not answer quality on real user chats. The CSV
+contains no prompts, tool inputs, SQL, identities, or source values. The
+artifact is
+[`SYNTHETIC-analytics-production-path-v21-before-after.csv`](./SYNTHETIC-analytics-production-path-v21-before-after.csv).
+
+## Historical measured v20 comparison (superseded by v21)
+
+The v20 artifact compares the freshly fetched `origin/main` snapshot
+`217b06fdb294e8efc5ac9f0dd9f079c65307c406` with the Analytics PR candidate
+snapshot `980792e5c277be349cf0198fa87d26bc41b7daac`. It uses the same
+twenty-four synthetic retrieval cases, each run twice in each phase.
+
+Top-1 retrieval rose from 44/48 (91.7%) to 48/48 (100%). Hit@5 rose from 46/48
+(95.8%) to 48/48 (100%). All 96 runs completed the production path without
+aborts; each made one `find-data` call and no other or failed action. The
+stale-index marker appears in four rows in each phase.
+
+Evaluated-code hashes are
+`sha256:79d4f2ca0be7955b94ab26ccb27d00ae8c6106751dcbca7d51ab2fe40fa94a70`
+before and
+`sha256:a2effa8c701d9be272d97700c00110bd7365fa09ba47ebd2cdb4373c87fe9cc9`
+after. Both phases used the same harness bytes,
+`sha256:ef5ee4e5c7493cf6c0754f7f98d84ac0c685bef9f819d560a59af4302406498c`.
+The validator pins the source revisions and hashes, case IDs, and harness
+hash, and checks paired runs, the safe CSV schema, production-path completion,
+and stale-index markers. The candidate measurement predates the follow-up
+commit that adds only this CSV, validator expectations, and documentation; the
+measured production source and harness bytes are unchanged.
+
+To reproduce the before phase, check out the pinned baseline, copy the
+candidate `production-path.spec.ts` to the same relative path in that checkout,
+install the workspace dependencies, build the Analytics dependencies, and run:
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm --filter 'analytics^...' run build
+```
+
+Then run:
+
+```sh
+ANALYTICS_EVAL_PHASE=before \
+ANALYTICS_EVAL_GIT_REVISION=217b06fdb294e8efc5ac9f0dd9f079c65307c406 \
+ANALYTICS_EVAL_HARNESS_REVISION=980792e5c277be349cf0198fa87d26bc41b7daac \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+corepack pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+Install workspace dependencies and build the Analytics dependencies in the
+candidate checkout as well, then run the after phase from that clean checkout:
+
+```sh
+ANALYTICS_EVAL_PHASE=after \
+ANALYTICS_EVAL_GIT_REVISION=980792e5c277be349cf0198fa87d26bc41b7daac \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+corepack pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+Each invocation prints 48 CSV rows between
+`ANALYTICS_PRODUCTION_PATH_CSV_BEGIN` and
+`ANALYTICS_PRODUCTION_PATH_CSV_END`. The before checkout requires the candidate
+harness to be the only changed file; the after checkout must be clean.
+
+This is a deterministic synthetic in-memory evaluation. It does not call a
+hosted model, Builder.io BigQuery, or a connected data source, and its
+latencies are not production latency measurements. It measures retrieval over
+fixture-backed catalog data, not answer quality on real user chats. The CSV
+contains no prompts, tool inputs, SQL, identities, or source values. The
+artifact is
+[`SYNTHETIC-analytics-production-path-v20-before-after.csv`](./SYNTHETIC-analytics-production-path-v20-before-after.csv).
+
+## Historical measured v19 comparison (superseded by v20)
+
+The v19 artifact evaluates twenty-four synthetic retrieval cases twice per
+phase through the Analytics production agent loop. Its baseline is
+`origin/main` at `4715962a57720a2ff5881cb8eea39c1535518cf8`; its candidate source
+snapshot is `051ebf123c26257be2058efbfb13468c9226d37a`. Both phases use the same
+synthetic prompts, expected source IDs, and metadata fixtures.
+
+Top-1 retrieval rose from 44/48 (91.7%) to 48/48 (100%). Hit@5 rose from 46/48
+(95.8%) to 48/48 (100%). The baseline misses were two aliased-membership
+lookups and two runs where an approved stale generated entry ranked above the
+current roster. The candidate ranked the expected source first in all
+twenty-four cases. All 96 runs completed the production path without aborts;
+each made one `find-data` call and no other or failed action. The stale-index
+marker appears in four rows in each phase.
+
+Evaluated-code hashes are
+`sha256:b8e72b194334b790ed13fefe85b4e18eb6e717176c7b337cf7f8c0e5317b7f27`
+before and
+`sha256:5e69fc9b513d54f13fbd789d1f21863b2122e7d4a0669d79feaaac20d4940809`
+after. Both phases used the same harness bytes,
+`sha256:1fd351074f83d99df7dbb0e9b67270bd1945f0c293f7db70e36cae8e77268e46`.
+The validator pins the source revisions and hashes, case IDs, and harness
+hash, and checks paired runs, the safe CSV schema, production-path completion,
+and stale-index markers.
+
+This is a deterministic synthetic in-memory evaluation. It does not call a
+hosted model, Builder.io BigQuery, or a connected data source, and its
+latencies are not production latency measurements. It measures retrieval over
+fixture-backed catalog data, not answer quality on real user chats. The CSV
+contains no prompts, tool inputs, SQL, identities, or source values. The
+artifact is
+[`SYNTHETIC-analytics-production-path-v19-before-after.csv`](./SYNTHETIC-analytics-production-path-v19-before-after.csv).
+
+## Historical measured v18 comparison (superseded)
+
+The v18 artifact has the same case set and completion results, measured on an
+earlier candidate snapshot `1e9eb1188e5250d594d43c0a37b0eef7f177fe60`. It is
+retained for historical comparison; v19 is the current measurement. Its
+evaluated-code hashes were
+`sha256:14d8e0b6b7400765132207c578c268605e30183307067481a91a075e7d46de5a`
+before and
+`sha256:f22d56316f7e06cba5aa5824bcc27e75c885f1f715f21a5786891bb025a5c912`
+after, with harness hash
+`sha256:16f2826b2bf9e6ebe9ab5c5311ba8b8773bba2867594ba9bcbfdc3b54ae73108`.
+The artifact is
+[`SYNTHETIC-analytics-production-path-v18-before-after.csv`](./SYNTHETIC-analytics-production-path-v18-before-after.csv).
+
+## Historical measured v17 comparison (superseded)
+
+The v17 artifact below uses older main and candidate snapshots. It is retained
+for historical comparison; v18 is the current measurement.
+
+The v17 artifact evaluates the same twenty-four synthetic retrieval cases twice
+per phase through the Analytics production agent loop. Its baseline was
+`origin/main` at `fadfb1b593c71e6a03282269dcb0c9df946188d1`; its candidate source
+snapshot is `5a53b3d1bef1fccbfb4ea49da16babd9cb45413c`. Both phases use the same
+synthetic prompts, expected source IDs, and metadata fixtures.
+
+Top-1 retrieval rose from 44/48 (91.7%) to 48/48 (100%). Hit@5 rose from 46/48
+(95.8%) to 48/48 (100%). The four baseline retrieval misses were two runs where
+the aliased membership source was missing and two where an approved stale
+generated entry ranked above the current roster. The candidate ranked the
+expected source first for all twenty-four cases. All 96 runs completed the
+production path without aborts; each made one `find-data` call and no other or
+failed action. The stale-index marker appears in four rows in each phase.
+
+Evaluated-code hashes are
+`sha256:8a02bfc89d66d8c5465847c557fc03bf5319119b72c8b793de17ff3fd1cafa35`
+before and
+`sha256:eff504faed54f807031617dc94807db6062939095f02305bef26d8677acefb34`
+after. Both phases used the same harness bytes,
+`sha256:410af60f8fe7f4e33c2a06c525de18809f7184df110538d5f4806ae577f0c573`.
+The checked-in validator pins both source revisions and hashes, the fixture,
+case IDs, and harness hash, and checks paired runs, safe CSV fields, production
+path completion, and stale-index markers.
+
+This synthetic test does not call a hosted model, Builder.io BigQuery, or a
+connected data source. It measures retrieval over fixture-backed catalog data,
+not answer quality on real user chats or production latency. The cache,
+connection-status, and source-index truncation fixes have separate regression
+tests and are not performance claims in this CSV. It contains no prompts, tool
+inputs, SQL, identities, or source values. The artifact is
+[`SYNTHETIC-analytics-production-path-v17-before-after.csv`](./SYNTHETIC-analytics-production-path-v17-before-after.csv).
+
+## Historical measured v16 comparison
+
+The v16 artifact evaluates twenty-four synthetic retrieval cases twice per
+phase through the Analytics production agent loop. Its baseline was
+`origin/main` at `db2f859fae3e5c9bab5ad5d1257d24a5ef152a8f`; its candidate source
+snapshot is `7beae453965eb1590ddf80d0991a211aaa3aea7c`. Both phases used the
+same prompts, expected tables, and synthetic membership model. The baseline
+fixture omits projected-key metadata that the baseline source-index schema
+could not represent; the candidate includes verified user and organization
+roles for the aliased output columns.
+
+Top-1 retrieval rose from 44/48 (91.7%) to 48/48 (100%). Hit@5 rose from 46/48
+(95.8%) to 48/48 (100%). Both baseline misses were the aliased roster, which
+the baseline could not identify from its renamed keys. Two other baseline
+runs ranked an approved stale-index overlay above the current roster. The
+candidate ranked the expected source first in both runs for all twenty-four
+cases. All 96 runs completed without aborts; each made one `find-data` call and
+no other or failed action. The stale-index signal appears in four rows in each
+phase because that metadata is already present on the baseline branch.
+
+Evaluated-code hashes are
+`sha256:1f4a8302df8d7a73e6b2a1149052a93c5ebcf93d31beeee4994883c08ab4c7d1`
+before and
+`sha256:96c8192effb85af20b1109a9b525156ce9f5fbaa44d390870660e350f465a1b8`
+after. Both phases use the same harness bytes,
+`sha256:9bee80ec0ce2bfb05e67cb5be619c8a98b82c3ef8aee3d3945905d1e9820a73a`.
+The checked-in validator pins the source revisions and hashes and verifies the
+case/run pairs, safe CSV schema, completed production path, and stale-index
+marker.
+
+The harness uses a deterministic in-memory model and synthetic storage. It
+does not call a hosted model, BigQuery, or a connected data source. Its
+latencies are test-harness timings, not production latency measurements. The
+CSV contains coded ranks, action counts, aggregate usage, and source revisions;
+it contains no prompts, tool inputs, SQL, identities, or source values. The
+artifact is
+[`SYNTHETIC-analytics-production-path-v16-before-after.csv`](./SYNTHETIC-analytics-production-path-v16-before-after.csv).
+
+## Historical v14 comparison (candidate snapshot `ba536105`)
 
 The checked-in v14 artifact runs twenty-two synthetic cases twice in each
 phase through the same production agent loop. The baseline is `origin/main` at

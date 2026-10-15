@@ -862,7 +862,6 @@ export default {
       tokens: "Tokens de design",
       threads: "Conversas",
       label: "Área de trabalho de design",
-      account: "Conta",
       collapse: "Recolher barra lateral",
       expand: "Expandir barra lateral",
     },
@@ -1187,24 +1186,48 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "Importar tokens",
-      importTitle: "Importar tokens",
-      importHint:
-        "Use design.md, CSS, arquivos de tema ou o design atual antes de adicionar tokens manualmente.",
-      files: "Arquivos",
-      folder: "Pasta",
-      current: "Atual",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "Importar tokens colados",
+      importDtcg: "Arquivo DTCG…",
+      importCssOrTailwind: "Arquivo CSS ou Tailwind…",
+      importClipboard: "Colar da área de transferência",
+      importFromDesign: "Gerar a partir do design",
+      importFailed: "Não foi possível importar os tokens: {{message}}",
+      clipboardBlocked:
+        "Não foi possível ler a área de transferência. Permita o acesso e tente novamente.",
+      clipboardEmpty: "A área de transferência está vazia",
       importedCount: "{{count}} tokens importados",
+      importing: "Importando tokens…",
+      importedWithSkipped:
+        "{{count}} tokens importados. {{skipped}} valores ou arquivos inválidos foram ignorados.",
+      importedWithOmissions:
+        "{{count}} tokens importados. {{skipped}} itens inválidos foram ignorados. Não processados devido aos limites (tokens: {{omittedTokens}}, arquivos: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "{{count}} tokens importados, mas não foi possível ler {{readFailures}} arquivo(s). Selecione-os novamente e tente outra vez.",
+      importedWithReadFailuresAndOmissions:
+        "{{count}} tokens importados. Não foi possível ler {{readFailures}} arquivo(s). Também foram ignorados {{skipped}} itens inválidos, e os limites deixaram {{omittedTokens}} tokens e {{omittedFiles}} arquivos sem processamento. Selecione novamente os arquivos ilegíveis e tente outra vez.",
+      noTokensFound:
+        "Nenhum token válido foi encontrado. Verifique o formato do arquivo e os valores.",
       count: "{{count}} tokens",
       search: "Pesquisar tokens",
       noMatches: "Nenhum token correspondente",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "Não foi possível adicionar o token: {{message}}",
+      types: {
+        color: "Cor",
+        fontFamily: "Família da fonte",
+        fontWeight: "Peso da fonte",
+        fontSize: "Tamanho da fonte",
+        lineHeight: "Altura da linha",
+        letterSpacing: "Espaçamento entre letras",
+        spacing: "Espaçamento",
+        container: "Contêiner",
+        breakpoint: "Breakpoint",
+        radius: "Raio",
+        shadow: "Sombra",
+        opacity: "Opacidade",
+      },
       editColor: "Editar a cor de {{name}}",
     },
     import: {
@@ -1286,7 +1309,7 @@ export default {
       figUploadProcessing: "Convertendo…",
       figImportWarningTitle: "Importação de .fig grande",
       figImportWarningDescription:
-        "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha os quadros necessários.",
+        "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha as páginas necessárias.",
       figImportFrameCount: "{{selected}} de {{total}} quadros selecionados",
       figImportSelectAll: "Selecionar tudo",
       figImportClearAll: "Limpar tudo",
@@ -1295,6 +1318,11 @@ export default {
       figImportAll: "Importar tudo",
       figImportAnalyzing: "Analisando…",
       figImportSaving: "Salvando {{saved}} de {{total}} quadros",
+      figImportFrameLimit:
+        "Escolha páginas com {{max}} quadros ou menos no total.",
+      figImportFramesSkippedWarning:
+        "{{count}} quadros complexos demais para importar foram ignorados: {{names}}",
+      figUploadLimits: "Até {{size}} GB · {{frames}} quadros por importação",
       figUploadDescriptionShort:
         "Importação local — sem cota da API do Figma. As imagens incorporadas compatíveis são incluídas.",
       figUploadImagesSkippedWarning:
@@ -1322,6 +1350,7 @@ export default {
       htmlPlaceholder: "<main>Cole HTML independente aqui...</main>",
       importHtml: "Importar HTML",
       chooseHtmlFile: "Escolher arquivo HTML",
+      allSupportedFiles: "Todos os arquivos compatíveis",
       githubTitle: "GitHub",
       githubDescription:
         "Em breve: importe telas e componentes diretamente de um repositório.",
@@ -2239,6 +2268,7 @@ export default {
     figmaLink: "Link do Figma",
     importFromFigma: "Importar do Figma",
     figmaFile: "Arquivo do Figma (.fig)",
+    figmaFileMaxSize: "Até {{max}} GB",
     openImport: "Abrir importação",
     importSelectedFile: "Importar arquivo selecionado",
     starterSaasPrompt:

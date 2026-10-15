@@ -52,6 +52,80 @@ export default {
     moveDashboard: "Déplacer le tableau de bord",
     folderCreateFailed: "Impossible de créer le dossier",
     moveFailed: "Impossible de déplacer le tableau de bord",
+    previewSigma: "Aperçu Sigma",
+    sigmaConnection: "Connexion Sigma",
+    sigmaConnectedTo: "Connecté à {{name}}",
+    sigmaChooseConnection: "Connexion Sigma",
+    sigmaChooseConnectionPlaceholder: "Choisir une connexion",
+    sigmaChooseConnectionDescription:
+      "Choisissez l’espace de travail Sigma dont vous voulez parcourir les classeurs.",
+    sigmaNoConnection: "Sigma n’est pas connecté",
+    sigmaNoConnectionDescription:
+      "Ouvrez Dispatch et demandez-lui de connecter Sigma à Analytics. Les identifiants restent dans Vault.",
+    sigmaOpenDispatch: "Configurer dans Dispatch",
+    sigmaWorkbooksLoadFailed: "Impossible de charger les classeurs Sigma",
+    sigmaRetryConnection: "Vérifiez la connexion, puis réessayez.",
+    sigmaRetry: "Réessayer",
+    sigmaNoWorkbooks: "Aucun classeur Sigma n’est disponible.",
+    sigmaWorkbook: "Classeur",
+    sigmaChooseWorkbook: "Choisir un classeur",
+    sigmaStatusNotImported: "Non importé",
+    sigmaStatusImporting: "Importation en cours",
+    sigmaStatusImported: "Importé",
+    sigmaStatusFailed: "Échec de l’importation",
+    sigmaArchived: "Archivé",
+    sigmaPreviewTitle: "Aperçu du classeur",
+    sigmaPreviewFailed: "Impossible de prévisualiser ce classeur",
+    sigmaRetryPreview: "Réessayez de charger l’aperçu du classeur.",
+    sigmaImportableCount: "{{count}} importables",
+    sigmaUnsupportedCount: "{{count}} non pris en charge",
+    sigmaImportable: "Importable",
+    sigmaUnsupported: "Non pris en charge",
+    sigmaNoElements: "Aucun élément n’a été trouvé dans ce classeur.",
+    sigmaPreviewOnly:
+      "Aperçu uniquement pour le moment : Sigma ne fournit pas de correspondance de projet BigQuery qu’Analytics puisse vérifier. L’importation restera désactivée jusqu’à ce que cette correspondance soit disponible.",
+    sigmaPreviewTruncated: "{{shown}} éléments sur {{total}} affichés.",
+    sigmaImportWorkbook: "Importer le classeur",
+    sigmaImporting: "Importation du classeur…",
+    sigmaImportInProgress: "L’importation de ce classeur est déjà en cours.",
+    sigmaMigrationFailed: "Impossible d’importer ce classeur. Réessayez.",
+    sigmaMigrationResultInvalid:
+      "La réponse d’importation était incomplète. Rechargez la liste des classeurs pour vérifier son état.",
+    sigmaImportComplete: "Tableau de bord créé",
+    sigmaImportSummary:
+      "{{imported}} éléments importés ; les {{unsupported}} éléments non pris en charge sont conservés comme alertes à vérifier.",
+    sigmaAlreadyImported: "Ce classeur a déjà été importé.",
+    sigmaImportedNoDashboard:
+      "Le tableau de bord a été importé, mais ce compte ne peut pas l’ouvrir.",
+    sigmaReviewRequiredCount: "{{count}} à vérifier",
+    sigmaBetaRepresentationWarning:
+      "Cette importation bêta peut représenter certaines visualisations différemment de Sigma.",
+    sigmaReasonUnsupportedElement:
+      "Ce type d’élément n’est pas pris en charge pour l’importation.",
+    sigmaReasonUnsupportedSource:
+      "Cet élément utilise une source qui n’est pas prise en charge.",
+    sigmaReasonSourceMappingRequired:
+      "Sigma ne fournit pas de correspondance avec un projet BigQuery qu’Analytics puisse vérifier. Ce SQL ne peut donc pas encore être importé.",
+    sigmaReasonSourceUnavailable:
+      "Sigma n’a pas autorisé l’accès à cette connexion source. Vérifiez ses autorisations.",
+    sigmaReasonQueryUnavailable:
+      "Sigma n’a pas fourni de requête importable pour cet élément.",
+    sigmaReasonUnsafeSql:
+      "Ce type de requête ne peut pas être importé en toute sécurité.",
+    sigmaReasonVisualizationReview:
+      "Les données peuvent être importées, mais vérifiez la visualisation après l’importation.",
+    sigmaRetryOwnerOnly:
+      "Seule la personne qui a lancé cet import peut réessayer.",
+    sigmaImportedByTeammate: "Importé par un membre de l’équipe",
+    sigmaFlaggedCount: "{{count}} à vérifier",
+    sigmaMoreWorkbooksFailed: "Impossible de charger d’autres classeurs",
+    sigmaLoadingMore: "Chargement des classeurs…",
+    sigmaLoadMore: "Charger d’autres classeurs",
+    sigmaOpenDashboard: "Ouvrir le tableau de bord",
+    sigmaReviewWithAgent: "Examiner avec l’agent",
+    sigmaReviewContext: "Tableau de bord Sigma importé",
+    sigmaReviewPrompt:
+      "Examinez le tableau de bord Sigma importé {{name}}. Vérifiez les panneaux importés et les éléments non pris en charge, puis proposez des corrections.",
   },
   sidebar: {
     collapseSidebar: "Réduire la barre latérale",
@@ -535,6 +609,7 @@ export default {
   },
   dataStatus: {
     connected: "Connecté",
+    configuredUnverified: "Configuré · non vérifié",
     notConnected: "Non connecté",
     needsReauth: "Réauthentification requise",
     error: "Erreur",
@@ -1205,6 +1280,7 @@ export default {
     saveViewFailed: "Impossible d’enregistrer la vue",
     saveViewFailedWithMessage: "Impossible d’enregistrer la vue : {{message}}",
     clearAll: "Tout effacer",
+    resetFilters: "Réinitialiser les filtres",
     collapseFilters: "Réduire les filtres",
     expandFilters: "Développer les filtres",
     filterSeries: "Filter",
@@ -1237,6 +1313,12 @@ export default {
     copyTable: "Copier le tableau",
     multiColumnSortHelp:
       "Cliquez pour trier. Maj-cliquez pour ajouter un autre tri.",
+    chartPointLimitNewest:
+      "Affichage des {{shown}} points les plus récents sur {{total}}",
+    chartPointLimitFirst:
+      "Affichage des {{shown}} premiers points sur {{total}}",
+    chartPointLimitLast:
+      "Affichage des {{shown}} derniers points sur {{total}}",
     exportToGoogleSheets: "Exporter vers Google Sheets",
     exportingToGoogleSheets: "Exportation vers Google Sheets...",
     googleSheetsExported: "Exporté vers Google Sheets",
@@ -1245,6 +1327,18 @@ export default {
       "Impossible d’exporter vers Google Sheets : {{message}}",
     viewSql: "Voir SQL",
     dragToReorder: "Faites glisser pour réorganiser",
+    columnFormat: "Format",
+    columnFormatText: "Texte brut",
+    columnFormatNumber: "Nombre",
+    columnFormatCurrency: "Devise",
+    columnFormatPercent: "Pourcentage",
+    columnFormatDate: "Date",
+    columnRename: "Renommer la colonne",
+    columnHide: "Masquer la colonne",
+    columnShow: "Afficher « {{name}} »",
+    columnShowHidden: "Afficher les colonnes masquées",
+    columnName: "Nom de la colonne",
+    columnResize: "Redimensionner la colonne",
     deleteSectionTitle: "Supprimer la rubrique ?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Supprimer le panneau ?",
@@ -1289,6 +1383,13 @@ export default {
     reportRecipients: "Destinataires",
     reportRecipientsPlaceholder: "analytics@example.com, ops@example.com",
     reportRecipientsRequired: "Ajoutez au moins un destinataire.",
+    reportDestination: "Envoyer à",
+    reportDestinationEmail: "E-mail",
+    reportDestinationSlack: "Slack",
+    reportDestinationEmailAndSlack: "E-mail et Slack",
+    reportSlackWebhookUrl: "URL du webhook Slack",
+    reportSlackWebhookUrlPlaceholder: "https://hooks.slack.com/services/...",
+    reportSlackWebhookRequired: "Ajoutez une URL de webhook Slack.",
     reportSendTime: "Heure d'envoi",
     reportTimezone: "Fuseau horaire",
     reportEnabled: "Activé",

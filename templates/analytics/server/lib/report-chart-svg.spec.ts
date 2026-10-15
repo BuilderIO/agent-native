@@ -640,3 +640,44 @@ describe("renderFunnelChartSvg", () => {
     expect(svg).toContain('aria-label="Pipeline"');
   });
 });
+
+describe("report category axis", () => {
+  const domains = Array.from(
+    { length: 25 },
+    (_, index) => `referrer-number-${index + 1}.example.com`,
+  );
+
+  it("labels every category bar, angled and cut to fit", () => {
+    const svg = renderReportChartSvg({
+      ...base,
+      labels: domains,
+      type: "bar",
+      series: [
+        { label: "Pageviews", data: domains.map((_, index) => 100 - index) },
+      ],
+    });
+
+    const labels = [
+      ...svg.matchAll(
+        /<text [^>]*transform="rotate\((-\d+) [^>]*>([^<]*)<\/text>/g,
+      ),
+    ];
+    expect(labels).toHaveLength(domains.length);
+    expect(labels[0][2].startsWith("referrer")).toBe(true);
+  });
+
+  it("still thins date labels", () => {
+    const days = Array.from(
+      { length: 60 },
+      (_, index) => `2026-07-${String((index % 28) + 1).padStart(2, "0")}`,
+    );
+    const svg = renderReportChartSvg({
+      ...base,
+      labels: days,
+      type: "bar",
+      series: [{ label: "Signups", data: days.map((_, index) => index) }],
+    });
+
+    expect(svg).not.toContain("rotate(");
+  });
+});

@@ -153,6 +153,7 @@ export function FillFieldText({
   reading,
   alpha,
   ariaLabel,
+  title,
   disabled,
   onCommit,
 }: {
@@ -160,6 +161,8 @@ export function FillFieldText({
   /** The fill's opacity as 0..1, kept when the text does not carry its own. */
   alpha: number;
   ariaLabel: string;
+  /** The color as stored, for a reading that rounds it. */
+  title?: string;
   disabled: boolean;
   /** The CSS the typed text stands for. */
   onCommit: (css: string) => void;
@@ -174,6 +177,7 @@ export function FillFieldText({
       <button
         type="button"
         aria-label={ariaLabel}
+        title={title}
         disabled={disabled}
         onClick={() => setEditing(true)}
         className="min-w-0 flex-1 cursor-text truncate text-left tabular-nums tracking-[-0.03em] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"

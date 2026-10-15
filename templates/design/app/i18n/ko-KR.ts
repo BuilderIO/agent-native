@@ -852,7 +852,6 @@ export default {
       tokens: "토큰",
       threads: "스레드",
       label: "디자인 작업공간",
-      account: "계정",
       collapse: "사이드바 접기",
       expand: "사이드바 펼치기",
     },
@@ -1176,24 +1175,48 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "토큰 가져오기",
-      importTitle: "토큰 가져오기",
-      importHint:
-        "수동으로 추가하기 전에 design.md, CSS, 테마 파일 또는 현재 디자인을 사용하세요.",
-      files: "파일",
-      folder: "폴더",
-      current: "현재",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "붙여넣은 토큰 가져오기",
+      importDtcg: "DTCG 파일…",
+      importCssOrTailwind: "CSS 또는 Tailwind 파일…",
+      importClipboard: "클립보드에서 붙여넣기",
+      importFromDesign: "디자인에서 생성",
+      importFailed: "토큰을 가져올 수 없습니다: {{message}}",
+      clipboardBlocked:
+        "클립보드를 읽을 수 없습니다. 액세스를 허용한 후 다시 시도하세요.",
+      clipboardEmpty: "클립보드가 비어 있습니다",
       importedCount: "{{count}}개 토큰을 가져왔습니다",
+      importing: "토큰을 가져오는 중…",
+      importedWithSkipped:
+        "{{count}}개 토큰을 가져왔습니다. 잘못된 값 또는 파일 {{skipped}}개를 건너뛰었습니다.",
+      importedWithOmissions:
+        "{{count}}개 토큰을 가져왔습니다. 잘못된 항목 {{skipped}}개를 건너뛰었습니다. 가져오기 제한으로 미처리된 수 (토큰: {{omittedTokens}}, 파일: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "토큰 {{count}}개를 가져왔지만 파일 {{readFailures}}개를 읽지 못했습니다. 다시 선택해 시도하세요.",
+      importedWithReadFailuresAndOmissions:
+        "토큰 {{count}}개를 가져왔습니다. 파일 {{readFailures}}개를 읽지 못했습니다. 잘못된 항목 {{skipped}}개도 건너뛰었고, 제한으로 토큰 {{omittedTokens}}개와 파일 {{omittedFiles}}개를 처리하지 못했습니다. 읽지 못한 파일을 다시 선택해 시도하세요.",
+      noTokensFound:
+        "유효한 토큰을 찾지 못했습니다. 파일 형식과 토큰 값을 확인하세요.",
       count: "토큰 {{count}}개",
       search: "토큰 검색",
       noMatches: "일치하는 토큰이 없습니다",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "토큰을 추가할 수 없습니다: {{message}}",
+      types: {
+        color: "색상",
+        fontFamily: "글꼴 패밀리",
+        fontWeight: "글꼴 두께",
+        fontSize: "글꼴 크기",
+        lineHeight: "줄 높이",
+        letterSpacing: "자간",
+        spacing: "간격",
+        container: "컨테이너",
+        breakpoint: "중단점",
+        radius: "모서리 반경",
+        shadow: "그림자",
+        opacity: "불투명도",
+      },
       editColor: "{{name}} 색상 편집",
     },
     import: {
@@ -1273,7 +1296,7 @@ export default {
       figUploadProcessing: "변환 중…",
       figImportWarningTitle: "대용량 .fig 가져오기",
       figImportWarningDescription:
-        "이 파일에는 프레임 {{frames}}개와 레이어 {{nodes}}개가 있습니다. 모두 가져오면 편집기가 느려질 수 있습니다. 필요한 프레임을 선택하세요.",
+        "이 파일에는 프레임 {{frames}}개와 레이어 {{nodes}}개가 있습니다. 모두 가져오면 편집기가 느려질 수 있습니다. 필요한 페이지를 선택하세요.",
       figImportFrameCount: "{{total}}개 중 {{selected}}개 프레임 선택",
       figImportSelectAll: "모두 선택",
       figImportClearAll: "모두 지우기",
@@ -1282,6 +1305,11 @@ export default {
       figImportAll: "모두 가져오기",
       figImportAnalyzing: "분석 중…",
       figImportSaving: "{{total}}개 중 {{saved}}개 프레임 저장 중",
+      figImportFrameLimit:
+        "프레임 합계가 {{max}}개 이하가 되도록 페이지를 선택하세요.",
+      figImportFramesSkippedWarning:
+        "너무 복잡해서 가져올 수 없는 프레임 {{count}}개를 건너뛰었습니다: {{names}}",
+      figUploadLimits: "최대 {{size}}GB · 가져오기당 프레임 {{frames}}개",
       figUploadDescriptionShort:
         "로컬 가져오기 — Figma API 할당량을 사용하지 않습니다. 지원되는 포함 이미지가 포함됩니다.",
       figUploadImagesSkippedWarning:
@@ -1309,6 +1337,7 @@ export default {
       htmlPlaceholder: "<main>독립 HTML을 여기에 붙여넣기...</main>",
       importHtml: "HTML 가져오기",
       chooseHtmlFile: "HTML 파일 선택",
+      allSupportedFiles: "지원되는 모든 파일",
       githubTitle: "GitHub",
       githubDescription:
         "곧 제공: 저장소에서 화면과 컴포넌트를 직접 가져옵니다.",
@@ -2215,6 +2244,7 @@ export default {
     figmaLink: "Figma 링크",
     importFromFigma: "Figma에서 가져오기",
     figmaFile: "Figma 파일 (.fig)",
+    figmaFileMaxSize: "최대 {{max}}GB",
     openImport: "가져오기 열기",
     importSelectedFile: "선택한 파일 가져오기",
     starterSaasPrompt:

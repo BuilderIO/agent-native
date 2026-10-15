@@ -141,6 +141,11 @@ export function showsOpacity(
   return reading.kind === "wide" ? opacity !== 100 : true;
 }
 
+/** Whether the chevron is drawn: Display P3 and OKLCH give it, like the opacity at 100%, to their numbers. */
+export function showsChevron(reading: FillFieldReading): boolean {
+  return reading.kind !== "wide";
+}
+
 /** The text a field puts under the caret to edit, or null for a paint that is not typed in. */
 export function fillFieldEditText(reading: FillFieldReading): string | null {
   switch (reading.kind) {

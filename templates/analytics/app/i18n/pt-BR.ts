@@ -51,6 +51,84 @@ export default {
     moveDashboard: "Mover painel",
     folderCreateFailed: "Não foi possível criar a pasta",
     moveFailed: "Não foi possível mover o painel",
+    previewSigma: "Pré-visualizar Sigma",
+    sigmaConnection: "Conexão do Sigma",
+    sigmaConnectedTo: "Conectado a {{name}}",
+    sigmaChooseConnection: "Conexão do Sigma",
+    sigmaChooseConnectionPlaceholder: "Escolha uma conexão",
+    sigmaChooseConnectionDescription:
+      "Escolha o espaço de trabalho do Sigma para ver as pastas de trabalho.",
+    sigmaNoConnection: "O Sigma não está conectado",
+    sigmaNoConnectionDescription:
+      "Abra o Dispatch e peça para conectar o Sigma ao Analytics. As credenciais permanecem no Vault.",
+    sigmaOpenDispatch: "Configurar no Dispatch",
+    sigmaWorkbooksLoadFailed:
+      "Não foi possível carregar as pastas de trabalho do Sigma",
+    sigmaRetryConnection: "Verifique a conexão e tente novamente.",
+    sigmaRetry: "Tentar novamente",
+    sigmaNoWorkbooks: "Nenhuma pasta de trabalho do Sigma está disponível.",
+    sigmaWorkbook: "Pasta de trabalho",
+    sigmaChooseWorkbook: "Escolha uma pasta de trabalho",
+    sigmaStatusNotImported: "Não importado",
+    sigmaStatusImporting: "Importando",
+    sigmaStatusImported: "Importado",
+    sigmaStatusFailed: "Falha na importação",
+    sigmaArchived: "Arquivado",
+    sigmaPreviewTitle: "Prévia da pasta de trabalho",
+    sigmaPreviewFailed: "Não foi possível visualizar esta pasta de trabalho",
+    sigmaRetryPreview: "Tente carregar a prévia da pasta novamente.",
+    sigmaImportableCount: "{{count}} importáveis",
+    sigmaUnsupportedCount: "{{count}} sem suporte",
+    sigmaImportable: "Importável",
+    sigmaUnsupported: "Sem suporte",
+    sigmaNoElements: "Nenhum elemento foi encontrado nesta pasta de trabalho.",
+    sigmaPreviewOnly:
+      "Por enquanto, somente visualização: o Sigma não fornece um mapeamento de projeto do BigQuery que o Analytics possa verificar. A importação ficará desativada até que esse mapeamento esteja disponível.",
+    sigmaPreviewTruncated: "Exibindo {{shown}} de {{total}} elementos.",
+    sigmaImportWorkbook: "Importar pasta de trabalho",
+    sigmaImporting: "Importando pasta de trabalho…",
+    sigmaImportInProgress:
+      "A importação desta pasta de trabalho já está em andamento.",
+    sigmaMigrationFailed:
+      "Não foi possível importar esta pasta de trabalho. Tente novamente.",
+    sigmaMigrationResultInvalid:
+      "A resposta da importação estava incompleta. Atualize a lista de pastas de trabalho para verificar o status.",
+    sigmaImportComplete: "Painel criado",
+    sigmaImportSummary:
+      "{{imported}} elementos importados; os {{unsupported}} elementos sem suporte foram mantidos como avisos para revisão.",
+    sigmaAlreadyImported: "Esta pasta de trabalho já foi importada.",
+    sigmaImportedNoDashboard:
+      "O painel foi importado, mas não pode ser aberto por esta conta.",
+    sigmaReviewRequiredCount: "{{count}} precisam de revisão",
+    sigmaBetaRepresentationWarning:
+      "Esta importação beta pode representar algumas visualizações de forma diferente do Sigma.",
+    sigmaReasonUnsupportedElement:
+      "Este tipo de elemento não é compatível com a importação.",
+    sigmaReasonUnsupportedSource:
+      "Este elemento usa uma fonte que não é compatível com a importação.",
+    sigmaReasonSourceMappingRequired:
+      "O Sigma não fornece um mapeamento de projeto BigQuery que o Analytics possa verificar, então este SQL ainda não pode ser importado.",
+    sigmaReasonSourceUnavailable:
+      "O Sigma não permitiu acesso a esta conexão de origem. Verifique as permissões.",
+    sigmaReasonQueryUnavailable:
+      "O Sigma não retornou uma consulta importável para este elemento.",
+    sigmaReasonUnsafeSql:
+      "Este padrão de consulta não pode ser importado com segurança.",
+    sigmaReasonVisualizationReview:
+      "Os dados podem ser importados, mas confira a visualização depois.",
+    sigmaRetryOwnerOnly:
+      "Somente quem iniciou esta importação pode tentar novamente.",
+    sigmaImportedByTeammate: "Importado por um colega da equipe",
+    sigmaFlaggedCount: "{{count}} marcados para revisão",
+    sigmaMoreWorkbooksFailed:
+      "Não foi possível carregar mais pastas de trabalho",
+    sigmaLoadingMore: "Carregando pastas de trabalho…",
+    sigmaLoadMore: "Carregar mais pastas de trabalho",
+    sigmaOpenDashboard: "Abrir painel",
+    sigmaReviewWithAgent: "Revisar com o agente",
+    sigmaReviewContext: "Painel importado do Sigma",
+    sigmaReviewPrompt:
+      "Revise o painel importado do Sigma {{name}}. Confira os painéis importados e os elementos sem suporte e sugira correções.",
   },
   sidebar: {
     collapseSidebar: "Recolher barra lateral",
@@ -526,6 +604,7 @@ export default {
   },
   dataStatus: {
     connected: "Conectado",
+    configuredUnverified: "Configurado · não verificado",
     notConnected: "Não conectado",
     needsReauth: "Reautenticação necessária",
     error: "Erro",
@@ -1191,6 +1270,7 @@ export default {
     saveViewFailedWithMessage:
       "Não foi possível salvar a visualização: {{message}}",
     clearAll: "Limpar tudo",
+    resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
     filterSeries: "Filter",
@@ -1224,6 +1304,11 @@ export default {
     copyTable: "Copiar tabela",
     multiColumnSortHelp:
       "Clique para ordenar. Shift-clique para adicionar outra ordenação.",
+    chartPointLimitNewest:
+      "Mostrando os {{shown}} pontos mais recentes de {{total}}",
+    chartPointLimitFirst:
+      "Mostrando os primeiros {{shown}} de {{total}} pontos",
+    chartPointLimitLast: "Mostrando os últimos {{shown}} de {{total}} pontos",
     exportToGoogleSheets: "Exportar para o Google Sheets",
     exportingToGoogleSheets: "Exportando para o Google Sheets...",
     googleSheetsExported: "Exportado para o Google Sheets",
@@ -1232,6 +1317,18 @@ export default {
       "Não foi possível exportar para o Google Sheets: {{message}}",
     viewSql: "Ver SQL",
     dragToReorder: "Arraste para reordenar",
+    columnFormat: "Formato",
+    columnFormatText: "Texto simples",
+    columnFormatNumber: "Número",
+    columnFormatCurrency: "Moeda",
+    columnFormatPercent: "Porcentagem",
+    columnFormatDate: "Data",
+    columnRename: "Renomear coluna",
+    columnHide: "Ocultar coluna",
+    columnShow: 'Mostrar "{{name}}"',
+    columnShowHidden: "Mostrar colunas ocultas",
+    columnName: "Nome da coluna",
+    columnResize: "Redimensionar coluna",
     deleteSectionTitle: "Excluir seção?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Excluir painel?",
@@ -1276,6 +1373,13 @@ export default {
     reportRecipients: "Destinatários",
     reportRecipientsPlaceholder: "analytics@example.com, ops@example.com",
     reportRecipientsRequired: "Adicione pelo menos um destinatário.",
+    reportDestination: "Enviar para",
+    reportDestinationEmail: "E-mail",
+    reportDestinationSlack: "Slack",
+    reportDestinationEmailAndSlack: "E-mail e Slack",
+    reportSlackWebhookUrl: "URL do webhook do Slack",
+    reportSlackWebhookUrlPlaceholder: "https://hooks.slack.com/services/...",
+    reportSlackWebhookRequired: "Adicione uma URL de webhook do Slack.",
     reportSendTime: "Hora de envio",
     reportTimezone: "Fuso horário",
     reportEnabled: "Ativado",

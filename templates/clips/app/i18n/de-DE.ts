@@ -212,9 +212,12 @@ const messages = {
     expandSidebar: "Seitenleiste erweitern",
     collapseSidebar: "Seitenleiste einklappen",
     agentEmptyState: "Wie kann ich dir mit deinen Aufnahmen helfen?",
-    agentSuggestionSummary: "Fasse meine letzte Aufnahme zusammen",
-    agentSuggestionPricing: "Finde, wo ich Preise erwähnt habe",
-    agentSuggestionFiller: "Entferne Füllwörter aus diesem Clip",
+    agentSuggestionSummary: "Aufnahme zusammenfassen",
+    agentSuggestionPricing: "Preiserwähnungen finden",
+    agentSuggestionFiller: "Füllwörter entfernen",
+    agentScreenshotSuggestionSummary: "Screenshots zusammenfassen",
+    agentScreenshotSuggestionText: "Text in Screenshots finden",
+    agentScreenshotSuggestionCompare: "Screenshots vergleichen",
     createFolderError: "Erstellen fehlgeschlagen",
     folderCreated: "Ordner erstellt",
     folderNamePlaceholder: "Ordnername",
@@ -312,6 +315,10 @@ const messages = {
     transcriptNotReady: "Das Transkript ist noch nicht fertig",
     tryAfterTranscription:
       "Versuchen Sie es erneut, nachdem die Transkription abgeschlossen ist.",
+    silenceTranscriptUnavailableTitle:
+      "Dieses Transkript kann nicht zum Entfernen von Stille verwendet werden",
+    silenceTranscriptUnavailableDescription:
+      "Versuchen Sie, ein neues Transkript zu erstellen, und entfernen Sie danach erneut die Stille.",
     titleGenerationQueued: "Titel wird erstellt…",
     descriptionQueued: "Beschreibung wird erstellt…",
     chapterQueued: "Kapitel werden erstellt…",
@@ -1905,6 +1912,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (Lokalisiert)",
     recordingDownloadStarted: "Recording download started (Lokalisiert)",
+    partialLocalCopyDownloadStarted:
+      "Die lokale Kopie ist möglicherweise unvollständig. Die verfügbaren Aufnahmedaten werden heruntergeladen.",
     backToLibrary: "Back to library (Lokalisiert)",
     clipsRecorder: "Clips recorder (Lokalisiert)",
     preparingSources: "Preparing sources… (Lokalisiert)",
@@ -2070,6 +2079,11 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (Lokalisiert)",
     cleanupComplete: "Diktat bereinigt",
     cleanupFailed: "Diktat konnte nicht bereinigt werden",
+    undoCleanup: "Rückgängig",
+    restoreOriginal: "Original wiederherstellen",
+    cleanupRestored: "Ursprüngliches Diktat wiederhergestellt",
+    cleanupRestoreFailed:
+      "Ursprüngliches Diktat konnte nicht wiederhergestellt werden",
     startFirst: "Verwandle deine Gedanken in Text",
     recordOnDesktop: "Auf dem Desktop aufnehmen",
     emptyDesktopDescription:

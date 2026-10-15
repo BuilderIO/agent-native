@@ -1,3 +1,4 @@
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import {
   callAction,
   useActionMutation,
@@ -7,6 +8,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBrandGithub,
   IconCheck,
+  IconDownload,
   IconDots,
   IconFolder,
   IconFolderPlus,
@@ -64,6 +66,7 @@ import {
 import { dashboardCacheScope } from "@/lib/prefetch-keys";
 
 import { GitHubFolderSyncDialog } from "../components/dashboard/GitHubFolderSyncDialog";
+import { SigmaMigrationDialog } from "../components/dashboard/SigmaMigrationDialog";
 import { NewDashboardDialog } from "../components/layout/NewDashboardDialog";
 
 type Scope = "personal" | "shared";
@@ -91,9 +94,13 @@ const setFolderAction = "set-dashboard-folder" as Parameters<
 
 export default function DashboardOverview() {
   const t = useT();
+  const sigmaMigrationFlag = useFeatureFlagState(
+    "analytics.sigma-dashboard-migration",
+  );
   const { auth } = useAuth();
   const dashboardScope = dashboardCacheScope(auth);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [sigmaMigrationOpen, setSigmaMigrationOpen] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [folderScope, setFolderScope] = useState<Scope>("personal");
   const [search, setSearch] = useState("");
@@ -306,8 +313,20 @@ export default function DashboardOverview() {
             className="pl-9"
           />
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
           <NewDashboardDialog triggerClassName="w-auto flex-1 justify-center rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90 sm:flex-none" />
+          {sigmaMigrationFlag.status === "ready" &&
+          sigmaMigrationFlag.enabled ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 sm:flex-none"
+              onClick={() => setSigmaMigrationOpen(true)}
+            >
+              <IconDownload />
+              {t("dashboardOverview.previewSigma")}
+            </Button>
+          ) : null}
           <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="flex-1 sm:flex-none">
@@ -370,6 +389,14 @@ export default function DashboardOverview() {
           </Dialog>
         </div>
       </div>
+
+      {sigmaMigrationFlag.status === "ready" && sigmaMigrationFlag.enabled ? (
+        <SigmaMigrationDialog
+          open={sigmaMigrationOpen}
+          onOpenChange={setSigmaMigrationOpen}
+          onImported={() => void dashboardsQuery.refetch()}
+        />
+      ) : null}
 
       {dashboards.length === 0 ? (
         <Card className="border-border/50">

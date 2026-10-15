@@ -850,7 +850,6 @@ export default {
       tokens: "टोकन",
       threads: "थ्रेड",
       label: "डिज़ाइन कार्यक्षेत्र",
-      account: "खाता",
       collapse: "साइडबार समेटें",
       expand: "साइडबार फैलाएँ",
     },
@@ -1173,24 +1172,47 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "टोकन इम्पोर्ट करें",
-      importTitle: "टोकन इम्पोर्ट करें",
-      importHint:
-        "हाथ से जोड़ने से पहले design.md, CSS, theme files या current design इस्तेमाल करें।",
-      files: "फाइलें",
-      folder: "फोल्डर",
-      current: "मौजूदा",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
+      importDtcg: "DTCG फ़ाइल…",
+      importCssOrTailwind: "CSS या Tailwind फ़ाइल…",
+      importClipboard: "क्लिपबोर्ड से पेस्ट करें",
+      importFromDesign: "डिज़ाइन से जनरेट करें",
+      importFailed: "टोकन इंपोर्ट नहीं किए जा सके: {{message}}",
+      clipboardBlocked:
+        "क्लिपबोर्ड नहीं पढ़ा जा सका। एक्सेस की अनुमति दें और फिर से कोशिश करें।",
+      clipboardEmpty: "क्लिपबोर्ड खाली है",
       importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      importing: "टोकन इम्पोर्ट हो रहे हैं…",
+      importedWithSkipped:
+        "{{count}} टोकन इम्पोर्ट हुए। {{skipped}} अमान्य मान या फाइलें छोड़ी गईं।",
+      importedWithOmissions:
+        "{{count}} टोकन इम्पोर्ट हुए। {{skipped}} अमान्य आइटम छोड़े गए। सीमा के कारण प्रोसेस नहीं हुए (टोकन: {{omittedTokens}}, फाइलें: {{omittedFiles}})।",
+      importedWithReadFailures:
+        "{{count}} टोकन इम्पोर्ट हुए, लेकिन {{readFailures}} फ़ाइलें पढ़ी नहीं जा सकीं। उन्हें फिर से चुनकर दोबारा कोशिश करें।",
+      importedWithReadFailuresAndOmissions:
+        "{{count}} टोकन इम्पोर्ट हुए। {{readFailures}} फ़ाइलें पढ़ी नहीं जा सकीं। {{skipped}} अमान्य आइटम भी छोड़े गए और सीमा के कारण {{omittedTokens}} टोकन तथा {{omittedFiles}} फ़ाइलें प्रोसेस नहीं हुईं। न पढ़ी जा सकी फ़ाइलें फिर से चुनकर दोबारा कोशिश करें।",
+      noTokensFound: "कोई मान्य टोकन नहीं मिला। फाइल के फ़ॉर्मैट और टोकन मान जांचें।",
       count: "{{count}} टोकन",
       search: "टोकन खोजें",
       noMatches: "कोई मेल खाता टोकन नहीं",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "टोकन नहीं जोड़ा जा सका: {{message}}",
+      types: {
+        color: "रंग",
+        fontFamily: "फ़ॉन्ट फ़ैमिली",
+        fontWeight: "फ़ॉन्ट वज़न",
+        fontSize: "फ़ॉन्ट आकार",
+        lineHeight: "लाइन ऊँचाई",
+        letterSpacing: "अक्षर अंतराल",
+        spacing: "स्पेसिंग",
+        container: "कंटेनर",
+        breakpoint: "ब्रेकपॉइंट",
+        radius: "रेडियस",
+        shadow: "छाया",
+        opacity: "अपारदर्शिता",
+      },
       editColor: "{{name}} का रंग संपादित करें",
     },
     import: {
@@ -1270,7 +1292,7 @@ export default {
       figUploadProcessing: "बदला जा रहा है…",
       figImportWarningTitle: "बड़ा .fig आयात",
       figImportWarningDescription:
-        "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी फ़्रेम चुनें।",
+        "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी पेज चुनें।",
       figImportFrameCount: "{{total}} में से {{selected}} फ़्रेम चुने गए",
       figImportSelectAll: "सभी चुनें",
       figImportClearAll: "सभी हटाएँ",
@@ -1279,6 +1301,10 @@ export default {
       figImportAll: "सभी आयात करें",
       figImportAnalyzing: "विश्लेषण हो रहा है…",
       figImportSaving: "{{total}} में से {{saved}} फ़्रेम सहेजे जा रहे हैं",
+      figImportFrameLimit: "ऐसे पेज चुनें जिनमें कुल {{max}} या उससे कम फ़्रेम हों।",
+      figImportFramesSkippedWarning:
+        "आयात के लिए बहुत जटिल {{count}} फ़्रेम छोड़ दिए गए: {{names}}",
+      figUploadLimits: "अधिकतम {{size}} GB · प्रति आयात {{frames}} फ़्रेम",
       figUploadDescriptionShort:
         "स्थानीय आयात — Figma API कोटा नहीं। समर्थित एम्बेडेड छवियाँ शामिल की जाती हैं।",
       figUploadImagesSkippedWarning:
@@ -1306,6 +1332,7 @@ export default {
       htmlPlaceholder: "<main>Standalone HTML यहाँ paste करें...</main>",
       importHtml: "HTML आयात करें",
       chooseHtmlFile: "HTML file चुनें",
+      allSupportedFiles: "सभी समर्थित फ़ाइलें",
       githubTitle: "GitHub",
       githubDescription:
         "जल्द आ रहा है: repository से screens और components सीधे import करें।",
@@ -2201,6 +2228,7 @@ export default {
     figmaLink: "Figma लिंक",
     importFromFigma: "Figma से आयात करें",
     figmaFile: "Figma फ़ाइल (.fig)",
+    figmaFileMaxSize: "अधिकतम {{max}} GB",
     openImport: "आयात खोलें",
     importSelectedFile: "चुनी गई फ़ाइल आयात करें",
     starterSaasPrompt:

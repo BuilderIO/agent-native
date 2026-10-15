@@ -235,6 +235,28 @@ catalog template. Existing dashboards remain readable while the native
 replacement is validated. Bespoke interaction flows, arbitrary layouts, and
 visualizations outside these contracts may remain Custom Blocks.
 
+## Sigma workbook preview
+
+The Sigma workbook flow is preview-only until Analytics can verify the source
+project mapping. The current Sigma connection API reports provider type and
+metadata but does not expose a BigQuery project identifier, so inspection blocks
+all Sigma BigQuery SQL and the import action stays hidden from the agent and
+disabled in the UI. Do not call `migrate-sigma-workbook` or treat an Analytics
+BigQuery credential as proof that it targets the Sigma project. Users can list
+workbooks with `list-sigma-workbooks` and preview one with
+`inspect-sigma-workbook`. The feature is controlled by
+`analytics.sigma-dashboard-migration` and requires a granted Sigma connection.
+The Dispatch setup link can create a Sigma workspace connection from
+Vault-backed client ID and client secret references and grant Analytics access;
+never copy their values into Analytics settings.
+
+If Sigma adds verifiable source mapping in the future, the planned import will
+create a private snapshot in the user's personal `Sigma` folder. Other source
+types and unsupported elements will become review callouts. Preserve migration
+warnings and never describe a future result as parity-complete or automatically
+synchronized. Sigma's workbook-code API is public Beta and can omit unsupported
+workbook features before inspection receives the response.
+
 The source tree ships four provider-free v2 manifests in
 `server/lib/native-v2-dashboards.ts`: Customer ROI, Account Engagement,
 Cross-sell, and Win / Loss. They intentionally contain no customer names,
@@ -355,6 +377,8 @@ Use conditional blocks for optional filters:
 An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
 
 Filters auto-apply on change — there is no Apply button. Each filter change writes to the URL and re-runs the affected panels. Other filters are preserved (the URL update is functional, not destructive). If you see a filter "reset" itself when another filter changes, look for a duplicate `id` first.
+
+**Reset filters** in the filter bar returns the dashboard to what a fresh load shows: the default saved view when the dashboard has one, otherwise each filter's own `default`. It shows only while a filter's resolved value differs from that, so `f_timeRange=30d` on a 30d-default filter counts as reset. To reset for the user with `set-search-params`, remove every `f_` param and `view`, or set the default view's params and `view=<id>`.
 
 ## Modifying A Dashboard
 
@@ -521,6 +545,23 @@ in the same `set({...})` call.
 - `config.pivot` (`{ xKey, seriesKey, valueKey }`) reshapes long-format rows into
   one series per `seriesKey` value and drops every other column. If the query now
   returns wide-format rows, remove `pivot` or the panel shows "No data".
+- A stacked bar or area chart draws its largest series at the bottom and an
+  "Other"/"unknown" bucket on top; the legend and tooltip use the same order.
+  To fix the order, list series values in `config.pivot.seriesOrder` (they go
+  first, the rest follow by size) or list `config.yKeys` for wide rows.
+- `config.colors` is matched to series in `config.pivot.seriesOrder` order, then
+  result order, never by stack position. When colors carry meaning (green for
+  positive), list those series in `seriesOrder` so row order cannot swap them.
+- To split a chart by Agent-Native app, pivot by a column named `template` or
+  `app` that holds the lowercase app key. Then each app (`mail`, `slides`, ...)
+  takes its fixed color from `shared/tokens/app-series-colors.ts`, on every
+  dashboard and in emailed reports, and the chart's other series (`unknown`,
+  `docs`) are muted. Leave `config.colors` off such panels, or it replaces
+  those colors.
+- A chart draws at most 400 points and says so under the chart. Line, area,
+  combo and heatmap charts keep their last rows, and bar charts their first;
+  over dates in date order (`YYYY-MM-DD`, `YYYYMMDD`, `Sep 30, 2026`, weeks, quarters) both
+  keep the newest. Aggregate or limit the SQL instead of returning more.
 - Config keys the renderer does not honor are ignored. `mutate-dashboard`
   rejects them on the panels you change and lists the honored keys; read that
   error instead of retrying the same key.

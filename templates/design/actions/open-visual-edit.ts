@@ -581,6 +581,7 @@ export default defineAction({
             args.description ??
             "URL-backed localhost screens prepared by visual-edit.",
           projectType: "prototype",
+          creationMethod: "import_url",
         });
         designId = design.id;
         createdDesign = true;

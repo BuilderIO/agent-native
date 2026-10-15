@@ -1,33 +1,19 @@
+import { type Page } from "@playwright/test";
+
+import { appPath, expandAllLayers, pickFrameMode } from "./helpers";
 import {
+  childrenOf,
   expect,
+  expectOnlyChanged,
+  styleOf,
   test,
-  type APIRequestContext,
-  type Locator,
-  type Page,
-} from "@playwright/test";
+  type App,
+  type SavedNode,
+} from "./rails";
 
-import { buildCodeLayerProjection } from "../shared/code-layer";
-import { e2eBaseURL } from "./base-url";
-import { expandAllLayers, gotoEditor } from "./helpers";
-
-const MOD = process.platform === "darwin" ? "Meta" : "Control";
 // Design keeps a 56px board gap for Cmd+D.
 const DESIGN_SCREEN_GAP = 56;
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
-
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const res = await request.post(`${BASE_URL}/_agent-native/actions/${name}`, {
-    data: input,
-  });
-  if (!res.ok()) {
-    throw new Error(`${name}: ${res.status()} ${await res.text()}`);
-  }
-  return res.json();
-}
+const BOARD = "__board__.html";
 
 const BLANK_SCREEN = (label: string) => `<!doctype html>
 <html lang="en">
@@ -41,1449 +27,671 @@ const NAV_SCREEN = `<!doctype html>
   <body style="margin:0;min-height:400px;background:#fff">
     <div data-agent-native-node-id="nav-root" data-agent-native-layer-name="Navigation"
          data-agent-native-component="Navigation"
-         style="position:absolute;left:0;top:0;width:1440px;height:80px;background:#fffdf8;display:flex;align-items:center;padding:0 24px">
+         style="position:absolute;left:0;top:0;width:1440px;height:80px;box-sizing:border-box;background:#fffdf8;display:flex;align-items:center;padding:0 24px">
       <span data-agent-native-node-id="nav-word" style="font-weight:900">Wordmark</span>
     </div>
   </body>
 </html>`;
 
-async function newDesign(
-  request: APIRequestContext,
-  files: Array<{ filename: string; content: string }>,
-): Promise<{ designId: string }> {
-  const created = await action(request, "create-design", {
-    title: `Portfolio build ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created?.id ?? created?.data?.id ?? created?.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  for (const f of files) {
-    await action(request, "create-file", {
-      designId,
-      filename: f.filename,
-      content: f.content,
-      fileType: "html",
-    });
-  }
-  return { designId };
-}
+const PAGE_WITH_NAV = `<!doctype html>
+<html><head><meta charset="utf-8"><title>Home</title></head>
+<body style="margin:0;padding:40px;background:#fff">
+  <main data-agent-native-node-id="page" data-agent-native-layer-name="Page" style="display:flex;flex-direction:column;gap:16px">
+    <nav data-agent-native-node-id="nav" data-agent-native-layer-name="Navigation" style="display:flex;gap:24px;align-items:center;padding:12px 24px;background:#fffdf8">
+      <span data-agent-native-node-id="word" data-agent-native-layer-name="Wordmark">Wordmark</span>
+      <span data-agent-native-node-id="work" data-agent-native-layer-name="Work">Work</span>
+    </nav>
+    <section data-agent-native-node-id="hero" data-agent-native-layer-name="Hero" style="height:200px;background:#eeeeee"></section>
+  </main>
+</body></html>`;
 
-async function designRecord(request: APIRequestContext, designId: string) {
-  return request
-    .get(`${BASE_URL}/_agent-native/actions/get-design?id=${designId}`)
-    .then((r) => r.json());
-}
+type Frame = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  z?: number;
+};
+type BoardData = { canvasFrames?: Record<string, Frame> };
 
-async function designData(request: APIRequestContext, designId: string) {
-  const record = await designRecord(request, designId);
-  return JSON.parse(record.data || "{}") as Record<string, any>;
-}
-
-async function fileContent(
-  request: APIRequestContext,
-  designId: string,
-  filename = "index.html",
-): Promise<string> {
-  const record = await designRecord(request, designId);
-  return (
-    (record.files ?? []).find((f: any) => f.filename === filename)?.content ??
-    ""
-  );
-}
-
-async function fileList(
-  request: APIRequestContext,
-  designId: string,
-): Promise<string[]> {
-  const record = await designRecord(request, designId);
-  return (record.files ?? []).map((f: any) => f.filename);
-}
-
-async function fileId(
-  request: APIRequestContext,
-  designId: string,
-  filename: string,
-): Promise<string> {
-  const record = await designRecord(request, designId);
-  const file = (record.files ?? []).find((f: any) => f.filename === filename);
-  if (!file) throw new Error(`no file ${filename} in design ${designId}`);
-  return file.id;
-}
-
-async function selectionContext(
-  request: APIRequestContext,
-): Promise<{ selectedScreenIds?: string[] }> {
-  const res = await request.get(
-    `${BASE_URL}/_agent-native/application-state/design-selection`,
-  );
-  if (!res.ok()) {
-    throw new Error(
-      `could not read design-selection: ${res.status()} ${await res.text()}`,
-    );
-  }
-  return res.json();
-}
-
-async function selectedScreenFilenames(
-  request: APIRequestContext,
-  designId: string,
-): Promise<string[]> {
-  const [selection, record] = await Promise.all([
-    selectionContext(request),
-    designRecord(request, designId),
-  ]);
-  return (selection.selectedScreenIds ?? [])
-    .map(
-      (id) =>
-        record.files?.find((file: { id: string }) => file.id === id)
-          ?.filename ?? `missing:${id}`,
-    )
-    .sort();
-}
-
-function layersTree(page: Page): Locator {
-  return page.getByRole("tree", { name: "Layers" });
-}
-
-function layerRowButton(page: Page, name: string): Locator {
-  return layersTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${name.replace(/"/g, '\\"')}"]`) })
-    .first();
-}
-
-async function selectLayerByName(
+async function action(
   page: Page,
   name: string,
-  opts?: { shift?: boolean },
+  input: Record<string, unknown>,
 ) {
-  await layerRowButton(page, name).click({
-    force: true,
-    modifiers: opts?.shift ? ["Shift"] : undefined,
-  });
-  await page.waitForTimeout(500);
-}
-
-async function selectLayerInScreen(
-  page: Page,
-  screenId: string,
-  layerName: string,
-): Promise<void> {
-  const rows = layersTree(page).locator('[role="treeitem"]');
-  const rowIndex = await rows.evaluateAll(
-    (elements, { screenId: wantedScreenId, layerName: wantedLayerName }) => {
-      let inScreen = false;
-      for (let index = 0; index < elements.length; index += 1) {
-        const row = elements[index]!;
-        if (row.getAttribute("aria-level") === "1") {
-          inScreen =
-            row.querySelector(
-              `[data-layer-row-button][data-layer-node-id="${wantedScreenId}"]`,
-            ) !== null;
-        }
-        if (
-          inScreen &&
-          Array.from(row.querySelectorAll("span[title]"))
-            .map((span) => span.getAttribute("title"))
-            .includes(wantedLayerName)
-        ) {
-          return index;
-        }
-      }
-      return -1;
-    },
-    { screenId, layerName },
+  const response = await page.request.post(
+    appPath(`/_agent-native/actions/${name}`),
+    { data: input },
   );
-  if (rowIndex < 0) {
-    throw new Error(
-      `no layer ${layerName} found under screen ${screenId} in the Layers tree`,
-    );
-  }
-  await rows
-    .nth(rowIndex)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .click({ force: true });
-  await page.waitForTimeout(500);
+  expect(response.ok(), `${name}: ${response.status()}`).toBe(true);
+  return response.json();
 }
 
-async function dump(page: Page) {
-  return page.evaluate(() => (window as any).__designTrace?.dump?.() ?? null);
+async function fileIds(app: App, designId: string) {
+  const record = await app.savedRecord(designId);
+  return Object.fromEntries(
+    record.files.map((file) => [file.filename, file.id]),
+  );
 }
 
-async function focusCanvas(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    document.body.setAttribute("tabindex", "-1");
-    document.body.focus();
+async function canvasFrames(app: App, designId: string) {
+  return (
+    ((await app.savedRecord(designId)).data as BoardData).canvasFrames ?? {}
+  );
+}
+
+async function filenames(app: App, designId: string) {
+  return (await app.savedRecord(designId)).files.map((file) => file.filename);
+}
+
+async function selectedScreenIds(page: Page): Promise<string[]> {
+  const response = await page.request.get(
+    appPath("/_agent-native/application-state/design-selection"),
+  );
+  expect(response.ok()).toBe(true);
+  return ((await response.json()).selectedScreenIds ?? []) as string[];
+}
+
+async function setFrames(
+  page: Page,
+  designId: string,
+  frames: Record<string, Frame>,
+) {
+  await action(page, "update-design", {
+    id: designId,
+    dataOperations: Object.entries(frames).map(([id, value]) => ({
+      op: "set",
+      path: ["canvasFrames", id],
+      value,
+    })),
   });
 }
 
-async function emptyBoardPoint(
-  page: Page,
-  options: {
-    offset?: { x: number; y: number };
-    dragSize?: { width: number; height: number };
-  } = {},
-) {
-  const offset = options.offset ?? { x: 0, y: 0 };
-  const dragSize = options.dragSize ?? { width: 0, height: 0 };
-  const boardIframes = page.locator(
-    "[data-board-surface-layer] iframe[data-design-preview-iframe]",
-  );
-  const boardFrameBoxes: Array<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }> = [];
-  for (
-    let iframeIndex = 0;
-    iframeIndex < (await boardIframes.count());
-    iframeIndex += 1
-  ) {
-    const frames = boardIframes
-      .nth(iframeIndex)
-      .contentFrame()
-      .locator('[data-an-primitive="frame"]');
-    for (
-      let frameIndex = 0;
-      frameIndex < (await frames.count());
-      frameIndex += 1
-    ) {
-      const box = await frames.nth(frameIndex).boundingBox();
-      if (box) boardFrameBoxes.push(box);
-    }
-  }
+async function openOverview(app: App, designId: string, screens: number) {
+  await app.page.goto(appPath(`/design/${designId}?view=overview&zoom=30`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(app.page.locator("[data-screen-shell]")).toHaveCount(screens);
+  await expect.poll(() => filenames(app, designId)).toContain(BOARD);
+}
+
+async function emptyBoardPoint(page: Page, drawnAt?: { x: number; y: number }) {
   const point = await page.evaluate(
-    ({ offsetX, offsetY, dragWidth, dragHeight, boardFrameBoxes }) => {
+    ({ drawnAt, dragWidth, dragHeight }) => {
       const world = document.querySelector("[data-multi-screen-canvas-world]");
       const surface = (world?.parentElement ?? world) as HTMLElement | null;
       if (!surface) return null;
       const r = surface.getBoundingClientRect();
-      const screenFrames = Array.from(
+      const screens: {
+        left: number;
+        right: number;
+        top: number;
+        bottom: number;
+      }[] = Array.from(
         document.querySelectorAll("[data-screen-shell][data-frame-id]"),
       ).map((el) => el.getBoundingClientRect());
-      const overlaps = (
-        left: number,
-        top: number,
-        right: number,
-        bottom: number,
-        rect: { left: number; top: number; right: number; bottom: number },
-      ) =>
-        right >= rect.left - 24 &&
-        left <= rect.right + 24 &&
-        bottom >= rect.top - 24 &&
-        top <= rect.bottom + 24;
-      for (
-        let y = r.top + 60 + offsetY;
-        y < r.bottom - 60 - dragHeight;
-        y += 40
-      ) {
-        for (
-          let x = r.left + 60 + offsetX;
-          x < r.right - 60 - dragWidth;
-          x += 40
-        ) {
-          const right = x + dragWidth;
-          const bottom = y + dragHeight;
-          if (
-            screenFrames.some((frame) => overlaps(x, y, right, bottom, frame))
-          )
-            continue;
-          if (
-            boardFrameBoxes.some((frame) =>
-              overlaps(x, y, right, bottom, {
-                left: frame.x,
-                top: frame.y,
-                right: frame.x + frame.width,
-                bottom: frame.y + frame.height,
-              }),
-            )
-          ) {
-            continue;
-          }
+      if (drawnAt) {
+        screens.push({
+          left: drawnAt.x,
+          top: drawnAt.y,
+          right: drawnAt.x + dragWidth,
+          bottom: drawnAt.y + dragHeight,
+        });
+      }
+      for (let y = r.top + 60; y < r.bottom - 60 - dragHeight; y += 40) {
+        for (let x = r.left + 60; x < r.right - 60 - dragWidth; x += 40) {
+          const clear = screens.every(
+            (s) =>
+              x + dragWidth < s.left - 24 ||
+              x > s.right + 24 ||
+              y + dragHeight < s.top - 24 ||
+              y > s.bottom + 24,
+          );
           const hit = document.elementFromPoint(x, y);
-          if (hit && surface.contains(hit)) return { x, y };
+          if (clear && hit && surface.contains(hit)) return { x, y };
         }
       }
       return null;
     },
-    {
-      offsetX: offset.x,
-      offsetY: offset.y,
-      dragWidth: dragSize.width,
-      dragHeight: dragSize.height,
-      boardFrameBoxes,
-    },
+    { drawnAt, dragWidth: 120, dragHeight: 80 },
   );
-  if (!point) throw new Error("no empty canvas point found at this viewport");
+  if (!point) throw new Error("no empty canvas point found");
   return point;
 }
 
-async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
-  await page
-    .locator(
-      '[data-design-bottom-toolbar] button[aria-label="Frame options"],' +
-        ' [data-design-bottom-toolbar] button[aria-label="Screen options"]',
-    )
-    .first()
-    .click();
-  await page.getByRole("menuitem").filter({ hasText: mode }).first().click();
-  await page.waitForTimeout(400);
-}
-
-async function boardHtml(request: APIRequestContext, designId: string) {
-  return fileContent(request, designId, "__board__.html");
-}
-
-async function boardSourceFile(request: APIRequestContext, designId: string) {
-  const record = await designRecord(request, designId);
-  const file = record.files?.find(
-    (candidate: { filename: string }) =>
-      candidate.filename === "__board__.html",
+function boardFrames(nodes: Map<string, SavedNode>) {
+  return [...nodes.values()].filter(
+    (node) => node.attrs["data-an-primitive"] === "frame",
   );
-  if (!file) throw new Error(`no board file in design ${designId}`);
-  if (typeof file.id !== "string" || typeof file.content !== "string") {
-    throw new Error(`board file in design ${designId} is incomplete`);
-  }
-  return { fileId: file.id, content: file.content };
 }
 
 async function drawBoardFrame(
-  page: Page,
-  request: APIRequestContext,
+  app: App,
   designId: string,
   from: { x: number; y: number },
-  to: { x: number; y: number },
 ) {
-  const countBefore = (
-    (await boardHtml(request, designId)).match(/data-an-primitive="frame"/g) ??
-    []
-  ).length;
-  await pickFrameMode(page, "Frame");
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.mouse.move(to.x, to.y, { steps: 16 });
-  await page.mouse.up();
-  try {
-    await expect
-      .poll(
-        async () =>
-          (
-            (await boardHtml(request, designId)).match(
-              /data-an-primitive="frame"/g,
-            ) ?? []
-          ).length,
-        { timeout: 10_000 },
-      )
-      .toBeGreaterThan(countBefore);
-  } catch (error) {
-    const failure = error instanceof Error ? error.message : String(error);
-    let diagnostic: unknown;
-    try {
-      const browserState = await page.evaluate(
-        ({ from, to }) => {
-          const surface = document.querySelector(
-            "[data-multi-screen-canvas-world]",
-          )?.parentElement;
-          const rect = surface?.getBoundingClientRect();
-          const left = Math.min(from.x, to.x);
-          const top = Math.min(from.y, to.y);
-          const right = Math.max(from.x, to.x);
-          const bottom = Math.max(from.y, to.y);
-          const screens = Array.from(
-            document.querySelectorAll<HTMLElement>(
-              "[data-screen-shell][data-frame-id]",
-            ),
-          );
-          const target = (point: { x: number; y: number }) => {
-            const element = document.elementFromPoint(point.x, point.y);
-            return {
-              ...point,
-              tag: element?.tagName.toLowerCase() ?? null,
-              screen: element
-                ?.closest("[data-screen-shell][data-frame-id]")
-                ?.getAttribute("data-frame-id"),
-            };
-          };
-          return {
-            activeTool: document
-              .querySelector<HTMLElement>(
-                '[data-design-bottom-toolbar] button[aria-pressed="true"]',
-              )
-              ?.getAttribute("aria-label"),
-            viewport: [innerWidth, innerHeight],
-            surface: rect
-              ? [rect.left, rect.top, rect.right, rect.bottom]
-              : null,
-            targets: [target(from), target(to)],
-            intersectingScreens: screens
-              .filter((screen) => {
-                const screenRect = screen.getBoundingClientRect();
-                return (
-                  right >= screenRect.left &&
-                  left <= screenRect.right &&
-                  bottom >= screenRect.top &&
-                  top <= screenRect.bottom
-                );
-              })
-              .map((screen) => screen.getAttribute("data-frame-id")),
-          };
-        },
-        { from, to },
-      );
-      const countAfter = (
-        (await boardHtml(request, designId)).match(
-          /data-an-primitive="frame"/g,
-        ) ?? []
-      ).length;
-      diagnostic = {
-        from,
-        to,
-        countBefore,
-        countAfter,
-        ...browserState,
-        designTrace: await dump(page),
-      };
-    } catch (diagnosticError) {
-      diagnostic = {
-        diagnosticReadError:
-          diagnosticError instanceof Error
-            ? diagnosticError.message
-            : String(diagnosticError),
-      };
-    }
-    throw new Error(
-      `${failure}\nFrame draw context: ${JSON.stringify(diagnostic)}`,
-    );
-  }
+  const before = boardFrames(await app.savedNodes(designId, BOARD)).length;
+  await pickFrameMode(app.page, "Frame");
+  await app.page.mouse.move(from.x, from.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(from.x + 120, from.y + 80, { steps: 16 });
+  await app.page.mouse.up();
+  await app.settled();
+  expect(boardFrames(await app.savedNodes(designId, BOARD))).toHaveLength(
+    before + 1,
+  );
 }
 
-test.describe("assemble portfolio pages", () => {
-  let designId = "";
-
-  test.afterEach(async ({ request }) => {
-    if (!designId) return;
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-    designId = "";
-  });
-
-  test("Shift+S leaves the tool unchanged; Frame Selection wraps independent board frames with undo/redo", async ({
-    page,
-    request,
-  }) => {
-    ({ designId } = await newDesign(request, [
-      { filename: "index.html", content: BLANK_SCREEN("Home") },
-    ]));
-    await gotoEditor(page, designId);
-
-    const activeToolBefore = await page
-      .locator('[data-design-bottom-toolbar] button[aria-pressed="true"]')
-      .first()
-      .getAttribute("aria-label");
-    await focusCanvas(page);
-    await page.keyboard.press("Shift+S");
-    await page.waitForTimeout(400);
-    const activeToolAfter = await page
-      .locator('[data-design-bottom-toolbar] button[aria-pressed="true"]')
-      .first()
-      .getAttribute("aria-label");
-    expect(
-      activeToolAfter,
-      "Shift+S is unassigned and should not silently switch tools",
-    ).toBe(activeToolBefore);
-
-    const p1 = await emptyBoardPoint(page, {
-      dragSize: { width: 120, height: 80 },
-    });
-    await drawBoardFrame(page, request, designId, p1, {
-      x: p1.x + 120,
-      y: p1.y + 80,
-    });
-    const p2 = await emptyBoardPoint(page, {
-      offset: { x: 260, y: 0 },
-      dragSize: { width: 120, height: 80 },
-    });
-    await drawBoardFrame(page, request, designId, p2, {
-      x: p2.x + 120,
-      y: p2.y + 80,
-    });
-    const boardBefore = await boardSourceFile(request, designId);
-    const frameCountBefore = (
-      boardBefore.content.match(/data-an-primitive="frame"/g) ?? []
-    ).length;
-    expect(frameCountBefore).toBe(2);
-    const source = {
-      kind: "design-file" as const,
-      fileId: boardBefore.fileId,
-    };
-    const frameNodesBefore = buildCodeLayerProjection(boardBefore.content, {
-      source,
-    }).nodes.filter(
-      (node) => node.dataAttributes["data-an-primitive"] === "frame",
-    );
-    expect(frameNodesBefore).toHaveLength(2);
-    const originalParentId = frameNodesBefore[0]?.parentId;
-    expect(
-      frameNodesBefore[1]?.parentId,
-      `expected independent board frame siblings: ${JSON.stringify(frameNodesBefore.map(({ id, parentId, path }) => ({ id, parentId, path })))}`,
-    ).toBe(originalParentId);
-
-    await page
-      .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
-      .click();
-    const world = page.locator("[data-multi-screen-canvas-world]");
-    await world.click({
-      position: {
-        x: p1.x - (await world.boundingBox())!.x + 10,
-        y: p1.y - (await world.boundingBox())!.y + 10,
-      },
-      force: true,
-    });
-    await page.waitForTimeout(400);
-    await page.keyboard.down("Shift");
-    await world.click({
-      position: {
-        x: p2.x - (await world.boundingBox())!.x + 10,
-        y: p2.y - (await world.boundingBox())!.y + 10,
-      },
-      force: true,
-    });
-    await page.keyboard.up("Shift");
-    await page.waitForTimeout(400);
-    await page.evaluate(() => (window as any).__designTrace?.clear?.());
-    await page.keyboard.press(`${MOD}+Alt+g`);
-    await expect
-      .poll(
-        async () =>
-          (await boardHtml(request, designId)).match(
-            /data-an-primitive="frame"/g,
-          )?.length ?? 0,
-      )
-      .toBe(frameCountBefore + 1);
-
-    const boardAfter = await boardSourceFile(request, designId);
-    const frameNodesAfter = buildCodeLayerProjection(boardAfter.content, {
-      source,
-    }).nodes.filter(
-      (node) => node.dataAttributes["data-an-primitive"] === "frame",
-    );
-    expect(frameNodesAfter).toHaveLength(frameCountBefore + 1);
-    const wrappers = frameNodesAfter.filter(
-      (candidate) =>
-        frameNodesAfter.filter((child) => child.parentId === candidate.id)
-          .length === 2,
-    );
-    expect(wrappers).toHaveLength(1);
-    const wrapper = wrappers[0];
-    expect(wrapper).toBeDefined();
-    if (!wrapper) throw new Error("Frame Selection did not persist a wrapper");
-    expect(wrapper.parentId).toBe(originalParentId);
-
-    await focusCanvas(page);
-    await page.keyboard.press(`${MOD}+z`);
-    await expect
-      .poll(
-        async () =>
-          (await boardHtml(request, designId)).match(
-            /data-an-primitive="frame"/g,
-          )?.length ?? 0,
-      )
-      .toBe(frameCountBefore);
-    const boardAfterUndo = await boardSourceFile(request, designId);
-    const frameNodesAfterUndo = buildCodeLayerProjection(
-      boardAfterUndo.content,
-      { source },
-    ).nodes.filter(
-      (node) => node.dataAttributes["data-an-primitive"] === "frame",
-    );
-    expect(frameNodesAfterUndo).toHaveLength(2);
-    expect(frameNodesAfterUndo[0]?.parentId).toBe(originalParentId);
-    expect(frameNodesAfterUndo[1]?.parentId).toBe(originalParentId);
-
-    await focusCanvas(page);
-    await page.keyboard.press(`${MOD}+Shift+z`);
-    await expect
-      .poll(
-        async () =>
-          (await boardHtml(request, designId)).match(
-            /data-an-primitive="frame"/g,
-          )?.length ?? 0,
-      )
-      .toBe(frameCountBefore + 1);
-    const boardAfterRedo = await boardSourceFile(request, designId);
-    const frameNodesAfterRedo = buildCodeLayerProjection(
-      boardAfterRedo.content,
-      { source },
-    ).nodes.filter(
-      (node) => node.dataAttributes["data-an-primitive"] === "frame",
-    );
-    expect(frameNodesAfterRedo).toHaveLength(frameCountBefore + 1);
-    const redoneWrappers = frameNodesAfterRedo.filter(
-      (candidate) =>
-        frameNodesAfterRedo.filter((child) => child.parentId === candidate.id)
-          .length === 2,
-    );
-    expect(redoneWrappers).toHaveLength(1);
-    const redoneWrapper = redoneWrappers[0];
-    expect(redoneWrapper).toBeDefined();
-    if (!redoneWrapper) throw new Error("Redo did not restore the wrapper");
-    expect(redoneWrapper.parentId).toBe(originalParentId);
-  });
-
-  test("step 3 [overview, outside any screen]: stripping a board component's white fill via the inspector (peer-owned)", async ({
-    page,
-    request,
-  }) => {
-    ({ designId } = await newDesign(request, [
-      { filename: "index.html", content: BLANK_SCREEN("Home") },
-    ]));
-    await gotoEditor(page, designId);
-    const p1 = await emptyBoardPoint(page, {
-      dragSize: { width: 140, height: 100 },
-    });
-    await drawBoardFrame(page, request, designId, p1, {
-      x: p1.x + 140,
-      y: p1.y + 100,
-    });
-
-    const world = page.locator("[data-multi-screen-canvas-world]");
-    const worldBox = (await world.boundingBox())!;
-    await page
-      .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
-      .click();
-    await world.click({
-      position: { x: p1.x - worldBox.x + 10, y: p1.y - worldBox.y + 10 },
-      force: true,
-    });
-    await page.waitForTimeout(500);
-
-    const fillSection = page
-      .locator("section")
-      .filter({ has: page.getByRole("heading", { name: /^Fill$/i }) })
-      .first();
-    const beforeVisible = await fillSection.isVisible().catch(() => false);
-    expect(
-      beforeVisible,
-      "selecting a board frame should populate the inspector's Fill section (peer-owned inspector surface)",
-    ).toBe(true);
-
-    const before = await boardHtml(request, designId);
-    const fillRow = fillSection
-      .locator("[data-fill-row], li, div")
-      .filter({
-        has: page.locator('button[aria-label="Remove layer"]'),
-      })
-      .first();
-    const hasHoverRow = (await fillRow.count()) > 0;
-    if (hasHoverRow) await fillRow.hover();
-    else await fillSection.hover();
-    await page.waitForTimeout(300);
-    const removeButton = fillSection
-      .locator('button[aria-label="Remove layer"]')
-      .first();
-    const hasRemove = await removeButton.isVisible().catch(() => false);
-    if (hasRemove) {
-      await removeButton.click({ force: true });
-    } else {
-      const hexInput = fillSection.locator("input").first();
-      await hexInput.fill("transparent");
-      await hexInput.press("Enter");
-    }
-    await page.waitForTimeout(500);
-    const after = await boardHtml(request, designId);
-    expect(
-      after,
-      `stripping the frame's fill via the inspector should change the board file. before/after identical — trace: ${JSON.stringify(await dump(page))}`,
-    ).not.toBe(before);
-  });
-
-  test("step 4 [in-screen, crossing the screen boundary]: dragging a Navigation instance from another screen onto a blank page, then Shift+A wraps the dropped instances into one auto-layout page frame", async ({
-    page,
-    request,
-  }) => {
-    ({ designId } = await newDesign(request, [
-      { filename: "index.html", content: BLANK_SCREEN("Home") },
-      { filename: "nav.html", content: NAV_SCREEN },
-    ]));
-    const record = await designRecord(request, designId);
-    const homeFileId = record.files.find(
-      (f: any) => f.filename === "index.html",
-    ).id;
-    const navFileId = record.files.find(
-      (f: any) => f.filename === "nav.html",
-    ).id;
-    await action(request, "update-design", {
-      id: designId,
-      dataOperations: [
-        {
-          op: "set",
-          path: ["canvasFrames", homeFileId],
-          value: { x: 0, y: 0, width: 1440, height: 900, z: 0 },
-        },
-        {
-          op: "set",
-          path: ["canvasFrames", navFileId],
-          value: { x: -1600, y: 0, width: 1440, height: 400, z: 1 },
-        },
-        {
-          op: "set",
-          path: ["screenMetadata", homeFileId],
-          value: { sourceType: "inline", width: 1440, height: 900 },
-        },
-        {
-          op: "set",
-          path: ["screenMetadata", navFileId],
-          value: { sourceType: "inline", width: 1440, height: 400 },
-        },
-      ],
-    });
-
-    await page.goto(`${BASE_URL}/design/${designId}?view=overview&zoom=25`, {
-      waitUntil: "domcontentloaded",
-    });
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
-      timeout: 40_000,
-    });
-
-    const sourceFrame = page.locator(
-      `iframe[data-screen-iframe-id="${navFileId}"]`,
-    );
-    const targetFrame = page.locator(
-      `iframe[data-screen-iframe-id="${homeFileId}"]`,
-    );
-    const sourceEl = sourceFrame
-      .contentFrame()
-      .locator('[data-agent-native-node-id="nav-root"]');
-    const sourceDragEl = sourceFrame
-      .contentFrame()
-      .locator('[data-agent-native-node-id="nav-word"]');
-    await expect(sourceEl).toBeVisible();
-    await expect(sourceDragEl).toBeVisible();
-    let lastSourceBox: { x: number; y: number } | null = null;
-    await expect
-      .poll(
-        async () => {
-          const box = await sourceEl.boundingBox();
-          const stable =
-            box !== null &&
-            lastSourceBox !== null &&
-            Math.abs(box.x - lastSourceBox.x) < 1 &&
-            Math.abs(box.y - lastSourceBox.y) < 1;
-          lastSourceBox = box;
-          return stable;
-        },
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    const sourceDragBox = (await sourceDragEl.boundingBox())!;
-    const targetBox = (await targetFrame.boundingBox())!;
-
-    await expandAllLayers(page);
-    await selectLayerByName(page, "Navigation");
-    await page.waitForTimeout(500);
-    await page.mouse.move(
-      sourceDragBox.x + sourceDragBox.width / 2,
-      sourceDragBox.y + sourceDragBox.height / 2,
-    );
-    await page.keyboard.down("Alt");
-    await page.mouse.down();
-    await page.mouse.move(
-      targetBox.x + targetBox.width * 0.5,
-      targetBox.y + targetBox.height * 0.2,
-      { steps: 20 },
-    );
-    await page.waitForTimeout(300);
-    const ghost = page.locator("[data-cross-screen-drag-ghost]");
-    const ghostAppeared = await ghost
-      .waitFor({ state: "visible", timeout: 10_000 })
-      .then(() => true)
-      .catch(() => false);
-    await page.mouse.up();
-    await page.keyboard.up("Alt");
-    expect(
-      ghostAppeared,
-      `alt-dragging the Navigation instance toward the Home screen should show the cross-screen drag ghost — trace: ${JSON.stringify(await dump(page))}`,
-    ).toBe(true);
-
-    let homeHtml = "";
-    await expect
-      .poll(
-        async () => {
-          homeHtml = await fileContent(request, designId, "index.html");
-          return (
-            homeHtml.match(/data-agent-native-component="Navigation"/g) ?? []
-          ).length;
-        },
-        {
-          timeout: 10_000,
-          message:
-            "alt-dragging the Navigation instance onto Home should copy it in, leaving the source screen untouched",
-        },
-      )
-      .toBe(1);
-    const navHtmlAfter = await fileContent(request, designId, "nav.html");
-    expect(
-      (navHtmlAfter.match(/data-agent-native-component="Navigation"/g) ?? [])
-        .length,
-    ).toBe(1);
-
-    await gotoEditor(page, designId);
-    await expandAllLayers(page);
-    await selectLayerInScreen(page, homeFileId, "Navigation");
-    await focusCanvas(page);
-    await page.evaluate(() => (window as any).__designTrace?.clear?.());
-    await page.keyboard.press("Shift+A");
-    await page.waitForTimeout(700);
-    homeHtml = await fileContent(request, designId, "index.html");
-    expect(
-      (homeHtml.match(/data-an-primitive="frame"/g) ?? []).length,
-      `Shift+A over the dropped Navigation instance should add one auto-layout wrapper frame — trace: ${JSON.stringify(await dump(page))}`,
-    ).toBeGreaterThanOrEqual(1);
-  });
-
-  test("step 5 [overview, screens as top-level frames]: Cmd+D finds free slots, stacks above the source, and groups undo/redo", async ({
-    page,
-    request,
-  }) => {
-    ({ designId } = await newDesign(request, [
-      { filename: "index.html", content: NAV_SCREEN },
-      { filename: "neighbor.html", content: BLANK_SCREEN("Neighbor") },
-      { filename: "farther.html", content: BLANK_SCREEN("Farther") },
-    ]));
-    const sourceId = await fileId(request, designId, "index.html");
-    const neighborId = await fileId(request, designId, "neighbor.html");
-    const fartherId = await fileId(request, designId, "farther.html");
-    const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 0 };
-    const firstDuplicateX =
-      sourceGeometry.x + sourceGeometry.width + DESIGN_SCREEN_GAP;
-    const secondDuplicateX =
-      firstDuplicateX + sourceGeometry.width + DESIGN_SCREEN_GAP;
-    const neighborGeometry = { x: 200, y: 1200, width: 320, height: 240, z: 1 };
-    const fartherGeometry = { x: 2000, y: 720, width: 320, height: 240, z: 2 };
-    await action(request, "update-design", {
-      id: designId,
-      dataOperations: [
-        {
-          op: "set",
-          path: ["canvasFrames", sourceId],
-          value: sourceGeometry,
-        },
-        {
-          op: "set",
-          path: ["canvasFrames", neighborId],
-          value: neighborGeometry,
-        },
-        {
-          op: "set",
-          path: ["canvasFrames", fartherId],
-          value: fartherGeometry,
-        },
-      ],
-    });
-    await page.goto(`${BASE_URL}/design/${designId}?view=overview&zoom=30`, {
-      waitUntil: "domcontentloaded",
-    });
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(3, {
-      timeout: 40_000,
-    });
-    const card = page.locator(
-      `[data-frame-id="${sourceId}"] [data-screen-card]`,
-    );
-    const frameLabel = page.locator(
-      `[data-frame-id="${sourceId}"] [data-frame-label]`,
-    );
-    await expect(card).toBeVisible();
-    await expect(frameLabel).toBeVisible();
-    let lastCardBox: { x: number; y: number } | null = null;
-    await expect
-      .poll(
-        async () => {
-          const box = await card.boundingBox();
-          const stable =
-            box !== null &&
-            lastCardBox !== null &&
-            Math.abs(box.x - lastCardBox.x) < 1 &&
-            Math.abs(box.y - lastCardBox.y) < 1;
-          lastCardBox = box;
-          return stable;
-        },
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    await expect
-      .poll(() => fileList(request, designId), { timeout: 10_000 })
-      .toContain("__board__.html");
-    const filesBefore = await fileList(request, designId);
-
-    await page
-      .getByRole("button", { name: /^\d+%$/ })
-      .first()
-      .click();
-    await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
-    await expect(card).toBeInViewport();
-    await expect(frameLabel).toBeInViewport();
-    await frameLabel.click({ force: true });
-    await expect
-      .poll(async () => (await selectionContext(request)).selectedScreenIds)
-      .toEqual([sourceId]);
-    await focusCanvas(page);
-    await page.keyboard.press(`${MOD}+d`);
-    let filesAfter: string[] = [];
-    await expect
-      .poll(
-        async () => {
-          filesAfter = await fileList(request, designId);
-          return filesAfter.length;
-        },
-        {
-          timeout: 10_000,
-          message:
-            "Cmd+D on a selected screen should duplicate it as a new screen file (screens are top-level frames)",
-        },
-      )
-      .toBe(filesBefore.length + 1);
-    const dup1 = filesAfter.find((f) => !filesBefore.includes(f));
-    expect(dup1, "duplicated screen file should exist").toBe("index-copy.html");
-    const dup1Id = await fileId(request, designId, dup1!);
-    await expect
-      .poll(async () => {
-        const frames = (await designData(request, designId)).canvasFrames;
-        return {
-          copy: frames?.[dup1Id],
-          neighborZ: frames?.[neighborId]?.z,
-          fartherZ: frames?.[fartherId]?.z,
-        };
-      })
-      .toEqual({
-        copy: { ...sourceGeometry, x: firstDuplicateX, z: 1 },
-        neighborZ: 2,
-        fartherZ: 3,
-      });
-    await expect
-      .poll(async () => (await selectionContext(request)).selectedScreenIds, {
-        timeout: 10_000,
-        message:
-          "Cmd+D should select the new copy once its history entry lands",
-      })
-      .toEqual([dup1Id]);
-    await expect(
-      page.locator(`[data-frame-id="${dup1Id}"] [data-screen-card]`),
-    ).toBeInViewport();
-    // Duplicating a screen regenerates every node id (like paste), so assert
-    // on the content signature, not the source id.
-    const dup1Content = await fileContent(request, designId, dup1!);
-    expect(dup1Content).toContain('data-agent-native-component="Navigation"');
-    expect(dup1Content).toContain("Wordmark");
-
-    await page
-      .getByRole("button", { name: /^\d+%$/ })
-      .first()
-      .click();
-    await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
-    await expect(card).toBeInViewport();
-    await expect(frameLabel).toBeInViewport();
-    await frameLabel.click({ force: true });
-    await expect
-      .poll(async () => (await selectionContext(request)).selectedScreenIds)
-      .toEqual([sourceId]);
-    await focusCanvas(page);
-    await page.keyboard.press(`${MOD}+d`);
-    await expect
-      .poll(
-        async () => {
-          filesAfter = await fileList(request, designId);
-          return filesAfter.length;
-        },
-        { timeout: 10_000 },
-      )
-      .toBe(filesBefore.length + 2);
-    const dup2 = filesAfter.find((f) => !filesBefore.includes(f) && f !== dup1);
-    expect(
-      dup2,
-      "the second Cmd+D should duplicate the reselected source",
-    ).toBe("index-copy-2.html");
-    const dup2Id = await fileId(request, designId, dup2!);
-    await expect
-      .poll(async () => {
-        const frames = (await designData(request, designId)).canvasFrames;
-        return {
-          copy: frames?.[dup2Id],
-          firstCopyZ: frames?.[dup1Id]?.z,
-          neighborZ: frames?.[neighborId]?.z,
-          fartherZ: frames?.[fartherId]?.z,
-        };
-      })
-      .toEqual({
-        copy: { ...sourceGeometry, x: secondDuplicateX, z: 1 },
-        firstCopyZ: 2,
-        neighborZ: 3,
-        fartherZ: 4,
-      });
-    await expect
-      .poll(async () => (await selectionContext(request)).selectedScreenIds, {
-        timeout: 10_000,
-        message: "the second Cmd+D should select its own copy too",
-      })
-      .toEqual([dup2Id]);
-    const dup2Content = await fileContent(request, designId, dup2!);
-    expect(dup2Content).toContain('data-agent-native-component="Navigation"');
-    expect(dup2Content).toContain("Wordmark");
-
-    await page.keyboard.press(`${MOD}+z`);
-    let filesAfterUndo: string[] = [];
-    await expect
-      .poll(
-        async () => {
-          filesAfterUndo = await fileList(request, designId);
-          return filesAfterUndo.length;
-        },
-        {
-          timeout: 10_000,
-          message:
-            "one undo after duplicating a screen should remove exactly that duplicate",
-        },
-      )
-      .toBe(filesBefore.length + 1);
-    expect(
-      filesAfterUndo.includes(dup1!),
-      `undo should keep the FIRST duplicate (${dup1}) — files after undo: ${JSON.stringify(filesAfterUndo)}`,
-    ).toBe(true);
-    expect(
-      filesAfterUndo.includes(dup2!),
-      `undo should remove the SECOND (most recent) duplicate (${dup2}), not the first — files after undo: ${JSON.stringify(filesAfterUndo)}`,
-    ).toBe(false);
-    await expect
-      .poll(async () => {
-        const frames = (await designData(request, designId)).canvasFrames;
-        return {
-          copy: frames?.[dup1Id],
-          sourceZ: frames?.[sourceId]?.z,
-          firstCopyZ: frames?.[dup1Id]?.z,
-          neighborZ: frames?.[neighborId]?.z,
-          fartherZ: frames?.[fartherId]?.z,
-        };
-      })
-      .toEqual({
-        copy: {
-          ...sourceGeometry,
-          x: sourceGeometry.x + sourceGeometry.width + DESIGN_SCREEN_GAP,
-          z: 1,
-        },
-        sourceZ: 0,
-        firstCopyZ: 1,
-        neighborZ: 2,
-        fartherZ: 3,
-      });
-
-    await page.keyboard.press(`${MOD}+Shift+z`);
-    await expect
-      .poll(async () => (await fileList(request, designId)).includes(dup2!))
-      .toBe(true);
-    const redoneCopyId = await fileId(request, designId, dup2!);
-    await expect
-      .poll(async () => {
-        const frames = (await designData(request, designId)).canvasFrames;
-        return {
-          copy: frames?.[redoneCopyId],
-          firstCopyZ: frames?.[dup1Id]?.z,
-          neighborZ: frames?.[neighborId]?.z,
-          fartherZ: frames?.[fartherId]?.z,
-        };
-      })
-      .toEqual({
-        copy: { ...sourceGeometry, x: secondDuplicateX, z: 1 },
-        firstCopyZ: 2,
-        neighborZ: 3,
-        fartherZ: 4,
-      });
-    await expect
-      .poll(async () => (await selectionContext(request)).selectedScreenIds)
-      .toEqual([redoneCopyId]);
-  });
-
-  test("step 5 [overview, multi-selection]: Cmd+D duplicates every selected screen in one undo step", async ({
-    page,
-    request,
-  }) => {
-    ({ designId } = await newDesign(request, [
-      { filename: "index.html", content: BLANK_SCREEN("Source") },
-      { filename: "neighbor.html", content: BLANK_SCREEN("Neighbor") },
-      { filename: "farther.html", content: BLANK_SCREEN("Farther") },
-    ]));
-    const sourceId = await fileId(request, designId, "index.html");
-    const neighborId = await fileId(request, designId, "neighbor.html");
-    const fartherId = await fileId(request, designId, "farther.html");
-    const geometry = {
-      [sourceId]: { x: 0, y: 120, width: 320, height: 240, z: 0 },
-      [neighborId]: { x: 376, y: 120, width: 320, height: 240, z: 1 },
-      [fartherId]: { x: 1128, y: 120, width: 320, height: 240, z: 2 },
-    };
-    await action(request, "update-design", {
-      id: designId,
-      dataOperations: Object.entries(geometry).map(([id, value]) => ({
-        op: "set",
-        path: ["canvasFrames", id],
-        value,
-      })),
-    });
-    await page.goto(`${BASE_URL}/design/${designId}?view=overview&zoom=30`, {
-      waitUntil: "domcontentloaded",
-    });
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(3, {
-      timeout: 40_000,
-    });
-    const sourceCard = page.locator(
-      `[data-frame-id="${sourceId}"] [data-screen-card]`,
-    );
-    await expect(sourceCard).toBeVisible();
-    await sourceCard.click({ force: true });
-    await expect
-      .poll(async () => (await selectionContext(request)).selectedScreenIds)
-      .toEqual([sourceId]);
-    await page.keyboard.press(`${MOD}+a`);
-    await expect
-      .poll(async () =>
-        (await selectionContext(request)).selectedScreenIds?.slice().sort(),
-      )
-      .toEqual([sourceId, neighborId, fartherId].sort());
-
-    const filesBefore = await fileList(request, designId);
-    await focusCanvas(page);
-    type GeometryWriteObservation = {
-      phase: "duplicate" | "undo" | "redo";
-      requestAt: number;
-      responseAt?: number;
-      status?: number;
-      error?: string;
-      operationSource?: unknown;
-      operationRevision?: unknown;
-      operations: Array<{
-        op?: unknown;
-        path: string[];
-        z?: unknown;
-      }>;
-    };
-    let phase: GeometryWriteObservation["phase"] = "duplicate";
-    const geometryWrites: GeometryWriteObservation[] = [];
-    const requestWrites = new Map<object, GeometryWriteObservation>();
-    page.on("request", (pageRequest) => {
-      if (
-        pageRequest.method() !== "POST" ||
-        !new URL(pageRequest.url()).pathname.endsWith(
-          "/_agent-native/actions/update-design",
-        )
-      ) {
-        return;
-      }
-      const postData = pageRequest.postData();
-      if (!postData) return;
-      let payload: Record<string, unknown>;
-      try {
-        payload = JSON.parse(postData) as Record<string, unknown>;
-      } catch {
-        return;
-      }
-      const dataOperations = Array.isArray(payload.dataOperations)
-        ? payload.dataOperations
-        : [];
-      const operations = dataOperations.flatMap((entry) => {
-        if (!entry || typeof entry !== "object") return [];
-        const operation = entry as Record<string, unknown>;
-        const rawPath = Array.isArray(operation.path) ? operation.path : [];
-        if (rawPath[0] !== "canvasFrames") return [];
-        const path = rawPath.map(String);
-        const value = operation.value;
-        const frameValue =
-          value && typeof value === "object"
-            ? (value as Record<string, unknown>)
-            : undefined;
-        const z = path[path.length - 1] === "z" ? value : frameValue?.z;
-        return [{ op: operation.op, path, ...(z === undefined ? {} : { z }) }];
-      });
-      const observation: GeometryWriteObservation = {
-        phase,
-        requestAt: Date.now(),
-        operationSource: payload.operationSource,
-        operationRevision: payload.operationRevision,
-        operations,
-      };
-      geometryWrites.push(observation);
-      requestWrites.set(pageRequest, observation);
-    });
-    page.on("response", (pageResponse) => {
-      const observation = requestWrites.get(pageResponse.request());
-      if (!observation) return;
-      observation.responseAt = Date.now();
-      observation.status = pageResponse.status();
-    });
-    page.on("requestfailed", (pageRequest) => {
-      const observation = requestWrites.get(pageRequest);
-      if (!observation) return;
-      observation.error = pageRequest.failure()?.errorText ?? "request failed";
-    });
-    const attachGeometryWriteChronology = async (name: string) => {
-      await test.info().attach(name, {
-        body: JSON.stringify(geometryWrites, null, 2),
-        contentType: "application/json",
-      });
-    };
-    await page.keyboard.press(`${MOD}+d`);
-    let filesAfter: string[] = [];
-    await expect
-      .poll(
-        async () => {
-          filesAfter = await fileList(request, designId);
-          return filesAfter.length;
-        },
-        { timeout: 10_000 },
-      )
-      .toBe(filesBefore.length + 3);
-    const copies = filesAfter.filter(
-      (filename) => !filesBefore.includes(filename),
-    );
-    expect(copies.slice().sort()).toEqual(
-      ["index-copy.html", "neighbor-copy.html", "farther-copy.html"].sort(),
-    );
-    const [sourceCopyId, neighborCopyId, fartherCopyId] = await Promise.all([
-      fileId(request, designId, "index-copy.html"),
-      fileId(request, designId, "neighbor-copy.html"),
-      fileId(request, designId, "farther-copy.html"),
-    ]);
-    await expect
-      .poll(() => selectedScreenFilenames(request, designId))
-      .toEqual(copies.slice().sort());
-
-    try {
-      await expect
-        .poll(async () => {
-          const frames = (await designData(request, designId)).canvasFrames;
-          return {
-            sourceCopy: frames?.[sourceCopyId],
-            neighborCopy: frames?.[neighborCopyId],
-            fartherCopy: frames?.[fartherCopyId],
-            source: frames?.[sourceId],
-            neighbor: frames?.[neighborId],
-            farther: frames?.[fartherId],
-          };
-        })
-        .toEqual({
-          sourceCopy: {
-            ...geometry[sourceId],
-            x:
-              geometry[neighborId].x +
-              geometry[neighborId].width +
-              DESIGN_SCREEN_GAP,
-            z: 1,
-          },
-          neighborCopy: {
-            ...geometry[neighborId],
-            x:
-              geometry[fartherId].x +
-              geometry[fartherId].width +
-              DESIGN_SCREEN_GAP,
-            z: 3,
-          },
-          fartherCopy: {
-            ...geometry[fartherId],
-            x:
-              geometry[fartherId].x +
-              2 * (geometry[fartherId].width + DESIGN_SCREEN_GAP),
-            z: 5,
-          },
-          source: { ...geometry[sourceId], z: 0 },
-          neighbor: { ...geometry[neighborId], z: 2 },
-          farther: { ...geometry[fartherId], z: 4 },
-        });
-    } catch (error) {
-      await attachGeometryWriteChronology(
-        "cmd-d-post-duplicate-geometry-writes.json",
+/** The editor persists node ids into the migrated board on its own shortly after opening. */
+async function openWithBoardIdentity(app: App, designId: string) {
+  await app.open(designId);
+  await expect
+    .poll(async () => {
+      const board = (await app.savedRecord(designId)).files.find(
+        (file) => file.filename === BOARD,
       );
-      throw error;
-    }
+      return board?.content?.includes("data-agent-native-node-id") ?? false;
+    })
+    .toBe(true);
+}
 
-    phase = "undo";
-    await page.keyboard.press(`${MOD}+z`);
-    await expect
-      .poll(async () => (await fileList(request, designId)).length)
-      .toBe(filesBefore.length);
-    try {
-      await expect
-        .poll(async () => {
-          const frames = (await designData(request, designId)).canvasFrames;
-          return [
-            frames?.[sourceId],
-            frames?.[neighborId],
-            frames?.[fartherId],
-          ];
-        })
-        .toEqual([
-          geometry[sourceId],
-          geometry[neighborId],
-          geometry[fartherId],
-        ]);
-    } catch (error) {
-      await attachGeometryWriteChronology("cmd-d-undo-geometry-writes.json");
-      throw error;
-    }
+function px(value: string | undefined) {
+  return Number.parseFloat(value ?? "NaN");
+}
 
-    phase = "redo";
-    await page.keyboard.press(`${MOD}+Shift+z`);
-    await expect
-      .poll(async () => (await fileList(request, designId)).length)
-      .toBe(filesBefore.length + 3);
-    await expect
-      .poll(() => selectedScreenFilenames(request, designId))
-      .toEqual(copies.slice().sort());
-    const [redoneSourceCopyId, redoneNeighborCopyId, redoneFartherCopyId] =
-      await Promise.all([
-        fileId(request, designId, "index-copy.html"),
-        fileId(request, designId, "neighbor-copy.html"),
-        fileId(request, designId, "farther-copy.html"),
-      ]);
-    await expect
-      .poll(async () => {
-        const frames = (await designData(request, designId)).canvasFrames;
-        return {
-          sourceCopy: frames?.[redoneSourceCopyId],
-          neighborCopy: frames?.[redoneNeighborCopyId],
-          fartherCopy: frames?.[redoneFartherCopyId],
-        };
-      })
-      .toEqual({
-        sourceCopy: {
-          ...geometry[sourceId],
-          x:
-            geometry[neighborId].x +
-            geometry[neighborId].width +
-            DESIGN_SCREEN_GAP,
-          z: 1,
-        },
-        neighborCopy: {
-          ...geometry[neighborId],
-          x:
-            geometry[fartherId].x +
-            geometry[fartherId].width +
-            DESIGN_SCREEN_GAP,
-          z: 3,
-        },
-        fartherCopy: {
-          ...geometry[fartherId],
-          x:
-            geometry[fartherId].x +
-            2 * (geometry[fartherId].width + DESIGN_SCREEN_GAP),
-          z: 5,
-        },
-      });
+test("Frame Selection wraps two board frames in one frame at their union bounds, and undo/redo restore each state exactly", async ({
+  app,
+}) => {
+  const id = await app.seed(BLANK_SCREEN("Home"));
+  await openWithBoardIdentity(app, id);
+  const p1 = await emptyBoardPoint(app.page);
+  await drawBoardFrame(app, id, p1);
+  const p2 = await emptyBoardPoint(app.page, p1);
+  await drawBoardFrame(app, id, p2);
+  const before = await app.savedNodes(id, BOARD);
+  const [first, second] = boardFrames(before);
+  expect(second.parent).toBe(first.parent);
+  const a = styleOf(first);
+  const b = styleOf(second);
+
+  await app.page.getByRole("button", { name: "Move", exact: true }).click();
+  await app.page.mouse.click(p1.x + 10, p1.y + 10);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Frame"]);
+  await app.page.keyboard.down("Shift");
+  await app.page.mouse.click(p2.x + 10, p2.y + 10);
+  await app.page.keyboard.up("Shift");
+  await expect
+    .poll(() => app.selectedLayers())
+    .toStrictEqual(["Frame", "Frame"]);
+  await app.page.keyboard.press("ControlOrMeta+Alt+g");
+  await app.settled();
+
+  const wrapped = await app.savedNodes(id, BOARD);
+  const wrapper = [...wrapped.values()].find((node) => !before.has(node.id));
+  expect(wrapper?.parent).toBe(first.parent);
+  expect(childrenOf(wrapped, wrapper!.id)).toStrictEqual([first.id, second.id]);
+  const left = Math.min(px(a.left), px(b.left));
+  const top = Math.min(px(a.top), px(b.top));
+  expect(wrapper!.attrs).toEqual({
+    "data-agent-native-node-id": wrapper!.id,
+    "data-agent-native-layer-name": "Frame",
+    "data-agent-native-group-wrapper": "true",
+    "data-agent-native-preserve-styles": "true",
+    "data-an-primitive": "frame",
+    style: expect.any(String),
   });
+  expect(styleOf(wrapper)).toEqual({
+    position: "absolute",
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${Math.max(px(a.left) + px(a.width), px(b.left) + px(b.width)) - left}px`,
+    height: `${Math.max(px(a.top) + px(a.height), px(b.top) + px(b.height)) - top}px`,
+  });
+  expect(styleOf(wrapped.get(first.id))).toEqual({
+    ...a,
+    left: `${px(a.left) - left}px`,
+    top: `${px(a.top) - top}px`,
+  });
+  expect(styleOf(wrapped.get(second.id))).toEqual({
+    ...b,
+    left: `${px(b.left) - left}px`,
+    top: `${px(b.top) - top}px`,
+  });
+  expectOnlyChanged(before, wrapped, [first.id, second.id, wrapper!.id]);
 
-  test("step 6 [in-screen]: dragging a new element into the assembled page reorders it between existing children via the layers panel", async ({
-    page,
-    request,
-  }) => {
-    const PAGE_HTML = `<!doctype html>
+  await app.page.keyboard.press("ControlOrMeta+z");
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(id, BOARD), []);
+
+  await app.page.keyboard.press("ControlOrMeta+Shift+z");
+  await app.settled();
+  expectOnlyChanged(wrapped, await app.savedNodes(id, BOARD), []);
+});
+
+// fixme: product bug: Minor source cruft: Remove fill keeps background: rgb(255,255,255) and adds background-color: transparent (line 229); renders correctly.
+test.fixme("removing a board frame's fill in the inspector saves it without a background and changes nothing else", async ({
+  app,
+}) => {
+  const id = await app.seed(BLANK_SCREEN("Home"));
+  await openWithBoardIdentity(app, id);
+  const p1 = await emptyBoardPoint(app.page);
+  await drawBoardFrame(app, id, p1);
+  const before = await app.savedNodes(id, BOARD);
+  const [frame] = boardFrames(before);
+  expect(styleOf(frame).background).toBe("rgb(255, 255, 255)");
+
+  await app.page.getByRole("button", { name: "Move", exact: true }).click();
+  await app.page.mouse.click(p1.x + 10, p1.y + 10);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Frame"]);
+  const fill = app.page
+    .locator("section")
+    .filter({ has: app.page.getByRole("heading", { name: /^Fill$/i }) })
+    .first();
+  await fill.hover();
+  await fill.getByRole("button", { name: "Remove layer" }).first().click();
+  await app.settled();
+
+  const rendered = app.page
+    .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
+    .contentFrame()
+    .locator(`[data-agent-native-node-id="${frame.id}"]`);
+  await expect(rendered).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  const after = await app.savedNodes(id, BOARD);
+  const { background: _removed, ...rest } = styleOf(frame);
+  expect(styleOf(after.get(frame.id))).toEqual(rest);
+  expectOnlyChanged(before, after, [frame.id]);
+});
+
+// fixme: product bug: Copy lands as a flow child at Home's top-left (no position/left/top) and its style is rewritten to computed longhands (background 'none
+test.fixme("Option-dragging a component instance onto another screen drops a copy at the cursor and leaves the source screen untouched", async ({
+  app,
+}) => {
+  const id = await app.seed(BLANK_SCREEN("Home"), {
+    files: { "nav.html": NAV_SCREEN },
+  });
+  const ids = await fileIds(app, id);
+  await setFrames(app.page, id, {
+    [ids["index.html"]]: { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+    [ids["nav.html"]]: { x: -1600, y: 0, width: 1440, height: 400, z: 1 },
+  });
+  await app.open(id);
+  await app.zoomToFit();
+  const navBefore = await app.savedNodes(id, "nav.html");
+  const homeBefore = await app.savedNodes(id);
+  expect(await app.designRect("nav-root", "nav.html")).toEqual({
+    x: 0,
+    y: 0,
+    width: 1440,
+    height: 80,
+  });
+  const grab = await app.pagePoint(720, 40, "nav.html");
+  await app.page.mouse.click(grab.x, grab.y);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
+
+  const drop = await app.pagePoint(820, 220, "index.html");
+  await app.page.mouse.move(grab.x, grab.y);
+  await app.page.keyboard.down("Alt");
+  await app.page.mouse.down();
+  await app.page.mouse.move(drop.x, drop.y, { steps: 20 });
+  await app.page.mouse.up();
+  await app.page.keyboard.up("Alt");
+  await app.settled();
+
+  const homeAfter = await app.savedNodes(id);
+  const copies = [...homeAfter.values()].filter(
+    (node) => node.attrs["data-agent-native-component"] === "Navigation",
+  );
+  expect(copies).toHaveLength(1);
+  expect(homeAfter.get(copies[0].parent!)?.tag).toBe("body");
+  expect(styleOf(copies[0])).toEqual({
+    ...styleOf(navBefore.get("nav-root")),
+    left: "100px",
+    top: "180px",
+  });
+  expectOnlyChanged(
+    homeBefore,
+    homeAfter,
+    [...homeAfter.keys()].filter((key) => !homeBefore.has(key)),
+  );
+  expectOnlyChanged(navBefore, await app.savedNodes(id, "nav.html"), []);
+});
+
+// fixme: product bug: No wrapper: Shift+A re-applies auto layout to the nav itself, overwriting padding '12px 24px' with '12px' and stamping
+test.fixme("Shift+A on an element that already has auto layout wraps it in a new auto-layout frame without changing its own layout", async ({
+  app,
+}) => {
+  const id = await app.seed(PAGE_WITH_NAV);
+  await app.open(id);
+  await app.zoomToFit();
+  const before = await app.savedNodes(id);
+  const nav = await app.designRect("nav");
+  const center = await app.pagePoint(
+    nav.x + nav.width / 2,
+    nav.y + nav.height / 2,
+  );
+  await app.page.mouse.click(center.x, center.y);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
+
+  await app.page.keyboard.press("Shift+A");
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  const [wrapperId] = childrenOf(after, "page");
+  expect(childrenOf(after, "page")).toStrictEqual([wrapperId, "hero"]);
+  expect(wrapperId).not.toBe("nav");
+  expect(childrenOf(after, wrapperId)).toStrictEqual(["nav"]);
+  expect(styleOf(after.get("nav"))).toEqual(styleOf(before.get("nav")));
+  expect(styleOf(after.get(wrapperId))).toEqual({
+    display: "flex",
+    "flex-direction": "column",
+    gap: "10px",
+    padding: "0px",
+    width: "fit-content",
+    height: "fit-content",
+  });
+  expectOnlyChanged(before, after, ["nav", wrapperId]);
+});
+
+// fixme: product bug, intermittent: after a screen duplicate the editor POSTs collab awareness to a stale room and gets 404
+test.fixme("step 5 [overview, screens as top-level frames]: Cmd+D finds free slots, stacks above the source, and groups undo/redo", async ({
+  app,
+}) => {
+  const id = await app.seed(NAV_SCREEN, {
+    files: {
+      "neighbor.html": BLANK_SCREEN("Neighbor"),
+      "farther.html": BLANK_SCREEN("Farther"),
+    },
+  });
+  const ids = await fileIds(app, id);
+  const sourceId = ids["index.html"];
+  const neighborId = ids["neighbor.html"];
+  const fartherId = ids["farther.html"];
+  const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 0 };
+  const firstDuplicateX =
+    sourceGeometry.x + sourceGeometry.width + DESIGN_SCREEN_GAP;
+  const secondDuplicateX =
+    firstDuplicateX + sourceGeometry.width + DESIGN_SCREEN_GAP;
+  await setFrames(app.page, id, {
+    [sourceId]: sourceGeometry,
+    [neighborId]: { x: 200, y: 1200, width: 320, height: 240, z: 1 },
+    [fartherId]: { x: 2000, y: 720, width: 320, height: 240, z: 2 },
+  });
+  await openOverview(app, id, 3);
+  const filesBefore = await filenames(app, id);
+  const frameLabel = app.page.locator(
+    `[data-frame-id="${sourceId}"] [data-frame-label]`,
+  );
+  const selectSource = async () => {
+    await app.page
+      .getByRole("button", { name: /^\d+%$/ })
+      .first()
+      .click();
+    await app.page.getByRole("menuitem", { name: "Zoom to fit" }).click();
+    await expect(frameLabel).toBeInViewport();
+    await frameLabel.click({ position: { x: 4, y: 4 } });
+    await expect
+      .poll(() => selectedScreenIds(app.page))
+      .toStrictEqual([sourceId]);
+  };
+
+  await selectSource();
+  await app.page.keyboard.press("ControlOrMeta+d");
+  await app.settled();
+  expect(await filenames(app, id)).toStrictEqual([
+    ...filesBefore,
+    "index-copy.html",
+  ]);
+  const dup1Id = (await fileIds(app, id))["index-copy.html"];
+  let frames = await canvasFrames(app, id);
+  expect([frames[dup1Id], frames[neighborId].z, frames[fartherId].z]).toEqual([
+    { ...sourceGeometry, x: firstDuplicateX, z: 1 },
+    2,
+    3,
+  ]);
+  await expect.poll(() => selectedScreenIds(app.page)).toStrictEqual([dup1Id]);
+  // Duplicating a screen regenerates every node id (like paste), so assert
+  // on the content signature, not the source id.
+  expect(await app.savedHtml(id, "index-copy.html")).toContain(
+    'data-agent-native-component="Navigation"',
+  );
+
+  await selectSource();
+  await app.page.keyboard.press("ControlOrMeta+d");
+  await app.settled();
+  expect(await filenames(app, id)).toStrictEqual([
+    ...filesBefore,
+    "index-copy.html",
+    "index-copy-2.html",
+  ]);
+  const dup2Id = (await fileIds(app, id))["index-copy-2.html"];
+  frames = await canvasFrames(app, id);
+  expect([
+    frames[dup2Id],
+    frames[dup1Id].z,
+    frames[neighborId].z,
+    frames[fartherId].z,
+  ]).toEqual([{ ...sourceGeometry, x: secondDuplicateX, z: 1 }, 2, 3, 4]);
+  await expect.poll(() => selectedScreenIds(app.page)).toStrictEqual([dup2Id]);
+
+  await app.page.keyboard.press("ControlOrMeta+z");
+  await app.settled();
+  expect(await filenames(app, id)).toStrictEqual([
+    ...filesBefore,
+    "index-copy.html",
+  ]);
+  frames = await canvasFrames(app, id);
+  expect([
+    frames[sourceId].z,
+    frames[dup1Id],
+    frames[neighborId].z,
+    frames[fartherId].z,
+  ]).toEqual([0, { ...sourceGeometry, x: firstDuplicateX, z: 1 }, 2, 3]);
+
+  await app.page.keyboard.press("ControlOrMeta+Shift+z");
+  await app.settled();
+  expect(await filenames(app, id)).toStrictEqual([
+    ...filesBefore,
+    "index-copy.html",
+    "index-copy-2.html",
+  ]);
+  const redoneId = (await fileIds(app, id))["index-copy-2.html"];
+  frames = await canvasFrames(app, id);
+  expect([
+    frames[redoneId],
+    frames[dup1Id].z,
+    frames[neighborId].z,
+    frames[fartherId].z,
+  ]).toEqual([{ ...sourceGeometry, x: secondDuplicateX, z: 1 }, 2, 3, 4]);
+  await expect
+    .poll(() => selectedScreenIds(app.page))
+    .toStrictEqual([redoneId]);
+});
+
+// fixme: product bug, intermittent: after a screen duplicate the editor GETs collab state and POSTs awareness to a stale room and gets 404
+test.fixme("step 5 [overview, multi-selection]: Cmd+D duplicates every selected screen in one undo step", async ({
+  app,
+}) => {
+  const id = await app.seed(BLANK_SCREEN("Source"), {
+    files: {
+      "neighbor.html": BLANK_SCREEN("Neighbor"),
+      "farther.html": BLANK_SCREEN("Farther"),
+    },
+  });
+  const ids = await fileIds(app, id);
+  const sourceId = ids["index.html"];
+  const neighborId = ids["neighbor.html"];
+  const fartherId = ids["farther.html"];
+  const geometry = {
+    [sourceId]: { x: 0, y: 120, width: 320, height: 240, z: 0 },
+    [neighborId]: { x: 376, y: 120, width: 320, height: 240, z: 1 },
+    [fartherId]: { x: 1128, y: 120, width: 320, height: 240, z: 2 },
+  };
+  const copyFrames = {
+    "index-copy.html": {
+      ...geometry[sourceId],
+      x: 376 + 320 + DESIGN_SCREEN_GAP,
+      z: 1,
+    },
+    "neighbor-copy.html": {
+      ...geometry[neighborId],
+      x: 1128 + 320 + DESIGN_SCREEN_GAP,
+      z: 3,
+    },
+    "farther-copy.html": {
+      ...geometry[fartherId],
+      x: 1128 + 2 * (320 + DESIGN_SCREEN_GAP),
+      z: 5,
+    },
+  };
+  await setFrames(app.page, id, geometry);
+  await openOverview(app, id, 3);
+  await app.zoomToFit();
+  await app.page
+    .locator(`[data-frame-id="${sourceId}"] [data-screen-card]`)
+    .click();
+  await expect
+    .poll(() => selectedScreenIds(app.page))
+    .toStrictEqual([sourceId]);
+  await app.page.keyboard.press("ControlOrMeta+a");
+  await expect
+    .poll(async () => (await selectedScreenIds(app.page)).sort())
+    .toStrictEqual([sourceId, neighborId, fartherId].sort());
+  const filesBefore = await filenames(app, id);
+
+  await app.page.keyboard.press("ControlOrMeta+d");
+  await app.settled();
+
+  const copyIds = await fileIds(app, id);
+  expect((await filenames(app, id)).sort()).toStrictEqual(
+    [...filesBefore, ...Object.keys(copyFrames)].sort(),
+  );
+  let frames = await canvasFrames(app, id);
+  expect({
+    source: frames[sourceId],
+    neighbor: frames[neighborId],
+    farther: frames[fartherId],
+    copies: Object.keys(copyFrames).map((name) => frames[copyIds[name]]),
+  }).toEqual({
+    source: { ...geometry[sourceId], z: 0 },
+    neighbor: { ...geometry[neighborId], z: 2 },
+    farther: { ...geometry[fartherId], z: 4 },
+    copies: Object.values(copyFrames),
+  });
+  await expect
+    .poll(async () => (await selectedScreenIds(app.page)).sort())
+    .toStrictEqual(
+      Object.keys(copyFrames)
+        .map((name) => copyIds[name])
+        .sort(),
+    );
+
+  await app.page.keyboard.press("ControlOrMeta+z");
+  await app.settled();
+  expect((await filenames(app, id)).sort()).toStrictEqual(filesBefore.sort());
+  frames = await canvasFrames(app, id);
+  expect([frames[sourceId], frames[neighborId], frames[fartherId]]).toEqual(
+    Object.values(geometry),
+  );
+
+  await app.page.keyboard.press("ControlOrMeta+Shift+z");
+  await app.settled();
+  const redoneIds = await fileIds(app, id);
+  frames = await canvasFrames(app, id);
+  expect(
+    Object.keys(copyFrames).map((name) => frames[redoneIds[name]]),
+  ).toEqual(Object.values(copyFrames));
+  await expect
+    .poll(async () => (await selectedScreenIds(app.page)).sort())
+    .toStrictEqual(
+      Object.keys(copyFrames)
+        .map((name) => redoneIds[name])
+        .sort(),
+    );
+});
+
+test("dragging Bio above Skills in the Layers panel reorders the saved children and moves nothing else", async ({
+  app,
+}) => {
+  const id = await app.seed(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Home</title></head>
 <body style="margin:0;min-height:900px;background:#fff">
-  <div data-agent-native-node-id="hero" data-agent-native-layer-name="Hero" style="height:200px;background:#eee"></div>
-  <div data-agent-native-node-id="skills" data-agent-native-layer-name="Skills" style="height:200px;background:#ddd"></div>
-  <div data-agent-native-node-id="bio" data-agent-native-layer-name="Bio" style="height:120px;background:#ccc"></div>
-</body></html>`;
-    ({ designId } = await newDesign(request, [
-      { filename: "index.html", content: PAGE_HTML },
-    ]));
-    await gotoEditor(page, designId);
-    await expandAllLayers(page);
+  <main data-agent-native-node-id="page" data-agent-native-layer-name="Page">
+    <div data-agent-native-node-id="hero" data-agent-native-layer-name="Hero" style="height:200px;background:#eee"></div>
+    <div data-agent-native-node-id="skills" data-agent-native-layer-name="Skills" style="height:200px;background:#ddd"></div>
+    <div data-agent-native-node-id="bio" data-agent-native-layer-name="Bio" style="height:120px;background:#ccc"></div>
+  </main>
+</body></html>`);
+  await app.open(id);
+  await expandAllLayers(app.page);
+  const before = await app.savedNodes(id);
+  const row = (name: string) =>
+    app.page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button][data-layer-node-id]")
+      .filter({ has: app.page.locator(`span[title="${name}"]`) })
+      .locator('xpath=ancestor::*[@role="treeitem"][1]');
+  const skillsBox = await row("Skills").boundingBox();
 
-    const bioRow = layerRowButton(page, "Bio").locator(
-      'xpath=ancestor::*[@role="treeitem"][1]',
-    );
-    const skillsRow = layerRowButton(page, "Skills").locator(
-      'xpath=ancestor::*[@role="treeitem"][1]',
-    );
-    const skillsRowBox = (await skillsRow.boundingBox())!;
-    await bioRow.dragTo(skillsRow, {
-      targetPosition: { x: 10, y: skillsRowBox.height - 2 },
-    });
-
-    const computeOrder = (html: string) =>
-      ["hero", "skills", "bio"]
-        .map((id) => ({
-          id,
-          index: html.indexOf(`data-agent-native-node-id="${id}"`),
-        }))
-        .sort((a, b) => a.index - b.index)
-        .map((e) => e.id);
-    let html = "";
-    await expect
-      .poll(
-        async () => {
-          html = await fileContent(request, designId);
-          return computeOrder(html);
-        },
-        {
-          timeout: 10_000,
-          message:
-            "dragging Bio above Skills in the layers panel should reorder the DOM",
-        },
-      )
-      .toEqual(["hero", "bio", "skills"]);
-
-    await selectLayerByName(page, "Skills");
-    const widthModeButton = page
-      .locator('button[aria-label*="sizing mode" i], button[aria-label^="W "]')
-      .first();
-    await expect(
-      widthModeButton,
-      "the per-axis sizing control (Fixed/Hug/Fill) should be present in the inspector for a code-layer child",
-    ).toBeVisible({ timeout: 10_000 });
+  await row("Bio").dragTo(row("Skills"), {
+    targetPosition: { x: 10, y: skillsBox!.height - 2 },
   });
+  await app.settled();
 
-  test("'Go to main component' jumps to app source; on a static prototype instance it shows an unavailable toast instead of crashing", async ({
-    page,
-    request,
-  }) => {
-    ({ designId } = await newDesign(request, [
-      { filename: "index.html", content: NAV_SCREEN },
-    ]));
-    await gotoEditor(page, designId);
-    await expandAllLayers(page);
-    await selectLayerByName(page, "Navigation");
-    await page.waitForTimeout(600);
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "page")).toStrictEqual(["hero", "bio", "skills"]);
+  expectOnlyChanged(before, after, []);
+  expect([
+    (await app.designRect("bio")).y,
+    (await app.designRect("skills")).y,
+  ]).toEqual([200, 320]);
+});
 
-    const goToMainButton = page.getByRole("button", {
-      name: /go to main component/i,
-    });
-    const exists = (await goToMainButton.count()) > 0;
-    if (exists) {
-      const urlBefore = page.url();
-      await goToMainButton.first().click({ force: true });
-      const toastLocator = page.getByText(
-        /unavailable|only known instance|could not|not found|no source/i,
-      );
-      await expect
-        .poll(
-          async () =>
-            (await toastLocator.first().isVisible()) ||
-            page.url() === urlBefore,
-          {
-            timeout: 10_000,
-            message:
-              "clicking 'Go to main component' on a prototype-only instance (no real source) should stay on the editor (toast preferred, silent no-nav acceptable) rather than crash or navigate away",
-          },
-        )
-        .toBe(true);
-    }
-
-    const target = page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame()
-      .locator('[data-agent-native-node-id="nav-root"]');
-    await target.click({ button: "right", force: true });
-    await page.waitForTimeout(400);
-    const menu = page.getByRole("menu");
-    if ((await menu.count()) > 0) {
-      await expect(menu.getByText(/reset all changes/i)).toHaveCount(0);
-      await page.keyboard.press("Escape");
-    }
+// fixme: product bug: The editor switches to Home at 100% with a blank canvas for 14s and selects the Home screen, not the main instance (line 491: selected
+test.fixme("'Go to main component' on a later instance selects the earliest instance on its screen", async ({
+  app,
+}) => {
+  const id = await app.seed(NAV_SCREEN, {
+    files: { "about.html": NAV_SCREEN.replace(/nav-(root|word)/g, "about-$1") },
   });
+  await app.open(id);
+  await app.zoomToFit();
+  const nav = await app.designRect("about-root", "about.html");
+  const point = await app.pagePoint(
+    nav.x + nav.width / 2,
+    nav.y + nav.height / 2,
+    "about.html",
+  );
+  await app.page.mouse.click(point.x, point.y);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
+  const before = await app.savedRecord(id);
+
+  await app.page.getByRole("button", { name: "Go to main component" }).click();
+
+  await expect(
+    app.page.locator(
+      '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+    ),
+  ).toHaveAttribute("data-layer-node-id", "nav-root");
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
+  await app.settled();
+  expect((await app.savedRecord(id)).files).toEqual(before.files);
+});
+
+test("'Go to main component' on the only instance says so and keeps the selection", async ({
+  app,
+}) => {
+  const id = await app.seed(NAV_SCREEN);
+  await app.open(id);
+  await app.zoomToFit();
+  const point = await app.pagePoint(720, 40);
+  await app.page.mouse.click(point.x, point.y);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
+
+  await app.page.getByRole("button", { name: "Go to main component" }).click();
+
+  await expect(
+    app.page.getByText('"Navigation" has only one instance — this is it.'),
+  ).toBeVisible();
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
+  await expect(app.page).toHaveURL(/editorView=overview/);
 });

@@ -358,6 +358,29 @@ describe("open-visual-edit", () => {
     },
   );
 
+  it("creates the design without the parent's context, so the action is not recorded twice", async () => {
+    await action.run(
+      {
+        newDesign: true,
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        paths: ["/"],
+        navigate: false,
+      },
+      {
+        caller: "tool",
+        actionName: "open-visual-edit",
+        userEmail: "owner@example.test",
+      } as never,
+    );
+
+    expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+    expect(mocks.createDesignRun.mock.calls[0]).toHaveLength(1);
+    expect(mocks.createDesignRun.mock.calls[0]?.[0]).toMatchObject({
+      creationMethod: "import_url",
+    });
+  });
+
   it("creates a separate project when newDesign is explicit", async () => {
     mocks.readAppState.mockResolvedValue({
       designId: "design_existing",

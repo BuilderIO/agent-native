@@ -3,7 +3,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
-import { putOrgSetting } from "@agent-native/core/settings";
+import { mutateOrgSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections.js";
@@ -27,7 +27,7 @@ export default defineAction({
       orgId: getRequestOrgId() || ctx?.orgId || null,
     });
     const index = bundle as SourceIndexBundle;
-    await putOrgSetting(admin.orgId, SOURCE_INDEX_SETTING_KEY, index);
+    await mutateOrgSetting(admin.orgId, SOURCE_INDEX_SETTING_KEY, () => index);
     invalidateSourceIndexCache(admin.orgId);
     const scanSummary = index.scanSummary ?? null;
     const unresolvedTrackingCallSites =

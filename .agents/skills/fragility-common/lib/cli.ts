@@ -142,17 +142,24 @@ export function run(
 }
 
 export function runId(args: Args): string {
-  const id = argString(args, "run") ?? new Date().toISOString().slice(0, 10);
-  // The id becomes a directory name.
+  return assertRunId(
+    argString(args, "run") ?? new Date().toISOString().slice(0, 10),
+  );
+}
+
+// The id becomes a directory name, and plan frontmatter supplies it too, so
+// every path built from it is checked here rather than at each caller.
+export function assertRunId(id: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id) || id.includes("..")) {
     throw new ScriptError(
-      `--run must be a plain id like 2026-10-08, got "${id}"`,
+      `run id must be a plain id like 2026-10-08, got "${id}"`,
     );
   }
   return id;
 }
 
 export function runDir(id: string): string {
+  assertRunId(id);
   const dir = path.join(repoRoot(), commonConfig().dataDir, id);
   mkdirSync(dir, { recursive: true });
   return dir;

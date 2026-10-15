@@ -1,134 +1,172 @@
-import { expect, test, type Page } from "@playwright/test";
-
+import { appPath } from "./helpers";
 import {
-  setBaseURL,
-  MOD,
-  newDesign,
-  geom,
-  node,
-  openEditor,
-  scale,
-  selectViaTree,
-  dragBy,
-} from "./drag-and-drop.shared";
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-});
+const BOXES = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body data-agent-native-node-id="page" style="margin:0;width:800px;height:600px;background:#ffffff">
+  <div data-agent-native-node-id="box-a" data-agent-native-layer-name="Box A" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#f97316"></div>
+  <div data-agent-native-node-id="box-b" data-agent-native-layer-name="Box B" style="position:absolute;left:400px;top:300px;width:100px;height:60px;background:#2563eb"></div>
+</body></html>`;
 
-async function seResizeHandle(
-  page: Page,
-): Promise<{ x: number; y: number } | null> {
-  const iframeBox = await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .boundingBox();
-  if (!iframeBox) return null;
-  const s = await scale(page);
-  const local = await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator("body")
-    .evaluate(() => {
-      const handles = Array.from(
-        document.querySelectorAll("[data-agent-native-edit-handle]"),
-      );
-      if (handles.length === 0) return null;
-      const se = handles
-        .map((h) => h.getBoundingClientRect())
-        .sort((a, b) => b.x + b.y - (a.x + a.y))[0]!;
-      return { x: se.x + se.width / 2, y: se.y + se.height / 2 };
-    });
-  if (!local) return null;
-  return {
-    x: Math.round(iframeBox.x + local.x * s),
-    y: Math.round(iframeBox.y + local.y * s),
-  };
+async function openBoxes(app: App) {
+  const id = await app.seed(BOXES);
+  const { files } = await app.savedRecord(id);
+  const screenId = files.find((file) => file.filename === "index.html")!.id;
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id,
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", screenId],
+            value: { sourceType: "inline", width: 800, height: 600 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", screenId],
+            value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
+          },
+        ],
+      },
+    },
+  );
+  expect(response.ok(), `update-design ${response.status()}`).toBe(true);
+  await app.open(id);
+  await app.zoomToFit();
+  const centre = await app.pagePoint(100, 80);
+  await app.page.mouse.click(centre.x, centre.y);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+  await app.settled();
+  return { id, before: await app.savedNodes(id) };
+}
+
+async function drag(
+  app: App,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+) {
+  const start = await app.pagePoint(from.x, from.y);
+  const end = await app.pagePoint(to.x, to.y);
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(end.x, end.y, { steps: 14 });
+  await app.page.mouse.up();
+  await app.settled();
+}
+
+function savedBox(node: SavedNode | undefined) {
+  const style = styleOf(node);
+  return ["left", "top", "width", "height"].map((key) =>
+    Number.parseFloat(style[key]!),
+  );
+}
+
+/** Pointer input lands on whole page pixels, so a dragged edge can be off by one page pixel in design px. */
+async function expectWithinAPagePixel(
+  app: App,
+  actual: number[],
+  expected: number[],
+  label: string,
+) {
+  const tolerance = Math.max(
+    1,
+    Math.ceil(1 / (await app.pagePoint(0, 0)).scale),
+  );
+  const off = actual.filter(
+    (value, index) => Math.abs(value - expected[index]!) > tolerance,
+  );
+  expect(
+    off,
+    `${label}: got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)} ±${tolerance}`,
+  ).toEqual([]);
 }
 
 test.describe("moving by drag", () => {
-  test("dragging one element leaves its siblings untouched", async ({
-    page,
+  test("dragging a box by (90,70) moves only that box by exactly (90,70)", async ({
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await selectViaTree(page, "Box A");
-    const siblingBefore = (await geom(page, id, "box-b")).style;
-    await dragBy(page, (await node(page, "box-a").boundingBox())!, 80, 40);
-    expect((await geom(page, id, "box-b")).style).toBe(siblingBefore);
+    const { id, before } = await openBoxes(app);
+
+    await drag(app, { x: 100, y: 80 }, { x: 190, y: 150 });
+
+    const after = await app.savedNodes(id);
+    await expectWithinAPagePixel(
+      app,
+      savedBox(after.get("box-a")),
+      [130, 110, 120, 80],
+      "saved Box A",
+    );
+    expectOnlyChanged(before, after, ["box-a"]);
+    const rendered = await app.designRect("box-a");
+    await expectWithinAPagePixel(
+      app,
+      [rendered.x, rendered.y, rendered.width, rendered.height],
+      [130, 110, 120, 80],
+      "rendered Box A",
+    );
   });
 
-  test("undo restores the position after a drag", async ({ page }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await selectViaTree(page, "Box A");
-    const before = await geom(page, id, "box-a");
-    await dragBy(page, (await node(page, "box-a").boundingBox())!, 100, 50);
-    await page.keyboard.press(`${MOD}+z`);
-    await page.waitForTimeout(2000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
-    const after = await geom(page, id, "box-a");
-    expect([after.left, after.top]).toEqual([before.left, before.top]);
+  test("one undo after a drag restores the exact document, and redo re-applies the drop", async ({
+    app,
+  }) => {
+    const { id, before } = await openBoxes(app);
+    await drag(app, { x: 100, y: 80 }, { x: 190, y: 150 });
+    const dropped = await app.savedNodes(id);
+    expect(
+      styleOf(dropped.get("box-a")).left,
+      "the drag must move Box A first",
+    ).not.toBe("40px");
+
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(app.node("box-a")).toHaveCSS("left", "40px");
+    await app.settled();
+    expectOnlyChanged(before, await app.savedNodes(id), []);
+
+    await app.page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(app.node("box-a")).not.toHaveCSS("left", "40px");
+    await app.settled();
+    expect((await app.savedNodes(id)).get("box-a")).toEqual(
+      dropped.get("box-a"),
+    );
   });
 });
 
 test.describe("resizing", () => {
-  test("dragging the bottom-right corner resizes width and height", async ({
-    page,
+  test("dragging the bottom-right corner by (100,60) grows the box to 220x140 and keeps its top-left corner", async ({
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await selectViaTree(page, "Box A");
-    const before = await geom(page, id, "box-a");
+    const { id, before } = await openBoxes(app);
 
-    const corner = await seResizeHandle(page);
-    expect(corner, "no corner resize handle found").not.toBeNull();
+    await drag(app, { x: 160, y: 120 }, { x: 260, y: 180 });
 
-    const s = await scale(page);
-    await page.mouse.move(corner!.x, corner!.y);
-    await page.mouse.down();
-    await page.mouse.move(corner!.x + 100 * s, corner!.y + 60 * s, {
-      steps: 14,
-    });
-    await page.mouse.up();
-    await page.waitForTimeout(2000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
-
-    const after = await geom(page, id, "box-a");
+    const after = await app.savedNodes(id);
+    await expectWithinAPagePixel(
+      app,
+      savedBox(after.get("box-a")),
+      [40, 40, 220, 140],
+      "saved Box A",
+    );
     expect(
-      [after.width - before.width, after.height - before.height],
-      `dragged the SE corner by (100,60); size changed by ` +
-        `(${after.width - before.width},${after.height - before.height})`,
-    ).toEqual([expect.closeTo(100, -1), expect.closeTo(60, -1)]);
-  });
-
-  test("resizing keeps the opposite edge anchored", async ({ page }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await selectViaTree(page, "Box A");
-    const before = await geom(page, id, "box-a");
-
-    const corner = await seResizeHandle(page);
-    expect(corner, "no corner resize handle found").not.toBeNull();
-    const s = await scale(page);
-    await page.mouse.move(corner!.x, corner!.y);
-    await page.mouse.down();
-    await page.mouse.move(corner!.x + 80 * s, corner!.y + 40 * s, {
-      steps: 12,
-    });
-    await page.mouse.up();
-    await page.waitForTimeout(2000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
-
-    const after = await geom(page, id, "box-a");
-    expect(
-      [after.width > before.width, after.height > before.height],
-      `the resize must land before anchoring means anything ` +
-        `(${before.width}x${before.height} -> ${after.width}x${after.height})`,
-    ).toEqual([true, true]);
-    expect(
-      [after.left, after.top],
-      "dragging the SE corner must not move the NW corner",
-    ).toEqual([before.left, before.top]);
+      [styleOf(after.get("box-a")).left, styleOf(after.get("box-a")).top],
+      "the top-left corner stays put",
+    ).toEqual(["40px", "40px"]);
+    expectOnlyChanged(before, after, ["box-a"]);
+    const rendered = await app.designRect("box-a");
+    await expectWithinAPagePixel(
+      app,
+      [rendered.x, rendered.y, rendered.width, rendered.height],
+      [40, 40, 220, 140],
+      "rendered Box A",
+    );
   });
 });

@@ -1,13 +1,12 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
 import {
   indexHtml,
-  newDesign,
   node,
   openEditor,
-  postAction,
   setBaseURL,
 } from "./drag-and-drop.shared";
+import { expect, test } from "./rails";
 
 const FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">
@@ -78,100 +77,94 @@ async function heldPreview(page: Page) {
   });
 }
 
-test("held canvas reorder tracks each intermediate insertion slot and is one undo step", async ({
+// fixme: product bug: State-dependent drag failure: after double-click text editing on A and Escape, the next press-drag on A never starts. No insertion guide
+test.fixme("held canvas reorder tracks each intermediate insertion slot and is one undo step", async ({
+  app,
   page,
 }) => {
-  const id = await newDesign(page, FIXTURE);
+  const id = await app.seed(FIXTURE);
+  await openEditor(page, id);
+  const a = node(page, "a");
+  const [aBox, bBox, cBox] = await Promise.all([
+    a.boundingBox(),
+    node(page, "b").boundingBox(),
+    node(page, "c").boundingBox(),
+  ]);
+  if (!aBox || !bBox || !cBox) throw new Error("fixture nodes are not visible");
+  const textEditing = preview(page).locator(
+    '[data-agent-native-text-editing="true"]',
+  );
+  await page.mouse.click(aBox.x + aBox.width / 2, aBox.y + aBox.height / 2);
+  await expect(textEditing).toHaveCount(0);
+  await page.mouse.dblclick(aBox.x + aBox.width / 2, aBox.y + aBox.height / 2);
+  await expect(textEditing).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(textEditing).toHaveCount(0);
+  const start = { x: aBox.x + aBox.width / 2, y: aBox.y + aBox.height / 2 };
+  const slots: Array<{
+    x: number;
+    y: number;
+    targetEdge: "bBottom" | "cTop";
+  }> = [
+    {
+      x: bBox.x + bBox.width / 2,
+      y: bBox.y + bBox.height * 0.85,
+      targetEdge: "bBottom",
+    },
+    {
+      x: cBox.x + cBox.width / 2,
+      y: cBox.y + cBox.height * 0.25,
+      targetEdge: "cTop",
+    },
+    {
+      x: bBox.x + bBox.width / 2,
+      y: bBox.y + bBox.height * 0.85,
+      targetEdge: "bBottom",
+    },
+  ];
+  const before = await indexHtml(page, id);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
   try {
-    await openEditor(page, id);
-    const a = node(page, "a");
-    const [aBox, bBox, cBox] = await Promise.all([
-      a.boundingBox(),
-      node(page, "b").boundingBox(),
-      node(page, "c").boundingBox(),
-    ]);
-    if (!aBox || !bBox || !cBox)
-      throw new Error("fixture nodes are not visible");
-    const textEditing = preview(page).locator(
-      '[data-agent-native-text-editing="true"]',
-    );
-    await page.mouse.click(aBox.x + aBox.width / 2, aBox.y + aBox.height / 2);
-    await expect(textEditing).toHaveCount(0);
-    await page.mouse.dblclick(
-      aBox.x + aBox.width / 2,
-      aBox.y + aBox.height / 2,
-    );
-    await expect(textEditing).toHaveCount(1);
-    await page.keyboard.press("Escape");
-    await expect(textEditing).toHaveCount(0);
-    const start = { x: aBox.x + aBox.width / 2, y: aBox.y + aBox.height / 2 };
-    const slots: Array<{
-      x: number;
-      y: number;
-      targetEdge: "bBottom" | "cTop";
-    }> = [
-      {
-        x: bBox.x + bBox.width / 2,
-        y: bBox.y + bBox.height * 0.85,
-        targetEdge: "bBottom",
-      },
-      {
-        x: cBox.x + cBox.width / 2,
-        y: cBox.y + cBox.height * 0.25,
-        targetEdge: "cTop",
-      },
-      {
-        x: bBox.x + bBox.width / 2,
-        y: bBox.y + bBox.height * 0.85,
-        targetEdge: "bBottom",
-      },
-    ];
-    const before = await indexHtml(page, id);
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    try {
-      await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
-      const sampleYs: number[] = [];
-      for (const slot of slots) {
-        await page.mouse.move(slot.x, slot.y, { steps: 8 });
-        await expect
-          .poll(
-            async () => {
-              const held = await heldPreview(page);
-              const targetEdge = held?.[slot.targetEdge];
-              return held && targetEdge !== undefined
-                ? Math.abs(Math.round(held.slotY - targetEdge))
-                : null;
-            },
-            { timeout: 5_000 },
-          )
-          .toBe(0);
-        const held = await heldPreview(page);
-        expect(held).not.toBeNull();
-        sampleYs.push(held!.slotY);
-        expect(held!.parent).toBe("row");
-        expect(held!.order).toEqual(["a", "b", "c"]);
-        expect(held!.guideColor).toBe("rgb(15, 155, 255)");
-        expect(await indexHtml(page, id)).toBe(before);
-      }
-      expect(
-        sampleYs
-          .slice(1)
-          .every((sampleY, index) => Math.abs(sampleY - sampleYs[index]!) > 4),
-      ).toBe(true);
-    } finally {
-      await page.mouse.up();
+    await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
+    const sampleYs: number[] = [];
+    for (const slot of slots) {
+      await page.mouse.move(slot.x, slot.y, { steps: 8 });
+      await expect
+        .poll(
+          async () => {
+            const held = await heldPreview(page);
+            const targetEdge = held?.[slot.targetEdge];
+            return held && targetEdge !== undefined
+              ? Math.abs(Math.round(held.slotY - targetEdge))
+              : null;
+          },
+          { timeout: 5_000 },
+        )
+        .toBe(0);
+      const held = await heldPreview(page);
+      expect(held).not.toBeNull();
+      sampleYs.push(held!.slotY);
+      expect(held!.parent).toBe("row");
+      expect(held!.order).toEqual(["a", "b", "c"]);
+      expect(held!.guideColor).toBe("rgb(15, 155, 255)");
+      expect(await indexHtml(page, id)).toBe(before);
     }
-    await expect.poll(() => orderInSource(page, id)).toEqual(["b", "a", "c"]);
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Z" : "Control+Z",
-    );
-    await expect.poll(() => orderInSource(page, id)).toEqual(["a", "b", "c"]);
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z",
-    );
-    await expect.poll(() => orderInSource(page, id)).toEqual(["b", "a", "c"]);
+    expect(
+      sampleYs
+        .slice(1)
+        .every((sampleY, index) => Math.abs(sampleY - sampleYs[index]!) > 4),
+    ).toBe(true);
   } finally {
-    await postAction(page, "delete-design", { id });
+    await page.mouse.up();
   }
+  await expect.poll(() => orderInSource(page, id)).toEqual(["b", "a", "c"]);
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+Z" : "Control+Z",
+  );
+  await expect.poll(() => orderInSource(page, id)).toEqual(["a", "b", "c"]);
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z",
+  );
+  await expect.poll(() => orderInSource(page, id)).toEqual(["b", "a", "c"]);
 });

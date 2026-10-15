@@ -67,6 +67,12 @@ const mocks = vi.hoisted(() => ({
   agentEngine: { state: "configured", missing: false, canChat: true },
   requireAgentEngineConfiguredForDispatch: vi.fn(async () => {}),
   starterPrompt: "Un panel de análisis con cuatro indicadores clave.",
+  trackDesignRelay: vi.fn(),
+}));
+
+vi.mock("@/lib/design-relay-tracking", () => ({
+  trackDesignRelay: (...args: unknown[]) => mocks.trackDesignRelay(...args),
+  runWhenTabVisible: (callback: () => void) => (callback(), () => {}),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
@@ -621,6 +627,27 @@ it("does not auto-attach the default design system to a fresh prompt", async () 
 });
 
 describe("Index skip to editor", () => {
+  it("hides home suggestions when AI is unavailable and restores them after connection", async () => {
+    expect(
+      container.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).not.toBeNull();
+
+    mocks.agentEngine = { state: "missing", missing: true, canChat: false };
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).toBeNull();
+    expect(mocks.suggestionQueryOptions?.enabled).toBe(false);
+    expect(container.textContent).toContain("Connect AI");
+
+    mocks.agentEngine = { state: "configured", missing: false, canChat: true };
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Generated dashboard");
+  });
+
   it("explains an unaccepted quick start without replacing the draft or creating a design", async () => {
     mocks.submitWithText.mockResolvedValueOnce(false);
     const suggestion = Array.from(container.querySelectorAll("button")).find(
@@ -685,6 +712,7 @@ describe("Index skip to editor", () => {
       title: "Untitled Design",
       projectType: "prototype",
       designSystemId: null,
+      creationMethod: "blank",
     });
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
@@ -852,16 +880,13 @@ describe("Index skip to editor", () => {
     ).toBe(false);
   });
 
-  it("reserves the suggestion slot while provider setup is missing", async () => {
+  it("hides the suggestion slot while provider setup is missing", async () => {
     mocks.agentEngine = { state: "missing", missing: true, canChat: false };
     await act(async () => root.render(<Index />));
     const bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.getAttribute("aria-busy")).toBe("true");
-    expect(
-      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
-    ).toHaveLength(3);
+    expect(bar).toBeNull();
     expect(container.textContent).not.toContain("Generated dashboard");
     expect(container.textContent).not.toContain("chat.suggestionLandingPage");
   });
@@ -960,7 +985,7 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("chat.suggestionLandingPage");
   });
 
-  it("keeps the suggestion slot while readiness recovers", async () => {
+  it("shows the suggestion slot only after readiness recovers", async () => {
     await act(async () => root.render(null));
     mocks.agentEngine = {
       state: "unavailable",
@@ -970,10 +995,8 @@ describe("Index skip to editor", () => {
     await act(async () => root.render(<Index />));
 
     expect(
-      container
-        .querySelector('[aria-label="home.suggestedPrompts"]')
-        ?.getAttribute("aria-busy"),
-    ).toBe("true");
+      container.querySelector('[aria-label="home.suggestedPrompts"]'),
+    ).toBeNull();
     expect(mocks.suggestionPending).toBe(false);
 
     mocks.agentEngine = { state: "configured", missing: false, canChat: true };
@@ -1098,7 +1121,7 @@ describe("Index skip to editor", () => {
     const bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(bar).toBeNull();
     expect(container.textContent).not.toContain("Cached dashboard");
 
     mocks.agentEngine = { state: "configured", missing: false, canChat: true };
@@ -1155,7 +1178,7 @@ describe("Index skip to editor", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "keeps the suggestion slot reserved for $state (missing=$missing)",
+    "shows the suggestion slot only when chat is ready for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       await act(async () => root.render(null));
       mocks.agentEngine = { state, missing, canChat: ready };
@@ -1178,11 +1201,8 @@ describe("Index skip to editor", () => {
       const suggestionBar = container.querySelector<HTMLElement>(
         '[aria-label="home.suggestedPrompts"]',
       );
-      const loading = !ready;
-      expect(Boolean(suggestionBar)).toBe(true);
-      expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBe(
-        loading ? "true" : null,
-      );
+      expect(Boolean(suggestionBar)).toBe(ready);
+      expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBeNull();
       expect(container.textContent?.includes("Generated dashboard")).toBe(
         ready,
       );
@@ -1669,5 +1689,142 @@ describe("home library", () => {
     );
     expect(mocks.focusComposer).not.toHaveBeenCalled();
     expect(mocks.navigate).toHaveBeenCalledWith("/design/copied-design");
+  });
+});
+
+describe("home funnel tracking", () => {
+  const promptEvents = () =>
+    mocks.trackDesignRelay.mock.calls.filter(
+      ([name]) => name === "design_prompt_submitted",
+    );
+
+  it("records one prompt submit with the new design id, after create-design resolves", async () => {
+    let resolveCreate: (() => void) | undefined;
+    mocks.createDesign.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+    let submit: Promise<void> | undefined;
+    await act(async () => {
+      submit = mocks.promptProps?.onSubmit(
+        "A pricing page with three tiers",
+        [
+          {
+            path: "/u/shot.png",
+            originalName: "shot.png",
+            filename: "shot.png",
+            type: "image/png",
+            size: 10,
+          },
+        ],
+        {
+          contextItems: [
+            {
+              key: "design-home-reference:figma:FILEKEY:node-1",
+              title: "Figma",
+              context: "",
+            },
+          ],
+        },
+      );
+      await Promise.resolve();
+    });
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "design-1", creationMethod: "prompt" }),
+    );
+    expect(promptEvents()).toHaveLength(0);
+
+    await act(async () => {
+      resolveCreate?.();
+      await submit;
+    });
+    expect(promptEvents()).toEqual([
+      [
+        "design_prompt_submitted",
+        {
+          output_id: "design-1",
+          output_type: "design",
+          prompt_source: "composer",
+          has_text: true,
+          prompt_length_bucket: "1-50",
+          reference_types: ["figma", "image"],
+          reference_count: 2,
+          start_mode: "design",
+        },
+      ],
+    ]);
+    expect(JSON.stringify(promptEvents())).not.toContain("pricing");
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/design-1");
+  });
+
+  it("does not record a prompt submit when create-design fails", async () => {
+    mocks.createDesign.mockRejectedValueOnce(new Error("database unavailable"));
+    await act(async () => {
+      await expect(
+        mocks.promptProps?.onSubmit("New design", [], {}),
+      ).rejects.toThrow("database unavailable");
+    });
+    expect(promptEvents()).toHaveLength(0);
+  });
+
+  it("records a suggestion chip as its own source", async () => {
+    mocks.createDesign.mockResolvedValue(undefined);
+    mocks.submitWithText.mockImplementationOnce(async (text: string) => {
+      await mocks.promptProps?.onSubmit(text, [], {});
+      return true;
+    });
+    const suggestion = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Generated dashboard",
+    );
+    await act(async () => suggestion?.click());
+    expect(promptEvents()).toHaveLength(1);
+    expect(promptEvents()[0][1]).toMatchObject({
+      prompt_source: "suggestion_chip",
+      output_id: "design-1",
+    });
+  });
+
+  it("records a template prompt with the copied design id", async () => {
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Make it blue", [], {});
+    });
+    expect(promptEvents()).toHaveLength(1);
+    expect(promptEvents()[0][1]).toMatchObject({
+      output_id: "copied-design",
+      start_mode: "template",
+      reference_types: expect.arrayContaining(["template"]),
+    });
+  });
+
+  it("does not record a prompt submit for Skip or Use template", async () => {
+    mocks.createDesign.mockResolvedValue(undefined);
+    await act(async () => {
+      await mocks.promptProps?.onSkip();
+    });
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+    await act(async () => {
+      await mocks.promptProps?.onSkip();
+    });
+    expect(mocks.createFromTemplate).toHaveBeenCalledTimes(1);
+    expect(mocks.navigate).toHaveBeenCalledTimes(2);
+    expect(promptEvents()).toHaveLength(0);
+  });
+
+  it("opens the design even when tracking throws", async () => {
+    mocks.createDesign.mockResolvedValue(undefined);
+    mocks.trackDesignRelay.mockImplementation(() => {
+      throw new Error("analytics down");
+    });
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("New design", [], {});
+    });
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/design-1");
+    mocks.trackDesignRelay.mockReset();
   });
 });

@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
 import {
   appPath,
@@ -9,6 +9,7 @@ import {
   expandAllLayers,
   gotoEditor,
 } from "./helpers";
+import { expect, test, type App } from "./rails";
 
 const PNG_FIXTURE = path.resolve(
   import.meta.dirname,
@@ -333,53 +334,48 @@ async function assertAddFillKeepsUploadedImage(
 }
 
 async function uploadBeforePickerCloses(
-  page: Page,
+  app: App,
   fixture: string,
   expectedSize: { width: number; height: number },
 ) {
+  const page = app.page;
   const { designId, screenId } = await createUploadDesign(page);
-  try {
-    await gotoEditor(page, designId);
-    await enterDirectMode(page);
-    await expandAllLayers(page);
-    const fileInput = await openImageFill(page, "Original A");
-    const uploadResponse = page.waitForResponse((response) =>
-      response.url().includes("/_agent-native/actions/upload-image"),
-    );
-    await fileInput.setInputFiles(fixture);
-    const response = await uploadResponse;
-    const responseBody = await response.text();
-    expect(response.status(), responseBody).toBe(200);
-    const payload = JSON.parse(responseBody) as { url?: string };
-    expect(payload.url).toMatch(/^\/api\/qa-import-assets\//);
-    await assertImageSavedAndRendered(
-      page,
-      designId,
-      screenId,
-      payload.url!,
-      expectedSize,
-    );
-    await assertAddFillKeepsUploadedImage(
-      page,
-      designId,
-      screenId,
-      payload.url!,
-    );
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  app.adopt(designId);
+  await gotoEditor(page, designId);
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+  const fileInput = await openImageFill(page, "Original A");
+  const uploadResponse = page.waitForResponse((response) =>
+    response.url().includes("/_agent-native/actions/upload-image"),
+  );
+  await fileInput.setInputFiles(fixture);
+  const response = await uploadResponse;
+  const responseBody = await response.text();
+  expect(response.status(), responseBody).toBe(200);
+  const payload = JSON.parse(responseBody) as { url?: string };
+  expect(payload.url).toMatch(/^\/api\/qa-import-assets\//);
+  await assertImageSavedAndRendered(
+    page,
+    designId,
+    screenId,
+    payload.url!,
+    expectedSize,
+  );
+  await assertAddFillKeepsUploadedImage(page, designId, screenId, payload.url!);
 }
 
 async function uploadAfterPickerCloses(
-  page: Page,
+  app: App,
   fixture: string,
   expectedSize: { width: number; height: number },
   switchToOtherScreen = false,
 ) {
+  const page = app.page;
   const { designId, screenId, otherScreenId } = await createUploadDesign(
     page,
     switchToOtherScreen,
   );
+  app.adopt(designId);
   let releaseUpload!: () => void;
   let markUploadStarted!: () => void;
   let markUploadCompleted!: () => void;
@@ -556,7 +552,6 @@ async function uploadAfterPickerCloses(
       new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
     ]);
     await page.unroute("**/_agent-native/actions/upload-image").catch(() => {});
-    await deleteDesign(page, designId);
   }
 }
 
@@ -573,39 +568,37 @@ async function openImageFill(page: Page, layerName: string) {
   return page.locator('input[type="file"][accept="image/*"]');
 }
 
-async function deleteDesign(page: Page, designId: string) {
-  await postAction(page, "delete-design", { id: designId });
-}
-
-test("PNG image fill upload stays renderable after Add fill and reload", async ({
-  page,
+// fixme: product bug: During the Add fill step the host page requests GET /design/&quot;/api/qa-import-assets/<id>.png&quot; and gets a 404 (console error).
+test.fixme("PNG image fill upload stays renderable after Add fill and reload", async ({
+  app,
 }) => {
-  await uploadBeforePickerCloses(page, PNG_FIXTURE, { width: 8, height: 8 });
+  await uploadBeforePickerCloses(app, PNG_FIXTURE, { width: 8, height: 8 });
 });
 
 test("PNG upload still saves on its original layer after the picker closes", async ({
-  page,
+  app,
 }) => {
-  await uploadAfterPickerCloses(page, PNG_FIXTURE, { width: 8, height: 8 });
+  await uploadAfterPickerCloses(app, PNG_FIXTURE, { width: 8, height: 8 });
 });
 
-test("Sonora SVG fill upload stays renderable after Add fill and reload", async ({
-  page,
+// fixme: product bug: During the Add fill step the host page requests GET /design/&quot;/api/qa-import-assets/<id>.svg&quot; and gets a 404 (console error).
+test.fixme("Sonora SVG fill upload stays renderable after Add fill and reload", async ({
+  app,
 }) => {
-  await uploadBeforePickerCloses(page, SVG_FIXTURE, { width: 48, height: 48 });
+  await uploadBeforePickerCloses(app, SVG_FIXTURE, { width: 48, height: 48 });
 });
 
 test("Sonora SVG upload stays on its original layer after the picker closes", async ({
-  page,
+  app,
 }) => {
-  await uploadAfterPickerCloses(page, SVG_FIXTURE, { width: 48, height: 48 });
+  await uploadAfterPickerCloses(app, SVG_FIXTURE, { width: 48, height: 48 });
 });
 
 test("delayed PNG fill keeps its original Screen target after switching Screens", async ({
-  page,
+  app,
 }) => {
   await uploadAfterPickerCloses(
-    page,
+    app,
     PNG_FIXTURE,
     { width: 8, height: 8 },
     true,

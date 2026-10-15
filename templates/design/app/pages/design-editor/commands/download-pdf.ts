@@ -4,6 +4,11 @@ import { toast } from "sonner";
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import type { ElementInfo } from "@/components/design/types";
 import {
+  browserDesignExportErrorType,
+  trackBrowserDesignExported,
+  type BrowserDesignExportContext,
+} from "@/lib/design-export-tracking";
+import {
   PDF_MIN_PRINT_RASTER_SCALE,
   createSinglePageRasterPdf,
 } from "@/pages/design-editor/export-capture";
@@ -17,6 +22,8 @@ import {
 } from "@/pages/design-editor/png-export-render";
 
 export interface DownloadPdfArgs {
+  /** Join keys for the `design_exported` this command reports. */
+  exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
   pngExportingRef: RefObject<boolean>;
   renderPngBlob: (arg0: {
@@ -43,6 +50,7 @@ export interface DownloadPdfArgs {
 
 export async function runDownloadPdf(
   {
+    exportTracking,
     fallbackExportName,
     pngExportingRef,
     renderPngBlob,
@@ -121,7 +129,16 @@ export async function runDownloadPdf(
     });
     triggerBlobDownload(pdf, fallbackExportName("pdf", settings?.suffix));
     toast.success(t("designEditor.toasts.pdfDownloaded"));
+    trackBrowserDesignExported("pdf", {
+      ...exportTracking,
+      status: "completed",
+    });
   } catch (error) {
+    trackBrowserDesignExported("pdf", {
+      ...exportTracking,
+      status: "failed",
+      errorType: browserDesignExportErrorType(error),
+    });
     showRasterCaptureError(error, "pdf");
   } finally {
     releaseScreenFromExport?.();

@@ -2764,11 +2764,33 @@ describe("createAgentNativeAgentKitTransport", () => {
             status: "completed",
           },
           {
+            id: "tool-approval-history",
+            name: "publish-release",
+            input: { releaseId: "release-1" },
+            output: "Awaiting human approval. This action did NOT execute.",
+            status: "completed",
+            runId: "run-history",
+            messageId: "assistant-history",
+            metadata: {
+              approvalPause: true,
+              approvalAskId: "approval-1",
+            },
+          },
+          {
             id: "tool-large-history",
             name: "large-result",
             output: "x".repeat(65_536),
             status: "completed",
             messageId: "assistant-history",
+          },
+          {
+            id: "tool-large-approval-history",
+            name: "large-approval-input",
+            input: { payload: "x".repeat(70_000) },
+            output: "Awaiting human approval. This action did NOT execute.",
+            status: "completed",
+            runId: "run-large-approval",
+            metadata: { approvalPause: true },
           },
         ],
         widgets: [
@@ -3044,6 +3066,16 @@ describe("createAgentNativeAgentKitTransport", () => {
         output: '{"value":1}',
       },
       {
+        id: "tool-approval-history",
+        name: "publish-release",
+        status: "completed",
+        input: { releaseId: "release-1" },
+        output: "Awaiting human approval. This action did NOT execute.",
+        runId: "run-history",
+        messageId: "assistant-history",
+        metadata: { approvalPause: true, approvalAskId: "approval-1" },
+      },
+      {
         id: "tool-large-history",
         name: "large-result",
         status: "completed",
@@ -3052,6 +3084,20 @@ describe("createAgentNativeAgentKitTransport", () => {
           agentKitSnapshot: {
             toolCallResult: "omitted",
             reason: "size_limit",
+          },
+        },
+      },
+      {
+        id: "tool-large-approval-history",
+        name: "large-approval-input",
+        status: "completed",
+        runId: "run-large-approval",
+        metadata: {
+          approvalPause: true,
+          agentKitSnapshot: {
+            toolCallResult: "omitted",
+            reason: "size_limit",
+            inputFingerprint: expect.stringMatching(/^fnv1a64:[0-9a-f]{16}$/),
           },
         },
       },
@@ -3176,6 +3222,16 @@ describe("createAgentNativeAgentKitTransport", () => {
         output: '{"value":1}',
       },
       {
+        id: "tool-approval-history",
+        name: "publish-release",
+        status: "completed",
+        input: { releaseId: "release-1" },
+        output: "Awaiting human approval. This action did NOT execute.",
+        runId: "run-history",
+        messageId: "assistant-history",
+        metadata: { approvalPause: true, approvalAskId: "approval-1" },
+      },
+      {
         id: "tool-large-history",
         name: "large-result",
         status: "completed",
@@ -3184,6 +3240,20 @@ describe("createAgentNativeAgentKitTransport", () => {
           agentKitSnapshot: {
             toolCallResult: "omitted",
             reason: "size_limit",
+          },
+        },
+      },
+      {
+        id: "tool-large-approval-history",
+        name: "large-approval-input",
+        status: "completed",
+        runId: "run-large-approval",
+        metadata: {
+          approvalPause: true,
+          agentKitSnapshot: {
+            toolCallResult: "omitted",
+            reason: "size_limit",
+            inputFingerprint: expect.stringMatching(/^fnv1a64:[0-9a-f]{16}$/),
           },
         },
       },

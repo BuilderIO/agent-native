@@ -261,6 +261,8 @@ const MAX_ZOOM = DEFAULT_CANVAS_MAX_ZOOM;
 const AUTOFIT_MIN_ZOOM = DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM;
 const MAX_WHEEL_PAN_DELTA = 240;
 const CHROME_SCALE_CSS_VAR = "--an-chrome-scale";
+const BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR =
+  "--an-breakpoint-label-gesture-visibility";
 const LIVE_EDITOR_ADMIT_IDLE_MS = 250;
 // Each costs a document on the main thread; this many skip a reboot on zoom-in.
 const WARM_LIVE_EDITORS = 3;
@@ -9931,6 +9933,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       wheelGestureChromeConsumersRef.current = null;
       if (world) {
         world.style.willChange = "";
+        world.style.removeProperty(BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR);
         world.style.setProperty(
           CHROME_SCALE_CSS_VAR,
           String(zoomRef.current > 0 ? 100 / zoomRef.current : 1),
@@ -10113,6 +10116,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const markWheelGestureActive = useCallback(
     (zoomChangesChrome: boolean) => {
       const world = worldRef.current;
+      if (zoomChangesChrome) {
+        world?.style.setProperty(
+          BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR,
+          "hidden",
+        );
+      }
       const collectChromeConsumers = () => {
         if (!world) return;
         const consumersByFrameId = new Map<string, HTMLElement[]>();
@@ -14416,7 +14425,9 @@ function sameScreenRootComputedStylesById(
   );
 }
 
-const BREAKPOINT_LABEL_WITH_WIDTH_MIN_FRAME_WIDTH = 128;
+const BREAKPOINT_LABEL_WITH_WIDTH_MIN_SCREEN_WIDTH = 128;
+const BREAKPOINT_LABEL_MIN_SCREEN_WIDTH = 80;
+const BREAKPOINT_LABEL_END_RESERVE = 28;
 
 function BreakpointPreviewRow({
   screen,
@@ -14552,8 +14563,12 @@ function BreakpointPreviewRow({
             });
         const currentOffsetX = offsetX;
         offsetX += frameWidth + BREAKPOINT_FRAME_GAP;
+        const frameScreenWidth = frameWidth / Math.max(chromeScale, 0.001);
         const showBreakpointWidth =
-          frameWidth >= BREAKPOINT_LABEL_WITH_WIDTH_MIN_FRAME_WIDTH;
+          frameScreenWidth >= BREAKPOINT_LABEL_WITH_WIDTH_MIN_SCREEN_WIDTH;
+        const frameLabelMaxWidth = `max(0px, calc(100% / var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}) - ${BREAKPOINT_LABEL_END_RESERVE}px))`;
+        const frameLabelHidden =
+          frameScreenWidth < BREAKPOINT_LABEL_MIN_SCREEN_WIDTH;
         const activateThisFrame = (e: React.MouseEvent<HTMLElement>) => {
           onPick?.(screen.id, e);
           onActiveBreakpointChange?.(widthPx);
@@ -14585,11 +14600,9 @@ function BreakpointPreviewRow({
               zIndex: primaryGeometry.z,
             }}
           >
-            {/* Frame label row — same height/typography/chromeScale
-                transform as the primary frame's own label row (Screen, see
-                the `data-frame-label` block above) so breakpoint chrome
-                doesn't visibly shrink relative to regular screens at
-                zoom-out (BP-DEEP item 3c). */}
+            {/* Keep breakpoint labels screen-sized, but bound them to the
+                frame's rendered width so responsive previews cannot overlap
+                neighboring screens at low canvas zoom. */}
             <div
               className="relative flex w-full cursor-pointer select-none items-center"
               style={{ height: FRAME_LABEL_HEIGHT * chromeScale }}
@@ -14609,13 +14622,19 @@ function BreakpointPreviewRow({
             >
               <div
                 data-frame-label
-                className="absolute left-1 top-1/2 flex min-w-0 max-w-[calc(100%-28px)] items-center gap-1.5"
+                className="absolute left-1 top-1/2 flex min-w-0 w-[var(--an-breakpoint-label-max-width)] max-w-[var(--an-breakpoint-label-max-width)] items-center gap-1.5"
                 data-an-chrome-scale
-                style={{
-                  transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-                  transformOrigin: "left center",
-                  transition: getChromeLabelTransition(chromeSettling),
-                }}
+                style={
+                  {
+                    "--an-breakpoint-label-max-width": frameLabelMaxWidth,
+                    visibility: frameLabelHidden
+                      ? "hidden"
+                      : `var(${BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR}, visible)`,
+                    transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
+                    transformOrigin: "left center",
+                    transition: getChromeLabelTransition(chromeSettling),
+                  } as CSSProperties
+                }
               >
                 <span
                   className={cn(

@@ -12,6 +12,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { PANEL_RENDERED_PREFIX } from "../../shared/panel-rendered-prefix";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import {
   retrieveAnalyticsPromptReferences,
@@ -288,7 +289,7 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
   {
     id: "understand-the-ask",
-    text: 'UNDERSTAND THE ASK — The open dashboard and selected panel (`<current-screen>`, `selected-object`) are what "this", "that", and "it" mean. When a preloaded or catalog reference fits, keep its source and business logic and change only filters and window; prefer certified over favorite over unmarked. If an ambiguity would change the numbers, ask exactly one `ask-question` with a recommended default; otherwise pick the default and label it. Open a data answer with one line, "Reading this as: <metric definition>, <window>, <filters>, <source>"; open an edit with "Changing <panel title> on <dashboard>". A source the user names wins. Never ask the user for dataset, table, column, or SQL identifiers; look them up.',
+    text: 'UNDERSTAND THE ASK — The open dashboard and selected panel (`<current-screen>`, `selected-object`) are what "this", "that", and "it" mean. When a preloaded or catalog reference fits, keep its source and business logic and change only filters and window; prefer certified over favorite over unmarked. If an ambiguity would change the numbers, ask exactly one `ask-question` with a recommended default; otherwise pick the default and label it. Open a data answer per AGENTS.md "Data questions"; otherwise one line, "Reading this as: <metric definition>, <window>, <filters>, <source>"; open an edit with "Changing <panel title> on <dashboard>". A source the user names wins. Never ask the user for dataset, table, column, or SQL identifiers; look them up.',
   },
   {
     id: "sources",
@@ -319,12 +320,94 @@ export function analyticsExtraContext(): string {
   return `<data-source-guidance>\n${ANALYTICS_PROMPT_RULES.map((rule) => rule.text).join("\n")}\n</data-source-guidance>`;
 }
 
-const SCHEMA_DETAILS_REQUEST_PATTERN =
-  /\b(?:could you|can you|would you|please\s+(?:provide|share|send|tell)|provide|share|send(?: me)?|tell me|i need(?: you to)?|what (?:is|are)|which)\b[\s\S]{0,260}\b(?:bigquery\s+)?(?:dataset(?: name)?s?|table(?: name)?s?|column(?: name)?s?|field(?: name)?s?|schema|sql query)\b/i;
+// A request stays inside one sentence or one bulleted list: a summary of the
+// agent's own work ("tell me if something else is off. ... 43 rows in the
+// table") is not a request, and a cross-sentence match discards a correct
+// answer. "I need" is the agent narrating ("I need the table to reload")
+// unless it names an identifier to supply or asks which one, so it has its own
+// pattern instead of a bare alternative.
+const SCHEMA_DETAILS_MAX_RETRIES = 2;
+const SCHEMA_DETAILS_NOUN =
+  "\\b(?:bigquery\\s+)?(?:dataset(?: name)?s?|table(?: name)?s?|column(?: name)?s?|field(?: name)?s?|schema|sql query)\\b";
+// Bare provide/share/send count only as an imperative opening a sentence or
+// line; mid-sentence they are the agent offering its answer ("I can provide a
+// table of the results").
+const SCHEMA_DETAILS_IMPERATIVE =
+  "(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b";
+// "Would you like me to show ..." is an offer, and verification or feedback
+// ("tell me if ...", "could you confirm the table has 43 rows", "can you share
+// anything else that's off") is never a request for details. A denylist of
+// those verbs, not an allowlist of ask verbs: "could you let me know which
+// table" and "would you mind providing" are real asks. "Confirm", "verify",
+// "check", "see" and "look" are feedback only when they do not ask for an
+// identifier ("could you confirm which table holds usage" is an ask; "confirm
+// the table has 43 rows" is not).
+const SCHEMA_DETAILS_OBJECT =
+  "(?:bigquery\\s+)?(?:dataset|table|column|field)s?";
+const SCHEMA_DETAILS_HOLDS =
+  "(?:holds?|contains?|stores?|tracks?|records?|has|have)";
+// What each feedback verb may go on to ask for before it is an identifier ask:
+// confirm/verify/check/see/look: "which"/"what" or "the <object> name";
+// show/display/open: "the <object> name" or "which <object> holds ...", but not
+// "which table this came from"; explain/describe: "which" or "what the
+// <object> name is", but not "what the table represents".
+const SCHEMA_DETAILS_FEEDBACK_VERB = `(?!(?:\\s+please)?\\s+(?:(?:(?:double-)?confirm|verify|check|see|look)(?!\\s+(?:which|what)\\b|\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?|details)\\b)|(?:show|display|pull up|open|bring up)(?!\\s+(?:me\\s+)?(?:the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?|details)\\b|which\\s+${SCHEMA_DETAILS_OBJECT}\\s+${SCHEMA_DETAILS_HOLDS}\\b))|(?:explain|describe)(?!\\s+(?:which\\b|what\\s+(?:is\\s+)?the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?|details)\\b))|summari[sz]e|walk me through|share anything|let me know (?:if|whether|what else|anything)|tell me (?:if|whether|what else|anything|how|why))\\b)`;
+const SCHEMA_DETAILS_FEEDBACK =
+  "(?! (?:if|whether|what else|anything|how|why)\\b)";
+const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}|do you know|please\\s+(?:provide|share(?! anything)|send|tell me${SCHEMA_DETAILS_FEEDBACK})|tell me${SCHEMA_DETAILS_FEEDBACK}|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
+// A list lead-in must ask to be given something: "Can you tell me what else is
+// off:" followed by a summary bullet that mentions a table is feedback.
+const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}(?: please)? (?:provide|share|send|give|specify|list)|please\\s+(?:provide|share(?! anything)|send)|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
+// "I need <identifier>" is narration when the agent goes on to say it found it
+// ("so I re-ran it", "I looked it up"). The narration has to be tied to the
+// need: in the same sentence, or opening the very next one ("I need the table
+// name. I checked the catalog and it is usage_monthly."), so an unrelated
+// "Separately, I ran the revenue query" does not clear an earlier ask. Only a
+// closed list of discovery verbs counts: "so I can write the query" and "so I
+// cannot continue" are still asks. An attempt that reports it failed ("I
+// searched the catalog, but nothing matched") resolved nothing either.
+const SCHEMA_DETAILS_SENTENCE = "(?:[^.?!\\n]|[.?!](?=\\S))*";
+const SCHEMA_DETAILS_RESOLUTION =
+  "\\bi(?:['’]ve|\\s+have)?\\s+(?:(?:just|then|already)\\s+)?(?:(?:re-?)?(?:ran(?!\\s+into)|run(?!\\s+into)|queried|checked)|looked|searched|found|pulled|fetched|verified|confirmed|opened|inspected|used|listed|read|identified|discovered|resolved)\\b";
+const SCHEMA_DETAILS_FAILED =
+  "(?:\\b(?:but\\s+(?:nothing|none|no)|nothing\\s+(?:matched|came|turned|was|found|there)|found\\s+(?:nothing|none|no\\s+(?!(?:other|more|additional|further|duplicate)\\b))|no\\s+(?:match(?:es|ing)?|results?|luck|such|hits?)|not\\s+found|cannot|could\\s+not|unable|did\\s+not|failed|came\\s+up\\s+empty|returned\\s+(?:nothing|no|zero|0)|(?:was|were|is|are)\\s+empty)|n['’]t\\s+(?:able|find|found|match|see|exist|return|show|work|locate|surface|turn|there))\\b";
+const SCHEMA_DETAILS_FOLLOW_ON =
+  "(?:(?:so|then|and|but|luckily|fortunately|however|instead|first|now)\\b,?\\s+)?";
+const SCHEMA_DETAILS_DISCOVERED = `${SCHEMA_DETAILS_RESOLUTION}(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_FAILED}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_FAILED})`;
+const SCHEMA_DETAILS_RESOLVED = `(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_DISCOVERED}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_FOLLOW_ON}${SCHEMA_DETAILS_DISCOVERED})`;
+// Up to three descriptive words may sit between the interrogative and the noun
+// ("which source table", "which warehouse table"); prepositions and articles
+// may not, so "which row in the table is wrong?" is not an identifier ask.
+const SCHEMA_DETAILS_MODIFIERS =
+  "(?:(?!(?:in|of|on|at|from|by|with|to|for|the|a|an|this|that|these|those|each|every|any|your|our|my|their|is|are|does|do|did|should|would|can|has|have)\\b)[\\w-]+\\s+){0,3}";
+const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
+  `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|stores?|tracks?|records?)\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN}|what\\s+(?:is|are)\\s+the\\s+(?:${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)|(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT})\\b|what\\s+the\\s+${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\s+(?:is|are)\\b|what\\s+${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+${SCHEMA_DETAILS_HOLDS}\\b))${SCHEMA_DETAILS_RESOLVED}`,
+  "i",
+);
+const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
+  `${SCHEMA_DETAILS_LIST_ASK}[^.?!\\n]{0,80}[:?][ \\t]*\\n(?:[ \\t]*\\n)*((?:[ \\t]*(?:[-*•]|\\d+[.)])[^\\n]*\\n?){1,6})`,
+  "i",
+);
+// The interrogative must open the sentence or a framing clause ("For this
+// metric, which table ...?"): "Want me to show which table this came from?" is
+// an offer, not a request for an identifier. It must also ask for the
+// identifier itself: "which table holds usage?", "which table for monthly
+// usage?" and "what is the table name?" do, "which table rows were excluded?"
+// and "what is the table size?" are answer-shaped questions that only mention a
+// table.
+const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
+  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what\\s+(?:is|are)\\s+the\\s+${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|what\\s+(?:is|are)\\s+the\\s+(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\b|what\\s+(?:is|are)\\s+(?:the|your)\\s+(?:schema|sql\\s+quer(?:y|ies))\\b|(?:which|what)\\s+${SCHEMA_DETAILS_MODIFIERS}(?:(?:dataset|table|column|field|schema)s?|sql\\s+quer(?:y|ies))\\s+(?:${SCHEMA_DETAILS_HOLDS}|is|are|does|do|should|would|can|name|for|to)\\b)[^.?!\\n]*\\?`,
+  "i",
+);
 
 function looksLikeSchemaDetailsRequest(text: string): boolean {
-  return SCHEMA_DETAILS_REQUEST_PATTERN.test(
-    stripInjectedAnalyticsGuardContext(String(text ?? "")),
+  const draft = stripInjectedAnalyticsGuardContext(String(text ?? ""));
+  const listItems = SCHEMA_DETAILS_LIST_REQUEST_PATTERN.exec(draft)?.[1];
+  return (
+    SCHEMA_DETAILS_REQUEST_PATTERN.test(draft) ||
+    SCHEMA_DETAILS_QUESTION_PATTERN.test(draft) ||
+    (listItems !== undefined &&
+      new RegExp(SCHEMA_DETAILS_NOUN, "i").test(listItems))
   );
 }
 
@@ -345,58 +428,25 @@ function latestUserText(
   return "";
 }
 
-function configuredDataSourceLabels(
-  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
-): string[] {
-  const labels = new Set<string>();
-  for (const result of toolResults ?? []) {
-    const normalizedName = String(result.name ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/[\s_]+/g, "-");
-    if (normalizedName !== "data-source-status" || result.isError) continue;
-
-    let parsed: Record<string, unknown>;
-    try {
-      const value = JSON.parse(String(result.content ?? ""));
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-      parsed = value as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-
-    const compactSources = Array.isArray(parsed.configuredDataSources)
-      ? parsed.configuredDataSources
-      : [];
-    for (const source of compactSources) {
-      if (!source || typeof source !== "object" || Array.isArray(source)) {
-        continue;
-      }
-      const record = source as Record<string, unknown>;
-      const label = record.label ?? record.provider;
-      if (typeof label === "string" && label.trim()) labels.add(label.trim());
-    }
-
-    const providers = Array.isArray(parsed.providers) ? parsed.providers : [];
-    for (const provider of providers) {
-      if (
-        !provider ||
-        typeof provider !== "object" ||
-        Array.isArray(provider)
-      ) {
-        continue;
-      }
-      const record = provider as Record<string, unknown>;
-      if (record.configured !== true) continue;
-      const label = record.label ?? record.provider;
-      if (typeof label === "string" && label.trim()) labels.add(label.trim());
-    }
-  }
-  return [...labels];
-}
-
 const UNVERIFIED_DRAFT_RETRY_INSTRUCTION =
   ' If you cannot run a query, restate every number, count, or trend in the draft as explicitly unverified (prefix the sentence with "Unverified:") rather than asserting it.';
+
+function sourceStatusDescription(summary: DataSourceStatusSummary): string {
+  const healthyWorkspaceConnections = summary.workspaceConnectedSourceLabels;
+  const healthyLabels = new Set(healthyWorkspaceConnections);
+  const configuredWithoutHealthyGrant = summary.configuredSourceLabels.filter(
+    (label) => !healthyLabels.has(label),
+  );
+  const details = [
+    healthyWorkspaceConnections.length
+      ? `healthy workspace connections: ${healthyWorkspaceConnections.join(", ")}`
+      : "",
+    configuredWithoutHealthyGrant.length
+      ? `configured sources without a healthy workspace connection: ${configuredWithoutHealthyGrant.join(", ")}`
+      : "",
+  ].filter(Boolean);
+  return details.join("; ");
+}
 
 function exhaustedDraftPrefixFor({
   toolResults,
@@ -407,9 +457,10 @@ function exhaustedDraftPrefixFor({
   setupMarkdown: string;
   includeConnectOption: boolean;
 }): string {
-  const configuredSources = configuredDataSourceLabels(toolResults);
-  const connectedSentence = configuredSources.length
-    ? ` Connected sources: ${configuredSources.join(", ")}.`
+  const sourceStatus = dataSourceStatusSummary(toolResults);
+  const sourceStatusDetails = sourceStatusDescription(sourceStatus);
+  const sourceStatusSentence = sourceStatusDetails
+    ? ` Data-source status reports ${sourceStatusDetails}; it does not verify a query result.`
     : "";
   const nextOptions = [
     "ask me to query an existing dashboard (I'll search certified ones first)",
@@ -420,7 +471,7 @@ function exhaustedDraftPrefixFor({
   }
   return (
     "Unverified — no live data query ran for this answer, so every figure and trend below is unconfirmed." +
-    connectedSentence +
+    sourceStatusSentence +
     ` Next options: ${nextOptions.join(", ")}.`
   );
 }
@@ -491,14 +542,68 @@ function priorTurnEvidence(
 
 interface DataSourceStatusSummary {
   checked: boolean;
-  externalSourceLabels: string[];
+  configuredSourceLabels: string[];
+  workspaceConnectedSourceLabels: string[];
   availableExternalSources: Array<{
     aliases: string[];
     configured: boolean | null;
+    workspaceGrantState?: string;
+    credentialsConfigured?: boolean | null;
     label?: string;
     setupLink?: string;
   }>;
   setupLink: string;
+}
+
+function inferRequiredCredentialsConfigured(
+  providerId: unknown,
+  record: Record<string, unknown>,
+  configured: boolean | null,
+  workspaceGrantState: string | undefined,
+): boolean | null {
+  if (typeof record.credentialsConfigured === "boolean") {
+    return record.credentialsConfigured;
+  }
+
+  const rawMissingRequiredKeys = record.missingRequiredKeys;
+  if (
+    Array.isArray(rawMissingRequiredKeys) &&
+    rawMissingRequiredKeys.every((key) => typeof key === "string")
+  ) {
+    return rawMissingRequiredKeys.length === 0;
+  }
+
+  const configuredKeys = Array.isArray(record.configuredKeys)
+    ? record.configuredKeys.filter(
+        (key): key is string => typeof key === "string",
+      )
+    : null;
+  if (configuredKeys && typeof providerId === "string") {
+    const providerConfig = credentialProviderConfigs.find(
+      (provider) => provider.provider === providerId,
+    );
+    if (providerConfig) {
+      const configuredKeySet = new Set(
+        configuredKeys.map((key) => key.trim().toUpperCase()),
+      );
+      const requiredMode = providerConfig.requiredMode ?? "all";
+      return requiredMode === "any"
+        ? providerConfig.requiredKeys.some((key) =>
+            configuredKeySet.has(key.toUpperCase()),
+          )
+        : providerConfig.requiredKeys.every((key) =>
+            configuredKeySet.has(key.toUpperCase()),
+          );
+    }
+  }
+
+  if (
+    workspaceGrantState === "granted" ||
+    workspaceGrantState === "connected"
+  ) {
+    return null;
+  }
+  return configured === true ? true : null;
 }
 
 const GENERIC_EXTERNAL_SOURCE_REQUEST_TERMS = /\b(warehouse|crm|payments?)\b/i;
@@ -587,6 +692,24 @@ function hasMissingRequestedExternalSource(
       );
       if (
         matchingStatuses.some(
+          (source) =>
+            source.workspaceGrantState === "granted" &&
+            source.credentialsConfigured !== true,
+        )
+      ) {
+        return true;
+      }
+      if (
+        matchingStatuses.some(
+          (source) =>
+            source.workspaceGrantState === "needs_grant" &&
+            source.credentialsConfigured === false,
+        )
+      ) {
+        return true;
+      }
+      if (
+        matchingStatuses.some(
           ({ configured }) => configured === true || configured === null,
         )
       ) {
@@ -601,7 +724,8 @@ function hasMissingRequestedExternalSource(
 function dataSourceStatusSummary(
   toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
 ): DataSourceStatusSummary {
-  const externalSourceLabels = new Set<string>();
+  const configuredSourceLabels = new Set<string>();
+  const workspaceConnectedSourceLabels = new Set<string>();
   const availableExternalSources = new Map<
     string,
     DataSourceStatusSummary["availableExternalSources"][number]
@@ -614,6 +738,10 @@ function dataSourceStatusSummary(
     label: unknown,
     configured: boolean | null,
     providerSetupLink?: unknown,
+    details?: {
+      workspaceGrantState?: string;
+      credentialsConfigured?: boolean | null;
+    },
   ) => {
     const aliases = [provider, label]
       .filter((value): value is string => typeof value === "string")
@@ -629,6 +757,16 @@ function dataSourceStatusSummary(
           : existing.configured === null || configured === null
             ? null
             : false;
+      if (details?.workspaceGrantState) {
+        existing.workspaceGrantState = details.workspaceGrantState;
+      }
+      if (details?.credentialsConfigured !== undefined) {
+        // The compact configuredDataSources entry is only a hint: its `via`
+        // value can include optional credentials. The provider record carries
+        // the authoritative required-credential result and must be allowed to
+        // correct that inference in either direction.
+        existing.credentialsConfigured = details.credentialsConfigured;
+      }
       existing.aliases = [...new Set([...existing.aliases, ...aliases])];
       if (!existing.label && typeof label === "string" && label.trim()) {
         existing.label = label.trim();
@@ -645,6 +783,12 @@ function dataSourceStatusSummary(
     availableExternalSources.set(key, {
       aliases,
       configured,
+      ...(details?.workspaceGrantState
+        ? { workspaceGrantState: details.workspaceGrantState }
+        : {}),
+      ...(details?.credentialsConfigured !== undefined
+        ? { credentialsConfigured: details.credentialsConfigured }
+        : {}),
       ...(typeof label === "string" && label.trim()
         ? { label: label.trim() }
         : {}),
@@ -735,13 +879,28 @@ function dataSourceStatusSummary(
       if (provider === "first-party" || via === "built-in") continue;
       const label = record.label ?? record.provider;
       if (typeof label === "string" && label.trim()) {
-        externalSourceLabels.add(label.trim());
+        configuredSourceLabels.add(label.trim());
+        if (via === "workspace" || via === "credentials-and-workspace") {
+          workspaceConnectedSourceLabels.add(label.trim());
+        }
       }
+      const workspaceGrantState =
+        via === "workspace-grant" || via === "credentials-and-workspace-grant"
+          ? "granted"
+          : via === "workspace" || via === "credentials-and-workspace"
+            ? "connected"
+            : undefined;
+      // `credentials-and-workspace-grant` is not evidence that required keys
+      // are present: the compact summary can include optional-only keys.
+      // Leave required-credential readiness unknown until the provider detail
+      // supplies its explicit result (or enough required-key metadata).
+      const credentialsConfigured = via === "credentials" ? true : undefined;
       addAvailableExternalSource(
         record.provider,
         label,
         true,
         record.setupLink,
+        { workspaceGrantState, credentialsConfigured },
       );
     }
 
@@ -766,15 +925,54 @@ function dataSourceStatusSummary(
       const label = record.label ?? record.provider;
       const configured =
         typeof record.configured === "boolean" ? record.configured : null;
+      const workspaceConnection =
+        record.workspaceConnection &&
+        typeof record.workspaceConnection === "object" &&
+        !Array.isArray(record.workspaceConnection)
+          ? (record.workspaceConnection as Record<string, unknown>)
+          : null;
+      const workspaceGrantState =
+        typeof workspaceConnection?.grantState === "string"
+          ? workspaceConnection.grantState
+          : undefined;
+      const credentialsConfigured = inferRequiredCredentialsConfigured(
+        record.provider,
+        record,
+        configured,
+        workspaceGrantState,
+      );
+      const requiredCredentialsMissingWithoutGrant =
+        workspaceGrantState === "needs_grant" &&
+        credentialsConfigured === false;
+      const effectiveConfigured = requiredCredentialsMissingWithoutGrant
+        ? false
+        : configured;
       addAvailableExternalSource(
         record.provider,
         label,
-        configured,
+        effectiveConfigured,
         record.setupLink,
+        { workspaceGrantState, credentialsConfigured },
       );
-      if (configured !== true) continue;
-      if (typeof label === "string" && label.trim()) {
-        externalSourceLabels.add(label.trim());
+      if (
+        effectiveConfigured === true &&
+        typeof label === "string" &&
+        label.trim()
+      ) {
+        configuredSourceLabels.add(label.trim());
+      } else if (
+        effectiveConfigured === false &&
+        typeof label === "string" &&
+        label.trim()
+      ) {
+        configuredSourceLabels.delete(label.trim());
+      }
+      if (
+        workspaceConnection?.grantState === "connected" &&
+        typeof label === "string" &&
+        label.trim()
+      ) {
+        workspaceConnectedSourceLabels.add(label.trim());
       }
     }
 
@@ -795,24 +993,35 @@ function dataSourceStatusSummary(
       const grantState =
         typeof record.grantState === "string" ? record.grantState : null;
       const configured =
-        record.configured === true || grantState === "connected"
+        record.configured === true ||
+        grantState === "connected" ||
+        grantState === "granted"
           ? true
           : record.configured === false ||
-              grantState === "granted" ||
               grantState === "needs_grant" ||
               grantState === "not_connected"
             ? false
             : null;
-      addAvailableExternalSource(providerId, label, configured);
+      addAvailableExternalSource(providerId, label, configured, undefined, {
+        ...(grantState ? { workspaceGrantState: grantState } : {}),
+      });
       if (configured && typeof label === "string" && label.trim()) {
-        externalSourceLabels.add(label.trim());
+        configuredSourceLabels.add(label.trim());
+      }
+      if (
+        grantState === "connected" &&
+        typeof label === "string" &&
+        label.trim()
+      ) {
+        workspaceConnectedSourceLabels.add(label.trim());
       }
     }
   }
 
   return {
     checked,
-    externalSourceLabels: [...externalSourceLabels],
+    configuredSourceLabels: [...configuredSourceLabels],
+    workspaceConnectedSourceLabels: [...workspaceConnectedSourceLabels],
     availableExternalSources: [...availableExternalSources.values()],
     setupLink,
   };
@@ -821,13 +1030,24 @@ function dataSourceStatusSummary(
 function requestedExternalSourceSetup(
   userText: string,
   summary: DataSourceStatusSummary,
-): { label: string; setupLink: string } | null {
+): { label: string; setupLink: string; kind: "connect" | "review" } | null {
   let source:
     | DataSourceStatusSummary["availableExternalSources"][number]
     | undefined;
+  let kind: "connect" | "review" = "connect";
   let bestMatchLength = -1;
   for (const candidate of summary.availableExternalSources) {
-    if (candidate.configured !== false || !candidate.setupLink) continue;
+    const needsReview =
+      candidate.workspaceGrantState === "granted" &&
+      candidate.credentialsConfigured !== true;
+    const needsConnect =
+      candidate.workspaceGrantState === "needs_grant" &&
+      candidate.credentialsConfigured === false;
+    if (
+      (candidate.configured !== false && !needsReview && !needsConnect) ||
+      !candidate.setupLink
+    )
+      continue;
     const matchLength = Math.max(
       -1,
       ...candidate.aliases
@@ -836,6 +1056,7 @@ function requestedExternalSourceSetup(
     );
     if (matchLength > bestMatchLength) {
       source = candidate;
+      kind = needsReview ? "review" : "connect";
       bestMatchLength = matchLength;
     }
   }
@@ -843,6 +1064,7 @@ function requestedExternalSourceSetup(
   return {
     label: source.label ?? source.aliases[0] ?? "data source",
     setupLink: source.setupLink,
+    kind,
   };
 }
 
@@ -888,35 +1110,54 @@ export function realDataFinalGuard(
   const incompleteEvidence = hasIncompleteDataEvidence(context.toolResults);
   const dataQueryAttempted = hasDataQueryAttempt(context.toolResults);
   const sourceStatus = dataSourceStatusSummary(context.toolResults);
+  const sourceStatusDetails = sourceStatusDescription(sourceStatus);
   const requestedSourceSetup = requestedExternalSourceSetup(
     userText,
     sourceStatus,
   );
   const setupLink = requestedSourceSetup?.setupLink ?? sourceStatus.setupLink;
   const setupLabel = requestedSourceSetup
-    ? `Connect ${requestedSourceSetup.label}`
+    ? requestedSourceSetup.kind === "review"
+      ? `Review ${requestedSourceSetup.label} connection`
+      : `Connect ${requestedSourceSetup.label}`
     : "Connect data sources";
   const setupMarkdown = `[${setupLabel}](${setupLink})`;
   const hasUnknownExternalSourceStatus =
     sourceStatus.availableExternalSources.some(
       ({ configured }) => configured === null,
     );
-  const noConnectedExternalSources =
+  const noConfiguredExternalSources =
     sourceStatus.checked &&
-    sourceStatus.externalSourceLabels.length === 0 &&
+    sourceStatus.configuredSourceLabels.length === 0 &&
     !hasUnknownExternalSourceStatus;
   const externalSourceRequest = looksLikeExternalSourceRequest(userText);
   const missingRequestedExternalSource = hasMissingRequestedExternalSource(
     userText,
-    sourceStatus.externalSourceLabels,
+    sourceStatus.configuredSourceLabels,
     sourceStatus.availableExternalSources,
   );
+  const hasUsableExternalSource = sourceStatus.availableExternalSources.some(
+    ({ workspaceGrantState, credentialsConfigured }) =>
+      credentialsConfigured === true || workspaceGrantState === "connected",
+  );
+  const noUsableExternalSources =
+    sourceStatus.checked &&
+    !hasUsableExternalSource &&
+    !hasUnknownExternalSourceStatus;
   const firstPartySourceShouldBeTried =
-    noConnectedExternalSources && !externalSourceRequest;
+    noUsableExternalSources && !externalSourceRequest;
   const needsDataSourceLink =
     sourceStatus.checked &&
     externalSourceRequest &&
-    (noConnectedExternalSources || missingRequestedExternalSource);
+    (noConfiguredExternalSources || missingRequestedExternalSource);
+  const unavailableSourceGuidance =
+    requestedSourceSetup?.kind === "review"
+      ? `The requested ${requestedSourceSetup.label} source already has an Analytics workspace grant, but no healthy connection is active.${sourceStatusDetails ? ` Status reports ${sourceStatusDetails}.` : ""} Ask the user to review that existing connection and include this exact link: ${setupMarkdown}. Do not ask them to connect it again.`
+      : `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`;
+  const unavailableSourceFallback =
+    requestedSourceSetup?.kind === "review"
+      ? `I can query ${requestedSourceSetup.label} once its existing workspace connection is healthy.${sourceStatusDetails ? ` Status reports ${sourceStatusDetails}.` : ""} ${setupMarkdown}`
+      : `I can help with that once the relevant source is connected. ${setupMarkdown}`;
   if (
     hasFailedCorpusWorkflowEvidence(context.toolResults) &&
     looksLikeCoverageSensitiveAnalyticsRequest(userText) &&
@@ -987,6 +1228,28 @@ export function realDataFinalGuard(
       expandToolSurface: true,
     };
   }
+  const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
+  // The detector is a heuristic over prose. Once its retries are spent the
+  // schema ask is let through (a real ask lets the user answer it, and a false
+  // match keeps a correct answer instead of replacing it with a canned
+  // failure) and the remaining guards below still judge the draft. It runs
+  // before the saved-edit early returns: a verified rename followed by "which
+  // dataset?" is still a request for an identifier.
+  if (
+    context.retryCount < SCHEMA_DETAILS_MAX_RETRIES &&
+    looksLikeSchemaDetailsRequest(context.text)
+  ) {
+    const failedQueryRecovery = failedQueryMessage
+      ? ` ${failedQueryMessage}`
+      : "";
+    return {
+      retryMessage:
+        "The draft asks the user to supply internal dataset, table, column, or SQL details. Do not ask the user for warehouse schema identifiers. Use the configured Analytics tools now: call `find-data` once with the user's metric/entity question, then call `search-bigquery-schema` only when exact live columns or partition metadata remain unknown, and run one authoritative `bigquery` query using the exact discovered references. For a named customer, verify identity and distinguish actual consumption from limits or changelog metadata. If the tools prove the source or metric is unavailable, state that exact evidence gap instead of asking the user to name internal tables." +
+        failedQueryRecovery,
+      maxRetries: SCHEMA_DETAILS_MAX_RETRIES,
+      expandToolSurface: true,
+    };
+  }
   if (
     hasSuccessfulDashboardSave(context.toolResults) &&
     !draftClaimsAnalyticsMetrics(context.text)
@@ -1013,22 +1276,25 @@ export function realDataFinalGuard(
     };
   }
 
-  const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
-  if (looksLikeSchemaDetailsRequest(context.text)) {
-    const failedQueryRecovery = failedQueryMessage
-      ? ` ${failedQueryMessage}`
-      : "";
-    return {
-      retryMessage:
-        "The draft asks the user to supply internal dataset, table, column, or SQL details. Do not ask the user for warehouse schema identifiers. Use the configured Analytics tools now: call `find-data` once with the user's metric/entity question, then call `search-bigquery-schema` only when exact live columns or partition metadata remain unknown, and run one authoritative `bigquery` query using the exact discovered references. For a named customer, verify identity and distinguish actual consumption from limits or changelog metadata. If the tools prove the source or metric is unavailable, state that exact evidence gap instead of asking the user to name internal tables." +
-        failedQueryRecovery,
-      fallbackMessage:
-        "I couldn't complete that lookup from the configured Analytics sources yet. Please retry and I'll inspect the catalog and warehouse schema directly rather than asking you to provide internal table names.",
-      maxRetries: 2,
-      expandToolSurface: true,
-    };
+  // A verified dashboard save that rendered a data panel ran its SQL, so its
+  // receipt is the live-query evidence for the figures the draft quotes. A
+  // save that checked no panel (`noRenderAffected`) or only section and
+  // extension panels proves nothing about data.
+  if (
+    dataQueryAttempted ||
+    hasSuccessfulDashboardSave(
+      (context.toolResults ?? []).filter(
+        ({ receipt }) =>
+          receipt?.verified === true &&
+          receipt.checks?.every((check) => check.ok) &&
+          receipt.checks?.some((check) =>
+            check.detail?.startsWith(PANEL_RENDERED_PREFIX),
+          ),
+      ),
+    )
+  ) {
+    return null;
   }
-  if (dataQueryAttempted) return null;
   const draftMakesAnalyticsClaim =
     draftClaimsAnalyticsMetrics(context.text) ||
     isGenericNoDataFallback(context.text);
@@ -1057,8 +1323,8 @@ export function realDataFinalGuard(
       !includesDataSourcesLink(context.text, setupLink)
     ) {
       return {
-        retryMessage: `The response correctly explains that the requested live data is unavailable, but it needs a contextual next step. Explain which external source is missing, keep the conversation open, and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`,
-        fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
+        retryMessage: `The response correctly explains that the requested live data is unavailable, but it needs a contextual next step. ${unavailableSourceGuidance}`,
+        fallbackMessage: unavailableSourceFallback,
         maxRetries: 2,
       };
     }
@@ -1083,8 +1349,8 @@ export function realDataFinalGuard(
 
   if (needsDataSourceLink) {
     return {
-      retryMessage: `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`,
-      fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
+      retryMessage: unavailableSourceGuidance,
+      fallbackMessage: unavailableSourceFallback,
       maxRetries: 2,
       expandToolSurface: true,
     };
@@ -1099,9 +1365,9 @@ export function realDataFinalGuard(
   }
   if (!draftMakesAnalyticsClaim) return null;
 
-  const configuredSources = configuredDataSourceLabels(context.toolResults);
-  const configuredSourceGuidance = configuredSources.length
-    ? ` \`data-source-status\` already confirmed these connected sources: ${configuredSources.join(", ")}. Do not claim that no sources are connected and do not ask the user to reconnect them. Immediately call the relevant query action for one of those sources.`
+  const configuredSources = sourceStatus.configuredSourceLabels;
+  const configuredSourceGuidance = sourceStatusDetails
+    ? ` \`data-source-status\` reports ${sourceStatusDetails}. It checks configuration and workspace grants but does not run a source query. Treat configured credentials separately from healthy workspace connections; do not call a credential-only source connected or ask the user to reconnect before trying its query action.`
     : "";
   const catalogSearched = hasCatalogSearchAttempt(context.toolResults);
   const exhaustedDraftPrefix = exhaustedDraftPrefixFor({
@@ -1130,7 +1396,7 @@ export function realDataFinalGuard(
       " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead." +
       UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
     fallbackMessage: configuredSources.length
-      ? `I found connected data sources (${configuredSources.join(", ")}), but the model still did not run a real source query. Please retry the request; you do not need to reconnect those sources.`
+      ? `I found ${sourceStatusDetails}, but the status check did not run a source query. Please retry so I can test the relevant source before reporting results.`
       : `I couldn't complete a grounded answer to that request. If the relevant provider isn't connected, [connect data sources](${ANALYTICS_DATA_SOURCES_LINK}) and I'll try again with real data.`,
     maxRetries: 2,
     expandToolSurface: true,

@@ -866,7 +866,6 @@ export default {
       tokens: "Tokens de diseño",
       threads: "Conversaciones",
       label: "Espacio de trabajo de diseño",
-      account: "Cuenta",
       collapse: "Contraer barra lateral",
       expand: "Expandir barra lateral",
     },
@@ -1192,24 +1191,48 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "Importar tokens",
-      importTitle: "Importar tokens",
-      importHint:
-        "Usa design.md, CSS, archivos de tema o el diseño actual antes de añadir tokens a mano.",
-      files: "Archivos",
-      folder: "Carpeta",
-      current: "Actual",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "Importar tokens pegados",
+      importDtcg: "Archivo DTCG…",
+      importCssOrTailwind: "Archivo CSS o Tailwind…",
+      importClipboard: "Pegar desde el portapapeles",
+      importFromDesign: "Generar desde el diseño",
+      importFailed: "No se pudieron importar los tokens: {{message}}",
+      clipboardBlocked:
+        "No se pudo leer el portapapeles. Permite el acceso e inténtalo de nuevo.",
+      clipboardEmpty: "El portapapeles está vacío",
       importedCount: "{{count}} tokens importados",
+      importing: "Importando tokens…",
+      importedWithSkipped:
+        "Se importaron {{count}} tokens. Se omitieron {{skipped}} valores o archivos no válidos.",
+      importedWithOmissions:
+        "Se importaron {{count}} tokens. Se omitieron {{skipped}} elementos no válidos. No procesados por los límites (tokens: {{omittedTokens}}, archivos: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "Se importaron {{count}} tokens, pero no se pudieron leer {{readFailures}} archivos. Vuelve a seleccionarlos e inténtalo de nuevo.",
+      importedWithReadFailuresAndOmissions:
+        "Se importaron {{count}} tokens. No se pudieron leer {{readFailures}} archivos. También se omitieron {{skipped}} elementos no válidos y los límites dejaron sin procesar {{omittedTokens}} tokens y {{omittedFiles}} archivos. Vuelve a seleccionar los archivos ilegibles e inténtalo de nuevo.",
+      noTokensFound:
+        "No se encontraron tokens válidos. Revisa el formato del archivo y los valores.",
       count: "{{count}} tokens",
       search: "Buscar tokens",
       noMatches: "No hay tokens coincidentes",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "No se pudo añadir el token: {{message}}",
+      types: {
+        color: "Color",
+        fontFamily: "Familia tipográfica",
+        fontWeight: "Grosor de fuente",
+        fontSize: "Tamaño de fuente",
+        lineHeight: "Altura de línea",
+        letterSpacing: "Espaciado entre letras",
+        spacing: "Espaciado",
+        container: "Contenedor",
+        breakpoint: "Punto de corte",
+        radius: "Radio",
+        shadow: "Sombra",
+        opacity: "Opacidad",
+      },
       editColor: "Editar el color de {{name}}",
     },
     import: {
@@ -1290,7 +1313,7 @@ export default {
       figUploadProcessing: "Convirtiendo…",
       figImportWarningTitle: "Importación .fig grande",
       figImportWarningDescription:
-        "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige los marcos que necesitas.",
+        "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige las páginas que necesitas.",
       figImportFrameCount: "{{selected}} de {{total}} marcos seleccionados",
       figImportSelectAll: "Seleccionar todo",
       figImportClearAll: "Borrar todo",
@@ -1299,6 +1322,10 @@ export default {
       figImportAll: "Importar todo",
       figImportAnalyzing: "Analizando…",
       figImportSaving: "Guardando {{saved}} de {{total}} marcos",
+      figImportFrameLimit: "Elige páginas con {{max}} marcos o menos en total.",
+      figImportFramesSkippedWarning:
+        "Se omitieron {{count}} marcos demasiado complejos para importar: {{names}}",
+      figUploadLimits: "Hasta {{size}} GB · {{frames}} marcos por importación",
       figUploadDescriptionShort:
         "Importación local — sin cuota de la API de Figma. Se incluyen las imágenes incrustadas compatibles.",
       figUploadImagesSkippedWarning:
@@ -1326,6 +1353,7 @@ export default {
       htmlPlaceholder: "<main>Pega HTML independiente aquí...</main>",
       importHtml: "Importar HTML",
       chooseHtmlFile: "Elegir archivo HTML",
+      allSupportedFiles: "Todos los archivos compatibles",
       githubTitle: "GitHub",
       githubDescription:
         "Próximamente: importar pantallas y componentes directamente desde un repositorio.",
@@ -2243,6 +2271,7 @@ export default {
     figmaLink: "Enlace de Figma",
     importFromFigma: "Importar desde Figma",
     figmaFile: "Archivo de Figma (.fig)",
+    figmaFileMaxSize: "Hasta {{max}} GB",
     openImport: "Abrir importación",
     importSelectedFile: "Importar archivo seleccionado",
     starterSaasPrompt:

@@ -20,6 +20,7 @@ import {
   DATA_PROGRAMS_APP_OWNER_INDEX_SQL,
   DATA_PROGRAMS_APP_NAME_INDEX_SQL,
   DATA_PROGRAM_SHARES_RESOURCE_INDEX_SQL,
+  DATA_PROGRAM_SHARES_NOTIFIED_AT_COLUMN_SQL,
   dataProgramRunsCreateSql,
   DATA_PROGRAM_RUNS_TRUNCATED_COLUMN_SQL,
   DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL,
@@ -46,6 +47,11 @@ export async function ensureDataProgramTables(): Promise<void> {
       await ensureTableExists(
         "data_program_shares",
         DATA_PROGRAM_SHARES_CREATE_SQL,
+      );
+      await ensureColumnExists(
+        "data_program_shares",
+        "notified_at",
+        DATA_PROGRAM_SHARES_NOTIFIED_AT_COLUMN_SQL,
       );
       await ensureTableExists("data_program_runs", runsCreateSql);
       await ensureColumnExists(

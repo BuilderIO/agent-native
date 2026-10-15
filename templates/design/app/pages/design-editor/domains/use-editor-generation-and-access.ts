@@ -48,6 +48,7 @@ import {
   type ClipboardContentMutationOrigin,
   type ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
+import { useDesignReadyViewTracking } from "@/lib/design-funnel-tracking";
 import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
 import {
   clearPendingGeneration,
@@ -117,6 +118,8 @@ type RequestDesignAccessResult = {
   requestId?: string;
   message: string;
 };
+
+const EMPTY_READY_VIEW_FILES: readonly DesignFile[] = [];
 
 type ActiveBreakpointWrite = {
   designId: string;
@@ -655,6 +658,12 @@ export function useEditorGenerationAndAccess({
     pendingNodeRewriteStateKeys.map((key) => `app-state:${key}`),
   );
   const designAccessRole = design?.accessRole;
+  useDesignReadyViewTracking({
+    designId: id,
+    isOwner: !shellMode && designAccessRole === "owner",
+    designLoaded: Boolean(design),
+    files: design?.files ?? EMPTY_READY_VIEW_FILES,
+  });
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
   const designQueryErrorStatus =

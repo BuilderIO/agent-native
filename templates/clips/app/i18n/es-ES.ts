@@ -210,9 +210,12 @@ const messages = {
     expandSidebar: "Expandir barra lateral",
     collapseSidebar: "Contraer barra lateral",
     agentEmptyState: "¿Cómo puedo ayudarte con tus grabaciones?",
-    agentSuggestionSummary: "Resume mi última grabación",
-    agentSuggestionPricing: "Encuentra dónde mencioné precios",
-    agentSuggestionFiller: "Quita las muletillas de este clip",
+    agentSuggestionSummary: "Resume una grabación",
+    agentSuggestionPricing: "Busca menciones de precios",
+    agentSuggestionFiller: "Quita las muletillas",
+    agentScreenshotSuggestionSummary: "Resume las capturas",
+    agentScreenshotSuggestionText: "Busca texto en las capturas",
+    agentScreenshotSuggestionCompare: "Compara las capturas",
     createFolderError: "Error al crear",
     folderCreated: "Carpeta creada",
     folderNamePlaceholder: "Nombre de la carpeta",
@@ -309,6 +312,10 @@ const messages = {
     transcriptNotReady: "La transcripción aún no está lista",
     tryAfterTranscription:
       "Inténtelo de nuevo después de que finalice la transcripción.",
+    silenceTranscriptUnavailableTitle:
+      "No se puede usar esta transcripción para quitar silencios",
+    silenceTranscriptUnavailableDescription:
+      "Prueba a generar una nueva transcripción y luego vuelve a quitar los silencios.",
     titleGenerationQueued: "Generando título…",
     descriptionQueued: "Generando descripción…",
     chapterQueued: "Generando capítulos…",
@@ -1898,6 +1905,8 @@ const messages = {
     copyLinkAction: "Copiar enlace",
     noLocalRecordingData: "No local recording data is available to download.",
     recordingDownloadStarted: "Recording download started",
+    partialLocalCopyDownloadStarted:
+      "Es posible que la copia local esté incompleta. Se están descargando los datos de grabación disponibles.",
     backToLibrary: "Back to library",
     clipsRecorder: "Clips recorder",
     preparingSources: "Preparing sources…",
@@ -2062,6 +2071,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI",
     cleanupComplete: "Dictado limpiado",
     cleanupFailed: "No se pudo limpiar el dictado",
+    undoCleanup: "Deshacer",
+    restoreOriginal: "Restaurar original",
+    cleanupRestored: "Se restauró el dictado original",
+    cleanupRestoreFailed: "No se pudo restaurar el dictado original",
     startFirst: "Convierte tus ideas en texto",
     recordOnDesktop: "Grabar en el escritorio",
     emptyDesktopDescription:

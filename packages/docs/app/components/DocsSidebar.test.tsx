@@ -94,6 +94,7 @@ describe("DocsSidebar", () => {
 
     expect(overview?.items.map((item) => item.id)).toEqual([
       "getting-started",
+      "create-with-an-agent",
       "what-is-agent-native",
       "key-concepts",
     ]);

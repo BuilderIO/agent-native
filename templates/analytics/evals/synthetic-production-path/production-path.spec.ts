@@ -84,6 +84,23 @@ const syntheticData = vi.hoisted(() => {
         semanticScope: "membership",
         approved: true,
       },
+      "data-dict-index-fixture-stale-current-workspace-user-roster": {
+        id: "index-fixture-stale-current-workspace-user-roster",
+        metric: "Current Workspace User Roster",
+        definition:
+          "One row per synthetic user-workspace membership, with its assigned role.",
+        source: "fixture_warehouse",
+        sourceKind: "dbt",
+        entryType: "model",
+        table: "fixture_warehouse.stale_workspace_user_roster_snapshot",
+        columnsUsed: "user_id, workspace_id, role_code",
+        grain: "One row per user_id per workspace_id",
+        semanticScope: "membership",
+        approved: true,
+        sourceIndexStale: false,
+        sourceIndexAgeDays: 0,
+        sourceIndexStaleAfterDays: 36_500,
+      },
     },
     activeCaseId: null as string | null,
     sourceIndexBundle: {
@@ -193,6 +210,27 @@ const syntheticData = vi.hoisted(() => {
           sourcePath:
             "fixtures/models/stale_workspace_user_roster_snapshot.sql",
         },
+        {
+          id: "fixture-aliased-workspace-member-roster",
+          metric: "model:aliased_workspace_member_roster",
+          definition:
+            "One row per synthetic workspace-member relationship with role detail.",
+          source: "fixture_warehouse",
+          sourceKind: "dbt",
+          entryType: "model",
+          status: "active",
+          semanticScope: "membership",
+          grain: "One row per member_key per workspace_key membership",
+          primaryEntity: "workspace membership",
+          table: "fixture_warehouse.aliased_workspace_member_roster",
+          sqlProjectedColumns: "member_key, workspace_key, role_code",
+          inferredMembershipKeys: ["member_key", "workspace_key"],
+          inferredMembershipKeyRoles: {
+            user: "member_key",
+            organization: "workspace_key",
+          },
+          sourcePath: "fixtures/models/aliased_workspace_member_roster.sql",
+        },
       ],
       scanSummary: {
         unsafeEntriesOmitted: 1,
@@ -211,16 +249,41 @@ const storage = vi.hoisted(() => ({
     }
     if (key !== "analytics-source-index") return null;
     const bundle = syntheticData.sourceIndexBundle;
-    return syntheticData.activeCaseId ===
-      "stale-generated-index-yields-to-current-source"
-      ? bundle
-      : {
-          ...bundle,
-          entries: bundle.entries.filter(
-            (entry) =>
-              entry.id !== "fixture-stale-current-workspace-user-roster",
-          ),
-        };
+    const includeStaleRoster = [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ].includes(syntheticData.activeCaseId ?? "");
+    const includeAliasedRoster =
+      syntheticData.activeCaseId ===
+      "aliased-membership-keys-preserve-roster-grain";
+    const entries = bundle.entries
+      .filter((entry) => {
+        if (includeAliasedRoster) {
+          return entry.id === "fixture-aliased-workspace-member-roster";
+        }
+        return (
+          (includeStaleRoster ||
+            entry.id !== "fixture-stale-current-workspace-user-roster") &&
+          entry.id !== "fixture-aliased-workspace-member-roster"
+        );
+      })
+      .map((entry) => {
+        const baselineCompatibleEntry = { ...entry };
+        if (
+          includeAliasedRoster &&
+          process.env.ANALYTICS_EVAL_PHASE === "before"
+        ) {
+          // The baseline schema predates parser-projected membership metadata.
+          delete baselineCompatibleEntry.sqlProjectedColumns;
+          delete baselineCompatibleEntry.inferredMembershipKeys;
+          delete baselineCompatibleEntry.inferredMembershipKeyRoles;
+        }
+        return baselineCompatibleEntry;
+      });
+    return {
+      ...bundle,
+      entries,
+    };
   }),
   listOrgSettings: vi.fn(async (orgId: string, prefix: string) => {
     if (orgId !== "org_synthetic_eval") {
@@ -229,15 +292,48 @@ const storage = vi.hoisted(() => ({
     if (prefix !== "data-dict-") return {};
     if (
       syntheticData.activeCaseId ===
-      "stale-generated-index-yields-to-current-source"
+      "aliased-membership-keys-preserve-roster-grain"
+    ) {
+      return {
+        "data-dict-fixture-monthly-aliased-workspace-member-counts": {
+          id: "fixture-monthly-aliased-workspace-member-counts",
+          metric: "Monthly Workspace Member Counts",
+          definition: "Monthly count of synthetic workspace members by role.",
+          source: "fixture_warehouse",
+          sourceKind: "dbt",
+          entryType: "model",
+          table: "fixture_warehouse.monthly_aliased_workspace_member_counts",
+          columnsUsed: "month_start, workspace_key, role_code, member_count",
+          grain: "One row per month_start, workspace_key, and role_code",
+          semanticScope: "membership",
+          approved: true,
+        },
+      };
+    }
+    if (
+      syntheticData.activeCaseId ===
+      "approved-stale-generated-entry-yields-to-current-roster"
     ) {
       return syntheticData.dictionaryEntries;
     }
-    const {
-      "data-dict-fixture-current-workspace-user-assignments": _,
-      ...base
-    } = syntheticData.dictionaryEntries;
-    return base;
+    const withoutStaleOverlay = Object.fromEntries(
+      Object.entries(syntheticData.dictionaryEntries).filter(
+        ([key]) =>
+          key !== "data-dict-index-fixture-stale-current-workspace-user-roster",
+      ),
+    );
+    if (
+      syntheticData.activeCaseId ===
+      "stale-generated-index-yields-to-current-source"
+    ) {
+      return withoutStaleOverlay;
+    }
+    return Object.fromEntries(
+      Object.entries(withoutStaleOverlay).filter(
+        ([key]) =>
+          key !== "data-dict-fixture-current-workspace-user-assignments",
+      ),
+    );
   }),
   listSettingsByPrefix: vi.fn(async (prefix: string) => {
     if (prefix !== "u:synthetic-eval@example.invalid:data-dict-") {
@@ -286,10 +382,12 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v14";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v21";
 const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
+const APPROVED_STALE_INDEX_CASE_ID =
+  "approved-stale-generated-entry-yields-to-current-roster";
 const STALE_INDEX_GENERATED_AT = "2000-01-01T00:00:00.000Z";
-const BASELINE_GIT_REVISION = "0fb4de3ed8bd4e317543575c9b188b93db392d26";
+const BASELINE_GIT_REVISION = "8961aeb5a901eb8be8e821c10b957fa9203796c7";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
@@ -411,6 +509,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     expectedTable: "fixture_warehouse.workspace_membership_bridge",
   },
   {
+    id: "aliased-membership-keys-preserve-roster-grain",
+    prompt:
+      "Find the catalog reference for a current workspace member roster with role detail. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.aliased_workspace_member_roster",
+  },
+  {
     id: "monthly-workspace-users-by-role",
     prompt:
       "Find the catalog reference for monthly workspace users by role. Metadata only; do not report live counts or values.",
@@ -444,6 +548,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     id: STALE_INDEX_CASE_ID,
     prompt:
       "Find the catalog reference for workspace users. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.current_workspace_user_assignments",
+  },
+  {
+    id: APPROVED_STALE_INDEX_CASE_ID,
+    prompt:
+      "Find the current workspace user roster with roles. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.current_workspace_user_assignments",
   },
 ];
@@ -559,14 +669,18 @@ function assertEvalProvenance(
   }
 }
 
-/** Accept only the copied harness as an untracked file in the baseline tree. */
+/** Accept only the candidate harness as a changed file in the baseline tree. */
 function assertBaselineWorkingTreeStatus(statusOutput: string): void {
   const entries = statusOutput.split("\0").filter(Boolean);
-  if (entries.length === 1 && entries[0] === `?? ${BASELINE_HARNESS_PATH}`) {
+  const onlyHarnessChanged =
+    entries.length === 1 &&
+    entries[0]!.slice(3) === BASELINE_HARNESS_PATH &&
+    ["??", " M"].includes(entries[0]!.slice(0, 2));
+  if (onlyHarnessChanged) {
     return;
   }
   throw new Error(
-    "Before-phase output requires a clean baseline source tree; only the copied production-path harness may be untracked.",
+    "Before-phase output requires a clean baseline source tree; only the candidate production-path harness may be modified or untracked.",
   );
 }
 
@@ -613,11 +727,14 @@ async function assertBaselineHarnessIntegrity(
 const SOURCE_FILES = [
   new URL("../production-context.ts", import.meta.url),
   new URL("../../actions/find-data.ts", import.meta.url),
+  new URL("../../server/lib/provider-api.ts", import.meta.url),
   new URL("../../server/lib/analytics-query-catalog.ts", import.meta.url),
+  new URL("../../server/lib/data-dictionary-overlays.ts", import.meta.url),
   new URL("../../server/lib/analytics-term-matcher.ts", import.meta.url),
   new URL("../../server/lib/analytics-agent-context.ts", import.meta.url),
   new URL("../../server/lib/data-dictionary-context.ts", import.meta.url),
   new URL("../../server/lib/source-index-store.ts", import.meta.url),
+  new URL("../../server/lib/source-index-schema.ts", import.meta.url),
   new URL("../../server/plugins/agent-chat.ts", import.meta.url),
   new URL(
     "../../../../packages/core/src/agent/production-agent.ts",
@@ -625,6 +742,10 @@ const SOURCE_FILES = [
   ),
   new URL(
     "../../../../packages/core/src/eval/agent-runner.ts",
+    import.meta.url,
+  ),
+  new URL(
+    "../../../../packages/core/src/provider-api/index.ts",
     import.meta.url,
   ),
 ];
@@ -958,7 +1079,8 @@ async function runOnce(testCase: SyntheticCase) {
     await import("../../server/lib/source-index-store.js");
   syntheticData.activeCaseId = testCase.id;
   syntheticData.sourceIndexBundle.generatedAt =
-    testCase.id === STALE_INDEX_CASE_ID
+    testCase.id === STALE_INDEX_CASE_ID ||
+    testCase.id === APPROVED_STALE_INDEX_CASE_ID
       ? STALE_INDEX_GENERATED_AT
       : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   invalidateSourceIndexCache(IDENTITY.orgId);
@@ -1096,7 +1218,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       }
     }
     generateActionRegistryForProject(ANALYTICS_PROJECT_ROOT);
-  });
+  }, 120_000);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1120,18 +1242,35 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "negated-counts-preserve-role-detail",
       "monthly-organization-user-count",
       "workspace-membership-prefers-row-grain",
+      "aliased-membership-keys-preserve-roster-grain",
       "monthly-workspace-users-by-role",
       "bare-active-members-map-to-membership",
       "active-product-users-map-to-activity",
       "sample-product-users-map-to-identities",
       "active-sample-product-users-map-to-activity",
       STALE_INDEX_CASE_ID,
+      APPROVED_STALE_INDEX_CASE_ID,
     ]);
     expect(() =>
       assertCandidateWorkingTreeStatus(
         " M templates/analytics/server/lib/source.ts\0",
       ),
     ).toThrow("clean candidate source tree");
+    expect(() =>
+      assertBaselineWorkingTreeStatus(
+        ` M ${BASELINE_HARNESS_PATH}\0?? packages/core-corpus/corpus.tmp-91240-ead84192/\0`,
+      ),
+    ).toThrow("only the candidate production-path harness may be modified");
+    expect(() =>
+      assertBaselineWorkingTreeStatus(
+        ` M ${BASELINE_HARNESS_PATH}\0?? packages/core-corpus/corpus.tmp-91240-ead84192/unreviewed.ts\0`,
+      ),
+    ).toThrow("only the candidate production-path harness may be modified");
+    expect(() =>
+      assertBaselineWorkingTreeStatus(
+        ` M ${BASELINE_HARNESS_PATH}\0?? packages/core-corpus/corpus.tmp-91240-ead84192/\0?? packages/core/src/unreviewed.ts\0`,
+      ),
+    ).toThrow("only the candidate production-path harness may be modified");
     expect(() => assertCandidateWorkingTreeStatus("")).not.toThrow();
     expect(
       SYNTHETIC_CASES.every(
@@ -1205,7 +1344,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     expect(rows.every((row) => row.fixture_revision === FIXTURE_REVISION)).toBe(
       true,
     );
-  });
+  }, 120_000);
 
   it("runs the real Analytics production loop with fixture storage, guard, identity, and usage", async () => {
     const { output, receipt } = await runOnce(SYNTHETIC_CASES[0]!);
@@ -1256,7 +1395,31 @@ describe("Analytics synthetic production-path retrieval harness", () => {
         "1 entry was omitted by safety checks; 2 fields were omitted by safety checks; 3 fields were truncated; 4 tracking call sites have unresolved event names",
       );
     }
-  });
+  }, 120_000);
+
+  it("retrieves a row-level dbt roster when both output keys are aliased", async () => {
+    const testCase = SYNTHETIC_CASES.find(
+      ({ id }) => id === "aliased-membership-keys-preserve-roster-grain",
+    );
+    expect(testCase).toBeDefined();
+    const { output } = await runOnce(testCase!);
+    const result = getToolResult(output);
+    expect(result?.sourceIndexStatus).toBe("available");
+    const candidates = result?.results;
+    expect(Array.isArray(candidates)).toBe(true);
+    const tables = (candidates as Array<Record<string, unknown>>).map(
+      ({ table }) => table,
+    );
+    if (phase === "before") {
+      expect(tables).not.toContain(
+        "fixture_warehouse.aliased_workspace_member_roster",
+      );
+      return;
+    }
+    expect(tables).toContain(
+      "fixture_warehouse.aliased_workspace_member_roster",
+    );
+  }, 120_000);
 
   it("keeps stale source-index entries as marked leads below current definitions", async () => {
     if (phase !== "after") return;
@@ -1285,6 +1448,37 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       approved: false,
     });
     expect(result?.guidance).toContain("discover leads");
+  });
+
+  it("ranks the current roster above an approved overlay on a stale generated entry", async () => {
+    if (phase !== "after") return;
+    const staleCase = SYNTHETIC_CASES.find(
+      ({ id }) => id === APPROVED_STALE_INDEX_CASE_ID,
+    );
+    expect(staleCase).toBeDefined();
+    const { output } = await runOnce(staleCase!);
+    const result = getToolResult(output);
+    expect(result?.sourceIndexFreshness).toMatchObject({ stale: true });
+    const candidates = result?.results;
+    expect(Array.isArray(candidates)).toBe(true);
+    const candidateList = candidates as Array<Record<string, unknown>>;
+    const currentSourceIndex = candidateList.findIndex(
+      ({ table }) =>
+        table === "fixture_warehouse.current_workspace_user_assignments",
+    );
+    const staleSourceIndex = candidateList.findIndex(
+      ({ table }) =>
+        table === "fixture_warehouse.stale_workspace_user_roster_snapshot",
+    );
+    expect(currentSourceIndex).toBe(0);
+    expect(staleSourceIndex).toBeGreaterThan(0);
+    expect(candidateList[staleSourceIndex]).toMatchObject({
+      sourceIndexStale: true,
+      approved: true,
+    });
+    expect(candidateList[staleSourceIndex].sourceIndexAgeDays).toBeGreaterThan(
+      0,
+    );
   });
 
   it("rejects attempts to serialize unapproved transcript or tool fields", () => {
@@ -1357,6 +1551,9 @@ describe("Analytics synthetic production-path retrieval harness", () => {
   it("requires the copied baseline harness to be pinned and byte-identical", () => {
     expect(() =>
       assertBaselineWorkingTreeStatus(`?? ${BASELINE_HARNESS_PATH}\0`),
+    ).not.toThrow();
+    expect(() =>
+      assertBaselineWorkingTreeStatus(` M ${BASELINE_HARNESS_PATH}\0`),
     ).not.toThrow();
     expect(() => assertBaselineWorkingTreeStatus("")).toThrow(
       "clean baseline source tree",

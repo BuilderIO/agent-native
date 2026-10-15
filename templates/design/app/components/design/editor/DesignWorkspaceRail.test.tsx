@@ -12,9 +12,21 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+const orgSwitcherProps = vi.hoisted(() => ({
+  current: null as Record<string, unknown> | null,
+}));
+
+vi.mock("@agent-native/toolkit/app/org", () => ({
+  OrgSwitcher: (props: Record<string, unknown>) => {
+    orgSwitcherProps.current = props;
+    return <button type="button" data-testid="org-switcher" />;
+  },
+}));
+
 function renderRail(
   activePanel: "file" | "agent" | "threads" | null,
   onMotionToggle?: () => void,
+  showAccountMenu?: boolean,
 ) {
   const onPanelChange = vi.fn();
   const host = document.createElement("div");
@@ -26,6 +38,7 @@ function renderRail(
       root.render(
         <TooltipProvider>
           <DesignWorkspaceRail
+            showAccountMenu={showAccountMenu}
             activePanel={activePanel}
             motionOpen={false}
             onMotionToggle={onMotionToggle}
@@ -105,5 +118,36 @@ describe("DesignWorkspaceRail", () => {
     await collapsed.click("designEditor.leftRail.threads");
     expect(collapsed.onPanelChange).toHaveBeenCalledWith(null);
     collapsed.root.unmount();
+  });
+
+  it("mounts the shared compact account menu above the collapse control", async () => {
+    const rail = renderRail("file", undefined, true);
+    await rail.mount();
+
+    const switcher = rail.host.querySelector(
+      'nav [data-testid="org-switcher"]',
+    );
+    const collapse = rail.host.querySelector(
+      'nav button[aria-label="designEditor.leftRail.collapse"]',
+    );
+    expect(switcher).not.toBeNull();
+    expect(orgSwitcherProps.current).toMatchObject({
+      compact: true,
+      hideBuilderCreditNotice: true,
+    });
+    expect(
+      switcher!.compareDocumentPosition(collapse!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(rail.host.querySelector('a[href="/settings"]')).toBeNull();
+    rail.root.unmount();
+  });
+
+  it("omits the account menu when the rail is not showing one", async () => {
+    const rail = renderRail("file");
+    await rail.mount();
+
+    expect(rail.host.querySelector('[data-testid="org-switcher"]')).toBeNull();
+    rail.root.unmount();
   });
 });
