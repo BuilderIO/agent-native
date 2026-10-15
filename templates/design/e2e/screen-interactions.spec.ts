@@ -536,6 +536,8 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
   page,
   request,
 }) => {
+  // CI boots the editor and Monaco in about 15 s, twice per test.
+  test.setTimeout(240_000);
   const designId = await createDesign(app, "Hidden Code source reads");
   const fileId = await createScreen(request, designId, {
     content: FILL_HTML,
@@ -564,8 +566,8 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
       await page.goto(appPath(`/design/${designId}?panel=code`), {
         waitUntil: "domcontentloaded",
       });
-      await expect(codeWorkbench).toBeVisible({ timeout: 15_000 });
-    }).toPass({ timeout: 60_000 });
+      await expect(codeWorkbench).toBeVisible({ timeout: 45_000 });
+    }).toPass({ timeout: 100_000 });
   };
   await openCodeWorkbench();
   await expect(screenShell).toBeVisible();
