@@ -38,6 +38,13 @@ const useCase = {
   audience: "PRIVATE-AUDIENCE",
   internal: { strategy: "PRIVATE-STRATEGY" },
 };
+const todaysStack = {
+  heading: "Tools today",
+  items: [
+    { tool: "A doc", used_for: "Taking notes", breaks: "Notes get lost" },
+  ],
+  in_app: "Keep the notes together.",
+};
 const article = {
   ...common,
   use_case: "sample",
@@ -73,6 +80,72 @@ describe("campaign content", () => {
     );
     expect(JSON.stringify(buildCampaignPages(content))).not.toContain(
       "PRIVATE",
+    );
+  });
+
+  it("accepts missing or valid todays_stack without adding defaults", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const absent = parseCampaignContent(sources()).useCases[0];
+    expect(absent).toBeDefined();
+    expect(absent).not.toHaveProperty("todays_stack");
+    for (const stack of [todaysStack, { ...todaysStack, items: [] }]) {
+      const content = parseCampaignContent(
+        sources({ "sample.yaml": yaml({ ...useCase, todays_stack: stack }) }),
+      );
+      expect(content.useCases).toHaveLength(1);
+      expect(content.useCases[0].todays_stack).toEqual(stack);
+    }
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("strips unknown fields from todays_stack and its items", () => {
+    const content = parseCampaignContent(
+      sources({
+        "sample.yaml": yaml({
+          ...useCase,
+          todays_stack: {
+            ...todaysStack,
+            internal: "PRIVATE-STACK",
+            items: todaysStack.items.map((item) => ({
+              ...item,
+              internal: { strategy: "PRIVATE-TOOL" },
+            })),
+          },
+        }),
+      }),
+    );
+    expect(content.useCases).toHaveLength(1);
+    expect(content.useCases[0].todays_stack).toEqual(todaysStack);
+    expect(JSON.stringify(content)).not.toContain("PRIVATE");
+  });
+
+  it.each([
+    null,
+    "Tools",
+    {},
+    { ...todaysStack, heading: undefined },
+    { ...todaysStack, heading: "   " },
+    { ...todaysStack, heading: 1 },
+    { ...todaysStack, in_app: undefined },
+    { ...todaysStack, in_app: "" },
+    { ...todaysStack, in_app: false },
+    { ...todaysStack, items: undefined },
+    { ...todaysStack, items: "A doc" },
+    { ...todaysStack, items: [null] },
+    ...["tool", "used_for", "breaks"].flatMap((field) =>
+      [undefined, " \t ", 1].map((value) => ({
+        ...todaysStack,
+        items: [{ ...todaysStack.items[0], [field]: value }],
+      })),
+    ),
+  ])("skips malformed todays_stack explicitly (%#)", (stack) => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const content = parseCampaignContent(
+      sources({ "sample.yaml": yaml({ ...useCase, todays_stack: stack }) }),
+    );
+    expect(content.useCases).toEqual([]);
+    expect(error).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(/invalid content skipped \(todays_stack/),
     );
   });
 
@@ -139,6 +212,35 @@ describe("campaign content", () => {
     );
     expect(bundled.useCases).toHaveLength(9);
     expect(bundled.articles).toHaveLength(8);
+    expect(
+      bundled.useCases.map((item) => [
+        item.slug,
+        item.todays_stack?.heading,
+        item.todays_stack?.items.length,
+      ]),
+    ).toEqual([
+      ["ai-meeting-notes", "Four places one meeting ends up", 4],
+      ["bug-reports-with-console-logs", "Four tools for one bug", 4],
+      [
+        "design-brief-to-prototype",
+        "From brief to something clickable, today",
+        3,
+      ],
+      ["dictate-instead-of-typing", "Where your words go today", 3],
+      ["landing-page-prototypes", "How a launch page usually gets made", 3],
+      [
+        "see-what-your-coding-agent-plans",
+        "Where an agent's plan lives today",
+        3,
+      ],
+      ["startup-kpi-dashboard", "Four tools for one set of numbers", 4],
+      ["startup-pitch-deck", "What goes into a pitch deck today", 4],
+      [
+        "understand-what-your-coding-agent-changed",
+        "How a change gets reviewed today",
+        3,
+      ],
+    ]);
     expect(bundled).toEqual(disk);
     expect(warn).not.toHaveBeenCalled();
     for (const item of [...bundled.useCases, ...bundled.articles]) {

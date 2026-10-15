@@ -39,6 +39,7 @@ import { SnackbarProvider } from "../website-redesign/ds/snackbar";
 import { ArticlePage, ArticlesList } from "./articles";
 import { parseArticle, sanitizedMarkdown } from "./markdown";
 import {
+  newestArticles,
   publicArticle,
   publicUseCase,
   safeHref,
@@ -144,6 +145,251 @@ function dom(html: string) {
 }
 
 describe("public campaign frontend", () => {
+  const stack = {
+    heading: "Test tools you use today",
+    items: [
+      {
+        tool: "Test recorder + editor",
+        used_for: "Capture & trim <clips>",
+        breaks: "Copy/paste loses the original context.",
+      },
+      {
+        tool: "Test notes",
+        used_for: "Save the exact wording.",
+        breaks: "The agent cannot see the source.",
+      },
+    ],
+    in_app: "Keep the recording, transcript, and next action in one app.",
+  };
+
+  it("SSR renders the verbatim replacement stack between old/new and story/FAQs", () => {
+    const document = dom(
+      markup(
+        <UseCasePage
+          item={{
+            ...useCase,
+            todays_stack: stack,
+            story: {
+              quote: "Test story",
+              name: "Test person",
+              role: "Test role",
+              used_before: ["Test tool"],
+            },
+          }}
+          articles={[]}
+        />,
+      ),
+    );
+    const table = document.querySelector("table")!;
+    expect(table).not.toBeNull();
+    const section = table.closest("section")!;
+    expect(section.querySelector("h2")?.textContent).toBe(stack.heading);
+    expect(section.textContent).toContain("What it replaces");
+    expect(
+      [...table.querySelectorAll("th")].map((cell) => cell.textContent),
+    ).toEqual(["What you use", "For", "Where it breaks"]);
+    expect(
+      [...table.querySelectorAll("th")].every(
+        (cell) => cell.getAttribute("scope") === "col",
+      ),
+    ).toBe(true);
+    expect(
+      [...table.querySelectorAll("tbody tr")].map((row) =>
+        [...row.querySelectorAll("td")].map((cell) => cell.textContent),
+      ),
+    ).toEqual(
+      stack.items.map(({ tool, used_for, breaks }) => [tool, used_for, breaks]),
+    );
+    expect(section.querySelectorAll(":scope > p")).toHaveLength(1);
+    expect(section.querySelector(":scope > p")?.textContent).toBe(stack.in_app);
+    expect(table.parentElement?.classList.contains("overflow-x-auto")).toBe(
+      true,
+    );
+    expect(table.parentElement?.classList.contains("docs-content")).toBe(true);
+    expect(
+      section.previousElementSibling?.querySelector("#how-it-works"),
+    ).not.toBeNull();
+    expect(section.nextElementSibling?.tagName).toBe("FIGURE");
+    expect(
+      section.nextElementSibling?.nextElementSibling?.textContent,
+    ).toContain("Test question one?");
+    expect(document.querySelector("time")).toBeNull();
+  });
+
+  it("does not invent a replacement section when the optional stack is absent", () => {
+    const document = dom(markup(<UseCasePage item={useCase} articles={[]} />));
+    expect(document.querySelector("table")).toBeNull();
+    expect(document.body.textContent).not.toContain("What it replaces");
+  });
+
+  it("allowlists every nested replacement stack field in public loader data", () => {
+    const contaminated = {
+      ...useCase,
+      todays_stack: {
+        ...stack,
+        internal: "PRIVATE",
+        items: stack.items.map((item) => ({ ...item, internal: "PRIVATE" })),
+      },
+    };
+    expect(publicUseCase(contaminated).todays_stack).toEqual(stack);
+    vi.mocked(loadCampaignContent).mockReturnValue({
+      useCases: [contaminated],
+      articles: [],
+    });
+    const data = useCaseLoader(args({ slug: useCase.slug }));
+    expect(data.item.todays_stack).toEqual(stack);
+    expect(JSON.stringify(data)).not.toContain("PRIVATE");
+    expect(publicUseCase(useCase).todays_stack).toBeUndefined();
+  });
+
+  it.each(DOCS_LOCALES)(
+    "adds only the articles word link below the existing intro for %s",
+    (locale) => {
+      currentLocale.locale = locale;
+      const document = dom(markup(<UseCasesIndex items={[useCase]} />));
+      const intro = [...document.querySelectorAll("p")].find(
+        (node) => node.textContent === enUS.campaign.useCasesIntro,
+      )!;
+      const browse = intro.parentElement!.nextElementSibling!;
+      expect(browse.textContent).toBe(
+        "Or browse the articles for templates and how-tos.",
+      );
+      expect(browse.querySelectorAll("a")).toHaveLength(1);
+      const link = browse.querySelector("a")!;
+      expect(link.textContent).toBe("articles");
+      expect(link.getAttribute("href")).toBe(
+        sitePathForLocale(ARTICLES_BASE, locale),
+      );
+      expect(link.classList.contains("campaign-inline-link")).toBe(true);
+    },
+  );
+
+  it.each([undefined, "2026-02-03"])(
+    "uses the actual updated date with published fallback (%s) without changing JSON-LD dates",
+    (updated) => {
+      const document = dom(
+        markup(
+          <ArticlePage
+            article={{ ...article, updated }}
+            useCase={null}
+            more={[]}
+          />,
+        ),
+      );
+      const date = updated ?? article.published;
+      const time = document.querySelector("time")!;
+      expect(time.getAttribute("dateTime")).toBe(date);
+      expect(time.textContent).toBe(
+        `Updated ${new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }).format(new Date(date))}`,
+      );
+      const schema = JSON.parse(
+        document.querySelector('script[type="application/ld+json"]')!
+          .textContent!,
+      );
+      expect(schema.datePublished).toBe(article.published);
+      expect(schema.dateModified).toBe(date);
+    },
+  );
+
+  it("sorts every article loader by updated-or-published date and keeps stable ties without mutating input", () => {
+    const fixtures = [
+      {
+        ...article,
+        slug: "test-newly-published",
+        title: "Test newly published article",
+        published: "2026-02-01",
+      },
+      {
+        ...article,
+        slug: "test-recently-updated",
+        title: "Test recently updated article",
+        published: "2025-01-01",
+        updated: "2026-03-01",
+      },
+      {
+        ...article,
+        slug: "test-tie",
+        title: "Test tied article",
+        published: "2026-03-01",
+      },
+    ];
+    const sourceOrder = fixtures.map((item) => item.slug);
+    const expected = [
+      "test-recently-updated",
+      "test-tie",
+      "test-newly-published",
+    ];
+    expect(newestArticles(fixtures).map((item) => item.slug)).toEqual(expected);
+    expect(fixtures.map((item) => item.slug)).toEqual(sourceOrder);
+    vi.mocked(loadCampaignContent).mockReturnValue({
+      useCases: [useCase],
+      articles: fixtures,
+    });
+    const lists = [
+      articlesLoader(),
+      categoryLoader(args({ category: "clips" })),
+    ];
+    for (const list of lists) {
+      expect(list.articles.map((item) => item.slug)).toEqual(expected);
+      const document = dom(markup(<ArticlesList {...list} />));
+      expect(document.querySelectorAll("time")).toHaveLength(0);
+      expect(
+        [...document.querySelectorAll("article h2")].map(
+          (node) => node.textContent,
+        ),
+      ).toEqual(
+        expected.map(
+          (slug) => fixtures.find((item) => item.slug === slug)!.title,
+        ),
+      );
+      for (const row of document.querySelectorAll("article > a")) {
+        expect([...row.children].map((node) => node.tagName)).toEqual([
+          "SPAN",
+          "H2",
+        ]);
+        expect(row.classList.contains("sm:grid-cols-[7rem_1fr]")).toBe(true);
+      }
+    }
+    expect(
+      useCaseLoader(args({ slug: useCase.slug })).articles.map(
+        (item) => item.slug,
+      ),
+    ).toEqual(expected);
+    expect(
+      articleLoader(args({ slug: fixtures[0].slug })).more.map(
+        (item) => item.slug,
+      ),
+    ).toEqual(expected.slice(0, 2));
+  });
+
+  it("renders only real cards in incomplete use-case, topic, go-deeper and more-article grids", () => {
+    const pages = [
+      [<UseCasesIndex items={[useCase]} />, 1],
+      [<UseCasePage item={useCase} articles={[article]} />, 1],
+      [
+        <ArticlesList articles={[article]} page={1} hasMore={false} />,
+        categories.length + 1,
+      ],
+      [
+        <ArticlePage
+          article={article}
+          useCase={null}
+          more={[{ ...article, slug: "test-more" }]}
+        />,
+        1,
+      ],
+    ] as const;
+    for (const [page, count] of pages) {
+      const document = dom(markup(page));
+      const grid = document.querySelector(".grid.gap-px")!;
+      expect(grid.children).toHaveLength(count);
+      expect(
+        [...grid.children].every(
+          (node) => node.tagName === "A" && node.querySelector("h3"),
+        ),
+      ).toBe(true);
+    }
+  });
   it("hydrates tracking parameters only on the client and emits only allowed campaign fields", () => {
     window.history.replaceState(
       null,

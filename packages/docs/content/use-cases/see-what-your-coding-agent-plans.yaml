@@ -18,6 +18,19 @@ new_way:
     - "Add the planning skills to your coding agent with the install command from the Plans page, then complete the authentication step for your client. The guide covers Claude Code and Codex."
     - "Ask your agent for a visual plan. Review the diagrams, wireframes, and annotated code."
     - "Comment on the text or pin feedback to a visual, then ask the agent to read the comments and revise the plan."
+todays_stack:
+  heading: "Where an agent's plan lives today"
+  items:
+    - tool: "The terminal"
+      used_for: "Reading the agent's plan"
+      breaks: "A long text plan is easy to skim and approve."
+    - tool: "A design doc"
+      used_for: "Writing the approach before building"
+      breaks: "It's separate from the plan the agent actually follows."
+    - tool: "A whiteboard or diagram tool"
+      used_for: "Sketching the architecture and screens"
+      breaks: "The diagram lives somewhere the agent doesn't."
+  in_app: "In Plans, the agent's plan comes with diagrams, wireframes, and annotated code, and the agent can read your comments and revise it."
 story: null
 faqs:
   - q: "What is Agent-Native Plans?"

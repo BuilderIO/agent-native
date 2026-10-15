@@ -2,6 +2,13 @@ import enUS from "./en-US";
 
 const jaJP = {
   campaign: {
+    browseArticles: "または、{{articles}}でテンプレートや使い方を探せます。",
+    articlesLink: "記事",
+    whatItReplaces: "置き換えるもの",
+    whatYouUse: "使用するツール",
+    usedFor: "用途",
+    whereItBreaks: "限界となる点",
+    updatedDate: "更新日：{{date}}",
     allArticles: "すべての記事",
     useCases: "ユースケース",
     useCasesDescription: "繰り返しの仕事のためのページをアプリ別に紹介",

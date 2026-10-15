@@ -18,6 +18,22 @@ new_way:
     - "Attach your product brief, your notes, or an existing deck as reference material, and say who the deck is for."
     - "Apply your brand with a design system. Edit text, layout, and styling on the slide, or select text and ask the agent to revise it."
     - "Share a viewing link, present full-screen with speaker notes, or export a PowerPoint file."
+todays_stack:
+  heading: "What goes into a pitch deck today"
+  items:
+    - tool: "A template or last round's deck"
+      used_for: "A starting point"
+      breaks: "You restyle it by hand and hunt for stale numbers."
+    - tool: "A spreadsheet"
+      used_for: "Traction and financials"
+      breaks: "Every number gets pasted into slides by hand."
+    - tool: "Product screenshots"
+      used_for: "Showing the product"
+      breaks: "They go stale as the product changes."
+    - tool: "A general AI chat"
+      used_for: "Drafting the story"
+      breaks: "You still build every slide in your brand yourself."
+  in_app: "In Slides, the deck is drafted from your brief in your brand, and you edit it slide by slide or with the agent."
 story: null
 faqs:
   - q: "Can Slides make a pitch deck?"

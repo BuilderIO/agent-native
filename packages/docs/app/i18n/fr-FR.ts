@@ -2,6 +2,14 @@ import enUS from "./en-US";
 
 const frFR = {
   campaign: {
+    browseArticles:
+      "Ou parcourez les {{articles}} pour trouver des modèles et des tutoriels.",
+    articlesLink: "articles",
+    whatItReplaces: "Ce que cela remplace",
+    whatYouUse: "Ce que vous utilisez",
+    usedFor: "Pour",
+    whereItBreaks: "Les limites",
+    updatedDate: "Mis à jour le {{date}}",
     allArticles: "Tous les articles",
     useCases: "Cas d’usage",
     useCasesDescription: "Pages pour les tâches récurrentes, par app",

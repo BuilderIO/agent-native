@@ -18,6 +18,22 @@ new_way:
     - "Record the bug in your browser and say what you expected as you go. Connect Builder or your own storage so the recording uploads and gets a share link."
     - "Stop. Clips transcribes the recording. With the Chrome extension, it also captures console errors and failed requests from the tab you recorded."
     - "Share the link. People watch the video. Your agent gets the transcript and timestamped images, and you can open the clip in Claude, Claude Code, or Codex from the clip page."
+todays_stack:
+  heading: "Four tools for one bug"
+  items:
+    - tool: "A screen recorder, like Loom"
+      used_for: "Showing what happened"
+      breaks: "The video shows the screen, not the console or the failed request."
+    - tool: "Browser DevTools"
+      used_for: "Finding the console errors and failed requests"
+      breaks: "You copy them out by hand, and it's easy to grab the wrong one."
+    - tool: "A ticket tracker"
+      used_for: "Writing up the steps and attaching everything"
+      breaks: "The video, the logs, and the steps end up in different places."
+    - tool: "Your coding agent's chat"
+      used_for: "Handing the bug to an agent"
+      breaks: "It sees only what you paste. It never sees the moment things broke."
+  in_app: "In Clips, the recording, the transcript, and, with the Chrome extension, the console errors and failed requests sit behind one link that people and agents can both use."
 story: null
 faqs:
   - q: "Do I need the Chrome extension to record a bug?"

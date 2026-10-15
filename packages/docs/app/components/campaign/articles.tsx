@@ -68,11 +68,8 @@ export function ArticlesList({
           >
             <Link
               to={sitePathForLocale(`${ARTICLES_BASE}/${article.slug}`, locale)}
-              className="grid gap-3 p-6 no-underline hover:bg-[var(--b-bg-raised)] sm:grid-cols-[12rem_7rem_1fr] sm:p-8"
+              className="grid gap-3 p-6 no-underline hover:bg-[var(--b-bg-raised)] sm:grid-cols-[7rem_1fr] sm:p-8"
             >
-              <span className="text-sm text-[var(--fg-secondary)]">
-                <CampaignDate date={article.published} />
-              </span>
               <span className="font-mono text-sm text-[var(--fg-secondary)]">
                 {CATEGORY_NAMES[article.category]}
               </span>
@@ -202,7 +199,7 @@ export function ArticlePage({
               ) : null}
             </div>
             <span className="text-sm text-[var(--fg-secondary)]">
-              <CampaignDate date={article.published} />
+              <CampaignDate date={article.updated ?? article.published} />
             </span>
             <span className="text-sm text-[var(--fg-secondary)]">
               {t("campaign.readTime", { count: minutes })}

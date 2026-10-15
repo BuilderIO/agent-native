@@ -330,6 +330,29 @@ a.campaign-inline-link {
   text-underline-offset: 0.25rem;
 }
 
+.grid.gap-px[class~="bg-[var(--docs-border)]"] {
+  --card-grid-border: var(--docs-border);
+}
+
+.grid.gap-px[class~="bg-[var(--b-border-subtle)]"] {
+  --card-grid-border: var(--b-border-subtle);
+}
+
+.grid.gap-px:is(
+    [class~="bg-[var(--docs-border)]"],
+    [class~="bg-[var(--b-border-subtle)]"]
+  ) {
+  background-color: var(--b-bg-page);
+}
+
+.grid.gap-px:is(
+    [class~="bg-[var(--docs-border)]"],
+    [class~="bg-[var(--b-border-subtle)]"]
+  )
+  > * {
+  box-shadow: 0 0 0 1px var(--card-grid-border);
+}
+
 code:where(:not(.builder-brand-tokens *)) {
   font-family: var(--font-mono);
   font-size: 0.875em;
@@ -532,7 +555,13 @@ hr {
   font-size: 13px;
 }
 
-.campaign-article-content .docs-content table :is(th, td) {
+.docs-content.campaign-stack-table table {
+  display: table;
+  min-width: 36rem;
+}
+
+.campaign-article-content .docs-content table :is(th, td),
+.docs-content.campaign-stack-table table :is(th, td) {
   color: var(--fg);
   font-family: var(--font-sans);
   font-size: 14px;

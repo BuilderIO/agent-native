@@ -1,4 +1,5 @@
 import { useT, useFormatters, useLocale } from "@agent-native/core/client/i18n";
+import { Link } from "react-router";
 
 import {
   ARTICLES_BASE,
@@ -30,6 +31,9 @@ export function UseCasesIndex({ items }: { items: UseCase[] }) {
   const t = useT();
   const { locale } = useLocale();
   const apps = [...new Set(items.map((item) => item.app))];
+  const [beforeArticles, afterArticles] = t("campaign.browseArticles", {
+    articles: "<articles>",
+  }).split("<articles>");
   return (
     <TemplateLandingShell className="builder-brand-tokens pb-16">
       <div className="border-x border-[var(--docs-border)] px-6 py-16 sm:px-10">
@@ -39,6 +43,16 @@ export function UseCasesIndex({ items }: { items: UseCase[] }) {
           heading={t("campaign.useCasesTitle")}
           subheading={t("campaign.useCasesIntro")}
         />
+        <p className="mb-0 mt-3 text-[var(--b-text-secondary)]">
+          {beforeArticles}
+          <Link
+            to={sitePathForLocale(ARTICLES_BASE, locale)}
+            className="campaign-inline-link text-[var(--docs-accent)]"
+          >
+            {t("campaign.articlesLink")}
+          </Link>
+          {afterArticles}
+        </p>
       </div>
       {apps.map((app) => (
         <section key={app} className="border border-[var(--docs-border)]">
@@ -154,6 +168,37 @@ export function UseCasePage({
           </div>
         }
       />
+      {item.todays_stack ? (
+        <section className="min-w-0 space-y-6 border-x border-b border-[var(--docs-border)] p-6 py-12 sm:p-10">
+          <SectionHeader
+            eyebrow={t("campaign.whatItReplaces")}
+            heading={item.todays_stack.heading}
+          />
+          <div className="campaign-stack-table docs-content max-w-full overflow-x-auto">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">{t("campaign.whatYouUse")}</th>
+                  <th scope="col">{t("campaign.usedFor")}</th>
+                  <th scope="col">{t("campaign.whereItBreaks")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {item.todays_stack.items.map((row, index) => (
+                  <tr key={index}>
+                    <td>{row.tool}</td>
+                    <td>{row.used_for}</td>
+                    <td>{row.breaks}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="m-0 text-[var(--fg-secondary)]">
+            {item.todays_stack.in_app}
+          </p>
+        </section>
+      ) : null}
       {item.story ? (
         <figure className="m-0 space-y-6 border-x border-[var(--docs-border)] p-6 py-12 sm:p-10">
           <blockquote className="m-0 whitespace-pre-line text-2xl">

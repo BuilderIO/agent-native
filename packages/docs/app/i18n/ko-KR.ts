@@ -2,6 +2,13 @@ import enUS from "./en-US";
 
 const koKR = {
   campaign: {
+    browseArticles: "또는 {{articles}}에서 템플릿과 사용 방법을 찾아보세요.",
+    articlesLink: "글",
+    whatItReplaces: "대체하는 도구",
+    whatYouUse: "사용하는 도구",
+    usedFor: "용도",
+    whereItBreaks: "한계점",
+    updatedDate: "업데이트: {{date}}",
     allArticles: "모든 글",
     useCases: "사용 사례",
     useCasesDescription: "앱별 반복 업무 페이지",

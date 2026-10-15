@@ -81,6 +81,13 @@ const useCaseSchema = z.object({
   old_way: z.object({ heading: text, body: text }),
   replaces: z.array(text).optional(),
   new_way: z.object({ heading: text, steps: z.array(text).min(1) }),
+  todays_stack: z
+    .object({
+      heading: text,
+      items: z.array(z.object({ tool: text, used_for: text, breaks: text })),
+      in_app: text,
+    })
+    .optional(),
   story: z
     .object({
       quote: text,

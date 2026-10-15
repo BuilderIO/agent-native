@@ -18,6 +18,19 @@ new_way:
     - "Paste the brief: the offer, the audience, and the call to action. Link a design system so the page matches your brand."
     - "Ask for a few versions. Design shows them side by side on the canvas. Pin comments to specific elements and send them to the agent."
     - "Edit text and styling yourself, then export HTML or a ZIP of the files."
+todays_stack:
+  heading: "How a launch page usually gets made"
+  items:
+    - tool: "Last launch's page"
+      used_for: "A starting point"
+      breaks: "You inherit its structure even when the offer is different."
+    - tool: "A page builder"
+      used_for: "Building and publishing the page"
+      breaks: "Good for shipping, harder for comparing directions first."
+    - tool: "Screenshots in chat"
+      used_for: "Getting review"
+      breaks: "Feedback arrives as a list of comments about spacing."
+  in_app: "In Design, you compare versions side by side, pin comments to elements, and export the HTML. Publishing is still a separate step."
 story: null
 faqs:
   - q: "Does Design publish the page?"

@@ -141,14 +141,17 @@ export function faqSchema(items: { q: string; a: string }[]) {
 }
 
 export function CampaignDate({ date }: { date: string }) {
+  const t = useT();
   const format = useFormatters();
   return (
     <time dateTime={date}>
-      {format.formatDate(new Date(date), {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        timeZone: "UTC",
+      {t("campaign.updatedDate", {
+        date: format.formatDate(new Date(date), {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+          timeZone: "UTC",
+        }),
       })}
     </time>
   );

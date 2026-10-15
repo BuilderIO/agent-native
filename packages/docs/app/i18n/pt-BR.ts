@@ -2,6 +2,14 @@ import enUS from "./en-US";
 
 const ptBR = {
   campaign: {
+    browseArticles:
+      "Ou explore os {{articles}} para encontrar modelos e tutoriais.",
+    articlesLink: "artigos",
+    whatItReplaces: "O que substitui",
+    whatYouUse: "O que você usa",
+    usedFor: "Para",
+    whereItBreaks: "Onde falha",
+    updatedDate: "Atualizado em {{date}}",
     allArticles: "Todos os artigos",
     useCases: "Casos de uso",
     useCasesDescription: "Páginas para tarefas recorrentes, por app",

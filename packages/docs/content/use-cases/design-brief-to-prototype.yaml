@@ -18,6 +18,19 @@ new_way:
     - "Paste the brief: the goal, the audience, the constraints, and any brand rules. Link a design system if you have one."
     - "Ask for a few directions. Design shows them side by side on the canvas."
     - "Refine the one you like with visual controls or by asking the agent. Pin comments to elements, then export HTML or a ZIP of the files."
+todays_stack:
+  heading: "From brief to something clickable, today"
+  items:
+    - tool: "A doc"
+      used_for: "Writing the brief"
+      breaks: "People agree with a document, then react only when they see something."
+    - tool: "A design tool"
+      used_for: "Turning the brief into screens"
+      breaks: "Someone draws every screen and state before anyone can click anything."
+    - tool: "Chat or comment threads"
+      used_for: "Collecting feedback"
+      breaks: "Feedback lands on screenshots, away from the design itself."
+  in_app: "In Design, the brief becomes an interactive prototype, directions sit side by side, and comments pin to the elements they're about."
 story: null
 faqs:
   - q: "What is a design brief?"

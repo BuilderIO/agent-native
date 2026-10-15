@@ -22,6 +22,22 @@ new_way:
     - "Connect a data source. Analytics has connectors for services like Stripe, HubSpot, and BigQuery."
     - "Ask a question in plain English, like how many signups you got last week. The agent writes and validates the SQL and returns a chart, table, or metric."
     - "Save it as a dashboard with filters and saved views, and share it with specific people or your whole organization."
+todays_stack:
+  heading: "Four tools for one set of numbers"
+  items:
+    - tool: "Your billing system's export"
+      used_for: "Getting revenue numbers"
+      breaks: "Someone exports and pastes it every month."
+    - tool: "A spreadsheet"
+      used_for: "Calculating MRR, churn, and growth"
+      breaks: "It's rebuilt by hand and goes stale between updates."
+    - tool: "A product analytics tool, like Amplitude or Mixpanel"
+      used_for: "Usage and retention"
+      breaks: "Only a few people know how to query it."
+    - tool: "ChatGPT with a CSV"
+      used_for: "Asking questions about the numbers"
+      breaks: "Every answer starts with uploading the data again."
+  in_app: "In Analytics, you connect your sources, ask in plain English, and keep the answers as dashboards. The agent writes the SQL."
 story: null
 faqs:
   - q: "What is Agent-Native Analytics?"

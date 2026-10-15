@@ -2,6 +2,13 @@ import enUS from "./en-US";
 
 const hiIN = {
   campaign: {
+    browseArticles: "या टेम्पलेट और उपयोग संबंधी गाइड के लिए {{articles}} देखें।",
+    articlesLink: "लेख",
+    whatItReplaces: "यह किनकी जगह लेता है",
+    whatYouUse: "आप क्या इस्तेमाल करते हैं",
+    usedFor: "किस लिए",
+    whereItBreaks: "कहाँ कमी रह जाती है",
+    updatedDate: "अपडेट किया गया: {{date}}",
     allArticles: "सभी लेख",
     useCases: "उपयोग के उदाहरण",
     useCasesDescription: "बार-बार होने वाले कामों के पेज, ऐप के अनुसार",

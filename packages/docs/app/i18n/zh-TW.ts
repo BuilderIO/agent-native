@@ -1,5 +1,12 @@
 const messages = {
   campaign: {
+    browseArticles: "也可以瀏覽{{articles}}，尋找範本和操作指南。",
+    articlesLink: "文章",
+    whatItReplaces: "它取代了什麼",
+    whatYouUse: "你使用的工具",
+    usedFor: "用途",
+    whereItBreaks: "不足之處",
+    updatedDate: "更新於 {{date}}",
     allArticles: "所有文章",
     useCases: "使用情境",
     useCasesDescription: "依應用程式分類的重複工作頁面",

@@ -18,6 +18,19 @@ new_way:
     - "Add the planning skills to your coding agent with the install command from the Plans page, then complete the authentication step for your client."
     - "Run the visual recap command on a pull request, commit, branch, or diff."
     - "Read the walkthrough: the behavior that changed, the files it touched, and annotated code. Leave comments, or share it for teammates to review."
+todays_stack:
+  heading: "How a change gets reviewed today"
+  items:
+    - tool: "The diff"
+      used_for: "Reviewing the change"
+      breaks: "Line by line, the important part is easy to miss."
+    - tool: "The pull request description"
+      used_for: "Explaining the change"
+      breaks: "It says what changed, rarely how it behaves."
+    - tool: "A call with whoever made the change"
+      used_for: "Asking questions"
+      breaks: "It takes both people's time, and nothing is written down afterward."
+  in_app: "In Plans, a visual recap shows the behavior that changed, the files it touched, and annotated code, so you know where to look first."
 story: null
 faqs:
   - q: "Can I use Plans to review code that is already written?"

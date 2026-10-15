@@ -2,6 +2,13 @@ import enUS from "./en-US";
 
 const zhCN = {
   campaign: {
+    browseArticles: "也可以浏览{{articles}}，查找模板和操作指南。",
+    articlesLink: "文章",
+    whatItReplaces: "它取代了什么",
+    whatYouUse: "你使用的工具",
+    usedFor: "用途",
+    whereItBreaks: "不足之处",
+    updatedDate: "更新于 {{date}}",
     allArticles: "所有文章",
     useCases: "使用场景",
     useCasesDescription: "按应用分类的重复工作页面",

@@ -2,6 +2,13 @@ import enUS from "./en-US";
 
 const arSA = {
   campaign: {
+    browseArticles: "أو تصفّح {{articles}} للعثور على القوالب والأدلة الإرشادية.",
+    articlesLink: "المقالات",
+    whatItReplaces: "ما الذي يحل محله",
+    whatYouUse: "ما تستخدمه",
+    usedFor: "الغرض",
+    whereItBreaks: "أوجه القصور",
+    updatedDate: "آخر تحديث: {{date}}",
     allArticles: "جميع المقالات",
     useCases: "حالات الاستخدام",
     useCasesDescription: "صفحات للمهام المتكررة، حسب التطبيق",

@@ -20,6 +20,22 @@ new_way:
     - "Connect Google Calendar in Clips. Your upcoming meetings show up in the sidebar."
     - "Hit record on the meeting."
     - "Afterward you get a transcript, an AI summary, notes, and action items. Search across every meeting later, or ask the agent to find the one where you discussed something."
+todays_stack:
+  heading: "Four places one meeting ends up"
+  items:
+    - tool: "Your video call app"
+      used_for: "Holding the meeting"
+      breaks: "The notes are whatever someone typed while half-listening."
+    - tool: "A note-taker, like Granola"
+      used_for: "Transcribing and summarizing"
+      breaks: "Meeting notes live apart from your screen recordings and dictations."
+    - tool: "A shared doc"
+      used_for: "Keeping notes and decisions"
+      breaks: "Nobody opens it again, and owners and dates get lost."
+    - tool: "Email"
+      used_for: "Sending the recap"
+      breaks: "You rewrite the decisions from memory."
+  in_app: "In Clips, meetings from your Google Calendar get a transcript, a summary, notes, and action items, in the same searchable library as your recordings."
 story: null
 faqs:
   - q: "Which calendar does it work with?"

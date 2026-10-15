@@ -2,6 +2,14 @@ import enUS from "./en-US";
 
 const deDE = {
   campaign: {
+    browseArticles:
+      "Oder stöbere in den {{articles}} nach Vorlagen und Anleitungen.",
+    articlesLink: "Artikeln",
+    whatItReplaces: "Was es ersetzt",
+    whatYouUse: "Was du verwendest",
+    usedFor: "Wofür",
+    whereItBreaks: "Wo es scheitert",
+    updatedDate: "Aktualisiert am {{date}}",
     allArticles: "Alle Artikel",
     useCases: "Anwendungsfälle",
     useCasesDescription: "Seiten für wiederkehrende Aufgaben, nach App",

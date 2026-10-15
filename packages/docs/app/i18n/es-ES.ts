@@ -2,6 +2,14 @@ import enUS from "./en-US";
 
 const esES = {
   campaign: {
+    browseArticles:
+      "O explora los {{articles}} para encontrar plantillas y guías prácticas.",
+    articlesLink: "artículos",
+    whatItReplaces: "Qué reemplaza",
+    whatYouUse: "Qué usas",
+    usedFor: "Para",
+    whereItBreaks: "Dónde falla",
+    updatedDate: "Actualizado el {{date}}",
     allArticles: "Todos los artículos",
     useCases: "Casos de uso",
     useCasesDescription: "Páginas para tareas recurrentes, por app",

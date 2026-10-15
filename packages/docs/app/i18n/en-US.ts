@@ -1,5 +1,12 @@
 const enUS = {
   campaign: {
+    browseArticles: "Or browse the {{articles}} for templates and how-tos.",
+    articlesLink: "articles",
+    whatItReplaces: "What it replaces",
+    whatYouUse: "What you use",
+    usedFor: "For",
+    whereItBreaks: "Where it breaks",
+    updatedDate: "Updated {{date}}",
     allArticles: "All articles",
     useCases: "Use cases",
     useCasesDescription: "Pages for recurring jobs, by app",

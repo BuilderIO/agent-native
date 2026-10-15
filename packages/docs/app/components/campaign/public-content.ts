@@ -23,6 +23,17 @@ export function publicUseCase(item: UseCase): UseCase {
     old_way: { heading: item.old_way.heading, body: item.old_way.body },
     replaces: item.replaces,
     new_way: { heading: item.new_way.heading, steps: item.new_way.steps },
+    todays_stack: item.todays_stack
+      ? {
+          heading: item.todays_stack.heading,
+          items: item.todays_stack.items.map(({ tool, used_for, breaks }) => ({
+            tool,
+            used_for,
+            breaks,
+          })),
+          in_app: item.todays_stack.in_app,
+        }
+      : undefined,
     story: item.story
       ? {
           quote: item.story.quote,
@@ -65,10 +76,12 @@ export function publicArticle(item: Article): Article {
   };
 }
 
-export function newestArticles<T extends { published: string }>(
-  articles: T[],
-): T[] {
-  return [...articles].sort((a, b) => b.published.localeCompare(a.published));
+export function newestArticles<
+  T extends { published: string; updated?: string },
+>(articles: T[]): T[] {
+  return [...articles].sort((a, b) =>
+    (b.updated ?? b.published).localeCompare(a.updated ?? a.published),
+  );
 }
 
 export function campaignHref(href: string, locale: unknown): string {
