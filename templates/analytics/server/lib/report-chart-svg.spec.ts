@@ -838,6 +838,32 @@ describe("renderReportChartSvg data-note bands", () => {
     expect(svg).not.toContain('stroke-opacity="0.55"');
   });
 
+  it("keeps a narrow band's whole title, ending it at the band near the right edge", () => {
+    const svg = render([{ ...band, startIndex: 9, endIndex: 9 }]);
+    const [, x] = svg.match(
+      /<text x="([\d.]+)"[^>]*>Builder\.io account setup failures<\/text>/,
+    )!;
+    const width = estimateTextWidth("Builder.io account setup failures", 10);
+    expect(Number(x) + width).toBeLessThanOrEqual(720);
+  });
+
+  it("shortens a title wider than the chart only between words", () => {
+    const title = "Signups counted twice after the webhook retry on every plan";
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "Failures", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 240,
+      height: 200,
+      bands: [{ ...band, label: title }],
+    });
+    const [, shown] = svg.match(
+      /fill="#dc2626" stroke="[^"]+" stroke-width="3" paint-order="stroke">([^<]+)<\/text>/,
+    )!;
+    expect(shown.endsWith("...")).toBe(true);
+    expect(title.startsWith(`${shown.slice(0, -3)} `)).toBe(true);
+  });
+
   it("skips a band outside the labels", () => {
     const svg = render([{ ...band, startIndex: 8, endIndex: 12 }]);
     expect(svg).not.toContain("Builder.io account setup failures");

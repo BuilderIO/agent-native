@@ -54,6 +54,7 @@ import { SETUP_INCIDENT } from "@shared/annotation-fixtures";
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 import { DashboardAnnotationsProvider } from "./dashboard-annotations-context";
+import { layoutDataNoteLabels } from "./data-note-bands";
 import { SqlChart } from "./SqlChart";
 
 const CHART_SIZE = { width: 640, height: 320 };
@@ -262,6 +263,41 @@ describe("SqlChart key-date markers", () => {
         ).toContain(SETUP_INCIDENT.title);
       },
     );
+
+    it("keeps a narrow band's whole title, inside the chart at its right edge", async () => {
+      const title = "Signups counted twice after the webhook retry";
+      mocks.dataNotes = [
+        {
+          ...SETUP_INCIDENT,
+          title,
+          startDate: "2026-10-14",
+          endDate: "2026-10-14",
+        },
+      ];
+      await renderInDashboard(failures("line"));
+      const label = container.querySelector("[data-data-note-label]");
+      expect(label?.textContent).toBe(title);
+      const pill = label!.querySelector("rect")!;
+      const left = Number(pill.getAttribute("x"));
+      const right = left + Number(pill.getAttribute("width"));
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(right).toBeLessThanOrEqual(CHART_SIZE.width);
+    });
+
+    it("stacks title pills that would cover each other", () => {
+      const titles = ["Signups counted twice", "Account setup failures"];
+      const slots = layoutDataNoteLabels(
+        [
+          { left: 100, right: 110, title: titles[0] },
+          { left: 120, right: 130, title: titles[1] },
+          { left: 400, right: 410, title: titles[0] },
+        ],
+        0,
+        600,
+      );
+      expect(slots.map((slot) => slot.text)).toEqual([...titles, titles[0]]);
+      expect(slots.map((slot) => slot.row)).toEqual([0, 1, 0]);
+    });
 
     it("leaves charts alone that do not count the event, or that hide the note", async () => {
       await renderInDashboard(panel("line"));

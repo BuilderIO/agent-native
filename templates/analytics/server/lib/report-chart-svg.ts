@@ -4,6 +4,8 @@ import {
   estimateTextWidth,
   isCategoryAxis,
   planCategoryAxis,
+  spanLabelX,
+  trimToWholeWords,
   trimToWidth,
 } from "../../shared/chart-axis-labels";
 import type { DashboardFunnelItem } from "../../shared/dashboard-funnel";
@@ -757,13 +759,13 @@ function renderCartesianChartSvg({
       const color = safeColor(band.color, theme.tickColor);
       const left = chartLeft + slot * band.startIndex;
       const right = chartLeft + slot * (band.endIndex + 1);
-      const label = trimToWidth(
+      const label = trimToWholeWords(
         band.label,
         EVENT_LABEL_FONT_SIZE,
-        Math.max(right - left - 8, 96),
+        chartRight - chartLeft - 8,
       );
       const width = estimateTextWidth(label, EVENT_LABEL_FONT_SIZE);
-      const x = Math.max(chartLeft, Math.min(left + 4, chartRight - width));
+      const x = spanLabelX(left, right, width, chartLeft, chartRight, 4);
       const y = chartBottom - 6 - index * EVENT_LABEL_ROW_HEIGHT;
       return `<text x="${formatCoord(x)}" y="${formatCoord(y)}" font-size="${EVENT_LABEL_FONT_SIZE}" fill="${color}" stroke="${theme.background}" stroke-width="3" paint-order="stroke">${escapeXml(label)}</text>`;
     })

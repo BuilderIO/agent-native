@@ -649,10 +649,12 @@ export function SqlChartCard({
         )}
       >
         <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
-          <CardTitle className="text-sm font-medium flex-1 truncate">
-            {panel.title}
-          </CardTitle>
-          <DataNoteFlag notes={flaggedDataNotes} />
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <CardTitle className="text-sm font-medium truncate">
+              {panel.title}
+            </CardTitle>
+            <DataNoteFlag notes={flaggedDataNotes} />
+          </div>
           {timeRangeOverrideLabel ? (
             <Badge
               variant="secondary"
