@@ -1566,6 +1566,14 @@ fn screen_memory_capture_missing(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+fn screen_memory_exclusion_active(app: &AppHandle) -> bool {
+    app.state::<ScreenMemoryState>()
+        .inner
+        .lock()
+        .map(|runtime| runtime.exclusion_active)
+        .unwrap_or(false)
+}
+
 fn wait_for_capture_recovery_retry(stop: &AtomicBool, delay: Duration) -> bool {
     let deadline = Instant::now() + delay;
     while !stop.load(Ordering::Relaxed) {
@@ -1628,7 +1636,16 @@ fn wait_for_rotation(
     stop: &AtomicBool,
     config: &ScreenMemoryConfig,
 ) -> RotationWait {
+    if screen_memory_exclusion_active(app) {
+        return wait_for_exclusion(app, stop);
+    }
     if screen_memory_capture_missing(app) {
+        let live_config =
+            normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
+        let (_, exclusion_reason) = sample_active_window(&live_config);
+        if let Some(reason) = exclusion_reason {
+            return suspend_for_detected_exclusion(app, stop, reason);
+        }
         return RotationWait::Rotate;
     }
     let deadline = Instant::now() + Duration::from_secs(config.segment_seconds);
@@ -1638,6 +1655,9 @@ fn wait_for_rotation(
         if stop.load(Ordering::Relaxed) {
             return RotationWait::Stop;
         }
+        if screen_memory_exclusion_active(app) {
+            return wait_for_exclusion(app, stop);
+        }
         if Instant::now() >= deadline {
             return RotationWait::Rotate;
         }
@@ -1646,21 +1666,21 @@ fn wait_for_rotation(
             let live_config =
                 normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
             let (event, exclusion_reason) = sample_active_window(&live_config);
-            if exclusion_transition(false, exclusion_reason.is_some())
-                == ExclusionTransition::Suspend
-            {
-                mark_active_segment_exclusion_tainted(app);
-                append_event(
-                    app,
-                    coverage_gap_event(exclusion_reason.unwrap_or("privacy-exclusion")),
-                );
-                if let Err(error) = suspend_for_exclusion(app) {
-                    record_error(app, error);
+            match exclusion_transition(
+                screen_memory_exclusion_active(app),
+                exclusion_reason.is_some(),
+            ) {
+                ExclusionTransition::Suspend => {
+                    return suspend_for_detected_exclusion(
+                        app,
+                        stop,
+                        exclusion_reason.unwrap_or("privacy-exclusion"),
+                    );
                 }
-                if wait_for_exclusion_to_clear(app, stop) {
-                    return RotationWait::Stop;
+                ExclusionTransition::StaySuspended | ExclusionTransition::Resume => {
+                    return wait_for_exclusion(app, stop);
                 }
-                return RotationWait::Resumed;
+                ExclusionTransition::KeepCapturing => {}
             }
             if now >= next_sample {
                 append_event(app, event);
@@ -1677,6 +1697,27 @@ fn wait_for_rotation(
                 .min(until_exclusion)
                 .min(ROTATOR_TICK),
         );
+    }
+}
+
+fn suspend_for_detected_exclusion(
+    app: &AppHandle,
+    stop: &AtomicBool,
+    reason: &'static str,
+) -> RotationWait {
+    mark_active_segment_exclusion_tainted(app);
+    append_event(app, coverage_gap_event(reason));
+    if let Err(error) = suspend_for_exclusion(app) {
+        record_error(app, error);
+    }
+    wait_for_exclusion(app, stop)
+}
+
+fn wait_for_exclusion(app: &AppHandle, stop: &AtomicBool) -> RotationWait {
+    if wait_for_exclusion_to_clear(app, stop) {
+        RotationWait::Stop
+    } else {
+        RotationWait::Resumed
     }
 }
 
@@ -2056,14 +2097,17 @@ fn rotate_segment(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), St
 fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
     let mut config = config.clone();
     config.capture_mode = effective_capture_mode(app, config.capture_mode);
-    let active_mode = app
-        .state::<ScreenMemoryState>()
-        .inner
-        .lock()
-        .map_err(|error| error.to_string())?
-        .active
-        .as_ref()
-        .map(|active| active.capture_mode);
+    let (active_mode, exclusion_active) = {
+        let state = app.state::<ScreenMemoryState>();
+        let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        (
+            runtime.active.as_ref().map(|active| active.capture_mode),
+            runtime.exclusion_active,
+        )
+    };
+    if active_mode.is_none() && exclusion_active {
+        return Ok(());
+    }
     if active_mode.is_some_and(|mode| mode != config.capture_mode) {
         return rotate_segment_with_capture_mode_change(app, &config);
     }
