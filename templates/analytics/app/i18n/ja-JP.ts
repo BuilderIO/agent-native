@@ -1209,6 +1209,7 @@ export default {
     refresh: "更新",
     refreshing: "更新中...",
     updating: "更新中",
+    refreshed: "更新しました",
     updatingPreviousFilters: "前のフィルター · 更新中",
     previousFilters: "前のフィルター",
     fetchedAt: "{{time}} に取得",

@@ -1231,6 +1231,7 @@ export default {
     refresh: "重新整理",
     refreshing: "正在重新整理...",
     updating: "更新中",
+    refreshed: "已重新整理",
     updatingPreviousFilters: "上一組篩選 · 更新中",
     previousFilters: "上一組篩選",
     fetchedAt: "擷取於 {{time}}",

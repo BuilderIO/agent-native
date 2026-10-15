@@ -125,6 +125,11 @@ import type {
 } from "@/pages/adhoc/sql-dashboard/types";
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
+import {
+  describeFreshnessText,
+  useIsStaleResult,
+  useRefreshConfirmation,
+} from "./panel-freshness";
 
 export { limitChartRows };
 
@@ -1185,59 +1190,13 @@ function ConfigWarning({ keys }: { keys: string[] }) {
   );
 }
 
-/** The time alone for today's fetch, with the date once it is older. */
-function fetchedTimeFormat(fetchedAt: string): Intl.DateTimeFormatOptions {
-  const fetched = new Date(fetchedAt);
-  const now = new Date();
-  const today =
-    fetched.getFullYear() === now.getFullYear() &&
-    fetched.getMonth() === now.getMonth() &&
-    fetched.getDate() === now.getDate();
-  return today
-    ? { hour: "numeric", minute: "2-digit" }
-    : { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
-}
-
-function SqlChartFreshnessText({
-  freshness,
-}: {
-  freshness: SqlQueryFreshness;
-}) {
+function SqlChartStaleText({ freshness }: { freshness: SqlQueryFreshness }) {
   const t = useT();
   const formatters = useFormatters();
-  const { fetchedAt, cache } = freshness;
-  const parts = [
-    fetchedAt
-      ? t("sqlDashboard.fetchedAt", {
-          time: formatters.formatDate(fetchedAt, fetchedTimeFormat(fetchedAt)),
-        })
-      : t("sqlDashboard.fetchTimeUnknown"),
-  ];
-  if (cache === "app-cache") parts.push(t("sqlDashboard.cacheApp"));
-  else if (cache === "provider-cache")
-    parts.push(t("sqlDashboard.cacheProvider"));
-  else if (cache === "restored") parts.push(t("sqlDashboard.cacheRestored"));
-  else if (cache === "unknown") parts.push(t("sqlDashboard.cacheUnknown"));
-  // The notice row reserves space above the chart; the chip stays hoverable.
   return (
-    <span
-      data-dashboard-report-freshness={cache}
-      title={
-        fetchedAt
-          ? formatters.formatDate(fetchedAt, {
-              dateStyle: "long",
-              timeStyle: "medium",
-            })
-          : undefined
-      }
-      className="pointer-events-auto inline-flex items-center rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
-    >
-      {fetchedAt ? (
-        <time dateTime={fetchedAt}>{parts.join(" · ")}</time>
-      ) : (
-        parts.join(" · ")
-      )}
-    </span>
+    <time dateTime={freshness.fetchedAt}>
+      {describeFreshnessText(t, formatters, freshness, "compact")}
+    </time>
   );
 }
 
@@ -1282,6 +1241,11 @@ interface SqlChartProps {
   refreshToken?: number;
   onRefreshRequested?: () => void;
   onExportCsvChange?: (handler: (() => void) | null) => void;
+  /**
+   * The freshness of the result on screen, for a host that shows it outside
+   * the chart; null when no result is shown, and again when the chart unmounts.
+   */
+  onFreshnessChange?: (freshness: SqlQueryFreshness | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
   /** Passing this makes a table's columns editable; omit it for read-only tables. */
   onSaveColumns?: (columns: TableColumnConfig[]) => void;
@@ -1301,6 +1265,7 @@ export function SqlChart({
   refreshToken = 0,
   onRefreshRequested,
   onExportCsvChange,
+  onFreshnessChange,
   onCopyTableChange,
   onSaveColumns,
   dashboardId,
@@ -1341,6 +1306,7 @@ export function SqlChart({
     isPlaceholderData: queryIsPlaceholderData,
     error: queryError,
     freshness: queryFreshness,
+    completedManualRefreshToken,
   } = useSqlQuery(
     ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
@@ -1418,6 +1384,39 @@ export function SqlChart({
     [chartType, rows, xKey],
   );
 
+  const showsRetainedResult = retainWhileOffscreen && queryResult !== undefined;
+  const showsSkeleton =
+    isLoading ||
+    isFetching ||
+    (!loadData && showLoadingWhenDisabled && !showsRetainedResult);
+  // A result handed in by the caller was not fetched by this panel's query.
+  const shownFreshness = resultOverride ? undefined : queryFreshness;
+  const isStale = useIsStaleResult(shownFreshness?.fetchedAt);
+  const refreshConfirmed = useRefreshConfirmation({
+    requestToken: refreshToken + localRefreshToken,
+    scopeKey: JSON.stringify([
+      dashboardId ?? null,
+      panel.id,
+      panel.source,
+      sql,
+    ]),
+    completedToken: completedManualRefreshToken,
+  });
+  const reportedCache =
+    !isSection && !isExtension && !error && !showsSkeleton
+      ? shownFreshness?.cache
+      : undefined;
+  const reportedFetchedAt = shownFreshness?.fetchedAt;
+  useEffect(() => {
+    if (!onFreshnessChange) return;
+    onFreshnessChange(
+      reportedCache
+        ? { fetchedAt: reportedFetchedAt, cache: reportedCache }
+        : null,
+    );
+    return () => onFreshnessChange(null);
+  }, [onFreshnessChange, reportedCache, reportedFetchedAt]);
+
   if (isSection) {
     return (
       <div className="px-1 py-2">
@@ -1471,12 +1470,7 @@ export function SqlChart({
       : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  const showsRetainedResult = retainWhileOffscreen && queryResult !== undefined;
-  if (
-    isLoading ||
-    isFetching ||
-    (!loadData && showLoadingWhenDisabled && !showsRetainedResult)
-  ) {
+  if (showsSkeleton) {
     return <SqlChartLoadingSkeleton panel={panel} />;
   }
 
@@ -1505,37 +1499,59 @@ export function SqlChart({
   }
 
   const missingConfigKeys = plan.missingKeys;
-  const updatingNotice = isUpdating ? (
+  const noticeText =
+    "inline-flex items-center gap-1.5 text-xs text-muted-foreground";
+  const noticeRow = (notice: ReactNode) => (
     <div className="pointer-events-none flex shrink-0 justify-end pb-1">
-      <span
-        role="status"
-        data-dashboard-report-updating={
-          isShowingPreviousFilters ? "previous-filters" : "refresh"
-        }
-        className="inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
-      >
-        <Spinner className="size-3" />
-        {t(
-          isShowingPreviousFilters
-            ? "sqlDashboard.updatingPreviousFilters"
-            : "sqlDashboard.updating",
-        )}
-      </span>
+      {notice}
     </div>
-  ) : isPausedOnPreviousFilters ? (
-    <div className="pointer-events-none flex shrink-0 justify-end pb-1">
-      <span
-        data-dashboard-report-paused="previous-filters"
-        className="inline-flex items-center rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
-      >
-        {t("sqlDashboard.previousFilters")}
-      </span>
-    </div>
-  ) : queryFreshness ? (
-    <div className="pointer-events-none flex shrink-0 justify-end pb-1">
-      <SqlChartFreshnessText freshness={queryFreshness} />
-    </div>
-  ) : null;
+  );
+  const updatingNotice = isUpdating
+    ? noticeRow(
+        <span
+          role="status"
+          data-dashboard-report-updating={
+            isShowingPreviousFilters ? "previous-filters" : "refresh"
+          }
+          className={noticeText}
+        >
+          <Spinner className="size-3" />
+          {t(
+            isShowingPreviousFilters
+              ? "sqlDashboard.updatingPreviousFilters"
+              : "sqlDashboard.updating",
+          )}
+        </span>,
+      )
+    : isPausedOnPreviousFilters
+      ? noticeRow(
+          <span
+            data-dashboard-report-paused="previous-filters"
+            className={noticeText}
+          >
+            {t("sqlDashboard.previousFilters")}
+          </span>,
+        )
+      : refreshConfirmed
+        ? noticeRow(
+            <span
+              role="status"
+              data-dashboard-report-refreshed
+              className={noticeText}
+            >
+              {t("sqlDashboard.refreshed")}
+            </span>,
+          )
+        : isStale && shownFreshness
+          ? noticeRow(
+              <span
+                data-dashboard-report-stale={shownFreshness.cache}
+                className={noticeText}
+              >
+                <SqlChartStaleText freshness={shownFreshness} />
+              </span>,
+            )
+          : null;
   const withConfigBanners = (node: ReactNode) => {
     if (refreshError) {
       return (

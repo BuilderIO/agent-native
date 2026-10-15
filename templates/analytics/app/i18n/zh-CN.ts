@@ -1146,6 +1146,7 @@ export default {
     refresh: "刷新",
     refreshing: "正在刷新...",
     updating: "正在更新",
+    refreshed: "已刷新",
     updatingPreviousFilters: "上一组筛选 · 正在更新",
     previousFilters: "上一组筛选",
     fetchedAt: "获取于 {{time}}",

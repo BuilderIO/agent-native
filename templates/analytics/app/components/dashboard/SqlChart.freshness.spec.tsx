@@ -4,6 +4,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { STALE_RESULT_AGE_MS } from "@/lib/sql-query-freshness";
+
 type Freshness = {
   fetchedAt?: string;
   cache: "live" | "app-cache" | "provider-cache" | "restored" | "unknown";
@@ -63,11 +65,16 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
 
 import { SqlChart } from "./SqlChart";
 
-describe("SqlChart freshness chip", () => {
+const FETCHED_AT = "2026-10-14T12:00:00.000Z";
+const fetchedMs = Date.parse(FETCHED_AT);
+
+describe("SqlChart freshness", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(fetchedMs + 60_000);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -85,6 +92,7 @@ describe("SqlChart freshness chip", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -96,118 +104,210 @@ describe("SqlChart freshness chip", () => {
     chartType: "metric" as const,
     width: 1,
   };
-  const chip = () =>
-    container.querySelector("[data-dashboard-report-freshness]");
+  const staleText = () =>
+    container.querySelector("[data-dashboard-report-stale]");
   const render = (props: Partial<Parameters<typeof SqlChart>[0]> = {}) =>
     act(async () => {
       root.render(<SqlChart panel={panel} {...props} />);
     });
+  const setAge = (ageMs: number) => vi.setSystemTime(fetchedMs + ageMs);
+  const advance = (ms: number) =>
+    act(async () => {
+      vi.advanceTimersByTime(ms);
+    });
 
-  it("shows when a fresh BigQuery result was fetched, with no cache suffix", async () => {
-    mocks.query.freshness = {
-      fetchedAt: "2026-10-14T12:00:00.000Z",
-      cache: "live",
-    };
+  describe("inline text", () => {
+    it("says nothing about a routine result, whatever its cache state", async () => {
+      for (const cache of ["live", "app-cache", "provider-cache"] as const) {
+        mocks.query.freshness = { fetchedAt: FETCHED_AT, cache };
+        await render();
+        expect(staleText()).toBeNull();
+        expect(container.textContent).toBe("42");
+      }
+    });
 
-    await render();
+    it("keeps exactly one hour normal and labels the first moment past it", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "app-cache" };
 
-    expect(chip()?.getAttribute("data-dashboard-report-freshness")).toBe(
-      "live",
-    );
-    expect(chip()?.textContent).toBe(
-      "sqlDashboard.fetchedAt(formatted:2026-10-14T12:00:00.000Z)",
-    );
-  });
-
-  it.each([
-    ["app-cache", "sqlDashboard.cacheApp"],
-    ["provider-cache", "sqlDashboard.cacheProvider"],
-    ["restored", "sqlDashboard.cacheRestored"],
-    ["unknown", "sqlDashboard.cacheUnknown"],
-  ] as const)(
-    "names a %s result without hiding its fetch time",
-    async (cache, label) => {
-      mocks.query.freshness = { fetchedAt: "2026-10-14T12:00:00.000Z", cache };
-
+      setAge(STALE_RESULT_AGE_MS);
       await render();
+      expect(staleText()).toBeNull();
 
-      expect(chip()?.textContent).toBe(
-        `sqlDashboard.fetchedAt(formatted:2026-10-14T12:00:00.000Z) · ${label}`,
+      setAge(STALE_RESULT_AGE_MS + 1);
+      await render();
+      expect(staleText()?.textContent).toBe(
+        `sqlDashboard.fetchedAt(formatted:${FETCHED_AT}) · sqlDashboard.cacheApp`,
       );
-    },
-  );
+      expect(staleText()?.getAttribute("data-dashboard-report-stale")).toBe(
+        "app-cache",
+      );
+      expect(staleText()?.querySelector("time")?.getAttribute("datetime")).toBe(
+        FETCHED_AT,
+      );
+    });
 
-  it("says the fetch time is unknown instead of inventing one", async () => {
-    mocks.query.freshness = { cache: "restored" };
+    it("turns an idle panel stale at the cutoff with no outside re-render", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
+      setAge(STALE_RESULT_AGE_MS - 5_000);
+      await render();
+      expect(staleText()).toBeNull();
 
-    await render();
+      await advance(4_999);
+      expect(staleText()).toBeNull();
+      await advance(2);
+      expect(staleText()).not.toBeNull();
+    });
 
-    expect(chip()?.textContent).toBe(
-      "sqlDashboard.fetchTimeUnknown · sqlDashboard.cacheRestored",
-    );
+    it("stops timing once stale, and leaves no timer behind when it unmounts", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
+      setAge(STALE_RESULT_AGE_MS - 5_000);
+      await render();
+      expect(vi.getTimerCount()).toBe(1);
+
+      await advance(5_001);
+      expect(staleText()).not.toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+
+      setAge(0);
+      await render({ dashboardId: "other" });
+      expect(vi.getTimerCount()).toBe(1);
+      await act(async () => root.unmount());
+      expect(vi.getTimerCount()).toBe(0);
+      root = createRoot(container);
+    });
+
+    it("re-times the panel when a refresh brings a newer fetch time", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
+      setAge(STALE_RESULT_AGE_MS + 1_000);
+      await render();
+      expect(staleText()).not.toBeNull();
+
+      mocks.query.freshness = {
+        fetchedAt: new Date(fetchedMs + STALE_RESULT_AGE_MS).toISOString(),
+        cache: "live",
+      };
+      await render();
+      expect(staleText()).toBeNull();
+      expect(vi.getTimerCount()).toBe(1);
+    });
+
+    it("never invents an age for an unknown, unreadable or future fetch time", async () => {
+      setAge(10 * STALE_RESULT_AGE_MS);
+      for (const freshness of [
+        { cache: "restored" },
+        { cache: "unknown" },
+        { fetchedAt: "not a date", cache: "unknown" },
+        {
+          fetchedAt: new Date(Date.now() + 60_000).toISOString(),
+          cache: "live",
+        },
+      ] as const) {
+        mocks.query.freshness = freshness;
+        await render();
+        expect(staleText()).toBeNull();
+      }
+    });
+
+    it("shows nothing for a source that reports nothing", async () => {
+      setAge(10 * STALE_RESULT_AGE_MS);
+      await render();
+      expect(staleText()).toBeNull();
+    });
+
+    it("says nothing about a result the caller supplied instead of fetching", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
+      setAge(10 * STALE_RESULT_AGE_MS);
+      await render({ resultOverride: { rows: [{ value: 1 }] } } as never);
+      expect(staleText()).toBeNull();
+    });
+
+    it("gives way to the updating text while a stale result refreshes", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "app-cache" };
+      setAge(STALE_RESULT_AGE_MS + 1_000);
+      mocks.query.isFetching = true;
+      await render();
+      expect(staleText()).toBeNull();
+      expect(
+        container.querySelector("[data-dashboard-report-updating]"),
+      ).not.toBeNull();
+      expect(container.textContent).toContain("42");
+    });
+
+    it("keeps the previous filters label rather than the age while paused offscreen", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
+      mocks.query.isPlaceholderData = true;
+      setAge(STALE_RESULT_AGE_MS + 1_000);
+      await render({ loadData: false, retainWhileOffscreen: true });
+      expect(staleText()).toBeNull();
+      expect(
+        container.querySelector("[data-dashboard-report-paused]")?.textContent,
+      ).toBe("sqlDashboard.previousFilters");
+    });
   });
 
-  it("exposes the full fetch time on hover and keeps the chart clickable around it", async () => {
-    mocks.query.freshness = {
-      fetchedAt: "2026-10-14T12:00:00.000Z",
-      cache: "live",
-    };
+  describe("reported to the host for the clock", () => {
+    const onFreshnessChange = vi.fn();
+    const last = () =>
+      onFreshnessChange.mock.calls[
+        onFreshnessChange.mock.calls.length - 1
+      ]?.[0];
 
-    await render();
+    beforeEach(() => onFreshnessChange.mockClear());
 
-    const element = chip()!;
-    expect(element.getAttribute("title")).toBe("full:2026-10-14T12:00:00.000Z");
-    expect(element.className).toContain("pointer-events-auto");
-    expect(element.parentElement?.className).toContain("pointer-events-none");
-    expect(element.querySelector("time")?.getAttribute("datetime")).toBe(
-      "2026-10-14T12:00:00.000Z",
-    );
-  });
+    it("hands over the fetch time and cache state of a routine result", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "app-cache" };
+      await render({ onFreshnessChange });
+      expect(last()).toEqual({ fetchedAt: FETCHED_AT, cache: "app-cache" });
+    });
 
-  it("offers no timestamp title when the fetch time is unknown", async () => {
-    mocks.query.freshness = { cache: "restored" };
+    it("hands over an unknown fetch time or cache state as unknown", async () => {
+      mocks.query.freshness = { cache: "unknown" };
+      await render({ onFreshnessChange });
+      expect(last()).toEqual({ fetchedAt: undefined, cache: "unknown" });
+    });
 
-    await render();
+    it("reports nothing for a source that reports nothing, and null on unmount", async () => {
+      await render({ onFreshnessChange });
+      expect(last()).toBeNull();
 
-    expect(chip()?.hasAttribute("title")).toBe(false);
-    expect(chip()?.querySelector("time")).toBeNull();
-  });
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
+      await render({ onFreshnessChange });
+      expect(last()).toEqual({ fetchedAt: FETCHED_AT, cache: "live" });
 
-  it("shows no chip for a source that reports nothing", async () => {
-    await render();
+      await act(async () => root.unmount());
+      expect(last()).toBeNull();
+      root = createRoot(container);
+    });
 
-    expect(chip()).toBeNull();
-  });
+    it("reports nothing while the panel shows a skeleton or an error", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
+      mocks.query.isLoading = true;
+      mocks.query.data = undefined as never;
+      await render({ onFreshnessChange });
+      expect(last()).toBeNull();
 
-  it("gives way to the updating notice while the same query refreshes", async () => {
-    mocks.query.freshness = {
-      fetchedAt: "2026-10-14T12:00:00.000Z",
-      cache: "restored",
-    };
-    mocks.query.isFetching = true;
+      mocks.query.isLoading = false;
+      mocks.query.data = { rows: [] };
+      mocks.query.error = new Error("query failed");
+      await render({ onFreshnessChange });
+      expect(last()).toBeNull();
+    });
 
-    await render();
+    it("keeps reporting the shown result's time while it refreshes", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
+      mocks.query.isFetching = true;
+      await render({ onFreshnessChange });
+      expect(last()).toEqual({ fetchedAt: FETCHED_AT, cache: "live" });
+    });
 
-    expect(chip()).toBeNull();
-    expect(
-      container.querySelector("[data-dashboard-report-updating]"),
-    ).not.toBeNull();
-  });
-
-  it("shows the new fetch time after a refresh lands", async () => {
-    mocks.query.freshness = {
-      fetchedAt: "2026-10-14T12:00:00.000Z",
-      cache: "live",
-    };
-    await render();
-    mocks.query.freshness = {
-      fetchedAt: "2026-10-14T12:05:00.000Z",
-      cache: "live",
-    };
-
-    await render();
-
-    expect(chip()?.textContent).toContain("2026-10-14T12:05:00.000Z");
+    it("does not report a result the caller supplied", async () => {
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
+      await render({
+        onFreshnessChange,
+        resultOverride: { rows: [{ value: 1 }] },
+      } as never);
+      expect(last()).toBeNull();
+    });
   });
 
   it("saves results only for a plain dashboard panel", async () => {

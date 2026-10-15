@@ -1177,6 +1177,7 @@ export default {
     refresh: "रीफ़्रेश करें",
     refreshing: "रीफ़्रेश हो रहा है...",
     updating: "अपडेट हो रहा है",
+    refreshed: "रीफ़्रेश हो गया",
     updatingPreviousFilters: "पिछले फ़िल्टर · अपडेट हो रहा है",
     previousFilters: "पिछले फ़िल्टर",
     fetchedAt: "{{time}} पर प्राप्त",

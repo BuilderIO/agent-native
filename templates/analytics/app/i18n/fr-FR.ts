@@ -1235,6 +1235,7 @@ export default {
     refresh: "Actualiser",
     refreshing: "Actualisation...",
     updating: "Mise à jour",
+    refreshed: "Actualisé",
     updatingPreviousFilters: "Filtres précédents · Mise à jour",
     previousFilters: "Filtres précédents",
     fetchedAt: "Récupéré {{time}}",

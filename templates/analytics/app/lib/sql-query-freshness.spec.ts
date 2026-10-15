@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { describeSqlQueryFreshness } from "./sql-query-freshness";
+import {
+  describeSqlQueryFreshness,
+  isStaleFetchTime,
+  msUntilStale,
+  STALE_RESULT_AGE_MS,
+} from "./sql-query-freshness";
 
 const FETCHED_AT = "2026-10-14T12:00:00.000Z";
 
@@ -79,5 +84,37 @@ describe("describeSqlQueryFreshness", () => {
     expect(
       describeSqlQueryFreshness({}, { source: "ga4", restored: true }),
     ).toEqual({ fetchedAt: undefined, cache: "restored" });
+  });
+});
+
+describe("stale result cutoff", () => {
+  const fetched = Date.parse(FETCHED_AT);
+
+  it("is strictly more than STALE_RESULT_AGE_MS: exactly the cutoff is still routine", () => {
+    expect(STALE_RESULT_AGE_MS).toBe(60 * 60 * 1000);
+    expect(isStaleFetchTime(FETCHED_AT, fetched + STALE_RESULT_AGE_MS)).toBe(
+      false,
+    );
+    expect(
+      isStaleFetchTime(FETCHED_AT, fetched + STALE_RESULT_AGE_MS + 1),
+    ).toBe(true);
+  });
+
+  it("never calls an unknown, unreadable or future fetch time stale", () => {
+    const now = fetched + 5 * STALE_RESULT_AGE_MS;
+    expect(isStaleFetchTime(undefined, now)).toBe(false);
+    expect(isStaleFetchTime("not a date", now)).toBe(false);
+    expect(isStaleFetchTime(FETCHED_AT, fetched - 60_000)).toBe(false);
+  });
+
+  it("counts down to the first moment the result is stale", () => {
+    expect(msUntilStale(FETCHED_AT, fetched)).toBe(STALE_RESULT_AGE_MS + 1);
+    const now = fetched + 1_000;
+    const delay = msUntilStale(FETCHED_AT, now) ?? 0;
+    expect(isStaleFetchTime(FETCHED_AT, now + delay - 1)).toBe(false);
+    expect(isStaleFetchTime(FETCHED_AT, now + delay)).toBe(true);
+    expect(msUntilStale(FETCHED_AT, fetched + 2 * STALE_RESULT_AGE_MS)).toBe(0);
+    expect(msUntilStale(undefined, fetched)).toBeUndefined();
+    expect(msUntilStale("not a date", fetched)).toBeUndefined();
   });
 });

@@ -1190,6 +1190,7 @@ export default {
     refresh: "تحديث",
     refreshing: "جارٍ التحديث...",
     updating: "جارٍ التحديث",
+    refreshed: "تم التحديث",
     updatingPreviousFilters: "الفلاتر السابقة · جارٍ التحديث",
     previousFilters: "الفلاتر السابقة",
     fetchedAt: "تم الجلب {{time}}",

@@ -1226,6 +1226,7 @@ export default {
     refresh: "Actualizar",
     refreshing: "Actualizando...",
     updating: "Actualizando",
+    refreshed: "Actualizado",
     updatingPreviousFilters: "Filtros anteriores · Actualizando",
     previousFilters: "Filtros anteriores",
     fetchedAt: "Obtenido {{time}}",

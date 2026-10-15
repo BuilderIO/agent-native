@@ -48,3 +48,38 @@ export function describeSqlQueryFreshness(
   }
   return { fetchedAt, cache: "unknown" };
 }
+
+/**
+ * A result older than this gets an inline age label on its panel; one exactly
+ * this old is still routine. The one place to change when the cutoff moves.
+ */
+export const STALE_RESULT_AGE_MS = 60 * 60 * 1000;
+
+function fetchedAtMs(fetchedAt: string | undefined): number | undefined {
+  if (fetchedAt === undefined) return undefined;
+  const ms = Date.parse(fetchedAt);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/**
+ * Whether a result is older than `STALE_RESULT_AGE_MS`. An unknown or
+ * unreadable fetch time is not stale: an age that cannot be known is never
+ * invented, and a fetch time in the future (a skewed clock) is not old.
+ */
+export function isStaleFetchTime(
+  fetchedAt: string | undefined,
+  now: number,
+): boolean {
+  const fetched = fetchedAtMs(fetchedAt);
+  return fetched !== undefined && now - fetched > STALE_RESULT_AGE_MS;
+}
+
+/** Milliseconds until the result turns stale; undefined when it cannot. */
+export function msUntilStale(
+  fetchedAt: string | undefined,
+  now: number,
+): number | undefined {
+  const fetched = fetchedAtMs(fetchedAt);
+  if (fetched === undefined) return undefined;
+  return Math.max(0, fetched + STALE_RESULT_AGE_MS + 1 - now);
+}

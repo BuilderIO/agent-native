@@ -400,7 +400,23 @@ export function useSqlQuery(
   const pendingManualRefresh = useRef<{
     token: number;
     queryKeyHash: string;
+    failed?: boolean;
   } | null>(null);
+  // The manual request whose own forced fetch last completed, for the caller
+  // that shows it. A fetch that started without that request (an automatic
+  // revalidation, a cancelled or failed attempt) never writes it, and it is
+  // dropped as soon as the account or query it belongs to changes.
+  const completedManualRefresh = useRef<{
+    token: number;
+    queryKeyHash: string;
+    completedAt: number;
+  } | null>(null);
+  if (
+    completedManualRefresh.current &&
+    completedManualRefresh.current.queryKeyHash !== queryKeyHash
+  ) {
+    completedManualRefresh.current = null;
+  }
   const observedRefreshToken = useRef(refreshToken);
   if (refreshToken > observedRefreshToken.current) {
     observedRefreshToken.current = refreshToken;
@@ -423,12 +439,27 @@ export function useSqlQuery(
       latestStartedRefreshToken.current = latestRefreshToken.current;
       const manual = pendingManualRefresh.current;
       const forceRefresh = manual?.queryKeyHash === queryKeyHash;
-      const result = await executeSqlQuery(sql, source, signal, {
-        reportScreenshot: options?.reportScreenshot,
-        forceRefresh,
-      });
+      let result: SqlQueryResult;
+      try {
+        result = await executeSqlQuery(sql, source, signal, {
+          reportScreenshot: options?.reportScreenshot,
+          forceRefresh,
+        });
+      } catch (error) {
+        // The request stays pending for the cache bypass, but a later success
+        // is not the one the user asked for.
+        if (manual && forceRefresh && !signal.aborted) manual.failed = true;
+        throw error;
+      }
       if (forceRefresh && pendingManualRefresh.current === manual) {
         pendingManualRefresh.current = null;
+      }
+      if (manual && forceRefresh && !manual.failed && !signal.aborted) {
+        completedManualRefresh.current = {
+          token: manual.token,
+          queryKeyHash,
+          completedAt: Date.now(),
+        };
       }
       if (options?.snapshots) {
         writeSqlQuerySnapshotForSession({
@@ -528,6 +559,15 @@ ${snapshotKey}`;
     isRestored: boolean,
   ): SqlQueryFreshness | undefined =>
     describeSqlQueryFreshness(data, { source, restored: isRestored });
+  // Offered only once the data it produced has been committed to the query.
+  const completion = completedManualRefresh.current;
+  const completedManualRefreshToken =
+    completion &&
+    completion.queryKeyHash === queryKeyHash &&
+    query.data !== undefined &&
+    query.dataUpdatedAt >= completion.completedAt
+      ? completion.token
+      : undefined;
   if (!sessionReady && wantsQuery) {
     return {
       ...query,
@@ -535,6 +575,7 @@ ${snapshotKey}`;
       isPlaceholderData: false,
       isLoading: true,
       freshness: undefined,
+      completedManualRefreshToken: undefined,
     };
   }
   if (
@@ -548,6 +589,7 @@ ${snapshotKey}`;
       isPlaceholderData: false,
       isLoading: false,
       freshness: freshnessOf(restored, true),
+      completedManualRefreshToken: undefined,
     };
   }
   const held = lastShown.current;
@@ -564,7 +606,12 @@ ${snapshotKey}`;
       isPlaceholderData: held.queryKeyHash !== queryKeyHash,
       isLoading: false,
       freshness: freshnessOf(held.data, false),
+      completedManualRefreshToken: undefined,
     };
   }
-  return { ...query, freshness: freshnessOf(query.data, false) };
+  return {
+    ...query,
+    freshness: freshnessOf(query.data, false),
+    completedManualRefreshToken,
+  };
 }

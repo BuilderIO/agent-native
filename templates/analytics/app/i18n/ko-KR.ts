@@ -1191,6 +1191,7 @@ export default {
     refresh: "새로고침",
     refreshing: "새로고침 중...",
     updating: "업데이트 중",
+    refreshed: "새로고침됨",
     updatingPreviousFilters: "이전 필터 · 업데이트 중",
     previousFilters: "이전 필터",
     fetchedAt: "{{time}}에 가져옴",

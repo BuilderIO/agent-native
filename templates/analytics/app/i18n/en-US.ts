@@ -834,6 +834,7 @@ export default {
     refresh: "Refresh",
     refreshing: "Refreshing...",
     updating: "Updating",
+    refreshed: "Refreshed",
     updatingPreviousFilters: "Previous filters · Updating",
     previousFilters: "Previous filters",
     fetchedAt: "Fetched {{time}}",

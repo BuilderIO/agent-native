@@ -20,6 +20,7 @@ import {
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { PanelFreshnessClock } from "@/components/dashboard/PanelFreshnessClock";
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import {
   AlertDialog,
@@ -59,6 +60,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
 import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
+import type { SqlQueryFreshness } from "@/lib/sql-query-freshness";
 import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
@@ -206,6 +208,24 @@ export function SqlChartCard({
   const handleExportCsvChange = useCallback((handler: (() => void) | null) => {
     setExportCsv(handler ? () => handler : null);
   }, []);
+
+  // Keyed by the panel it was reported for, so a card reused for another
+  // panel or dashboard never shows the previous one's clock.
+  const panelScope = JSON.stringify([dashboardId ?? null, panel.id]);
+  const [reportedFreshness, setReportedFreshness] = useState<{
+    scope: string;
+    freshness: SqlQueryFreshness | null;
+  } | null>(null);
+  const handleFreshnessChange = useCallback(
+    (freshness: SqlQueryFreshness | null) => {
+      setReportedFreshness({ scope: panelScope, freshness });
+    },
+    [panelScope],
+  );
+  const panelFreshness =
+    reportedFreshness?.scope === panelScope
+      ? reportedFreshness.freshness
+      : null;
 
   const handleCopyTableChange = useCallback(
     (handler: (() => Promise<void>) | null) => {
@@ -667,7 +687,13 @@ export function SqlChartCard({
               {timeRangeOverrideLabel}
             </Badge>
           ) : null}
-          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+            {panelFreshness ? (
+              <PanelFreshnessClock
+                freshness={panelFreshness}
+                className="p-1 rounded text-muted-foreground hover:text-foreground"
+              />
+            ) : null}
             {!editable || onSaveSql ? (
               <ViewSqlPopover
                 panel={panel}
@@ -830,6 +856,7 @@ export function SqlChartCard({
             onRefreshRequested={handleRefresh}
             dashboardId={dashboardId}
             onExportCsvChange={handleExportCsvChange}
+            onFreshnessChange={handleFreshnessChange}
             onCopyTableChange={handleCopyTableChange}
             onSaveColumns={onSaveColumns}
             extensionContext={extensionContext}
