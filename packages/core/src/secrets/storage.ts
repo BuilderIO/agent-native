@@ -121,16 +121,14 @@ function usesThisProcessKey(row: Record<string, unknown>): boolean {
   const shared = row.shared_encrypted_value as string | null;
   try {
     if (shared) return !decryptValue(shared).needsReencrypt;
-    decryptAppSecretValue(row.encrypted_value as string, null);
+    decryptLegacyValue(row.encrypted_value as string);
     return true;
   } catch {
     return false; // coercion-ok: a failed decrypt is the mismatch this check reports
   }
 }
 
-async function assertWriteKeepsSecretsReadable(
-  ref: SecretRef,
-): Promise<void> {
+async function assertWriteKeepsSecretsReadable(ref: SecretRef): Promise<void> {
   if (!isDevelopmentProcessOnSharedDatabase()) return;
   const client = getDbExec();
   const target = await client.execute({
@@ -140,9 +138,9 @@ async function assertWriteKeepsSecretsReadable(
   let probe = target.rows[0];
   if (!probe) {
     // A new key has no row of its own, so check the key material against
-    // another shared secret in the same scope.
+    // another secret in the same scope, preferring one with shared ciphertext.
     const sibling = await client.execute({
-      sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ? AND shared_encrypted_value IS NOT NULL LIMIT 1`,
+      sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ? ORDER BY shared_encrypted_value IS NULL LIMIT 1`,
       args: [ref.scope, ref.scopeId],
     });
     probe = sibling.rows[0];

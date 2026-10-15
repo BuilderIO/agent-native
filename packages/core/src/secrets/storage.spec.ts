@@ -1077,6 +1077,45 @@ describe("development process on a shared database", () => {
     ).rejects.toBeInstanceOf(mod.AppSecretKeyMismatchError);
   });
 
+  describe("rows without shared ciphertext", () => {
+    function useAppScopedKeyOnly(appName: string, key: string) {
+      for (const name of [
+        "WORKSPACE_SECRETS_ENCRYPTION_KEY",
+        "SECRETS_ENCRYPTION_KEY",
+        "BETTER_AUTH_SECRET",
+        "A2A_SECRET",
+        "AGENT_NATIVE_WORKSPACE",
+      ]) {
+        vi.stubEnv(name, undefined);
+      }
+      vi.stubEnv("APP_NAME", appName);
+      vi.stubEnv(`${appName.toUpperCase()}_SECRETS_ENCRYPTION_KEY`, key);
+    }
+
+    beforeEach(async () => {
+      useAppScopedKeyOnly("deployed", "deployment-app-scoped-key");
+      await mod.writeAppSecret({ ...orgRef, value: "deployment-value" });
+      expect((await storedRow()).shared_encrypted_value).toBeNull();
+      useAppScopedKeyOnly("local", "development-app-scoped-key");
+    });
+
+    it("refuses to overwrite one written with another app key", async () => {
+      await expect(
+        mod.writeAppSecret({ ...orgRef, value: "development-value" }),
+      ).rejects.toBeInstanceOf(mod.AppSecretKeyMismatchError);
+    });
+
+    it("checks a new key against them", async () => {
+      await expect(
+        mod.writeAppSecret({
+          ...orgRef,
+          key: "OPENAI_API_KEY",
+          value: "development-value",
+        }),
+      ).rejects.toBeInstanceOf(mod.AppSecretKeyMismatchError);
+    });
+  });
+
   it("writes when the scope's secrets use its preferred key", async () => {
     useDevelopmentKeys();
     await mod.writeAppSecret({ ...orgRef, value: "first-value" });
