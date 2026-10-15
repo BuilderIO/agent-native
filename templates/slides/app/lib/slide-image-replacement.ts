@@ -709,6 +709,19 @@ function applyImageGeometryStyles(
   }
 }
 
+function hasSameImageGeometryStyles(
+  left: HTMLElement,
+  right: HTMLElement,
+): boolean {
+  return LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES.every(
+    (property) =>
+      left.style.getPropertyValue(property) ===
+        right.style.getPropertyValue(property) &&
+      left.style.getPropertyPriority(property) ===
+        right.style.getPropertyPriority(property),
+  );
+}
+
 function updateImageAttributesInPlace(
   liveImage: HTMLImageElement,
   nextImage: HTMLImageElement,
@@ -829,10 +842,16 @@ export function swapImageSourcesInPlace(
   });
   previousFrames.forEach((frame, index) => {
     const nextFrame = nextFrames[index]!;
+    const liveFrame = liveFrames[index]!;
     const previousSource = frame.querySelector("img")?.getAttribute("src");
     const nextSource = nextFrame.querySelector("img")?.getAttribute("src");
-    if (previousSource === nextSource) {
-      applyImageGeometryStyles(liveFrames[index]!, nextFrame);
+    // A source update can race with a live move. Restore the snapshot geometry
+    // only when the live frame still matches the snapshot being replaced.
+    if (
+      previousSource === nextSource ||
+      hasSameImageGeometryStyles(liveFrame, frame)
+    ) {
+      applyImageGeometryStyles(liveFrame, nextFrame);
     }
   });
   return true;

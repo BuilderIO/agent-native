@@ -1991,7 +1991,7 @@ export default function SlideEditor({
     isSelectionOverlayMeasurementCurrent(
       selectedElementMeasurement,
       selectionOverlayMeasurementKey,
-    );
+    ) && isSelectionOverlayAutofitSettled(settledAutofitKey, canvasAutofitKey);
   const selectedElementMeasurementRef = useRef(selectedElementMeasurement);
   selectedElementMeasurementRef.current = selectedElementMeasurement;
   const invalidateSelectionOverlayMeasurement = useCallback(() => {
@@ -2942,6 +2942,12 @@ export default function SlideEditor({
 
   const measureSelectionOverlayNow = useCallback(() => {
     if (
+      !editingElRef.current &&
+      !isSelectionOverlayAutofitSettled(settledAutofitKey, canvasAutofitKey)
+    ) {
+      return;
+    }
+    if (
       !selectedElementPath ||
       !selectedElementSelector ||
       selectedElementSlideId !== slide.id
@@ -2985,6 +2991,8 @@ export default function SlideEditor({
     selectedElementSlideId,
     selectionOverlayMeasurementIdentityKey,
     selectionOverlayMeasurementKey,
+    settledAutofitKey,
+    canvasAutofitKey,
     slide.id,
   ]);
 
