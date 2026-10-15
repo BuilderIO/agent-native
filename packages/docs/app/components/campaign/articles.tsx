@@ -117,7 +117,10 @@ export function ArticlesList({
             {topics
               .filter((item) => item.count > 0)
               .map((item) => (
-                <li key={item.slug} className="break-inside-avoid border-b border-[var(--docs-border)] last:border-b-0">
+                <li
+                  key={item.slug}
+                  className="break-inside-avoid border-b border-[var(--docs-border)] last:border-b-0"
+                >
                   <Link
                     to={sitePathForLocale(
                       `${ARTICLES_BASE}/topic/${item.slug}`,

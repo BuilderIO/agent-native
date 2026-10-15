@@ -1013,7 +1013,9 @@ describe("public campaign frontend", () => {
         (node) => node.querySelector("h2")?.textContent === "All topics",
       )!;
       const list = section.querySelector("ul")!;
-      expect(list.classList.contains("lg:grid-cols-2")).toBe(true);
+      expect(list.classList.contains("lg:columns-2")).toBe(true);
+      expect(list.classList.contains("grid")).toBe(false);
+      expect(list.classList.contains("gap-px")).toBe(false);
       expect([...list.children].map((node) => node.tagName)).toEqual(["LI"]);
       expect(
         section.querySelector(".grid.gap-px > a, .grid.gap-px > div"),
