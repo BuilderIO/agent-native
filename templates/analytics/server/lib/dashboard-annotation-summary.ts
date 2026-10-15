@@ -5,6 +5,7 @@ import type {
 import {
   dataNoteAppliesTo,
   dataNoteIsRecent,
+  panelDrawsDataNotes,
   RECENT_DATA_NOTE_DAYS,
   type DataNote,
 } from "../../shared/data-notes.js";
@@ -87,21 +88,36 @@ function hiddenPanelIds(
   );
 }
 
+type PlacedNote = Pick<
+  DataNote,
+  "endDate" | "matchEvents" | "unlessEvents" | "panels"
+>;
+
+function panelsWithNote(
+  note: PlacedNote,
+  dashboardId: string,
+  panels: readonly SqlPanel[],
+): SqlPanel[] {
+  return panels.filter(
+    (panel) =>
+      panelDrawsDataNotes(panel) && dataNoteAppliesTo(note, dashboardId, panel),
+  );
+}
+
 /**
  * As `SqlChartCard` does: time charts shade a note over its dates, other
  * charts list it only while it is recent. The chart type stands in for the
  * x-axis, which the server never sees.
  */
 function panelsShowingNote(
-  note: Pick<DataNote, "endDate" | "matchEvents" | "unlessEvents" | "panels">,
+  note: PlacedNote,
   dashboardId: string,
   panels: readonly SqlPanel[],
   now: number,
 ): SqlPanel[] {
-  return panels.filter(
+  return panelsWithNote(note, dashboardId, panels).filter(
     (panel) =>
-      dataNoteAppliesTo(note, dashboardId, panel) &&
-      (isKeyDateChartType(panel.chartType) || dataNoteIsRecent(note, now)),
+      isKeyDateChartType(panel.chartType) || dataNoteIsRecent(note, now),
   );
 }
 
@@ -194,7 +210,7 @@ export function dataNotePlacement(
       ? undefined
       : hiddenOn.length > 0
         ? "This dashboard hides the note on every chart it belongs on (config.annotations.hiddenDataNotes). Tell the person rather than unhiding it on your own."
-        : panels.some((panel) => dataNoteAppliesTo(note, dashboardId, panel))
+        : panelsWithNote(note, dashboardId, panels).length > 0
           ? `The note belongs here only on charts other than line, area, bar or combo, and those list a note only while it is ongoing or for ${RECENT_DATA_NOTE_DAYS} days after it ends.`
           : "The note shows on none of this dashboard's charts: no chart's SQL filters on one of matchEvents without also filtering on one of unlessEvents, and no chart is pinned in panels. Read the charts' SQL with get-sql-dashboard panelIds and use the exact event name, or pin the charts with panels.";
   return {

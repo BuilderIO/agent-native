@@ -283,6 +283,35 @@ describe("summarizeDashboardAnnotations", () => {
     ]);
   });
 
+  it("never counts a section or extension card, which draw no notes", () => {
+    const cards = [
+      { id: "intro", title: "Setup", chartType: "section", sql: "" },
+      { ...panels[0], id: "widget", chartType: "extension" },
+    ];
+    const pinned = {
+      ...SKIPS_UNTRACKED,
+      panels: cards.map(({ id }) => ({ dashboardId: "dash", panelId: id })),
+    };
+
+    expect(
+      summarizeDashboardAnnotations(
+        "dash",
+        { panels: cards },
+        [],
+        [pinned, SETUP_INCIDENT],
+        OCT_15,
+      ).dataNotes,
+    ).toEqual([]);
+    const placement = dataNotePlacement(
+      SETUP_INCIDENT,
+      "dash",
+      { panels: cards },
+      OCT_15,
+    );
+    expect(placement.shownOn).toEqual([]);
+    expect(placement.hint).toContain("exact event name");
+  });
+
   it("drops a note from charts without a date axis once it is no longer recent, as they do", () => {
     const pinned = {
       ...SKIPS_UNTRACKED,
