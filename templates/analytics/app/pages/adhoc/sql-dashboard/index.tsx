@@ -175,6 +175,7 @@ import {
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
+  dashboardVersionAfterSave,
   releaseDashboardAdoptionHold,
   shouldShowDashboardLoadError,
   shouldAdoptDashboardQueryResult,
@@ -723,12 +724,6 @@ function SqlDashboardPageContent({
   const dashboardSaveQueuesRef = useRef(
     new Map<string, DashboardSaveQueue<SqlDashboardConfig>>(),
   );
-  // A queued save can land after the page has moved to another dashboard; it
-  // must not stamp that dashboard's concurrency token.
-  const openDashboardIdRef = useRef(dashboardId);
-  useEffect(() => {
-    openDashboardIdRef.current = dashboardId;
-  }, [dashboardId]);
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
@@ -904,18 +899,23 @@ function SqlDashboardPageContent({
   );
 
   const holdDashboardConfig = useCallback(() => {
-    if (!dashboardId) return;
-    pendingConfigRef.current = createDashboardAdoptionHold({
+    if (!dashboardId) return null;
+    // The ref, not state: a save that just landed has moved the ref already,
+    // and a hold from the older version would adopt that save's own refetch
+    // over an edit still queued.
+    const hold = createDashboardAdoptionHold({
       dashboardId,
-      currentUpdatedAt: dashboardUpdatedAt,
+      currentUpdatedAt: dashboardUpdatedAtRef.current,
     });
+    pendingConfigRef.current = hold;
     void queryClient.cancelQueries(
       {
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       },
       { revert: false },
     );
-  }, [dashboardId, dashboardScope, dashboardUpdatedAt, queryClient]);
+    return hold;
+  }, [dashboardId, dashboardScope, queryClient]);
 
   const [remoteEditingPanels, setRemoteEditingPanels] = useState<
     Map<string, { color: string; name: string }>
@@ -1262,12 +1262,11 @@ function SqlDashboardPageContent({
     const queue = createDashboardSaveQueue<SqlDashboardConfig>(
       async (config, expectedUpdatedAt) => {
         const result = await saveDashboard(id, config, expectedUpdatedAt);
-        if (
-          typeof result.updatedAt === "string" &&
-          openDashboardIdRef.current === id
-        ) {
-          dashboardUpdatedAtRef.current = result.updatedAt;
-        }
+        dashboardUpdatedAtRef.current = dashboardVersionAfterSave(
+          dashboardUpdatedAtRef.current,
+          expectedUpdatedAt,
+          result.updatedAt,
+        );
         return {
           changed: result.changed,
           updatedAt: result.updatedAt,
@@ -1287,7 +1286,7 @@ function SqlDashboardPageContent({
         return;
       }
       resetRevisionNavigation();
-      holdDashboardConfig();
+      const hold = holdDashboardConfig();
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
       const queue = dashboardSaveQueue(dashboardId);
@@ -1316,7 +1315,7 @@ function SqlDashboardPageContent({
           if (queue.pending() > 0) return;
           pendingConfigRef.current = releaseDashboardAdoptionHold(
             pendingConfigRef.current,
-            dashboardId,
+            hold,
           );
           void queryClient.invalidateQueries({
             queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
@@ -1351,7 +1350,7 @@ function SqlDashboardPageContent({
         throw new Error(t("sqlDashboard.viewOnly"));
       }
       resetRevisionNavigation();
-      holdDashboardConfig();
+      const hold = holdDashboardConfig();
       const queue = dashboardSaveQueue(dashboardId);
       let isLatest: boolean;
       try {
@@ -1363,7 +1362,7 @@ function SqlDashboardPageContent({
         if (queue.pending() === 0) {
           pendingConfigRef.current = releaseDashboardAdoptionHold(
             pendingConfigRef.current,
-            dashboardId,
+            hold,
           );
           void queryClient.invalidateQueries({
             queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],

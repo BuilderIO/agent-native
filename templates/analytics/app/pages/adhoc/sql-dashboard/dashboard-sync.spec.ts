@@ -3,20 +3,50 @@ import { describe, expect, it } from "vitest";
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
+  dashboardVersionAfterSave,
   releaseDashboardAdoptionHold,
   shouldShowDashboardLoadError,
   shouldAdoptDashboardQueryResult,
 } from "./dashboard-sync";
 
 describe("releaseDashboardAdoptionHold", () => {
-  it("gives up a failed save's hold but keeps another dashboard's", () => {
-    const hold = createDashboardAdoptionHold({
+  it("gives up only the hold the failed save placed", () => {
+    const placed = createDashboardAdoptionHold({
       dashboardId: "b",
       currentUpdatedAt: "2026-10-15T00:00:00.000Z",
     });
-    expect(releaseDashboardAdoptionHold(hold, "b")).toBeNull();
-    expect(releaseDashboardAdoptionHold(hold, "a")).toBe(hold);
-    expect(releaseDashboardAdoptionHold(null, "a")).toBeNull();
+    // A live collaborative update held the same dashboard after the save did.
+    const later = createDashboardAdoptionHold({
+      dashboardId: "b",
+      currentUpdatedAt: "2026-10-15T00:00:01.000Z",
+    });
+    const otherDashboard = createDashboardAdoptionHold({
+      dashboardId: "a",
+      currentUpdatedAt: "2026-10-15T00:00:00.000Z",
+    });
+    expect(releaseDashboardAdoptionHold(placed, placed)).toBeNull();
+    expect(releaseDashboardAdoptionHold(later, placed)).toBe(later);
+    expect(releaseDashboardAdoptionHold(otherDashboard, placed)).toBe(
+      otherDashboard,
+    );
+    expect(releaseDashboardAdoptionHold(null, placed)).toBeNull();
+  });
+});
+
+describe("dashboardVersionAfterSave", () => {
+  it("moves the page's version from the one the save was sent against", () => {
+    expect(dashboardVersionAfterSave("v1", "v1", "v2")).toBe("v2");
+  });
+
+  it("keeps a version the page moved to while the save was in flight", () => {
+    // The page adopted someone else's save, "vR", before this one answered.
+    expect(dashboardVersionAfterSave("vR", "v1", "v2")).toBe("vR");
+    // The page switched dashboards and hasn't loaded the next one yet.
+    expect(dashboardVersionAfterSave(null, "v1", "v2")).toBeNull();
+  });
+
+  it("keeps the version when the server reported none", () => {
+    expect(dashboardVersionAfterSave("v1", "v1", undefined)).toBe("v1");
   });
 });
 
