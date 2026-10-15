@@ -65,12 +65,13 @@ async function withMacBridge(run: (page: Page) => Promise<void>) {
     const page = await browser.newPage({
       viewport: { width: 600, height: 500 },
     });
-    await page.addInitScript(() => {
+    await page.setContent(FIXTURE);
+    // setContent reuses the blank document, so an init script would never run here.
+    await page.evaluate(() => {
       Object.defineProperty(Navigator.prototype, "platform", {
         get: () => "MacIntel",
       });
     });
-    await page.setContent(FIXTURE);
     await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
     await page.evaluate(() => {
