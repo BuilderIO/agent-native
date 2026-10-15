@@ -1242,6 +1242,16 @@ export const migrations = runMigrations(
         `ALTER TABLE IF EXISTS clips_dictations ADD COLUMN IF NOT EXISTS cleanup_version BIGINT NOT NULL DEFAULT 0`,
       ].join("; "),
     },
+    {
+      version: 86,
+      name: "recording-browser-diagnostics-app-activity",
+      // Additive. Mirrors `appActivitySummaryJson` and `appActivityBlobJson`
+      // in server/db/schema.ts.
+      sql: [
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_summary_json TEXT`,
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_blob_json TEXT`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );

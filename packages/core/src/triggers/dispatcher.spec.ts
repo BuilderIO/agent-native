@@ -3175,7 +3175,7 @@ Respond to the event.`,
     });
   });
 
-  it("loads prompt resources for the trigger run owner", async () => {
+  it("uses deployment defaults for a verified no-org shared event", async () => {
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-1",
@@ -3194,7 +3194,56 @@ runAs: creator
 Respond to the event.`,
       },
     ]);
-    const getSystemPrompt = vi.fn(async () => "system");
+    let defaultRead:
+      | {
+          value: Record<string, unknown> | null;
+          source: string;
+        }
+      | undefined;
+    let settingReadKeys: string[] = [];
+    const getSystemPrompt = vi.fn(async () => {
+      const { readDefaultAgentEngineSettingDetailed } =
+        await import("../agent/default-agent-engine.js");
+      settingReadKeys = [];
+      dbExecuteMock.mockImplementation(async (query) => {
+        if (
+          typeof query !== "string" &&
+          query.sql === "SELECT value FROM public.settings WHERE key = ?"
+        ) {
+          const key = query.args?.[0];
+          settingReadKeys.push(String(key));
+          if (key === "agent-engine") {
+            return {
+              rows: [
+                {
+                  value: JSON.stringify({
+                    engine: "openai",
+                    model: "deployment-default",
+                  }),
+                },
+              ],
+              rowsAffected: 0,
+            };
+          }
+          if (String(key).startsWith("u:")) {
+            return {
+              rows: [
+                {
+                  value: JSON.stringify({
+                    engine: "anthropic",
+                    model: "personal-default",
+                  }),
+                },
+              ],
+              rowsAffected: 0,
+            };
+          }
+        }
+        return { rows: [{ "1": 1 }], rowsAffected: 1 };
+      });
+      defaultRead = await readDefaultAgentEngineSettingDetailed();
+      return "system";
+    });
 
     await initTriggerDispatcher({
       getActions: () => ({}),
@@ -3217,6 +3266,95 @@ Respond to the event.`,
     expect(getSystemPrompt).toHaveBeenCalledWith(
       "alice+triggers@agent-native.test",
     );
+    expect(defaultRead).toEqual({
+      source: "legacy",
+      value: { engine: "openai", model: "deployment-default" },
+    });
+    expect(settingReadKeys).toEqual(["agent-engine"]);
+  });
+
+  it("pauses a shared event automation with no creator identity", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-shared-no-creator",
+        owner: "__shared__",
+        path: "jobs/shared-inbox-alert.md",
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: event",
+          "event: qa.event.no-creator",
+          "mode: agentic",
+          "---",
+          "",
+          "Respond to the event.",
+        ].join("\n"),
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+    });
+    await busEventHandler("qa.event.no-creator")(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-no-creator",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-no-creator");
+
+    const persisted = parseTriggerFrontmatter(
+      resourcePutMock.mock.calls.at(-1)![2],
+    ).meta;
+    expect(persisted).toMatchObject({
+      enabled: false,
+      lastErrorCode: "config_invalid",
+    });
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it("does not run a shared event automation for a mismatched event owner", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-shared-owner-mismatch",
+        owner: "__shared__",
+        path: "jobs/shared-inbox-alert.md",
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: event",
+          "event: qa.event.owner-mismatch",
+          "mode: agentic",
+          "createdBy: alice+triggers@agent-native.test",
+          "---",
+          "",
+          "Respond to the event.",
+        ].join("\n"),
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+    });
+    await busEventHandler("qa.event.owner-mismatch")(
+      { ok: true },
+      {
+        owner: "bob+triggers@agent-native.test",
+        eventId: "event-owner-mismatch",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-owner-mismatch");
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
   it("passes automation context to action suppliers and enforces persisted MCP tools", async () => {

@@ -798,6 +798,8 @@ const messages = {
       "Slides weren't created. Check the chat for details, then try again.",
     generationOutcomeUnresolved:
       "We couldn't confirm whether slides were created. Check the deck before trying again.",
+    generationOutcomeUnresolvedWithSlides:
+      "We couldn't confirm that slide creation finished. Review the slides shown here before continuing.",
     partialGenerationFailed:
       "We couldn't finish creating your slides. Review the slides already here and your original request before continuing.",
     originalPrompt: "You asked for",

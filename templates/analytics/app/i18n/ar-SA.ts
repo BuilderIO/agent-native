@@ -25,6 +25,16 @@ export default {
     templateCatalog: "كتالوج القوالب",
     semanticLayer: "الطبقة الدلالية",
   },
+  dashboardMode: {
+    label: "وضع لوحة المعلومات",
+    view: "عرض",
+    edit: "تحرير",
+    viewHint: "تصفّح دون تغيير أي شيء. عروض الأعمدة التي تسحبها تبقى لك وحدك.",
+    editHint: "تُحفظ التغييرات للجميع",
+    columnResizePersonal:
+      "اسحب لتغيير الحجم لك وحدك. انقر نقرًا مزدوجًا لإعادة التعيين.",
+    columnResizeShared: "اسحب لتغيير الحجم للجميع",
+  },
   dashboardHeader: {
     updated: "تم التحديث في {{date}}",
     created: "تم الإنشاء في {{date}}",
@@ -1215,6 +1225,7 @@ export default {
     selectAll: "تحديد الكل",
     selectOnly: "فقط",
     selectOnlyValue: "فقط {{value}}",
+    presets: "إعدادات مسبقة",
     untitledDashboard: "لوحة تحكم بلا عنوان",
     dashboardFallback: "لوحة المعلومات",
     viewOnly: "لديك حق الوصول للعرض فقط إلى لوحة المعلومات هذه.",

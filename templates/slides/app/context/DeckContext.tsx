@@ -465,8 +465,14 @@ async function probeDeckPersisted(id: string): Promise<DeckPersistenceResult> {
     );
     return normalizeActionDeck(result)
       ? { persisted: true }
-      : { persisted: false, reason: "not-found" };
+      : { persisted: false, reason: "request-failed", error: null };
   } catch (error) {
+    const status =
+      error && typeof error === "object"
+        ? ((error as { status?: unknown; statusCode?: unknown }).status ??
+          (error as { statusCode?: unknown }).statusCode)
+        : undefined;
+    if (status === 404) return { persisted: false, reason: "not-found" };
     return { persisted: false, reason: "request-failed", error };
   }
 }

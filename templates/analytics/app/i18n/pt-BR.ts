@@ -25,6 +25,17 @@ export default {
     templateCatalog: "Catálogo de modelos",
     semanticLayer: "Camada semântica",
   },
+  dashboardMode: {
+    label: "Modo do painel",
+    view: "Ver",
+    edit: "Editar",
+    viewHint:
+      "Veja sem alterar nada. As larguras de coluna que você arrastar ficam só para você.",
+    editHint: "As alterações são salvas para todos",
+    columnResizePersonal:
+      "Arraste para redimensionar só para você. Clique duas vezes para redefinir.",
+    columnResizeShared: "Arraste para redimensionar para todos",
+  },
   dashboardHeader: {
     updated: "Atualizado em {{date}}",
     created: "Criado em {{date}}",
@@ -1255,6 +1266,7 @@ export default {
     selectAll: "Selecionar tudo",
     selectOnly: "Só",
     selectOnlyValue: "Somente {{value}}",
+    presets: "Predefinições",
     untitledDashboard: "Painel sem título",
     dashboardFallback: "painel",
     viewOnly: "Você tem acesso somente visualização a este painel.",

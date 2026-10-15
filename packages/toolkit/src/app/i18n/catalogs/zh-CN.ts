@@ -633,6 +633,9 @@ const messages: ToolkitAgentChatTranslation = {
     "模型提供方认为该请求格式有误并予以拒绝，因此未重试。请重试，若问题持续出现，请开始新的对话。",
   "errorMessages.requestTooLarge":
     "此请求超出了服务器大小限制（HTTP 413）。请开始新聊天，或移除较大的附件或引用后重试。",
+  "errorMessages.capabilityUnavailable": "暂时无法发送你的消息。请稍后重试。",
+  "errorMessages.capabilityUnsupported":
+    "此应用目前无法安全地重试已保存的提示。请先更新应用，然后重试。",
   "errorMessages.runInterrupted": "智能体在完成前停止了。",
   "errorMessages.runFailed": "智能体运行失败。",
   "errorMessages.runUnverified":
@@ -2822,6 +2825,15 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "连接 {{name}}",
   "settingsSubAgents.close": "关闭",
   "observability.insights.rawTrace": "原始追踪（所有 span 及其输入和输出）",
+  "reportProblem.menuItem": "报告问题",
+  "reportProblem.title_other": "要附上应用在过去 {{count}} 秒内的操作记录吗？",
+  "reportProblem.noEvents": "暂时还没有记录。",
+  "reportProblem.send": "发送给智能体",
+  "reportProblem.copy": "复制问题报告",
+  "reportProblem.attaching": "正在附加…",
+  "reportProblem.notAttached": "报告未能附加。",
+  "reportProblem.agentMessage":
+    "应用出了问题。请根据附带的问题报告解释发生了什么。",
 };
 
 export default messages;

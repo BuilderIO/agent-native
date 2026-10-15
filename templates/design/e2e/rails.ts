@@ -207,8 +207,9 @@ export class App {
   }
 
   /**
-   * Waits until no save is in flight and none has been sent for longer than the client's save debounce,
-   * measured from this call: the save for the gesture just made may not have been sent yet.
+   * Waits until no save is in flight, none has been sent for longer than the client's save debounce
+   * (measured from this call: the save for the gesture just made may not have been sent yet), and the
+   * app's recorder lists no action or state write still pending.
    */
   async settled(timeout = 20_000) {
     const since = Date.now();
@@ -217,10 +218,23 @@ export class App {
         () =>
           this.inflightSaves === 0 &&
           Date.now() - Math.max(this.lastSaveActivity, since) >
-            SAVE_DEBOUNCE_QUIET_MS,
-        { timeout, message: "a save never settled" },
+            SAVE_DEBOUNCE_QUIET_MS
+            ? this.recorderPending()
+            : ["save"],
+        { timeout, message: "a save or other app work never settled" },
       )
-      .toBe(true);
+      .toEqual([]);
+  }
+
+  private recorderPending() {
+    return this.page
+      .evaluate(() =>
+        // about:blank and host pages have no recorder, so nothing is recorded as pending there.
+        (
+          window.__agentNativeRecorder?.report({ seconds: 0 }).pending ?? []
+        ).map((work) => `${work.type} ${work.name}`),
+      )
+      .catch((error: Error) => [`recorder unreadable: ${error.message}`]);
   }
 
   /** The design as the server stores it: its files and its `data` (canvas frames, board objects, metadata). */
@@ -329,19 +343,17 @@ export class App {
           contentType: "image/png",
         });
       this.recording = false;
+      if (
+        testInfo.status !== testInfo.expectedStatus ||
+        this.unexpectedFailures(toasts).length > 0
+      ) {
+        await this.attachRecorderReport(testInfo);
+      }
       await this.page.goto("about:blank").catch(() => {});
     }
     for (const id of this.designs)
       await this.action("delete-design", { id }).catch(() => {});
-    const unexpected = [
-      ...this.failures,
-      ...toasts.map((detail) => ({ kind: "error toast", detail })),
-    ].filter(
-      (failure) =>
-        !this.allowed.some(({ pattern }) =>
-          pattern.test(`${failure.kind} ${failure.detail}`),
-        ),
-    );
+    const unexpected = this.unexpectedFailures(toasts);
     if (unexpected.length && testInfo.status === testInfo.expectedStatus) {
       throw new Error(
         `The app reported failures during this test:\n${unexpected
@@ -351,6 +363,30 @@ export class App {
           .join("\n")}`,
       );
     }
+  }
+
+  private unexpectedFailures(toasts: string[]) {
+    return [
+      ...this.failures,
+      ...toasts.map((detail) => ({ kind: "error toast", detail })),
+    ].filter(
+      (failure) =>
+        !this.allowed.some(({ pattern }) =>
+          pattern.test(`${failure.kind} ${failure.detail}`),
+        ),
+    );
+  }
+
+  private async attachRecorderReport(testInfo: TestInfo) {
+    const report = await this.page
+      .evaluate(readRecorderReport)
+      // coercion-ok: the report is evidence only; no test passes or fails on it
+      .catch(() => null);
+    if (report)
+      await testInfo.attach("recorder.json", {
+        body: JSON.stringify(report, null, 2),
+        contentType: "application/json",
+      });
   }
 
   private async action(name: string, body: unknown) {
@@ -364,6 +400,10 @@ export class App {
       throw new Error(`${name} ${response.status()}: ${await response.text()}`);
     return response.json();
   }
+}
+
+function readRecorderReport() {
+  return window.__agentNativeRecorder?.report({ reason: "test" }) ?? null;
 }
 
 /** Saved nodes keyed by node id, with parent, sibling index, attributes and own text. */

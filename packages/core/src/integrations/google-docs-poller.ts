@@ -21,7 +21,6 @@ import {
   setThreadSourceIfMissing,
   updateThreadData,
 } from "../chat-threads/store.js";
-import { resolveOrgIdForEmail } from "../org/context.js";
 import {
   startIntervalJob,
   type IntervalJobHandle,
@@ -47,6 +46,10 @@ import {
   type GoogleDocsPushHeaders,
   verifyGoogleDocsChannel,
 } from "./google-docs-webhook.js";
+import {
+  integrationRequestContext,
+  resolveIntegrationRequestScope,
+} from "./request-scope.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type { IncomingMessage } from "./types.js";
 
@@ -768,6 +771,10 @@ async function processComment(
   existingThreadId?: string,
 ): Promise<void> {
   const adapter = googleDocsAdapter();
+  const requestScope = await resolveIntegrationRequestScope({
+    ownerEmail: options.ownerEmail,
+  });
+  const requestContext = integrationRequestContext(requestScope);
   const key = commentKey(fileId, commentId);
 
   const incoming: IncomingMessage = {
@@ -786,10 +793,14 @@ async function processComment(
 
   let threadId = existingThreadId;
   if (!threadId) {
-    const thread = await createThread(options.ownerEmail, {
-      title: `Google Doc: ${senderName}`,
-      source,
-    });
+    const thread = await runWithRequestContext(
+      { userEmail: options.ownerEmail, ...requestContext },
+      () =>
+        createThread(options.ownerEmail, {
+          title: `Google Doc: ${senderName}`,
+          source,
+        }),
+    );
     await saveThreadMapping(PLATFORM, key, thread.id, { fileId, commentId });
     threadId = thread.id;
   }
@@ -843,14 +854,17 @@ async function processComment(
   );
   const runId = `gdocs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const capturedThreadId = threadId;
-  const orgId = (await resolveOrgIdForEmail(options.ownerEmail)) ?? undefined;
 
   startRun(
     runId,
     capturedThreadId,
     async (send, signal) => {
       await runWithRequestContext(
-        { userEmail: options.ownerEmail, orgId, isIntegrationCaller: true },
+        {
+          userEmail: options.ownerEmail,
+          ...requestContext,
+          isIntegrationCaller: true,
+        },
         () =>
           runAgentLoopDirectWithSoftTimeout(
             {
