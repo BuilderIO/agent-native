@@ -96,7 +96,14 @@ export function TranscriptImportButton({
       rejectFile(file.name, { code: "too-large", line: null });
       return;
     }
-    const text = await file.text();
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      // The file can be moved, or lose its permission, after it is picked.
+      toast.error(t("transcriptImport.invalidFile", { fileName: file.name }));
+      return;
+    }
     const parsed = parseTranscriptImport(text, { durationMs });
     if (!parsed.ok) {
       rejectFile(file.name, parsed.error);

@@ -239,6 +239,20 @@ describe("parseTranscriptImport", () => {
     );
   });
 
+  it("strips cue markup but keeps angle brackets that are prose", () => {
+    const result = parseTranscriptImport(
+      [
+        "1",
+        "00:00:00,000 --> 00:00:02,000",
+        '<font color="#fff">If x < 5 and y > 3,</font> <s>no</s> <00:00:01.000>stop.',
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      segments: [{ text: "If x < 5 and y > 3, no stop." }],
+    });
+  });
+
   it("reads NUL and references that are not characters as U+FFFD", () => {
     const FFFD = String.fromCodePoint(0xfffd);
     const result = parseTranscriptImport(

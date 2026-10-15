@@ -129,6 +129,20 @@ describe("transcript file import", () => {
     );
   });
 
+  it("says the file couldn't be read when reading it fails", async () => {
+    const onImport = vi.fn();
+    render(onImport);
+    const file = new File([VTT], "moved.vtt");
+    vi.spyOn(file, "text").mockRejectedValue(new Error("NotReadableError"));
+
+    await pick(file);
+
+    expect(onImport).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      "transcriptImport.invalidFile moved.vtt",
+    );
+  });
+
   it("rejects a file over the size cap without reading it", async () => {
     const onImport = vi.fn();
     render(onImport);

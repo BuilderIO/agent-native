@@ -1462,38 +1462,39 @@ async function upsertTranscriptRow(
 
   const retryCount = row.status === "ready" ? 0 : (row.retryCount ?? undefined);
   const updatedAt = new Date().toISOString();
+  const t = schema.recordingTranscripts;
+  const set = {
+    ownerEmail: row.ownerEmail,
+    status: row.status,
+    failureReason: row.failureReason,
+    failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
+    ...(row.language ? { language: row.language } : {}),
+    ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
+    ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
+    ...(retryCount !== undefined ? { retryCount } : {}),
+    ...(row.replaceTranscriptUpdatedAt ? { source: null } : {}),
+    updatedAt,
+  };
+  const replaceable = row.replaceTranscriptUpdatedAt
+    ? or(
+        notImportedTranscript(),
+        eq(t.updatedAt, row.replaceTranscriptUpdatedAt),
+      )
+    : notImportedTranscript();
 
   if (existing) {
-    const t = schema.recordingTranscripts;
     const updated = await db
       .update(t)
-      .set({
-        ownerEmail: row.ownerEmail,
-        status: row.status,
-        failureReason: row.failureReason,
-        failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
-        ...(row.language ? { language: row.language } : {}),
-        ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
-        ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
-        ...(retryCount !== undefined ? { retryCount } : {}),
-        ...(row.replaceTranscriptUpdatedAt ? { source: null } : {}),
-        updatedAt,
-      })
-      .where(
-        and(
-          eq(t.recordingId, row.recordingId),
-          row.replaceTranscriptUpdatedAt
-            ? or(
-                notImportedTranscript(),
-                eq(t.updatedAt, row.replaceTranscriptUpdatedAt),
-              )
-            : notImportedTranscript(),
-        ),
-      )
+      .set(set)
+      .where(and(eq(t.recordingId, row.recordingId), replaceable))
       .returning({ recordingId: t.recordingId });
     return updated.length > 0;
-  } else {
-    await db.insert(schema.recordingTranscripts).values({
+  }
+  // An import can create the row after the read above; the conflict then
+  // takes the same guarded update.
+  const inserted = await db
+    .insert(t)
+    .values({
       recordingId: row.recordingId,
       ownerEmail: row.ownerEmail,
       language: row.language ?? "en",
@@ -1505,9 +1506,10 @@ async function upsertTranscriptRow(
       retryCount: retryCount ?? 0,
       createdAt: row.now,
       updatedAt,
-    });
-    return true;
-  }
+    })
+    .onConflictDoUpdate({ target: t.recordingId, set, setWhere: replaceable })
+    .returning({ recordingId: t.recordingId });
+  return inserted.length > 0;
 }
 
 export default requestTranscriptAction;

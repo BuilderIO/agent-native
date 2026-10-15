@@ -3,7 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
 }));
-const mockInsertValues = vi.hoisted(() => vi.fn());
+const mockInsertReturning = vi.hoisted(() =>
+  vi.fn(async () => [{ recordingId: "rec_native" }]),
+);
+const mockInsertOnConflict = vi.hoisted(() =>
+  vi.fn(() => ({ returning: mockInsertReturning })),
+);
+const mockInsertValues = vi.hoisted(() =>
+  vi.fn(() => ({ onConflictDoUpdate: mockInsertOnConflict })),
+);
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ recordingId: "rec_native" }]),
 );
@@ -1160,6 +1168,41 @@ describe("requestTranscript regeneration", () => {
         expect.anything(),
         expect.anything(),
       );
+    });
+
+    it("keeps an import that creates the row just before the first insert", async () => {
+      mockTranscribeWithBuilder.mockRejectedValue(new Error("provider down"));
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [recordingRow],
+        [pendingRow],
+        [],
+        [importedRow],
+        [titleRow],
+      ];
+      mockInsertReturning.mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      expect(mockInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "failed" }),
+      );
+      expect(mockInsertOnConflict).toHaveBeenCalledWith(
+        expect.objectContaining({
+          set: expect.objectContaining({ status: "failed" }),
+          setWhere: {
+            or: [
+              { isNull: "recordingTranscripts.source" },
+              { ne: ["recordingTranscripts.source", "imported"] },
+            ],
+          },
+        }),
+      );
+      expect(result).toMatchObject({ status: "ready", preserved: true });
     });
   });
 });

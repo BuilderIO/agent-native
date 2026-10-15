@@ -61,6 +61,12 @@ const CUE_TIMING_START = new RegExp(String.raw`^\s*${TIME}\s*-->`);
 const TIMESTAMP_LINE = new RegExp(
   String.raw`^\s*(?:[-*]\s+)?(?:\*\*)?[[(]?(${TIME})[\])]?(?:\*\*)?(?:\s*[-–—:|]?\s+(.*))?$`,
 );
+// WebVTT's cue tags and timestamps, and the tags SRT players render. Any
+// other angle bracket is prose, such as "x < 5 and y > 3".
+const CUE_MARKUP = new RegExp(
+  String.raw`<\/?(?:[bciuvs]|ruby|rt|lang|font)(?:[.\s][^<>]*)?>|<${TIME}>`,
+  "gi",
+);
 const VTT_LANGUAGE_HEADER = /^Language:\s*([a-z]{2,3}(?:-[a-z0-9]{1,8})*)$/i;
 // YouTube's transcript panel can copy each timestamp's screen-reader label
 // ("1 minute, 5 seconds") on its own line under the timestamp.
@@ -340,7 +346,7 @@ function cleanCueText(
   format: "vtt" | "srt",
 ): { text: string; speaker: string | null } {
   const voice = /<v(?:\.[^\s>]+)*\s+([^>]+)>/.exec(raw);
-  let text = raw.replace(/<[^>]*>/g, "");
+  let text = raw.replace(CUE_MARKUP, "");
   if (format === "srt") text = text.replace(/\{\\[^}]*\}/g, "");
   return {
     text: collapseWhitespace(decodeEntities(text)),
