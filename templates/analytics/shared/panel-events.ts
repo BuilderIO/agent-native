@@ -279,10 +279,11 @@ export type XCadence =
  * between them: local midnights 23 or 25 hours apart across a daylight-saving
  * change are still one point a day, and days a query returned no row for do
  * not stretch the points either side. Points all on the first of a month step
- * by months (quarters or years when they all start one), points all on one
- * weekday by weeks, and anything else, or a lone point, by days. Several
- * points a day step by the shortest gap between them in time order, so rows
- * sorted by value don't stretch a point into the next day.
+ * by months, or by quarters or years when they are all whole quarters or whole
+ * years apart, points all on one weekday by weeks, and anything else, or a
+ * lone point, by days. Several points a day step by the shortest gap between
+ * them in time order, so rows sorted by value don't stretch a point into the
+ * next day.
  */
 export function xCadence(points: readonly XDatePoint[]): XCadence {
   const days = [...new Set(points.map((point) => point.day))];
@@ -298,9 +299,9 @@ export function xCadence(points: readonly XDatePoint[]): XCadence {
   const dates = days.map((day) => new Date(day));
   if (dates.every((date) => date.getUTCDate() === 1)) {
     const months = dates.map((date) => date.getUTCMonth());
-    const count = months.every((month) => month === 0)
+    const count = months.every((month) => month === months[0])
       ? 12
-      : months.every((month) => month % 3 === 0)
+      : months.every((month) => month % 3 === months[0] % 3)
         ? 3
         : 1;
     return { unit: "months", count };
