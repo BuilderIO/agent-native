@@ -657,6 +657,13 @@ function SqlDashboardPageContent({
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
+  // The route id `dashboard` and its access were loaded for. A route change
+  // leaves them in state for one render before the reset effect clears them,
+  // so anything that acts on "this dashboard" must not pair them with the new
+  // route id.
+  const [loadedDashboardId, setLoadedDashboardId] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     const nextTitle = `${normalizeDocumentTitle(
@@ -734,7 +741,7 @@ function SqlDashboardPageContent({
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   // Every dashboard opens in view mode: drag handles, column edits, and inline
   // renames exist only while an editor has switched to edit mode.
-  const editing = canEdit && editMode;
+  const editing = canEdit && editMode && loadedDashboardId === dashboardId;
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
   const canCertify =
     !reportScreenshot &&
@@ -1008,6 +1015,7 @@ function SqlDashboardPageContent({
     skipFilterPreferenceSave.current = null;
     setLoaded(false);
     setDashboard(null);
+    setLoadedDashboardId(null);
     setArchivedAt(null);
     setHiddenAt(null);
     setDashboardOrgId(null);
@@ -1057,6 +1065,7 @@ function SqlDashboardPageContent({
         ? fetched.visibility
         : null;
     setDashboard(fetchedConfig);
+    setLoadedDashboardId(dashboardId);
     setArchivedAt(fetched?.archivedAt ?? null);
     setHiddenAt(fetched?.hiddenAt ?? null);
     setDashboardOrgId(fetched?.orgId ?? null);
@@ -1734,12 +1743,12 @@ function SqlDashboardPageContent({
 
   const dashboardExtensionContext = useMemo<Record<string, unknown>>(
     () => ({
-      dashboardId,
+      dashboardId: loadedDashboardId,
       dashboardName: dashboard?.name ?? "",
       dashboardDescription: dashboard?.description ?? null,
       filters: vars,
     }),
-    [dashboardId, dashboard?.name, dashboard?.description, vars],
+    [loadedDashboardId, dashboard?.name, dashboard?.description, vars],
   );
 
   const currentReportFilters = useMemo<Record<string, string>>(() => {
