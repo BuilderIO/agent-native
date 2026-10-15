@@ -1551,10 +1551,7 @@ fn suspend_for_exclusion(app: &AppHandle) -> Result<(), String> {
         let active = runtime.active.take();
         runtime.exclusion_active = true;
         runtime.exclusion_gap = Some(match active.as_ref() {
-            Some(active) => active_exclusion_gap(
-                active.started_at,
-                active.capture_mode,
-            ),
+            Some(active) => active_exclusion_gap(active.started_at, active.capture_mode),
             None => active_exclusion_gap(
                 Instant::now(),
                 effective_mode(config.capture_mode, runtime.temporary_audio_consumers.len()),
@@ -1730,6 +1727,18 @@ fn rotate_segment(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), St
 fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
     let mut config = config.clone();
     config.capture_mode = effective_capture_mode(app, config.capture_mode);
+    let active_mode = app
+        .state::<ScreenMemoryState>()
+        .inner
+        .lock()
+        .map_err(|error| error.to_string())?
+        .active
+        .as_ref()
+        .map(|active| active.capture_mode);
+    if active_mode.is_some_and(|mode| mode != config.capture_mode) {
+        return rotate_segment_with_capture_mode_change(app, &config);
+    }
+
     let active = {
         let state = app.state::<ScreenMemoryState>();
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
@@ -1765,37 +1774,26 @@ fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
                     }
                     return install_rotated_segment(app, next);
                 }
-                Err(active) => {
-                    match finalize_active_segment(app, active) {
-                        Ok(segment) => {
-                            write_segment_metadata(app, &segment)?;
-                            enqueue_segment_ocr(
-                                app,
-                                segment.clone(),
-                                config.sample_interval_seconds,
-                            );
-                            prune_segments(app, &config)?;
-                        }
-                        Err(err) => {
-                            record_error(app, err);
-                            end_rewind_lease(app);
-                        }
+                Err(active) => match finalize_active_segment(app, active) {
+                    Ok(segment) => {
+                        write_segment_metadata(app, &segment)?;
+                        enqueue_segment_ocr(app, segment.clone(), config.sample_interval_seconds);
+                        prune_segments(app, &config)?;
                     }
-                }
+                    Err(err) => {
+                        record_error(app, err);
+                        end_rewind_lease(app);
+                    }
+                },
             }
         } else {
-            end_rewind_lease(app);
-            match finalize_active_segment(app, active) {
-                Ok(segment) => {
-                    write_segment_metadata(app, &segment)?;
-                    enqueue_segment_ocr(app, segment.clone(), config.sample_interval_seconds);
-                    prune_segments(app, &config)?;
-                }
-                Err(err) => {
-                    record_error(app, err);
-                    end_rewind_lease(app);
-                }
-            }
+            let state = app.state::<ScreenMemoryState>();
+            state
+                .inner
+                .lock()
+                .map_err(|error| error.to_string())?
+                .active = Some(active);
+            return rotate_segment_with_capture_mode_change(app, &config);
         }
     }
 
@@ -1807,6 +1805,46 @@ fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
         }
     };
     install_rotated_segment(app, next)
+}
+
+fn rotate_segment_with_capture_mode_change(
+    app: &AppHandle,
+    config: &ScreenMemoryConfig,
+) -> Result<(), String> {
+    let next = start_new_segment(app, config.capture_mode)?;
+    let (active, exclusion_active) = {
+        let state = app.state::<ScreenMemoryState>();
+        let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        (runtime.active.take(), runtime.exclusion_active)
+    };
+    let Some(active) = active else {
+        discard_active_segment(next);
+        return Err("Screen Memory capture changed during a mode transition.".into());
+    };
+    if exclusion_active || active.exclusion_tainted.load(Ordering::SeqCst) {
+        let state = app.state::<ScreenMemoryState>();
+        let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        runtime.active = Some(active);
+        drop(runtime);
+        discard_active_segment(next);
+        return Ok(());
+    }
+
+    // Keep the old stream live until the replacement is ready, then join the
+    // metadata ranges at that boundary so mode changes do not create holes.
+    let ended_at = next.started_at;
+    let ended_at_iso = next.started_at_iso.clone();
+    end_rewind_lease(app);
+    let install_result = install_rotated_segment(app, next);
+    match finalize_active_segment_at(app, active, ended_at, ended_at_iso) {
+        Ok(segment) => {
+            if let Err(error) = persist_finalized_segment(app, segment) {
+                record_error(app, error);
+            }
+        }
+        Err(error) => record_error(app, error),
+    }
+    install_result
 }
 
 fn install_rotated_segment(app: &AppHandle, next: ActiveScreenMemorySegment) -> Result<(), String> {
@@ -2158,19 +2196,20 @@ fn start_new_segment(
             false,
         ) {
             Ok((backend, width, height)) => {
+                let started_at = Instant::now();
                 return Ok(ActiveScreenMemorySegment {
                     id,
                     path: mp4_path,
                     mime_type: MP4_RECORDING_MIME_TYPE,
                     backend,
-                    started_at: Instant::now(),
+                    started_at,
                     started_at_iso: now_iso(),
                     width: width.or(fallback_width),
                     height: height.or(fallback_height),
                     capture_mode,
                     exclusion_tainted: Arc::new(AtomicBool::new(false)),
                     graph_epoch_id: graph_epoch_id(app),
-                    graph_started_elapsed_ms: graph_elapsed_ms(app, Instant::now()),
+                    graph_started_elapsed_ms: graph_elapsed_ms(app, started_at),
                 });
             }
             Err(sck_err) => {
@@ -2197,19 +2236,20 @@ fn start_new_segment(
             target_display_id,
             None,
         )?;
+        let started_at = Instant::now();
         Ok(ActiveScreenMemorySegment {
             id,
             path: mov_path,
             mime_type: QUICKTIME_RECORDING_MIME_TYPE,
             backend,
-            started_at: Instant::now(),
+            started_at,
             started_at_iso: now_iso(),
             width: width.or(fallback_width),
             height: height.or(fallback_height),
             capture_mode,
             exclusion_tainted: Arc::new(AtomicBool::new(false)),
             graph_epoch_id: graph_epoch_id(app),
-            graph_started_elapsed_ms: graph_elapsed_ms(app, Instant::now()),
+            graph_started_elapsed_ms: graph_elapsed_ms(app, started_at),
         })
     }
 }

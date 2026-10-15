@@ -150,14 +150,14 @@ function startHandle(): HTMLElement {
 }
 
 describe("LookbackEditDialog preview", () => {
-  it("previews the whole five-minute window, not only the selection", async () => {
+  it("previews the selected range instead of the whole five-minute window", async () => {
     const invoke = previewInvoke();
     renderDialog({ invoke });
     await flush();
 
     expect(invoke).toHaveBeenCalledWith("rewind_preview_window", {
-      startedAt: ORIGINAL.startedAt,
-      endedAt: ORIGINAL.endedAt,
+      startedAt: item.startedAt,
+      endedAt: item.endedAt,
     });
   });
 
@@ -207,6 +207,38 @@ describe("LookbackEditDialog preview", () => {
     warn.mockRestore();
   });
 
+  it("keeps the selection editable after a preview error and previews its new range", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let attempts = 0;
+    const invoke = previewInvoke(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("coverage gap");
+      return { path: PREVIEW_PATH };
+    });
+    renderDialog({ invoke });
+    await flush();
+
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't prepare the preview.",
+    );
+    expect(startHandle().getAttribute("aria-disabled")).toBeNull();
+
+    act(() => {
+      startHandle().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    await flush();
+
+    expect(attempts).toBe(2);
+    expect(invoke).toHaveBeenLastCalledWith("rewind_preview_window", {
+      startedAt: "2026-10-09T10:04:31.000Z",
+      endedAt: item.endedAt,
+    });
+    expect(video().getAttribute("src")).toContain("preview-abc123.mp4");
+    warn.mockRestore();
+  });
+
   it("discards the cut when the dialog closes by any route", async () => {
     const invoke = previewInvoke();
     const props = renderDialog({ invoke });
@@ -245,25 +277,25 @@ describe("LookbackEditDialog preview", () => {
     });
     expect(
       document.querySelector<HTMLElement>("[data-playhead]")?.style.left,
-    ).toBe("0%");
+    ).toBe("90%");
 
-    // The selection is the last 30 s of the cut: 270 s to 300 s.
+    // The preview is the selected 30 s range, so playback starts at its first frame.
     act(() => {
       buttonWithText("Play selection")?.click();
     });
-    expect(video().currentTime).toBe(270);
+    expect(video().currentTime).toBe(0);
     expect(playMock).toHaveBeenCalledTimes(1);
 
-    video().currentTime = 120;
+    video().currentTime = 12;
     act(() => {
       video().dispatchEvent(new Event("timeupdate"));
     });
     expect(
       document.querySelector<HTMLElement>("[data-playhead]")?.style.left,
-    ).toBe("40%");
+    ).toBe("94%");
     expect(pauseMock).not.toHaveBeenCalled();
 
-    video().currentTime = 300;
+    video().currentTime = 30;
     act(() => {
       video().dispatchEvent(new Event("timeupdate"));
     });

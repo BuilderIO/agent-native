@@ -3,14 +3,34 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-15
+
+### Fixed
+
+- Earlier screen time keeps recording when audio capture starts or stops, and previews follow your selection.
+
 ## 2026-10-14
 
 ### Improved
 
+- Earlier screen time now follows its clip's normal share rules: adding it no longer makes the clip private, and sharing the clip shares its earlier screen time with it.
+- The recorder's Include last menu now reads None for no earlier time and has a Turn off item that stops Rewind, and the row reads Off once Rewind is stopped.
 - Clips suggestions are shorter and match the active view.
 
 ### Fixed
 
+- Clips keeps the camera preview open while Control Center is active.
+- Clips recording errors without a recovery action now dismiss automatically
+- Dictation cleanup can be undone and the original transcript remains available.
+- Owners can download a local copy when a clip upload fails
+- Opening a private clip you don't have access to now shows the request-access screen right away instead of a loading skeleton for several seconds.
+- Restoring a dictation now stays final while cleanup is still running
+- Selected-window recordings now include the camera bubble over the captured window.
+- Shared Clips no longer show earlier screen time after a Clip expires or moves to Trash.
+- Transcript edits stay intact when cleanup is running.
+- Undo no longer removes a newer dictation cleanup
+- Window recordings keep the camera preview inside the captured window.
+- Window recordings keep the camera bubble visible and aligned with the selected window as it moves.
 - Clips explains how to connect storage when saving screenshots or redacted clips.
 - Clips hides unsupported Loom edits, keeps empty-state suggestions relevant, and prevents recording controls from covering Feedback.
 - Clips no longer leave an upload progress toast running while waiting for storage setup.

@@ -83,7 +83,6 @@ function LookbackEditForm({
     startedAt: item.originalStartedAt,
     endedAt: item.originalEndedAt,
   };
-  const originalStartMs = Date.parse(original.startedAt);
   const [value, setValue] = useState<ScreenHistoryWindow>({
     startedAt: item.startedAt,
     endedAt: item.endedAt,
@@ -94,7 +93,7 @@ function LookbackEditForm({
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
-  // Both in seconds from the start of the cut, which begins at originalStartedAt.
+  // Both in seconds from the start of the selected preview window.
   const [position, setPosition] = useState<number | null>(null);
   const [selectionStop, setSelectionStop] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -103,13 +102,15 @@ function LookbackEditForm({
 
   // Every close route unmounts this form, and the cleanup discards the cut it
   // loaded. A cut that resolves after the close is discarded when it arrives.
+  // Keep the local cut bounded to the current selection so an unavailable part
+  // of the wider lookback window does not prevent editing captured footage.
   useEffect(() => {
     let cancelled = false;
     let loadedPath: string | null = null;
-    loadRewindPreview(
-      { startedAt: item.originalStartedAt, endedAt: item.originalEndedAt },
-      invoke,
-    )
+    setPreview({ status: "loading" });
+    setPosition(null);
+    setSelectionStop(null);
+    loadRewindPreview(value, invoke)
       .then((result) => {
         if (cancelled) {
           void discardQuietly(result.path, invoke);
@@ -130,7 +131,7 @@ function LookbackEditForm({
       cancelled = true;
       if (loadedPath) void discardQuietly(loadedPath, invoke);
     };
-  }, [attempt, item.originalStartedAt, item.originalEndedAt, invoke]);
+  }, [attempt, value.startedAt, value.endedAt, invoke]);
 
   async function save() {
     if (saving || unchanged || !isWindowWithin(original, value)) return;
@@ -174,13 +175,13 @@ function LookbackEditForm({
   }
 
   function cutSeconds(iso: string): number {
-    return (Date.parse(iso) - originalStartMs) / 1000;
+    return (Date.parse(iso) - Date.parse(value.startedAt)) / 1000;
   }
 
   function playSelection() {
     const video = videoRef.current;
     if (!video) return;
-    video.currentTime = cutSeconds(value.startedAt);
+    video.currentTime = 0;
     setSelectionStop(cutSeconds(value.endedAt));
     void video.play().catch((playError) => {
       console.warn("[record-pill] preview playback failed:", playError);
@@ -200,7 +201,7 @@ function LookbackEditForm({
   const playhead =
     position === null
       ? null
-      : new Date(originalStartMs + position * 1000).toISOString();
+      : new Date(Date.parse(value.startedAt) + position * 1000).toISOString();
 
   return (
     <>
