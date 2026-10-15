@@ -1030,6 +1030,10 @@ function SqlDashboardPageContent({
     setDashboardUpdatedBy(null);
     setResourceAccess(null);
     setEditMode(false);
+    // An unfinished rename or description belongs to the dashboard it was
+    // typed on; kept, it would reappear and save onto the next one.
+    setEditingName(false);
+    setEditingDescription(false);
     resetRevisionNavigation();
     revisionRestoreInFlightRef.current = false;
     if (!dashboardId) setLoaded(true);
@@ -1418,10 +1422,12 @@ function SqlDashboardPageContent({
     ],
   );
 
+  // Undo and redo restore a revision for everyone, so they run only in edit
+  // mode, whichever control calls them.
   const handleUndo = useCallback(async () => {
     if (
       !dashboardId ||
-      !canEdit ||
+      !editing ||
       restoreDashboardRevision.isPending ||
       revisionRestoreInFlightRef.current
     ) {
@@ -1462,9 +1468,9 @@ function SqlDashboardPageContent({
       revisionRestoreInFlightRef.current = false;
     }
   }, [
-    canEdit,
     dashboardId,
     dashboardRevisions,
+    editing,
     holdDashboardConfig,
     restoreDashboardRevision,
     refetchDashboardRevisions,
@@ -1480,7 +1486,7 @@ function SqlDashboardPageContent({
   const handleRedo = useCallback(async () => {
     if (
       !dashboardId ||
-      !canEdit ||
+      !editing ||
       !canRedo ||
       restoreDashboardRevision.isPending
     ) {
@@ -1513,9 +1519,9 @@ function SqlDashboardPageContent({
       revisionRestoreInFlightRef.current = false;
     }
   }, [
-    canEdit,
     canRedo,
     dashboardId,
+    editing,
     holdDashboardConfig,
     redoRevisionIds,
     resetRevisionNavigation,
