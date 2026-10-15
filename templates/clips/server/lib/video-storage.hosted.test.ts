@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   recordingRows: [] as Array<Record<string, unknown>>,
 }));
 const mockReserveHostedClipAllowance = vi.hoisted(() => vi.fn());
+const mockConsumeHostedClipAllowance = vi.hoisted(() => vi.fn());
 const mockGetHostedClipAllowanceSnapshot = vi.hoisted(() => vi.fn());
 const mockGetActiveFileUploadProviderForRequest = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
@@ -70,7 +71,11 @@ vi.mock("../db/index.js", () => ({
       failureCode: "recordings.failureCode",
       createdAt: "recordings.createdAt",
     },
-    hostedClipAllowances: { userId: "allowances.userId" },
+    hostedClipAllowances: {
+      userId: "allowances.userId",
+      recordingId: "allowances.recordingId",
+      identityKey: "allowances.identityKey",
+    },
   },
 }));
 vi.mock("./recordings.js", () => ({
@@ -78,6 +83,8 @@ vi.mock("./recordings.js", () => ({
 }));
 vi.mock("./hosted-clip-allowance.js", () => ({
   canonicalHostedClipIdentityKey: (email: string) => email.toLowerCase(),
+  consumeHostedClipAllowance: (...args: unknown[]) =>
+    mockConsumeHostedClipAllowance(...args),
   getHostedClipAllowanceSnapshot: (...args: unknown[]) =>
     mockGetHostedClipAllowanceSnapshot(...args),
   getHostedClipAllowanceStatus: vi.fn(),
@@ -95,6 +102,7 @@ vi.mock("./s3-upload-provider.js", () => ({
 }));
 
 import {
+  consumeHostedClipRecording,
   getClipsVideoStorageStatus,
   resolveClipsVideoStorage,
 } from "./video-storage.js";
@@ -291,5 +299,39 @@ describe("hosted Clips storage mode pinning", () => {
       denyReason: "exhausted",
       providerError: "hosted_storage_unavailable",
     });
+  });
+
+  it("finds an allowance by recording id after the owner's email changed", async () => {
+    const wheres: unknown[] = [];
+    const rowsBySelect = [
+      [{ ownerEmail: "new@example.com" }],
+      [{ userId: "user-1" }],
+    ];
+    mockGetDb.mockImplementation(() => ({
+      select: () => {
+        const rows = rowsBySelect.shift() ?? [];
+        const builder = {
+          from: () => builder,
+          where: (clause: unknown) => {
+            wheres.push(clause);
+            return builder;
+          },
+          limit: async () => rows,
+        };
+        return builder;
+      },
+    }));
+    mockConsumeHostedClipAllowance.mockResolvedValue({ ok: true });
+
+    await consumeHostedClipRecording({
+      recordingId: "recording-1",
+      ownerEmail: "new@example.com",
+      actualBytes: 10,
+    });
+
+    expect(mockConsumeHostedClipAllowance).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "recording-1", userId: "user-1" }),
+    );
+    expect(JSON.stringify(wheres[1])).not.toContain("allowances.identityKey");
   });
 });

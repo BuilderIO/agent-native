@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/server", () => ({
 import {
   deleteRecordingMediaObjects,
   deleteStoredMediaUrl,
+  deleteSupersededHostedMedia,
   recordingMediaUrls,
 } from "./recording-media-cleanup";
 
@@ -419,5 +420,70 @@ describe("recording-media-cleanup", () => {
     expect(() =>
       recordingMediaUrls({ kind: "image", editsJson: "{not json" }),
     ).toThrow(/could not be read/);
+  });
+
+  describe("deleteSupersededHostedMedia", () => {
+    const previousUrl = "https://storage.example.com/clips/rec_1/old.jpg";
+    const replacementUrl = "https://storage.example.com/clips/rec_1/new.jpg";
+
+    it("deletes the replaced object and lowers the retained bytes", async () => {
+      mockDeleteS3ObjectByUrl.mockResolvedValue(true);
+      mockObjectSize.mockResolvedValue(10);
+
+      await deleteSupersededHostedMedia(previousUrl, {
+        recordingId: "rec_1",
+        replacementUrl,
+      });
+
+      expect(mockDeleteS3ObjectByUrl).toHaveBeenCalledWith(previousUrl, {
+        storageMode: "hosted",
+        recordingId: "rec_1",
+      });
+      expect(mockSubtractBytes).toHaveBeenCalledWith({
+        recordingId: "rec_1",
+        deletedBytes: 10,
+      });
+    });
+
+    it("leaves a missing, identical, or out-of-bucket URL alone", async () => {
+      mockIsUrlInS3Storage.mockResolvedValue(false);
+      await deleteSupersededHostedMedia(previousUrl, {
+        recordingId: "rec_1",
+        replacementUrl,
+      });
+      await deleteSupersededHostedMedia(null, {
+        recordingId: "rec_1",
+        replacementUrl,
+      });
+      await deleteSupersededHostedMedia(replacementUrl, {
+        recordingId: "rec_1",
+        replacementUrl,
+      });
+
+      expect(mockDeleteS3ObjectByUrl).not.toHaveBeenCalled();
+    });
+
+    it("reports, without throwing, a delete the provider did not confirm", async () => {
+      mockDeleteS3ObjectByUrl.mockResolvedValue(false);
+      const errorLog = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+
+      await expect(
+        deleteSupersededHostedMedia(previousUrl, {
+          recordingId: "rec_1",
+          replacementUrl,
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(errorLog).toHaveBeenCalled();
+      expect(mockTrack).toHaveBeenCalledWith(
+        "clips_hosted_byte_accounting_failed",
+        expect.objectContaining({
+          recording_id: "rec_1",
+          reason: "superseded_delete_unconfirmed",
+        }),
+      );
+    });
   });
 });

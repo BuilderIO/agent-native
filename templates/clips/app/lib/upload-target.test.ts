@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   abandonUploadTarget,
+  hostedUploadLimits,
   openUploadTarget,
   uploadTargetAtStart,
 } from "./upload-target";
@@ -243,5 +244,26 @@ describe("abandonUploadTarget", () => {
       ),
     ).toBeNull();
     expect(trash).not.toHaveBeenCalled();
+  });
+});
+
+describe("hostedUploadLimits", () => {
+  const caps = {
+    configured: true,
+    hostedRemaining: 2,
+    maxClipBytes: 250,
+    maxClipDurationMs: 600_000,
+  };
+
+  it("limits hosted uploads to the hosted caps", () => {
+    expect(hostedUploadLimits({ ...caps, mode: "hosted" })).toEqual({
+      maxClipBytes: 250,
+      maxClipDurationMs: 600_000,
+    });
+  });
+
+  it("does not apply the hosted caps to own storage or an unreadable status", () => {
+    expect(hostedUploadLimits({ ...caps, mode: "own" })).toBeNull();
+    expect(hostedUploadLimits(null)).toBeNull();
   });
 });

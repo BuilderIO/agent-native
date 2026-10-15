@@ -16,6 +16,7 @@ const mockMakeSeekable = vi.hoisted(() => vi.fn());
 const mockNormalizeTimelineToMp4 = vi.hoisted(() => vi.fn());
 const mockQueueCompression = vi.hoisted(() => vi.fn());
 const mockDeleteRecordingMediaObjects = vi.hoisted(() => vi.fn());
+const mockDeleteSupersededHostedMedia = vi.hoisted(() => vi.fn());
 const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockClearSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockReturning = vi.hoisted(() => vi.fn());
@@ -79,6 +80,8 @@ vi.mock("../../server/lib/builder-media-compression.js", () => ({
 vi.mock("../../server/lib/recording-media-cleanup.js", () => ({
   deleteRecordingMediaObjects: (...args: unknown[]) =>
     mockDeleteRecordingMediaObjects(...args),
+  deleteSupersededHostedMedia: (...args: unknown[]) =>
+    mockDeleteSupersededHostedMedia(...args),
 }));
 
 vi.mock("../../server/lib/recordings.js", () => ({
@@ -210,6 +213,37 @@ describe("ensureRecordingSeekable timeline normalization", () => {
       videoUrl: "https://cdn.example.com/repaired.mp4",
     });
     expect(mockClearSeekableRepairPending).toHaveBeenCalledWith(recording.id);
+  });
+
+  it("deletes the superseded hosted video once the repaired one is linked", async () => {
+    recording.storageMode = "hosted";
+
+    await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+      normalizeTimeline: true,
+    });
+
+    expect(mockDeleteSupersededHostedMedia).toHaveBeenCalledWith(
+      recording.videoUrl,
+      {
+        recordingId: recording.id,
+        replacementUrl: "https://cdn.example.com/repaired.mp4",
+      },
+    );
+  });
+
+  it("keeps the original video when the guarded update loses its race", async () => {
+    recording.storageMode = "hosted";
+    mockReturning.mockResolvedValue([]);
+
+    await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+      normalizeTimeline: true,
+    });
+
+    expect(mockDeleteSupersededHostedMedia).not.toHaveBeenCalled();
   });
 
   it("reads a hosted source through the recording-scoped signed reader", async () => {

@@ -147,7 +147,10 @@ async function deleteBuilderAssetByUrl(
  */
 function reportHostedByteAccountingFailure(
   recordingId: string,
-  reason: "size_unreadable" | "ledger_update_failed",
+  reason:
+    | "size_unreadable"
+    | "ledger_update_failed"
+    | "superseded_delete_unconfirmed",
   error: unknown,
 ): void {
   console.error("[clips] hosted retained bytes not reduced after delete", {
@@ -217,6 +220,40 @@ async function deleteHostedMediaObject(
     }
   }
   return deleted;
+}
+
+/**
+ * Removes the hosted object a successful swap just replaced, so it neither
+ * lingers in the bucket nor stays in the retained-byte ledger: once the row
+ * points at the new URL, permanent delete can no longer find the old one. The
+ * user's action already succeeded, so a delete that fails or goes unconfirmed
+ * is reported, not thrown. URLs outside the bucket are not ours to delete.
+ * With no `replacementUrl` it removes an upload that never became referenced.
+ */
+export async function deleteSupersededHostedMedia(
+  previousUrl: string | null | undefined,
+  options: { recordingId: string; replacementUrl?: string },
+): Promise<void> {
+  if (!previousUrl || previousUrl === options.replacementUrl) return;
+  try {
+    if (
+      (await isUrlInS3Storage(previousUrl, { storageMode: "hosted" })) === false
+    ) {
+      return;
+    }
+    if (await deleteHostedMediaObject(previousUrl, options.recordingId)) return;
+    reportHostedByteAccountingFailure(
+      options.recordingId,
+      "superseded_delete_unconfirmed",
+      new Error("The provider did not confirm deleting the superseded object."),
+    );
+  } catch (error) {
+    reportHostedByteAccountingFailure(
+      options.recordingId,
+      "superseded_delete_unconfirmed",
+      error,
+    );
+  }
 }
 
 /**

@@ -1330,6 +1330,14 @@ function createS3FileUploadProvider(
           );
         }
         await cancelS3ResponseBody(abortRes);
+        // A 404 also means CompleteMultipartUpload already consumed this
+        // session; its object then sits at the deterministic key, unlinked.
+        if (
+          abortRes.status === 404 &&
+          (await verifyCompletedMultipartObject(cfg, meta))
+        ) {
+          await deleteObject(cfg, meta.objectKey);
+        }
         await deleteObject(cfg, meta.stagingKey).catch((err) => {
           console.warn(
             "[s3-upload] failed to delete aborted multipart staging object:",

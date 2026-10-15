@@ -132,6 +132,7 @@ import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import {
   abandonUploadTarget,
+  hostedUploadLimits,
   openUploadTarget,
   uploadTargetAtStart,
   type CreatedUploadTarget,
@@ -1957,8 +1958,14 @@ export default function RecordRoute() {
               "No video storage configured. Use Builder.io (free tier storage + AI) or S3-compatible storage.",
             );
           }
-          uploadMaxBytes = Math.min(MAX_UPLOAD_BYTES, status.maxClipBytes);
-          maxClipDurationMs = status.maxClipDurationMs;
+          const hostedLimits = hostedUploadLimits(status);
+          if (hostedLimits) {
+            uploadMaxBytes = Math.min(
+              MAX_UPLOAD_BYTES,
+              hostedLimits.maxClipBytes,
+            );
+            maxClipDurationMs = hostedLimits.maxClipDurationMs;
+          }
         }
         const meta = await probeVideoMetadata(file);
         if (isStale()) return;

@@ -889,6 +889,63 @@ describe("first imported recording transactional email", () => {
     });
   });
 
+  it("releases a new hosted reservation when the source download fails before any upload", async () => {
+    const updates: unknown[] = [];
+    const db = {
+      select: vi.fn(),
+      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      update: vi.fn(() => ({
+        set: (value: unknown) => {
+          updates.push(value);
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn(async () => [{ id: "updated-recording" }]),
+            })),
+          };
+        },
+      })),
+    } as any;
+    mocks.getDb.mockReturnValue(db);
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+    mocks.nanoid.mockReturnValue("recording-download-failed");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.isCandidateDirectVideoUrl.mockReturnValue(true);
+    mocks.resolveClipsVideoStorage.mockResolvedValue({
+      mode: "hosted",
+      provider: { id: "clips-hosted", upload: mocks.hostedUpload },
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 3,
+      maxClipDurationMs: 60_000,
+      reservationCreated: true,
+    });
+    mocks.downloadDirectVideo.mockRejectedValue(
+      new Error("source returned 404"),
+    );
+
+    await expect(
+      importLoomRecording.run({ url: "https://media.example.com/source.mp4" }),
+    ).rejects.toThrow("source returned 404");
+
+    expect(mocks.hostedUpload).not.toHaveBeenCalled();
+    expect(mocks.releaseHostedClipRecording).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "recording-download-failed",
+        ownerEmail: "owner@example.com",
+      }),
+    );
+    expect(updates.at(-1)).toMatchObject({
+      status: "failed",
+      storageMode: null,
+      videoUrl: null,
+    });
+  });
+
   it("rejects hosted policy denials instead of parking the import", async () => {
     const insertValues = vi.fn(async () => undefined);
     const db = {

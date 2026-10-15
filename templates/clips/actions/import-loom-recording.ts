@@ -48,7 +48,6 @@ import {
   failLoomImport,
 } from "./lib/loom-import-job.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
-import { VideoDownloadTooLargeError } from "./lib/video-download-limits.js";
 
 export { enqueueFirstImportEmailIfEligible };
 
@@ -620,6 +619,9 @@ export default defineAction({
       existingRecording?.videoFormat === "webm" ? "webm" : "mp4";
     let hostedVerifiedBytes: number | null = null;
     let uploadSizeMismatch = false;
+    // Set before the provider is called: once true, an object or session may
+    // exist, so the reservation is no longer certain to be unused.
+    let uploadAttempted = false;
     try {
       if (reusableHostedUrl) {
         hostedVerifiedBytes = await verifyHostedClipMedia({
@@ -656,6 +658,7 @@ export default defineAction({
           stableUrl: true,
           recordAsset: false,
         };
+        uploadAttempted = true;
         upload = storage.provider
           ? await storage.provider.upload(uploadInput)
           : await uploadFile(uploadInput);
@@ -736,9 +739,10 @@ export default defineAction({
             : 0;
 
       if (
-        error instanceof VideoDownloadTooLargeError &&
         storage.mode === "hosted" &&
-        storage.reservationCreated === true
+        storage.reservationCreated === true &&
+        reusableHostedUrl === null &&
+        !uploadAttempted
       ) {
         try {
           await releaseHostedReservation();

@@ -1194,6 +1194,61 @@ describe("s3FileUploadProvider", () => {
     );
   });
 
+  describe("abortSession after the session was already consumed", () => {
+    async function abortWithHead(headStatus: number) {
+      const values: Record<string, string> = {
+        S3_BUCKET: "clips-bucket",
+        S3_ACCESS_KEY_ID: "access",
+        S3_SECRET_ACCESS_KEY: "secret",
+        S3_ENDPOINT: "https://s3.example.com",
+      };
+      mockResolveSecret.mockImplementation(async (key: string) => {
+        return values[key] ?? null;
+      });
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === "DELETE" && url.includes("uploadId=")) {
+          return new Response("<Error><Code>NoSuchUpload</Code></Error>", {
+            status: 404,
+          });
+        }
+        if (init?.method === "HEAD") {
+          return new Response(null, {
+            status: headStatus,
+            headers: { "content-length": "3" },
+          });
+        }
+        return new Response(null, { status: 204 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      await s3FileUploadProvider.resumable!.abortSession!({
+        sessionId: "upload-example",
+        meta: {
+          objectKey: "clips/recording.webm",
+          stagingKey: "clips/.multipart/recording.webm.pending",
+          mimeType: "video/webm",
+          maxBytes: 1024,
+          pendingBytes: 0,
+          parts: [{ partNumber: 1, etag: '"e"', sizeBytes: 3 }],
+        },
+      });
+      return fetchMock;
+    }
+    const objectDeletes = (fetchMock: ReturnType<typeof vi.fn>) =>
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          (init as RequestInit)?.method === "DELETE" &&
+          String(url).endsWith("/clips/recording.webm"),
+      );
+
+    it("deletes the completed object that the 404 hid", async () => {
+      expect(objectDeletes(await abortWithHead(200))).toHaveLength(1);
+    });
+
+    it("leaves the object key alone when nothing was completed", async () => {
+      expect(objectDeletes(await abortWithHead(404))).toHaveLength(0);
+    });
+  });
+
   it("recovers a completed multipart upload when a retry receives NoSuchUpload", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "clips-bucket",

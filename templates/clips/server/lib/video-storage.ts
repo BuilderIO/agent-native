@@ -575,8 +575,7 @@ async function resolveAllowanceUserId(input: {
   const userId = input.userId?.trim();
   if (userId) return userId;
 
-  const identityKey = canonicalHostedClipIdentityKey(input.ownerEmail);
-  if (!identityKey) {
+  if (!canonicalHostedClipIdentityKey(input.ownerEmail)) {
     throw new Error("Hosted Clips allowance owner identity is unavailable.");
   }
   const [recording] = await getDb()
@@ -594,15 +593,13 @@ async function resolveAllowanceUserId(input: {
       "Hosted Clips allowance recording owner could not be verified.",
     );
   }
+  // Ownership was verified against the live recording row above. The allowance
+  // keeps its original identity_key across an email change, so it is found by
+  // its primary key rather than by the current email.
   const [allowance] = await getDb()
     .select({ userId: schema.hostedClipAllowances.userId })
     .from(schema.hostedClipAllowances)
-    .where(
-      and(
-        eq(schema.hostedClipAllowances.recordingId, input.recordingId),
-        eq(schema.hostedClipAllowances.identityKey, identityKey),
-      ),
-    )
+    .where(eq(schema.hostedClipAllowances.recordingId, input.recordingId))
     .limit(1);
   if (!allowance?.userId) {
     throw new Error("Hosted Clips allowance owner could not be resolved.");

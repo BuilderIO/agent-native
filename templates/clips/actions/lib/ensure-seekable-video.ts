@@ -7,7 +7,10 @@ import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
-import { deleteRecordingMediaObjects } from "../../server/lib/recording-media-cleanup.js";
+import {
+  deleteRecordingMediaObjects,
+  deleteSupersededHostedMedia,
+} from "../../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import { fetchS3ObjectByUrl } from "../../server/lib/s3-upload-provider.js";
 import { clearSeekableRepairPending } from "../../server/lib/seekable-media-state.js";
@@ -300,6 +303,12 @@ async function ensureRecordingSeekableInternal(params: {
     };
   }
 
+  if (rec.storageMode === "hosted") {
+    await deleteSupersededHostedMedia(rec.videoUrl, {
+      recordingId,
+      replacementUrl: upload.url,
+    });
+  }
   await markRecordingSeekable(recordingId, upload.url);
   await writeAppState("refresh-signal", { ts: Date.now() });
 

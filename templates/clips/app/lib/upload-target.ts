@@ -22,6 +22,21 @@ interface VideoStorageUploadStatus {
 }
 
 /**
+ * The status carries the hosted caps in every mode; only hosted uploads are
+ * bound by them, so own storage gets none.
+ */
+export function hostedUploadLimits(
+  status: VideoStorageUploadStatus | null,
+): NonNullable<CreatedUploadTarget["clientLimits"]> | null {
+  return status?.mode === "hosted"
+    ? {
+        maxClipBytes: status.maxClipBytes,
+        maxClipDurationMs: status.maxClipDurationMs,
+      }
+    : null;
+}
+
+/**
  * Open the server upload a take streams into, or resolve null to record it
  * into the local copy instead. Without an intake it never throws: no owner
  * at capture, no storage, an unreadable status, a refused create (including
@@ -98,17 +113,8 @@ export async function openUploadTarget(options: {
       options.dropRow(info.id);
       return null;
     }
-    return {
-      ...info,
-      ...(uploadStatus?.mode === "hosted"
-        ? {
-            clientLimits: {
-              maxClipBytes: uploadStatus.maxClipBytes,
-              maxClipDurationMs: uploadStatus.maxClipDurationMs,
-            },
-          }
-        : {}),
-    };
+    const clientLimits = hostedUploadLimits(uploadStatus);
+    return { ...info, ...(clientLimits ? { clientLimits } : {}) };
   }
   if (intake) {
     if (res.status === 401 || res.status === 403) {
