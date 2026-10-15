@@ -45,6 +45,32 @@ const todaysStack = {
   ],
   in_app: "Keep the notes together.",
 };
+const recipe = {
+  id: "sample-recipe",
+  title: "Draft a summary",
+  when: "After a meeting",
+  do: "Ask for a summary",
+  prompt: "Summarize the meeting",
+  you_get: "A summary",
+  save: "Keep the summary",
+  how_often: "Every meeting",
+};
+const angle = {
+  id: "engineering",
+  audience: "Engineers",
+  title: "Engineering workflow",
+  subhead: "Share the technical details",
+  old_way_body: "Manual engineering notes",
+};
+const optionalFields = {
+  recipes: [recipe],
+  connects_to: ["Calendar", "CRM"],
+  next_jobs: ["next-job"],
+  frequency: "weekly",
+  how_often_label: "Every week",
+  roles: ["engineering", "everyone"],
+  angles: [angle],
+};
 const article = {
   ...common,
   use_case: "sample",
@@ -149,6 +175,182 @@ describe("campaign content", () => {
     );
   });
 
+  it("accepts absent and populated optional workflow fields without inventing defaults", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const absent = parseCampaignContent(sources()).useCases[0];
+    for (const key of Object.keys(optionalFields))
+      expect(absent).not.toHaveProperty(key);
+    const populated = parseCampaignContent(
+      sources({
+        "sample.yaml": yaml({ ...useCase, ...optionalFields }),
+      }),
+    ).useCases[0];
+    expect(populated).toMatchObject(optionalFields);
+    const { prompt: _prompt, save: _save, ...minimalRecipe } = recipe;
+    const { old_way_body: _oldWay, ...minimalAngle } = angle;
+    const minimal = parseCampaignContent(
+      sources({
+        "sample.yaml": yaml({
+          ...useCase,
+          recipes: [minimalRecipe],
+          angles: [minimalAngle],
+        }),
+      }),
+    ).useCases[0];
+    expect(minimal.recipes).toEqual([minimalRecipe]);
+    expect(minimal.angles).toEqual([minimalAngle]);
+    const emptyArrays = {
+      recipes: [],
+      connects_to: [],
+      next_jobs: [],
+      roles: [],
+      angles: [],
+    };
+    expect(
+      parseCampaignContent(
+        sources({
+          "sample.yaml": yaml({ ...useCase, ...emptyArrays }),
+        }),
+      ).useCases[0],
+    ).toMatchObject(emptyArrays);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it.each(["daily", "weekly", "per-project", "occasional"])(
+    "accepts frequency %s",
+    (frequency) => {
+      expect(
+        parseCampaignContent(
+          sources({
+            "sample.yaml": yaml({ ...useCase, frequency }),
+          }),
+        ).useCases[0].frequency,
+      ).toBe(frequency);
+    },
+  );
+
+  it("accepts every configured role and strips private nested recipe and angle properties", () => {
+    const roles = [
+      "engineering",
+      "product",
+      "design",
+      "marketing",
+      "revops",
+      "sales",
+      "founders",
+      "finance",
+      "everyone",
+    ];
+    const content = parseCampaignContent(
+      sources({
+        "sample.yaml": yaml({
+          ...useCase,
+          ...optionalFields,
+          roles,
+          recipes: [
+            {
+              ...recipe,
+              internal: "PRIVATE-RECIPE",
+              audience: "PRIVATE-RECIPE-AUDIENCE",
+            },
+          ],
+          angles: [
+            {
+              ...angle,
+              internal: "PRIVATE-ANGLE",
+              strategy: "PRIVATE-STRATEGY",
+            },
+          ],
+        }),
+      }),
+    );
+    expect(content.useCases[0]).toMatchObject({ ...optionalFields, roles });
+    expect(content.useCases[0].recipes).toEqual([recipe]);
+    expect(content.useCases[0].angles).toEqual([angle]);
+    expect(JSON.stringify(content)).not.toContain("PRIVATE");
+  });
+
+  it.each([
+    ...Object.keys(optionalFields).flatMap((field) =>
+      [null, 42, {}].map((value) => ({ field, value })),
+    ),
+    { field: "recipes", value: "recipe" },
+    ...["id", "title", "when", "do", "you_get", "how_often"].flatMap((key) =>
+      [undefined, "  ", 3].map((value) => ({
+        field: "recipes",
+        value: [{ ...recipe, [key]: value }],
+      })),
+    ),
+    ...["prompt", "save"].flatMap((key) =>
+      [" ", null, 3].map((value) => ({
+        field: "recipes",
+        value: [{ ...recipe, [key]: value }],
+      })),
+    ),
+    { field: "recipes", value: [{ ...recipe, id: "Invalid ID" }] },
+    { field: "recipes", value: [null] },
+    { field: "connects_to", value: [""] },
+    { field: "connects_to", value: [1] },
+    { field: "next_jobs", value: ["Invalid job"] },
+    { field: "next_jobs", value: [1] },
+    { field: "frequency", value: "monthly" },
+    { field: "frequency", value: "" },
+    { field: "how_often_label", value: " " },
+    { field: "roles", value: ["admin"] },
+    { field: "roles", value: [1] },
+    { field: "angles", value: [null] },
+    ...["id", "audience", "title", "subhead"].flatMap((key) =>
+      [undefined, " ", 3].map((value) => ({
+        field: "angles",
+        value: [{ ...angle, [key]: value }],
+      })),
+    ),
+    { field: "angles", value: [{ ...angle, id: "Invalid ID" }] },
+    ...[" ", null, 3].map((value) => ({
+      field: "angles",
+      value: [{ ...angle, old_way_body: value }],
+    })),
+  ])(
+    "logs and skips malformed $field (%#) without discarding valid siblings",
+    ({ field, value }) => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const content = parseCampaignContent(
+        sources(
+          {
+            "sample.yaml": yaml({ ...useCase, [field]: value }),
+            "valid.yaml": yaml({ ...useCase, slug: "valid" }),
+          },
+          {},
+        ),
+      );
+      expect(content.useCases.map((item) => item.slug)).toEqual(["valid"]);
+      expect(error).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining(
+          `sample.yaml: invalid content skipped (${field}`,
+        ),
+      );
+      expect(JSON.stringify(error.mock.calls)).not.toContain("PRIVATE");
+    },
+  );
+
+  it("allows Content use cases without adding a Content article category", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const content = parseCampaignContent(
+      sources(
+        { "sample.yaml": yaml({ ...useCase, app: "content" }) },
+        { "sample.md": markdown({ ...article, category: "content" }) },
+      ),
+    );
+    expect(content.useCases[0].app).toBe("content");
+    expect(content.articles).toEqual([]);
+    expect(error).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("invalid content skipped (category"),
+    );
+    const paths = buildCampaignPages(content).map((page) => page.path);
+    expect(paths).toContain("/use-cases/sample/");
+    expect(paths).not.toContain("/articles/category/content/");
+  });
+
   it("accepts null stories as absent and normalizes used_before strings to lists", () => {
     const absent = parseCampaignContent(
       sources({ "sample.yaml": yaml({ ...useCase, story: null }) }),
@@ -203,14 +405,14 @@ describe("campaign content", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  it("validates all nine use cases and eight articles through bundled and disk loaders without warnings", () => {
+  it("validates all fourteen use cases and eight articles through bundled and disk loaders without warnings", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const bundled = loadCampaignContent();
     const disk = loadCampaignContentFromDisk(
       new URL("..", import.meta.url).pathname,
     );
-    expect(bundled.useCases).toHaveLength(9);
+    expect(bundled.useCases).toHaveLength(14);
     expect(bundled.articles).toHaveLength(8);
     expect(
       bundled.useCases.map((item) => [
@@ -221,18 +423,21 @@ describe("campaign content", () => {
     ).toEqual([
       ["ai-meeting-notes", "Four places one meeting ends up", 4],
       ["bug-reports-with-console-logs", "Four tools for one bug", 4],
+      ["crm-and-call-questions", "Four tools for one pipeline review", 4],
       [
         "design-brief-to-prototype",
         "From brief to something clickable, today",
         3,
       ],
       ["dictate-instead-of-typing", "Where your words go today", 3],
+      ["find-where-users-drop-off", "Three tools for one drop-off question", 3],
       ["landing-page-prototypes", "How a launch page usually gets made", 3],
       [
         "see-what-your-coding-agent-plans",
         "Where an agent's plan lives today",
         3,
       ],
+      ["spec-your-coding-agent-builds-from", "Where a spec lives today", 3],
       ["startup-kpi-dashboard", "Four tools for one set of numbers", 4],
       ["startup-pitch-deck", "What goes into a pitch deck today", 4],
       [
@@ -240,7 +445,27 @@ describe("campaign content", () => {
         "How a change gets reviewed today",
         3,
       ],
+      ["weekly-marketing-report", "Four tools for one weekly report", 4],
+      ["wireframe-before-agent-builds", "How a screen gets described today", 3],
     ]);
+    const slugs = bundled.useCases.map((item) => item.slug);
+    for (const item of bundled.useCases) {
+      expect(item.recipes, item.slug).toHaveLength(3);
+      expect(
+        new Set(item.recipes!.map((recipe) => recipe.id)).size,
+        item.slug,
+      ).toBe(3);
+      expect(item.next_jobs?.length, item.slug).toBeGreaterThan(0);
+      for (const next of item.next_jobs!) {
+        expect(slugs, `${item.slug} → ${next}`).toContain(next);
+        expect(next).not.toBe(item.slug);
+      }
+    }
+    expect(
+      bundled.useCases.find(
+        (item) => item.slug === "spec-your-coding-agent-builds-from",
+      )?.app,
+    ).toBe("content");
     expect(bundled).toEqual(disk);
     expect(warn).not.toHaveBeenCalled();
     for (const item of [...bundled.useCases, ...bundled.articles]) {
@@ -249,7 +474,10 @@ describe("campaign content", () => {
     }
     expect(error).not.toHaveBeenCalled();
     const serialized = JSON.stringify(bundled);
-    expect(serialized).not.toMatch(/"(?:audience|internal)":/);
+    expect(serialized).not.toMatch(/"internal":/);
+    for (const item of [...bundled.useCases, ...bundled.articles]) {
+      expect(item).not.toHaveProperty("audience");
+    }
     expect(bundled.useCases.every((item) => item.story === undefined)).toBe(
       true,
     );
@@ -383,7 +611,7 @@ describe("campaign CTA and SEO", () => {
       buildCampaignCtaUrl(
         "https://example.com/?existing=1&utm_source=old&job=old#open",
         "new-job",
-        "?utm_source=a&utm_source=b&utm_content=custom&gclid=1&gclid=2&msclkid=m&fbclid=f&ignored=no&job=attacker",
+        "?utm_source=a&utm_source=b&utm_content=custom&gclid=1&gclid=2&msclkid=m&fbclid=f&angle=engineering&ignored=no&job=attacker",
       ),
     );
     expect(url.searchParams.getAll("utm_source")).toEqual(["a", "b"]);
@@ -392,6 +620,7 @@ describe("campaign CTA and SEO", () => {
     expect(url.searchParams.get("msclkid")).toBe("m");
     expect(url.searchParams.get("fbclid")).toBe("f");
     expect(url.searchParams.get("job")).toBe("new-job");
+    expect(url.searchParams.get("angle")).toBe("engineering");
     expect(url.searchParams.get("existing")).toBe("1");
     expect(url.searchParams.has("ignored")).toBe(false);
     expect(url.hash).toBe("#open");

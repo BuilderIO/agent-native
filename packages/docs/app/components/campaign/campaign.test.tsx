@@ -1,8 +1,19 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 // @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter, type LoaderFunctionArgs } from "react-router";
+import {
+  MemoryRouter,
+  useLocation,
+  type LoaderFunctionArgs,
+} from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -33,8 +44,10 @@ import { loader as pageLoader } from "../../routes/articles.page.$page";
 import * as campaignRoute1 from "../../routes/use-cases.$slug";
 import { loader as useCaseLoader } from "../../routes/use-cases.$slug";
 import * as campaignRoute0 from "../../routes/use-cases._index";
+import CodeBlock from "../CodeBlock";
 import { DOCS_LOCALES, sitePathForLocale } from "../docs-locale";
 import { TEMPLATE_SCREENSHOTS } from "../template-screenshots";
+import { copyText } from "../website-redesign/ds/clipboard";
 import { SnackbarProvider } from "../website-redesign/ds/snackbar";
 import { ArticlePage, ArticlesList } from "./articles";
 import { parseArticle, sanitizedMarkdown } from "./markdown";
@@ -55,6 +68,7 @@ afterEach(() => {
   cleanup();
   currentLocale.locale = "en-US";
   vi.mocked(trackEvent).mockClear();
+  vi.mocked(copyText).mockReset();
   window.history.replaceState(null, "", "/");
 });
 
@@ -84,6 +98,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   }),
 }));
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent: vi.fn() }));
+vi.mock("../website-redesign/ds/clipboard", () => ({ copyText: vi.fn() }));
 vi.mock("../../../lib/campaign-content.server", () => ({
   loadCampaignContent: vi.fn(),
 }));
@@ -133,10 +148,44 @@ const article: Article = {
   related_resources: [],
   body: "## Test heading\n\nTest **bold** paragraph with [safe](https://example.com) and [unsafe](javascript:alert(1)).\n\n### Test subheading\n\n1. Test step\n2. Test next step\n\n| Test column | Test value |\n| --- | --- |\n| A | B |\n\n```text\nTest code\n```\n\n<!-- screenshot -->\n\n<!-- try-it -->\n\n## Frequently asked questions\n\n### Test FAQ one?\n\nTest **answer** one.\n\n### Test FAQ two?\n\nTest answer two.\n\n## Test ending\n\nTest final paragraph.",
 };
-function markup(node: React.ReactNode) {
+const recipe: NonNullable<UseCase["recipes"]>[number] = {
+  id: "test-recipe",
+  title: "Test recipe",
+  when: "Test when",
+  do: "Test action",
+  prompt: "  Test prompt\n  ",
+  you_get: "Test output",
+  save: "Test saved artifact",
+  how_often: "Test frequency",
+};
+const angle: NonNullable<UseCase["angles"]>[number] = {
+  id: "engineering",
+  audience: "Test engineers",
+  title: "Test engineering title",
+  subhead: "Test engineering subhead",
+  old_way_body: "Test engineering old body",
+};
+function markup(node: React.ReactNode, entry = "/") {
   return renderToStaticMarkup(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
       <SnackbarProvider>{node}</SnackbarProvider>
+    </MemoryRouter>,
+  );
+}
+function LocationProbe() {
+  const { pathname, search } = useLocation();
+  return (
+    <output data-testid="location">
+      {pathname}
+      {search}
+    </output>
+  );
+}
+function renderCampaign(node: React.ReactNode, entry = "/") {
+  return render(
+    <MemoryRouter initialEntries={[entry]}>
+      <SnackbarProvider>{node}</SnackbarProvider>
+      <LocationProbe />
     </MemoryRouter>,
   );
 }
@@ -383,24 +432,31 @@ describe("public campaign frontend", () => {
       const document = dom(markup(page));
       const grid = document.querySelector(".grid.gap-px")!;
       expect(grid.children).toHaveLength(count);
-      expect(
-        [...grid.children].every(
-          (node) => node.tagName === "A" && node.querySelector("h3"),
-        ),
-      ).toBe(true);
+      const cards = [...grid.children].map((node) =>
+        node.tagName === "A" ? node : node.querySelector(":scope > a"),
+      );
+      expect(cards).toHaveLength(count);
+      for (const card of cards) {
+        expect(card?.getAttribute("href")).toMatch(/^\/(use-cases|articles)\//);
+        expect(card?.querySelector("h3")?.textContent).toBeTruthy();
+      }
+      expect(grid.querySelectorAll("a")).toHaveLength(count);
     }
   });
-  it("hydrates tracking parameters only on the client and emits only allowed campaign fields", () => {
+  it("uses router tracking parameters and emits only allowed campaign fields", () => {
     window.history.replaceState(
       null,
       "",
       "/?utm_source=test&utm_content=existing&audience=PRIVATE&internal=PRIVATE",
     );
-    const caseView = render(
+    const entry =
+      "/?utm_source=test&utm_content=existing&audience=PRIVATE&internal=PRIVATE";
+    const caseView = renderCampaign(
       <>
         <CampaignView item={useCase} />
         <CampaignCta item={useCase} location="hero" />
       </>,
+      entry,
     );
     const link = caseView.getByRole("link", { name: "Test app" });
     const url = new URL(link.getAttribute("href")!);
@@ -414,19 +470,22 @@ describe("public campaign frontend", () => {
       slug: "test-job",
       job_id: "test-job",
       app: "clips",
+      angle: "base",
     });
     expect(trackEvent).toHaveBeenCalledWith("use_case_cta_click", {
       slug: "test-job",
       job_id: "test-job",
       app: "clips",
       location: "hero",
+      angle: "base",
     });
     caseView.unmount();
-    const articleView = render(
+    const articleView = renderCampaign(
       <>
         <CampaignView item={article} />
         <CampaignCta item={article} location="inline" />
       </>,
+      entry,
     );
     const articleLink = articleView.getByRole("link", { name: "Test app" });
     articleLink.addEventListener("click", (event) => event.preventDefault());
@@ -1011,6 +1070,609 @@ describe("public campaign frontend", () => {
     },
   );
 
+  it("projects all new workflow fields and strips nested private data from the item and next-job loader data", () => {
+    const fields = {
+      recipes: [recipe],
+      connects_to: ["Test calendar"],
+      next_jobs: ["test-next"],
+      frequency: "weekly" as const,
+      how_often_label: "Every week",
+      roles: ["engineering" as const],
+      angles: [angle],
+    };
+    const contaminated = {
+      ...useCase,
+      ...fields,
+      internal: "PRIVATE",
+      recipes: [{ ...recipe, internal: "PRIVATE", audience: "PRIVATE" }],
+      angles: [{ ...angle, internal: "PRIVATE", strategy: "PRIVATE" }],
+    };
+    const next = {
+      ...contaminated,
+      slug: "test-next",
+      job_id: "test-next-job",
+    };
+    expect(publicUseCase(contaminated)).toMatchObject(fields);
+    expect(publicUseCase(contaminated).recipes).toEqual([recipe]);
+    expect(publicUseCase(contaminated).angles).toEqual([angle]);
+    expect(JSON.stringify(publicUseCase(contaminated))).not.toContain(
+      "PRIVATE",
+    );
+    vi.mocked(loadCampaignContent).mockReturnValue({
+      useCases: [contaminated, next, { ...useCase, slug: "unrelated" }],
+      articles: [],
+    });
+    const data = useCaseLoader(args({ slug: useCase.slug }));
+    expect(data.item).toEqual(publicUseCase(contaminated));
+    expect(data.useCases).toEqual([publicUseCase(next)]);
+    expect(JSON.stringify(data)).not.toContain("PRIVATE");
+    for (const field of Object.keys(fields)) {
+      expect(publicUseCase(useCase)[field as keyof UseCase]).toBeUndefined();
+    }
+  });
+
+  it.each([
+    { query: "engineering", expected: angle },
+    { query: "unknown", expected: undefined },
+    { query: undefined, expected: undefined },
+  ])(
+    "SSR selects angle $query while keeping base metadata, schema and canonical",
+    ({ query, expected }) => {
+      const item = { ...useCase, angles: [angle] };
+      vi.mocked(loadCampaignContent).mockReturnValue({
+        useCases: [item],
+        articles: [],
+      });
+      const entry = `/use-cases/${item.slug}?utm_source=router&utm_source=second&utm_content=visitor&gclid=click&internal=PRIVATE${query ? `&angle=${query}` : ""}`;
+      const data = useCaseLoader({
+        ...args({ slug: item.slug }),
+        request: new Request(`https://example.com${entry}`),
+      });
+      window.history.replaceState(null, "", "/?utm_source=window&angle=window");
+      const document = dom(markup(<UseCasePage {...data} />, entry));
+      expect(document.querySelector("h1")?.textContent).toBe(
+        expected?.title ?? item.title,
+      );
+      expect(document.body.textContent).toContain(
+        expected?.subhead ?? item.subhead,
+      );
+      expect(document.body.textContent).toContain(
+        expected?.old_way_body ?? item.old_way.body,
+      );
+      if (expected) {
+        expect(document.body.textContent).not.toContain(item.subhead);
+        expect(document.body.textContent).not.toContain(item.old_way.body);
+      } else {
+        expect(document.body.textContent).not.toContain(angle.subhead);
+        expect(document.body.textContent).not.toContain(angle.old_way_body);
+      }
+      const schema = JSON.parse(
+        document.querySelector('script[type="application/ld+json"]')!
+          .textContent!,
+      );
+      expect(schema).toMatchObject({
+        name: item.title,
+        description: item.meta_description,
+      });
+      const meta = campaignRoute1.meta({ loaderData: data });
+      expect(meta).toContainEqual({ title: `${item.title} | Agent-Native` });
+      expect(meta).toContainEqual({
+        name: "description",
+        content: item.meta_description,
+      });
+      expect(meta).toContainEqual({
+        tagName: "link",
+        rel: "canonical",
+        href: `https://www.agent-native.com/use-cases/${item.slug}/`,
+      });
+      expect(meta).toContainEqual({
+        property: "og:title",
+        content: item.title,
+      });
+      const ctas = document.querySelectorAll(
+        'a[href^="https://example.com/app"]',
+      );
+      expect(ctas).toHaveLength(2);
+      for (const cta of ctas) {
+        const params = new URL(cta.getAttribute("href")!).searchParams;
+        expect(params.get("job")).toBe(item.job_id);
+        expect(params.get("angle")).toBe(expected?.id ?? null);
+        expect(params.getAll("utm_source")).toEqual(["router", "second"]);
+        expect(params.get("utm_content")).toBe("visitor");
+        expect(params.get("gclid")).toBe("click");
+        expect(params.has("internal")).toBe(false);
+      }
+      expect(trackEvent).not.toHaveBeenCalled();
+    },
+  );
+
+  it("falls back to the base old-way body when a valid angle omits its optional override", () => {
+    const { old_way_body: _body, ...minimalAngle } = angle;
+    const document = dom(
+      markup(
+        <UseCasePage
+          item={{ ...useCase, angles: [minimalAngle] }}
+          articles={[]}
+        />,
+        "/?angle=engineering",
+      ),
+    );
+    expect(document.querySelector("h1")?.textContent).toBe(angle.title);
+    expect(document.body.textContent).toContain(angle.subhead);
+    expect(document.body.textContent).toContain(useCase.old_way.body);
+  });
+
+  it.each(["engineering", "unknown", ""])(
+    "tracks only a validated angle or base for views and CTA clicks (%s)",
+    (query) => {
+      const item = { ...useCase, angles: [angle] };
+      const view = renderCampaign(
+        <>
+          <CampaignView item={item} />
+          <CampaignCta item={item} location="hero" />
+        </>,
+        `/?angle=${query}&audience=PRIVATE`,
+      );
+      const link = view.getByRole("link", { name: item.cta_label });
+      link.addEventListener("click", (event) => event.preventDefault());
+      fireEvent.click(link);
+      const selected = query === angle.id ? angle.id : "base";
+      expect(trackEvent).toHaveBeenCalledTimes(2);
+      expect(trackEvent).toHaveBeenNthCalledWith(1, "use_case_view", {
+        slug: item.slug,
+        job_id: item.job_id,
+        app: item.app,
+        angle: selected,
+      });
+      expect(trackEvent).toHaveBeenNthCalledWith(2, "use_case_cta_click", {
+        slug: item.slug,
+        job_id: item.job_id,
+        app: item.app,
+        angle: selected,
+        location: "hero",
+      });
+      expect(
+        new URL(link.getAttribute("href")!).searchParams.get("angle"),
+      ).toBe(selected === "base" ? null : selected);
+      expect(JSON.stringify(vi.mocked(trackEvent).mock.calls)).not.toContain(
+        "PRIVATE",
+      );
+    },
+  );
+
+  it("renders ordered recipes with optional prompt/save and connections without inventing absent sections", () => {
+    const { prompt: _prompt, save: _save, ...minimalRecipe } = recipe;
+    const second = { ...minimalRecipe, id: "second", title: "Second recipe" };
+    const document = dom(
+      markup(
+        <UseCasePage
+          item={{
+            ...useCase,
+            recipes: [recipe, second],
+            connects_to: ["Test calendar", "Test CRM"],
+          }}
+          articles={[]}
+        />,
+      ),
+    );
+    const recipes = [...document.querySelectorAll("article")];
+    expect(
+      recipes.map((node) => node.querySelector("h3")?.textContent),
+    ).toEqual([recipe.title, second.title]);
+    expect([...recipes[0].children].map((node) => node.tagName)).toEqual([
+      "H3",
+      "DL",
+      "DIV",
+      "DL",
+    ]);
+    expect(
+      [...recipes[0].querySelectorAll("dt")].map((node) => node.textContent),
+    ).toEqual(["When", "Do", "You get", "Save for next time", "How often"]);
+    expect(
+      [...recipes[0].querySelectorAll("dd")].map((node) => node.textContent),
+    ).toEqual([
+      recipe.when,
+      recipe.do,
+      recipe.you_get,
+      recipe.save,
+      recipe.how_often,
+    ]);
+    expect(recipes[0].querySelector("pre code")?.textContent).toBe(
+      recipe.prompt!.trim(),
+    );
+    expect([...recipes[1].children].map((node) => node.tagName)).toEqual([
+      "H3",
+      "DL",
+      "DL",
+    ]);
+    expect(
+      [...recipes[1].querySelectorAll("dt")].map((node) => node.textContent),
+    ).toEqual(["When", "Do", "You get", "How often"]);
+    expect(recipes[1].querySelector("button")).toBeNull();
+    expect(document.querySelector("#how-it-works")?.textContent).toContain(
+      "Works with: Test calendar, Test CRM",
+    );
+    const absent = dom(
+      markup(
+        <UseCasePage
+          item={{
+            ...useCase,
+            recipes: [],
+            connects_to: [],
+            next_jobs: ["unknown"],
+          }}
+          articles={[]}
+        />,
+      ),
+    );
+    expect(absent.querySelectorAll("article")).toHaveLength(0);
+    expect(absent.body.textContent).not.toContain("Ways to use");
+    expect(absent.body.textContent).not.toContain("Works with:");
+    expect(absent.body.textContent).not.toContain("What to do next");
+  });
+
+  it.each([
+    { prompt: recipe.prompt, save: undefined },
+    { prompt: undefined, save: recipe.save },
+  ])(
+    "renders recipe prompt and saved artifact independently (%#)",
+    ({ prompt, save }) => {
+      const document = dom(
+        markup(
+          <UseCasePage
+            item={{ ...useCase, recipes: [{ ...recipe, prompt, save }] }}
+            articles={[]}
+          />,
+        ),
+      );
+      const rendered = document.querySelector("article")!;
+      expect(rendered.querySelectorAll(".code-block")).toHaveLength(
+        prompt ? 1 : 0,
+      );
+      expect(
+        [...rendered.querySelectorAll("dt")].map((node) => node.textContent),
+      ).toEqual(
+        save
+          ? ["When", "Do", "You get", "Save for next time", "How often"]
+          : ["When", "Do", "You get", "How often"],
+      );
+      if (save) expect(rendered.textContent).toContain(save);
+      else expect(rendered.textContent).not.toContain(recipe.save);
+    },
+  );
+
+  it.each([true, false])(
+    "CodeBlock calls onCopySuccess only after copyText succeeds (%s)",
+    async (success) => {
+      let resolveCopy!: (value: boolean) => void;
+      vi.mocked(copyText).mockReturnValue(
+        new Promise<boolean>((resolve) => {
+          resolveCopy = resolve;
+        }),
+      );
+      const onCopySuccess = vi.fn();
+      const view = renderCampaign(
+        <CodeBlock
+          code={recipe.prompt!}
+          lang="text"
+          onCopySuccess={onCopySuccess}
+        />,
+      );
+      fireEvent.click(view.getByRole("button", { name: "Copy code" }));
+      expect(copyText).toHaveBeenCalledExactlyOnceWith(recipe.prompt!.trim());
+      expect(onCopySuccess).not.toHaveBeenCalled();
+      expect(trackEvent).not.toHaveBeenCalled();
+      await act(async () => {
+        resolveCopy(success);
+      });
+      expect(onCopySuccess).toHaveBeenCalledTimes(success ? 1 : 0);
+      if (success)
+        expect(trackEvent).toHaveBeenCalledExactlyOnceWith("copy code block", {
+          lang: "text",
+          snippet: recipe.prompt!.trim(),
+        });
+      else expect(trackEvent).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, false])(
+    "emits recipe_copy only for successful prompt copies (%s)",
+    async (success) => {
+      vi.mocked(copyText).mockResolvedValue(success);
+      const view = renderCampaign(
+        <UseCasePage item={{ ...useCase, recipes: [recipe] }} articles={[]} />,
+      );
+      vi.mocked(trackEvent).mockClear();
+      await act(async () => {
+        fireEvent.click(view.getByRole("button", { name: "Copy code" }));
+      });
+      expect(copyText).toHaveBeenCalledExactlyOnceWith(recipe.prompt!.trim());
+      const recipeEvents = vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "recipe_copy");
+      expect(recipeEvents).toEqual(
+        success
+          ? [
+              [
+                "recipe_copy",
+                {
+                  slug: useCase.slug,
+                  job_id: useCase.job_id,
+                  recipe_id: recipe.id,
+                },
+              ],
+            ]
+          : [],
+      );
+      if (!success) expect(trackEvent).not.toHaveBeenCalled();
+    },
+  );
+
+  it("resolves next jobs in declared order, skips unknown jobs, localizes links and tracks clicks", () => {
+    currentLocale.locale = "fr-FR";
+    const first = { ...useCase, slug: "test-first", title: "First next job" };
+    const second = {
+      ...useCase,
+      slug: "test-second",
+      title: "Second next job",
+    };
+    const view = renderCampaign(
+      <UseCasePage
+        item={{ ...useCase, next_jobs: [second.slug, "unknown", first.slug] }}
+        articles={[]}
+        useCases={[first, second, { ...useCase, slug: "unrelated" }]}
+      />,
+    );
+    const heading = view.getByRole("heading", { name: "What to do next" });
+    const section = heading.closest("section")!;
+    const links = within(section).getAllByRole("link");
+    expect(links.map((link) => link.querySelector("h3")?.textContent)).toEqual([
+      second.title,
+      first.title,
+    ]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(
+      [second, first].map((item) =>
+        sitePathForLocale(`${USE_CASES_BASE}/${item.slug}`, "fr-FR"),
+      ),
+    );
+    expect(section.textContent).not.toContain("unknown");
+    vi.mocked(trackEvent).mockClear();
+    links[0].addEventListener("click", (event) => event.preventDefault());
+    fireEvent.click(links[0]);
+    expect(trackEvent).toHaveBeenCalledExactlyOnceWith("next_job_click", {
+      from_slug: useCase.slug,
+      to_slug: second.slug,
+    });
+  });
+
+  const filterItems: UseCase[] = [
+    {
+      ...useCase,
+      slug: "engineering-weekly",
+      title: "Engineering weekly",
+      roles: ["engineering"],
+      frequency: "weekly",
+      how_often_label: "Every engineering week",
+    },
+    {
+      ...useCase,
+      slug: "engineering-daily",
+      title: "Engineering daily",
+      roles: ["engineering"],
+      frequency: "daily",
+    },
+    {
+      ...useCase,
+      slug: "everyone-weekly",
+      title: "Everyone weekly",
+      roles: ["everyone"],
+      frequency: "weekly",
+    },
+    {
+      ...useCase,
+      slug: "everyone-daily",
+      title: "Everyone daily",
+      roles: ["everyone"],
+      frequency: "daily",
+    },
+    {
+      ...useCase,
+      app: "content",
+      slug: "marketing-weekly",
+      title: "Marketing weekly",
+      roles: ["marketing"],
+      frequency: "weekly",
+    },
+    { ...useCase, slug: "untagged", title: "Untagged" },
+  ];
+  const visibleCardTitles = (view: ReturnType<typeof renderCampaign>) =>
+    view.getAllByRole("link").flatMap((link) => {
+      const title = link.querySelector("h3")?.textContent;
+      return title ? [title] : [];
+    });
+
+  it("combines role and frequency, includes everyone, and updates URL selections and filter events", () => {
+    const view = renderCampaign(
+      <UseCasesIndex items={filterItems} />,
+      "/use-cases?role=engineering&often=weekly&utm_source=keep",
+    );
+    expect(view.getByLabelText("Role").textContent).toBe("Engineering");
+    expect(view.getByLabelText("How often").textContent).toBe("Weekly");
+    expect(visibleCardTitles(view)).toEqual([
+      "Engineering weekly",
+      "Everyone weekly",
+    ]);
+    expect(view.getByText("Every engineering week")).toBeDefined();
+    expect(trackEvent).not.toHaveBeenCalled();
+    fireEvent.click(view.getByLabelText("How often"));
+    fireEvent.click(view.getByRole("option", { name: "Daily" }));
+    expect(visibleCardTitles(view)).toEqual([
+      "Engineering daily",
+      "Everyone daily",
+    ]);
+    expect(view.getByLabelText("How often").textContent).toBe("Daily");
+    expect(view.getByTestId("location").textContent).toBe(
+      "/use-cases?role=engineering&often=daily&utm_source=keep",
+    );
+    expect(trackEvent).toHaveBeenLastCalledWith("index_filter", {
+      role: "engineering",
+      often: "daily",
+    });
+    fireEvent.click(view.getByLabelText("Role"));
+    fireEvent.click(view.getByRole("option", { name: "Marketing" }));
+    expect(visibleCardTitles(view)).toEqual(["Everyone daily"]);
+    expect(view.getByTestId("location").textContent).toBe(
+      "/use-cases?role=marketing&often=daily&utm_source=keep",
+    );
+    expect(trackEvent).toHaveBeenLastCalledWith("index_filter", {
+      role: "marketing",
+      often: "daily",
+    });
+    fireEvent.click(view.getByLabelText("How often"));
+    fireEvent.click(view.getByRole("option", { name: "Weekly" }));
+    expect(visibleCardTitles(view)).toEqual([
+      "Everyone weekly",
+      "Marketing weekly",
+    ]);
+    expect(trackEvent).toHaveBeenCalledTimes(3);
+    expect(trackEvent).toHaveBeenLastCalledWith("index_filter", {
+      role: "marketing",
+      often: "weekly",
+    });
+    expect(view.container.querySelectorAll(".grid.gap-px > div")).toHaveLength(
+      filterItems.length,
+    );
+    expect(
+      view.container.querySelectorAll(".grid.gap-px > div[hidden]"),
+    ).toHaveLength(4);
+  });
+
+  it.each([
+    {
+      search: "role=engineering",
+      titles: [
+        "Engineering weekly",
+        "Engineering daily",
+        "Everyone weekly",
+        "Everyone daily",
+      ],
+    },
+    {
+      search: "often=weekly",
+      titles: ["Engineering weekly", "Everyone weekly", "Marketing weekly"],
+    },
+  ])(
+    "applies an individual filter without requiring the other ($search)",
+    ({ search, titles }) => {
+      const view = renderCampaign(
+        <UseCasesIndex items={filterItems} />,
+        `/use-cases?${search}`,
+      );
+      expect(visibleCardTitles(view)).toEqual(titles);
+      expect(trackEvent).not.toHaveBeenCalled();
+    },
+  );
+
+  it("shows an empty state and clears only filter parameters, restoring all cards", async () => {
+    const view = renderCampaign(
+      <UseCasesIndex items={filterItems} />,
+      "/use-cases?role=finance&often=occasional&utm_source=keep",
+    );
+    expect(visibleCardTitles(view)).toEqual([]);
+    expect(view.getByText(enUS.campaign.filterEmpty).getAttribute("role")).toBe(
+      "status",
+    );
+    const clear = view.getByRole("link", { name: enUS.campaign.filterClear });
+    expect(clear.getAttribute("href")).toBe("/use-cases?utm_source=keep");
+    fireEvent.click(clear);
+    await waitFor(() =>
+      expect(view.queryByText(enUS.campaign.filterEmpty)).toBeNull(),
+    );
+    expect(visibleCardTitles(view)).toEqual([
+      "Engineering weekly",
+      "Engineering daily",
+      "Everyone weekly",
+      "Everyone daily",
+      "Untagged",
+      "Marketing weekly",
+    ]);
+    expect(view.getByLabelText("Role").textContent).toBe("All");
+    expect(view.getByLabelText("How often").textContent).toBe("Any");
+    expect(view.getByTestId("location").textContent).toBe(
+      "/use-cases?utm_source=keep",
+    );
+    expect(trackEvent).toHaveBeenCalledExactlyOnceWith("index_filter", {
+      role: "",
+      often: "",
+    });
+  });
+
+  it("treats unknown role and frequency parameters as unfiltered", () => {
+    const view = renderCampaign(
+      <UseCasesIndex items={filterItems} />,
+      "/use-cases?role=unknown&often=monthly",
+    );
+    expect(visibleCardTitles(view)).toEqual([
+      "Engineering weekly",
+      "Engineering daily",
+      "Everyone weekly",
+      "Everyone daily",
+      "Untagged",
+      "Marketing weekly",
+    ]);
+    expect(view.getByLabelText("Role").textContent).toBe("All");
+    expect(view.getByLabelText("How often").textContent).toBe("Any");
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it("SSR includes all fourteen real use-case cards despite filters and renders Content screenshots", async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../lib/campaign-content.server")
+    >("../../../lib/campaign-content.server");
+    const { useCases } = actual.loadCampaignContent();
+    expect(useCases).toHaveLength(14);
+    const document = dom(
+      markup(
+        <UseCasesIndex items={useCases} />,
+        "/use-cases?role=engineering&often=daily",
+      ),
+    );
+    const wrappers = [...document.querySelectorAll(".grid.gap-px > div")];
+    expect(wrappers).toHaveLength(14);
+    expect(document.querySelectorAll("[hidden]")).toHaveLength(0);
+    const cards = wrappers.map(
+      (wrapper) => wrapper.querySelector(":scope > a")!,
+    );
+    expect(cards.map((card) => card.getAttribute("href")).sort()).toEqual(
+      useCases
+        .map((item) => sitePathForLocale(`${USE_CASES_BASE}/${item.slug}`))
+        .sort(),
+    );
+    expect(
+      cards.map((card) => card.querySelector("h3")?.textContent).sort(),
+    ).toEqual(useCases.map((item) => item.title).sort());
+    const content = useCases.find((item) => item.app === "content")!;
+    expect(content).toBeDefined();
+    const page = dom(markup(<UseCasePage item={content} articles={[]} />));
+    expect(page.querySelector(".theme-img-dark")?.getAttribute("src")).toBe(
+      TEMPLATE_SCREENSHOTS.content.dark,
+    );
+    expect(page.querySelector(".theme-img-dark")?.getAttribute("alt")).toBe(
+      content.screenshot_alt,
+    );
+    expect(page.querySelector(".theme-img-light")?.getAttribute("src")).toBe(
+      TEMPLATE_SCREENSHOTS.content.light,
+    );
+    expect(page.querySelectorAll("article")).toHaveLength(3);
+    expect(categories).toEqual([
+      "clips",
+      "design",
+      "slides",
+      "plans",
+      "analytics",
+    ]);
+  });
+
   it("reexports the existing public route contracts for all six locale aliases", () => {
     for (const [route, localized] of [
       [campaignRoute0, localizedCampaignRoute0],
@@ -1033,7 +1695,7 @@ describe("public campaign frontend", () => {
       [
         campaignRoute1.meta({
           params,
-          loaderData: { item: useCase, articles: [] },
+          loaderData: { item: useCase, articles: [], useCases: [] },
         }),
         `${USE_CASES_BASE}/${useCase.slug}/`,
       ],
