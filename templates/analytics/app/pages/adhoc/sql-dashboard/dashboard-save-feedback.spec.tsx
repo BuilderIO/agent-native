@@ -5,15 +5,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { TooltipProvider } from "@/components/ui/tooltip";
-
 import { i18nCatalog } from "../../../i18n";
 import {
-  DashboardSaveStatus,
   otherViewerCount,
   useDashboardSaveFeedback,
-  type DashboardSaveState,
-} from "./DashboardSaveStatus";
+} from "./dashboard-save-feedback";
 
 const toastMock = vi.hoisted(() => ({
   loading: vi.fn(),
@@ -27,6 +23,17 @@ const ME = "me@example.com";
 let container: HTMLDivElement;
 let root: Root;
 
+let track: ReturnType<typeof useDashboardSaveFeedback>;
+function FeedbackProbe(props: {
+  dashboardId?: string;
+  shared: boolean;
+  otherViewers: number;
+  onUndo: () => void;
+}) {
+  track = useDashboardSaveFeedback({ dashboardId: "d1", ...props });
+  return null;
+}
+
 function render(node: React.ReactNode) {
   act(() => {
     root.render(
@@ -35,34 +42,10 @@ function render(node: React.ReactNode) {
         initialLocale="en-US"
         persistPreference={false}
       >
-        <TooltipProvider>{node}</TooltipProvider>
+        {node}
       </AgentNativeI18nProvider>,
     );
   });
-}
-
-function statusText(): string {
-  const status = container.querySelector('[role="status"]');
-  if (!status) throw new Error("save status not rendered");
-  return status.textContent ?? "";
-}
-
-let feedback: ReturnType<typeof useDashboardSaveFeedback>;
-function FeedbackProbe(props: {
-  shared: boolean;
-  otherViewers: number;
-  onUndo: () => void;
-}) {
-  feedback = useDashboardSaveFeedback({ dashboardId: "d1", ...props });
-  return (
-    <DashboardSaveStatus
-      state={feedback.state}
-      shared={props.shared}
-      updatedAt={null}
-      updatedBy={null}
-      currentUserEmail={ME}
-    />
-  );
 }
 
 function deferred<T>() {
@@ -94,7 +77,7 @@ describe("otherViewerCount", () => {
   });
 });
 
-describe("DashboardSaveStatus", () => {
+describe("useDashboardSaveFeedback", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
@@ -109,59 +92,19 @@ describe("DashboardSaveStatus", () => {
     vi.unstubAllGlobals();
   });
 
-  it("says who a saved shared dashboard is saved for, and who saved it", () => {
-    const renderSaved = (updatedBy: string, shared: boolean) =>
-      render(
-        <DashboardSaveStatus
-          state={{ status: "saved" }}
-          shared={shared}
-          updatedAt={new Date().toISOString()}
-          updatedBy={updatedBy}
-          currentUserEmail={ME}
-        />,
-      );
-
-    renderSaved(ME, true);
-    expect(statusText()).toMatch(/^Saved for everyone· .+· you$/);
-
-    renderSaved("bob@example.com", false);
-    expect(statusText()).toMatch(/^Saved· .+· Bob$/);
-  });
-
-  it("shows saving and failed states", () => {
-    const renderState = (state: DashboardSaveState) =>
-      render(
-        <DashboardSaveStatus
-          state={state}
-          shared
-          updatedAt={null}
-          updatedBy={null}
-          currentUserEmail={ME}
-        />,
-      );
-
-    renderState({ status: "saving" });
-    expect(statusText()).toBe("Saving for everyone…");
-
-    renderState({ status: "failed", message: "Conflict" });
-    expect(statusText()).toBe("Couldn't save");
-  });
-
   it("turns one toast from saving into saved, with the viewer count and Undo", async () => {
     const onUndo = vi.fn();
     render(<FeedbackProbe shared otherViewers={2} onUndo={onUndo} />);
-    const save = deferred<{ isLatest: boolean }>();
+    const save = deferred<void>();
 
     act(() => {
-      void feedback.track(save.promise);
+      void track(save.promise);
     });
-    expect(statusText()).toBe("Saving for everyone…");
     expect(toastMock.loading).toHaveBeenCalledWith("Saving for everyone…", {
       id: "dashboard-save:d1",
     });
 
-    await act(async () => save.resolve({ isLatest: true }));
-    expect(statusText()).toMatch(/^Saved for everyone/);
+    await act(async () => save.resolve());
     const [message, options] = toastMock.success.mock.calls[0];
     expect(message).toBe("Saved for everyone");
     expect(options).toMatchObject({
@@ -173,28 +116,77 @@ describe("DashboardSaveStatus", () => {
     expect(onUndo).toHaveBeenCalledOnce();
   });
 
-  it("leaves the toast pending while a newer save is queued", async () => {
+  it("leaves the toast pending until the newest save lands", async () => {
     render(<FeedbackProbe shared={false} otherViewers={0} onUndo={vi.fn()} />);
-    const save = deferred<{ isLatest: boolean }>();
+    const first = deferred<void>();
+    const second = deferred<void>();
 
     act(() => {
-      void feedback.track(save.promise);
+      void track(first.promise);
+      void track(second.promise);
     });
-    await act(async () => save.resolve({ isLatest: false }));
+    await act(async () => first.resolve());
     expect(toastMock.success).not.toHaveBeenCalled();
-    expect(statusText()).toBe("Saving…");
+
+    await act(async () => second.resolve());
+    expect(toastMock.success).toHaveBeenCalledOnce();
+    expect(toastMock.success.mock.calls[0][0]).toBe("Saved");
   });
 
-  it("drops the pending toast and shows the failure when a save fails", async () => {
+  it("drops the pending toast when the newest save fails", async () => {
     render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
-    const save = deferred<{ isLatest: boolean }>();
+    const save = deferred<void>();
 
     act(() => {
-      void feedback.track(save.promise).catch(() => {});
+      void track(save.promise).catch(() => {});
     });
     await act(async () => save.reject(new Error("Conflict")));
     expect(toastMock.dismiss).toHaveBeenCalledWith("dashboard-save:d1");
     expect(toastMock.success).not.toHaveBeenCalled();
-    expect(statusText()).toBe("Couldn't save");
+  });
+
+  it("keeps a newer save's toast when an earlier save fails", async () => {
+    render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
+    const first = deferred<void>();
+    const second = deferred<void>();
+
+    act(() => {
+      void track(first.promise).catch(() => {});
+      void track(second.promise);
+    });
+    await act(async () => first.reject(new Error("Conflict")));
+    expect(toastMock.dismiss).not.toHaveBeenCalled();
+
+    await act(async () => second.resolve());
+    expect(toastMock.success).toHaveBeenCalledOnce();
+  });
+
+  it("closes the toast on leaving its dashboard and ignores saves that land later", async () => {
+    const onUndo = vi.fn();
+    render(
+      <FeedbackProbe
+        dashboardId="d1"
+        shared
+        otherViewers={0}
+        onUndo={onUndo}
+      />,
+    );
+    const save = deferred<void>();
+    act(() => {
+      void track(save.promise);
+    });
+
+    render(
+      <FeedbackProbe
+        dashboardId="d2"
+        shared
+        otherViewers={0}
+        onUndo={onUndo}
+      />,
+    );
+    expect(toastMock.dismiss).toHaveBeenCalledWith("dashboard-save:d1");
+
+    await act(async () => save.resolve());
+    expect(toastMock.success).not.toHaveBeenCalled();
   });
 });
