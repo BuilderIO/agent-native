@@ -142,7 +142,10 @@ describe("LookbackRow with Rewind off", () => {
       "While Rewind is on, it keeps recent screen history on this device within your time and storage limits.",
     );
     expect(document.body.textContent).toContain(
-      "When Rewind is off, saved history can remain past those limits until recording starts again; choose Delete all to erase it now.",
+      "When Rewind is off, saved history can remain past those limits until recording starts again.",
+    );
+    expect(document.body.textContent).toContain(
+      "To erase it now, open Settings > Rewind > Storage > On this device and choose Delete all.",
     );
     expect(document.body.textContent).toContain(
       "A requested Clip is reviewed before sending by default, unless you turn off review before sending in Rewind settings.",

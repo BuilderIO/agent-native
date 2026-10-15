@@ -42,7 +42,7 @@ const messages = {
     rewindConsentBusy: "Rewindをオンにしています…",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
-      "以前の画面を含めるには、まずRewindをオンにしてください。Rewindがオンの間は、このデバイスに最近の画面履歴を保存し、時間とストレージの上限に合わせて整理します。Rewindがオフの間は、録画が再開されるまで履歴が上限を超えて残ることがあります。「すべて削除」を選ぶと今すぐ削除できます。Clipの共有リクエストは既定で送信前に確認されますが、Rewind設定で送信前の確認をオフにすると自動送信されます。",
+      "以前の画面を含めるには、まずRewindをオンにしてください。Rewindがオンの間は、このデバイスに最近の画面履歴を保存し、時間とストレージの上限に合わせて整理します。Rewindがオフの間は、録画が再開されるまで履歴が上限を超えて残ることがあります。今すぐ削除するには、Settings > Rewind > Storage > On this deviceを開き、Delete allを選んでください。Clipの共有リクエストは既定で送信前に確認されますが、Rewind設定で送信前の確認をオフにすると自動送信されます。",
     requestFailed:
       "録画前の画面を含められませんでした。録画はそのまま続きます。",
     localOnlyUnavailable:

@@ -39,7 +39,7 @@ const messages = {
     rewindConsentBusy: "Turning on…",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
-      "To include earlier screen time, turn on Rewind first. While Rewind is on, it keeps recent screen history on this device within your time and storage limits. When Rewind is off, saved history can remain past those limits until recording starts again; choose Delete all to erase it now. A requested Clip is reviewed before sending by default, unless you turn off review before sending in Rewind settings.",
+      "To include earlier screen time, turn on Rewind first. While Rewind is on, it keeps recent screen history on this device within your time and storage limits. When Rewind is off, saved history can remain past those limits until recording starts again. To erase it now, open Settings > Rewind > Storage > On this device and choose Delete all. A requested Clip is reviewed before sending by default, unless you turn off review before sending in Rewind settings.",
     requestFailed:
       "Couldn't include earlier screen time. The recording continues without it.",
     localOnlyUnavailable:

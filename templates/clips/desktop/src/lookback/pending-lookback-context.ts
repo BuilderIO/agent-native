@@ -5,6 +5,8 @@ export interface PendingLookbackContext {
   recordingId: string;
   target: ClipsActionTarget;
   item: Promise<RecordingContextItem | null>;
+  stopFailed?: boolean;
+  removalInProgress?: boolean;
 }
 
 export function takePendingLookbackContext(
@@ -27,15 +29,35 @@ export function takePendingLookbackContextAfterStop(
   return takePendingLookbackContext(contexts, recordingId);
 }
 
+export function isLookbackContextAwaitingStop(
+  contexts: Map<string, PendingLookbackContext>,
+  recordingId: string,
+): boolean {
+  return contexts.has(recordingId);
+}
+
 export async function settlePendingLookbackContextAfterStop(
   contexts: Map<string, PendingLookbackContext>,
   recordingId: string | null | undefined,
   stopSucceeded: boolean,
   removeItem: (target: ClipsActionTarget, itemId: string) => Promise<unknown>,
 ): Promise<void> {
-  const pending = takePendingLookbackContext(contexts, recordingId);
-  if (!pending || stopSucceeded) return;
+  if (!recordingId) return;
+  const pending = contexts.get(recordingId);
+  if (!pending) return;
+  if (stopSucceeded) {
+    contexts.delete(recordingId);
+    return;
+  }
 
-  const item = await pending.item;
-  if (item) await removeItem(pending.target, item.id);
+  pending.stopFailed = true;
+  if (pending.removalInProgress) return;
+  pending.removalInProgress = true;
+  try {
+    const item = await pending.item;
+    if (item) await removeItem(pending.target, item.id);
+    if (contexts.get(recordingId) === pending) contexts.delete(recordingId);
+  } finally {
+    pending.removalInProgress = false;
+  }
 }

@@ -41,7 +41,7 @@ const messages = {
     rewindConsentBusy: "Rewind wird aktiviert…",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
-      "Um frühere Bildschirmzeit einzuschließen, aktiviere zuerst Rewind. Wenn Rewind eingeschaltet ist, speichert es den aktuellen Bildschirmverlauf auf diesem Gerät innerhalb deiner Zeit- und Speicherlimits. Ist Rewind ausgeschaltet, kann gespeicherter Verlauf diese Limits überschreiten, bis die Aufnahme wieder startet; mit „Alles löschen“ kannst du ihn jetzt entfernen. Anfragen für einen Clip werden standardmäßig vor dem Senden geprüft, sofern du die Prüfung vor dem Senden in den Rewind-Einstellungen nicht deaktivierst.",
+      "Um frühere Bildschirmzeit einzuschließen, aktiviere zuerst Rewind. Wenn Rewind eingeschaltet ist, speichert es den aktuellen Bildschirmverlauf auf diesem Gerät innerhalb deiner Zeit- und Speicherlimits. Ist Rewind ausgeschaltet, kann gespeicherter Verlauf diese Limits überschreiten, bis die Aufnahme wieder startet. Öffne zum Löschen Settings > Rewind > Storage > On this device und wähle Delete all. Anfragen für einen Clip werden standardmäßig vor dem Senden geprüft, sofern du die Prüfung vor dem Senden in den Rewind-Einstellungen nicht deaktivierst.",
     requestFailed:
       "Frühere Bildschirmzeit konnte nicht einbezogen werden. Die Aufnahme läuft ohne sie weiter.",
     localOnlyUnavailable:

@@ -41,7 +41,7 @@ const messages = {
     rewindConsentBusy: "Ativando o Rewind…",
     rewindOffTitle: "Ativar o Rewind",
     rewindOffBody:
-      "Para incluir tempo de tela anterior, ative primeiro o Rewind. Enquanto o Rewind estiver ativado, ele mantém o histórico recente da tela neste dispositivo dentro dos limites de tempo e armazenamento escolhidos. Quando estiver desativado, o histórico salvo pode ultrapassar esses limites até a gravação recomeçar; escolha “Excluir tudo” para apagá-lo agora. Por padrão, os pedidos para compartilhar um intervalo como Clip são revisados antes do envio, a menos que você desative essa revisão nas configurações do Rewind.",
+      "Para incluir tempo de tela anterior, ative primeiro o Rewind. Enquanto o Rewind estiver ativado, ele mantém o histórico recente da tela neste dispositivo dentro dos limites de tempo e armazenamento escolhidos. Quando estiver desativado, o histórico salvo pode ultrapassar esses limites até a gravação recomeçar. Para apagá-lo agora, abra Settings > Rewind > Storage > On this device e escolha Delete all. Por padrão, os pedidos para compartilhar um intervalo como Clip são revisados antes do envio, a menos que você desative essa revisão nas configurações do Rewind.",
     requestFailed:
       "Não foi possível incluir o tempo de tela anterior. A gravação continua sem ele.",
     localOnlyUnavailable:

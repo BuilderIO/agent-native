@@ -36,7 +36,7 @@ const messages = {
     rewindConsentBusy: "正在开启 Rewind…",
     rewindOffTitle: "开启 Rewind",
     rewindOffBody:
-      "如需包含更早的屏幕内容，请先开启 Rewind。Rewind 开启时，会在此设备上保留近期屏幕记录并遵守时间和存储上限。Rewind 关闭期间，已保存的记录可能超过这些上限，直到录制再次开始；选择“全部删除”可立即清除。默认情况下，分享所选时间段的 Clip 请求会在发送前经过审核；在 Rewind 设置中关闭发送前审核后，这些请求会自动发送。",
+      "如需包含更早的屏幕内容，请先开启 Rewind。Rewind 开启时，会在此设备上保留近期屏幕记录并遵守时间和存储上限。Rewind 关闭期间，已保存的记录可能超过这些上限，直到录制再次开始。要立即清除，请打开 Settings > Rewind > Storage > On this device 并选择 Delete all。默认情况下，分享所选时间段的 Clip 请求会在发送前经过审核；在 Rewind 设置中关闭发送前审核后，这些请求会自动发送。",
     requestFailed: "无法包含更早的屏幕时间。录制将继续，但不包含这部分。",
     localOnlyUnavailable: "仅本地录制不会保存更早的屏幕时间。",
     saving: "正在保存录制前的 {{window}}…",

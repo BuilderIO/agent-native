@@ -171,6 +171,7 @@ import {
 import {
   createPrivateAgentRewindRecording,
   exportBrowserRecordingBackup,
+  forgetRewindClipOrigin,
   getRewindClipOrigin,
   listBrowserRecordingBackups,
   queueRecordFirstUpload,
@@ -280,6 +281,7 @@ import {
 } from "./lookback/lookback-settings";
 import { LookbackRow } from "./lookback/LookbackRow";
 import {
+  isLookbackContextAwaitingStop,
   settlePendingLookbackContextAfterStop,
   takePendingLookbackContextAfterStop,
   type PendingLookbackContext,
@@ -1943,6 +1945,9 @@ export function App({
     recordingId: string | null | undefined,
     stopSucceeded: boolean,
   ) {
+    if (!stopSucceeded && recordingId) {
+      forgetRewindClipOrigin(recordingId);
+    }
     void settlePendingLookbackContextAfterStop(
       lookbackContextRef.current,
       recordingId,
@@ -2008,13 +2013,28 @@ export function App({
   );
 
   useEffect(() => {
-    if (authStatus !== "authed" || !lookbackLabEnabled || !rewindOn) return;
+    if (authStatus !== "authed") return;
     let cancelled = false;
     let inFlight = false;
     const poll = async () => {
       if (inFlight) return;
       inFlight = true;
       try {
+        const failedStops = [...lookbackContextRef.current.values()].filter(
+          (context) => context.stopFailed,
+        );
+        await Promise.allSettled(
+          failedStops.map((context) =>
+            settlePendingLookbackContextAfterStop(
+              lookbackContextRef.current,
+              context.recordingId,
+              false,
+              removeRecordingContext,
+            ),
+          ),
+        );
+        if (cancelled || !lookbackLabEnabled || !rewindOn) return;
+
         const items = await listPendingRecordingContext(
           { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
           {
@@ -2027,6 +2047,14 @@ export function App({
         if (cancelled) return;
         for (const item of items) {
           if (processingLookbackIdsRef.current.has(item.id)) continue;
+          if (
+            isLookbackContextAwaitingStop(
+              lookbackContextRef.current,
+              item.recordingId,
+            )
+          ) {
+            continue;
+          }
           if (!getRewindClipOrigin(item.recordingId)) {
             // Not this device's footage. Excluding it keeps the batch from
             // refilling with items this device will never export.
@@ -8127,8 +8155,11 @@ function Setup({
                 ) : null}
               </SettingsRow>
             </SettingsGroup>
-
-            <SettingsGroup label="Storage">
+          </>
+        ) : null}
+        <SettingsGroup label="Storage">
+          {rewindOn ? (
+            <>
               <SettingsRow
                 label="Search memory"
                 description="Find and replay a recent moment yourself"
@@ -8150,27 +8181,27 @@ function Setup({
                   </SettingsActionButton>
                 }
               />
-              <SettingsRow
-                label="On this device"
-                description={`${screenMemorySegments.length} ${screenMemorySegments.length === 1 ? "segment" : "segments"} · ${formatStorageBytes(screenMemoryTotalBytes)}`}
-                control={
-                  <>
-                    <SettingsActionButton onClick={openScreenMemoryFolder}>
-                      Open folder
-                    </SettingsActionButton>
-                    <SettingsActionButton
-                      emphasis="destructive"
-                      onClick={() => void clearScreenMemory()}
-                      disabled={screenMemoryBusy}
-                    >
-                      Delete all
-                    </SettingsActionButton>
-                  </>
-                }
-              />
-            </SettingsGroup>
-          </>
-        ) : null}
+            </>
+          ) : null}
+          <SettingsRow
+            label="On this device"
+            description={`${screenMemorySegments.length} ${screenMemorySegments.length === 1 ? "segment" : "segments"} · ${formatStorageBytes(screenMemoryTotalBytes)}`}
+            control={
+              <>
+                <SettingsActionButton onClick={openScreenMemoryFolder}>
+                  Open folder
+                </SettingsActionButton>
+                <SettingsActionButton
+                  emphasis="destructive"
+                  onClick={() => void clearScreenMemory()}
+                  disabled={screenMemoryBusy}
+                >
+                  Delete all
+                </SettingsActionButton>
+              </>
+            }
+          />
+        </SettingsGroup>
       </div>
     );
   }

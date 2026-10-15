@@ -37,7 +37,7 @@ const messages = {
     rewindConsentBusy: "正在開啟 Rewind…",
     rewindOffTitle: "開啟 Rewind",
     rewindOffBody:
-      "如要包含更早的螢幕時間，請先開啟 Rewind。Rewind 開啟時，會在此裝置保留近期螢幕記錄並遵守時間和儲存空間上限。Rewind 關閉期間，已儲存的記錄可能超過這些上限，直到錄製再次開始；選擇「全部刪除」可立即清除。預設情況下，分享所選時段的 Clip 要求會在傳送前審核；在 Rewind 設定中關閉傳送前審核後，這些要求會自動傳送。",
+      "如要包含更早的螢幕時間，請先開啟 Rewind。Rewind 開啟時，會在此裝置保留近期螢幕記錄並遵守時間和儲存空間上限。Rewind 關閉期間，已儲存的記錄可能超過這些上限，直到錄製再次開始。若要立即清除，請開啟 Settings > Rewind > Storage > On this device 並選擇 Delete all。預設情況下，分享所選時段的 Clip 要求會在傳送前審核；在 Rewind 設定中關閉傳送前審核後，這些要求會自動傳送。",
     requestFailed: "無法包含更早的螢幕時間。錄製會繼續，但不含這部分。",
     localOnlyUnavailable: "僅限本機的錄製不會儲存更早的螢幕時間。",
     saving: "正在儲存錄製前的 {{window}}…",

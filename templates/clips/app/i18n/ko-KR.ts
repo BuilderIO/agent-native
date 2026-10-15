@@ -39,7 +39,7 @@ const messages = {
     rewindConsentBusy: "Rewind 켜는 중…",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
-      "이전 화면을 포함하려면 먼저 Rewind를 켜세요. Rewind가 켜져 있을 때는 이 기기에 최근 화면 기록을 보관하고 시간 및 저장 공간 한도를 적용합니다. Rewind가 꺼져 있으면 녹화가 다시 시작될 때까지 기록이 한도를 넘겨 남을 수 있습니다. 지금 지우려면 '모두 삭제'를 선택하세요. Clip 공유 요청은 기본적으로 보내기 전에 검토되며, Rewind 설정에서 보내기 전 검토를 끄면 자동으로 전송됩니다.",
+      "이전 화면을 포함하려면 먼저 Rewind를 켜세요. Rewind가 켜져 있을 때는 이 기기에 최근 화면 기록을 보관하고 시간 및 저장 공간 한도를 적용합니다. Rewind가 꺼져 있으면 녹화가 다시 시작될 때까지 기록이 한도를 넘겨 남을 수 있습니다. 지금 지우려면 Settings > Rewind > Storage > On this device를 열고 Delete all을 선택하세요. Clip 공유 요청은 기본적으로 보내기 전에 검토되며, Rewind 설정에서 보내기 전 검토를 끄면 자동으로 전송됩니다.",
     requestFailed:
       "이전 화면 시간을 포함하지 못했습니다. 녹화는 이 부분 없이 계속됩니다.",
     localOnlyUnavailable:

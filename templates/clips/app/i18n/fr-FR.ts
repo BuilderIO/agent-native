@@ -41,7 +41,7 @@ const messages = {
     rewindConsentBusy: "Activation de Rewind…",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
-      "Pour inclure l’écran précédent, activez d’abord Rewind. Lorsque Rewind est activé, il conserve l’historique récent de l’écran sur cet appareil dans les limites de durée et de stockage choisies. Lorsqu’il est désactivé, l’historique peut dépasser ces limites jusqu’à la reprise de l’enregistrement ; choisissez « Tout supprimer » pour l’effacer maintenant. Les demandes de Clip sont vérifiées avant envoi par défaut, sauf si vous désactivez la vérification avant envoi dans les réglages Rewind.",
+      "Pour inclure l’écran précédent, activez d’abord Rewind. Lorsque Rewind est activé, il conserve l’historique récent de l’écran sur cet appareil dans les limites de durée et de stockage choisies. Lorsqu’il est désactivé, l’historique peut dépasser ces limites jusqu’à la reprise de l’enregistrement. Pour l’effacer maintenant, ouvrez Settings > Rewind > Storage > On this device, puis choisissez Delete all. Les demandes de Clip sont vérifiées avant envoi par défaut, sauf si vous désactivez la vérification avant envoi dans les réglages Rewind.",
     requestFailed:
       "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
     localOnlyUnavailable:

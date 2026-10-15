@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { RecordingContextItem } from "./context-api";
 import {
+  isLookbackContextAwaitingStop,
   settlePendingLookbackContextAfterStop,
   takePendingLookbackContext,
   takePendingLookbackContextAfterStop,
@@ -85,6 +86,43 @@ describe("settlePendingLookbackContextAfterStop", () => {
     expect(contexts.has(context.recordingId)).toBe(false);
   });
 
+  it("keeps failed-stop context unavailable to the worker until removal succeeds", async () => {
+    const context = pendingWithItem("recording-a");
+    const contexts = new Map([[context.recordingId, context]]);
+    const removeItem = vi
+      .fn(
+        async (_target: PendingLookbackContext["target"], _itemId: string) =>
+          undefined,
+      )
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(
+      settlePendingLookbackContextAfterStop(
+        contexts,
+        context.recordingId,
+        false,
+        removeItem,
+      ),
+    ).rejects.toThrow("network unavailable");
+
+    expect(isLookbackContextAwaitingStop(contexts, context.recordingId)).toBe(
+      true,
+    );
+
+    await settlePendingLookbackContextAfterStop(
+      contexts,
+      context.recordingId,
+      false,
+      removeItem,
+    );
+
+    expect(removeItem).toHaveBeenCalledTimes(2);
+    expect(isLookbackContextAwaitingStop(contexts, context.recordingId)).toBe(
+      false,
+    );
+  });
+
   it("keeps the server request when recording stop succeeded", async () => {
     const context = pendingWithItem("recording-a");
     const contexts = new Map([[context.recordingId, context]]);
@@ -94,6 +132,22 @@ describe("settlePendingLookbackContextAfterStop", () => {
       contexts,
       context.recordingId,
       true,
+      removeItem,
+    );
+
+    expect(removeItem).not.toHaveBeenCalled();
+    expect(contexts.has(context.recordingId)).toBe(false);
+  });
+
+  it("releases the cleanup handle when the request never reached the server", async () => {
+    const context = pending("recording-a");
+    const contexts = new Map([[context.recordingId, context]]);
+    const removeItem = vi.fn(async () => {});
+
+    await settlePendingLookbackContextAfterStop(
+      contexts,
+      context.recordingId,
+      false,
       removeItem,
     );
 

@@ -41,7 +41,7 @@ const messages = {
     rewindConsentBusy: "Activando Rewind…",
     rewindOffTitle: "Activar Rewind",
     rewindOffBody:
-      "Para incluir tiempo de pantalla anterior, primero activa Rewind. Mientras Rewind está activado, conserva el historial reciente de pantalla en este dispositivo dentro de tus límites de tiempo y almacenamiento. Cuando Rewind está desactivado, el historial guardado puede superar esos límites hasta que la grabación vuelva a empezar; elige «Eliminar todo» para borrarlo ahora. Las solicitudes para crear un Clip se revisan antes de enviarse de forma predeterminada, salvo que desactives la revisión antes de enviar en los ajustes de Rewind.",
+      "Para incluir tiempo de pantalla anterior, primero activa Rewind. Mientras Rewind está activado, conserva el historial reciente de pantalla en este dispositivo dentro de tus límites de tiempo y almacenamiento. Cuando Rewind está desactivado, el historial guardado puede superar esos límites hasta que la grabación vuelva a empezar. Para borrarlo ahora, abre Settings > Rewind > Storage > On this device y elige Delete all. Las solicitudes para crear un Clip se revisan antes de enviarse de forma predeterminada, salvo que desactives la revisión antes de enviar en los ajustes de Rewind.",
     requestFailed:
       "No se pudo incluir el tiempo de pantalla anterior. La grabación continúa sin él.",
     localOnlyUnavailable:
