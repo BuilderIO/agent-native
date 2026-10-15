@@ -77,6 +77,7 @@ import {
   resolveFitTextBoxResize,
   resolveFreeformSizing,
   resolveSelectionIdentity,
+  resolveRetainedSlideSelectionNode,
   resolveSlideSelectionAnchor,
   clientRectToContainingBlockBox,
   hasRotatedAncestor,
@@ -3911,6 +3912,25 @@ describe("object interaction geometry hardening", () => {
     expect(
       resolveSlideSelectionAnchor(root, { objectId: null, path: [0, 1] }),
     ).toBeNull();
+  });
+
+  it("keeps a connected selection target when AutoFit reparents its node", () => {
+    const root = document.createElement("div");
+    const previousParent = document.createElement("div");
+    const selected = document.createElement("img");
+    previousParent.append(selected);
+    root.append(previousParent);
+    document.body.append(root);
+
+    const autofitWrapper = document.createElement("div");
+    autofitWrapper.setAttribute("data-fmd-autofit-content", "");
+    previousParent.replaceWith(autofitWrapper);
+    autofitWrapper.append(selected);
+
+    expect(resolveRetainedSlideSelectionNode(root, selected)).toBe(selected);
+
+    document.body.append(selected);
+    expect(resolveRetainedSlideSelectionNode(root, selected)).toBeNull();
   });
 
   it("snaps within 4 screen px at any zoom (oracle 9.1)", () => {

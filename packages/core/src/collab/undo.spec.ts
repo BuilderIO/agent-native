@@ -6,7 +6,10 @@ import { createLocalOpUndoController } from "./undo.js";
 type Op = { op: string; path: string; value?: unknown };
 
 function makeController(overrides?: {
-  apply?: (ops: Op[], direction: "undo" | "redo") => void | Promise<void>;
+  apply?: (
+    ops: Op[],
+    direction: "undo" | "redo",
+  ) => void | boolean | Promise<void | boolean>;
   now?: () => number;
   maxDepth?: number;
   coalesceMs?: number;
@@ -72,6 +75,78 @@ describe("createLocalOpUndoController", () => {
     expect(await controller.redo()).toBe(false);
   });
 
+  it("keeps a history entry when applying it reports no change", async () => {
+    let applied = false;
+    const { controller } = makeController({
+      apply: () => applied,
+    });
+    controller.push({
+      undo: [{ op: "patch", path: "slide.content", value: "before" }],
+      redo: [{ op: "patch", path: "slide.content", value: "after" }],
+    });
+
+    expect(await controller.undo()).toBe(false);
+    expect(controller.canUndo()).toBe(true);
+    expect(controller.canRedo()).toBe(false);
+
+    applied = true;
+    expect(await controller.undo()).toBe(true);
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+  });
+
+  it("skips a conflicted entry without hiding older history or creating redo", async () => {
+    const controller = createLocalOpUndoController<Op>({
+      apply: (ops) => (ops[0]?.op === "conflict" ? "conflict" : true),
+    });
+    controller.push({
+      undo: [{ op: "patch", path: "older", value: "before" }],
+      redo: [{ op: "patch", path: "older", value: "after" }],
+      label: "Older edit",
+    });
+    controller.push({
+      undo: [{ op: "conflict", path: "newer", value: "before" }],
+      redo: [{ op: "conflict", path: "newer", value: "after" }],
+      label: "Conflicted edit",
+    });
+
+    expect(await controller.undo()).toBe(false);
+    expect(controller.peekUndoLabel()).toBe("Older edit");
+    expect(controller.canUndo()).toBe(true);
+    expect(controller.canRedo()).toBe(false);
+
+    expect(await controller.undo()).toBe(true);
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+  });
+
+  it("does not start a second undo while the current apply is pending", async () => {
+    let finishApply!: () => void;
+    const { controller, applied } = makeController({
+      apply: (ops, direction) =>
+        new Promise<void>((resolve) => {
+          applied.push({ ops, direction });
+          finishApply = resolve;
+        }),
+    });
+    controller.push({
+      undo: [{ op: "patch", path: "slide.1", value: "before-1" }],
+      redo: [{ op: "patch", path: "slide.1", value: "after-1" }],
+    });
+    controller.push({
+      undo: [{ op: "patch", path: "slide.2", value: "before-2" }],
+      redo: [{ op: "patch", path: "slide.2", value: "after-2" }],
+    });
+
+    const firstUndo = controller.undo();
+    expect(await controller.undo()).toBe(false);
+    expect(applied).toHaveLength(1);
+    finishApply();
+    expect(await firstUndo).toBe(true);
+    expect(controller.canUndo()).toBe(true);
+    expect(controller.canRedo()).toBe(true);
+  });
+
   it("ignores re-entrant pushes triggered by apply", async () => {
     let controllerRef: ReturnType<
       typeof createLocalOpUndoController<Op>
@@ -87,6 +162,31 @@ describe("createLocalOpUndoController", () => {
     await controller.undo();
 
     expect(controller.canUndo()).toBe(false);
+  });
+
+  it("ignores pushes triggered while publishing the completed undo", async () => {
+    let controllerRef: ReturnType<
+      typeof createLocalOpUndoController<Op>
+    > | null = null;
+    let addDuringNotification = false;
+    const controller = createLocalOpUndoController<Op>({
+      apply: () => {},
+      onChange: () => {
+        if (!addDuringNotification) return;
+        controllerRef!.push({
+          undo: [{ op: "echo", path: "x" }],
+          redo: [],
+        });
+      },
+    });
+    controllerRef = controller;
+
+    controller.push({ undo: [{ op: "real", path: "1" }], redo: [] });
+    addDuringNotification = true;
+    await controller.undo();
+
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
   });
 
   it("coalesces same-key pushes within the window", async () => {

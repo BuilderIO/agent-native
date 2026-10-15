@@ -3199,10 +3199,57 @@ function hasChangedFields(current: object, fields: object): boolean {
   );
 }
 
+function slideUndoContentSignature(content: string): string {
+  if (typeof DOMParser === "undefined") {
+    return content.replace(
+      /\sdata-(?:slide-object-id|builder-id)=(['"])[^'"]*\1/g,
+      "",
+    );
+  }
+  const document = new DOMParser().parseFromString(content, "text/html");
+  const root = document.querySelector(".fmd-slide") ?? document.body;
+  for (const element of [root, ...root.querySelectorAll("*")]) {
+    element.removeAttribute("data-slide-object-id");
+    element.removeAttribute("data-builder-id");
+  }
+  return root.outerHTML;
+}
+
+function slideMatchesUndoSnapshot(
+  slide: Slide,
+  fields: Partial<Omit<Slide, "id" | "imageLoading">> & { content: string },
+): boolean {
+  return Object.entries(fields).every(([field, expectedValue]) => {
+    const currentValue = (slide as unknown as Record<string, unknown>)[field];
+    if (field === "content" && typeof expectedValue === "string") {
+      return (
+        typeof currentValue === "string" &&
+        slideUndoContentSignature(currentValue) ===
+          slideUndoContentSignature(expectedValue)
+      );
+    }
+    return expectedValue === null
+      ? currentValue === undefined
+      : equalDeckValue(currentValue, expectedValue);
+  });
+}
+
+function deckUndoSignature(deck: Deck): string {
+  return stableDeckContentSignature({
+    ...deck,
+    slides: deck.slides.map((slide) => ({
+      ...slide,
+      content: slideUndoContentSignature(slide.content),
+    })),
+  });
+}
+
 export function applyUndoOpToDecks(decks: Deck[], op: DeckUndoOp): Deck[] {
   switch (op.op) {
-    case "delete-deck":
+    case "delete-deck": {
+      if (!decks.some((deck) => deck.id === op.deckId)) return decks;
       return decks.filter((deck) => deck.id !== op.deckId);
+    }
     case "restore-deck": {
       const nextDeck = op.deck;
       const existingIndex = decks.findIndex((deck) => deck.id === op.deckId);
@@ -3237,9 +3284,15 @@ function undoOpsWithoutRemoteFieldConflicts(
   ops: DeckUndoOp[],
   oppositeOps: DeckUndoOp[],
   decks: Deck[],
-): DeckUndoOp[] {
+): { ops: DeckUndoOp[]; hasConflict: boolean } {
   const expectedSlideFields = new Map<string, Map<string, unknown>>();
   const expectedDeckFields = new Map<string, Map<string, unknown>>();
+  const expectedAddedSlides = new Map<
+    string,
+    Extract<PatchDeckOp, { op: "add-slide" }>["fields"]
+  >();
+  const expectedSlideOrders = new Map<string, string[]>();
+  const expectedRestoredDecks = new Map<string, Deck>();
   for (const op of oppositeOps) {
     if (op.op === "patch-slide") {
       const key = JSON.stringify([op.deckId, op.slideId]);
@@ -3255,73 +3308,231 @@ function undoOpsWithoutRemoteFieldConflicts(
         fields.set(field, value);
       }
       expectedDeckFields.set(op.deckId, fields);
+    } else if (op.op === "add-slide") {
+      expectedAddedSlides.set(
+        JSON.stringify([op.deckId, op.slideId]),
+        op.fields,
+      );
+    } else if (op.op === "reorder-slides") {
+      expectedSlideOrders.set(op.deckId, op.orderedIds);
+    } else if (op.op === "restore-deck") {
+      expectedRestoredDecks.set(op.deckId, op.deck);
     }
   }
 
-  return ops.flatMap<DeckUndoOp>((op): DeckUndoOp[] => {
-    if (op.op === "patch-slide") {
-      const deck = decks.find((entry) => entry.id === op.deckId);
-      const slide = deck?.slides.find((entry) => entry.id === op.slideId);
-      if (!slide) return [];
-      const expected = expectedSlideFields.get(
-        JSON.stringify([op.deckId, op.slideId]),
-      );
-      if (!expected) return [op];
-      const fields = { ...op.fields };
-      for (const field of Object.keys(fields)) {
-        if (!expected.has(field)) continue;
-        const expectedValue = expected.get(field);
-        const currentValue = slide[field as keyof Slide];
-        if (
-          !equalDeckValue(
-            currentValue,
-            expectedValue === null ? undefined : expectedValue,
-          )
-        ) {
-          delete fields[field as keyof PatchSlideFields];
+  let hasConflict = false;
+  let simulatedDecks = decks;
+  const applicableOps = ops.flatMap<DeckUndoOp>((op): DeckUndoOp[] => {
+    const applicable = (() => {
+      if (op.op === "patch-slide") {
+        const deck = decks.find((entry) => entry.id === op.deckId);
+        const slide = deck?.slides.find((entry) => entry.id === op.slideId);
+        if (!slide) {
+          hasConflict = true;
+          return [];
         }
-      }
-      const baseFields = Object.fromEntries(
-        Object.entries(op.baseFields ?? {}).filter(
-          ([field]) => field !== "content" && field in fields,
-        ),
-      ) as PatchSlideBaselines;
-      const { baseFields: _baseFields, ...withoutBaseFields } = op;
-      return Object.keys(fields).length > 0
-        ? [
-            {
-              ...withoutBaseFields,
-              fields,
-              ...(Object.keys(baseFields).length > 0 ? { baseFields } : {}),
-            },
-          ]
-        : [];
-    }
-
-    if (op.op === "patch-deck-fields") {
-      const deck = decks.find((entry) => entry.id === op.deckId);
-      if (!deck) return [];
-      const expected = expectedDeckFields.get(op.deckId);
-      if (!expected) return [op];
-      const fields = { ...op.fields };
-      for (const field of Object.keys(fields)) {
-        if (!expected.has(field)) continue;
-        const expectedValue = expected.get(field);
-        const currentValue = deck[field as keyof Deck];
-        if (
-          !equalDeckValue(
-            currentValue,
-            expectedValue === null ? undefined : expectedValue,
-          )
-        ) {
-          delete fields[field as keyof PatchDeckTopLevelFields];
+        const expected = expectedSlideFields.get(
+          JSON.stringify([op.deckId, op.slideId]),
+        );
+        if (!expected) return [op];
+        const fields = { ...op.fields };
+        for (const field of Object.keys(fields)) {
+          if (!expected.has(field)) continue;
+          const expectedValue = expected.get(field);
+          const currentValue = slide[field as keyof Slide];
+          const targetValue = fields[field as keyof PatchSlideFields];
+          if (
+            !equalDeckValue(
+              currentValue,
+              expectedValue === null ? undefined : expectedValue,
+            )
+          ) {
+            if (
+              equalDeckValue(
+                currentValue,
+                targetValue === null ? undefined : targetValue,
+              )
+            ) {
+              delete fields[field as keyof PatchSlideFields];
+              continue;
+            }
+            if (
+              field === "content" &&
+              typeof currentValue === "string" &&
+              typeof expectedValue === "string" &&
+              typeof fields.content === "string"
+            ) {
+              const merged = mergeSlideContent(
+                expectedValue,
+                targetValue as string,
+                currentValue,
+              );
+              if (merged !== null) {
+                if (merged === currentValue) {
+                  delete fields.content;
+                } else {
+                  fields.content = merged;
+                }
+                continue;
+              }
+            }
+            hasConflict = true;
+            delete fields[field as keyof PatchSlideFields];
+          }
         }
+        const baseFields = Object.fromEntries(
+          Object.entries(op.baseFields ?? {}).filter(
+            ([field]) => field !== "content" && field in fields,
+          ),
+        ) as PatchSlideBaselines;
+        const { baseFields: _baseFields, ...withoutBaseFields } = op;
+        return Object.keys(fields).length > 0
+          ? [
+              {
+                ...withoutBaseFields,
+                fields,
+                ...(Object.keys(baseFields).length > 0 ? { baseFields } : {}),
+              },
+            ]
+          : [];
       }
-      return Object.keys(fields).length > 0 ? [{ ...op, fields }] : [];
-    }
 
-    return [op];
+      if (op.op === "patch-deck-fields") {
+        const deck = decks.find((entry) => entry.id === op.deckId);
+        if (!deck) {
+          hasConflict = true;
+          return [];
+        }
+        const expected = expectedDeckFields.get(op.deckId);
+        if (!expected) return [op];
+        const fields = { ...op.fields };
+        for (const field of Object.keys(fields)) {
+          if (!expected.has(field)) continue;
+          const expectedValue = expected.get(field);
+          const currentValue = deck[field as keyof Deck];
+          const targetValue = fields[field as keyof PatchDeckTopLevelFields];
+          if (
+            !equalDeckValue(
+              currentValue,
+              expectedValue === null ? undefined : expectedValue,
+            )
+          ) {
+            if (
+              equalDeckValue(
+                currentValue,
+                targetValue === null ? undefined : targetValue,
+              )
+            ) {
+              delete fields[field as keyof PatchDeckTopLevelFields];
+              continue;
+            }
+            hasConflict = true;
+            delete fields[field as keyof PatchDeckTopLevelFields];
+          }
+        }
+        return Object.keys(fields).length > 0 ? [{ ...op, fields }] : [];
+      }
+
+      if (op.op === "delete-slide") {
+        const deck = decks.find((entry) => entry.id === op.deckId);
+        if (!deck) {
+          hasConflict = true;
+          return [];
+        }
+        const slide = deck.slides.find((entry) => entry.id === op.slideId);
+        if (!slide) return [];
+        const expected = expectedAddedSlides.get(
+          JSON.stringify([op.deckId, op.slideId]),
+        );
+        if (!expected || !slideMatchesUndoSnapshot(slide, expected)) {
+          hasConflict = true;
+          return [];
+        }
+        return [op];
+      }
+
+      if (op.op === "add-slide") {
+        const deck = decks.find((entry) => entry.id === op.deckId);
+        if (!deck) {
+          hasConflict = true;
+          return [];
+        }
+        const existingSlide = deck.slides.find(
+          (slide) => slide.id === op.slideId,
+        );
+        if (!existingSlide) return [op];
+        if (
+          slideMatchesUndoSnapshot(existingSlide, {
+            ...op.fields,
+            content: op.fields.content,
+          })
+        ) {
+          return [];
+        }
+        hasConflict = true;
+        return [];
+      }
+
+      if (op.op === "reorder-slides") {
+        const deck = decks.find((entry) => entry.id === op.deckId);
+        if (!deck) {
+          hasConflict = true;
+          return [];
+        }
+        if (applyUndoOpToDecks(simulatedDecks, op) === simulatedDecks)
+          return [];
+        const expectedOrder =
+          expectedSlideOrders.get(op.deckId) ?? op.orderedIds;
+        const expectedIds = new Set(expectedOrder);
+        const currentIds = new Set(deck.slides.map((slide) => slide.id));
+        const expectedPresentOrder = expectedOrder.filter((id) =>
+          currentIds.has(id),
+        );
+        const currentPresentOrder = deck.slides
+          .map((slide) => slide.id)
+          .filter((id) => expectedIds.has(id));
+        if (
+          currentPresentOrder.some(
+            (id, index) => id !== expectedPresentOrder[index],
+          ) ||
+          currentPresentOrder.length !== expectedPresentOrder.length
+        ) {
+          hasConflict = true;
+          return [];
+        }
+        return [op];
+      }
+
+      if (op.op === "delete-deck") {
+        const deck = decks.find((entry) => entry.id === op.deckId);
+        if (!deck) return [];
+        const expectedDeck = expectedRestoredDecks.get(op.deckId);
+        if (
+          !expectedDeck ||
+          deckUndoSignature(deck) !== deckUndoSignature(expectedDeck)
+        ) {
+          hasConflict = true;
+          return [];
+        }
+        return [op];
+      }
+
+      if (op.op === "restore-deck") {
+        const deck = decks.find((entry) => entry.id === op.deckId);
+        if (!deck) return [op];
+        if (deckUndoSignature(deck) === deckUndoSignature(op.deck)) return [];
+        hasConflict = true;
+        return [];
+      }
+
+      return [op];
+    })();
+    for (const applicableOp of applicable) {
+      simulatedDecks = applyUndoOpToDecks(simulatedDecks, applicableOp);
+    }
+    return applicable;
   });
+  return { ops: applicableOps, hasConflict };
 }
 
 export function deckContentSignature(deck: Deck): string {
@@ -4547,6 +4758,7 @@ export function DeckProvider({
       const controller = createLocalOpUndoController<DeckUndoOp>({
         apply: (ops, direction, entry) => {
           let startingDecks = decksRef.current;
+          let restoredStaleDrafts = false;
           if (direction === "undo") {
             const drafts = staleSlideFieldDrafts.get(deckId);
             if (drafts && startingDecks.some((deck) => deck.id === deckId)) {
@@ -4560,6 +4772,7 @@ export function DeckProvider({
                 }
               }
               if (draftsToDiscard.size > 0) {
+                restoredStaleDrafts = true;
                 for (const key of draftsToDiscard.keys()) drafts.delete(key);
                 if (drafts.size === 0) staleSlideFieldDrafts.delete(deckId);
                 startingDecks = startingDecks.map((deck) =>
@@ -4574,11 +4787,26 @@ export function DeckProvider({
               }
             }
           }
-          const applicableOps = undoOpsWithoutRemoteFieldConflicts(
-            ops,
-            direction === "undo" ? entry.redo : entry.undo,
-            startingDecks,
-          );
+          const { ops: applicableOps, hasConflict } =
+            undoOpsWithoutRemoteFieldConflicts(
+              ops,
+              direction === "undo" ? entry.redo : entry.undo,
+              startingDecks,
+            );
+          const appliedOps: DeckUndoOp[] = [];
+          let currentDecks = startingDecks;
+          for (const op of applicableOps) {
+            const nextDecks = applyUndoOpToDecks(currentDecks, op);
+            if (nextDecks === currentDecks) continue;
+            appliedOps.push(op);
+            currentDecks = nextDecks;
+          }
+          const didApply = appliedOps.length > 0 || restoredStaleDrafts;
+          if (hasConflict) {
+            toast.error(tRef.current("deckEditor.historyStepConflict"));
+          }
+          if (hasConflict && appliedOps.length === 0) return "conflict";
+          if (!didApply) return true;
           // Nothing consumes the reveal without a mounted editor, and a
           // multi-slide step makes the diff expensive.
           const reveal =
@@ -4586,24 +4814,26 @@ export function DeckProvider({
               ? undoRevealForOps(
                   startingDecks.find((deck) => deck.id === deckId),
                   deckId,
-                  applicableOps,
+                  appliedOps,
                   direction,
                 )
               : null;
-          setDecks((prev) => {
-            let next = prev;
-            for (const op of applicableOps) {
-              next = applyUndoOpToDecks(next, op);
-            }
-            return next;
-          });
+          if (appliedOps.length > 0) {
+            setDecks((prev) => {
+              let next = prev;
+              for (const op of appliedOps) {
+                next = applyUndoOpToDecks(next, op);
+              }
+              return next;
+            });
+          }
           if (reveal) {
             for (const listener of undoRevealListenersRef.current) {
               listener(reveal);
             }
           }
-          let currentDecks = startingDecks;
-          for (const op of applicableOps) {
+          currentDecks = startingDecks;
+          for (const op of appliedOps) {
             markDeckDirty(op.deckId);
             if (op.op === "delete-deck") {
               discardPendingDeckOps(op.deckId);
@@ -4666,6 +4896,7 @@ export function DeckProvider({
               currentDecks = applyUndoOpToDecks(currentDecks, op);
             }
           }
+          return didApply;
         },
         onChange: () => {
           const current = undoControllerRef.current.get(deckId);

@@ -193,12 +193,14 @@ export interface CreateLocalOpUndoOptions<TOp> {
     ops: TOp[],
     direction: "undo" | "redo",
     entry: LocalOpUndoEntry<TOp>,
-  ) => void | Promise<void>;
+  ) => LocalOpUndoApplyOutcome | Promise<LocalOpUndoApplyOutcome>;
   maxDepth?: number;
   coalesceMs?: number;
   onChange?: () => void;
   now?: () => number;
 }
+
+type LocalOpUndoApplyOutcome = void | boolean | "conflict";
 
 interface StampedEntry<TOp> extends LocalOpUndoEntry<TOp> {
   at: number;
@@ -221,6 +223,26 @@ export function createLocalOpUndoController<TOp>(
 
   function notify() {
     onChange?.();
+  }
+
+  function completeApply(
+    entry: StampedEntry<TOp>,
+    direction: "undo" | "redo",
+    applied: LocalOpUndoApplyOutcome,
+  ): boolean {
+    if (applied === false) return false;
+    const source = direction === "undo" ? undoStack : redoStack;
+    const destination = direction === "undo" ? redoStack : undoStack;
+    if (source[source.length - 1] !== entry) return applied !== "conflict";
+    if (applied === "conflict") {
+      source.pop();
+      notify();
+      return false;
+    }
+    source.pop();
+    destination.push(entry);
+    notify();
+    return true;
   }
 
   return {
@@ -249,31 +271,37 @@ export function createLocalOpUndoController<TOp>(
     },
 
     async undo() {
-      const entry = undoStack.pop();
+      if (applying) return false;
+      const entry = undoStack[undoStack.length - 1];
       if (!entry) return false;
-      redoStack.push(entry);
-      notify();
       applying = true;
       try {
-        await apply(entry.undo, "undo", entry);
+        const result = apply(entry.undo, "undo", entry);
+        const applied =
+          result && typeof result === "object" && "then" in result
+            ? await result
+            : result;
+        return completeApply(entry, "undo", applied);
       } finally {
         applying = false;
       }
-      return true;
     },
 
     async redo() {
-      const entry = redoStack.pop();
+      if (applying) return false;
+      const entry = redoStack[redoStack.length - 1];
       if (!entry) return false;
-      undoStack.push(entry);
-      notify();
       applying = true;
       try {
-        await apply(entry.redo, "redo", entry);
+        const result = apply(entry.redo, "redo", entry);
+        const applied =
+          result && typeof result === "object" && "then" in result
+            ? await result
+            : result;
+        return completeApply(entry, "redo", applied);
       } finally {
         applying = false;
       }
-      return true;
     },
 
     canUndo: () => undoStack.length > 0,

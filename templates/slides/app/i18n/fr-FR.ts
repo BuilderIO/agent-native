@@ -846,6 +846,8 @@ const messages = {
     leaveWithoutSaving: "Quitter sans enregistrer",
     editorMarkupNotSaved:
       "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
+    historyStepConflict:
+      "Certaines modifications de cette étape de l’historique ont été ignorées, car la diapositive a changé ailleurs.",
     textEditConflictNotSaved:
       "Votre modification du texte n'a pas été enregistrée, car le même texte a été modifié ailleurs au même moment.",
   },

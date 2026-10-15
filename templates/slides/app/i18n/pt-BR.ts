@@ -833,6 +833,8 @@ const messages = {
     leaveWithoutSaving: "Sair sem salvar",
     editorMarkupNotSaved:
       "Esta edição não foi salva porque adicionaria marcação do editor ao slide.",
+    historyStepConflict:
+      "Algumas alterações desta etapa do histórico foram ignoradas porque o slide mudou em outro lugar.",
     textEditConflictNotSaved:
       "Sua edição de texto não foi salva porque o mesmo texto foi alterado em outro lugar ao mesmo tempo.",
   },

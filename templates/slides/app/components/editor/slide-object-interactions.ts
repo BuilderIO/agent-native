@@ -591,6 +591,15 @@ export function resolveSlideSelectionAnchor(
   return current instanceof HTMLElement ? current : null;
 }
 
+export function resolveRetainedSlideSelectionNode(
+  root: HTMLElement,
+  retainedNode: HTMLElement | null,
+): HTMLElement | null {
+  return retainedNode?.isConnected && root.contains(retainedNode)
+    ? retainedNode
+    : null;
+}
+
 function establishesSlideObjectContainingBlock(element: HTMLElement): boolean {
   const style = window.getComputedStyle(element);
   const position = style.position || "static";
