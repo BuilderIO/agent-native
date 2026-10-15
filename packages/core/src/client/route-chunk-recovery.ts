@@ -4,6 +4,7 @@ import {
   CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
+  EXTERNAL_EMBED_WINDOW_KEY,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
   STALE_CHUNK_RELOAD_AT_KEY,
   STALE_CHUNK_RELOAD_COOLDOWN_MS,
@@ -24,7 +25,10 @@ const recoveryStates = new WeakMap<Window, RouteChunkRecoveryState>();
 export const STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT =
   "agent-native:stale-chunk-recovery-exhausted";
 
-export type StaleChunkRecoveryExhaustedReason = "cooldown" | "desktop";
+export type StaleChunkRecoveryExhaustedReason =
+  | "cooldown"
+  | "desktop"
+  | "external-embed";
 
 export interface StaleChunkRecoveryExhausted {
   reason: StaleChunkRecoveryExhaustedReason;
@@ -261,6 +265,12 @@ function isAgentNativeDesktop(win: Window): boolean {
   return /AgentNativeDesktop/i.test(win.navigator?.userAgent || "");
 }
 
+function isExternalEmbed(win: Window): boolean {
+  return Boolean(
+    (win as unknown as Record<string, unknown>)[EXTERNAL_EMBED_WINDOW_KEY],
+  );
+}
+
 function hasViteDevRecovery(win: Window): boolean | undefined {
   if (
     (win as unknown as Record<string, unknown>)[
@@ -366,6 +376,10 @@ export function reloadForStaleChunk(
     reportStaleChunkRecoveryExhausted(win, "desktop");
     return false;
   }
+  if (isExternalEmbed(win)) {
+    reportStaleChunkRecoveryExhausted(win, "external-embed");
+    return false;
+  }
   const lastReloadAt = readStaleChunkReloadAt(win);
   if (
     lastReloadAt > 0 &&
@@ -397,6 +411,7 @@ function recoverToIntendedNavigation(
   win: Window,
   state: RouteChunkRecoveryState,
 ): boolean {
+  if (isExternalEmbed(win)) return false;
   const target = getFreshIntendedNavigation(state, win.location.href);
   const sameCurrentTarget =
     isAgentNativeDesktop(win) &&

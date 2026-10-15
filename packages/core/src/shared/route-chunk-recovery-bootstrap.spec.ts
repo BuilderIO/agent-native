@@ -7,6 +7,7 @@ import {
   CHUNK_RECOVERY_ORIGINAL_HASH_PARAM,
   CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
+  EXTERNAL_EMBED_WINDOW_KEY,
   ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
   STALE_CHUNK_RELOAD_AT_KEY,
@@ -214,5 +215,28 @@ describe("route chunk recovery bootstrap", () => {
 
     expect(desktop.assign).not.toHaveBeenCalled();
     expect(local.assign).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate a transplanted MCP App embed to the host origin", () => {
+    const { assign, onError, windowState } = installBootstrap(
+      "https://abc123.claudemcpcontent.com/crm/records/1?embedded=1",
+    );
+    windowState[EXTERNAL_EMBED_WINDOW_KEY] = {
+      origin: "https://app.example.test",
+    };
+    const stopImmediatePropagation = vi.fn();
+
+    onError({
+      target: {
+        getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+        hasAttribute: () => false,
+        rel: "modulepreload",
+        tagName: "LINK",
+      },
+      stopImmediatePropagation,
+    });
+
+    expect(assign).not.toHaveBeenCalled();
+    expect(stopImmediatePropagation).not.toHaveBeenCalled();
   });
 });
