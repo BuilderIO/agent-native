@@ -51,6 +51,11 @@ export interface DashboardFilter {
   default?: string;
   options?: FilterOption[];
   presets?: FilterPreset[];
+  // On a select filter: show a date range only when "custom" is chosen, and
+  // clear it when another option is picked (as preset date filters do for
+  // "30d"-style options). For selects whose options are periods the SQL
+  // resolves itself, such as "this" / "last" quarter.
+  customRange?: boolean;
 }
 
 export type ColumnFormat =

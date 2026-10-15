@@ -66,7 +66,8 @@ export function isDashboardFilter(value: unknown): value is DashboardFilter {
             typeof option.label === "string",
         ))) &&
     (value.presets === undefined ||
-      (Array.isArray(value.presets) && value.presets.every(isFilterPreset)))
+      (Array.isArray(value.presets) && value.presets.every(isFilterPreset))) &&
+    (value.customRange === undefined || typeof value.customRange === "boolean")
   );
 }
 
@@ -134,7 +135,9 @@ export function usableFilterPresets(
 }
 
 export function isDateRangePresetFilter(filter: DashboardFilter): boolean {
-  if (filter.type !== "select" || !filter.options?.length) return false;
+  if (filter.type !== "select") return false;
+  if (filter.customRange === true) return true;
+  if (!filter.options?.length) return false;
   const isRange = (value: string) => /^\d+d$/.test(value);
   return (
     filter.options.some((option) => isRange(option.value)) &&
@@ -254,9 +257,16 @@ export function resolveFilterVars(
       const startKey = filter.id + "Start";
       const endKey = filter.id + "End";
       const defaultRange = value === "custom" ? filter.default || "30d" : value;
-      const fallbackStart =
-        value === "custom" ? "" : dateRangeStart(defaultRange);
-      const fallbackEnd = value === "custom" ? "" : daysAgo(0);
+      // On a customRange select only "30d"-style and "all" options imply
+      // bounds; an option such as "this" (quarter) leaves the range empty for
+      // the SQL to resolve.
+      const impliesBounds =
+        value !== "custom" &&
+        (filter.customRange !== true ||
+          /^\d+d$/.test(value) ||
+          value === "all");
+      const fallbackStart = impliesBounds ? dateRangeStart(defaultRange) : "";
+      const fallbackEnd = impliesBounds ? daysAgo(0) : "";
       out[filter.id] = value;
       out[startKey] = resolveDateParam(
         getParam(startKey),

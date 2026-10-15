@@ -370,6 +370,15 @@ function collectDashboardConfigIssues(
           }
         }
       }
+      // isDashboardFilter rejects a non-boolean customRange, so a save that passes here would drop the whole filter set on read.
+      if (
+        f.customRange !== undefined &&
+        (typeof f.customRange !== "boolean" || f.type !== "select")
+      ) {
+        return dashboardIssue(
+          `config.filters[${i}].customRange must be a boolean, and only select filters take it`,
+        );
+      }
       if (f.presets !== undefined) {
         // isDashboardFilter rejects a malformed preset, so a save that passes here would drop the whole filter set on read.
         if (f.type !== "multi-select" || !Array.isArray(f.presets)) {

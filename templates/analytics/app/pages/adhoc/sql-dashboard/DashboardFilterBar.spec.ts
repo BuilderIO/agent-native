@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveFilterVars } from "./DashboardFilterBar";
-import { normalizeMultiSelectValue } from "./filter-vars";
+import {
+  isDateRangePresetFilter,
+  normalizeMultiSelectValue,
+} from "./filter-vars";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import type { DashboardFilter } from "./types";
 
@@ -235,6 +238,51 @@ describe("resolveFilterVars", () => {
         { source: "bigquery" },
       ),
     ).toBe("SELECT 'custom' AS segment");
+  });
+
+  it("treats a customRange select as a preset date filter without inventing bounds", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        default: "this",
+        customRange: true,
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "last", label: "Last quarter" },
+          { value: "custom", label: "Custom date range" },
+        ],
+      },
+    ];
+    expect(isDateRangePresetFilter(filters[0])).toBe(true);
+    expect(resolveFilterVars(filters, () => "")).toEqual({
+      quarter: "this",
+      quarterStart: "",
+      quarterEnd: "",
+    });
+    const params: Record<string, string> = {
+      quarter: "custom",
+      quarterStart: "2026-11-01",
+      quarterEnd: "2026-12-31",
+    };
+    expect(resolveFilterVars(filters, (key) => params[key] || "")).toEqual(
+      params,
+    );
+  });
+
+  it("leaves quarter-style selects without customRange as plain selects", () => {
+    expect(
+      isDateRangePresetFilter({
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "custom", label: "Custom date range" },
+        ],
+      }),
+    ).toBe(false);
   });
 
   it("resolves custom bounds for a preset date filter", () => {
