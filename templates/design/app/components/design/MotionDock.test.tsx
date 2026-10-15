@@ -599,7 +599,6 @@ describe("Motion animation style menu", () => {
     await openMenu("Add animation");
     expect(menuItemLabels()).toEqual([
       "Text",
-      "Text animation",
       "Position",
       "Scale",
       "Rotation",
@@ -614,7 +613,7 @@ describe("Motion animation style menu", () => {
     );
   });
 
-  it("keeps authored Text animation creation reachable with native styles", async () => {
+  it("keeps the text animation menu aligned when source tracks are supported", async () => {
     const onCreateText = vi.fn();
     const onCreateNativeStyle = vi.fn();
     await renderMenu(true, onCreateText, vi.fn(), onCreateNativeStyle);
@@ -622,7 +621,6 @@ describe("Motion animation style menu", () => {
 
     expect(menuItemLabels()).toEqual([
       "Text",
-      "Text animation",
       "Position",
       "Scale",
       "Rotation",
@@ -633,11 +631,6 @@ describe("Motion animation style menu", () => {
     await selectMenuItem("Text");
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("TextStagger");
     expect(onCreateText).not.toHaveBeenCalled();
-
-    await openMenu("Add animation");
-    await selectMenuItem("Text animation");
-    expect(onCreateText).toHaveBeenCalledOnce();
-    expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("TextStagger");
   });
 
   it("offers Path trim only for SVG path targets", async () => {

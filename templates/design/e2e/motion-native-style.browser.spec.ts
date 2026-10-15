@@ -346,7 +346,6 @@ test("native style states persist with the Motion inspector and timeline", async
   await addAnimation.click();
   for (const label of [
     "Text",
-    "Text animation",
     "Position",
     "Scale",
     "Rotation",
@@ -357,7 +356,10 @@ test("native style states persist with the Motion inspector and timeline", async
       page.getByRole("menuitem", { name: label, exact: true }),
     ).toBeVisible();
   }
-  await expect(page.getByRole("menuitem")).toHaveCount(7);
+  await expect(
+    page.getByRole("menuitem", { name: "Text animation", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("menuitem")).toHaveCount(6);
   await captureMotionState(page, "motion-native-style-text-add-menu");
   const textStyleSave = page.waitForResponse(
     (response) =>
