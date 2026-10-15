@@ -123,8 +123,7 @@ async function waitForGate(gate: Promise<void>, label: string) {
 }
 
 // oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
-// fixme: product bug: The saved inline style is background-image:url(&quot;/api/qa-import-assets/...png&quot;) and the editor requests GET
-test.fixme("delayed Screen-root image upload stays with its original Screen", async ({
+test("delayed Screen-root image upload stays with its original Screen", async ({
   app,
   page,
 }) => {
@@ -1075,8 +1074,7 @@ test.fixme("active Screen upload conflict preserves SQL and live-collaboration s
 });
 
 // oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
-// fixme: fails in CI on current main: app reported console.error: Failed to load resource: the server responded with a status of 404 (Not Found)
-test.fixme("accepted Screen-root image upload persists and renders its source", async ({
+test("accepted Screen-root image upload persists and renders its source", async ({
   app,
   page,
 }) => {

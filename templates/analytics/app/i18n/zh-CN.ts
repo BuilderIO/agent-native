@@ -1168,6 +1168,7 @@ export default {
     selectAll: "全选",
     selectOnly: "仅此项",
     selectOnlyValue: "仅选择 {{value}}",
+    presets: "预设",
     untitledDashboard: "无标题仪表板",
     dashboardFallback: "仪表板",
     viewOnly: "您对此仪表板只有查看权限。",

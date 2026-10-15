@@ -1359,6 +1359,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
   "errorMessages.requestTooLarge":
     "Cette requête a dépassé la limite de taille du serveur (HTTP 413). Démarrez un nouveau chat ou supprimez les pièces jointes ou références volumineuses, puis réessayez.",
+  "errorMessages.capabilityUnavailable":
+    "Impossible d’envoyer votre message pour le moment. Réessayez dans quelques instants.",
+  "errorMessages.capabilityUnsupported":
+    "Cette application ne peut pas encore réessayer votre message enregistré en toute sécurité. Mettez l’application à jour, puis réessayez.",
   "errorMessages.runInterrupted": "L’agent s’est arrêté avant de terminer.",
   "errorMessages.runFailed": "L’exécution de l’agent a échoué.",
   "errorMessages.runUnverified":

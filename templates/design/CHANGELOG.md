@@ -22,8 +22,12 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Chats no longer stop with "result is unknown" after a rejected edit; the agent corrects the call and continues.
 - Deselecting a layer keeps Motion open and restores the canvas inspector.
+- Image fills show their picture in the Fill inspector instead of a broken swatch.
+- Motion reports unsupported animation syntax without interrupting Design editing
 - Motion saves now move imported inline HTML animations into managed source
 - Motion source editing now refuses targets with dynamic styles, Alpine transitions, or inline CSS motion declarations that cannot be synchronized safely
+- Screen undo keeps the original order, deselected Screens clear from Layers, and clipboard pastes preserve placement across responsive previews.
+- Selection stays precise in deeply nested layers, and pasted content keeps its size, styling, and editing history
 
 ## 2026-10-13
 

@@ -3,6 +3,7 @@ import nodePath from "node:path";
 
 import {
   AgentProtocolValidationError,
+  AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
   parseQueueMessageInput,
 } from "@agent-native/agentkit/protocol";
 import {
@@ -3914,6 +3915,7 @@ export function createAgentChatPlugin(
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
         queuedMessageClaimId?: string;
+        submissionExpiresAt?: unknown;
         /** The turn was refused before a run started; record why in the thread. */
         failure?: { code: string; message: string };
         /** What a retry of the refused turn sends besides text and attachments. */
@@ -3989,6 +3991,14 @@ export function createAgentChatPlugin(
             turnId: details.turnId,
             agentKitMessageId: details.agentKitMessageId,
             queuedMessageId: details.queuedMessageId,
+            ...(Object.prototype.hasOwnProperty.call(
+              details,
+              "submissionExpiresAt",
+            )
+              ? {
+                  submissionExpiresAt: details.submissionExpiresAt,
+                }
+              : {}),
             ...(details.failure
               ? { refusedRetry: details.retryContext ?? {} }
               : {}),
@@ -4015,6 +4025,7 @@ export function createAgentChatPlugin(
           let submissionFailure:
             | "already_claimed"
             | "claim_expired"
+            | "submission_expired"
             | "invalid_thread_data"
             | undefined;
           await updateThreadData(
@@ -4046,14 +4057,15 @@ export function createAgentChatPlugin(
                   submissionFailure = result.status;
                   return threadData;
                 }
-                const submitted = details.failure
-                  ? foldUnstartedTurnFailure(result.repo, {
-                      runId: details.runId,
-                      threadId,
-                      turnId: details.turnId,
-                      ...details.failure,
-                    })
-                  : result.repo;
+                const submitted =
+                  details.failure && result.status !== "already_submitted"
+                    ? foldUnstartedTurnFailure(result.repo, {
+                        runId: details.runId,
+                        threadId,
+                        turnId: details.turnId,
+                        ...details.failure,
+                      })
+                    : result.repo;
                 const meta = extractThreadMeta(submitted);
                 return {
                   threadData: JSON.stringify(submitted),
@@ -4076,6 +4088,13 @@ export function createAgentChatPlugin(
               data: { code: "run_slot_busy", retryable: true },
             });
           }
+          if (submissionFailure === "submission_expired") {
+            throw createError({
+              statusCode: 409,
+              statusMessage: "Prompt submission expired before it could start",
+              data: { code: "submission_expired", retryable: false },
+            });
+          }
           if (submissionFailure === "invalid_thread_data") {
             throw new TypeError("Agent chat thread data is not valid JSON.");
           }
@@ -4090,6 +4109,7 @@ export function createAgentChatPlugin(
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
         agentKitMessageId?: string;
+        submissionExpiresAt?: unknown;
         retryContext: RefusedTurnRetryContext;
         failure: { code: string; message: string };
       }) => {
@@ -8327,6 +8347,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // This is mounted last because h3's use() is prefix-based, meaning /_agent-native/agent-chat
       // also matches /_agent-native/agent-chat/threads/... — we skip sub-path requests here so the
       // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
+      const capabilitiesPath = `${routePath}/capabilities`;
+      getH3App(nitroApp).use(
+        capabilitiesPath,
+        defineEventHandler((event) => {
+          const requestPath = new URL(
+            event.node?.req?.url || event.path || "",
+            "http://localhost",
+          ).pathname;
+          if (requestPath !== capabilitiesPath) {
+            setResponseStatus(event, 404);
+            return { error: "Not found" };
+          }
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          setResponseHeader(event, "Cache-Control", "no-store");
+          return { [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true };
+        }),
+      );
+
       getH3App(nitroApp).use(
         routePath,
         withTransientDatabaseFallback(routePath, async (event) => {

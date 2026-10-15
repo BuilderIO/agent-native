@@ -21,6 +21,22 @@ const messages = {
     turnOffRewind: "Desactivar",
     turnOffRewindFailed:
       "No se pudo desactivar Rewind. Detén la grabación e inténtalo de nuevo.",
+    turnOnRewindFailed: "No se pudo activar Rewind. Inténtalo de nuevo.",
+    turnOnRewindPermissionFailed:
+      "Permite que Clips grabe la pantalla en Ajustes del Sistema > Privacidad y seguridad > Grabación de pantalla y audio del sistema. Después, reinicia Clips e inténtalo de nuevo.",
+    turnOnRewindUnsupported:
+      "La captura de pantalla con Rewind solo está disponible en macOS.",
+    turnOnRewindNoSpace:
+      "No hay suficiente espacio en disco para iniciar Rewind. Libera espacio e inténtalo de nuevo.",
+    turnOnRewindStopClip: "Detén el Clip actual antes de activar Rewind.",
+    turnOnRewindStorageFailed:
+      "No se pudo acceder al almacenamiento de Rewind. Comprueba el espacio en disco y los permisos de la carpeta e inténtalo de nuevo.",
+    rewindConsentTitle: "¿Activar Rewind?",
+    rewindConsentBody:
+      "Clips grabará tu pantalla continuamente y la conservará en este dispositivo. Los agentes recibirán extractos de texto, y el vídeo solo se compartirá cuando lo apruebes.",
+    rewindConsentCancel: "Ahora no",
+    rewindConsentConfirm: "Activar Rewind",
+    rewindConsentBusy: "Activando Rewind…",
     rewindOffTitle: "Activar Rewind",
     rewindOffBody:
       "Desactivado de forma predeterminada. El historial de pantalla permanece en este dispositivo hasta que lo añades a una grabación o apruebas una solicitud para compartirlo.",

@@ -1239,6 +1239,7 @@ export default {
     selectAll: "すべて選択",
     selectOnly: "のみ",
     selectOnlyValue: "{{value}} のみ",
+    presets: "プリセット",
     untitledDashboard: "無題のダッシュボード",
     dashboardFallback: "ダッシュボード",
     viewOnly: "このダッシュボードには表示のみのアクセス権があります。",

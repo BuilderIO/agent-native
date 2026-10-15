@@ -20,6 +20,21 @@ const messages = {
     turnOnRewind: "تفعيل Rewind",
     turnOffRewind: "إيقاف",
     turnOffRewindFailed: "تعذّر إيقاف Rewind. أوقف التسجيل ثم حاول مرة أخرى.",
+    turnOnRewindFailed: "تعذّر تفعيل Rewind. حاول مرة أخرى.",
+    turnOnRewindPermissionFailed:
+      "اسمح لـ Clips بتسجيل الشاشة من إعدادات النظام > الخصوصية والأمان > تسجيل الشاشة والصوت، ثم أعد تشغيل Clips وحاول مرة أخرى.",
+    turnOnRewindUnsupported: "يتوفر تسجيل الشاشة عبر Rewind على macOS فقط.",
+    turnOnRewindNoSpace:
+      "لا توجد مساحة كافية على القرص لبدء Rewind. أفرغ بعض المساحة ثم حاول مرة أخرى.",
+    turnOnRewindStopClip: "أوقف Clip الحالي قبل تفعيل Rewind.",
+    turnOnRewindStorageFailed:
+      "تعذّر الوصول إلى مساحة تخزين Rewind. تحقّق من مساحة القرص وأذونات المجلد ثم حاول مرة أخرى.",
+    rewindConsentTitle: "تفعيل Rewind؟",
+    rewindConsentBody:
+      "سيسجل Clips شاشتك باستمرار ويحتفظ بالتسجيل على هذا الجهاز. يحصل الوكلاء على مقتطفات نصية، ولا تتم مشاركة الفيديو إلا بعد موافقتك.",
+    rewindConsentCancel: "ليس الآن",
+    rewindConsentConfirm: "تفعيل Rewind",
+    rewindConsentBusy: "جارٍ تفعيل Rewind…",
     rewindOffTitle: "تفعيل Rewind",
     rewindOffBody:
       "متوقف افتراضيًا. يبقى سجل الشاشة على هذا الجهاز حتى تضيفه إلى تسجيل أو توافق على طلب لمشاركته.",

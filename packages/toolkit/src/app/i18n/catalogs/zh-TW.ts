@@ -634,6 +634,9 @@ const messages: ToolkitAgentChatTranslation = {
     "模型供應商認為此要求格式有誤而予以拒絕，因此未重試。請重試，若問題持續發生，請開始新的對話。",
   "errorMessages.requestTooLarge":
     "此要求超過伺服器大小限制（HTTP 413）。請開始新的聊天，或移除較大的附件或參照後再試一次。",
+  "errorMessages.capabilityUnavailable": "目前無法傳送你的訊息。請稍後再試。",
+  "errorMessages.capabilityUnsupported":
+    "此應用程式目前無法安全地重試已儲存的提示。請先更新應用程式，再試一次。",
   "errorMessages.runInterrupted": "代理在完成前停止了。",
   "errorMessages.runFailed": "代理執行失敗。",
   "errorMessages.runUnverified":

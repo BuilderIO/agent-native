@@ -6627,6 +6627,7 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
       "fetch",
       vi.fn(async () => Response.json({ value: null })),
     );
+    ensureLocalStorage();
     window.localStorage.clear();
     window.localStorage.setItem(
       openTabsStorageKey("mode-b"),
@@ -6666,6 +6667,58 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
       "Sent before mount",
       undefined,
       { submitMessageId: expect.any(String) },
+    );
+  });
+
+  it("rejects a submission whose retry window has expired", async () => {
+    const submissionExpiresAt = Date.now() - 1;
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+
+    try {
+      await act(async () => {
+        root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+        await Promise.resolve();
+      });
+      dispatchSubmitChat({
+        message: "Create a deck",
+        submissionExpiresAt,
+        submitMessageId: "expired-submit",
+      });
+
+      expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+      expect(results).toContainEqual({
+        submitMessageId: "expired-submit",
+        delivered: false,
+        reason: "submission-expired",
+      });
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    }
+  });
+
+  it("passes a submission expiry to the chat that receives the message", async () => {
+    const submissionExpiresAt = Date.now() + 20_000;
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+      await Promise.resolve();
+    });
+
+    dispatchSubmitChat({
+      message: "Create a deck",
+      submissionExpiresAt,
+      submitMessageId: "deadline-submit",
+    });
+
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Create a deck",
+      undefined,
+      {
+        submitMessageId: "deadline-submit",
+        submissionExpiresAt,
+      },
     );
   });
 
