@@ -38,6 +38,7 @@ export async function loadDashboardAnnotationSummary(
     // for a reader who can show it again.
     if (drawn.dashboard.canEdit) return { ...summary, editable: false };
     return {
+      ...summary,
       keyDateSets: summary.keyDateSets.filter((set) => set.shown),
       dataNotes: summary.dataNotes.filter((note) => note.panelIds.length > 0),
       editable: false,

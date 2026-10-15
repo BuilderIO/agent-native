@@ -21,7 +21,7 @@ export const SUMMARY_DATES_PER_SET = 5;
 export interface KeyDateSetSummary {
   id: string;
   name: string;
-  /** False when this dashboard hides the set. */
+  /** False when this dashboard hides the set. True draws nothing when the summary has `keyDatesHint`. */
   shown: boolean;
   dateCount: number;
   recentDates?: Array<Pick<KeyDate, "date" | "time" | "timeZone" | "label">>;
@@ -47,6 +47,8 @@ export interface DataNoteSummary {
 
 export interface DashboardAnnotationSummary {
   keyDateSets: KeyDateSetSummary[];
+  /** Set when no chart on this dashboard can draw a key date. */
+  keyDatesHint?: string;
   dataNotes: DataNoteSummary[];
   /** Set when they are another organization's, which the caller can't change. */
   editable?: false;
@@ -65,6 +67,13 @@ function configAnnotations(
   config: Record<string, unknown>,
 ): DashboardAnnotations | undefined {
   return config.annotations as DashboardAnnotations | undefined;
+}
+
+const NO_KEY_DATE_CHARTS =
+  "This dashboard has no line, area, bar or combo charts, so no chart here draws key dates.";
+
+function drawsKeyDates(panels: readonly SqlPanel[]): boolean {
+  return panels.some((panel) => isKeyDateChartType(panel.chartType));
 }
 
 function hiddenPanelIds(
@@ -130,6 +139,9 @@ export function summarizeDashboardAnnotations(
           label,
         })),
     })),
+    ...(sets.length > 0 && !drawsKeyDates(panels)
+      ? { keyDatesHint: NO_KEY_DATE_CHARTS }
+      : {}),
     dataNotes: notes.flatMap((note) => {
       const reached = panelsShowingNote(note, dashboardId, panels, now);
       if (reached.length === 0) return [];
@@ -204,13 +216,10 @@ export function keyDatePlacement(
   config: Record<string, unknown>,
 ) {
   const shown = !configAnnotations(config)?.hiddenKeyDateSets?.includes(setId);
-  const canDraw = configPanels(config).some((panel) =>
-    isKeyDateChartType(panel.chartType),
-  );
   const hint = !shown
     ? "This dashboard hides the date's set (config.annotations.hiddenKeyDateSets), so its charts don't draw the date. Tell the person rather than showing the set on your own."
-    : !canDraw
-      ? "This dashboard has no line, area, bar or combo charts, so no chart here draws the date."
+    : !drawsKeyDates(configPanels(config))
+      ? NO_KEY_DATE_CHARTS
       : undefined;
   return {
     dashboardId,

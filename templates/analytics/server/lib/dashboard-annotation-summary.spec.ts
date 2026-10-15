@@ -154,6 +154,26 @@ describe("summarizeDashboardAnnotations", () => {
     );
   });
 
+  it("says when no chart here can draw a key date", () => {
+    const summarize = (dashboardPanels: typeof panels, sets = [launches]) =>
+      summarizeDashboardAnnotations(
+        "dash",
+        { panels: dashboardPanels },
+        sets,
+        [],
+      );
+
+    expect(summarize([panels[3]])).toMatchObject({
+      keyDateSets: [expect.objectContaining({ id: "launches", shown: true })],
+      keyDatesHint: expect.stringContaining(
+        "no line, area, bar or combo charts",
+      ),
+    });
+    expect(summarize(panels)).not.toHaveProperty("keyDatesHint");
+    expect(summarize(stackedPanels)).not.toHaveProperty("keyDatesHint");
+    expect(summarize([panels[3]], [])).not.toHaveProperty("keyDatesHint");
+  });
+
   it("orders dates by when they happened in their own zones", () => {
     const tokyo = ["09:00", "10:00", "11:00", "12:00", "13:00"].map((time) =>
       keyDate("2026-10-14", `Tokyo session ${time}`, {

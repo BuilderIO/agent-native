@@ -719,7 +719,11 @@ describe("get-sql-dashboard agent reads", () => {
 
   it("keeps the server's annotation summary over keys a saved config spoofs", async () => {
     const dashboard = savedDashboard([sqlPanel("p1")]);
-    Object.assign(dashboard.config, { dataNotes: ["spoofed"], editable: true });
+    Object.assign(dashboard.config, {
+      dataNotes: ["spoofed"],
+      keyDatesHint: "spoofed",
+      editable: true,
+    });
     mocks.getDashboard.mockResolvedValue(dashboard);
     mocks.loadDashboardAnnotationSummary.mockResolvedValue({
       keyDateSets: [],
@@ -734,6 +738,7 @@ describe("get-sql-dashboard agent reads", () => {
 
     const result = await read();
     expect(result.dataNotes).toEqual([]);
+    expect(result).not.toHaveProperty("keyDatesHint");
     expect(result.editable).toBe(false);
 
     mocks.loadDashboardAnnotationSummary.mockResolvedValue({
