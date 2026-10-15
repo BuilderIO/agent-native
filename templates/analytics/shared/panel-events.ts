@@ -21,6 +21,13 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_OF_DAY = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DAY_MS = 86_400_000;
 
+/** A real "YYYY-MM-DD" day. Date.parse rolls 2026-02-30 over to March 2 instead of rejecting it. */
+export function isIsoCalendarDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false;
+  const ms = Date.parse(value);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === value;
+}
+
 export function isValidTimeZone(value: unknown): value is string {
   if (typeof value !== "string" || value.trim() === "") return false;
   try {
@@ -37,8 +44,7 @@ export function isValidPanelEvent(value: unknown): value is PanelEvent {
   const event = value as Record<string, unknown>;
   return (
     typeof event.date === "string" &&
-    ISO_DATE.test(event.date) &&
-    !Number.isNaN(Date.parse(event.date)) &&
+    isIsoCalendarDate(event.date) &&
     typeof event.label === "string" &&
     event.label.trim() !== "" &&
     (event.color === undefined || typeof event.color === "string") &&
@@ -126,17 +132,20 @@ function containingBucket(points: readonly number[], target: number): number {
 /**
  * Snaps each event to the nearest x value. Daily axes match on the event's
  * date; an axis with several points per day matches on its time of day too.
- * Events outside the x range, and x axes that are not dates, resolve to
- * nothing.
+ * Rows whose x is not a date (a null bucket, a total row) are skipped; events
+ * outside the x range, and x axes with no dates at all, resolve to nothing.
  */
 export function resolvePanelEvents(
   events: unknown,
   xValues: readonly unknown[],
 ): ResolvedPanelEvent[] {
-  if (!Array.isArray(events) || xValues.length === 0) return [];
-  const instants = xValues.map(xInstant);
-  if (instants.some((instant) => instant === null)) return [];
-  const known = instants as number[];
+  if (!Array.isArray(events)) return [];
+  const rows = xValues.flatMap((x, row) => {
+    const instant = xInstant(x);
+    return instant === null ? [] : [{ row, instant }];
+  });
+  if (rows.length === 0) return [];
+  const known = rows.map((entry) => entry.instant);
   const subDaily = known.some(
     (instant, index) =>
       index > 0 && Math.abs(instant - known[index - 1]) < DAY_MS,
@@ -164,9 +173,10 @@ export function resolvePanelEvents(
       ? containingBucket(points, target)
       : nearestPoint(points, target);
     if (best < 0) continue;
+    const { row } = rows[best];
     resolved.push({
-      index: best,
-      x: String(xValues[best]),
+      index: row,
+      x: String(xValues[row]),
       date: event.date,
       ...(event.time ? { time: event.time } : {}),
       ...(event.timeZone ? { timeZone: event.timeZone } : {}),

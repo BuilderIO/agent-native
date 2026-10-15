@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   formatPanelEventTime,
   groupPanelEvents,
+  isIsoCalendarDate,
+  isValidPanelEvent,
   panelEventInstant,
   resolvePanelEvents,
 } from "./panel-events";
@@ -49,6 +51,27 @@ describe("resolvePanelEvents", () => {
     expect(
       resolvePanelEvents([{ date: "2026-10-14", label: "x" }], ["a", "b"]),
     ).toEqual([]);
+  });
+
+  it("skips rows whose x is not a date and keeps their row positions", () => {
+    const [event] = resolvePanelEvents(
+      [{ date: "2026-10-14", label: "Launch" }],
+      ["2026-10-12", null, "2026-10-14", "Total"],
+    );
+    expect(event).toMatchObject({ index: 2, x: "2026-10-14" });
+  });
+});
+
+describe("isIsoCalendarDate", () => {
+  it("rejects days that do not exist instead of rolling them over", () => {
+    expect(isIsoCalendarDate("2026-10-14")).toBe(true);
+    expect(isIsoCalendarDate("2028-02-29")).toBe(true);
+    expect(isIsoCalendarDate("2026-02-29")).toBe(false);
+    expect(isIsoCalendarDate("2026-02-30")).toBe(false);
+    expect(isIsoCalendarDate("2026-13-01")).toBe(false);
+    expect(isValidPanelEvent({ date: "2026-02-30", label: "Launch" })).toBe(
+      false,
+    );
   });
 });
 
