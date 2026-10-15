@@ -446,6 +446,30 @@ describe("an emptied wrapper beside an authored empty one", () => {
     expect(committed().innerHTML).toBe("<p>x </p>");
   });
 
+  it("keeps an authored empty icon inside a wrapper whose text was deleted", () => {
+    boot('<p>go <span style="color:red"><i class="icon"></i>text</span></p>');
+    select(
+      textOf(session!.element, "text"),
+      0,
+      textOf(session!.element, "text"),
+      4,
+    );
+    chord("Backspace");
+    expect(committed().innerHTML).toContain('<i class="icon"></i>');
+  });
+
+  it("drops a wrapper left empty by emptying the wrapper inside it", () => {
+    boot("<p>a <b><i>xy</i></b> c</p>");
+    select(
+      textOf(session!.element, "xy"),
+      0,
+      textOf(session!.element, "xy"),
+      2,
+    );
+    chord("Backspace");
+    expect(committed().innerHTML).toBe("<p>a  c</p>");
+  });
+
   it("drops an emptied span that looks like an authored spacer", () => {
     boot('<p><span></span>a <span class="x">bc</span> d</p>');
     select(

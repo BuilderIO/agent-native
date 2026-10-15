@@ -603,10 +603,13 @@ function removeRun(text: Text, line: HTMLElement) {
   run.parentNode?.removeChild(run);
 }
 
-/** Inline wrappers with nothing in them: no text, no `<br>`, no image. */
+/**
+ * Inline wrappers with nothing in them: no text, no `<br>`, no image, and no
+ * element at all, so an authored empty icon inside one is never taken with it.
+ */
 function emptyWrappers(root: Element): Element[] {
   return Array.from(root.querySelectorAll(INLINE_WRAPPERS)).filter(
-    (node) => !node.textContent && !node.querySelector(RENDERED_ELEMENTS),
+    (node) => !node.textContent && node.childElementCount === 0,
   );
 }
 
@@ -6644,9 +6647,15 @@ export function startInPlaceTextSession(
 
   /** Removes the wrappers the session emptied; the author's own stay. */
   function dropEmptiedWrappers(root: Element) {
-    const kept = authoredEmptyKeeper();
-    for (const wrapper of emptyWrappers(root)) {
-      if (!kept(wrapper)) wrapper.remove();
+    // Emptying a wrapper can leave the one around it empty in turn.
+    for (let dropped = true; dropped; ) {
+      dropped = false;
+      const kept = authoredEmptyKeeper();
+      for (const wrapper of emptyWrappers(root)) {
+        if (kept(wrapper)) continue;
+        wrapper.remove();
+        dropped = true;
+      }
     }
   }
 
