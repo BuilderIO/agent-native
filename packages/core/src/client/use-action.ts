@@ -945,7 +945,7 @@ export function tryCallActionKeepalive<
 >(
   actionName: TName,
   params?: ActionParams<TName>,
-  options: Omit<ClientActionCallOptions, "method"> & {
+  options: Omit<ClientActionCallOptions, "method" | "uiOnly"> & {
     method?: "POST" | "PUT";
   } = {},
 ): KeepaliveActionCallResult<
