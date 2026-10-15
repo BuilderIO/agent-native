@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   activeProvider: null as any,
@@ -13,12 +13,17 @@ const mockGetActiveFileUploadProviderForRequest = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
 const mockDbExec = vi.hoisted(() => vi.fn());
 const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
+const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const hostedProvider = vi.hoisted(() => ({ id: "clips-hosted" }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: (...args: unknown[]) =>
     mockGetActiveFileUploadProviderForRequest(...args),
   listFileUploadProviders: () => [],
+}));
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: (...args: unknown[]) =>
+    mockIsFeatureFlagEnabled(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({
   BUILDER_ASSETS_WRITE_SCOPE: "assets:write",
@@ -95,7 +100,12 @@ import {
 } from "./video-storage.js";
 
 describe("hosted Clips storage mode pinning", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   beforeEach(() => {
+    vi.stubEnv("DATABASE_URL", "postgres://test/clips");
     state.activeProvider = { id: "s3", name: "S3-compatible storage" };
     state.requestContext = {
       userEmail: "owner@example.com",
@@ -112,6 +122,8 @@ describe("hosted Clips storage mode pinning", () => {
     mockGetActiveFileUploadProviderForRequest.mockImplementation(
       async () => state.activeProvider,
     );
+    mockIsFeatureFlagEnabled.mockReset();
+    mockIsFeatureFlagEnabled.mockResolvedValue(true);
     mockGetDb.mockReset();
     mockGetDb.mockImplementation(() => ({
       select: () => {
@@ -150,6 +162,7 @@ describe("hosted Clips storage mode pinning", () => {
   it("keeps an in-flight hosted recording pinned after Builder connects", async () => {
     state.recordingRows = [{ storageMode: "hosted" }];
     state.activeProvider = { id: "builder", name: "Builder.io" };
+    mockIsFeatureFlagEnabled.mockResolvedValue(false);
 
     const resolved = await resolveClipsVideoStorage({
       intent: "existing",
@@ -162,7 +175,77 @@ describe("hosted Clips storage mode pinning", () => {
       provider: hostedProvider,
     });
     expect(mockGetActiveFileUploadProviderForRequest).not.toHaveBeenCalled();
+    expect(mockIsFeatureFlagEnabled).not.toHaveBeenCalled();
     expect(mockReserveHostedClipAllowance).not.toHaveBeenCalled();
+  });
+
+  it("does not offer or reserve a new hosted grant while the flag is off", async () => {
+    state.activeProvider = null;
+    mockIsFeatureFlagEnabled.mockResolvedValue(false);
+
+    await expect(
+      resolveClipsVideoStorage({
+        intent: "new",
+        recordingId: "recording-1",
+        email: "owner@example.com",
+      }),
+    ).resolves.toMatchObject({
+      mode: "none",
+      hostedRemaining: 0,
+      denyReason: "disabled",
+    });
+
+    await expect(
+      getClipsVideoStorageStatus({
+        email: "owner@example.com",
+        userId: "user-1",
+      }),
+    ).resolves.toMatchObject({
+      configured: false,
+      mode: "none",
+      hostedRemaining: 0,
+      hostedLimit: 0,
+      denyReason: "disabled",
+    });
+    expect(mockDbExec).not.toHaveBeenCalled();
+    expect(mockGetHostedClipAllowanceSnapshot).not.toHaveBeenCalled();
+    expect(mockReserveHostedClipAllowance).not.toHaveBeenCalled();
+  });
+
+  it("lets a targeted user reserve a grant while keeping other users off", async () => {
+    state.activeProvider = null;
+    mockIsFeatureFlagEnabled.mockImplementation(
+      async (_flag: unknown, scope: { userEmail?: string }) =>
+        scope.userEmail === "alice@example.com",
+    );
+    mockGetHostedClipAllowanceSnapshot.mockResolvedValue({
+      status: "available",
+      remainingCount: 3,
+      denialReason: null,
+    });
+    mockDbExec.mockResolvedValue({
+      rows: [{ email: "alice@example.com", email_verified: true }],
+    });
+
+    const alice = await resolveClipsVideoStorage({
+      intent: "new",
+      recordingId: "alice-recording",
+      email: "alice@example.com",
+      userId: "alice",
+    });
+    const bob = await resolveClipsVideoStorage({
+      intent: "new",
+      recordingId: "bob-recording",
+      email: "bob@example.com",
+      userId: "bob",
+    });
+
+    expect(alice.mode).toBe("hosted");
+    expect(bob).toMatchObject({ mode: "none", denyReason: "disabled" });
+    expect(mockReserveHostedClipAllowance).toHaveBeenCalledTimes(1);
+    expect(mockReserveHostedClipAllowance).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "alice@example.com", userId: "alice" }),
+    );
   });
 
   it("surfaces an observed hosted provider failure separately from an available allowance", async () => {

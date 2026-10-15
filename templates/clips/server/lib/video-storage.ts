@@ -1,4 +1,5 @@
 import { getDbExec } from "@agent-native/core/db";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
@@ -15,6 +16,7 @@ import {
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import { and, desc, eq } from "drizzle-orm";
 
+import { CLIPS_HOSTED_FREE_CLIPS_FLAG } from "../../shared/feature-flags.js";
 import { getDb, schema } from "../db/index.js";
 import {
   accountHostedClipAdditionalBytes,
@@ -126,6 +128,13 @@ function requestIdentity(
     email: input.email ?? request?.userEmail ?? null,
     userId: input.userId ?? request?.authUserId ?? null,
   };
+}
+
+function hostedFreeClipsEnabled(identity: { email?: string | null }) {
+  return isFeatureFlagEnabled(CLIPS_HOSTED_FREE_CLIPS_FLAG, {
+    userEmail: identity.email ?? undefined,
+    orgId: getRequestContext()?.orgId ?? null,
+  });
 }
 
 function requestIpPrefix(headers?: Headers): string | null {
@@ -283,6 +292,16 @@ export async function resolveClipsVideoStorage(input: {
     };
   }
 
+  if (!(await hostedFreeClipsEnabled(identity))) {
+    return {
+      mode: "none",
+      provider: null,
+      hostedRemaining: 0,
+      ...limits,
+      denyReason: "disabled",
+    };
+  }
+
   const emailVerified = await readEmailVerified(
     identity.userId,
     identity.email,
@@ -359,6 +378,18 @@ export async function getClipsVideoStorageStatus(
       hostedRemaining: 0,
       ...limits,
       denyReason: "sign_in_required" as const,
+    };
+  }
+
+  if (!(await hostedFreeClipsEnabled(identity))) {
+    return {
+      configured: false,
+      ...legacyStatus,
+      mode: "none" as const,
+      hostedRemaining: 0,
+      ...limits,
+      hostedLimit: 0,
+      denyReason: "disabled" as const,
     };
   }
 
