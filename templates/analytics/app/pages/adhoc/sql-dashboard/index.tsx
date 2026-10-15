@@ -719,6 +719,10 @@ function SqlDashboardPageContent({
   useEffect(() => {
     dashboardUpdatedAtRef.current = dashboardUpdatedAt;
   }, [dashboardUpdatedAt]);
+  const openDashboardIdRef = useRef(dashboardId);
+  useEffect(() => {
+    openDashboardIdRef.current = dashboardId;
+  }, [dashboardId]);
   // One queue per dashboard for the page's life: a second queue for a
   // dashboard you come back to would run its saves alongside the first's.
   const dashboardSaveQueuesRef = useRef(
@@ -1022,14 +1026,18 @@ function SqlDashboardPageContent({
   useEffect(() => {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
     const fetched = dashboardQuery.data;
+    const saveQueue = dashboardSaveQueuesRef.current.get(dashboardId);
     const adoption = shouldAdoptDashboardQueryResult({
       dashboardId,
       loaded,
       isPlaceholderData: dashboardQuery.isPlaceholderData,
       fetchedId: fetched?.id,
       fetchedUpdatedAt: fetched?.updatedAt,
-      currentUpdatedAt: dashboardUpdatedAt,
+      // The ref, not state: it already has the saves that landed, so a fetch
+      // from between two of them is older news.
+      currentUpdatedAt: dashboardUpdatedAtRef.current,
       hold: pendingConfigRef.current,
+      savesPending: !!saveQueue && saveQueue.pending() > 0,
     });
     if (adoption.clearHold) {
       pendingConfigRef.current = null;
@@ -1263,9 +1271,15 @@ function SqlDashboardPageContent({
       async (config, expectedUpdatedAt) => {
         const result = await saveDashboard(id, config, expectedUpdatedAt);
         dashboardUpdatedAtRef.current = dashboardVersionAfterSave(
-          dashboardUpdatedAtRef.current,
-          expectedUpdatedAt,
-          result.updatedAt,
+          {
+            dashboardId: openDashboardIdRef.current,
+            updatedAt: dashboardUpdatedAtRef.current,
+          },
+          {
+            dashboardId: id,
+            sentAgainst: expectedUpdatedAt,
+            saved: result.updatedAt,
+          },
         );
         return {
           changed: result.changed,
