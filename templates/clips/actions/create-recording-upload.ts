@@ -8,7 +8,10 @@ import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { z } from "zod";
 
 import { getServerAppBasePath } from "../server/lib/public-agent-context.js";
-import { createRecordingUploadTicket } from "../server/lib/recording-upload-ticket.js";
+import {
+  assertRecordingUploadTicketCapacity,
+  createRecordingUploadTicket,
+} from "../server/lib/recording-upload-ticket.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import createRecording from "./create-recording.js";
 
@@ -68,6 +71,7 @@ export default defineAction({
   }),
   run: async (args, actionContext) => {
     const ownerEmail = getCurrentOwnerEmail();
+    await assertRecordingUploadTicketCapacity(ownerEmail);
     const created = await createRecording.run(
       {
         title: args.title,
@@ -116,7 +120,7 @@ export default defineAction({
       chunkSizeBytes: UPLOAD_SLICE_BYTES,
       totalChunks,
       expiresAt: new Date(ticket.expiresAt).toISOString(),
-      next: `Split the file into ${totalChunks} chunk(s) of chunkSizeBytes (the last may be shorter). POST them one at a time, in order, as the raw request body to chunkUrl + "&index=N&isFinal=0" with the returned headers, N counting from 0. Send the last chunk with "&isFinal=1": that request finalizes the recording, so do not call finalize-recording. Retry a failed chunk with the same index. The upload URL stops working once the last chunk is accepted (a retried last chunk then gets 409; read the clip's status with get-recording-player-data) or at expiresAt. Then give the user shareUrl; transcription, and a title when none was given, follow in the background.`,
+      next: `Split the file into ${totalChunks} chunk(s) of chunkSizeBytes (the last may be shorter). POST them one at a time, in order, as the raw request body to chunkUrl + "&index=N&isFinal=0" with the returned headers, N counting from 0. Send the last chunk with "&isFinal=1": that request finalizes the recording, so do not call finalize-recording. Retry a failed chunk with the same index. The upload URL stops working once the last chunk is accepted (a retried last chunk then gets 409 saying so; read the clip with get-recording-player-data rather than uploading again) or at expiresAt. Then give the user shareUrl; transcription, and a title when none was given, follow in the background.`,
     };
   },
 });

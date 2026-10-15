@@ -29,6 +29,7 @@ const execute = vi.hoisted(() =>
 );
 const recordingRows = vi.hoisted(() => ({
   rows: [] as Array<{ status: string }>,
+  uploadingIds: [] as string[],
 }));
 const selectRecording = vi.hoisted(() => vi.fn());
 
@@ -43,6 +44,7 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ and: args }),
   eq: (...args: unknown[]) => ({ eq: args }),
+  inArray: (...args: unknown[]) => ({ inArray: args }),
 }));
 
 vi.mock("h3", () => ({
@@ -58,6 +60,9 @@ vi.mock("../db/index.js", () => ({
       from: () => ({
         where: async (where: unknown) => {
           selectRecording(where);
+          if (JSON.stringify(where).includes('"inArray"')) {
+            return recordingRows.uploadingIds.map((id) => ({ id }));
+          }
           return recordingRows.rows;
         },
       }),
@@ -88,6 +93,7 @@ describe("recording upload tickets", () => {
     execute.mockClear();
     selectRecording.mockClear();
     recordingRows.rows = [{ status: "uploading" }];
+    recordingRows.uploadingIds = [];
     vi.useRealTimers();
   });
 
@@ -213,17 +219,77 @@ describe("recording upload tickets", () => {
       "rec-1",
     );
 
-    for (const rows of [
-      [{ status: "processing" }],
-      [{ status: "ready" }],
-      [{ status: "failed" }],
-      [],
-    ]) {
-      recordingRows.rows = rows;
+    for (const [rows, guidance] of [
+      [
+        [{ status: "processing" }],
+        /already finished.*get-recording-player-data/,
+      ],
+      [[{ status: "ready" }], /already finished.*get-recording-player-data/],
+      [
+        [{ status: "failed" }],
+        /failed or was cancelled.*create-recording-upload/,
+      ],
+      [[], /failed or was cancelled.*create-recording-upload/],
+    ] as const) {
+      recordingRows.rows = [...rows];
       await expect(
         requireRecordingUploadTicketOwner(ticketEvent(token), "rec-1"),
-      ).rejects.toMatchObject({ statusCode: 409 });
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        message: expect.stringMatching(guidance),
+      });
     }
+  });
+
+  it("never evicts a live upload's ticket, and refuses a new upload at the cap", async () => {
+    const {
+      assertRecordingUploadTicketCapacity,
+      createRecordingUploadTicket,
+      requireRecordingUploadTicketOwner,
+    } = await import("./recording-upload-ticket.js");
+    const ids = Array.from({ length: 20 }, (_, i) => `rec-${i}`);
+    const first = await createRecordingUploadTicket(
+      "owner@example.com",
+      ids[0],
+    );
+    for (const id of ids.slice(1)) {
+      await createRecordingUploadTicket("owner@example.com", id);
+    }
+    recordingRows.uploadingIds = ids;
+
+    const storedBefore = settings.get(storageKey);
+    await expect(
+      assertRecordingUploadTicketCapacity("owner@example.com"),
+    ).rejects.toMatchObject({ statusCode: 429 });
+    expect(settings.get(storageKey)).toBe(storedBefore);
+
+    // A concurrent call that passed the check still keeps every live ticket.
+    await createRecordingUploadTicket("owner@example.com", "rec-late");
+    expect(
+      Object.keys(JSON.parse(settings.get(storageKey)!).tickets),
+    ).toHaveLength(21);
+    await expect(
+      requireRecordingUploadTicketOwner(ticketEvent(first.token), ids[0]),
+    ).resolves.toMatchObject({ recordingId: ids[0] });
+  });
+
+  it("frees capacity held by uploads that already finished", async () => {
+    const { assertRecordingUploadTicketCapacity, createRecordingUploadTicket } =
+      await import("./recording-upload-ticket.js");
+    const ids = Array.from({ length: 20 }, (_, i) => `rec-${i}`);
+    for (const id of ids) {
+      await createRecordingUploadTicket("owner@example.com", id);
+    }
+    recordingRows.uploadingIds = ids.slice(1);
+
+    await expect(
+      assertRecordingUploadTicketCapacity("owner@example.com"),
+    ).resolves.toBeUndefined();
+    await createRecordingUploadTicket("owner@example.com", "rec-new");
+    const stored = Object.keys(JSON.parse(settings.get(storageKey)!).tickets);
+    expect(stored).not.toContain(ids[0]);
+    expect(stored).toContain("rec-new");
+    expect(stored).toHaveLength(20);
   });
 
   it("keeps other recordings' tickets when issuing a new one", async () => {

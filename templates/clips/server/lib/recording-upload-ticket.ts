@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 
 import { getDbExec } from "@agent-native/core/db";
 import { getUserSetting } from "@agent-native/core/settings";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { createError, getHeader, type H3Event } from "h3";
 
 import { getDb, schema } from "../db/index.js";
@@ -87,18 +87,44 @@ function parseTickets(raw: string | null): RecordingUploadTickets {
   };
 }
 
-function pruneTickets(
+function dropExpiredTickets(
   tickets: Record<string, RecordingUploadTicket>,
   now: number,
 ): Record<string, RecordingUploadTicket> {
   return Object.fromEntries(
-    Object.entries(tickets)
-      .filter(
-        ([, ticket]) =>
-          Number.isFinite(ticket.expiresAt) && ticket.expiresAt >= now,
-      )
-      .sort(([, left], [, right]) => right.expiresAt - left.expiresAt)
-      .slice(0, MAX_PENDING_TICKETS),
+    Object.entries(tickets).filter(
+      ([, ticket]) =>
+        Number.isFinite(ticket.expiresAt) && ticket.expiresAt >= now,
+    ),
+  );
+}
+
+/**
+ * Tickets that can still open an upload. Never drops one whose recording is
+ * still "uploading": evicting it would strand that upload mid-file.
+ */
+async function liveTickets(
+  ownerEmail: string,
+  tickets: Record<string, RecordingUploadTicket>,
+): Promise<Record<string, RecordingUploadTicket>> {
+  const unexpired = dropExpiredTickets(tickets, Date.now());
+  const recordingIds = Object.keys(unexpired);
+  if (recordingIds.length < MAX_PENDING_TICKETS) return unexpired;
+  const uploading = await getDb()
+    .select({ id: schema.recordings.id })
+    .from(schema.recordings)
+    .where(
+      and(
+        inArray(schema.recordings.id, recordingIds),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        eq(schema.recordings.status, "uploading"),
+      ),
+    );
+  const uploadingIds = new Set(uploading.map((row) => row.id));
+  return Object.fromEntries(
+    Object.entries(unexpired).filter(([recordingId]) =>
+      uploadingIds.has(recordingId),
+    ),
   );
 }
 
@@ -136,6 +162,20 @@ async function compareAndSwapTickets(
   return result.rowsAffected === 1;
 }
 
+/** Call before creating the recording, so a refusal leaves nothing behind. */
+export async function assertRecordingUploadTicketCapacity(
+  ownerEmail: string,
+): Promise<void> {
+  const { collection } = await readTicketsRow(ownerEmail);
+  const live = await liveTickets(ownerEmail, collection.tickets);
+  if (Object.keys(live).length >= MAX_PENDING_TICKETS) {
+    throw createError({
+      statusCode: 429,
+      message: `${MAX_PENDING_TICKETS} agent uploads are still in progress. Finish one before starting another; an abandoned upload frees its slot within two hours.`,
+    });
+  }
+}
+
 export async function createRecordingUploadTicket(
   ownerEmail: string,
   recordingId: string,
@@ -151,10 +191,10 @@ export async function createRecordingUploadTicket(
 
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
     const { raw, collection } = await readTicketsRow(ownerEmail);
-    const tickets = pruneTickets(
-      { ...collection.tickets, [recordingId]: ticket },
-      Date.now(),
-    );
+    const tickets = {
+      ...(await liveTickets(ownerEmail, collection.tickets)),
+      [recordingId]: ticket,
+    };
     if (await compareAndSwapTickets(ownerEmail, raw, { tickets })) {
       return { ...ticket, token };
     }
@@ -213,11 +253,20 @@ export async function requireRecordingUploadTicketOwner(
         ownerEmailMatches(schema.recordings.ownerEmail, verified.ownerEmail),
       ),
     );
+  if (recording?.status === "processing" || recording?.status === "ready") {
+    throw createError({
+      statusCode: 409,
+      message:
+        "This upload is already finished: its last chunk was accepted. Read the clip with get-recording-player-data instead of uploading it again.",
+      data: { recordingId, status: recording.status },
+    });
+  }
   if (recording?.status !== "uploading") {
     throw createError({
       statusCode: 409,
       message:
-        "This upload is finished or cancelled. Call create-recording-upload to start a new one.",
+        "This upload failed or was cancelled. Call create-recording-upload to start a new one.",
+      data: { recordingId, status: recording?.status ?? null },
     });
   }
   return {

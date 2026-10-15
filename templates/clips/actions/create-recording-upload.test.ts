@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  assertRecordingUploadTicketCapacity: vi.fn(),
   createRecordingRun: vi.fn(),
   createRecordingUploadTicket: vi.fn(),
   getRequestContext: vi.fn(),
@@ -20,6 +21,8 @@ vi.mock("../server/lib/public-agent-context.js", () => ({
 }));
 
 vi.mock("../server/lib/recording-upload-ticket.js", () => ({
+  assertRecordingUploadTicketCapacity:
+    mocks.assertRecordingUploadTicketCapacity,
   createRecordingUploadTicket: mocks.createRecordingUploadTicket,
 }));
 
@@ -118,6 +121,26 @@ describe("create-recording-upload", () => {
       height: "1080",
     });
     expect(result.next).toContain("isFinal=1");
+  });
+
+  it("refuses at the ticket cap before creating a recording", async () => {
+    mocks.assertRecordingUploadTicketCapacity.mockRejectedValue(
+      Object.assign(new Error("20 agent uploads are still in progress."), {
+        statusCode: 429,
+      }),
+    );
+
+    await expect(
+      (action as any).run(
+        { visibility: "org", mimeType: "video/mp4", sizeBytes: MIB },
+        { caller: "mcp", userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({ statusCode: 429 });
+    expect(mocks.assertRecordingUploadTicketCapacity).toHaveBeenCalledWith(
+      "owner@example.com",
+    );
+    expect(mocks.createRecordingRun).not.toHaveBeenCalled();
+    expect(mocks.createRecordingUploadTicket).not.toHaveBeenCalled();
   });
 
   it("refuses files over the upload limit before creating a recording", () => {
