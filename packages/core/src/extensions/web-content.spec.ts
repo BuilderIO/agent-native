@@ -106,4 +106,40 @@ describe("processWebContent", () => {
       }),
     ).resolves.toMatchObject({ content: body });
   });
+
+  it("propagates unrelated HTML extraction failures", async () => {
+    vi.doMock("linkedom/worker", () => {
+      throw new Error("Optional peer linkedom is not installed.");
+    });
+    const { processWebContent } = await import("./web-content.js");
+
+    await expect(
+      processWebContent({
+        url: "https://example.com/",
+        body: "Access denied",
+        contentType: "text/html",
+      }),
+    ).rejects.toThrow("Optional peer linkedom is not installed.");
+  });
+
+  it.each(["links", "metadata"] as const)(
+    "preserves the raw body when HTML parser rejection leaves %s mode without extraction",
+    async (responseMode) => {
+      vi.doMock("linkedom/worker", () => {
+        throw new Error(
+          "Cannot destructure property 'firstElementChild' of 'documentElement' as it is null.",
+        );
+      });
+      const { processWebContent } = await import("./web-content.js");
+
+      await expect(
+        processWebContent({
+          url: "https://example.com/",
+          body: "Access denied",
+          contentType: "text/html",
+          responseMode,
+        }),
+      ).resolves.toMatchObject({ content: "Access denied" });
+    },
+  );
 });

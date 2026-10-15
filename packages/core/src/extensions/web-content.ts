@@ -175,19 +175,21 @@ export async function processWebContent(
           200_000,
         );
 
-  const extracted =
+  const shouldExtract =
     html &&
     !emptyHtmlBody &&
-    (mode !== "raw" || hasWebContentSearch(search) || options.saveContentFormat)
-      ? await safeExtractHtml(
-          options.body,
-          options.url,
-          extract,
-          mode === "markdown" ||
-            mode === "matches" ||
-            options.saveContentFormat === "markdown",
-        )
-      : null;
+    (mode !== "raw" || hasWebContentSearch(search) || options.saveContentFormat);
+  const extracted = shouldExtract
+    ? await safeExtractHtml(
+        options.body,
+        options.url,
+        extract,
+        mode === "markdown" ||
+          mode === "matches" ||
+          options.saveContentFormat === "markdown",
+      )
+    : null;
+  const htmlExtractionFailed = Boolean(shouldExtract && extracted === null);
   const baseContent = contentForMode(mode, options.body, extracted);
   const fullContent = options.saveContentFormat
     ? options.saveContentFormat === "text"
@@ -222,11 +224,19 @@ export async function processWebContent(
 
   if (mode === "links") {
     result.links = extracted?.links ?? [];
+    if (htmlExtractionFailed) {
+      result.content = options.body;
+      result.contentLength = options.body.length;
+    }
     return result;
   }
 
   if (mode === "metadata") {
     if (options.includeLinks) result.links = extracted?.links ?? [];
+    if (htmlExtractionFailed) {
+      result.content = options.body;
+      result.contentLength = options.body.length;
+    }
     return result;
   }
 
@@ -335,6 +345,14 @@ function isHtmlResponse(contentType: string | null, body: string): boolean {
   );
 }
 
+function isHtmlParserRejection(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  // linkedom (and callers that touch a null documentElement) surface the
+  // missing root this way; keep the fallback narrow so peer/Readability/
+  // Turndown failures still propagate.
+  return /documentElement/i.test(error.message);
+}
+
 async function safeExtractHtml(
   body: string,
   url: string,
@@ -356,7 +374,7 @@ async function safeExtractHtml(
   try {
     return await extractHtml(body, url, extract, includeMarkdown);
   } catch (error) {
-    void error;
+    if (!isHtmlParserRejection(error)) throw error;
     // If the parser rejects the body (e.g. linkedom throws because the
     // document has no parseable documentElement), fall back to treating the
     // HTML-labeled response as plain text so web-request surfaces the status
