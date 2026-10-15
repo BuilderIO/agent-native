@@ -32,12 +32,20 @@ export const FILTER_TYPES: DashboardFilter["type"][] = [
 
 function daysAgo(n: number): string {
   const d = new Date();
-  // More days back than ALL_TIME_START is all time; a huge "Nd" value from a
-  // URL would otherwise make an invalid Date, and toISOString would throw.
-  const maxDays = Math.floor(d.getTime() / 86_400_000);
-  if (!Number.isSafeInteger(n) || n < 0 || n >= maxDays) return ALL_TIME_START;
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
+}
+
+// Filter values come straight from the URL. An "Nd" value past this bound is
+// not a range (a huge count makes an invalid Date that throws in
+// toISOString), so callers treat it like any other unrecognized value.
+const MAX_DAY_COUNT = 36_500;
+
+function parseDayCount(value: string): number | null {
+  const match = /^(\d+)d$/.exec(value);
+  if (!match) return null;
+  const days = Number(match[1]);
+  return days <= MAX_DAY_COUNT ? days : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -187,8 +195,8 @@ export function resolveDefault(
 ): string {
   if (!raw) return "";
   if (DATE_FILTER_TYPES.has(type)) {
-    const match = /^(\d+)d$/.exec(raw);
-    if (match) return daysAgo(parseInt(match[1], 10));
+    const days = parseDayCount(raw);
+    if (days !== null) return daysAgo(days);
     if (raw === "today") return daysAgo(0);
   }
   return raw;
@@ -223,8 +231,7 @@ function resolveDateParam(
 
 function dateRangeStart(range: string): string {
   if (range === "all") return ALL_TIME_START;
-  const days = /^(\d+)d$/.exec(range);
-  return days ? daysAgo(Number(days[1])) : daysAgo(30);
+  return daysAgo(parseDayCount(range) ?? 30);
 }
 
 export function resolveDefaultFilterVars(
@@ -268,7 +275,7 @@ export function resolveFilterVars(
       const impliesBounds =
         value !== "custom" &&
         (filter.customRange !== true ||
-          /^\d+d$/.test(value) ||
+          parseDayCount(value) !== null ||
           value === "all");
       const fallbackStart = impliesBounds ? dateRangeStart(defaultRange) : "";
       const fallbackEnd = impliesBounds ? daysAgo(0) : "";

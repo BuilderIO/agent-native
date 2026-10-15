@@ -326,27 +326,69 @@ describe("resolveFilterVars", () => {
     }
   });
 
-  it("treats an oversized day count as all time instead of throwing", () => {
-    for (const customRange of [true, undefined]) {
-      const filters: DashboardFilter[] = [
+  it("treats an oversized day count like any unrecognized value instead of throwing", () => {
+    const options = [
+      { value: "30d", label: "Last 30 days" },
+      { value: "all", label: "All time" },
+    ];
+    const huge = (id: string) => (key: string) =>
+      key === id ? "99999999999d" : "";
+
+    // A plain preset select falls back to its 30-day default bounds.
+    const preset = resolveFilterVars(
+      [
         {
           id: "window",
           label: "Window",
           type: "select",
           default: "30d",
-          customRange,
-          options: [
-            { value: "30d", label: "Last 30 days" },
-            { value: "all", label: "All time" },
-          ],
+          options,
         },
-      ];
-      const vars = resolveFilterVars(filters, (key) =>
-        key === "window" ? "99999999999d" : "",
-      );
-      expect(vars.windowStart).toBe("1970-01-01");
-      expect(vars.windowEnd).toBe(daysAgo(0));
-    }
+      ],
+      huge("window"),
+    );
+    expect(preset.windowStart).toBe(daysAgo(30));
+    expect(preset.windowEnd).toBe(daysAgo(0));
+
+    // A customRange select leaves the range to the SQL, as for "this".
+    const period = resolveFilterVars(
+      [
+        {
+          id: "window",
+          label: "Window",
+          type: "select",
+          default: "30d",
+          customRange: true,
+          options,
+        },
+      ],
+      huge("window"),
+    );
+    expect(period.windowStart).toBe("");
+    expect(period.windowEnd).toBe("");
+
+    // A date filter treats it as an invalid date.
+    const date = resolveFilterVars(
+      [{ id: "since", label: "Since", type: "date" }],
+      huge("since"),
+    );
+    expect(date.since).toBe("");
+
+    // The largest supported count still resolves.
+    expect(
+      resolveFilterVars(
+        [
+          {
+            id: "window",
+            label: "Window",
+            type: "select",
+            default: "30d",
+            options,
+          },
+        ],
+        (key) => (key === "window" ? "36500d" : ""),
+      ).windowStart,
+    ).toBe(daysAgo(36500));
   });
 
   it("leaves quarter-style selects without customRange as plain selects", () => {
