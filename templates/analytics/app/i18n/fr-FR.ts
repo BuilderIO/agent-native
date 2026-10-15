@@ -641,6 +641,7 @@ export default {
     notConnected: "Non connecté",
     needsReauth: "Réauthentification requise",
     error: "Erreur",
+    unknown: "Inconnu",
     indexNotImported: "Aucun index généré n’a été importé.",
     indexUnreadable:
       "Impossible de lire l’index enregistré. Importez un index valide.",

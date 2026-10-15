@@ -615,6 +615,7 @@ export default {
     notConnected: "غير متصل",
     needsReauth: "يلزم إعادة المصادقة",
     error: "خطأ",
+    unknown: "غير معروف",
     indexNotImported: "لم يتم استيراد فهرس مُنشأ.",
     indexUnreadable: "تعذرت قراءة الفهرس المحفوظ. ارفع فهرسًا صالحًا.",
     indexReadFailed: "تعذر تحميل حالة الفهرس.",

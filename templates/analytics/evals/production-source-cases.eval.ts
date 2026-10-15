@@ -258,6 +258,8 @@ export const sourceContracts = {
 
 const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+const SOURCE_RELATION_PATTERN =
+  /\b(?:dbt_[a-z0-9_]+\.[a-z0-9_]+|(?:fact|dim|fct|stg|aggregate|agg|first_party)_[a-z0-9_]+)\b/gi;
 const COUNT_VALUE_PATTERN =
   /\b(?:\d[\d,]*|zero|one|two|three|four|five|six|seven|eight|nine|ten|dozens?|hundreds?|thousands?)\s+(?:builder\.io\s+)?(?:users?|organizations?|orgs?|members?|accounts?|people)\b|\b(?:users?|organizations?|orgs?|members?|accounts?|people)\s*[:=]\s*\d[\d,]*\b|\b(?:count|total|population)\s*(?:is|was|equals|[:=])\s*\d[\d,]*\b/i;
 const ROW_IDENTIFIER_VALUE_PATTERN =
@@ -701,6 +703,21 @@ function sourceContractScorer(
           (group) => group.alternatives,
         ),
       ];
+      const supportedRelations = new Set(
+        allClaims.map((claim) => claim.relation.toLowerCase()),
+      );
+      const unsupportedRelations = [
+        ...new Set(
+          Array.from(text.matchAll(SOURCE_RELATION_PATTERN), ([relation]) =>
+            relation.toLowerCase(),
+          ),
+        ),
+      ].filter((relation) => !supportedRelations.has(relation));
+      if (unsupportedRelations.length > 0) {
+        reasons.push(
+          `unsupported source relations were claimed: ${unsupportedRelations.join(", ")}`,
+        );
+      }
       const evidenceLines = retrievedFindDataMetadata(run);
       if (evidenceLines.length === 0) {
         reasons.push("no successful find-data metadata evidence was retrieved");

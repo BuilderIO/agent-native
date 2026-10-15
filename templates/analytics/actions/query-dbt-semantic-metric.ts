@@ -153,9 +153,12 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
     ),
   }),
   z.object({
-    status: z.literal("connection_error"),
+    status: z.enum(["connection_error", "provider_error"]),
     metricName: z.string(),
     connection: metricConnectionSchema,
+    queryId: z.string().optional(),
+    nextPage: z.string().optional(),
+    querySpec: metricQuerySpecSchema.optional(),
     message: z.string(),
   }),
   z.object({
@@ -186,24 +189,26 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
   }),
   z.object({
     status: z.literal("success"),
-    metric: z.object({
-      name: z.string(),
-      description: z.string().optional(),
-      type: z.string().optional(),
-      dimensionsCount: z.number(),
-      dimensionsTruncated: z.boolean(),
-      dimensions: z.array(
-        z.object({
-          name: z.string(),
-          description: z.string().optional(),
-          type: z.string().optional(),
-          queryableGranularities: z.array(z.string()),
-        }),
-      ),
-      queryableGranularities: z.array(z.string()),
-      queryableGranularitiesCount: z.number(),
-      queryableGranularitiesTruncated: z.boolean(),
-    }),
+    metric: z
+      .object({
+        name: z.string(),
+        description: z.string().optional(),
+        type: z.string().optional(),
+        dimensionsCount: z.number(),
+        dimensionsTruncated: z.boolean(),
+        dimensions: z.array(
+          z.object({
+            name: z.string(),
+            description: z.string().optional(),
+            type: z.string().optional(),
+            queryableGranularities: z.array(z.string()),
+          }),
+        ),
+        queryableGranularities: z.array(z.string()),
+        queryableGranularitiesCount: z.number(),
+        queryableGranularitiesTruncated: z.boolean(),
+      })
+      .optional(),
     querySpec: metricQuerySpecSchema,
     rows: z.array(z.unknown()),
     rowCount: z.number(),
@@ -242,6 +247,8 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
     ]),
     metricName: z.string(),
     queryId: z.string().optional(),
+    nextPage: z.string().optional(),
+    querySpec: metricQuerySpecSchema.optional(),
     message: z.string(),
   }),
 ]);
@@ -262,6 +269,7 @@ function record(value: unknown): Record<string, unknown> {
 
 type DbtFailureState =
   | "connection_error"
+  | "provider_error"
   | "deployment_not_ready"
   | "empty_semantic_manifest"
   | "permission_denied";
@@ -403,7 +411,7 @@ function classifyDbtFailure(
     httpStatus === 401 ||
     httpStatus === 403 ||
     codes.some((code) => /FORBIDDEN|UNAUTHENTICATED|PERMISSION/i.test(code)) ||
-    /permission denied|not authorized|unauthorized|forbidden|insufficient (?:permission|scope)/i.test(
+    /permission denied|not authorized|unauthorized|forbidden|insufficient (?:permission|scope)|missing(?: the)? [\w -]{1,60}permission/i.test(
       message,
     )
   ) {
@@ -434,21 +442,18 @@ function graphQlData(
   if (failure) throw failure;
   const { messages } = graphQlErrors(value);
   if (messages.length > 0) {
-    fail(
+    throw new DbtSemanticLayerError(
+      "provider_error",
       `dbt Semantic Layer returned a GraphQL error: ${safeDbtMessage(messages.join("; "))}`,
-      {
-        errorCode: "dbt_graphql_error",
-        statusCode: 502,
-      },
     );
   }
   const body = record(value);
   const data = record(body.data);
   if (!Object.keys(data).length) {
-    fail("dbt Semantic Layer returned no data.", {
-      errorCode: "dbt_invalid_response",
-      statusCode: 502,
-    });
+    throw new DbtSemanticLayerError(
+      "provider_error",
+      "dbt Semantic Layer returned no data.",
+    );
   }
   return data;
 }
@@ -622,20 +627,20 @@ function parseRows(value: unknown): unknown[] {
     try {
       parsed = JSON.parse(parsed) as unknown;
     } catch {
-      fail("dbt Semantic Layer returned unreadable metric results.", {
-        errorCode: "dbt_invalid_result",
-        statusCode: 502,
-      });
+      throw new DbtSemanticLayerError(
+        "provider_error",
+        "dbt Semantic Layer returned unreadable metric results.",
+      );
     }
   }
   if (Array.isArray(parsed)) return parsed;
   const result = record(parsed);
   if (Array.isArray(result.data)) return result.data;
   if (Array.isArray(result.rows)) return result.rows;
-  fail("dbt Semantic Layer did not return tabular metric results.", {
-    errorCode: "dbt_invalid_result",
-    statusCode: 502,
-  });
+  throw new DbtSemanticLayerError(
+    "provider_error",
+    "dbt Semantic Layer did not return tabular metric results.",
+  );
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -934,7 +939,7 @@ export default defineAction({
     let initialResultPageCursor: string | undefined;
     try {
       let metric: Record<string, unknown> = { name: metricName };
-      if (!activeQueryId || resultCursor) {
+      if (!activeQueryId) {
         const exactMatches: Record<string, unknown>[] = [];
         const startPage = nextPage?.startsWith("metric-metadata:")
           ? Number(nextPage.slice("metric-metadata:".length))
@@ -1053,10 +1058,10 @@ export default defineAction({
           });
           const returnedQueryId = record(created.createQuery).queryId;
           if (typeof returnedQueryId !== "string" || !returnedQueryId.trim()) {
-            fail("dbt Semantic Layer did not create a metric query.", {
-              errorCode: "dbt_query_not_created",
-              statusCode: 502,
-            });
+            throw new DbtSemanticLayerError(
+              "provider_error",
+              "dbt Semantic Layer did not return a resumable metric query ID.",
+            );
           }
           activeQueryId = returnedQueryId;
         }
@@ -1097,14 +1102,17 @@ export default defineAction({
             return {
               status: failure.status,
               metricName,
-              queryId: activeQueryId,
               message: failure.message,
             };
           }
-          fail("dbt Semantic Layer could not calculate this metric.", {
-            errorCode: "dbt_metric_query_failed",
-            statusCode: 502,
-          });
+          return {
+            status: "provider_error",
+            metricName,
+            connection: { id: selected.id, label: selected.label },
+            message:
+              safeDbtMessage(query.error) ||
+              "MetricFlow marked this query as failed. Fix the reported issue, then start a new metric query.",
+          };
         }
         if (status === "SUCCESSFUL") {
           const rows = parseRows(query.jsonResult);
@@ -1130,11 +1138,11 @@ export default defineAction({
           const rowsBeforePage = resultCursor?.rowsBeforePage ?? 0;
           const queryRowsRemaining = MAX_METRIC_QUERY_ROWS - rowsBeforePage;
           const pageRows = rows.slice(0, queryRowsRemaining);
-          if (rows.length > 0 && resultRowOffset >= pageRows.length) {
-            fail("dbt Semantic Layer returned an invalid metric result page.", {
-              errorCode: "dbt_invalid_result_page",
-              statusCode: 502,
-            });
+          if (resultRowOffset > 0 && resultRowOffset >= pageRows.length) {
+            throw new DbtSemanticLayerError(
+              "provider_error",
+              "dbt Semantic Layer returned an invalid metric result page.",
+            );
           }
           const resultRows = pageRows.slice(
             resultRowOffset,
@@ -1178,31 +1186,37 @@ export default defineAction({
           );
           return {
             status: "success",
-            metric: {
-              name: metricName,
-              ...(typeof metric.description === "string"
-                ? { description: metric.description }
-                : {}),
-              ...(typeof metric.type === "string" ? { type: metric.type } : {}),
-              dimensionsCount: dimensions.length,
-              dimensionsTruncated: dimensions.length > 30,
-              dimensions: dimensions.slice(0, 30).map((dimension) => ({
-                name: dimension.name as string,
-                ...(typeof dimension.description === "string"
-                  ? { description: dimension.description }
-                  : {}),
-                ...(typeof dimension.type === "string"
-                  ? { type: dimension.type }
-                  : {}),
-                queryableGranularities: queryableGranularities(
-                  dimension.queryableGranularities,
-                ),
-              })),
-              queryableGranularities: allMetricGranularities.slice(0, 10),
-              queryableGranularitiesCount: allMetricGranularities.length,
-              queryableGranularitiesTruncated:
-                allMetricGranularities.length > 10,
-            },
+            ...(!resultCursor
+              ? {
+                  metric: {
+                    name: metricName,
+                    ...(typeof metric.description === "string"
+                      ? { description: metric.description }
+                      : {}),
+                    ...(typeof metric.type === "string"
+                      ? { type: metric.type }
+                      : {}),
+                    dimensionsCount: dimensions.length,
+                    dimensionsTruncated: dimensions.length > 30,
+                    dimensions: dimensions.slice(0, 30).map((dimension) => ({
+                      name: dimension.name as string,
+                      ...(typeof dimension.description === "string"
+                        ? { description: dimension.description }
+                        : {}),
+                      ...(typeof dimension.type === "string"
+                        ? { type: dimension.type }
+                        : {}),
+                      queryableGranularities: queryableGranularities(
+                        dimension.queryableGranularities,
+                      ),
+                    })),
+                    queryableGranularities: allMetricGranularities.slice(0, 10),
+                    queryableGranularitiesCount: allMetricGranularities.length,
+                    queryableGranularitiesTruncated:
+                      allMetricGranularities.length > 10,
+                  },
+                }
+              : {}),
             querySpec: activeQuerySpec,
             rows: resultRows,
             rowCount: resultRows.length,
@@ -1216,11 +1230,13 @@ export default defineAction({
             source: "dbt-semantic-layer",
           };
         }
-        if (!status) {
-          fail("dbt Semantic Layer returned an unknown query status.", {
-            errorCode: "dbt_unknown_query_status",
-            statusCode: 502,
-          });
+        if (status !== "PENDING" && status !== "RUNNING") {
+          throw new DbtSemanticLayerError(
+            "provider_error",
+            status
+              ? `dbt Semantic Layer returned an unsupported query status (${safeDbtMessage(status)}).`
+              : "dbt Semantic Layer returned no query status.",
+          );
         }
         if (attempt < MAX_POLL_ATTEMPTS - 1) {
           await sleep(POLL_INTERVAL_MS, controller.signal);
@@ -1239,14 +1255,25 @@ export default defineAction({
       };
     } catch (error) {
       if (error instanceof DbtSemanticLayerError) {
+        const hasRecovery = Boolean(activeQueryId && initialResultPageCursor);
+        const recovery = hasRecovery
+          ? {
+              queryId: activeQueryId!,
+              nextPage: resultCursor ? nextPage! : initialResultPageCursor!,
+              querySpec: activeQuerySpec,
+            }
+          : {};
         return {
           status: error.status,
           metricName,
-          ...(activeQueryId ? { queryId: activeQueryId } : {}),
-          ...(error.status === "connection_error"
+          ...recovery,
+          ...(error.status === "connection_error" ||
+          error.status === "provider_error"
             ? { connection: { id: selected.id, label: selected.label } }
             : {}),
-          message: error.message,
+          message: hasRecovery
+            ? `${error.message} Retry with the same metricName, queryId, and nextPage cursor to resume.`
+            : error.message,
         };
       }
       if (error instanceof DbtRequestTimeoutError) {

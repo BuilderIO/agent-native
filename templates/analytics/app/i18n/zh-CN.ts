@@ -592,6 +592,7 @@ export default {
     notConnected: "未连接",
     needsReauth: "需要重新授权",
     error: "错误",
+    unknown: "未知",
     indexNotImported: "尚未导入生成的索引。",
     indexUnreadable: "无法读取已保存的索引。请上传有效的索引。",
     indexReadFailed: "无法加载索引状态。",

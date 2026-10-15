@@ -118,6 +118,26 @@ describe("Analytics production eval context", () => {
     );
   });
 
+  it("keeps exact dbt metrics available through tool-search without loading them initially", async () => {
+    const context = resolveProductionEvalContext({
+      ownerEmail: "eval-owner@example.com",
+      orgId: "org_example",
+    });
+
+    expect(context.initialToolNames).not.toContain("query-dbt-semantic-metric");
+    const result = (await context.actions["tool-search"]!.run(
+      { names: ["query-dbt-semantic-metric"] },
+      { caller: "tool" } as never,
+    )) as { results: Array<{ name: string; description?: string }> };
+
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        name: "query-dbt-semantic-metric",
+        description: expect.stringContaining("exact owner-defined dbt"),
+      }),
+    );
+  });
+
   it("rejects unknown allowlist entries before building an eval action surface", () => {
     const context = resolveProductionEvalContext({
       ownerEmail: "eval-owner@example.com",

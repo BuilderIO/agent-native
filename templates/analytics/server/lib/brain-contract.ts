@@ -32,7 +32,8 @@ export type BrainSourceStatus =
   | "configured"
   | "not-connected"
   | "needs-reauth"
-  | "error";
+  | "error"
+  | "unknown";
 
 export interface BrainSource {
   id: string;

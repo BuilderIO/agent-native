@@ -24,7 +24,8 @@ export type SourceHealthState =
   | "configured"
   | "not_connected"
   | "needs_reauth"
-  | "error";
+  | "error"
+  | "unknown";
 
 export function sourceHealthState(
   sourceId: SourceHealthId,
@@ -59,8 +60,8 @@ export function sourceHealthState(
           missingRequiredKeys.length === 0;
     return requiredCredentialsConfigured ? "configured" : "not_connected";
   }
-  if (data.workspaceConnections?.available === false) return "error";
-  if (provider?.configured === null) return "error";
+  if (data.workspaceConnections?.available === false) return "unknown";
+  if (provider?.configured === null) return "unknown";
   if (grantState === "granted") {
     if (statuses.has("needs_reauth")) return "needs_reauth";
     if (statuses.has("error")) return "error";

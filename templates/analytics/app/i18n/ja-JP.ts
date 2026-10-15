@@ -629,6 +629,7 @@ export default {
     notConnected: "未接続",
     needsReauth: "再認証が必要",
     error: "エラー",
+    unknown: "不明",
     indexNotImported: "生成されたインデックスはまだインポートされていません。",
     indexUnreadable:
       "保存されたインデックスを読み取れません。有効なインデックスをアップロードしてください。",

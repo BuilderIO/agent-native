@@ -186,6 +186,18 @@ const GENERIC_NAME_TERMS = new Set([
   "table",
   "view",
 ]);
+
+const DICTIONARY_SCOPES = new Set([
+  "analytics_user",
+  "crm_record",
+  "membership",
+  "membership_roster",
+  "organization",
+  "person",
+  "product_activity",
+  "product_user",
+  "session",
+]);
 const MAX_SCORED_FIELD_CHARS = 4_000;
 
 function stem(token: string): string {
@@ -328,6 +340,7 @@ export function semanticScopeForSearch(value: string): string {
   if (
     has("active") &&
     has("user", "person", "people") &&
+    has("builder", "product") &&
     !has("organization", "org", "company", "workspace", "team")
   ) {
     return "product_activity";
@@ -338,6 +351,9 @@ export function semanticScopeForSearch(value: string): string {
   if (has("organization", "org", "company", "workspace", "team")) {
     return "organization";
   }
+  if (has("active") && has("user", "person", "people")) {
+    return "unknown";
+  }
   if (has("user", "person", "people", "profile", "seat")) return "person";
   return "unknown";
 }
@@ -346,7 +362,8 @@ export function semanticScopeForDictionaryEntry(
   entry: Record<string, unknown>,
 ): string {
   const declared =
-    typeof entry.semanticScope === "string" && entry.semanticScope !== "unknown"
+    typeof entry.semanticScope === "string" &&
+    DICTIONARY_SCOPES.has(entry.semanticScope)
       ? entry.semanticScope
       : "";
   const evidence = [
@@ -365,10 +382,23 @@ export function semanticScopeForDictionaryEntry(
     .join(" ")
     .toLowerCase()
     .replace(/[_-]+/g, " ");
+  const semanticEvidence = [
+    entry.metric,
+    entry.definition,
+    entry.grain,
+    entry.primaryEntity,
+    entry.timeDimension,
+    entry.semanticModel,
+    entry.queryTemplate,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
   const isAnalyticsAppActivity =
-    /\b(?:agent[\s-]*native|analytics)\b/.test(evidence) &&
+    /\b(?:agent[\s-]*native|analytics)\b/.test(semanticEvidence) &&
     /\b(?:app|application|open(?:ed|ing|s)?|launch(?:ed|ing|es)?)\b/.test(
-      evidence,
+      semanticEvidence,
     );
   const isActiveUserActivityMetric =
     /\bactive user(?:s| id)?\b|\bactive builders?\b/.test(evidence) &&
@@ -387,12 +417,14 @@ export function semanticScopeForDictionaryEntry(
   }
   if (
     isActiveUserActivityMetric &&
-    (!declared || declared === "analytics_user")
+    (!declared || declared === "analytics_user") &&
+    !isAnalyticsAppActivity
   ) {
     return "product_activity";
   }
   if (declared) return declared;
-  return semanticScopeForSearch(evidence);
+  const inferred = semanticScopeForSearch(evidence);
+  return inferred === "active_user_activity" ? "product_activity" : inferred;
 }
 
 export function stripNonPositiveInstructions(value: string): string {

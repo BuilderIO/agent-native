@@ -459,7 +459,7 @@ describe("sourceHealthState", () => {
           },
         }),
       ),
-    ).toBe("error");
+    ).toBe("unknown");
     expect(
       sourceHealthState(
         "amplitude",
@@ -482,10 +482,10 @@ describe("sourceHealthState", () => {
           },
         }),
       ),
-    ).toBe("error");
+    ).toBe("unknown");
   });
 
-  it("treats an unknown provider configuration as an error", () => {
+  it("treats an unknown provider configuration as unknown", () => {
     expect(
       sourceHealthState(
         "github",
@@ -502,6 +502,6 @@ describe("sourceHealthState", () => {
           ],
         }),
       ),
-    ).toBe("error");
+    ).toBe("unknown");
   });
 });

@@ -272,6 +272,25 @@ describe("Analytics synthetic production source evals", () => {
     }
   });
 
+  it("rejects unsupported source relations added to an otherwise correct answer", async () => {
+    const contract = sourceContracts.builderUsersByOrganization;
+    const valid = outputFor(contract);
+    const report = await runEvals(
+      [cases[0]!],
+      runnerFor(
+        outputFor(contract, {
+          text: `${valid.text}\ndbt_mart.unverified_user_table: one row per user`,
+        }),
+      ),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(report.results[0]?.scores[0]?.reason).toContain(
+      "unsupported source relations were claimed: dbt_mart.unverified_user_table",
+    );
+  });
+
   it("rejects current and historical count relations assigned to the opposite time scopes", async () => {
     const contract = sourceContracts.builderCurrentAndHistoricalUserCounts;
     const report = await runEvals(

@@ -612,6 +612,7 @@ export default {
     notConnected: "कनेक्ट नहीं है",
     needsReauth: "पुनः प्रमाणीकरण आवश्यक है",
     error: "त्रुटि",
+    unknown: "अज्ञात",
     indexNotImported: "कोई जनरेट किया गया इंडेक्स आयात नहीं किया गया है।",
     indexUnreadable: "सहेजा गया इंडेक्स पढ़ा नहीं जा सका। मान्य इंडेक्स अपलोड करें।",
     indexReadFailed: "इंडेक्स स्थिति लोड नहीं हो सकी।",

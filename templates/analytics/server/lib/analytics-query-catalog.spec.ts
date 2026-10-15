@@ -692,9 +692,9 @@ describe("analytics query catalog", () => {
     });
   });
 
-  it("does not return membership sources for product-activity searches", () => {
+  it("does not return membership sources for explicit product-activity searches", () => {
     const results = rankAnalyticsQueryCatalog({
-      search: "active users",
+      search: "active Builder product users",
       limit: 6,
       dashboards: [],
       dictionaryEntries: [
@@ -711,6 +711,50 @@ describe("analytics query catalog", () => {
     });
 
     expect(results).toEqual([]);
+  });
+
+  it("keeps bare active-user searches open across distinct populations", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "active users",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "active-builder-users",
+          metric: "Weekly Active Builders",
+          definition: "Distinct users with activity in the Builder product.",
+          semanticScope: "product_activity",
+          approved: true,
+        },
+        {
+          id: "active-organization-members",
+          metric: "Active Organization Members",
+          definition: "Current active users in an organization membership.",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "active-analytics-app-users",
+          metric: "Active Analytics App Users",
+          definition:
+            "Distinct users who opened the Agent-Native Analytics app.",
+          semanticScope: "analytics_user",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(
+      results.map((candidate) =>
+        candidate.kind === "data-dictionary" ? candidate.id : candidate.panelId,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        "active-builder-users",
+        "active-organization-members",
+        "active-analytics-app-users",
+      ]),
+    );
   });
 
   it.each([

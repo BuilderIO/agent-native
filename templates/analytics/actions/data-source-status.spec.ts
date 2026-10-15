@@ -486,6 +486,27 @@ describe("data-source-status", () => {
     });
   });
 
+  it("does not label an unavailable workspace inventory as provider health error", async () => {
+    mocks.listWorkspaceConnections.mockRejectedValueOnce(
+      new Error("Workspace connection inventory unavailable"),
+    );
+
+    const result = (await dataSourceStatus.run({ key: "hubspot" })) as any;
+    const hubspot = result.providers.find(
+      (provider: any) => provider.provider === "hubspot",
+    );
+
+    expect(hubspot).toMatchObject({
+      configured: null,
+      ready: null,
+      connectionHealth: "unknown",
+    });
+    expect(result.workspaceConnections).toMatchObject({
+      available: false,
+      error: "Workspace connection inventory unavailable",
+    });
+  });
+
   it("does not describe optional-only credentials as configured credentials", async () => {
     mocks.workspaceProviderCatalog.push({
       id: "bigquery",

@@ -530,7 +530,7 @@ describe("Analytics agent Plan mode policy", () => {
       "A connected provider tool does not prove the workspace connection is healthy",
     );
     expect(ruleText("understand-the-ask")).toContain(
-      "Builder product activity or Agent-Native app opens",
+      "Builder product activity, Builder.io organization membership, or Agent-Native app opens",
     );
     expect(ruleText("understand-the-ask")).toContain(
       "never combine or silently substitute them",
@@ -564,6 +564,8 @@ describe("Analytics agent Plan mode policy", () => {
       "`selected-object`",
       "keep its source and business logic and change only filters and window",
       "certified over favorite over unmarked",
+      'An unqualified "active users" request may mean Builder product activity, Builder.io organization membership, or Agent-Native app opens',
+      "Ask which population they mean before querying; never combine or silently substitute them",
       "ask exactly one `ask-question` with a recommended default",
       "pick the default and label it",
       '"Reading this as: <metric definition>, <window>, <filters>, <source>"',
@@ -616,6 +618,12 @@ describe("Analytics agent Plan mode policy", () => {
     expect(ruleText("sources")).toContain("query-agent-native-analytics");
     expect(ruleText("sources")).toContain("never call it disconnected");
     expect(ruleText("sources")).toContain("[Connect data sources](");
+  });
+
+  it("routes named dbt metrics through tool discovery", () => {
+    expect(ruleText("sources")).toContain(
+      "For a named dbt metric, use `tool-search` to load `query-dbt-semantic-metric`.",
+    );
   });
 
   it("routes internal usage and sibling-app questions without user-supplied SQL", () => {

@@ -97,7 +97,7 @@ describe("Analytics term matching", () => {
     );
     expect(semanticScopeForSearch("active workspace users")).toBe("membership");
     expect(semanticScopeForSearch("active organizations")).toBe("organization");
-    expect(semanticScopeForSearch("active users")).toBe("product_activity");
+    expect(semanticScopeForSearch("active users")).toBe("unknown");
     expect(semanticScopeForSearch("weekly active users by organization")).toBe(
       "active_user_activity",
     );
@@ -267,6 +267,41 @@ describe("Analytics term matching", () => {
         semanticScope: "product_activity",
       }),
     ).toBe("analytics_user");
+    expect(
+      semanticScopeForDictionaryEntry({
+        metric: "Weekly Active Analytics App Users",
+        definition:
+          "Distinct users who opened the Agent-Native Analytics app in each week.",
+        semanticModel: "analytics_app_open_events",
+        semanticScope: "analytics_user",
+      }),
+    ).toBe("analytics_user");
+    expect(
+      semanticScopeForDictionaryEntry({
+        metric: "Active Users (Weekly)",
+        definition:
+          "Distinct active users per week; activity includes page views and AI chat.",
+        table: "dbt_analytics.analytics_events",
+        columnsUsed: "active_user_id, app_opened_at, event_date, event_type",
+        semanticScope: "product_activity",
+      }),
+    ).toBe("product_activity");
+    expect(
+      semanticScopeForDictionaryEntry({
+        metric: "Active Users (Weekly)",
+        definition:
+          "Distinct active users per week; activity includes page views and AI chat.",
+        timeDimension: "event_date",
+      }),
+    ).toBe("product_activity");
+    expect(
+      semanticScopeForDictionaryEntry({
+        metric: "Active Users (Weekly)",
+        definition:
+          "Distinct active users per week; activity includes page views and AI chat.",
+        semanticScope: "active_user_activity",
+      }),
+    ).toBe("product_activity");
     expect(
       semanticScopeForDictionaryEntry({
         metric: "Agent-Native Analytics Users",

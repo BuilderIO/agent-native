@@ -326,7 +326,7 @@ export default defineAction({
               workspaceGrantState === "granted";
         const connectionStatuses = new Set(workspaceConnection.statuses ?? []);
         const connectionHealth = workspace.error
-          ? "error"
+          ? "unknown"
           : workspaceGrantState === "connected"
             ? "connected"
             : connectionStatuses.has("needs_reauth")

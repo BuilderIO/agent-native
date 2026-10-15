@@ -255,18 +255,10 @@ describe("query-dbt-semantic-metric", () => {
       .mockResolvedValueOnce(
         providerResult({
           data: {
-            metricsPaginated: {
-              items: [
-                {
-                  name: "weekly_active_product_users",
-                  description: "Synthetic active product users per week",
-                  type: "simple",
-                  dimensions,
-                  queryableGranularities: ["DAY", "WEEK"],
-                },
-              ],
-              totalItems: 1,
+            query: {
+              status: "SUCCESSFUL",
               totalPages: 1,
+              jsonResult: JSON.stringify({ data: rows }),
             },
           },
         }),
@@ -337,24 +329,15 @@ describe("query-dbt-semantic-metric", () => {
     })) as any;
     expect(second).toMatchObject({
       status: "success",
-      metric: {
-        name: "weekly_active_product_users",
-        dimensionsCount: 1,
-        dimensions: [{ name: "root_org_id" }],
-        queryableGranularities: ["DAY", "WEEK"],
-      },
       querySpec: { groupBy, timeRange: metricTimeRange },
       rows: rows.slice(20),
       rowCount: 5,
       truncated: false,
     });
+    expect(second).not.toHaveProperty("metric");
     expect(action.outputSchema.parse(second)).toEqual(second);
-    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(5);
     expect(
       mocks.executeProviderApiRequest.mock.calls[3]?.[0].body.query,
-    ).toContain("query AnalyticsMetricLookup");
-    expect(
-      mocks.executeProviderApiRequest.mock.calls[4]?.[0].body.query,
     ).toContain("query AnalyticsMetricResult");
   });
 
@@ -781,6 +764,21 @@ describe("query-dbt-semantic-metric", () => {
     });
   });
 
+  it("classifies a permission error returned in a successful GraphQL response", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValueOnce(
+      providerResult({
+        errors: [{ message: "Missing Metadata Only permission" }],
+      }),
+    );
+
+    await expect(
+      action.run({ metricName: "active_workspaces", limit: 20 }),
+    ).resolves.toMatchObject({
+      status: "permission_denied",
+      message: "Missing Metadata Only permission",
+    });
+  });
+
   it("throws a dbt connection-required error when the token is missing", async () => {
     mocks.resolveWorkspaceConnectionCredentialForApp.mockImplementation(
       async () => ({ available: false, status: "missing_secret" }),
@@ -894,7 +892,6 @@ describe("query-dbt-semantic-metric", () => {
           },
         }),
       )
-      .mockResolvedValueOnce(metricMetadataResult())
       .mockResolvedValueOnce(
         providerResult({
           data: {
@@ -906,7 +903,6 @@ describe("query-dbt-semantic-metric", () => {
           },
         }),
       )
-      .mockResolvedValueOnce(metricMetadataResult())
       .mockResolvedValueOnce(
         providerResult({
           data: {
@@ -967,10 +963,8 @@ describe("query-dbt-semantic-metric", () => {
       ),
     ).toBe(true);
     expect(requests[2]?.body.variables.pageNum).toBe(1);
-    expect(requests[3]?.body.query).toContain("query AnalyticsMetricLookup");
-    expect(requests[4]?.body.variables.pageNum).toBe(1);
-    expect(requests[5]?.body.query).toContain("query AnalyticsMetricLookup");
-    expect(requests[6]?.body.variables.pageNum).toBe(2);
+    expect(requests[3]?.body.variables.pageNum).toBe(1);
+    expect(requests[4]?.body.variables.pageNum).toBe(2);
     expect(requests[1]?.body.variables.queryRowCap).toBe(1_000);
     expect(requests[1]?.body.variables.limit).toBeUndefined();
   });
@@ -1118,7 +1112,6 @@ describe("query-dbt-semantic-metric", () => {
           },
         }),
       )
-      .mockResolvedValueOnce(metricMetadataResult())
       .mockRejectedValueOnce(providerRequestTimeoutError());
 
     const first = (await action.run({
@@ -1147,6 +1140,228 @@ describe("query-dbt-semantic-metric", () => {
       expect.objectContaining({ connectionId: connection.id }),
     );
     expect(action.outputSchema.parse(pending)).toEqual(pending);
+  });
+
+  it("resumes polling after a provider error returns a result cursor", async () => {
+    const rows = [{ active_workspaces: 42 }];
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          errors: [{ message: "MetricFlow could not complete the request" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: rows }),
+            },
+          },
+        }),
+      );
+
+    const interrupted = await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+
+    expect(interrupted).toMatchObject({
+      status: "provider_error",
+      queryId: "fake_query_1",
+      querySpec: { groupBy: [] },
+      message: expect.stringContaining("Retry with the same metricName"),
+    });
+    expect((interrupted as any).nextPage).toMatch(/^metric-results-v3\./);
+    expect(action.outputSchema.parse(interrupted)).toEqual(interrupted);
+
+    const resumed = await action.run({
+      metricName: "active_workspaces",
+      queryId: (interrupted as any).queryId,
+      nextPage: (interrupted as any).nextPage,
+      limit: 20,
+    });
+
+    expect(resumed).toMatchObject({
+      status: "success",
+      queryId: "fake_query_1",
+      querySpec: { groupBy: [] },
+      rows,
+      rowCount: 1,
+      truncated: false,
+    });
+    expect(resumed).not.toHaveProperty("metric");
+    expect(action.outputSchema.parse(resumed)).toEqual(resumed);
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(4);
+    expect(
+      mocks.executeProviderApiRequest.mock.calls[3]?.[0].body.query,
+    ).toContain("query AnalyticsMetricResult");
+  });
+
+  it.each([
+    [
+      "invalid JSON result",
+      {
+        data: {
+          query: {
+            status: "SUCCESSFUL",
+            totalPages: 1,
+            jsonResult: "{not-json",
+          },
+        },
+      },
+    ],
+    ["missing result data", { data: {} }],
+    ["missing query status", { data: { query: null } }],
+    [
+      "unsupported query status",
+      { data: { query: { status: "UNKNOWN_STATUS" } } },
+    ],
+  ])("preserves a result cursor after %s", async (_label, interruptedPoll) => {
+    const rows = [{ active_workspaces: 42 }];
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValueOnce(providerResult(interruptedPoll))
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: rows }),
+            },
+          },
+        }),
+      );
+
+    const interrupted = (await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    })) as any;
+
+    expect(interrupted).toMatchObject({
+      status: "provider_error",
+      queryId: "fake_query_1",
+      querySpec: { groupBy: [] },
+      connection: { id: connection.id },
+    });
+    expect(interrupted.nextPage).toMatch(/^metric-results-v3\./);
+    expect(action.outputSchema.parse(interrupted)).toEqual(interrupted);
+
+    const resumed = await action.run({
+      metricName: "active_workspaces",
+      queryId: interrupted.queryId,
+      nextPage: interrupted.nextPage,
+      limit: 20,
+    });
+
+    expect(resumed).toMatchObject({
+      status: "success",
+      queryId: "fake_query_1",
+      rows,
+      rowCount: 1,
+    });
+    expect(action.outputSchema.parse(resumed)).toEqual(resumed);
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(4);
+    expect(
+      mocks.executeProviderApiRequest.mock.calls[3]?.[0].body.query,
+    ).toContain("query AnalyticsMetricResult");
+  });
+
+  it("does not return an orphaned query ID for terminal failed queries", async () => {
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "FAILED",
+              error: "MetricFlow could not calculate the requested query",
+            },
+          },
+        }),
+      );
+
+    const failed = await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+
+    expect(failed).toMatchObject({
+      status: "provider_error",
+      metricName: "active_workspaces",
+      message: "MetricFlow could not calculate the requested query",
+    });
+    expect(failed).not.toHaveProperty("queryId");
+    expect(failed).not.toHaveProperty("nextPage");
+    expect(action.outputSchema.parse(failed)).toEqual(failed);
+  });
+
+  it("does not turn an out-of-range result cursor into a successful empty page", async () => {
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({
+                data: Array.from({ length: 25 }, (_, index) => ({
+                  value: index,
+                })),
+              }),
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: [{ value: 20 }] }),
+            },
+          },
+        }),
+      );
+
+    const first = (await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    })) as any;
+    expect(first).toMatchObject({ status: "success", rowCount: 20 });
+    expect(first.nextPage).toMatch(/^metric-results-v3\./);
+
+    const invalidPage = await action.run({
+      metricName: "active_workspaces",
+      queryId: first.queryId,
+      nextPage: first.nextPage,
+      limit: 20,
+    });
+
+    expect(invalidPage).toMatchObject({
+      status: "provider_error",
+      queryId: first.queryId,
+      nextPage: first.nextPage,
+      querySpec: first.querySpec,
+    });
+    expect(action.outputSchema.parse(invalidPage)).toEqual(invalidPage);
   });
 
   it("does not resume a metric cursor from a connection outside the caller's app scope", async () => {
@@ -1232,7 +1447,6 @@ describe("query-dbt-semantic-metric", () => {
           },
         }),
       )
-      .mockResolvedValueOnce(metricMetadataResult())
       .mockResolvedValueOnce(
         providerResult(
           { errors: [{ message: "Gateway timeout" }] },

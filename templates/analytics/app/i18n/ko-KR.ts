@@ -617,6 +617,7 @@ export default {
     notConnected: "연결 안 됨",
     needsReauth: "재인증 필요",
     error: "오류",
+    unknown: "알 수 없음",
     indexNotImported: "생성된 인덱스를 가져오지 않았습니다.",
     indexUnreadable:
       "저장된 인덱스를 읽을 수 없습니다. 올바른 인덱스를 업로드하세요.",

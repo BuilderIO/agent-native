@@ -634,6 +634,7 @@ export default {
     notConnected: "No conectado",
     needsReauth: "Requiere reautenticación",
     error: "Error",
+    unknown: "Desconocido",
     indexNotImported: "No se ha importado ningún índice generado.",
     indexUnreadable:
       "No se pudo leer el índice guardado. Sube un índice válido.",

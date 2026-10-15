@@ -47,7 +47,12 @@ export interface DataSourceProviderStatus {
   label: string;
   setupLink?: string;
   configured: boolean | null;
-  connectionHealth?: "connected" | "not_connected" | "needs_reauth" | "error";
+  connectionHealth?:
+    | "connected"
+    | "not_connected"
+    | "needs_reauth"
+    | "error"
+    | "unknown";
   ready?: boolean | null;
   credentialsConfigured?: boolean | null;
   configuredKeys: string[];

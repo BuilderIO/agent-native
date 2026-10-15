@@ -36,6 +36,7 @@ const SOURCE_STATUS: Record<SourceHealthState, BrainSourceStatus> = {
   not_connected: "not-connected",
   needs_reauth: "needs-reauth",
   error: "error",
+  unknown: "unknown",
 };
 
 function indexState(

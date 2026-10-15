@@ -587,6 +587,7 @@ export default {
     notConnected: "未連線",
     needsReauth: "需要重新授權",
     error: "錯誤",
+    unknown: "未知",
     indexNotImported: "尚未匯入產生的索引。",
     indexUnreadable: "無法讀取已儲存的索引。請上傳有效的索引。",
     indexReadFailed: "無法載入索引狀態。",

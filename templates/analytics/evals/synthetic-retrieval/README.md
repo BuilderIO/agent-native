@@ -36,9 +36,10 @@ events, two non-positive count forms on a row-level membership request, and a
 time-scoped active-user metric versus monthly seats and publishing-only activity.
 The CSV marks every row `SYNTHETIC` and records the expected candidate's rank under
 both implementations. Its active-user cases distinguish Builder product events
-from Agent-Native app opens. Ambiguous active-user wording retains both source
-definitions so the agent can ask which population is intended. This measures
-retrieval ranking only; it does not
+from Agent-Native app opens. A focused catalog regression also keeps bare
+"active users" searches open across Builder activity, organization membership,
+and Analytics app opens, so the prompt can ask which population the user means.
+This measures retrieval ranking only; it does not
 measure answer quality, latency, or the mounted production chat path.
 
 `SYNTHETIC-analytics-retrieval-v7.csv` is retained as the preceding synthetic

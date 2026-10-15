@@ -1098,6 +1098,7 @@ export default {
     notConnected: "Not connected",
     needsReauth: "Needs reauth",
     error: "Error",
+    unknown: "Unknown",
     indexNotImported: "No generated index has been imported.",
     indexUnreadable: "The saved index could not be read. Upload a valid index.",
     indexReadFailed: "Index status could not be loaded.",
