@@ -508,7 +508,7 @@ describe("Motion Text source and runtime", () => {
     );
     expect(units.map((unit) => unit.textContent)).toEqual([
       "Hello,",
-      " ",
+      "",
       "world!",
     ]);
     expect(units.map((unit) => unit.animations[0]?.options)).toEqual([
@@ -522,7 +522,7 @@ describe("Motion Text source and runtime", () => {
     ]);
   });
 
-  it("times character units across the full duration and preserves spaces", () => {
+  it("plays out keyframes in reverse while preserving their easing and spaces", () => {
     const animation: MotionTextAnimation = {
       ...document.animations[0]!,
       unit: "character",
@@ -544,23 +544,122 @@ describe("Motion Text source and runtime", () => {
       (child) =>
         child.getAttribute("data-agent-native-motion-text-unit") !== null,
     );
-    expect(units.map((unit) => unit.textContent)).toEqual(["A", " ", "B"]);
+    expect(units.map((unit) => unit.textContent)).toEqual(["A", "", "B"]);
     expect(units.map((unit) => unit.style.display)).toEqual([
       "inline-block",
-      "inline",
+      "block",
       "inline-block",
     ]);
-    expect(units.map((unit) => unit.style.whiteSpace)).toEqual([
-      undefined,
-      undefined,
-      undefined,
-    ]);
+    expect(units[1]?.style).toMatchObject({
+      position: "absolute",
+      width: "0",
+      height: "0",
+      overflow: "hidden",
+    });
+    expect(units[1]?.getAttribute("aria-hidden")).toBe("true");
     expect(units.map((unit) => unit.animations[0]?.options)).toEqual([
-      { duration: 250, delay: 0, fill: "both", direction: "reverse" },
-      { duration: 250, delay: 125, fill: "both", direction: "reverse" },
-      { duration: 250, delay: 250, fill: "both", direction: "reverse" },
+      { duration: 250, delay: 0, fill: "both" },
+      { duration: 250, delay: 125, fill: "both" },
+      { duration: 250, delay: 250, fill: "both" },
+    ]);
+    expect(units[0]?.animations[0]?.keyframes).toEqual([
+      { offset: 0, easing: "ease-out", opacity: "1" },
+      { offset: 1, easing: "ease-out", opacity: "0" },
     ]);
     expect(target.textContent).toBe("A B");
+  });
+
+  it("keeps punctuation separate from animated whitespace units", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "word",
+      direction: "forward",
+      animationDirection: "in",
+      order: "left-to-right",
+      overlapPercent: 0,
+      ignoreSpaces: false,
+      staggerMs: 0,
+    };
+    const target = textTarget('said "hi"');
+    executeRuntime(
+      compileMotionTextRuntime({ version: 2, animations: [animation] }),
+      target,
+    );
+
+    const units = target.children.filter(
+      (child) =>
+        child.getAttribute("data-agent-native-motion-text-unit") !== null,
+    );
+    expect(units.map((unit) => unit.textContent)).toEqual([
+      "said",
+      "",
+      '"',
+      'hi"',
+    ]);
+    expect(target.textContent).toBe('said "hi"');
+  });
+
+  it.each(["top-to-bottom", "bottom-to-top"] as const)(
+    "rejects %s order for character and word units",
+    (order) => {
+      for (const unit of ["character", "word"] as const) {
+        expect(
+          decodeMotionTextDocument(
+            JSON.stringify({
+              version: 2,
+              animations: [{ ...document.animations[0]!, unit, order }],
+            }),
+          ),
+        ).toMatchObject({
+          status: "invalid",
+          error: { code: "invalid-document" },
+        });
+      }
+      for (const unit of ["line", "paragraph"] as const) {
+        expect(
+          decodeMotionTextDocument(
+            JSON.stringify({
+              version: 2,
+              animations: [{ ...document.animations[0]!, unit, order }],
+            }),
+          ),
+        ).toMatchObject({ status: "valid" });
+      }
+    },
+  );
+
+  it("keeps each source segment easing when an out animation reverses multiple keyframes", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      animationDirection: "out",
+      order: "left-to-right",
+      overlapPercent: 0,
+      ignoreSpaces: true,
+      staggerMs: 0,
+      durationMs: 500,
+      keyframes: [
+        { t: 0, value: "0", ease: "ease-out" },
+        { t: 0.25, value: "8", ease: "ease-in" },
+        { t: 1, value: "16" },
+      ],
+    };
+    const target = textTarget("A");
+    executeRuntime(
+      compileMotionTextRuntime({ version: 2, animations: [animation] }),
+      target,
+    );
+
+    const animatedUnit = target.children.find(
+      (child) =>
+        child.getAttribute("data-agent-native-motion-text-unit") !== null,
+    );
+    expect(animatedUnit?.animations[0]?.keyframes).toEqual([
+      { offset: 0, easing: "ease-in", opacity: "16" },
+      { offset: 0.75, easing: "ease-out", opacity: "8" },
+      { offset: 1, easing: "ease-out", opacity: "0" },
+    ]);
   });
 
   it("orders units from the center and keeps ignored spaces out of the count", () => {
@@ -796,7 +895,7 @@ describe("Motion Text source and runtime", () => {
     expect(unitNodes.map((unit) => unit.textContent)).toEqual([
       "Mo",
       "tion",
-      " ",
+      "",
       "works",
     ]);
     expect(

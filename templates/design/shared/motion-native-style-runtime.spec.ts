@@ -89,6 +89,24 @@ describe("native Figma Motion runtime adapter", () => {
     ]);
   });
 
+  it("keeps legacy TextStagger styles from counting whitespace as units", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const legacyStyle = {
+      ...style,
+      props: Object.fromEntries(
+        Object.entries(style.props).filter(([key]) => key !== "ignoreSpaces"),
+      ),
+    };
+
+    expect(style.props.ignoreSpaces).toBe(false);
+    expect(motionNativeStylesToTextAnimations([legacyStyle])).toMatchObject([
+      { ignoreSpaces: true },
+    ]);
+  });
+
   it("projects native Path trim endpoints and preserves opaque source props on edits", () => {
     const style = createMotionNativeStyleInstance({
       styleKey: "Path",

@@ -1045,9 +1045,20 @@ function findManagedTextAnimations(
           "AgentNativeMotionText animations must be a non-empty static array.",
         );
       }
+      // JSX has no source-version marker, so omitted whitespace settings keep the legacy default.
       const decoded = normalizeReactMotionTextDocument({
         version: MOTION_TEXT_SOURCE_VERSION,
-        animations: animationValues,
+        animations: animationValues.map((animation) => {
+          if (
+            animation === null ||
+            typeof animation !== "object" ||
+            Array.isArray(animation) ||
+            "ignoreSpaces" in animation
+          ) {
+            return animation;
+          }
+          return { ...animation, ignoreSpaces: true };
+        }),
       });
       const animations = decoded!.animations;
       const targetNodeId = animations[0]!.targetNodeId;

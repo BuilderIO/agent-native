@@ -12,6 +12,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Text animations preserve whitespace layout, punctuation, legacy timing, and outgoing easing
 - Text animation edits preserve collapsed whitespace and reset ordering when grouping changes
 
 ## 2026-10-13

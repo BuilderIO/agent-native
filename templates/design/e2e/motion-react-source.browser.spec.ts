@@ -555,5 +555,30 @@ test("keeps collapsed text layout when whitespace units animate", async ({
   await expect(
     page.locator("#whitespace-target [data-agent-native-motion-text-unit]"),
   ).toHaveCount(7);
+  const animatedWhitespace = await page
+    .locator("#whitespace-target [data-agent-native-motion-text-unit]")
+    .evaluateAll((units) =>
+      units
+        .filter((unit) => unit.textContent === "")
+        .map((unit) => {
+          const style = getComputedStyle(unit);
+          return {
+            display: style.display,
+            position: style.position,
+            width: style.width,
+            height: style.height,
+            ariaHidden: unit.getAttribute("aria-hidden"),
+          };
+        }),
+    );
+  expect(animatedWhitespace).toEqual(
+    Array.from({ length: 4 }, () => ({
+      display: "block",
+      position: "absolute",
+      width: "0px",
+      height: "0px",
+      ariaHidden: "true",
+    })),
+  );
   expect(await measureLayout()).toEqual(before);
 });

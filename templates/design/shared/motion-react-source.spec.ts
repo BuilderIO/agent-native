@@ -526,6 +526,25 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("preserves the legacy ignored-space default for unversioned React Text source", () => {
+    const edit = applyMotionReactSourceEdit({
+      currentSource: source,
+      expectedSource: source,
+      preview: previewFor(source),
+      timeline: makeTimeline(),
+      textDocument,
+    });
+    const legacySource = edit.source.replace(/,"ignoreSpaces":true/g, "");
+
+    expect(legacySource).not.toContain('"ignoreSpaces"');
+    expect(readMotionReactSource(legacySource)).toMatchObject({
+      status: "valid",
+      textDocument: {
+        animations: [{ ignoreSpaces: true }],
+      },
+    });
+  });
+
   it("round-trips multiple compatible Text properties through one React wrapper", () => {
     const composite: MotionTextDocument = {
       ...textDocument,

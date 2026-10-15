@@ -731,7 +731,7 @@ function textStaggerAnimations(
   }
   const durationMs = Math.round(style.duration * 1000);
   const staggerMs = Math.round((durationMs * (100 - overlap)) / 100);
-  const ignoreSpaces = booleanProp(props.ignoreSpaces, false, "ignoreSpaces");
+  const ignoreSpaces = booleanProp(props.ignoreSpaces, true, "ignoreSpaces");
   const delayMs = Math.round(
     (style.timelineOffset + numeric(props.delay, 0)) * 1000,
   );

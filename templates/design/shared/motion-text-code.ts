@@ -316,6 +316,16 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
     if (!MOTION_TEXT_ORDERS.includes(order as MotionTextOrder)) {
       sourceError("invalid-document", `${field}.order is not supported.`);
     }
+    if (
+      (order === "top-to-bottom" || order === "bottom-to-top") &&
+      unit !== "line" &&
+      unit !== "paragraph"
+    ) {
+      sourceError(
+        "invalid-document",
+        `${field}.order requires line or paragraph units for vertical ordering.`,
+      );
+    }
     const overlapPercent =
       raw.overlapPercent === undefined
         ? undefined
@@ -847,7 +857,11 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         tokens.push({ value: chunk.value, animated: !ignoreSpaces });
       } else if (chunk.word) {
         tokens.push({ value: chunk.value, animated: true });
-      } else if (tokens.length && tokens[tokens.length - 1].animated) {
+      } else if (
+        tokens.length &&
+        tokens[tokens.length - 1].animated &&
+        !/^\s+$/u.test(tokens[tokens.length - 1].value)
+      ) {
         tokens[tokens.length - 1].value += chunk.value;
       } else {
         var nextWord = chunks.slice(index + 1).findIndex(function (candidate) { return candidate.word; });
@@ -899,6 +913,27 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
 
       var fragment = document.createDocumentFragment();
       var cursor = 0;
+      var pendingWhitespaceText = "";
+      var pendingWhitespaceUnits = [];
+      function flushPendingWhitespace() {
+        if (!pendingWhitespaceText) return;
+        fragment.appendChild(document.createTextNode(pendingWhitespaceText));
+        // Keep collapsible whitespace in-flow while giving each unit a transformable box.
+        pendingWhitespaceUnits.forEach(function (unit) {
+          var whitespaceBox = document.createElement("span");
+          whitespaceBox.setAttribute("data-agent-native-motion-text-unit", String(unit.index));
+          whitespaceBox.setAttribute("aria-hidden", "true");
+          whitespaceBox.style.position = "absolute";
+          whitespaceBox.style.display = "block";
+          whitespaceBox.style.width = "0";
+          whitespaceBox.style.height = "0";
+          whitespaceBox.style.overflow = "hidden";
+          fragment.appendChild(whitespaceBox);
+          unit.fragments.push(whitespaceBox);
+        });
+        pendingWhitespaceText = "";
+        pendingWhitespaceUnits = [];
+      }
       tokens.forEach(function (token) {
         var tokenStart = cursor;
         var tokenEnd = tokenStart + token.value.length;
@@ -908,18 +943,26 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         if (start >= end) return;
         var part = text.slice(start - leafStart, end - leafStart);
         if (!token.animated) {
+          flushPendingWhitespace();
           fragment.appendChild(document.createTextNode(part));
           return;
         }
         var unitIndex = units.findIndex(function (unit) { return unit.start === tokenStart; });
         var unit = units[unitIndex];
+        if (/^\s+$/u.test(part)) {
+          pendingWhitespaceText += part;
+          pendingWhitespaceUnits.push(unit);
+          return;
+        }
+        flushPendingWhitespace();
         var span = document.createElement("span");
         span.setAttribute("data-agent-native-motion-text-unit", String(unit.index));
-        span.style.display = /^\s+$/u.test(part) ? "inline" : "inline-block";
+        span.style.display = "inline-block";
         span.appendChild(document.createTextNode(part));
         fragment.appendChild(span);
         unit.fragments.push(span);
       });
+      flushPendingWhitespace();
       if (leaf.parentNode) leaf.parentNode.replaceChild(fragment, leaf);
     });
     return units;
@@ -1040,16 +1083,22 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
       entries.forEach(function (entry) {
         if (typeof entry.unit.animate !== "function") throw new Error("Motion text requires the Web Animations API.");
         var delayIndex = orderRanks[entry.index] === undefined ? entry.index : orderRanks[entry.index];
-        var keyframes = track.keyframes.map(function (keyframe) {
-          var frame = { offset: keyframe.t, easing: motionEaseForWebAnimations(keyframe.ease || "ease", entry.unit) };
+        var animateOut = track.animationDirection === "out";
+        var keyframes = (animateOut ? track.keyframes.slice().reverse() : track.keyframes).map(function (keyframe, keyframeIndex) {
+          var easingKeyframe = animateOut && keyframeIndex < track.keyframes.length - 1
+            ? track.keyframes[track.keyframes.length - 2 - keyframeIndex]
+            : keyframe;
+          var frame = {
+            offset: animateOut ? 1 - keyframe.t : keyframe.t,
+            easing: motionEaseForWebAnimations(easingKeyframe.ease || "ease", entry.unit)
+          };
           frame[track.property] = keyframe.value;
           return frame;
         });
         var delay = track.delayMs + delayIndex * staggerMs;
         var options = { duration: unitDuration, delay: delay, fill: "both" };
         var pingPong = !previewBridge && playbackMode === "ping-pong";
-        if (track.animationDirection === "out") options.direction = pingPong ? "alternate-reverse" : "reverse";
-        else if (pingPong) options.direction = "alternate";
+        if (pingPong) options.direction = "alternate";
         if (!previewBridge && playbackMode !== "once") {
           options.iterations = Infinity;
         }
