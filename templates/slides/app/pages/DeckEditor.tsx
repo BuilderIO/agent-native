@@ -1987,6 +1987,78 @@ export default function DeckEditor() {
     }
     generationSettlingAttemptRef.current = generationAttemptId;
     let pausedForQuestionOrRun = false;
+    const persistUnresolvedGuidedQuestionCheck = async () => {
+      trackEvent("generation_outcome_unresolved", {
+        app_name: "slides",
+        template_name: "slides",
+        generation_attempt_id: generationAttemptId,
+        output_id: id,
+        output_type: "deck",
+        ...(targetSlideCount !== null
+          ? { target_slide_count: targetSlideCount }
+          : {}),
+        ...generationTimingFields(
+          generationStartedAtRef.current ?? undefined,
+          Date.now(),
+        ),
+        source: "new_deck_prompt",
+        outcome: "unresolved",
+        reason: "guided_question_refetch_failed",
+      });
+      if (!generationContext) return;
+
+      const failureCode = "outcome_unresolved";
+      const currentSlides = getDeckLatest(id)?.slides ?? deck?.slides ?? [];
+      const emptyDeckConfirmed =
+        slideCountRef.current === 0 && currentSlides.length === 0;
+      updateDeck(id, {
+        generationContext: {
+          ...generationContext,
+          generationFailureCode: failureCode,
+          generationFailureAttemptId: generationAttemptId,
+          generationFailureSlidesFingerprint:
+            partialGenerationFailureSlidesFingerprint(currentSlides),
+        },
+      });
+
+      let serializedRecovery: string | null = null;
+      if (emptyDeckConfirmed) {
+        const recovery: EmptyGenerationRecovery = {
+          kind: "generation_failure",
+          attemptId: generationAttemptId,
+          failureCode,
+        };
+        serializedRecovery = JSON.stringify(recovery);
+        if (retryRecoveryStorageKey) {
+          try {
+            window.localStorage.setItem(
+              retryRecoveryStorageKey,
+              serializedRecovery,
+            );
+            emptyGenerationRecoveryRef.current = serializedRecovery;
+          } catch (error) {
+            console.error(
+              "Failed to store Slides generation recovery data.",
+              error,
+            );
+          }
+        }
+      }
+      try {
+        await flushDeckSave(id);
+        if (
+          serializedRecovery &&
+          clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            serializedRecovery,
+          )
+        ) {
+          emptyGenerationRecoveryRef.current = null;
+        }
+      } catch {
+        toast.error(t("editorSidebar.newSlideSaveFailed"));
+      }
+    };
     void (async () => {
       try {
         await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
@@ -2004,25 +2076,8 @@ export default function DeckEditor() {
           return;
         }
         if (pendingQuestionCheck.status === "error") {
-          trackEvent("generation_outcome_unresolved", {
-            app_name: "slides",
-            template_name: "slides",
-            generation_attempt_id: generationAttemptId,
-            output_id: id,
-            output_type: "deck",
-            ...(targetSlideCount !== null
-              ? { target_slide_count: targetSlideCount }
-              : {}),
-            ...generationTimingFields(
-              generationStartedAtRef.current ?? undefined,
-              Date.now(),
-            ),
-            source: "new_deck_prompt",
-            outcome: "unresolved",
-            reason: "guided_question_refetch_failed",
-          });
           pausedForQuestionOrRun = true;
-          generationSettlingAttemptRef.current = null;
+          await persistUnresolvedGuidedQuestionCheck();
           return;
         }
         if (
@@ -2060,25 +2115,8 @@ export default function DeckEditor() {
           return;
         }
         if (finalPendingQuestionCheck.status === "error") {
-          trackEvent("generation_outcome_unresolved", {
-            app_name: "slides",
-            template_name: "slides",
-            generation_attempt_id: generationAttemptId,
-            output_id: id,
-            output_type: "deck",
-            ...(targetSlideCount !== null
-              ? { target_slide_count: targetSlideCount }
-              : {}),
-            ...generationTimingFields(
-              generationStartedAtRef.current ?? undefined,
-              Date.now(),
-            ),
-            source: "new_deck_prompt",
-            outcome: "unresolved",
-            reason: "guided_question_refetch_failed",
-          });
           pausedForQuestionOrRun = true;
-          generationSettlingAttemptRef.current = null;
+          await persistUnresolvedGuidedQuestionCheck();
           return;
         }
         if (

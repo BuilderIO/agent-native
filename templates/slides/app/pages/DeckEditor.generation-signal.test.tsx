@@ -802,7 +802,9 @@ describe("DeckEditor generation signal wiring", () => {
     ).toBeNull();
   });
 
-  it("keeps generation unsettled when the guided-question check fails", async () => {
+  it("persists the prompt when the guided-question check fails", async () => {
+    const originalPrompt = "Make a deck about sustainable product design.";
+    mocks.deck.generationContext.originalPrompt = originalPrompt;
     mocks.guidedQuestionRefetchPending.mockImplementation(async () => ({
       status: "error",
       error: new Error("question check failed"),
@@ -839,9 +841,12 @@ describe("DeckEditor generation signal wiring", () => {
         expect.objectContaining({ reason: "guided_question_refetch_failed" }),
       ),
     );
-    expect(mocks.deck.generationContext).not.toHaveProperty(
-      "generationFailureCode",
-    );
+    expect(mocks.deck.generationContext).toMatchObject({
+      generationFailureCode: "outcome_unresolved",
+      generationFailureAttemptId: "attempt-1",
+      originalPrompt,
+    });
+    expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
     expect(
       window.localStorage.getItem(
         "slides:empty-generation-retry-recovery:deck-1",
@@ -854,6 +859,7 @@ describe("DeckEditor generation signal wiring", () => {
     expect(
       screen.getByRole("button", { name: "deckEditor.checkedDeckTryAgain" }),
     ).toBeTruthy();
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
     await act(async () => {
       screen
         .getByRole("button", { name: "deckEditor.checkedDeckTryAgain" })
@@ -861,12 +867,29 @@ describe("DeckEditor generation signal wiring", () => {
     });
     expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(2);
     expect(mocks.submitAndConfirm).not.toHaveBeenCalled();
-    expect(mocks.deck.generationContext).not.toHaveProperty(
-      "generationFailureCode",
-    );
+    expect(mocks.deck.generationContext).toMatchObject({
+      generationFailureCode: "outcome_unresolved",
+      generationFailureAttemptId: "attempt-1",
+      originalPrompt,
+    });
     expect(mocks.toastError).toHaveBeenCalledWith(
       "deckEditor.generationOutcomeUnresolved",
     );
+
+    cleanup();
+    router?.dispose();
+    mocks.attemptObservedRun = false;
+    mocks.attemptRunError = false;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "deckEditor.checkedDeckTryAgain" }),
+    ).toBeTruthy();
   });
 
   it("rechecks guided questions after saving the retry context", async () => {
