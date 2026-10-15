@@ -230,6 +230,41 @@ describe("dashboard annotation reads", () => {
         }),
       ]);
     });
+
+    it("doesn't tell a reader where the dashboard hides a note it shows elsewhere", async () => {
+      const incident = await saveDataNote(carol, noteInput(SETUP_INCIDENT));
+      const twoCharts = {
+        panels: [
+          ...config.panels,
+          { ...config.panels[0], id: "failures-weekly" },
+        ],
+        annotations: {
+          hiddenDataNotes: [{ noteId: incident.id, panelId: "failures" }],
+        },
+      };
+
+      const summary = await loadDashboardAnnotationSummary(
+        {
+          scope: carol,
+          editable: false,
+          dashboard: { canEdit: false } as DashboardRecord,
+        },
+        "dash",
+        twoCharts,
+      );
+
+      expect("dataNotes" in summary && summary.dataNotes).toEqual([
+        {
+          id: incident.id,
+          kind: "incident",
+          title: "Builder.io account setup failures",
+          status: "fixed",
+          startDate: "2026-10-09",
+          endDate: "2026-10-13",
+          panelIds: ["failures-weekly"],
+        },
+      ]);
+    });
   });
 
   it("reads a saved dashboard's config, falls back to its seed, and fails when neither exists", async () => {

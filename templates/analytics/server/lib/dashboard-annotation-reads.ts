@@ -45,7 +45,9 @@ export async function loadDashboardAnnotationSummary(
         : summary.keyDateSets.filter((set) => canShow || set.shown),
       dataNotes: canShow
         ? summary.dataNotes
-        : summary.dataNotes.filter((note) => note.panelIds.length > 0),
+        : summary.dataNotes.flatMap(({ hiddenOnPanelIds: _, ...note }) =>
+            note.panelIds.length > 0 ? [note] : [],
+          ),
       editable: false,
     };
   } catch (error) {
