@@ -254,6 +254,11 @@ const ORDERED_TYPE_MARKER: Record<string, string> = {
 };
 const PLACEHOLDER_ONLY = new RegExp(`^${ZERO_WIDTH_SPACE}+$`);
 const ALL_ZWSP = new RegExp(ZERO_WIDTH_SPACE, "g");
+/** Placeholders and source whitespace that HTML collapses; a typed nbsp is not. */
+const COLLAPSIBLE_OR_PLACEHOLDER = new RegExp(
+  `[ \\t\\n\\r\\f${ZERO_WIDTH_SPACE}]`,
+  "g",
+);
 export const IN_PLACE_TEXT_UNDO_LIMIT = 4096;
 export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 128 * 1024 * 1024;
 /** How far Tab nests a legacy bullet row, the way generated decks draw sub-bullets. */
@@ -517,6 +522,19 @@ function nearestLineBox(node: Node, root: HTMLElement): HTMLElement {
 
 function hasRenderedContent(node: Node): boolean {
   if (node.textContent?.replaceAll(ZERO_WIDTH_SPACE, "").trim()) return true;
+  return (
+    (node instanceof Element || node instanceof DocumentFragment) &&
+    node.querySelector(RENDERED_ELEMENTS) !== null
+  );
+}
+
+/**
+ * Whether a line holds anything the author put there. Unlike
+ * `hasRenderedContent`, a typed space or nbsp is content: Enter on it splits
+ * the line instead of treating it as the empty line that exits a list or quote.
+ */
+function hasLineContent(node: Node): boolean {
+  if (node.textContent?.replace(COLLAPSIBLE_OR_PLACEHOLDER, "")) return true;
   return (
     (node instanceof Element || node instanceof DocumentFragment) &&
     node.querySelector(RENDERED_ELEMENTS) !== null
@@ -1805,10 +1823,26 @@ export function startInPlaceTextSession(
   /**
    * Runs a change that moves or rebuilds the text, keeping the selection on
    * the same characters: on the same text nodes when they were only moved,
-   * by text offsets when they were rebuilt.
+   * by text offsets when they were rebuilt. A caret in an element with no text
+   * has no offsets of its own (they resolve into a neighbour), so it is given
+   * a placeholder to stay on, which also lets history and focus find it.
    */
   function keepingSelection(mutate: () => boolean): boolean {
-    const range = selectionRange();
+    let range = selectionRange();
+    const holder = range?.collapsed ? range.startContainer : null;
+    const holderOffset = range?.startOffset ?? 0;
+    const placeholder =
+      holder instanceof HTMLElement &&
+      holder !== el &&
+      !holder.textContent &&
+      !holder.querySelector(RENDERED_ELEMENTS)
+        ? document.createTextNode(ZERO_WIDTH_SPACE)
+        : null;
+    if (placeholder) {
+      holder!.insertBefore(placeholder, holder!.childNodes[holderOffset]);
+      placeCaret(placeholder, placeholder.length);
+      range = selectionRange();
+    }
     const points = range
       ? ([
           [range.startContainer, range.startOffset],
@@ -1816,7 +1850,13 @@ export function startInPlaceTextSession(
         ] as const)
       : null;
     const offsets = selectionOffsets();
-    if (!mutate()) return false;
+    if (!mutate()) {
+      if (placeholder) {
+        placeholder.remove();
+        placeCaret(holder!, holderOffset);
+      }
+      return false;
+    }
     const intact = points?.every(
       ([node, offset]) =>
         node instanceof Text && el.contains(node) && offset <= node.length,
@@ -2312,8 +2352,14 @@ export function startInPlaceTextSession(
     };
     const start = snap(range.startContainer, range.startOffset, false);
     const end = snap(range.endContainer, range.endOffset, true);
-    if (start) range.setStart(...start);
-    if (end) range.setEnd(...end);
+    const snapped = range.cloneRange();
+    if (start) snapped.setStart(...start);
+    if (end) snapped.setEnd(...end);
+    // A range that only spans an empty block's boundary is that block's
+    // break; snapped onto the text before it, deleting it would do nothing.
+    if (snapped.collapsed && !range.collapsed) return;
+    range.setStart(snapped.startContainer, snapped.startOffset);
+    range.setEnd(snapped.endContainer, snapped.endOffset);
   }
 
   /** Deletes a range and joins the blocks it crossed, without new styling. */
@@ -3058,6 +3104,19 @@ export function startInPlaceTextSession(
     if (!caret) return;
     const br = document.createElement("br");
     caret.insertNode(br);
+    // A link does not grow past its last character: the new line is plain.
+    const link = br.parentElement?.closest("a");
+    if (
+      link &&
+      el.contains(link) &&
+      link !== el &&
+      !link.contains(nearestLineBox(br, el))
+    ) {
+      const tail = document.createRange();
+      tail.setStartAfter(br);
+      tail.setEnd(link, link.childNodes.length);
+      if (!hasRenderedContent(tail.cloneContents())) link.after(br);
+    }
     if (hasRenderedContent(lineRest(br, nearestLineBox(br, el)))) {
       const next = br.nextSibling;
       if (next instanceof Text) placeCaret(next, 0);
@@ -3105,6 +3164,15 @@ export function startInPlaceTextSession(
           link.removeAttribute("href");
         }
       }
+    }
+    // A placeholder that moved with the tail already holds the new line open.
+    if (
+      first instanceof Text &&
+      PLACEHOLDER_ONLY.test(first.data) &&
+      nearestBlock(first, el) === clone
+    ) {
+      placeCaret(first, first.length);
+      return;
     }
     let target: Element = clone;
     for (
@@ -3180,8 +3248,12 @@ export function startInPlaceTextSession(
     return true;
   }
 
-  function splitListItem(item: HTMLElement, caret: Range) {
-    if (!hasRenderedContent(item)) {
+  function splitListItem(
+    item: HTMLElement,
+    caret: Range,
+    emptiedByEnter = false,
+  ) {
+    if (!emptiedByEnter && !hasLineContent(item)) {
       const list = item.parentElement;
       if (
         list &&
@@ -3531,12 +3603,23 @@ export function startInPlaceTextSession(
 
   /** Enter never changes the edited element's own tag, class, or style. */
   function insertParagraph(range: Range) {
-    if (!range.collapsed) deleteRange(range);
+    // Only a block that was already empty exits its list or quote; one this
+    // Enter emptied is split like any other.
+    let emptiedByEnter = false;
+    if (!range.collapsed) {
+      // deleteRange keeps a bullet row's marker, so it is not what Enter removed.
+      const selected = range.cloneContents();
+      for (const span of Array.from(selected.querySelectorAll("span"))) {
+        if (isBulletMarker(span)) span.remove();
+      }
+      emptiedByEnter = hasLineContent(selected);
+      deleteRange(range);
+    }
     const caret = selectionRange();
     if (!caret) return;
     const item = listItemAt(caret.startContainer);
     if (item) {
-      splitListItem(item, caret);
+      splitListItem(item, caret, emptiedByEnter);
       return;
     }
     const quote = quoteAt(caret.startContainer);
@@ -3544,7 +3627,7 @@ export function startInPlaceTextSession(
       const block = nearestBlock(caret.startContainer, quote);
       const blockContent = block.cloneNode(true) as HTMLElement;
       blockContent.querySelectorAll("br").forEach((br) => br.remove());
-      if (!hasRenderedContent(blockContent)) {
+      if (!emptiedByEnter && !hasLineContent(blockContent)) {
         const paragraph = document.createElement("p");
         paragraph.append(ZERO_WIDTH_SPACE);
         if (quote === el) {
@@ -3642,7 +3725,7 @@ export function startInPlaceTextSession(
       }
       const list = row.parentElement!;
       const rows = legacyRows(list);
-      if (row === rows[rows.length - 1] && isEmptyRow(row)) {
+      if (!emptiedByEnter && row === rows[rows.length - 1] && isEmptyRow(row)) {
         const paragraph = document.createElement("div");
         paragraph.append(ZERO_WIDTH_SPACE);
         row.remove();
@@ -5833,9 +5916,19 @@ export function startInPlaceTextSession(
   }
   // An element with nothing to lay out has no line box to hold a caret (a
   // text box placed with a click is 0px tall), and Chrome drops typing into
-  // it. end() removes the placeholder again when nothing was typed.
+  // it. end() removes the placeholder again when nothing was typed. It goes
+  // inside the last empty block, not after it, or Enter would split the block
+  // and leave the placeholder behind as an extra line.
   if (!hasRenderedContent(el) && !el.textContent?.includes(ZERO_WIDTH_SPACE)) {
-    settleCaret(el, el.childNodes.length);
+    let holder: Element = el;
+    for (
+      let child = holder.lastElementChild;
+      child && !child.matches(RENDERED_ELEMENTS);
+      child = holder.lastElementChild
+    ) {
+      holder = child;
+    }
+    settleCaret(holder, holder.childNodes.length);
   }
   focusSelection = selectionOffsets(true);
 
