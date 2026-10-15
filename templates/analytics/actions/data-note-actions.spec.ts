@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SETUP_INCIDENT } from "../shared/annotation-fixtures";
+
 const scope = { email: "alice@example.test", orgId: "org-1" };
 const mocks = vi.hoisted(() => ({
   requireDataNoteScope: vi.fn(),
@@ -7,11 +9,15 @@ const mocks = vi.hoisted(() => ({
   saveDataNote: vi.fn(async () => ({ id: "note-1" })),
   deleteDataNote: vi.fn(async () => ({ id: "note-1" })),
 }));
+const reads = vi.hoisted(() => ({
+  readDashboardConfigForAnnotations: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
 }));
 vi.mock("../server/lib/data-notes-store.js", () => mocks);
+vi.mock("../server/lib/dashboard-annotation-reads.js", () => reads);
 
 const actions = {
   list: (await import("./list-data-notes")).default as any,
@@ -41,6 +47,54 @@ describe("data-note actions", () => {
 
     await actions.remove.run({ id: "note-1" });
     expect(mocks.deleteDataNote).toHaveBeenCalledWith(scope, "note-1");
+  });
+
+  it("checks a saved note against the dashboard on screen", async () => {
+    reads.readDashboardConfigForAnnotations.mockResolvedValue({
+      panels: [
+        {
+          id: "failures",
+          title: "Setup failures per day",
+          chartType: "line",
+          sql: "SELECT day, count(*) FROM events WHERE event_name = 'builder_connect_failed'",
+        },
+        {
+          id: "signups",
+          title: "Signups per day",
+          chartType: "line",
+          sql: "SELECT day, count(*) FROM signups",
+        },
+      ],
+    });
+    mocks.saveDataNote.mockResolvedValueOnce(SETUP_INCIDENT as never);
+    const { id: _, ...input } = SETUP_INCIDENT;
+
+    const result = await actions.save.run({ ...input, dashboardId: "dash" });
+
+    expect(reads.readDashboardConfigForAnnotations).toHaveBeenCalledWith(
+      "dash",
+      scope,
+    );
+    expect(mocks.saveDataNote).toHaveBeenCalledWith(scope, input);
+    expect(result.dashboard).toEqual({
+      dashboardId: "dash",
+      shownOn: [{ panelId: "failures", title: "Setup failures per day" }],
+    });
+  });
+
+  it("saves nothing when the dashboard to check against can't be read", async () => {
+    reads.readDashboardConfigForAnnotations.mockRejectedValue(
+      new Error('Dashboard "gone" was not found.'),
+    );
+    await expect(
+      actions.save.run({
+        kind: "data",
+        title: "Connect clicks undercounted",
+        note: "Clicks are undercounted from Oct 2.",
+        dashboardId: "gone",
+      }),
+    ).rejects.toThrow("not found");
+    expect(mocks.saveDataNote).not.toHaveBeenCalled();
   });
 
   it("marks only the list as read-only", () => {

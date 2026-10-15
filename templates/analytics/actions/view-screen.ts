@@ -11,6 +11,7 @@ import {
   fitDashboardScreenContext,
 } from "../server/lib/agent-readable-resource-context";
 import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
+import { loadDashboardAnnotationSummary } from "../server/lib/dashboard-annotation-reads";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
@@ -205,7 +206,14 @@ export default defineAction({
           });
           if (dashboard) {
             screen.dashboard = fitDashboardScreenContext(
-              buildDashboardAgentContext(dashboard, { forAgent: true }),
+              buildDashboardAgentContext(dashboard, {
+                forAgent: true,
+                annotationSummary: await loadDashboardAnnotationSummary(
+                  { email, orgId },
+                  dashboard.id,
+                  dashboard.config as Record<string, unknown>,
+                ),
+              }),
               SCREEN_DASHBOARD_CHAR_BUDGET,
             );
           }

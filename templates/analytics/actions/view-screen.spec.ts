@@ -50,6 +50,15 @@ const listSessionRecordingsPage = vi.fn(async () => ({
 vi.mock("../server/lib/analytics-alerts", () => ({
   listAnalyticsAlertRules: vi.fn(async () => []),
 }));
+const loadDashboardAnnotationSummary = vi.fn(
+  async (): Promise<Record<string, unknown>> => ({
+    keyDateSets: [],
+    dataNotes: [],
+  }),
+);
+vi.mock("../server/lib/dashboard-annotation-reads", () => ({
+  loadDashboardAnnotationSummary,
+}));
 vi.mock("../server/lib/dashboard-catalog", () => ({
   listDashboardCatalog: vi.fn(async () => []),
 }));
@@ -1035,6 +1044,75 @@ describe("view-screen dashboard summary", () => {
     expect(out.dashboard).not.toHaveProperty("ownerEmail");
     expect(out.dashboard.revision).toBe("2026-06-25T00:00:00.000Z");
     expect(out.dashboard.canEdit).toBe(true);
+  });
+
+  it("shows the key dates and data notes the dashboard's charts draw", async () => {
+    const summary = {
+      keyDateSets: [
+        {
+          id: "launches",
+          name: "Launches",
+          shown: true,
+          dateCount: 1,
+          recentDates: [{ date: "2026-10-14", label: "Product Hunt live" }],
+        },
+      ],
+      dataNotes: [
+        {
+          id: "note-connect-undercount",
+          kind: "data",
+          title: "Connect clicks undercounted",
+          status: "open",
+          startDate: "2026-10-02",
+          panelIds: ["trend"],
+        },
+      ],
+    };
+    loadDashboardAnnotationSummary.mockResolvedValueOnce(summary);
+    showDashboard([
+      { id: "trend", title: "Trend", chartType: "line", width: 1, sql },
+    ]);
+
+    const out = await runScreen();
+
+    expect(loadDashboardAnnotationSummary).toHaveBeenCalledWith(
+      { email: "user@example.test", orgId: "org-1" },
+      "dash-1",
+      expect.objectContaining({ name: "Weekly" }),
+    );
+    expect(out.dashboard).toMatchObject(summary);
+  });
+
+  it("drops key-date lists before panels when a large dashboard is trimmed", async () => {
+    loadDashboardAnnotationSummary.mockResolvedValueOnce({
+      keyDateSets: [
+        {
+          id: "launches",
+          name: "Launches",
+          shown: true,
+          dateCount: 1,
+          recentDates: [{ date: "2026-10-14", label: "Product Hunt live" }],
+        },
+      ],
+      dataNotes: [],
+    });
+    showDashboard(
+      Array.from({ length: 90 }, (_, index) => ({
+        id: `panel-${index}`,
+        title: `Panel number ${index}`,
+        chartType: "line",
+        width: 1,
+        sql,
+        config: { xKey: "week", yKeys: ["value"] },
+      })),
+    );
+
+    const out = await runScreen();
+
+    expect(out.dashboard.trimmed).toBe(true);
+    expect(out.dashboard.keyDateSets).toEqual([
+      { id: "launches", name: "Launches", shown: true, dateCount: 1 },
+    ]);
   });
 
   it("stays valid JSON under the auto-block cap for a large dashboard", async () => {

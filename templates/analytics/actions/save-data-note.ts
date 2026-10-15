@@ -1,6 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { readDashboardConfigForAnnotations } from "../server/lib/dashboard-annotation-reads.js";
+import { dataNotePlacement } from "../server/lib/dashboard-annotation-summary.js";
 import {
   requireDataNoteScope,
   saveDataNote,
@@ -11,7 +13,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use "YYYY-MM-DD"');
 
 export default defineAction({
   description:
-    'Add a data note, or change the given fields of one by id. A data note explains a stretch of data on charts: kind "data" for tracking problems such as an undercount, a gap, or a renamed event, kind "incident" for a product outage. It draws as a shaded band over its dates on time charts (red for incidents, amber for open data problems, grey once fixed) and as a line under charts without a date axis. It shows on every chart whose SQL counts one of matchEvents as a quoted string, unless the SQL also counts one of unlessEvents (the replacement event that covers the gap), and on the charts listed in panels. Leave endDate empty while the problem is ongoing; mark it fixed with status "fixed", endDate, and fix. State facts the data shows; leave out causes nobody has confirmed.',
+    'Add a data note, or change the given fields of one by id. A data note explains a stretch of data on charts: kind "data" for tracking problems such as an undercount, a gap, or a renamed event, kind "incident" for a product outage. It draws as a shaded band over its dates on time charts (red for incidents, amber for open data problems, grey once fixed) and as a line under charts without a date axis. It shows on every chart whose SQL counts one of matchEvents as a quoted string, unless the SQL also counts one of unlessEvents (the replacement event that covers the gap), and on the charts listed in panels. Leave endDate empty while the problem is ongoing; mark it fixed with status "fixed", endDate, and fix. State facts the data shows; leave out causes nobody has confirmed. Pass dashboardId for the dashboard on screen: then `dashboard.shownOn` in the result lists the charts there that draw the note, and `hint` says why when none do.',
   schema: z.object({
     id: z
       .string()
@@ -82,6 +84,22 @@ export default defineAction({
       .max(50)
       .optional()
       .describe("Charts the note shows on whatever their SQL counts"),
+    dashboardId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Dashboard to check the note against, usually the one on screen; not stored",
+      ),
   }),
-  run: async (input) => saveDataNote(requireDataNoteScope(), input),
+  run: async ({ dashboardId, ...input }) => {
+    const scope = requireDataNoteScope();
+    const config = dashboardId
+      ? await readDashboardConfigForAnnotations(dashboardId, scope)
+      : undefined;
+    const note = await saveDataNote(scope, input);
+    return dashboardId && config
+      ? { ...note, dashboard: dataNotePlacement(note, dashboardId, config) }
+      : note;
+  },
 });

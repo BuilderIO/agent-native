@@ -1,7 +1,7 @@
 ---
 name: dashboard-management
 description: >-
-  Create, lay out, organize, or share Analytics dashboards and panels: sources, placement, folders, verification. Use to create a dashboard or to move, reorder, or lay out panels; a small edit of one existing panel needs no skill.
+  Create, lay out, organize, or share Analytics dashboards and panels: sources, placement, folders, verification, chart markers. Use to create a dashboard, to move, reorder, or lay out panels, or to add a key date or data note; a small edit of one existing panel needs no skill.
 ---
 
 # Dashboard Management
@@ -287,6 +287,33 @@ only the fields given); remove with `delete-data-note`.
   Hide on this chart.
 - Scheduled email reports shade the same ranges and write each note's text under
   the chart.
+
+## Adding A Marker
+
+When someone asks to mark something on a chart, pick the kind from what a
+reader should take away:
+
+- A moment that explains a change (a launch, a release, a pricing change) is a
+  key date. Call `list-key-dates` first and add it to the set it belongs in
+  rather than starting a near-duplicate set. Give `time` and `timeZone` when
+  the hour matters, as it does for launches. Use a panel's `config.events`
+  only when the date matters to that one chart.
+- A stretch where the numbers are wrong or unusual (an outage, an undercount, a
+  tracking gap) is a data note. Take `matchEvents` from the event names the
+  charts' SQL filters on (`get-sql-dashboard` with `panelIds`), not from how
+  the person phrased it, and pin `panels` when no event name identifies the
+  charts.
+
+Pass the open dashboard's id as `dashboardId` to `save-key-date` or
+`save-data-note`, and read the result's `dashboard` before replying: name the
+charts the marker shows on. When its `hint` says it shows on none, fix the
+event names, or tell the person why. A set or note the dashboard hides is that
+dashboard's choice, so ask before showing it.
+
+To explain a spike or dip, read `keyDateSets` and `dataNotes` from
+`get-sql-dashboard` or `view-screen` first and cite what they say. If
+`annotationsError` is there instead, say the markers could not be read rather
+than that there are none.
 
 ## Reusable Native Dashboard Patterns
 

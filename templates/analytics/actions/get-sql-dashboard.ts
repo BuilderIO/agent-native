@@ -14,6 +14,7 @@ import {
   isAgentContextCaller,
 } from "../server/lib/agent-readable-resource-context";
 import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
+import { loadDashboardAnnotationSummary } from "../server/lib/dashboard-annotation-reads";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import {
   getDashboard,
@@ -130,7 +131,12 @@ export default defineAction({
           args.id,
           seed,
         ).config;
-        return buildDashboardSeedAgentContext(args.id, config, detail);
+        return buildDashboardSeedAgentContext(args.id, config, {
+          ...detail,
+          annotationSummary: detail.forAgent
+            ? await loadDashboardAnnotationSummary(ctx, args.id, config)
+            : undefined,
+        });
       }
       throw Object.assign(new Error("Dashboard not found"), {
         statusCode: 404,
@@ -141,6 +147,16 @@ export default defineAction({
       config: repairKnownFirstPartyDashboardQueries(args.id, dash.config)
         .config,
     };
-    return buildDashboardAgentContext(dashboard, detail);
+    return buildDashboardAgentContext(dashboard, {
+      ...detail,
+      annotationSummary:
+        detail.forAgent && !args.reviewPreview
+          ? await loadDashboardAnnotationSummary(
+              ctx,
+              args.id,
+              dashboard.config as Record<string, unknown>,
+            )
+          : undefined,
+    });
   },
 });

@@ -6,6 +6,10 @@ import {
   clampDashboardColumns,
   type SqlPanel,
 } from "../../app/pages/adhoc/sql-dashboard/types";
+import type {
+  DashboardAnnotationSummary,
+  DashboardAnnotationsUnreadable,
+} from "./dashboard-annotation-summary.js";
 import { isDashboardCertified } from "./dashboard-certification.js";
 import type { AnalysisRecord, DashboardRecord } from "./dashboards-store.js";
 
@@ -136,6 +140,11 @@ export interface DashboardAgentContextOptions {
    *  `includeConfig` result over the size cap becomes summaries plus
    *  `truncated: true`. The UI reads the same action and gets everything. */
   forAgent?: boolean;
+  /** The key-date sets and data notes the dashboard's charts draw, in the
+   *  caller's scope, or why they could not be read. */
+  annotationSummary?:
+    | DashboardAnnotationSummary
+    | DashboardAnnotationsUnreadable;
 }
 
 function mergeSavedConfig(
@@ -145,7 +154,14 @@ function mergeSavedConfig(
   const merged: Record<string, unknown> = { ...base, ...config };
   // The saved config is author-controlled; what the server says about the
   // record must win.
-  for (const key of ["createdBy", "certification", "certified"]) {
+  for (const key of [
+    "createdBy",
+    "certification",
+    "certified",
+    "keyDateSets",
+    "dataNotes",
+    "annotationsError",
+  ]) {
     if (key in base) merged[key] = base[key];
     else delete merged[key];
   }
@@ -218,6 +234,7 @@ export function buildDashboardAgentContext(
     variables: config.variables,
     columns: config.columns,
     annotations: config.annotations,
+    ...options.annotationSummary,
     panels: panelSummaries(config),
     layout: dashboardLayoutSummary(config),
     ...audit,
@@ -263,6 +280,7 @@ export function buildDashboardSeedAgentContext(
     filters: seed.filters,
     variables: seed.variables,
     columns: seed.columns,
+    ...options.annotationSummary,
     panels: panelSummaries(seed),
     layout: dashboardLayoutSummary(seed),
     ...audit,
@@ -296,13 +314,20 @@ export function fitDashboardScreenContext(
   );
   const slim: Record<string, unknown> = {
     ...context,
+    ...(Array.isArray(context.keyDateSets)
+      ? {
+          keyDateSets: (
+            context.keyDateSets as Array<Record<string, unknown>>
+          ).map(({ recentDates: _, ...set }) => set),
+        }
+      : {}),
     layout: {
       panelCount: layout.panelCount,
       firstPanelIds: layout.firstPanelIds,
     },
     panels,
     trimmed: true,
-    hint: "Panel bindings and layout rows are omitted to fit. Call get-sql-dashboard for them, with panelIds for a panel's SQL and config.",
+    hint: "Panel bindings, layout rows, and key dates are omitted to fit. Call get-sql-dashboard for them, with panelIds for a panel's SQL and config.",
   };
   let kept = panels.length;
   while (kept > 0 && length(slim) > maxChars) {

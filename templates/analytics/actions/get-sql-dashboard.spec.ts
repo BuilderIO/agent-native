@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   currentRequestUserIsOrgAdmin: vi.fn(),
   superOrgId: undefined as string | undefined,
   loadDashboardSeed: vi.fn(),
+  loadDashboardAnnotationSummary: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", async (importOriginal) => {
@@ -44,6 +45,10 @@ vi.mock("../server/lib/dashboards-store", () => ({
 
 vi.mock("../server/lib/dashboard-seeds", () => ({
   loadDashboardSeed: mocks.loadDashboardSeed,
+}));
+
+vi.mock("../server/lib/dashboard-annotation-reads", () => ({
+  loadDashboardAnnotationSummary: mocks.loadDashboardAnnotationSummary,
 }));
 
 import {
@@ -458,6 +463,87 @@ describe("get-sql-dashboard agent reads", () => {
   beforeEach(() => {
     mocks.getDashboard.mockReset();
     mocks.loadDashboardSeed.mockReset();
+    mocks.loadDashboardAnnotationSummary.mockReset();
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue({
+      keyDateSets: [],
+      dataNotes: [],
+    });
+  });
+
+  it("tells an agent which key dates and data notes the charts draw", async () => {
+    const dashboard = savedDashboard([sqlPanel("failures")]);
+    mocks.getDashboard.mockResolvedValue(dashboard);
+    const summary = {
+      keyDateSets: [
+        {
+          id: "launches",
+          name: "Launches",
+          shown: true,
+          dateCount: 1,
+          recentDates: [{ date: "2026-10-14", label: "Product Hunt live" }],
+        },
+      ],
+      dataNotes: [
+        {
+          id: "note-setup-incident",
+          kind: "incident",
+          title: "Builder.io account setup failures",
+          status: "fixed",
+          startDate: "2026-10-09",
+          endDate: "2026-10-13",
+          panelIds: ["failures"],
+        },
+      ],
+    };
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue(summary);
+
+    const forAgent = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as Record<string, unknown>;
+    const forUi = (await getSqlDashboard.run(
+      { id: "weekly" },
+      frontend,
+    )) as Record<string, unknown>;
+
+    expect(mocks.loadDashboardAnnotationSummary).toHaveBeenCalledTimes(1);
+    expect(mocks.loadDashboardAnnotationSummary).toHaveBeenCalledWith(
+      { email: "alice@example.com", orgId: "org-a" },
+      "weekly",
+      expect.objectContaining({ panels: dashboard.config.panels }),
+    );
+    expect(forAgent).toMatchObject(summary);
+    expect(forUi).not.toHaveProperty("keyDateSets");
+    expect(forUi).not.toHaveProperty("dataNotes");
+  });
+
+  it("says when key dates and data notes could not be read instead of returning none", async () => {
+    mocks.getDashboard.mockResolvedValue(savedDashboard([sqlPanel("p1")]));
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue({
+      annotationsError: "Key dates and data notes could not be read: timeout",
+    });
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly" },
+      agent,
+    )) as Record<string, unknown>;
+
+    expect(result.annotationsError).toContain("could not be read");
+    expect(result).not.toHaveProperty("keyDateSets");
+    expect(result).not.toHaveProperty("dataNotes");
+  });
+
+  it("keeps the server's annotation summary over keys a saved config spoofs", async () => {
+    const dashboard = savedDashboard([sqlPanel("p1")]);
+    Object.assign(dashboard.config, { dataNotes: ["spoofed"] });
+    mocks.getDashboard.mockResolvedValue(dashboard);
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as Record<string, unknown>;
+
+    expect(result.dataNotes).toEqual([]);
   });
 
   it("names the result columns each chart is bound to without returning SQL", async () => {

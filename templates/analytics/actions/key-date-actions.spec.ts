@@ -9,11 +9,15 @@ const mocks = vi.hoisted(() => ({
   saveKeyDate: vi.fn(async () => ({ id: "date-1" })),
   deleteKeyDate: vi.fn(async () => ({ id: "date-1" })),
 }));
+const reads = vi.hoisted(() => ({
+  readDashboardConfigForAnnotations: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
 }));
 vi.mock("../server/lib/key-dates-store.js", () => mocks);
+vi.mock("../server/lib/dashboard-annotation-reads.js", () => reads);
 
 const actions = {
   list: (await import("./list-key-dates")).default as any,
@@ -53,6 +57,35 @@ describe("key-date actions", () => {
 
     await actions.remove.run({ id: "date-1" });
     expect(mocks.deleteKeyDate).toHaveBeenCalledWith(scope, "date-1");
+  });
+
+  it("says when the dashboard on screen hides the new date's set", async () => {
+    reads.readDashboardConfigForAnnotations.mockResolvedValue({
+      panels: [{ id: "signups", title: "Signups", chartType: "line" }],
+      annotations: { hiddenKeyDateSets: ["launches"] },
+    });
+    mocks.saveKeyDate.mockResolvedValueOnce({
+      id: "date-1",
+      setId: "launches",
+    } as never);
+
+    const result = await actions.save.run({
+      setName: "Launches",
+      date: "2026-10-14",
+      label: "Product Hunt live",
+      dashboardId: "dash",
+    });
+
+    expect(mocks.saveKeyDate).toHaveBeenCalledWith(scope, {
+      setName: "Launches",
+      date: "2026-10-14",
+      label: "Product Hunt live",
+    });
+    expect(result.dashboard).toMatchObject({
+      dashboardId: "dash",
+      setShown: false,
+      hint: expect.stringContaining("hides the date's set"),
+    });
   });
 
   it("marks only the list as read-only", () => {
