@@ -1,8 +1,16 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import type { TableColumnConfig } from "@/pages/adhoc/sql-dashboard/types";
 
 import {
   activePersonalColumnWidths,
   parsePersonalColumnWidths,
+  personalColumnWidthsKey,
+  usePersonalColumnWidths,
 } from "./personal-column-widths";
 
 describe("parsePersonalColumnWidths", () => {
@@ -60,5 +68,74 @@ describe("activePersonalColumnWidths", () => {
         undefined,
       ),
     ).toEqual({ name: 240 });
+  });
+});
+
+describe("usePersonalColumnWidths", () => {
+  const storageKey = personalColumnWidthsKey("dash-1", "panel-1");
+  let container: HTMLDivElement;
+  let root: Root;
+  let widths: Record<string, number> = {};
+
+  function Harness({ columns }: { columns: TableColumnConfig[] }) {
+    widths = usePersonalColumnWidths("dash-1", "panel-1", columns).widths;
+    return null;
+  }
+
+  async function renderColumns(columns: TableColumnConfig[]) {
+    await act(async () => {
+      root.render(createElement(Harness, { columns }));
+    });
+  }
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    widths = {};
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    window.localStorage.clear();
+  });
+
+  it("forgets a width once the shared width changes, even if it changes back", async () => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        name: { width: 240, base: null },
+        count: { width: 120, base: 90 },
+      }),
+    );
+
+    await renderColumns([{ key: "name" }, { key: "count", width: 90 }]);
+    expect(widths).toEqual({ name: 240, count: 120 });
+
+    await renderColumns([{ key: "name" }, { key: "count", width: 150 }]);
+    await renderColumns([{ key: "name" }, { key: "count", width: 90 }]);
+
+    expect(widths).toEqual({ name: 240 });
+    expect(
+      parsePersonalColumnWidths(window.localStorage.getItem(storageKey)),
+    ).toEqual({ name: { width: 240, base: null } });
+  });
+
+  it("forgets a width once an editor sets the shared width and then resets it", async () => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ name: { width: 240, base: null } }),
+    );
+
+    await renderColumns([{ key: "name" }]);
+    expect(widths).toEqual({ name: 240 });
+
+    await renderColumns([{ key: "name", width: 300 }]);
+    await renderColumns([{ key: "name" }]);
+
+    expect(widths).toEqual({});
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
   });
 });

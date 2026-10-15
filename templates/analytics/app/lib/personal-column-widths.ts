@@ -58,22 +58,31 @@ export function parsePersonalColumnWidths(
   return widths;
 }
 
-/**
- * The personal widths that still apply: each one only while the dashboard's
- * width for that column is the one it was dragged from.
- */
+/** The stored entries still based on the dashboard's current widths. */
+export function currentPersonalColumnWidths(
+  stored: PersonalColumnWidths,
+  columns: TableColumnConfig[] | undefined,
+): PersonalColumnWidths {
+  const sharedWidth = new Map(
+    (columns ?? []).map((column) => [column.key, column.width ?? null]),
+  );
+  const current: PersonalColumnWidths = {};
+  for (const [key, entry] of Object.entries(stored)) {
+    if ((sharedWidth.get(key) ?? null) === entry.base) current[key] = entry;
+  }
+  return current;
+}
+
+/** The personal widths that apply against the dashboard's current widths. */
 export function activePersonalColumnWidths(
   stored: PersonalColumnWidths,
   columns: TableColumnConfig[] | undefined,
 ): Record<string, number> {
-  const sharedWidth = new Map(
-    (columns ?? []).map((column) => [column.key, column.width ?? null]),
-  );
   const active: Record<string, number> = {};
-  for (const [key, entry] of Object.entries(stored)) {
-    if ((sharedWidth.get(key) ?? null) === entry.base) {
-      active[key] = entry.width;
-    }
+  for (const [key, entry] of Object.entries(
+    currentPersonalColumnWidths(stored, columns),
+  )) {
+    active[key] = entry.width;
   }
   return active;
 }
@@ -120,6 +129,19 @@ export function usePersonalColumnWidths(
   useEffect(() => {
     setStored(readStoredWidths(key));
   }, [key]);
+  // Hiding a stale width is not enough: kept in storage, it would come back
+  // if the dashboard's width returned to its base and hide that newer change.
+  useEffect(() => {
+    if (!key) return;
+    setStored((current) => {
+      const kept = currentPersonalColumnWidths(current, columns);
+      if (Object.keys(kept).length === Object.keys(current).length) {
+        return current;
+      }
+      writeStoredWidths(key, kept);
+      return kept;
+    });
+  }, [columns, key]);
 
   const setWidth = useCallback(
     (columnKey: string, width: number | null) => {
