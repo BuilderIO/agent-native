@@ -108,25 +108,28 @@ export function deriveColumns(rows: Record<string, unknown>[]): string[] {
 }
 
 async function getAppRowCount(
+  db: DbExec,
   appId: string,
   ownerEmail: string,
+  excludingDatasetId: string,
 ): Promise<number> {
-  const db = getDbExec();
   const { rows } = await db.execute({
-    sql: `SELECT COALESCE(SUM(row_count), 0) as total FROM staged_datasets WHERE app_id = ? AND owner_email = ?`,
-    args: [appId, ownerEmail],
+    sql: `SELECT COALESCE(SUM(row_count), 0) as total FROM staged_datasets WHERE app_id = ? AND owner_email = ? AND id <> ?`,
+    args: [appId, ownerEmail, excludingDatasetId],
   });
   return Number(rows[0]?.total ?? 0);
 }
 
 async function getAppByteSize(
+  db: DbExec,
   appId: string,
   ownerEmail: string,
+  excludingDatasetId: string,
 ): Promise<number> {
-  const db = getDbExec();
+  // Existing byte_size values may predate UTF-8 accounting, so count persisted bytes.
   const { rows } = await db.execute({
-    sql: `SELECT COALESCE(SUM(byte_size), 0) as total FROM staged_datasets WHERE app_id = ? AND owner_email = ?`,
-    args: [appId, ownerEmail],
+    sql: `SELECT COALESCE(SUM(OCTET_LENGTH(r.row_data)), 0) as total FROM staged_dataset_rows r INNER JOIN staged_datasets d ON d.id = r.dataset_id WHERE d.app_id = ? AND d.owner_email = ? AND d.id <> ?`,
+    args: [appId, ownerEmail, excludingDatasetId],
   });
   return Number(rows[0]?.total ?? 0);
 }
@@ -138,103 +141,114 @@ export async function upsertStagedDataset(
   const db = getDbExec();
   const now = Date.now();
   const id = options.id || generateId();
+  const { allRows, columns, byteSize } = await withDbTransaction(
+    db,
+    async (tx) => {
+      await tx.execute({
+        sql: `SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))`,
+        args: [
+          JSON.stringify([
+            "agent-native:staged-dataset-quota",
+            options.appId,
+            options.ownerEmail,
+          ]),
+        ],
+      });
 
-  const { rows: existingDataset } = await db.execute({
-    sql: `SELECT app_id, owner_email, row_count, byte_size FROM staged_datasets WHERE id = ?`,
-    args: [id],
-  });
-  const previous = existingDataset[0];
-  if (
-    previous &&
-    (previous.app_id !== options.appId ||
-      previous.owner_email !== options.ownerEmail)
-  ) {
-    throw new Error("A staged dataset with this ID already exists.");
-  }
-
-  let existingRows: Record<string, unknown>[] = [];
-  if (options.append) {
-    existingRows = await getStagedDatasetRows({
-      id,
-      appId: options.appId,
-      ownerEmail: options.ownerEmail,
-    });
-  }
-
-  const allRows = options.append
-    ? [...existingRows, ...options.rows]
-    : options.rows;
-
-  const currentAppRows = await getAppRowCount(
-    options.appId,
-    options.ownerEmail,
-  );
-  const currentDatasetRows = Number(previous?.row_count ?? 0);
-  const netNewRows = allRows.length - currentDatasetRows;
-  if (currentAppRows + netNewRows > MAX_ROWS_PER_APP) {
-    throw new Error(
-      `Staged dataset cap exceeded: this app already has ${currentAppRows} rows stored ` +
-        `(limit ${MAX_ROWS_PER_APP}). Delete older datasets before staging more data.`,
-    );
-  }
-
-  const serialized = allRows.map((row) => JSON.stringify(row));
-  const byteSize = serialized.reduce((sum, s) => sum + s.length, 0);
-
-  const currentAppBytes = await getAppByteSize(
-    options.appId,
-    options.ownerEmail,
-  );
-  const existingDatasetBytes = Number(previous?.byte_size ?? 0);
-  const netNewBytes = byteSize - existingDatasetBytes;
-  if (currentAppBytes + netNewBytes > MAX_BYTES_PER_APP) {
-    throw new Error(
-      `Staged dataset byte cap exceeded: this app already stores ` +
-        `${(currentAppBytes / 1024 / 1024).toFixed(1)} MB (limit 50 MB). ` +
-        `Delete older datasets before staging more data.`,
-    );
-  }
-
-  const columns = options.columns.length
-    ? options.columns
-    : deriveColumns(allRows);
-  const columnsJson = JSON.stringify(columns);
-
-  await withDbTransaction(db, async (tx) => {
-    await tx.execute({
-      sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
-      args: [id],
-    });
-
-    const BATCH = 500;
-    for (let i = 0; i < serialized.length; i += BATCH) {
-      const slice = serialized.slice(i, i + BATCH);
-      for (let j = 0; j < slice.length; j++) {
-        await tx.execute({
-          sql: `INSERT INTO staged_dataset_rows (dataset_id, row_index, row_data) VALUES (?, ?, ?)`,
-          args: [id, i + j, slice[j]],
-        });
+      const { rows: existingDataset } = await tx.execute({
+        sql: `SELECT app_id, owner_email FROM staged_datasets WHERE id = ?`,
+        args: [id],
+      });
+      const previous = existingDataset[0];
+      if (
+        previous &&
+        (previous.app_id !== options.appId ||
+          previous.owner_email !== options.ownerEmail)
+      ) {
+        throw new Error("A staged dataset with this ID already exists.");
       }
-    }
 
-    const result = await tx.execute({
-      sql: `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, updated_at=EXCLUDED.updated_at WHERE staged_datasets.app_id = EXCLUDED.app_id AND staged_datasets.owner_email = EXCLUDED.owner_email`,
-      args: [
-        id,
+      const existingRows =
+        options.append && previous ? await readStagedDatasetRows(tx, id) : [];
+      const allRows = options.append
+        ? [...existingRows, ...options.rows]
+        : options.rows;
+      const serialized = allRows.map((row) => JSON.stringify(row));
+      const byteSize = serialized.reduce(
+        (sum, value) => sum + Buffer.byteLength(value, "utf8"),
+        0,
+      );
+
+      const currentAppRows = await getAppRowCount(
+        tx,
         options.appId,
         options.ownerEmail,
-        options.name,
-        columnsJson,
-        allRows.length,
-        byteSize,
-        now,
-        now,
-      ],
-    });
-    if (result.rowsAffected === 0) {
-      throw new Error("A staged dataset with this ID already exists.");
-    }
-  });
+        id,
+      );
+      const totalAppRows = currentAppRows + allRows.length;
+      if (totalAppRows > MAX_ROWS_PER_APP) {
+        throw new Error(
+          `Staged dataset cap exceeded: this app would have ${totalAppRows} rows stored ` +
+            `(limit ${MAX_ROWS_PER_APP}). Delete older datasets before staging more data.`,
+        );
+      }
+
+      const currentAppBytes = await getAppByteSize(
+        tx,
+        options.appId,
+        options.ownerEmail,
+        id,
+      );
+      const totalAppBytes = currentAppBytes + byteSize;
+      if (totalAppBytes > MAX_BYTES_PER_APP) {
+        throw new Error(
+          `Staged dataset byte cap exceeded: this app would store ` +
+            `${(totalAppBytes / 1024 / 1024).toFixed(1)} MB (limit 50 MB). ` +
+            `Delete older datasets before staging more data.`,
+        );
+      }
+
+      const columns = options.columns.length
+        ? options.columns
+        : deriveColumns(allRows);
+      const columnsJson = JSON.stringify(columns);
+
+      await tx.execute({
+        sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
+        args: [id],
+      });
+
+      const BATCH = 500;
+      for (let i = 0; i < serialized.length; i += BATCH) {
+        const slice = serialized.slice(i, i + BATCH);
+        for (let j = 0; j < slice.length; j++) {
+          await tx.execute({
+            sql: `INSERT INTO staged_dataset_rows (dataset_id, row_index, row_data) VALUES (?, ?, ?)`,
+            args: [id, i + j, slice[j]],
+          });
+        }
+      }
+
+      const result = await tx.execute({
+        sql: `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, updated_at=EXCLUDED.updated_at WHERE staged_datasets.app_id = EXCLUDED.app_id AND staged_datasets.owner_email = EXCLUDED.owner_email`,
+        args: [
+          id,
+          options.appId,
+          options.ownerEmail,
+          options.name,
+          columnsJson,
+          allRows.length,
+          byteSize,
+          now,
+          now,
+        ],
+      });
+      if (result.rowsAffected === 0) {
+        throw new Error("A staged dataset with this ID already exists.");
+      }
+      return { allRows, columns, byteSize };
+    },
+  );
 
   return {
     id,
@@ -262,9 +276,16 @@ export async function getStagedDatasetRows(options: {
   });
   if (meta.length === 0) return [];
 
+  return readStagedDatasetRows(db, options.id);
+}
+
+async function readStagedDatasetRows(
+  db: DbExec,
+  datasetId: string,
+): Promise<Record<string, unknown>[]> {
   const { rows } = await db.execute({
     sql: `SELECT row_data FROM staged_dataset_rows WHERE dataset_id = ? ORDER BY row_index ASC`,
-    args: [options.id],
+    args: [datasetId],
   });
   return rows.map(
     (r) => JSON.parse(r.row_data as string) as Record<string, unknown>,

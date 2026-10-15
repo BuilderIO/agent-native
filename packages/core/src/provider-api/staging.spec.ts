@@ -3,195 +3,310 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const _metaStore = new Map<string, Record<string, unknown>>();
 const _rowStore = new Map<string, Record<string, unknown>[]>();
 const _executedSql: string[] = [];
+const _hiddenStagedDatasetLookupId: { value: string | null } = { value: null };
 
-vi.mock("../db/client.js", () => ({
-  isProductionServerlessFunctionRuntime: () => false,
-  getDbExec: () => ({
-    execute: async (sql: string | { sql: string; args: unknown[] }) => {
-      const rawSql = typeof sql === "string" ? sql : sql.sql;
-      const args = typeof sql === "string" ? [] : (sql.args as unknown[]);
-      _executedSql.push(rawSql);
+vi.mock("../db/client.js", () => {
+  const advisoryLockTails = new Map<string, Promise<void>>();
 
-      if (/CREATE TABLE/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
-      if (/CREATE INDEX/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
+  type MockTransaction = {
+    metaBefore: Map<string, Record<string, unknown> | undefined>;
+    rowsBefore: Map<string, Record<string, unknown>[] | undefined>;
+    releaseLocks: Array<() => void>;
+  };
 
-      if (/DELETE FROM staged_dataset_rows WHERE dataset_id/i.test(rawSql)) {
-        _rowStore.delete(args[0] as string);
-        return { rows: [], rowsAffected: 1 };
-      }
-      if (/INSERT INTO staged_dataset_rows/i.test(rawSql)) {
-        const id = args[0] as string;
-        const idx = args[1] as number;
-        const data = args[2] as string;
-        if (!_rowStore.has(id)) _rowStore.set(id, []);
-        _rowStore.get(id)![idx] = JSON.parse(data) as Record<string, unknown>;
-        return { rows: [], rowsAffected: 1 };
-      }
-      if (
-        /SELECT row_data FROM staged_dataset_rows WHERE dataset_id/i.test(
-          rawSql,
-        )
-      ) {
-        const id = args[0] as string;
-        const r = _rowStore.get(id) ?? [];
-        return {
-          rows: r.map((d) => ({ row_data: JSON.stringify(d) })),
-          rowsAffected: 0,
-        };
-      }
+  const rememberMeta = (id: string, transaction?: MockTransaction) => {
+    if (!transaction || transaction.metaBefore.has(id)) return;
+    const entry = _metaStore.get(id);
+    transaction.metaBefore.set(id, entry ? { ...entry } : undefined);
+  };
 
-      if (
-        /SELECT id FROM staged_datasets WHERE id.*AND app_id.*AND owner_email/i.test(
-          rawSql,
-        )
-      ) {
-        const id = args[0] as string;
-        const appId = args[1] as string;
-        const owner = args[2] as string;
-        const entry = _metaStore.get(id);
-        const found =
-          entry && entry.app_id === appId && entry.owner_email === owner
-            ? [entry]
-            : [];
-        return { rows: found, rowsAffected: 0 };
-      }
-      if (
-        /SELECT id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at FROM staged_datasets WHERE id/i.test(
-          rawSql,
-        )
-      ) {
-        const id = args[0] as string;
-        const appId = args[1] as string;
-        const owner = args[2] as string;
-        const entry = _metaStore.get(id);
-        const found =
-          entry && entry.app_id === appId && entry.owner_email === owner
-            ? [entry]
-            : [];
-        return { rows: found, rowsAffected: 0 };
-      }
-      if (
-        /SELECT id, app_id, owner_email.*FROM staged_datasets WHERE app_id.*AND owner_email.*ORDER/i.test(
-          rawSql,
-        )
-      ) {
-        const appId = args[0] as string;
-        const owner = args[1] as string;
-        const entries = Array.from(_metaStore.values()).filter(
-          (e) => e.app_id === appId && e.owner_email === owner,
-        );
-        return { rows: entries, rowsAffected: 0 };
-      }
-      if (
-        /SELECT.*COALESCE.*SUM.*row_count.*FROM staged_datasets WHERE app_id.*AND owner_email/i.test(
-          rawSql,
-        )
-      ) {
-        const appId = args[0] as string;
-        const owner = args[1] as string;
-        const total = Array.from(_metaStore.values())
-          .filter((e) => e.app_id === appId && e.owner_email === owner)
-          .reduce((sum, e) => sum + Number(e.row_count), 0);
-        return { rows: [{ total }], rowsAffected: 0 };
-      }
-      if (
-        /SELECT.*COALESCE.*SUM.*byte_size.*FROM staged_datasets WHERE app_id.*AND owner_email/i.test(
-          rawSql,
-        )
-      ) {
-        const appId = args[0] as string;
-        const owner = args[1] as string;
-        const total = Array.from(_metaStore.values())
-          .filter((e) => e.app_id === appId && e.owner_email === owner)
-          .reduce((sum, e) => sum + Number(e.byte_size), 0);
-        return { rows: [{ total }], rowsAffected: 0 };
-      }
-      if (
-        /SELECT app_id, owner_email, row_count, byte_size FROM staged_datasets WHERE id = \?/i.test(
-          rawSql,
-        )
-      ) {
-        const entry = _metaStore.get(args[0] as string);
-        return { rows: entry ? [entry] : [], rowsAffected: 0 };
-      }
-      if (
-        /SELECT id FROM staged_datasets WHERE id = \?$/i.test(rawSql.trim())
-      ) {
-        const id = args[0] as string;
-        const found = _metaStore.has(id) ? [{ id }] : [];
-        return { rows: found, rowsAffected: 0 };
-      }
-      if (/SELECT row_count FROM staged_datasets WHERE id/i.test(rawSql)) {
-        const id = args[0] as string;
-        const entry = _metaStore.get(id);
-        return {
-          rows: entry ? [{ row_count: entry.row_count }] : [],
-          rowsAffected: 0,
-        };
-      }
-      if (/SELECT byte_size FROM staged_datasets WHERE id/i.test(rawSql)) {
-        const id = args[0] as string;
-        const entry = _metaStore.get(id);
-        return {
-          rows: entry ? [{ byte_size: entry.byte_size }] : [],
-          rowsAffected: 0,
-        };
-      }
-      if (
-        /INSERT INTO staged_datasets/i.test(rawSql) &&
-        /ON CONFLICT/i.test(rawSql)
-      ) {
-        const [
-          id,
-          appId,
-          owner,
-          name,
-          columns,
-          rowCount,
-          byteSize,
-          createdAt,
-          updatedAt,
-        ] = args;
-        const previous = _metaStore.get(id as string);
-        _metaStore.set(id as string, {
-          id,
-          app_id: previous?.app_id ?? appId,
-          owner_email: previous?.owner_email ?? owner,
-          name,
-          columns,
-          row_count: rowCount,
-          byte_size: byteSize,
-          created_at: previous?.created_at ?? createdAt,
-          updated_at: updatedAt,
-        });
-        return { rows: [], rowsAffected: 1 };
-      }
-      if (/UPDATE staged_datasets SET/i.test(rawSql)) {
-        const [name, columns, rowCount, byteSize, updatedAt, id] = args;
-        const entry = _metaStore.get(id as string);
-        if (entry) {
-          entry.name = name;
-          entry.columns = columns;
-          entry.row_count = rowCount;
-          entry.byte_size = byteSize;
-          entry.updated_at = updatedAt;
+  const rememberRows = (id: string, transaction?: MockTransaction) => {
+    if (!transaction || transaction.rowsBefore.has(id)) return;
+    const rows = _rowStore.get(id);
+    transaction.rowsBefore.set(
+      id,
+      rows ? rows.map((row) => ({ ...row })) : undefined,
+    );
+  };
+
+  const execute = async (
+    sql: string | { sql: string; args: unknown[] },
+    transaction?: MockTransaction,
+  ) => {
+    const rawSql = typeof sql === "string" ? sql : sql.sql;
+    const args = typeof sql === "string" ? [] : (sql.args as unknown[]);
+    _executedSql.push(rawSql);
+
+    if (/pg_advisory_xact_lock/i.test(rawSql)) {
+      const key = args[0] as string;
+      const previous = advisoryLockTails.get(key) ?? Promise.resolve();
+      let release!: () => void;
+      const current = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      advisoryLockTails.set(key, current);
+      await previous;
+      const releaseLock = () => {
+        release();
+        if (advisoryLockTails.get(key) === current) {
+          advisoryLockTails.delete(key);
         }
-        return { rows: [], rowsAffected: 1 };
-      }
-      if (
-        /DELETE FROM staged_datasets WHERE id.*AND app_id.*AND owner_email/i.test(
-          rawSql,
-        )
-      ) {
-        const id = args[0] as string;
-        _metaStore.delete(id);
-        return { rows: [], rowsAffected: 1 };
-      }
+      };
+      if (transaction) transaction.releaseLocks.push(releaseLock);
+      else releaseLock();
+      return { rows: [], rowsAffected: 1 };
+    }
 
-      return { rows: [], rowsAffected: 0 };
-    },
-  }),
-}));
+    if (/CREATE TABLE/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
+    if (/CREATE INDEX/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
+
+    if (/DELETE FROM staged_dataset_rows WHERE dataset_id/i.test(rawSql)) {
+      const id = args[0] as string;
+      rememberRows(id, transaction);
+      _rowStore.delete(id);
+      return { rows: [], rowsAffected: 1 };
+    }
+    if (/INSERT INTO staged_dataset_rows/i.test(rawSql)) {
+      const id = args[0] as string;
+      const idx = args[1] as number;
+      const data = args[2] as string;
+      rememberRows(id, transaction);
+      if (!_rowStore.has(id)) _rowStore.set(id, []);
+      _rowStore.get(id)![idx] = JSON.parse(data) as Record<string, unknown>;
+      return { rows: [], rowsAffected: 1 };
+    }
+    if (
+      /SELECT row_data FROM staged_dataset_rows WHERE dataset_id/i.test(rawSql)
+    ) {
+      const id = args[0] as string;
+      const r = _rowStore.get(id) ?? [];
+      return {
+        rows: r.map((d) => ({ row_data: JSON.stringify(d) })),
+        rowsAffected: 0,
+      };
+    }
+
+    if (
+      /SELECT id FROM staged_datasets WHERE id.*AND app_id.*AND owner_email/i.test(
+        rawSql,
+      )
+    ) {
+      const id = args[0] as string;
+      const appId = args[1] as string;
+      const owner = args[2] as string;
+      const entry = _metaStore.get(id);
+      const found =
+        entry && entry.app_id === appId && entry.owner_email === owner
+          ? [entry]
+          : [];
+      return { rows: found, rowsAffected: 0 };
+    }
+    if (
+      /SELECT id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at FROM staged_datasets WHERE id/i.test(
+        rawSql,
+      )
+    ) {
+      const id = args[0] as string;
+      const appId = args[1] as string;
+      const owner = args[2] as string;
+      const entry = _metaStore.get(id);
+      const found =
+        entry && entry.app_id === appId && entry.owner_email === owner
+          ? [entry]
+          : [];
+      return { rows: found, rowsAffected: 0 };
+    }
+    if (
+      /SELECT id, app_id, owner_email.*FROM staged_datasets WHERE app_id.*AND owner_email.*ORDER/i.test(
+        rawSql,
+      )
+    ) {
+      const appId = args[0] as string;
+      const owner = args[1] as string;
+      const entries = Array.from(_metaStore.values()).filter(
+        (e) => e.app_id === appId && e.owner_email === owner,
+      );
+      return { rows: entries, rowsAffected: 0 };
+    }
+    if (
+      /SELECT.*COALESCE.*SUM.*row_count.*FROM staged_datasets WHERE app_id.*AND owner_email/i.test(
+        rawSql,
+      )
+    ) {
+      const appId = args[0] as string;
+      const owner = args[1] as string;
+      const excludingId = args[2] as string;
+      const total = Array.from(_metaStore.values())
+        .filter(
+          (e) =>
+            e.app_id === appId &&
+            e.owner_email === owner &&
+            e.id !== excludingId,
+        )
+        .reduce((sum, e) => sum + Number(e.row_count), 0);
+      return { rows: [{ total }], rowsAffected: 0 };
+    }
+    if (
+      /SELECT.*COALESCE.*SUM\(OCTET_LENGTH\(r\.row_data\)\).*FROM staged_dataset_rows r INNER JOIN staged_datasets d/i.test(
+        rawSql,
+      )
+    ) {
+      const [appId, owner, excludingId] = args as string[];
+      const total = Array.from(_metaStore.entries())
+        .filter(
+          ([id, entry]) =>
+            id !== excludingId &&
+            entry.app_id === appId &&
+            entry.owner_email === owner,
+        )
+        .reduce(
+          (sum, [id]) =>
+            sum +
+            (_rowStore.get(id) ?? []).reduce(
+              (datasetSum, row) =>
+                datasetSum + Buffer.byteLength(JSON.stringify(row), "utf8"),
+              0,
+            ),
+          0,
+        );
+      return { rows: [{ total }], rowsAffected: 0 };
+    }
+    if (
+      /SELECT app_id, owner_email FROM staged_datasets WHERE id = \?/i.test(
+        rawSql,
+      )
+    ) {
+      const id = args[0] as string;
+      const entry =
+        _hiddenStagedDatasetLookupId.value === id
+          ? undefined
+          : _metaStore.get(id);
+      if (_hiddenStagedDatasetLookupId.value === id) {
+        _hiddenStagedDatasetLookupId.value = null;
+      }
+      return { rows: entry ? [entry] : [], rowsAffected: 0 };
+    }
+    if (/SELECT id FROM staged_datasets WHERE id = \?$/i.test(rawSql.trim())) {
+      const id = args[0] as string;
+      const found = _metaStore.has(id) ? [{ id }] : [];
+      return { rows: found, rowsAffected: 0 };
+    }
+    if (/SELECT row_count FROM staged_datasets WHERE id/i.test(rawSql)) {
+      const id = args[0] as string;
+      const entry = _metaStore.get(id);
+      return {
+        rows: entry ? [{ row_count: entry.row_count }] : [],
+        rowsAffected: 0,
+      };
+    }
+    if (/SELECT byte_size FROM staged_datasets WHERE id/i.test(rawSql)) {
+      const id = args[0] as string;
+      const entry = _metaStore.get(id);
+      return {
+        rows: entry ? [{ byte_size: entry.byte_size }] : [],
+        rowsAffected: 0,
+      };
+    }
+    if (
+      /INSERT INTO staged_datasets/i.test(rawSql) &&
+      /ON CONFLICT/i.test(rawSql)
+    ) {
+      const [
+        id,
+        appId,
+        owner,
+        name,
+        columns,
+        rowCount,
+        byteSize,
+        createdAt,
+        updatedAt,
+      ] = args;
+      const previous = _metaStore.get(id as string);
+      if (
+        previous &&
+        (previous.app_id !== appId || previous.owner_email !== owner)
+      ) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      rememberMeta(id as string, transaction);
+      _metaStore.set(id as string, {
+        id,
+        app_id: previous?.app_id ?? appId,
+        owner_email: previous?.owner_email ?? owner,
+        name,
+        columns,
+        row_count: rowCount,
+        byte_size: byteSize,
+        created_at: previous?.created_at ?? createdAt,
+        updated_at: updatedAt,
+      });
+      return { rows: [], rowsAffected: 1 };
+    }
+    if (/UPDATE staged_datasets SET/i.test(rawSql)) {
+      const [name, columns, rowCount, byteSize, updatedAt, id] = args;
+      const entry = _metaStore.get(id as string);
+      if (entry) {
+        rememberMeta(id as string, transaction);
+        entry.name = name;
+        entry.columns = columns;
+        entry.row_count = rowCount;
+        entry.byte_size = byteSize;
+        entry.updated_at = updatedAt;
+      }
+      return { rows: [], rowsAffected: 1 };
+    }
+    if (
+      /DELETE FROM staged_datasets WHERE id.*AND app_id.*AND owner_email/i.test(
+        rawSql,
+      )
+    ) {
+      const id = args[0] as string;
+      rememberMeta(id, transaction);
+      _metaStore.delete(id);
+      return { rows: [], rowsAffected: 1 };
+    }
+
+    return { rows: [], rowsAffected: 0 };
+  };
+
+  return {
+    isProductionServerlessFunctionRuntime: () => false,
+    getDbExec: () => ({
+      execute: (sql: string | { sql: string; args: unknown[] }) => execute(sql),
+      transaction: async <T>(
+        run: (tx: { execute: typeof execute }) => Promise<T>,
+      ) => {
+        const transaction: MockTransaction = {
+          metaBefore: new Map(),
+          rowsBefore: new Map(),
+          releaseLocks: [],
+        };
+        try {
+          return await run({
+            execute: (sql) => execute(sql, transaction),
+          });
+        } catch (error) {
+          for (const [id, entry] of transaction.metaBefore) {
+            if (entry) _metaStore.set(id, { ...entry });
+            else _metaStore.delete(id);
+          }
+          for (const [id, rows] of transaction.rowsBefore) {
+            if (rows)
+              _rowStore.set(
+                id,
+                rows.map((row) => ({ ...row })),
+              );
+            else _rowStore.delete(id);
+          }
+          throw error;
+        } finally {
+          for (const release of transaction.releaseLocks.reverse()) release();
+        }
+      },
+    }),
+  };
+});
 
 vi.mock("../server/request-context.js", () => ({
   getCredentialContext: () => ({
@@ -225,6 +340,7 @@ import type { ProviderApiRequestArgs } from "./index.js";
 
 beforeEach(() => {
   _executedSql.length = 0;
+  _hiddenStagedDatasetLookupId.value = null;
 });
 
 function makeExecutor(_appId = "testapp") {
@@ -340,6 +456,59 @@ describe("staging caps", () => {
     ).rejects.toThrow(/cap exceeded/i);
   });
 
+  it("serializes concurrent writes at the row quota boundary", async () => {
+    _metaStore.set("ds_near_limit", {
+      id: "ds_near_limit",
+      app_id: "cappedapp",
+      owner_email: "ada@example.com",
+      name: "near limit",
+      columns: '["id"]',
+      row_count: MAX_ROWS_PER_APP - 1,
+      byte_size: 0,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    });
+
+    const results = await Promise.allSettled([
+      upsertStagedDataset({
+        id: "ds_concurrent_a",
+        appId: "cappedapp",
+        ownerEmail: "ada@example.com",
+        name: "concurrent a",
+        rows: [{ id: "a" }],
+        columns: ["id"],
+      }),
+      upsertStagedDataset({
+        id: "ds_concurrent_b",
+        appId: "cappedapp",
+        ownerEmail: "ada@example.com",
+        name: "concurrent b",
+        rows: [{ id: "b" }],
+        columns: ["id"],
+      }),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected?.status).toBe("rejected");
+    if (rejected?.status === "rejected") {
+      expect(rejected.reason.message).toMatch(/cap exceeded/i);
+    }
+    const storedRows = Array.from(_metaStore.values())
+      .filter(
+        (entry) =>
+          entry.app_id === "cappedapp" &&
+          entry.owner_email === "ada@example.com",
+      )
+      .reduce((sum, entry) => sum + Number(entry.row_count), 0);
+    expect(storedRows).toBeLessThanOrEqual(MAX_ROWS_PER_APP);
+    expect(
+      _executedSql.filter((sql) => /pg_advisory_xact_lock/i.test(sql)),
+    ).toHaveLength(2);
+  });
+
   it("does not count another owner's rows or bytes against the caller", async () => {
     _metaStore.set("ds_other_owner", {
       id: "ds_other_owner",
@@ -389,7 +558,9 @@ describe("staging caps", () => {
       columns: ["payload"],
     });
 
-    expect(result.byteSize).toBe(JSON.stringify(replacementRows[0]).length);
+    expect(result.byteSize).toBe(
+      Buffer.byteLength(JSON.stringify(replacementRows[0]), "utf8"),
+    );
     expect(result.byteSize).toBeLessThan(MAX_BYTES_PER_APP);
     expect(
       _executedSql.some(
@@ -399,6 +570,26 @@ describe("staging caps", () => {
             sql,
           ),
       ),
+    ).toBe(true);
+  });
+
+  it("counts serialized rows in UTF-8 bytes", async () => {
+    const row = { label: "café 😀" };
+    const result = await upsertStagedDataset({
+      id: "ds_unicode",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      name: "unicode",
+      rows: [row],
+      columns: ["label"],
+    });
+
+    expect(result.byteSize).toBe(
+      Buffer.byteLength(JSON.stringify(row), "utf8"),
+    );
+    expect(result.byteSize).toBeGreaterThan(JSON.stringify(row).length);
+    expect(
+      _executedSql.some((sql) => /OCTET_LENGTH\(r\.row_data\)/i.test(sql)),
     ).toBe(true);
   });
 
@@ -415,6 +606,7 @@ describe("staging caps", () => {
       updated_at: Date.now(),
     });
     _rowStore.set("ds_collision", [{ val: "original" }]);
+    _hiddenStagedDatasetLookupId.value = "ds_collision";
 
     await expect(
       upsertStagedDataset({
@@ -428,6 +620,15 @@ describe("staging caps", () => {
     ).rejects.toThrow(/already exists/i);
     expect(_metaStore.get("ds_collision")?.owner_email).toBe("bob@example.com");
     expect(_rowStore.get("ds_collision")).toEqual([{ val: "original" }]);
+    expect(
+      _executedSql.some(
+        (sql) =>
+          /ON CONFLICT \(id\) DO UPDATE/i.test(sql) &&
+          /WHERE staged_datasets\.app_id = EXCLUDED\.app_id AND staged_datasets\.owner_email = EXCLUDED\.owner_email/i.test(
+            sql,
+          ),
+      ),
+    ).toBe(true);
   });
 });
 
