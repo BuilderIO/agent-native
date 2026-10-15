@@ -63,22 +63,44 @@ if (!base) {
   );
   process.exit(GUARD_EXIT_COULD_NOT_RUN);
 }
-let baseLock: StoreMigrationsLock | undefined;
-try {
-  const mergeBase = execFileSync("git", ["merge-base", base, "HEAD"], {
+function git(args: string[]): string {
+  return execFileSync("git", args, {
     cwd: root,
     encoding: "utf8",
-  }).trim();
-  baseLock = JSON.parse(
-    execFileSync("git", ["show", `${mergeBase}:${lockRepoPath}`], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function couldNotRun(reason: string): never {
+  console.error(
+    `guard-release-schema-complete: ${reason}, so store migrations could not be checked for append-only edits.`,
   );
+  process.exit(GUARD_EXIT_COULD_NOT_RUN);
+}
+
+let mergeBase: string;
+try {
+  mergeBase = git(["merge-base", base, "HEAD"]).trim();
 } catch {
-  // The base predates the lock file: nothing was recorded to compare against.
-  baseLock = undefined;
+  couldNotRun(`no merge base between ${base} and HEAD`);
+}
+// Absent on the base is the only reason to skip the comparison; a lock that
+// exists but cannot be read is a failure to check, not a pass.
+let baseLock: StoreMigrationsLock | undefined;
+let baseHasLock = true;
+try {
+  git(["cat-file", "-e", `${mergeBase}:${lockRepoPath}`]);
+} catch {
+  baseHasLock = false;
+}
+if (baseHasLock) {
+  try {
+    baseLock = JSON.parse(git(["show", `${mergeBase}:${lockRepoPath}`]));
+  } catch (err) {
+    couldNotRun(
+      `the base ${lockRepoPath} exists but could not be read (${(err as Error).message})`,
+    );
+  }
 }
 if (baseLock) findings.push(...compareStoreMigrationsLocks(baseLock, current));
 

@@ -2360,10 +2360,8 @@ export function getDbExec(): DbExec {
     return getInitializedDbExec(generation);
   }
 
-  // Only defined methods: the proxy is shared, and assigning `undefined` over a
-  // lazy method strips it from every caller already holding the proxy.
-  function createInitializedProxy(exec: DbExec): Partial<DbExec> {
-    const initialized: Partial<DbExec> = {
+  function createInitializedProxy(exec: DbExec): DbExec {
+    return {
       execute: (s) => execAnnotated(s),
       atomicBatch: exec.atomicBatch
         ? async (statements) => {
@@ -2397,9 +2395,6 @@ export function getDbExec(): DbExec {
           }
         : undefined,
     };
-    return Object.fromEntries(
-      Object.entries(initialized).filter(([, value]) => value !== undefined),
-    ) as Partial<DbExec>;
   }
 
   const proxy: DbExec = {
@@ -2428,7 +2423,8 @@ export function getDbExec(): DbExec {
           "This database supports atomic batches, not interactive transactions.",
         );
       }
-      return explicitTransaction((statement) => execAnnotated(statement))(fn);
+      const wrapper = createInitializedProxy(exec);
+      return explicitTransaction(wrapper.execute.bind(wrapper))(fn);
     },
     async atomicBatch(statements) {
       for (const statement of statements) {

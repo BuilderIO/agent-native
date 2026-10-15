@@ -163,7 +163,8 @@ async function runMigration(
   for (const statement of statementsOf(migration)) {
     await retryOnDdlRace(() => exec.execute(statement));
   }
-  if (migration.run) await migration.run(exec);
+  // Callbacks are idempotent by contract, so a catalog race is safe to retry.
+  if (migration.run) await retryOnDdlRace(() => migration.run!(exec));
 }
 
 async function applyWithLedger(store: StoreDefinition): Promise<void> {
