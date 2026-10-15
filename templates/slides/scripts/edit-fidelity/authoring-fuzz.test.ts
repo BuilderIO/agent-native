@@ -1929,6 +1929,67 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
   ).toBe(false);
 });
 
+it("accepts Firefox's retired-session warning when the request finished during the reload", () => {
+  const pollWarning =
+    "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource.";
+  const heartbeatWarning =
+    "[Agent-Native browser session] heartbeat failed: TypeError: NetworkError when attempting to fetch resource.";
+  // Firefox reports the claim as finished (no requestfailed) while the retired
+  // page's fetch still rejects as the document is torn down.
+  const finishedClaim = {
+    url: "http://localhost/_agent-native/browser-sessions/retired-session-id/requests/claim",
+    pathname:
+      "/_agent-native/browser-sessions/retired-session-id/requests/claim",
+    method: "POST",
+    ageMs: 62,
+    settledAgeMs: 61,
+    sameOrigin: true,
+    responseStatus: 200,
+    requestFinishedSuccessfully: true,
+    requestStartedDuringNavigation: true,
+    outgoingNavigationAbort: false,
+    outgoingRequestKind: "poll" as const,
+    requestSessionId: "retired-session-id",
+    retiredSessionId: "retired-session-id",
+    competingSameTypeRequest: false,
+  };
+  const finishedRegistration = {
+    ...finishedClaim,
+    url: "http://localhost/_agent-native/browser-sessions",
+    pathname: "/_agent-native/browser-sessions",
+    outgoingRequestKind: "heartbeat" as const,
+  };
+  const expected = (
+    message: string,
+    candidates: Parameters<
+      typeof isExpectedSaveReloadBrowserSessionConsoleError
+    >[2],
+    phase = "save/reload",
+  ) =>
+    isExpectedSaveReloadBrowserSessionConsoleError(message, phase, candidates);
+
+  expect(expected(pollWarning, [finishedClaim])).toBe(true);
+  expect(expected(heartbeatWarning, [finishedRegistration])).toBe(true);
+
+  expect(expected(pollWarning, [finishedClaim], "step 12")).toBe(false);
+  expect(expected(pollWarning, [finishedRegistration])).toBe(false);
+  for (const override of [
+    { requestSessionId: "new-session-id" },
+    { requestStartedDuringNavigation: false },
+    { requestFinishedSuccessfully: false },
+    { sameOrigin: false },
+    { responseStatus: 500 },
+    { settledAgeMs: 1_000 },
+    { competingSameTypeRequest: true },
+  ]) {
+    expect(
+      expected(pollWarning, [{ ...finishedClaim, ...override }]),
+      JSON.stringify(override),
+    ).toBe(false);
+  }
+  expect(expected(pollWarning, [finishedClaim, finishedClaim])).toBe(false);
+});
+
 it("correlates Firefox reload warnings whether request failure arrives first or second", async () => {
   vi.useFakeTimers();
   try {

@@ -783,6 +783,31 @@ function outgoingBrowserSessionWarningKind(message: string) {
       : null;
 }
 
+// Firefox can report a claim or registration the retired page started during
+// the reload as finished (its response arrived) while that page's fetch still
+// rejects with NetworkError as the document is torn down. Playwright emits no
+// requestfailed for it, so it never becomes an outgoing abort and the warning
+// would otherwise be counted as an unexpected console error.
+function isFinishedRetiredSessionRequestDuringNavigation(
+  candidate: WatchedRequestNavigationCandidate,
+  requestKind: "poll" | "heartbeat",
+) {
+  return (
+    candidate.requestFinishedSuccessfully === true &&
+    candidate.requestStartedDuringNavigation === true &&
+    candidate.outgoingRequestKind === requestKind &&
+    candidate.sameOrigin === true &&
+    candidate.requestSessionId !== null &&
+    candidate.requestSessionId === candidate.retiredSessionId &&
+    (candidate.responseStatus === undefined ||
+      (candidate.responseStatus >= 200 && candidate.responseStatus < 300)) &&
+    candidate.settledAgeMs !== undefined &&
+    candidate.settledAgeMs >= 0 &&
+    candidate.settledAgeMs < reloadNavigationConsoleGraceMs &&
+    candidate.competingSameTypeRequest !== true
+  );
+}
+
 export function isExpectedSaveReloadBrowserSessionConsoleError(
   message: string,
   activePhase: string,
@@ -794,15 +819,19 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
       activePhase === "save/reload" &&
       candidates.filter(
         (candidate) =>
-          candidate.outgoingNavigationAbort === true &&
-          candidate.outgoingRequestKind === outgoingRequestKind &&
-          candidate.requestSessionId !== null &&
-          candidate.requestSessionId === candidate.retiredSessionId &&
-          candidate.outgoingAbortWarningAgeMs !== undefined &&
-          candidate.outgoingAbortWarningAgeMs >= 0 &&
-          candidate.outgoingAbortWarningAgeMs <=
-            retiredBrowserSessionPollConsoleGraceMs &&
-          candidate.competingSameTypeRequest !== true,
+          (candidate.outgoingNavigationAbort === true &&
+            candidate.outgoingRequestKind === outgoingRequestKind &&
+            candidate.requestSessionId !== null &&
+            candidate.requestSessionId === candidate.retiredSessionId &&
+            candidate.outgoingAbortWarningAgeMs !== undefined &&
+            candidate.outgoingAbortWarningAgeMs >= 0 &&
+            candidate.outgoingAbortWarningAgeMs <=
+              retiredBrowserSessionPollConsoleGraceMs &&
+            candidate.competingSameTypeRequest !== true) ||
+          isFinishedRetiredSessionRequestDuringNavigation(
+            candidate,
+            outgoingRequestKind,
+          ),
       ).length === 1
     );
   }
