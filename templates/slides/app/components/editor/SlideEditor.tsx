@@ -830,6 +830,43 @@ function readEditedFrameOptions(
   return hasInlineHeight(element) ? undefined : { contentHeight: "scroll" };
 }
 
+function measureSelectionOverlayForElement(
+  element: HTMLElement,
+  slideContent: HTMLElement | null,
+  key: string,
+  identityKey: string,
+  frameOptions?: { contentHeight: "scroll" },
+) {
+  const rect = element.getBoundingClientRect();
+  const parentGroup =
+    slideContent && element.parentElement
+      ? resolveSlideObjectGroupRoot(element.parentElement, slideContent)
+      : null;
+  const container =
+    parentGroup ??
+    (slideContent
+      ? findSlideShapeOwner(element.parentElement, slideContent)
+      : null);
+  const containerRect = container?.getBoundingClientRect();
+
+  return {
+    measurement: {
+      key,
+      identityKey,
+      rect,
+      frame: readSlideObjectSelectionFrame(element, rect, frameOptions),
+    } satisfies SelectionOverlayMeasurement,
+    container:
+      container && containerRect
+        ? {
+            rect: containerRect,
+            frame: readSlideObjectSelectionFrame(container, containerRect),
+            group: parentGroup !== null,
+          }
+        : null,
+  };
+}
+
 function buildStyleSnapshot(
   element: HTMLElement,
   selector: string,
@@ -2903,6 +2940,54 @@ export default function SlideEditor({
     });
   }, [getSlideContent, selectedElementPath, selectedObjectId]);
 
+  const measureSelectionOverlayNow = useCallback(() => {
+    if (
+      !selectedElementPath ||
+      !selectedElementSelector ||
+      selectedElementSlideId !== slide.id
+    ) {
+      return;
+    }
+    const element = resolveSelectedElement();
+    const slideContent = getSlideContent();
+    if (!element || !slideContent) return;
+    const editingElement = editingElRef.current;
+    const resolvedEditingElement = editingElement
+      ? resolveSlideTextSelectionTarget(editingElement, slideContent)
+      : null;
+    const { measurement, container } = measureSelectionOverlayForElement(
+      element,
+      slideContent,
+      selectionOverlayMeasurementKey,
+      selectionOverlayMeasurementIdentityKey,
+      editingElement && resolvedEditingElement === element
+        ? readEditedFrameOptions(element)
+        : undefined,
+    );
+    if (
+      isSameSelectionMeasurement(
+        selectedElementMeasurementRef.current,
+        measurement,
+      ) &&
+      isSameSelectedContainer(selectedContainerRef.current, container)
+    ) {
+      return;
+    }
+    selectedElementMeasurementRef.current = measurement;
+    selectedContainerRef.current = container;
+    setSelectedElementMeasurement(measurement);
+    setSelectedContainer(container);
+  }, [
+    getSlideContent,
+    resolveSelectedElement,
+    selectedElementPath,
+    selectedElementSelector,
+    selectedElementSlideId,
+    selectionOverlayMeasurementIdentityKey,
+    selectionOverlayMeasurementKey,
+    slide.id,
+  ]);
+
   const ensureCommentObjectId = useCallback(
     (target: HTMLElement) => {
       const hadObjectId = target.hasAttribute("data-slide-object-id");
@@ -3023,6 +3108,7 @@ export default function SlideEditor({
       element: HTMLElement,
       selector: string,
       selectionMode?: SlidesSelectionMode,
+      measureImmediately = false,
     ) => {
       const slideContent = getSlideContent();
       if (!slideContent) return;
@@ -3042,10 +3128,32 @@ export default function SlideEditor({
       setSelectedObjectId(objectId);
       setSelectedElementSlideId(slide.id);
       setSelectedElementSelector(selector);
-      // Geometry can be invalidated by an async slide-content commit or
-      // AutoFit transform. Reveal the portal only after the layout effect
-      // measures this exact rendered selection.
-      invalidateSelectionOverlayMeasurement();
+      if (measureImmediately) {
+        const revision = selectionMeasurementRevision + 1;
+        const identity = {
+          slideId: slide.id,
+          content,
+          objectId,
+          selector,
+          path,
+          canvasZoom,
+          revision,
+        };
+        const { measurement, container } = measureSelectionOverlayForElement(
+          element,
+          slideContent,
+          createSelectionOverlayMeasurementKey(identity),
+          createSelectionOverlayMeasurementIdentityKey(identity),
+        );
+        setSelectionMeasurementRevision(revision);
+        setSelectedElementMeasurement(measurement);
+        setSelectedContainer(container);
+      } else {
+        // Geometry can be invalidated by an async slide-content commit or
+        // AutoFit transform. Reveal the portal only after the layout effect
+        // measures this exact rendered selection.
+        invalidateSelectionOverlayMeasurement();
+      }
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
         buildSelectionState(getSlideSelectionMode(snapshot, selectionMode), [
@@ -3055,8 +3163,11 @@ export default function SlideEditor({
     },
     [
       buildSelectionState,
+      canvasZoom,
+      content,
       getSlideContent,
       invalidateSelectionOverlayMeasurement,
+      selectionMeasurementRevision,
       slide.id,
     ],
   );
@@ -3532,43 +3643,21 @@ export default function SlideEditor({
       const element = resolveSelectedElement();
       if (!element) return null;
       const editingElement = editingElRef.current;
-      const slideContent = editingElement ? getSlideContent() : null;
+      const selectionRoot = getSlideContent();
       const resolvedEditingElement =
-        editingElement && slideContent
-          ? resolveSlideTextSelectionTarget(editingElement, slideContent)
+        editingElement && selectionRoot
+          ? resolveSlideTextSelectionTarget(editingElement, selectionRoot)
           : editingElement;
-      const rect = element.getBoundingClientRect();
-      const measurement: SelectionOverlayMeasurement = {
-        key: selectionOverlayMeasurementKey,
-        identityKey: selectionOverlayMeasurementIdentityKey,
-        rect,
-        frame: readSlideObjectSelectionFrame(
+      const { measurement, container: nextContainer } =
+        measureSelectionOverlayForElement(
           element,
-          rect,
+          selectionRoot,
+          selectionOverlayMeasurementKey,
+          selectionOverlayMeasurementIdentityKey,
           editingElement && resolvedEditingElement === element
             ? readEditedFrameOptions(element)
             : undefined,
-        ),
-      };
-      const selectionRoot = getSlideContent();
-      const parentGroup =
-        selectionRoot && element.parentElement
-          ? resolveSlideObjectGroupRoot(element.parentElement, selectionRoot)
-          : null;
-      const container =
-        parentGroup ??
-        (selectionRoot
-          ? findSlideShapeOwner(element.parentElement, selectionRoot)
-          : null);
-      const containerRect = container?.getBoundingClientRect();
-      const nextContainer =
-        container && containerRect
-          ? {
-              rect: containerRect,
-              frame: readSlideObjectSelectionFrame(container, containerRect),
-              group: parentGroup !== null,
-            }
-          : null;
+        );
       if (
         isSameSelectionMeasurement(
           selectedElementMeasurementRef.current,
@@ -4248,6 +4337,8 @@ export default function SlideEditor({
       selectElementForStyling(
         selectable[0],
         `[data-builder-id="${selectable[0].getAttribute("data-builder-id")}"]`,
+        undefined,
+        true,
       );
     } else if (!resolveSelectedElement()) {
       applyMultiSelectionRef.current(new Set());
@@ -4532,7 +4623,7 @@ export default function SlideEditor({
         );
       }
       if (selectedElementPath && selectedElementSelector) {
-        invalidateSelectionOverlayMeasurement();
+        measureSelectionOverlayNow();
       }
     };
 
@@ -4568,8 +4659,8 @@ export default function SlideEditor({
     };
   }, [
     animationsOpen,
-    invalidateSelectionOverlayMeasurement,
     layersOpen,
+    measureSelectionOverlayNow,
     multiSelection,
     refreshMultiSelectionRects,
     selectedElementPath,

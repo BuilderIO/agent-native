@@ -73,6 +73,68 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 describe("SlideEditor with a newer version of the edited slide", () => {
+  it("measures an undo-restored selection before AutoFit settles", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    const noop = () => {};
+    const slide = {
+      id: "slide-undo-overlay",
+      content:
+        '<div class="fmd-slide"><img data-slide-object-id="image-1" src="https://example.test/image.svg" style="position:absolute;left:40px;top:80px;width:160px;height:90px"></div>',
+      layout: "blank",
+    } as Slide;
+    const onUndoSelectionConsumed = vi.fn();
+
+    const view = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+    view.rerender(
+      <SlideEditor
+        slide={{
+          ...slide,
+          content: slide.content.replace("left:40px", "left:120px"),
+        }}
+        undoSelection={{
+          sequence: 1,
+          slideId: slide.id,
+          targets: [{ objectId: "image-1", path: [0] }],
+        }}
+        onUndoSelectionConsumed={onUndoSelectionConsumed}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+    );
+
+    expect(onUndoSelectionConsumed).toHaveBeenCalled();
+    expect(
+      view.container.querySelector(".slide-content [data-builder-id]"),
+    ).not.toBeNull();
+    expect(
+      document.querySelectorAll('[data-slide-selection-outline="true"]'),
+    ).toHaveLength(1);
+  });
+
   it("keeps the first image selected when Shift-clicking another image", async () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     const noop = () => {};

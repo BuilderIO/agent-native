@@ -114,6 +114,24 @@ describe("slide image replacement", () => {
     );
   });
 
+  it("keeps live slide nodes when the saved image geometry already matches", () => {
+    const previousContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const nextContent = previousContent.replace("left:40px", "left:90px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector("img")!;
+    const video = root.querySelector("video")!;
+    image.style.left = "90px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(root.querySelector("video")).toBe(video);
+    expect(image.style.left).toBe("90px");
+  });
+
   it("updates image metadata and fit without overwriting live geometry", () => {
     const previousContent =
       '<div class="fmd-slide"><img src="blob:preview" alt="Preview" width="320" height="180" style="position:absolute;left:40px;width:320px;object-fit:contain;"></div>';

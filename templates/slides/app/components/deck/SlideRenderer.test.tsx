@@ -266,6 +266,32 @@ describe("SlideInner source stamps", () => {
     expect(root.querySelector("img")).not.toBe(movedImage);
   });
 
+  it("keeps sibling media mounted for a normal live image move", async () => {
+    const mediaContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const slide = {
+      id: "slide-live-image-move",
+      content: mediaContent,
+      layout: "blank",
+    } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const image = root.querySelector("img")!;
+    const video = root.querySelector("video")!;
+    image.style.left = "90px";
+    const movedContent = mediaContent.replace("left:40px", "left:90px");
+
+    rerender(
+      <SlideInner slide={{ ...slide, content: movedContent }} stampSource />,
+    );
+    await waitFor(() =>
+      expect(getRenderedSlideSource(root)?.stored).toBe(movedContent),
+    );
+
+    expect(root.querySelector("img")).toBe(image);
+    expect(root.querySelector("video")).toBe(video);
+  });
+
   it("never re-renders a root whose text is being edited", () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const slide = { id: "slide-c", content, layout: "blank" } as Slide;

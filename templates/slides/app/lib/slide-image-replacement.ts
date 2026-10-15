@@ -749,25 +749,28 @@ export function swapImageSourcesInPlace(
 
   const nextSources = nextImages.map((image) => image.getAttribute("src"));
   if (imageStructure(previousDoc) !== imageStructure(nextDoc)) return false;
-  // This path preserves live geometry for source echoes. A same-source geometry
-  // change must replace the node so undo/redo can apply its stored position.
+  const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+  if (liveImages.length !== nextSources.length) return false;
+  // Re-render history changes only when the requested geometry differs from the
+  // live node; normal drags have already applied that geometry in the DOM.
   if (
     previousImages.some((image, index) => {
       const nextImage = nextImages[index]!;
+      const liveImage = liveImages[index]!;
       return (
         image.getAttribute("src") === nextImage.getAttribute("src") &&
         LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES.some(
           (property) =>
-            image.style.getPropertyValue(property) !==
-            nextImage.style.getPropertyValue(property),
+            liveImage.style.getPropertyValue(property) !==
+              nextImage.style.getPropertyValue(property) ||
+            liveImage.style.getPropertyPriority(property) !==
+              nextImage.style.getPropertyPriority(property),
         )
       );
     })
   ) {
     return false;
   }
-  const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
-  if (liveImages.length !== nextSources.length) return false;
   liveImages.forEach((image, index) => {
     updateImageAttributesInPlace(image, nextImages[index]);
   });
