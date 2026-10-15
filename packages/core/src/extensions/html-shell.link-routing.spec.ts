@@ -70,7 +70,11 @@ const LINKS = `
   <a id="mailto" href="mailto:someone@example.com" target="_blank">mail</a>
   <a id="js" href="javascript:void(0)" target="_blank">js</a>
   <a id="prevented" href="https://example.com/prevented" target="_blank" onclick="event.preventDefault()">prevented</a>
-  <svg><a id="svg" href="https://example.com/svg" target="_blank"><text>svg</text></a></svg>
+  <svg>
+    <a id="svg" href="https://example.com/svg" target="_blank"><text>svg</text></a>
+    <a id="xlink" xlink:href="/chart/1" target="_blank"><text>xlink</text></a>
+    <a id="svgSelf" href="https://example.com/svg-self"><text>self</text></a>
+  </svg>
 `;
 
 describe("extension shell link routing", () => {
@@ -145,13 +149,26 @@ describe("extension shell link routing", () => {
     expect(shell.click($("download"))).toBe(false);
     expect(shell.click($("mailto"))).toBe(false);
     expect(shell.click($("js"))).toBe(false);
-    expect(shell.click($("svg"))).toBe(false);
+    expect(shell.click($("svgSelf"))).toBe(false);
     expect(shell.click($("blank"), { altKey: true })).toBe(false);
     expect(shell.click($("plain"), { button: 2 }, "auxclick")).toBe(false);
     // Its own handler prevented the default, so the shell stays out of it.
     expect(shell.click($("prevented"))).toBe(true);
 
     expect(shell.opened()).toEqual([]);
+  });
+
+  it("routes SVG links, resolving href and xlink:href against the base URL", () => {
+    const shell = loadShell(LINKS);
+    shell.ready();
+    const $ = (id: string) => shell.window.document.getElementById(id);
+
+    expect(shell.click($("svg").querySelector("text"))).toBe(true);
+    expect(shell.click($("xlink"))).toBe(true);
+    expect(shell.opened().map((message) => message.url)).toEqual([
+      "https://example.com/svg",
+      "https://analytics.example/chart/1",
+    ]);
   });
 
   it("uses <base target> only when the link has no target attribute", () => {

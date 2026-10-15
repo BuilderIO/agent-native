@@ -664,8 +664,17 @@ export function buildExtensionHtml(
         var path = typeof e.composedPath === 'function' ? e.composedPath() : [e.target];
         for (var i = 0; i < path.length; i++) {
           var node = path[i];
-          if ((node instanceof HTMLAnchorElement || node instanceof HTMLAreaElement) && node.hasAttribute('href')) {
-            return node;
+          if (node instanceof HTMLAnchorElement || node instanceof HTMLAreaElement) {
+            if (node.hasAttribute('href')) return { element: node, url: node };
+          } else if (node && node.namespaceURI === 'http://www.w3.org/2000/svg' && node.localName === 'a') {
+            // An SVG link's href isn't a URL string; resolve it the way an HTML
+            // link would, against the document's base URL.
+            var raw = node.getAttribute('href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+            if (raw) {
+              var resolved = document.createElement('a');
+              resolved.href = raw;
+              return { element: node, url: resolved };
+            }
           }
         }
         return null;
@@ -678,15 +687,15 @@ export function buildExtensionHtml(
       function route(e) {
         if (!hostOpensLinks || e.defaultPrevented) return;
         var link = linkOf(e);
-        if (!link || link.hasAttribute('download')) return;
-        if (link.protocol !== 'http:' && link.protocol !== 'https:') return;
+        if (!link || link.element.hasAttribute('download')) return;
+        if (link.url.protocol !== 'http:' && link.url.protocol !== 'https:') return;
         var newTab = e.type === 'auxclick'
           ? e.button === 1
           : e.button === 0 && !e.altKey &&
-            (e.metaKey || e.ctrlKey || e.shiftKey || /^_blank$/i.test(targetOf(link)));
+            (e.metaKey || e.ctrlKey || e.shiftKey || /^_blank$/i.test(targetOf(link.element)));
         if (!newTab) return;
         e.preventDefault();
-        window.parent.postMessage({ type: 'agent-native-extension-open-url', url: link.href, token: token }, '*');
+        window.parent.postMessage({ type: 'agent-native-extension-open-url', url: link.url.href, token: token }, '*');
       }
       // On window, so extension handlers delegated on document run first.
       window.addEventListener('click', route);
