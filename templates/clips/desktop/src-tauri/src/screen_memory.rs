@@ -1487,7 +1487,13 @@ fn ensure_running_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
     {
         let state = app.state::<ScreenMemoryState>();
         let guard = state.inner.lock().map_err(|e| e.to_string())?;
-        if guard.active.is_some() || guard.exclusion_active {
+        if guard.active.is_some()
+            || guard.exclusion_active
+            || guard
+                .worker_stop
+                .as_ref()
+                .is_some_and(|stop| !stop.load(Ordering::Relaxed))
+        {
             return Ok(());
         }
     }
@@ -1521,6 +1527,7 @@ fn ensure_running_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
 fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         let mut recovery_retry_delay = Duration::ZERO;
+        let mut mode_change_retry_delay = Duration::ZERO;
         loop {
             let capture_missing = screen_memory_capture_missing(&app);
             if !capture_missing {
@@ -1533,10 +1540,11 @@ fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
 
             let config =
                 normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
-            match wait_for_rotation(&app, &stop, &config) {
+            match wait_for_rotation(&app, &stop, &config, mode_change_retry_delay) {
                 RotationWait::Stop => return,
                 RotationWait::Resumed => {
                     recovery_retry_delay = Duration::ZERO;
+                    mode_change_retry_delay = Duration::ZERO;
                     continue;
                 }
                 RotationWait::Rotate => {}
@@ -1546,13 +1554,19 @@ fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
             if !config.enabled || config.paused {
                 return;
             }
-            if let Err(err) = rotate_segment(&app, &config) {
+            if let Err(err) = rotate_segment_from_worker(&app, &stop, &config) {
                 record_error(&app, err);
             }
             if screen_memory_capture_missing(&app) {
                 recovery_retry_delay = next_capture_recovery_retry_delay(recovery_retry_delay);
             } else {
                 recovery_retry_delay = Duration::ZERO;
+            }
+            if screen_memory_mode_change_pending(&app) {
+                mode_change_retry_delay =
+                    next_capture_recovery_retry_delay(mode_change_retry_delay);
+            } else {
+                mode_change_retry_delay = Duration::ZERO;
             }
         }
     });
@@ -1571,6 +1585,25 @@ fn screen_memory_exclusion_active(app: &AppHandle) -> bool {
         .inner
         .lock()
         .map(|runtime| runtime.exclusion_active)
+        .unwrap_or(false)
+}
+
+fn screen_memory_mode_change_pending(app: &AppHandle) -> bool {
+    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
+    if !config.enabled || config.paused || crate::rewind_capture_suspension::is_active(app) {
+        return false;
+    }
+    let capture_mode = effective_capture_mode(app, config.capture_mode);
+    app.state::<ScreenMemoryState>()
+        .inner
+        .lock()
+        .map(|runtime| {
+            !runtime.exclusion_active
+                && runtime
+                    .active
+                    .as_ref()
+                    .is_some_and(|active| active.capture_mode != capture_mode)
+        })
         .unwrap_or(false)
 }
 
@@ -1635,7 +1668,14 @@ fn wait_for_rotation(
     app: &AppHandle,
     stop: &AtomicBool,
     config: &ScreenMemoryConfig,
+    mode_change_retry_delay: Duration,
 ) -> RotationWait {
+    if stop.load(Ordering::Relaxed) {
+        return RotationWait::Stop;
+    }
+    if crate::rewind_capture_suspension::is_active(app) {
+        return wait_for_capture_suspension_to_clear(app, stop);
+    }
     if screen_memory_exclusion_active(app) {
         return wait_for_exclusion(app, stop);
     }
@@ -1649,19 +1689,29 @@ fn wait_for_rotation(
         return RotationWait::Rotate;
     }
     let deadline = Instant::now() + Duration::from_secs(config.segment_seconds);
+    let mode_retry_delay = if mode_change_retry_delay.is_zero() {
+        CAPTURE_RECOVERY_RETRY_INITIAL_DELAY
+    } else {
+        mode_change_retry_delay
+    };
+    let mut mode_change_retry_at =
+        screen_memory_mode_change_pending(app).then(|| Instant::now() + mode_retry_delay);
     let mut next_sample = Instant::now();
     let mut next_exclusion_poll = Instant::now();
     loop {
         if stop.load(Ordering::Relaxed) {
             return RotationWait::Stop;
         }
+        if crate::rewind_capture_suspension::is_active(app) {
+            return wait_for_capture_suspension_to_clear(app, stop);
+        }
         if screen_memory_exclusion_active(app) {
             return wait_for_exclusion(app, stop);
         }
-        if Instant::now() >= deadline {
+        let now = Instant::now();
+        if now >= deadline || mode_change_retry_at.is_some_and(|retry_at| now >= retry_at) {
             return RotationWait::Rotate;
         }
-        let now = Instant::now();
         if now >= next_exclusion_poll {
             let live_config =
                 normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
@@ -1682,6 +1732,8 @@ fn wait_for_rotation(
                 }
                 ExclusionTransition::KeepCapturing => {}
             }
+            mode_change_retry_at = screen_memory_mode_change_pending(app)
+                .then(|| mode_change_retry_at.unwrap_or(now + mode_retry_delay));
             if now >= next_sample {
                 append_event(app, event);
                 next_sample = now + Duration::from_secs(live_config.sample_interval_seconds.max(1));
@@ -1691,12 +1743,27 @@ fn wait_for_rotation(
         let remaining = deadline.saturating_duration_since(Instant::now());
         let until_sample = next_sample.saturating_duration_since(Instant::now());
         let until_exclusion = next_exclusion_poll.saturating_duration_since(Instant::now());
+        let until_mode_change_retry = mode_change_retry_at
+            .map(|retry_at| retry_at.saturating_duration_since(Instant::now()))
+            .unwrap_or(remaining);
         std::thread::sleep(
             remaining
                 .min(until_sample)
                 .min(until_exclusion)
+                .min(until_mode_change_retry)
                 .min(ROTATOR_TICK),
         );
+    }
+}
+
+fn wait_for_capture_suspension_to_clear(app: &AppHandle, stop: &AtomicBool) -> RotationWait {
+    while !stop.load(Ordering::Relaxed) && crate::rewind_capture_suspension::is_active(app) {
+        std::thread::sleep(ROTATOR_TICK);
+    }
+    if stop.load(Ordering::Relaxed) {
+        RotationWait::Stop
+    } else {
+        RotationWait::Resumed
     }
 }
 
@@ -2091,6 +2158,32 @@ fn append_event_inner(app: &AppHandle, event: &ScreenMemoryEvent) -> Result<(), 
 fn rotate_segment(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    if crate::rewind_capture_suspension::is_active(app) {
+        return Ok(());
+    }
+    rotate_segment_inner(app, config)
+}
+
+fn rotate_segment_from_worker(
+    app: &AppHandle,
+    stop: &Arc<AtomicBool>,
+    config: &ScreenMemoryConfig,
+) -> Result<(), String> {
+    let state = app.state::<ScreenMemoryState>();
+    let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    if stop.load(Ordering::Relaxed) || crate::rewind_capture_suspension::is_active(app) {
+        return Ok(());
+    }
+    let current_worker = state
+        .inner
+        .lock()
+        .map_err(|error| error.to_string())?
+        .worker_stop
+        .as_ref()
+        .is_some_and(|current| Arc::ptr_eq(current, stop));
+    if !current_worker {
+        return Ok(());
+    }
     rotate_segment_inner(app, config)
 }
 
@@ -2519,9 +2612,13 @@ fn stop_active_segment(app: &AppHandle) -> Result<Option<ScreenMemorySegmentMeta
     stop_active_segment_inner(app)
 }
 
-pub(crate) fn suspend_physical_capture(app: &AppHandle) -> Result<(), String> {
+pub(crate) fn suspend_physical_capture(
+    app: &AppHandle,
+    on_suspend: impl FnOnce(),
+) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    on_suspend();
     let exclusion_active = state
         .inner
         .lock()
