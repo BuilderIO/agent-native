@@ -216,12 +216,13 @@ describe("parseTranscriptImport", () => {
   });
 
   it("reads NUL and references that are not characters as U+FFFD", () => {
+    const FFFD = String.fromCodePoint(0xfffd);
     const result = parseTranscriptImport(
       "WEBVTT\n\n00:00.000 --> 00:01.000\nCaf&#xe9; a\0b &#0; &#xD800; &#x110000;",
     );
     expect(result).toMatchObject({
       ok: true,
-      segments: [{ text: "Café a�b � � �" }],
+      segments: [{ text: `Café a${FFFD}b ${FFFD} ${FFFD} ${FFFD}` }],
     });
   });
 

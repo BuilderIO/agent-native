@@ -21,7 +21,7 @@ export function isTranscriptExistsError(error: unknown): boolean {
 const PAST_END_TOLERANCE_MS = 1_000;
 const ESTIMATED_MS_PER_WORD = 420;
 const MIN_LAST_SEGMENT_MS = 1_000;
-const REPLACEMENT_CHARACTER = "�";
+const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd);
 
 export type TranscriptImportErrorCode =
   | "empty"
