@@ -4597,6 +4597,7 @@ describe("AgentKitAssistantChat host behavior", () => {
 
   it("uploads inline images before storing a deferred submission", async () => {
     chatMocks.history = { isRestoring: true };
+    const submissionExpiresAt = Date.now() + 20_000;
     chatMocks.control.uploadFiles.mockResolvedValueOnce([
       {
         type: "file",
@@ -4609,16 +4610,58 @@ describe("AgentKitAssistantChat host behavior", () => {
     await mount(baseProps(), ref);
 
     await act(async () => {
-      await ref.current?.sendMessage("Use this image", [
-        "data:image/png;base64,aGVsbG8=",
-      ]);
+      await ref.current?.sendMessage(
+        "Use this image",
+        ["data:image/png;base64,aGVsbG8="],
+        { submissionExpiresAt },
+      );
     });
 
     const stored = JSON.stringify([...chatMocks.appState.values()]);
     expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce();
     expect(stored).toContain("https://files.example.test/image.png");
+    expect(stored).toContain(String(submissionExpiresAt));
     expect(stored).not.toContain("base64,");
     expect(stored).not.toContain("data:image");
+  });
+
+  it("removes an expired deferred submission without dispatching it", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "expired-deferred-submit",
+          threadId,
+          text: "Create a deck",
+          submissionExpiresAt: Date.now() - 1,
+          fileParts: [],
+          references: [],
+          composerOptions: {},
+          options: {},
+        },
+      ],
+    });
+    const results: CustomEvent[] = [];
+    const listener = (event: Event) => results.push(event as CustomEvent);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+
+    await mount(baseProps());
+    await flush();
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.appState.has(stateKey)).toBe(false);
+    expect(results.map((event) => event.detail)).toContainEqual({
+      submitMessageId: "expired-deferred-submit",
+      delivered: false,
+      reason: "submission-expired",
+    });
   });
 
   it("rechecks only submission scope after upload and reports its reason", async () => {

@@ -1185,21 +1185,6 @@ export default function DeckEditor() {
       if (recovery.retryAttemptId !== generationAttemptId) return;
       if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
       emptyGenerationRecoveryRef.current = serializedRecovery;
-      if (
-        generationContext.generationFailureAttemptId !==
-          recovery.retryAttemptId &&
-        (generationContext.generationFailureCode != null ||
-          generationContext.generationFailureAttemptId != null)
-      ) {
-        updateDeck(id, {
-          generationContext: {
-            ...generationContext,
-            generationFailureCode: null,
-            generationFailureAttemptId: null,
-            generationFailureSlidesFingerprint: null,
-          },
-        });
-      }
     }
 
     void flushDeckSave(id)
@@ -1287,6 +1272,36 @@ export default function DeckEditor() {
     generationContext.targetSlideCount > 0
       ? generationContext.targetSlideCount
       : null;
+
+  useEffect(() => {
+    if (!id || !generationContext || !generationAttemptId) return;
+    if (
+      typeof generationContext.generationFailureAttemptId !== "string" ||
+      generationContext.generationFailureAttemptId === generationAttemptId ||
+      (!attemptObservedRun && !newDeckGenerationSignal)
+    ) {
+      return;
+    }
+    setRetryAwaitingStartAttemptId(null);
+    updateDeck(id, {
+      generationContext: {
+        ...generationContext,
+        generationFailureCode: null,
+        generationFailureAttemptId: null,
+        generationFailureSlidesFingerprint: null,
+      },
+    });
+    void flushDeckSave(id).catch(() => toast.error(t("settings.saveFailed")));
+  }, [
+    attemptObservedRun,
+    flushDeckSave,
+    generationAttemptId,
+    generationContext,
+    id,
+    newDeckGenerationSignal,
+    t,
+    updateDeck,
+  ]);
 
   useEffect(() => {
     if (
@@ -1436,6 +1451,8 @@ export default function DeckEditor() {
       return;
     }
     const retryStartedAt = Date.now();
+    const submissionExpiresAt =
+      retryStartedAt + NEW_DECK_GENERATION_START_TIMEOUT_MS;
     const originalSearchParams = new URLSearchParams(searchParams);
     const retryAttemptId = nanoid();
     const submitMessageId = nanoid();
@@ -1605,6 +1622,7 @@ export default function DeckEditor() {
             generationAttemptId: retryAttemptId,
             generationOutputId: id,
             submitMessageId,
+            submissionExpiresAt,
             newTab: true,
             reuseEmptyTab: true,
             openSidebar: true,
@@ -1637,6 +1655,7 @@ export default function DeckEditor() {
         );
         return;
       }
+      setRetryAwaitingStartAttemptId(retryAttemptId);
       acceptedRecoverySerialized ??= storeRecovery(acceptedRecovery);
       if (!acceptedRecoverySerialized) {
         if (
@@ -1648,9 +1667,7 @@ export default function DeckEditor() {
           emptyGenerationRecoveryRef.current = null;
         }
         toast.error(t("settings.saveFailed"));
-        return;
       }
-      setRetryAwaitingStartAttemptId(retryAttemptId);
       trackEvent("generation_started", {
         app_name: "slides",
         template_name: "slides",
@@ -1660,21 +1677,18 @@ export default function DeckEditor() {
         started_at_ms: retryStartedAt,
         source: "empty_output_retry",
       });
-      updateDeck(id, {
-        generationContext: {
-          ...retryContext,
-          generationFailureCode: null,
-          generationFailureAttemptId: null,
-          generationFailureSlidesFingerprint: null,
-        },
-      });
       try {
         await flushDeckSave(id);
-        clearEmptyGenerationRecovery(
-          retryRecoveryStorageKey,
-          acceptedRecoverySerialized,
-        );
-        emptyGenerationRecoveryRef.current = null;
+        if (
+          acceptedRecoverySerialized &&
+          clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            acceptedRecoverySerialized,
+          ) &&
+          emptyGenerationRecoveryRef.current === acceptedRecoverySerialized
+        ) {
+          emptyGenerationRecoveryRef.current = null;
+        }
       } catch {
         toast.error(t("settings.saveFailed"));
       }
@@ -2342,15 +2356,113 @@ export default function DeckEditor() {
     retryAwaitingStartAttemptId,
   ]);
   useEffect(() => {
-    if (!retryAwaitingStartAttemptId) return;
-    const attemptId = retryAwaitingStartAttemptId;
-    const timeout = window.setTimeout(() => {
-      setRetryAwaitingStartAttemptId((current) =>
-        current === attemptId ? null : current,
-      );
-    }, NEW_DECK_GENERATION_START_TIMEOUT_MS);
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !id ||
+      !generationAttemptId ||
+      typeof generationContext?.generationFailureAttemptId !== "string" ||
+      generationContext.generationFailureAttemptId === generationAttemptId ||
+      attemptObservedRun ||
+      attemptRunError ||
+      attemptStopReason ||
+      attemptTimedOut ||
+      newDeckGenerationSignal
+    ) {
+      return;
+    }
+    const attemptId = generationAttemptId;
+    const persistedStartedAt = generationContext.generationStartedAt;
+    const startedAt =
+      typeof persistedStartedAt === "number" &&
+      Number.isFinite(persistedStartedAt) &&
+      persistedStartedAt >= 0
+        ? persistedStartedAt
+        : Date.now();
+    const deadline = startedAt + NEW_DECK_GENERATION_START_TIMEOUT_MS;
+    const timeout = window.setTimeout(
+      () => {
+        if (
+          generationSawActiveRef.current ||
+          generationLifecyclePauseRef.current.generating
+        ) {
+          return;
+        }
+        setRetryAwaitingStartAttemptId((current) =>
+          current === attemptId ? null : current,
+        );
+        clearStartedGenerationAttempt(attemptId, id);
+        const failureCode = "start_timeout";
+        updateDeck(id, {
+          generationContext: {
+            ...generationContext,
+            generationFailureCode: failureCode,
+            generationFailureAttemptId: attemptId,
+            generationFailureSlidesFingerprint: null,
+          },
+        });
+        const recovery: EmptyGenerationRecovery = {
+          kind: "generation_failure",
+          attemptId,
+          failureCode,
+        };
+        const serializedRecovery = JSON.stringify(recovery);
+        if (retryRecoveryStorageKey) {
+          try {
+            window.localStorage.setItem(
+              retryRecoveryStorageKey,
+              serializedRecovery,
+            );
+            emptyGenerationRecoveryRef.current = serializedRecovery;
+          } catch (error) {
+            console.error(
+              "Failed to store Slides generation recovery data.",
+              error,
+            );
+          }
+        }
+        trackEvent("generation_outcome_unresolved", {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: attemptId,
+          output_id: id,
+          output_type: "deck",
+          source: "empty_output_retry",
+          outcome: "unresolved",
+          reason: "retry_start_timeout",
+        });
+        void flushDeckSave(id)
+          .then(() => {
+            if (
+              clearEmptyGenerationRecovery(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              ) &&
+              emptyGenerationRecoveryRef.current === serializedRecovery
+            ) {
+              emptyGenerationRecoveryRef.current = null;
+            }
+          })
+          .catch(() => toast.error(t("settings.saveFailed")));
+      },
+      Math.max(0, deadline - Date.now()),
+    );
     return () => window.clearTimeout(timeout);
-  }, [retryAwaitingStartAttemptId]);
+  }, [
+    attemptObservedRun,
+    attemptRunError,
+    attemptStopReason,
+    attemptTimedOut,
+    flushDeckSave,
+    generationAttemptId,
+    generationContext,
+    generationLifecycleOwnedByEditor,
+    id,
+    newDeckGenerationSignal,
+    retryAwaitingStartAttemptId,
+    retryRecoveryStorageKey,
+    t,
+    updateDeck,
+  ]);
   const generationRetryPending =
     retryEmptyGenerationPending ||
     retryAwaitingStartAttemptId === generationAttemptId ||
