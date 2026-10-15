@@ -8,13 +8,6 @@ export function appMigratesAtRelease(): boolean {
   );
 }
 
-/** A beta deploy that serves from production's schema without owning it. */
-export function schemaIsBorrowed(): boolean {
-  return (
-    getAppConfig().migration.betaSchemaOwner?.toLowerCase() === "production"
-  );
-}
-
 /** Operator opt-out: never run schema setup from this runtime. */
 export function schemaEnsureSkipRequested(): boolean {
   return getAppConfig().migration.skipEnsureTables;

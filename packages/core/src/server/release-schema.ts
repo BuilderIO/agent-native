@@ -10,6 +10,11 @@
 
 import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
 import { FRAMEWORK_STORES } from "../db/store-registry.generated.js";
+import {
+  SchemaNotMigratedError,
+  findUnappliedStoreMigrations,
+  withStoreMigrationLock,
+} from "../db/store-registry.js";
 
 type SchemaEnsure = readonly [name: string, run: () => Promise<void>];
 
@@ -42,16 +47,38 @@ export async function runFrameworkSchemaEnsures(
       "runFrameworkSchemaEnsures must run inside withMigrationRuntime(); outside it no store is migrated.",
     );
   }
-  for (const [name, run] of ensures) {
-    try {
-      await run();
-    } catch (err) {
-      throw new Error(
-        `Release schema step failed while creating ${name}: ${
-          (err as Error)?.message ?? String(err)
-        }`,
-        { cause: err },
-      );
+  await withStoreMigrationLock(async () => {
+    for (const [name, run] of ensures) {
+      try {
+        await run();
+      } catch (err) {
+        throw new Error(
+          `Release schema step failed while creating ${name}: ${
+            (err as Error)?.message ?? String(err)
+          }`,
+          { cause: err },
+        );
+      }
     }
-  }
+  });
+  if (ensures === FRAMEWORK_SCHEMA_ENSURES) await verifyFrameworkStores();
+}
+
+/**
+ * Release-owned functions trust the schema without reading the ledger, so the
+ * release step is the one place a disagreement can be caught: fail the deploy
+ * before those functions are published.
+ */
+async function verifyFrameworkStores(): Promise<void> {
+  const stores = await Promise.all(FRAMEWORK_STORES.map(([, load]) => load()));
+  const unapplied = await findUnappliedStoreMigrations(stores);
+  if (unapplied.length === 0) return;
+  const [first] = unapplied;
+  throw new SchemaNotMigratedError(
+    first.storeId,
+    first.missing,
+    `after the release step, the ledger is missing ${unapplied
+      .map((entry) => `${entry.storeId}: ${entry.missing.join(", ")}`)
+      .join("; ")}`,
+  );
 }

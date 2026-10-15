@@ -1224,11 +1224,6 @@ export const resourcesStore = defineStore({
       },
     },
     {
-      name: "seed-default-resources",
-      kind: "data",
-      run: (exec) => seedDefaultResources(exec),
-    },
-    {
       name: "path-pattern-index",
       run: async () => {
         // The (path, owner) unique index uses the default operator class, which a
@@ -1255,11 +1250,22 @@ export const resourcesStore = defineStore({
   ],
 });
 
+let _defaultResourcesSeed: Promise<void> | undefined;
 let _sharedLearnSharedMigration: Promise<void> | undefined;
 
 export async function ensureTable(): Promise<void> {
   await resourcesStore.ready();
-  // Kept out of the store ledger: it has its own durable marker, and a failure
+  // Kept out of the store ledger: the seed's marker is versioned by
+  // RESOURCE_SEED_VERSION so a bump re-seeds, which a one-time ledger entry
+  // would never do.
+  _defaultResourcesSeed ??= retainRequestDbPoolScope(
+    seedDefaultResources(getDbExec()),
+  ).catch((err) => {
+    _defaultResourcesSeed = undefined;
+    throw err;
+  });
+  await _defaultResourcesSeed;
+  // Also kept out of the ledger: it has its own durable marker, and a failure
   // must leave resources usable and retry in a later process.
   _sharedLearnSharedMigration ??= retainRequestDbPoolScope(
     migrateSharedLearnSharedDefault(getDbExec()),

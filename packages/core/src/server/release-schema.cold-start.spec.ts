@@ -29,7 +29,7 @@ afterAll(async () => {
 });
 
 describe("hosted cold start against a released database", () => {
-  it("readies every framework store with one schema query and no DDL", async () => {
+  it("readies every framework store without a single schema query", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");
     vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
@@ -55,7 +55,6 @@ describe("hosted cold start against a released database", () => {
     );
 
     expect(stores.length).toBeGreaterThan(50);
-    expect(statements).toHaveLength(1);
-    expect(statements[0]).toMatch(/FROM _an_store_migrations/);
+    expect(statements).toEqual([]);
   });
 });

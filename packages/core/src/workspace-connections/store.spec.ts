@@ -110,13 +110,8 @@ describe("workspace connection store", () => {
     const execute = vi.spyOn(sharedClient, "execute");
     try {
       const { ensureWorkspaceUserGroupsTable } = await import("./groups.js");
-      await expect(ensureWorkspaceUserGroupsTable()).rejects.toThrow(
-        /not migrated/,
-      );
-      const statements = execute.mock.calls.map(([arg]) =>
-        typeof arg === "string" ? arg : arg.sql,
-      );
-      expect(statements.every((sql) => /^\s*select\b/i.test(sql))).toBe(true);
+      await ensureWorkspaceUserGroupsTable();
+      expect(execute).not.toHaveBeenCalled();
     } finally {
       execute.mockRestore();
       vi.unstubAllEnvs();

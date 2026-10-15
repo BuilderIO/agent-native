@@ -12,10 +12,11 @@ import { resetAppConfigForTests } from "../app-config/index.js";
 import { closeDbExec, getDbExec } from "./client.js";
 import { withMigrationRuntime } from "./migration-runtime.js";
 import {
-  SchemaNotMigratedError,
   STORE_MIGRATIONS_TABLE,
   __resetStoreLedgerSnapshotForTests,
   defineStore,
+  findUnappliedStoreMigrations,
+  withStoreMigrationLock,
 } from "./store-registry.js";
 
 let previousDatabaseUrl: string | undefined;
@@ -133,59 +134,17 @@ describe("apply (release runtime)", () => {
   });
 });
 
-describe("verify (hosted request runtime)", () => {
-  it("serves a migrated store without issuing DDL", async () => {
+describe("release-owned hosted runtime", () => {
+  it("does no schema work on a cold start", async () => {
     const { table, store } = widgetStore();
-    await withMigrationRuntime(() => store.ready());
-
-    simulateHostedFunction();
-    const fresh = defineStore({ id: table, migrations: store.migrations });
-    await expect(fresh.ready()).resolves.toBeUndefined();
-  });
-
-  it("reads the ledger once per process for every store", async () => {
-    const a = widgetStore();
-    const b = widgetStore();
-    await withMigrationRuntime(async () => {
-      await a.store.ready();
-      await b.store.ready();
-    });
-
     simulateHostedFunction();
     const execute = vi.fn(getDbExec().execute);
-    const exec = { execute };
     const { withDbExec } = await import("./client.js");
-    await withDbExec(exec, async () => {
-      await defineStore({
-        id: a.table,
-        migrations: a.store.migrations,
-      }).ready();
-      await defineStore({
-        id: b.table,
-        migrations: b.store.migrations,
-      }).ready();
-    });
 
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(String(execute.mock.calls[0][0])).toMatch(
-      new RegExp(`FROM ${STORE_MIGRATIONS_TABLE}`),
-    );
-  });
+    await withDbExec({ execute }, () => store.ready());
 
-  it("fails loudly and names the missing migrations", async () => {
-    const { table, store } = widgetStore();
-    await withMigrationRuntime(() => store.ready());
-
-    simulateHostedFunction();
-    const ahead = defineStore({
-      id: table,
-      migrations: [...store.migrations, { name: "next", sql: "SELECT 1" }],
-    });
-
-    const error = await ahead.ready().catch((err) => err);
-    expect(error).toBeInstanceOf(SchemaNotMigratedError);
-    expect(error.missing).toEqual(["next"]);
-    expect(await tableExists(table)).toBe(true);
+    expect(execute).not.toHaveBeenCalled();
+    expect(await tableExists(table)).toBe(false);
   });
 
   it("rejects DDL even after the client is initialized", async () => {
@@ -195,6 +154,56 @@ describe("verify (hosted request runtime)", () => {
     await expect(
       getDbExec().execute("CREATE TABLE IF NOT EXISTS sneaky (id TEXT)"),
     ).rejects.toThrow(/Schema mutation attempted/);
+  });
+});
+
+describe("release verification", () => {
+  it("names migrations the ledger does not list", async () => {
+    const { table, store } = widgetStore();
+    await withMigrationRuntime(() => store.ready());
+    const ahead = defineStore({
+      id: table,
+      migrations: [...store.migrations, { name: "next", sql: "SELECT 1" }],
+    });
+
+    await expect(findUnappliedStoreMigrations([ahead])).resolves.toEqual([
+      { storeId: table, missing: ["next"] },
+    ]);
+  });
+});
+
+describe("release lock", () => {
+  it("serializes release steps against one database", async () => {
+    const order: string[] = [];
+    const first = withStoreMigrationLock(async () => {
+      order.push("first:start");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      order.push("first:end");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const second = withStoreMigrationLock(
+      async () => {
+        order.push("second");
+      },
+      { pollMs: 10 },
+    );
+
+    await Promise.all([first, second]);
+
+    expect(order).toEqual(["first:start", "first:end", "second"]);
+  });
+
+  it("takes over a lease whose holder never released it", async () => {
+    await getDbExec().execute(
+      "UPDATE _an_store_migration_lock SET holder = 'crashed', expires_at = 0",
+    );
+    await getDbExec().execute(
+      "INSERT INTO _an_store_migration_lock (id, holder, expires_at) VALUES (1, 'crashed', 0) ON CONFLICT (id) DO NOTHING",
+    );
+
+    await expect(
+      withStoreMigrationLock(async () => "ran", { pollMs: 10, timeoutMs: 500 }),
+    ).resolves.toBe("ran");
   });
 });
 
@@ -226,26 +235,6 @@ describe("hosted runtime without release migrations", () => {
     await store.ready();
 
     expect(await tableExists(table)).toBe(false);
-  });
-});
-
-describe("borrowed schema (beta serving from production's database)", () => {
-  it("warns about missing migrations instead of failing", async () => {
-    const { table, store } = widgetStore();
-    await withMigrationRuntime(() => store.ready());
-
-    simulateHostedFunction();
-    vi.stubEnv("AGENT_NATIVE_BETA_SCHEMA_OWNER", "production");
-    resetAppConfigForTests();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const ahead = defineStore({
-      id: table,
-      migrations: [...store.migrations, { name: "next", sql: "SELECT 1" }],
-    });
-
-    await expect(ahead.ready()).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/missing next/));
-    warn.mockRestore();
   });
 });
 

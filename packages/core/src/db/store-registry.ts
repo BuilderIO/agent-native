@@ -17,7 +17,6 @@ import { getDbExec, type DbExec } from "./client.js";
 import {
   appMigratesAtRelease,
   schemaEnsureSkipRequested,
-  schemaIsBorrowed,
 } from "./migration-policy.js";
 import {
   isHostedFunctionInvocationRuntime,
@@ -82,8 +81,8 @@ export class SchemaNotMigratedError extends Error {
   constructor(storeId: string, missing: readonly string[], reason: string) {
     super(
       `Store "${storeId}" is not migrated (${reason}). ` +
-        "This runtime does not own the schema; run the release migration step " +
-        "(scripts/migrate-production.ts) against this database.",
+        "Run the release migration step (scripts/migrate-production.ts) " +
+        "against this database.",
     );
     this.name = "SchemaNotMigratedError";
     this.storeId = storeId;
@@ -91,7 +90,7 @@ export class SchemaNotMigratedError extends Error {
   }
 }
 
-type Readiness = "apply" | "verify" | "replay" | "hosted-replay" | "skip";
+type Readiness = "apply" | "trust" | "replay" | "hosted-replay" | "skip";
 
 function isHostedRuntime(): boolean {
   return (
@@ -101,8 +100,10 @@ function isHostedRuntime(): boolean {
 }
 
 /**
- * Hosted functions of an app that migrates at release never issue DDL. Same
- * predicate `ddl-guard` uses, so the runner and the guards cannot disagree.
+ * Hosted functions of an app that migrates at release do no schema work at
+ * all: the release step applied and verified every store before they were
+ * published. Same predicate `ddl-guard` uses, so the runner and the guards
+ * cannot disagree.
  */
 export function schemaIsReleaseOwned(): boolean {
   return appMigratesAtRelease() && isHostedRuntime();
@@ -118,7 +119,10 @@ function readiness(): Readiness {
   if (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime()) {
     return "apply";
   }
-  if (schemaIsReleaseOwned()) return "verify";
+  // No ledger read here: a cold start does zero schema queries, and a missed
+  // release is caught by the release step's own verification, not turned into
+  // a sitewide error by every request.
+  if (schemaIsReleaseOwned()) return "trust";
   if (schemaEnsureSkipRequested()) return "skip";
   return isHostedRuntime() ? "hosted-replay" : "replay";
 }
@@ -225,15 +229,6 @@ function syncWithDatabaseGeneration(): void {
   for (const pending of allPending) pending.clear();
 }
 
-function isMissingRelation(err: unknown): boolean {
-  for (let e = err as any, depth = 0; e && depth < 4; e = e.cause, depth++) {
-    if (e.code === "42P01") return true;
-    if (/relation .* does not exist/i.test(String(e.message ?? "")))
-      return true;
-  }
-  return false;
-}
-
 async function loadLedger(): Promise<Map<string, Set<string>>> {
   const { rows } = await getDbExec().execute(
     // guard:allow-unbounded-read — one row per declared migration; this is the single shared read
@@ -257,50 +252,75 @@ function readLedgerSnapshot(): Promise<Map<string, Set<string>>> {
   return snapshot;
 }
 
-const warnedBorrowed = new Set<string>();
-
 /**
- * A beta that borrows production's schema runs ahead of it by design until the
- * next promotion, so a missing migration there is reported, not fatal. A
- * deploy that owns its schema fails loudly.
+ * Every registered store's migrations that the ledger does not list. The
+ * release step calls this after applying, so a deploy whose ledger disagrees
+ * with the code it is about to publish fails there instead of in a request.
  */
-function reportUnmigrated(error: SchemaNotMigratedError): void {
-  if (!schemaIsBorrowed()) throw error;
-  if (warnedBorrowed.has(error.storeId)) return;
-  warnedBorrowed.add(error.storeId);
-  console.warn(
-    `[db] ${error.message} Serving from the borrowed production schema until it is migrated.`,
-  );
+export async function findUnappliedStoreMigrations(
+  stores: readonly StoreDefinition[],
+): Promise<Array<{ storeId: string; missing: string[] }>> {
+  ledgerSnapshot = undefined;
+  const ledger = await readLedgerSnapshot();
+  return stores
+    .map((store) => ({
+      storeId: store.id,
+      missing: store.migrations
+        .map((m) => m.name)
+        .filter((name) => !ledger.get(store.id)?.has(name)),
+    }))
+    .filter((entry) => entry.missing.length > 0);
 }
 
-async function verify(store: StoreDefinition): Promise<void> {
-  let ledger: Map<string, Set<string>>;
-  try {
-    ledger = await readLedgerSnapshot();
-  } catch (err) {
-    if (!isMissingRelation(err)) throw err;
-    return reportUnmigrated(
-      new SchemaNotMigratedError(
-        store.id,
-        store.migrations.map((m) => m.name),
-        `${STORE_MIGRATIONS_TABLE} does not exist`,
-      ),
-    );
+const LOCK_TABLE = "_an_store_migration_lock";
+const LOCK_LEASE_MS = 15 * 60 * 1000;
+const LOCK_POLL_MS = 2_000;
+
+/**
+ * Serializes release steps against one database (a beta and production
+ * pointed at the same schema, or a retried deploy). A lease row, not
+ * `pg_advisory_lock`: session locks do not survive transaction poolers such as
+ * Neon's, where the lock and unlock can land on different connections. A
+ * crashed holder's lease expires.
+ */
+export async function withStoreMigrationLock<T>(
+  run: () => Promise<T>,
+  options: { leaseMs?: number; pollMs?: number; timeoutMs?: number } = {},
+): Promise<T> {
+  const leaseMs = options.leaseMs ?? LOCK_LEASE_MS;
+  const pollMs = options.pollMs ?? LOCK_POLL_MS;
+  const deadline = Date.now() + (options.timeoutMs ?? leaseMs);
+  const exec = getDbExec();
+  const holder = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  await retryOnDdlRace(() =>
+    exec.execute(
+      `CREATE TABLE IF NOT EXISTS ${LOCK_TABLE} (id INTEGER PRIMARY KEY, holder TEXT NOT NULL, expires_at BIGINT NOT NULL)`,
+    ),
+  );
+  for (;;) {
+    const now = Date.now();
+    const { rows } = await exec.execute({
+      sql: `INSERT INTO ${LOCK_TABLE} (id, holder, expires_at) VALUES (1, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET holder = EXCLUDED.holder, expires_at = EXCLUDED.expires_at
+            WHERE ${LOCK_TABLE}.expires_at < ?
+            RETURNING holder`,
+      args: [holder, now + leaseMs, now],
+    });
+    if (rows[0]?.holder === holder) break;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Timed out waiting for another release step to finish migrating this database (${LOCK_TABLE}).`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
-  const applied = ledger.get(store.id);
-  const missing = store.migrations
-    .map((m) => m.name)
-    .filter((name) => !applied?.has(name));
-  if (missing.length > 0) {
-    // Re-read next time so a release that lands mid-process is picked up.
-    ledgerSnapshot = undefined;
-    reportUnmigrated(
-      new SchemaNotMigratedError(
-        store.id,
-        missing,
-        `missing ${missing.join(", ")}`,
-      ),
-    );
+  try {
+    return await run();
+  } finally {
+    await exec.execute({
+      sql: `DELETE FROM ${LOCK_TABLE} WHERE id = 1 AND holder = ?`,
+      args: [holder],
+    });
   }
 }
 
@@ -342,13 +362,11 @@ export function defineStore(definition: StoreDefinition): Store {
       const run =
         mode === "apply"
           ? applyWithLedger(store)
-          : mode === "verify"
-            ? verify(store)
-            : mode === "hosted-replay"
-              ? withMigrationExecutionRuntime(() => replay(store))
-              : mode === "replay"
-                ? replay(store)
-                : Promise.resolve();
+          : mode === "hosted-replay"
+            ? withMigrationExecutionRuntime(() => replay(store))
+            : mode === "replay"
+              ? replay(store)
+              : Promise.resolve();
       // The memo outlives the request that started it; on Workers that
       // request's pool must stay open until the work settles.
       const tracked = retainRequestDbPoolScope(
@@ -370,5 +388,4 @@ export function defineStore(definition: StoreDefinition): Store {
 export function __resetStoreLedgerSnapshotForTests(): void {
   ledgerSnapshot = undefined;
   ledgerPresent = false;
-  warnedBorrowed.clear();
 }

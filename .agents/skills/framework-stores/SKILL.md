@@ -15,8 +15,9 @@ metadata:
 Every framework table in `packages/core/src` is owned by exactly one
 `defineStore()` from `src/db/store-registry.ts`. The release step applies a
 store's migrations once per database and records each in
-`_an_store_migrations`. Hosted functions of release-owned apps only read that
-ledger; they never issue DDL. Design and rollout: 
+`_an_store_migrations`, then verifies the ledger covers every registered store.
+Hosted functions of release-owned apps do no schema work at all. Design and
+rollout: 
 `docs/plans/2026-09-28-store-registry-schema-ownership.md`.
 
 App-owned template tables are not covered here; they use `runMigrations` or
@@ -78,24 +79,31 @@ Then run, in this order:
 1. `pnpm gen:store-registry` — rewrites `store-registry.generated.ts` and
    `store-migrations.lock.json`. Commit both.
 2. `pnpm guard:release-schema-complete` and `pnpm guard:additive-migrations`.
-3. The store's own spec, plus `src/db/store-registry.spec.ts` and
-   `src/server/release-schema.cold-start.spec.ts` from `packages/core`.
+3. The store's own spec, plus `src/db/store-registry.spec.ts`,
+   `src/server/release-schema.cold-start.spec.ts` and
+   `src/server/release-schema.upgrade.spec.ts` from `packages/core`. The
+   upgrade spec replays an older release's schema and fails when your change
+   does not reach existing databases (for example a column added only to a
+   `CREATE TABLE`).
 
 ## Readiness modes
 
 `ready()` picks a mode from who owns the schema:
 
-- **apply** — the release step (`withMigrationRuntime`). The only ledger writer.
-- **verify** — hosted function of an app that migrates at release. One shared
-  ledger read; `SchemaNotMigratedError` names missing migrations. A beta that
-  borrows production's schema warns instead.
+- **apply** — the release step (`withMigrationRuntime`), under a lease in
+  `_an_store_migration_lock`. The only ledger writer; it verifies the ledger
+  against the registry afterwards.
+- **trust** — hosted function of an app that migrates at release. No schema
+  work at all, not even a ledger read.
 - **hosted-replay** / **replay** — hosted apps without release migrations,
   local dev, tests, self-hosted. Runs migrations idempotently, as before,
   without touching the ledger.
 
-A `SchemaNotMigratedError` in production means the release step did not run
-against that database, or ran older code. Fix the deploy; never catch the
-error to make it go away.
+`SchemaNotMigratedError` is raised by the release step when the ledger does
+not cover the code being shipped. It fails that deploy; fix the migration or
+the deploy, never catch it. Code that catches everything around a store query
+must fail closed for security reads (revocation, budgets, access): a missing
+table must never read as allowed or empty.
 
 ## Reviewed exceptions
 
