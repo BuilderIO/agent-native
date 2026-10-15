@@ -162,6 +162,10 @@ import {
   sameDropSlot,
   type DashboardDropSlot,
 } from "./dashboard-layout";
+import {
+  otherViewerCount,
+  useDashboardSaveFeedback,
+} from "./dashboard-save-feedback";
 import { createDashboardSaveQueue } from "./dashboard-save-queue";
 import {
   createDashboardAdoptionHold,
@@ -176,11 +180,6 @@ import {
   extractFilterParams,
   resolveFilterVars,
 } from "./DashboardFilterBar";
-import {
-  DashboardSaveStatus,
-  otherViewerCount,
-  useDashboardSaveFeedback,
-} from "./DashboardSaveStatus";
 import { EmailReportDialog } from "./EmailReportDialog";
 import { dashboardExtensionSlotId } from "./extension-slot";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
@@ -718,14 +717,11 @@ function SqlDashboardPageContent({
     queue: ReturnType<typeof createDashboardSaveQueue<SqlDashboardConfig>>;
   } | null>(null);
   // A queued save can land after the page has moved to another dashboard; it
-  // must not stamp that dashboard's saved-at.
-  const liveSaverRef = useRef({
-    dashboardId,
-    email: session?.email ?? null,
-  });
+  // must not stamp that dashboard's concurrency token.
+  const openDashboardIdRef = useRef(dashboardId);
   useEffect(() => {
-    liveSaverRef.current = { dashboardId, email: session?.email ?? null };
-  }, [dashboardId, session?.email]);
+    openDashboardIdRef.current = dashboardId;
+  }, [dashboardId]);
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
@@ -871,7 +867,7 @@ function SqlDashboardPageContent({
   }, []);
   const dashboardShared =
     dashboardVisibility === "org" || dashboardVisibility === "public";
-  const { state: saveState, track: trackSave } = useDashboardSaveFeedback({
+  const trackSave = useDashboardSaveFeedback({
     dashboardId,
     shared: dashboardShared,
     otherViewers: otherViewerCount(activeUsers, session?.email),
@@ -1254,21 +1250,25 @@ function SqlDashboardPageContent({
   const enqueueDashboardSave = useCallback(
     (id: string, updated: SqlDashboardConfig) => {
       if (dashboardSaveQueueRef.current?.dashboardId !== id) {
+        // Saves still queued after the page moves to another dashboard must
+        // send this dashboard's concurrency token, not the open one's.
+        let expectedUpdatedAt = dashboardUpdatedAtRef.current;
         dashboardSaveQueueRef.current = {
           dashboardId: id,
           queue: createDashboardSaveQueue(async (config) => {
+            // While it's open, undo and adopted remote edits move the token too.
+            if (openDashboardIdRef.current === id) {
+              expectedUpdatedAt = dashboardUpdatedAtRef.current;
+            }
             const result = await saveDashboard(
               id,
               config,
-              dashboardUpdatedAtRef.current ?? undefined,
+              expectedUpdatedAt ?? undefined,
             );
-            if (
-              typeof result?.updatedAt === "string" &&
-              liveSaverRef.current.dashboardId === id
-            ) {
+            if (typeof result?.updatedAt !== "string") return;
+            expectedUpdatedAt = result.updatedAt;
+            if (openDashboardIdRef.current === id) {
               dashboardUpdatedAtRef.current = result.updatedAt;
-              setDashboardUpdatedAt(result.updatedAt);
-              setDashboardUpdatedBy(liveSaverRef.current.email);
             }
           }),
         };
@@ -2118,15 +2118,6 @@ function SqlDashboardPageContent({
             </TooltipTrigger>
             <TooltipContent>{t("sqlDashboard.certifiedForAi")}</TooltipContent>
           </Tooltip>
-        ) : null}
-        {canEdit ? (
-          <DashboardSaveStatus
-            state={saveState}
-            shared={dashboardShared}
-            updatedAt={dashboardUpdatedAt}
-            updatedBy={dashboardUpdatedBy}
-            currentUserEmail={session?.email}
-          />
         ) : null}
       </div>
     ) : dashboardId && !loaded ? (
