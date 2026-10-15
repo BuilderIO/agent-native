@@ -147,6 +147,9 @@ interface DashboardFilterBarProps {
   filters: DashboardFilter[];
   // null while the saved views load or after they fail: Reset cannot know its target, so it stays hidden.
   views?: readonly DashboardSavedView[] | null;
+  // While a cached list refetches it can still hold a deleted view, so Reset is
+  // disabled rather than put that view's id back in the URL.
+  viewsRefreshing?: boolean;
   onSaveView?: (
     name: string,
     filters: Record<string, string>,
@@ -157,6 +160,7 @@ interface DashboardFilterBarProps {
 export function DashboardFilterBar({
   filters,
   views = NO_VIEWS,
+  viewsRefreshing = false,
   onSaveView,
 }: DashboardFilterBarProps) {
   const t = useT();
@@ -350,6 +354,7 @@ export function DashboardFilterBar({
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                disabled={viewsRefreshing}
                 onClick={resetFilters}
               >
                 <IconFilterOff className="h-3 w-3 mr-1" />

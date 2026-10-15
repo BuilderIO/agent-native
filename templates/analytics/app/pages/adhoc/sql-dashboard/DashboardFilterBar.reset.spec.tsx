@@ -66,6 +66,7 @@ function render(
   options: {
     list?: DashboardFilter[];
     views?: DashboardSavedView[] | null;
+    viewsRefreshing?: boolean;
     canSaveViews?: boolean;
   } = {},
 ) {
@@ -81,6 +82,7 @@ function render(
             <DashboardFilterBar
               filters={options.list ?? filters}
               views={options.views}
+              viewsRefreshing={options.viewsRefreshing}
               onSaveView={options.canSaveViews ? () => {} : undefined}
             />
             <SearchProbe />
@@ -280,6 +282,27 @@ describe("resetting dashboard filters", () => {
     it("hides the reset until the saved views load, since its target is unknown", () => {
       render("/dashboards/v3?view=enterprise&f_timeRange=7d", { views: null });
       expect(resetButton()).toBeUndefined();
+    });
+
+    it("keeps a cached view out of the URL while the views refetch, then resets normally", () => {
+      // The cached list still has the default view; the refetch shows it deleted.
+      render("/dashboards/v3?f_timeRange=90d&f_plan=free", {
+        views,
+        viewsRefreshing: true,
+      });
+      expect(resetButton()?.disabled).toBe(true);
+      act(() => resetButton()!.click());
+      expect(Object.fromEntries(params())).toEqual({
+        f_timeRange: "90d",
+        f_plan: "free",
+      });
+
+      render("/dashboards/v3?f_timeRange=90d&f_plan=free", {
+        views: [enterprise],
+        viewsRefreshing: false,
+      });
+      act(() => resetButton()!.click());
+      expect(Object.fromEntries(params())).toEqual({});
     });
   });
 });

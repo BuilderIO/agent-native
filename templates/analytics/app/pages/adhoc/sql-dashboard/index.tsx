@@ -2590,6 +2590,7 @@ function SqlDashboardPageContent({
           <DashboardFilterBar
             filters={dashboard.filters}
             views={dashboardViewsLoaded ? views : null}
+            viewsRefreshing={dashboardViewsState === "loading"}
             onSaveView={canEdit ? handleSaveView : undefined}
           />
         )}
