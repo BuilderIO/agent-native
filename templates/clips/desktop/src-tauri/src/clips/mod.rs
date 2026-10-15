@@ -29,6 +29,7 @@ use crate::util::{
 };
 
 const COUNTDOWN_LABEL: &str = "countdown";
+static COUNTDOWN_SHOW_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 const TOOLBAR_LABEL: &str = "toolbar";
 static TOOLBAR_TOPMOST_GENERATION: AtomicU64 = AtomicU64::new(0);
 const COUNTDOWN_CONTROL_OFFSET_X: f64 = 200.0;
@@ -617,6 +618,11 @@ pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, S
     {
         return Err("Invalid countdown attempt ID.".to_string());
     }
+    // The shared window label and shortcut generation must belong to the same attempt.
+    let _show_guard = COUNTDOWN_SHOW_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
     mark_popover_shown(&app);
     // Retire the previous generation before reusing the countdown window label.
     crate::shortcuts::retire_countdown_shortcuts(app.clone()).await?;
