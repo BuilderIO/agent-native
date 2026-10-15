@@ -702,34 +702,47 @@ pub(crate) async fn prepare_countdown_shortcuts(
     .map_err(|error| format!("countdown shortcut worker stopped unexpectedly: {error}"))?
 }
 
+fn cleanup_countdown_shortcuts(app: &AppHandle, expected_generation: Option<u64>) {
+    let _guard = COUNTDOWN_SHORTCUTS_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let state = COUNTDOWN_SHORTCUTS_STATE.load(Ordering::SeqCst);
+    let generation = state >> 1;
+    if expected_generation.is_some_and(|expected| expected != generation) {
+        return;
+    }
+    COUNTDOWN_SHORTCUTS_STATE.store(generation << 1, Ordering::SeqCst);
+    *COUNTDOWN_SHORTCUT_ATTEMPT
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    let gs = app.global_shortcut();
+    for shortcut in countdown_return_shortcuts() {
+        if gs.is_registered(shortcut) {
+            let _ = gs.unregister(shortcut);
+        }
+    }
+    release_escape_if_unowned(app);
+}
+
 pub(crate) async fn finish_countdown_shortcuts(
     app: AppHandle,
     generation: u64,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = COUNTDOWN_SHORTCUTS_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let inactive_state = generation << 1;
-        if COUNTDOWN_SHORTCUTS_STATE.load(Ordering::SeqCst) >> 1 != generation {
-            return;
-        }
-        COUNTDOWN_SHORTCUTS_STATE.store(inactive_state, Ordering::SeqCst);
-        *COUNTDOWN_SHORTCUT_ATTEMPT
-            .get_or_init(|| Mutex::new(None))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-        let gs = app.global_shortcut();
-        for shortcut in countdown_return_shortcuts() {
-            if gs.is_registered(shortcut) {
-                let _ = gs.unregister(shortcut);
-            }
-        }
-        release_escape_if_unowned(&app);
+        cleanup_countdown_shortcuts(&app, Some(generation));
     })
     .await
     .map_err(|error| format!("countdown shortcut cleanup worker stopped unexpectedly: {error}"))
+}
+
+pub(crate) async fn retire_countdown_shortcuts(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cleanup_countdown_shortcuts(&app, None);
+    })
+    .await
+    .map_err(|error| format!("countdown shortcut retirement worker stopped unexpectedly: {error}"))
 }
 
 fn active_countdown_generation() -> Option<u64> {

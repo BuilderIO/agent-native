@@ -618,6 +618,8 @@ pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, S
         return Err("Invalid countdown attempt ID.".to_string());
     }
     mark_popover_shown(&app);
+    // Retire the previous generation before reusing the countdown window label.
+    crate::shortcuts::retire_countdown_shortcuts(app.clone()).await?;
     if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
         stop_countdown_control_tracking();
         let _ = existing.close();
