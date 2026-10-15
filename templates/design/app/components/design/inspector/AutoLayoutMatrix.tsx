@@ -2168,8 +2168,8 @@ export function SizingField({
               precision={1}
               disabled={disabled}
               className="min-w-0 flex-1 gap-0"
-              labelClassName="h-6 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
-              inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+              labelClassName="h-6 w-4 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
+              inputClassName="h-6 border-0 bg-transparent px-0.5 !text-[11px] shadow-none focus-visible:ring-0"
             />
             {/* Caret opens the mode picker */}
             <Tooltip>
@@ -2180,7 +2180,7 @@ export function SizingField({
                     aria-label={`${axis} sizing mode — ${modeLabel}`}
                     disabled={disabled}
                     className={cn(
-                      "flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md",
+                      "flex h-6 w-5 shrink-0 items-center justify-center rounded-r-md",
                       "text-muted-foreground hover:text-foreground",
                       "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
                     )}
@@ -2206,7 +2206,7 @@ export function SizingField({
                   aria-label={`${axis} ${sizeText} ${modeLabel}`}
                   disabled={disabled}
                   className={cn(
-                    "flex h-6 w-full items-center gap-0.5 overflow-hidden rounded-md px-1",
+                    "flex h-6 w-full items-center overflow-hidden rounded-md px-0.5",
                     "bg-[var(--design-editor-control-bg)] !text-[11px]",
                     "hover:bg-[var(--design-editor-panel-raised-bg)]",
                     "disabled:pointer-events-none disabled:opacity-40",
@@ -2218,7 +2218,7 @@ export function SizingField({
                   {/* Resolved size */}
                   <span
                     className={cn(
-                      "min-w-0 flex-1 truncate text-left tabular-nums",
+                      "min-w-0 flex-1 truncate pl-0.5 text-left",
                       mixed ? "text-muted-foreground" : "text-foreground",
                     )}
                   >
@@ -2329,7 +2329,7 @@ function ConstraintSubRow({
   return (
     <div
       className={cn(
-        "flex h-6 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)] pl-1.5",
+        "flex h-6 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)] pl-1",
         disabled && "opacity-40",
       )}
     >
@@ -2348,8 +2348,8 @@ function ConstraintSubRow({
         precision={1}
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
-        labelClassName="h-6 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground [&>span]:sr-only"
-        inputClassName="h-5 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+        labelClassName="h-6 w-4 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground [&>span]:sr-only"
+        inputClassName="h-5 border-0 bg-transparent px-0.5 !text-[11px] shadow-none focus-visible:ring-0"
       />
       <Tooltip>
         <TooltipTrigger asChild>
