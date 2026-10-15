@@ -875,6 +875,34 @@ export const dataSources: DataSource[] = [
       },
     ],
   },
+  {
+    id: "twittrapi",
+    name: "TwittrAPI",
+    description:
+      "X/Twitter tweets, profiles, followers and search through the TwittrAPI REST API, no X developer account needed",
+    category: "communication",
+    icon: IconBrandX,
+    envKeys: ["TWITTRAPI_API_KEY"],
+    docsUrl: "https://twittrapi.com/docs",
+    walkthroughSteps: [
+      {
+        title: "Create a TwittrAPI key",
+        description:
+          "Sign up at TwittrAPI and copy the API key from the dashboard. New accounts get a small test credit.",
+        url: "https://app.twittrapi.com/register",
+        linkText: "TwittrAPI dashboard",
+      },
+      {
+        title: "Enter your API key",
+        description:
+          "Requests send it in the X-API-KEY header to https://api.twittrapi.com.",
+        inputKey: "TWITTRAPI_API_KEY",
+        inputLabel: "API Key",
+        inputPlaceholder: "your-twittrapi-api-key",
+        inputType: "password",
+      },
+    ],
+  },
 
   {
     id: "pylon",

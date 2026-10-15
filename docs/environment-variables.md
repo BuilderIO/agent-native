@@ -194,7 +194,7 @@ The analytics template's provider catalog also supports credentials such as
 `ANALYTICS_BIGQUERY_EVENTS_TABLE`, `AMPLITUDE_*`, `MIXPANEL_*`,
 `HUBSPOT_*`, `GONG_*`, `APOLLO_API_KEY`, `CLAY_PUBLIC_API_KEY`,
 `JIRA_*`, `GRAFANA_*`, `PROMETHEUS_*`, `PYLON_*`, `COMMONROOM_*`,
-`DATAFORSEO_*`, and `TWITTER_BEARER_TOKEN`. These are provider credentials,
+`DATAFORSEO_*`, `TWITTER_BEARER_TOKEN`, and `TWITTRAPI_API_KEY`. These are provider credentials,
 not deployment defaults; configure them through the analytics credential UI or
 workspace connection when available.
 

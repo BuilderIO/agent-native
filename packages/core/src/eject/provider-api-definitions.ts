@@ -59,6 +59,7 @@ export const providerApiOverrides: ProviderApiConfig[] = [
   provider("slack"),
   provider("stripe"),
   provider("twitter"),
+  provider("twittrapi"),
 ];
 
 function withLocalOverrides(

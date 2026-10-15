@@ -98,6 +98,7 @@ export const PROVIDER_API_IDS = [
   "slack",
   "stripe",
   "twitter",
+  "twittrapi",
 ] as const;
 
 export type ProviderApiId = (typeof PROVIDER_API_IDS)[number];
@@ -1748,6 +1749,44 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         label: "User tweets",
         method: "GET",
         path: "/twitter/user/last_tweets",
+      },
+    ],
+  },
+  twittrapi: {
+    id: "twittrapi",
+    label: "Twitter/X via TwittrAPI",
+    defaultBaseUrl: "https://api.twittrapi.com",
+    auth: {
+      type: "api-key-header",
+      key: "TWITTRAPI_API_KEY",
+      header: "X-API-KEY",
+    },
+    credentialKeys: ["TWITTRAPI_API_KEY"],
+    docsUrls: ["https://twittrapi.com/docs"],
+    specUrls: ["https://www.twittrapi.com/openapi.json"],
+    templateUses: ["analytics"],
+    notes: [
+      "Read endpoints for tweets, users, followers, search, lists and communities. Add format=simple for flat camelCase JSON with a {data, cursor} envelope.",
+      "Paginated endpoints return a cursor; pass it back as the cursor query parameter for the next page.",
+    ],
+    examples: [
+      {
+        label: "User by username",
+        method: "GET",
+        path: "/user/by/username/<username>",
+        query: { format: "simple" },
+      },
+      {
+        label: "User tweets",
+        method: "GET",
+        path: "/user/<user-id>/tweets",
+        query: { format: "simple" },
+      },
+      {
+        label: "Search latest tweets",
+        method: "GET",
+        path: "/search",
+        query: { searchItem: "<query>", category: "Latest", format: "simple" },
       },
     ],
   },

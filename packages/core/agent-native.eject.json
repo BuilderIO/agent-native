@@ -79,7 +79,8 @@
         "sentry",
         "slack",
         "stripe",
-        "twitter"
+        "twitter",
+        "twittrapi"
       ],
       "entrypoints": ["./provider-api"],
       "strategy": "source-copy",
