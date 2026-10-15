@@ -294,12 +294,12 @@ export function UseCasePage({
         }
       />
       {item.todays_stack ? (
-        <section className="campaign-section min-w-0 space-y-[var(--spacing-6)] border-x border-b border-[var(--docs-border)]">
+        <section className="campaign-stack-section campaign-section min-w-0 border-x border-b border-[var(--docs-border)]">
           <SectionHeader
             eyebrow={t("campaign.whatItReplaces")}
             heading={item.todays_stack.heading}
           />
-          <ul className="campaign-body m-0 list-disc space-y-[var(--spacing-4)] ps-6">
+          <ul className="campaign-stack-list campaign-body list-disc ps-6">
             {item.todays_stack.items.map(({ text }, index) => (
               <li key={index}>
                 {text
@@ -331,24 +331,21 @@ export function UseCasePage({
                 key={recipe.id}
                 className="campaign-recipe-card min-w-0 bg-[var(--b-bg-page)]"
               >
-                <div>
+                <div className="campaign-recipe-tag">
                   <CampaignFrequencyTag text={recipe.how_often} />
                 </div>
-                <h3 className="campaign-card-title">{recipe.title}</h3>
-                <p className="campaign-body m-0 whitespace-pre-line">
+                <h3 className="campaign-recipe-title campaign-card-title">{recipe.title}</h3>
+                <p className="campaign-recipe-when campaign-body m-0 whitespace-pre-line">
                   {recipe.when}
                 </p>
-                <dl className="m-0 space-y-[var(--spacing-2)]">
+                <dl className="campaign-recipe-do m-0">
                   <dt className="campaign-label">{t("campaign.recipeDo")}</dt>
                   <dd className="campaign-body m-0 whitespace-pre-line">
                     {recipe.do}
                   </dd>
                 </dl>
-                <div
-                  className={`min-w-0 max-w-full overflow-x-auto${recipe.prompt ? "" : " campaign-recipe-empty"}`}
-                  aria-hidden={recipe.prompt ? undefined : true}
-                >
-                  {recipe.prompt ? (
+                {recipe.prompt ? (
+                  <div className="campaign-recipe-prompt min-w-0 max-w-full overflow-x-auto">
                     <CodeBlock
                       code={recipe.prompt}
                       lang="text"
@@ -361,9 +358,9 @@ export function UseCasePage({
                         })
                       }
                     />
-                  ) : null}
-                </div>
-                <dl className="m-0 space-y-[var(--spacing-2)]">
+                  </div>
+                ) : null}
+                <dl className="campaign-recipe-result m-0">
                   <dt className="campaign-label">
                     {t("campaign.recipeYouGet")}
                   </dt>
@@ -372,7 +369,7 @@ export function UseCasePage({
                   </dd>
                 </dl>
                 {recipe.save ? (
-                  <dl className="campaign-recipe-footer m-0 space-y-[var(--spacing-2)] border-t border-[var(--docs-border)] bg-[var(--b-bg-raised)]">
+                  <dl className="campaign-recipe-footer m-0 border-t border-[var(--docs-border)]">
                     <dt className="campaign-label">
                       {t("campaign.recipeSave")}
                     </dt>
@@ -380,9 +377,7 @@ export function UseCasePage({
                       {recipe.save}
                     </dd>
                   </dl>
-                ) : (
-                  <div className="campaign-recipe-empty" aria-hidden="true" />
-                )}
+                ) : null}
               </article>
             ))}
           </div>

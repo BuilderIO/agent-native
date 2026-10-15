@@ -402,33 +402,64 @@ a.campaign-inline-link {
   font-family: var(--font-sans);
 }
 
+.campaign-page .campaign-stack-list {
+  margin-block: var(--spacing-6) 0;
+}
+
+.campaign-page .campaign-stack-list > li + li {
+  margin-block-start: 8px;
+}
+
+.campaign-page .campaign-stack-section > p {
+  margin-block-start: 24px;
+}
+
+.campaign-page .campaign-recipes-grid {
+  grid-auto-rows: auto;
+  row-gap: 0;
+}
+
 .campaign-page .campaign-recipe-card {
   display: grid;
-  gap: var(--spacing-6);
-  padding: var(--spacing-8);
+  align-content: start;
+  row-gap: 0;
+  padding: 24px;
+}
+
+.campaign-page .campaign-recipe-title {
+  padding-block-start: 16px;
+}
+
+.campaign-page .campaign-recipe-when {
+  padding-block-start: 8px;
+}
+
+.campaign-page :is(.campaign-recipe-do, .campaign-recipe-prompt, .campaign-recipe-result) {
+  padding-block-start: 20px;
+}
+
+.campaign-page .campaign-recipe-card dd {
+  padding-block-start: 6px;
 }
 
 .campaign-page .campaign-recipe-footer {
-  margin-inline: calc(-1 * var(--spacing-8));
-  margin-block-end: calc(-1 * var(--spacing-8));
-  padding: var(--spacing-8);
+  margin-block-start: 20px;
+  padding-block-start: 20px;
 }
 
 @media (min-width: 768px) {
-  .campaign-page .campaign-recipes-grid {
-    row-gap: var(--spacing-6);
-  }
-
   .campaign-page .campaign-recipe-card {
     grid-row: span 7;
     grid-template-rows: subgrid;
   }
-}
 
-@media (max-width: 767px) {
-  .campaign-page .campaign-recipe-empty {
-    display: none;
-  }
+  .campaign-page .campaign-recipe-tag { grid-row: 1; }
+  .campaign-page .campaign-recipe-title { grid-row: 2; }
+  .campaign-page .campaign-recipe-when { grid-row: 3; }
+  .campaign-page .campaign-recipe-do { grid-row: 4; }
+  .campaign-page .campaign-recipe-prompt { grid-row: 5; }
+  .campaign-page .campaign-recipe-result { grid-row: 6; }
+  .campaign-page .campaign-recipe-footer { grid-row: 7; }
 }
 
 .campaign-page .campaign-faq > div > div:first-child {
