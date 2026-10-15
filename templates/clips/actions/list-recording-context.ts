@@ -43,7 +43,9 @@ export default defineAction({
       });
     }
     const access = await assertAccess("recording", recordingId, "viewer");
-    if (recording.trashedAt) {
+    // The owner's desktop worker reads items for a trashed Clip to finish or
+    // recover an export; the same 404 there would read as "permanently deleted".
+    if (recording.trashedAt && access.role !== "owner") {
       fail("Recording not found.", {
         errorCode: "recording_not_found",
         statusCode: 404,

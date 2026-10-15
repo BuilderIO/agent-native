@@ -286,7 +286,7 @@ describe("list-recording-context", () => {
     });
   });
 
-  it("refuses context for a Clip in Trash", async () => {
+  it("refuses context for a Clip in Trash to viewers", async () => {
     await seedRecording(client, {
       id: "trashed",
       trashedAt: "2026-10-12T12:00:00.000Z",
@@ -297,6 +297,22 @@ describe("list-recording-context", () => {
       statusCode: 404,
       errorCode: "recording_not_found",
     });
+  });
+
+  it("still lists context for a Clip in Trash to its owner", async () => {
+    await seedRecording(client, {
+      id: "trashed_owned",
+      trashedAt: "2026-10-12T12:00:00.000Z",
+    });
+    await seedContextItem(client, {
+      id: "item_trashed",
+      recordingId: "trashed_owned",
+    });
+    mocks.roles = { trashed_owned: "owner" };
+
+    const { items } = await action.run({ recordingId: "trashed_owned" });
+
+    expect(items.map((item) => item.id)).toEqual(["item_trashed"]);
   });
 
   it("refuses context for an expired Clip for viewers", async () => {
