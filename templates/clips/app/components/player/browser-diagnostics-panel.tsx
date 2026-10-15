@@ -503,7 +503,14 @@ function AppGroupRow({
   const first = group.entries[0];
   const failed = isAppActivityFailure(first);
   const outcome =
-    first.status ?? (first.ok === false ? "ERR" : first.ok ? "OK" : "—");
+    first.status ??
+    (first.errorCode === "cancelled"
+      ? "—"
+      : first.ok === false
+        ? "ERR"
+        : first.ok
+          ? "OK"
+          : "—");
   return (
     <AccordionItem value={group.id} className="relative border-border/70 px-3">
       <DiagnosticGroupTrigger

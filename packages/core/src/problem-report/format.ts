@@ -38,9 +38,12 @@ export function formatRecorderEvent(
 ): string {
   const parts = [`${event.t.toFixed(1)}s`, event.type];
   if (event.name) parts.push(event.name);
-  if (event.ok !== undefined) parts.push(event.ok ? "ok" : "failed");
+  const cancelled = event.errorCode === "cancelled";
+  if (event.ok !== undefined) {
+    parts.push(cancelled ? "cancelled" : event.ok ? "ok" : "failed");
+  }
   if (event.status !== undefined) parts.push(String(event.status));
-  if (event.errorCode) parts.push(event.errorCode);
+  if (event.errorCode && !cancelled) parts.push(event.errorCode);
   if (event.ms !== undefined) parts.push(`${Math.round(event.ms)}ms`);
   if (event.requestId) parts.push(`request ${event.requestId}`);
   if (event.data)

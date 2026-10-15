@@ -45,6 +45,23 @@ describe("isFailedRecorderEvent", () => {
 });
 
 describe("formatRecorderEvent", () => {
+  it("labels a call the app cancelled as cancelled, not failed", () => {
+    expect(
+      formatRecorderEvent(
+        {
+          t: -10.2,
+          at: 1,
+          type: "action",
+          name: "list-designs",
+          ok: false,
+          errorCode: "cancelled",
+          ms: 90,
+        },
+        200,
+      ),
+    ).toBe("-10.2s  action  list-designs  cancelled  90ms");
+  });
+
   it("prints outcome, status, code, duration and request id on one line", () => {
     const event: RecorderEvent = {
       t: -0.8,
