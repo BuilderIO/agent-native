@@ -372,6 +372,8 @@ function stackSegments(
 
 const EVENT_LABEL_FONT_SIZE = 10;
 const EVENT_LABEL_ROW_HEIGHT = 13;
+/** Space between the last label row and the plot, so a peak at the top stays clear of it. */
+const EVENT_LABEL_PLOT_GAP = 8;
 const EVENT_LABEL_MAX_ROWS = 6;
 const EVENT_LABEL_MAX_LINES = 3;
 const EVENT_LABEL_GAP = 8;
@@ -648,7 +650,7 @@ function renderCartesianChartSvg({
   const chartTop =
     eventsTop +
     (eventLayout.rowCount > 0
-      ? eventLayout.rowCount * EVENT_LABEL_ROW_HEIGHT + 4
+      ? eventLayout.rowCount * EVENT_LABEL_ROW_HEIGHT + EVENT_LABEL_PLOT_GAP
       : 0);
   const plotHeight = Math.max(1, chartBottom - chartTop);
 
