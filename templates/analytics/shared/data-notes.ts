@@ -214,12 +214,17 @@ export function xValuesAreDates(xValues: readonly unknown[]): boolean {
   return dates > 0;
 }
 
+/** One run of adjacent rows a note covers. */
 export interface DataNoteBand {
   startIndex: number;
   endIndex: number;
-  /** Draw an edge at startIndex: the note's start falls inside the chart, or its end on a newest-first axis. */
+  /**
+   * Draw an edge at startIndex: the date row before it is one the note does
+   * not cover, or, at the chart's first date row, the note's start falls
+   * inside the chart (its end on a newest-first axis).
+   */
   startEdge: boolean;
-  /** Draw an edge at endIndex: the note's end falls inside the chart, or its start on a newest-first axis. */
+  /** Draw an edge at endIndex: the same, after it and at the last date row. */
   endEdge: boolean;
 }
 
@@ -254,46 +259,72 @@ function noteSpan(note: Pick<DataNote, "startDate" | "endDate">) {
   };
 }
 
-function bandOnAxis(
+/**
+ * A run ends wherever the next row is not covered, so rows sorted by
+ * something other than date shade only the rows in the note, never one
+ * between them.
+ */
+function bandsOnAxis(
   note: Pick<DataNote, "startDate" | "endDate">,
   axis: DateAxis,
-): DataNoteBand | null {
+): DataNoteBand[] {
   const { start, end } = noteSpan(note);
   const { buckets } = axis;
-  const covered = buckets.flatMap((bucket) =>
-    bucket.start < end && bucket.end > start ? [bucket.row] : [],
+  const covers = buckets.map(
+    (bucket) => bucket.start < end && bucket.end > start,
   );
-  if (covered.length === 0) return null;
   const startInside = start >= axis.start;
   const endInside = end <= axis.end;
   const newestFirst = buckets[0].start > buckets[buckets.length - 1].start;
-  return {
-    startIndex: covered[0],
-    endIndex: covered[covered.length - 1],
-    startEdge: newestFirst ? endInside : startInside,
-    endEdge: newestFirst ? startInside : endInside,
-  };
+  const runs: { first: number; last: number }[] = [];
+  covers.forEach((covered, i) => {
+    if (!covered) return;
+    const run = runs[runs.length - 1];
+    if (
+      run &&
+      run.last === i - 1 &&
+      buckets[i - 1].row === buckets[i].row - 1
+    ) {
+      run.last = i;
+    } else {
+      runs.push({ first: i, last: i });
+    }
+  });
+  // Runs split only by a row whose x is not a date get no edge there: the note goes on.
+  return runs.map(({ first, last }) => ({
+    startIndex: buckets[first].row,
+    endIndex: buckets[last].row,
+    startEdge:
+      first > 0 ? !covers[first - 1] : newestFirst ? endInside : startInside,
+    endEdge:
+      last < buckets.length - 1
+        ? !covers[last + 1]
+        : newestFirst
+          ? startInside
+          : endInside,
+  }));
 }
 
 /**
- * The run of x values a note covers. Each x value stands for one step of the
- * axis's cadence, so a weekly point covers its whole week whichever way the
- * rows are sorted, and a day the query returned no row for belongs to no x
- * value. Rows whose x is not a date (a null bucket, a total row) are skipped.
- * Null when the x axis is not dates or no x value falls in the note.
+ * The runs of x values a note covers, in row order. Each x value stands for
+ * one step of the axis's cadence, so a weekly point covers its whole week
+ * whichever way the rows are sorted, and a day the query returned no row for
+ * belongs to no x value. Rows whose x is not a date (a null bucket, a total
+ * row) are skipped. Empty when the x axis is not dates or no x value falls in
+ * the note.
  */
-export function resolveDataNoteBand(
+export function resolveDataNoteBands(
   note: Pick<DataNote, "startDate" | "endDate">,
   xValues: readonly unknown[],
-): DataNoteBand | null {
+): DataNoteBand[] {
   const axis = dateAxis(xValues);
-  return axis ? bandOnAxis(note, axis) : null;
+  return axis ? bandsOnAxis(note, axis) : [];
 }
 
 export interface ChartDataNote {
   note: DataNote;
-  /** Null when the note is written under the chart instead of shaded on it. */
-  band: DataNoteBand | null;
+  /** Empty when the note is written under the chart instead of shaded on it. */
+  bands: DataNoteBand[];
 }
 
 /**
@@ -311,13 +342,13 @@ export function dataNotesOnChart(
   if (!axis) {
     return notes
       .filter((note) => dataNoteIsRecent(note, now))
-      .map((note) => ({ note, band: null }));
+      .map((note) => ({ note, bands: [] }));
   }
   return notes.flatMap((note): ChartDataNote[] => {
-    const band = bandOnAxis(note, axis);
-    if (band) return [{ note, band }];
+    const bands = bandsOnAxis(note, axis);
+    if (bands.length > 0) return [{ note, bands }];
     const { start, end } = noteSpan(note);
-    return start < axis.end && end > axis.start ? [{ note, band: null }] : [];
+    return start < axis.end && end > axis.start ? [{ note, bands: [] }] : [];
   });
 }
 

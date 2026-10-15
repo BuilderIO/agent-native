@@ -119,29 +119,32 @@ function DataNoteHoverCard({
   );
 }
 
-export interface PlacedDataNoteBand {
+export interface ShadedDataNote {
   note: DataNote;
-  band: DataNoteBand;
+  /** In row order; more than one when the rows are not in date order. */
+  bands: DataNoteBand[];
 }
 
 /**
- * Where each note falls on a chart's x values: a band over the dates it
+ * Where each note falls on a chart's x values: bands over the dates it
  * covers, or a line under the chart when it can't be placed on them.
  */
 export function useDataNoteLayout(
   notes: readonly DataNote[],
   rows: readonly Record<string, unknown>[],
   xKey: string,
-): { bands: PlacedDataNoteBand[]; unplaced: DataNote[] } {
+): { shaded: ShadedDataNote[]; unplaced: DataNote[] } {
   return useMemo(() => {
-    if (notes.length === 0) return { bands: [], unplaced: [] };
+    if (notes.length === 0) return { shaded: [], unplaced: [] };
     const shown = dataNotesOnChart(
       notes,
       rows.map((row) => row[xKey]),
     );
     return {
-      bands: shown.flatMap(({ note, band }) => (band ? [{ note, band }] : [])),
-      unplaced: shown.flatMap(({ note, band }) => (band ? [] : [note])),
+      shaded: shown.filter(({ bands }) => bands.length > 0),
+      unplaced: shown.flatMap(({ note, bands }) =>
+        bands.length > 0 ? [] : [note],
+      ),
     };
   }, [notes, rows, xKey]);
 }
@@ -265,14 +268,15 @@ export function layoutDataNoteLabels(
   });
 }
 
+/** One title per note, at its first band. */
 function BandLabels({
-  bands,
+  shaded,
   rows,
   xKey,
   stepValues,
   onHoverChange,
 }: {
-  bands: readonly PlacedDataNoteBand[];
+  shaded: readonly ShadedDataNote[];
   rows: readonly Record<string, unknown>[];
   xKey: string;
   stepValues: readonly unknown[];
@@ -281,12 +285,12 @@ function BandLabels({
   const scale = useXAxisScale();
   const plot = usePlotArea();
   if (!scale || !plot) return null;
-  const placed = bands.flatMap((entry) => {
+  const placed = shaded.flatMap((entry) => {
     const edges = bandEdges(
       scale,
       plot,
-      rows[entry.band.startIndex][xKey],
-      rows[entry.band.endIndex][xKey],
+      rows[entry.bands[0].startIndex][xKey],
+      rows[entry.bands[0].endIndex][xKey],
       stepValues,
     );
     return edges ? [{ entry, edges }] : [];
@@ -344,39 +348,41 @@ function BandLabels({
 }
 
 export function renderDataNoteBands(
-  bands: readonly PlacedDataNoteBand[],
+  shaded: readonly ShadedDataNote[],
   rows: readonly Record<string, unknown>[],
   xKey: string,
   yAxisId?: string,
   onHoverChange?: (hovered: boolean) => void,
 ): ReactNode[] {
-  if (bands.length === 0) return [];
+  if (shaded.length === 0) return [];
   const stepValues = rows.slice(0, 2).map((row) => row[xKey]);
   const xValue = (index: number) => rows[index][xKey] as string | number;
   return [
-    ...bands.map((placed) => {
-      const x1 = xValue(placed.band.startIndex);
-      const x2 = xValue(placed.band.endIndex);
-      return (
-        <ReferenceArea
-          key={`data-note-${placed.note.id}`}
-          x1={x1}
-          x2={x2}
-          yAxisId={yAxisId}
-          ifOverflow="visible"
-          zIndex={BAND_Z_INDEX}
-          shape={
-            <BandShape
-              x1={x1}
-              x2={x2}
-              stepValues={stepValues}
-              color={dataNoteColor(placed.note)}
-              band={placed.band}
-            />
-          }
-        />
-      );
-    }),
+    ...shaded.flatMap(({ note, bands }) =>
+      bands.map((band) => {
+        const x1 = xValue(band.startIndex);
+        const x2 = xValue(band.endIndex);
+        return (
+          <ReferenceArea
+            key={`data-note-${note.id}-${band.startIndex}`}
+            x1={x1}
+            x2={x2}
+            yAxisId={yAxisId}
+            ifOverflow="visible"
+            zIndex={BAND_Z_INDEX}
+            shape={
+              <BandShape
+                x1={x1}
+                x2={x2}
+                stepValues={stepValues}
+                color={dataNoteColor(note)}
+                band={band}
+              />
+            }
+          />
+        );
+      }),
+    ),
     // One layer for every title, so each pill is placed knowing where the others are.
     <ReferenceArea
       key="data-note-labels"
@@ -387,7 +393,7 @@ export function renderDataNoteBands(
       zIndex={LABEL_Z_INDEX}
       shape={
         <BandLabels
-          bands={bands}
+          shaded={shaded}
           rows={rows}
           xKey={xKey}
           stepValues={stepValues}

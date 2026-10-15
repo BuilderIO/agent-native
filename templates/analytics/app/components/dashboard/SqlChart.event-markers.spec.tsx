@@ -360,6 +360,28 @@ describe("SqlChart key-date markers", () => {
       expect(container.querySelector("[data-data-note-lines]")).toBeNull();
     });
 
+    it("shades only the note's bars on a chart sorted by something other than date, under one title", async () => {
+      mocks.rows = [
+        { day: "2026-10-09", people: 20 },
+        { day: "2026-10-01", people: 3 },
+        { day: "2026-10-13", people: 40 },
+      ];
+      await renderInDashboard(failures("bar"));
+      const fills = [
+        ...container.querySelectorAll("[data-data-note-band] rect"),
+      ].map((rect) => {
+        const left = Number(rect.getAttribute("x"));
+        return [left, left + Number(rect.getAttribute("width"))];
+      });
+      expect(fills).toHaveLength(2);
+      const [[firstLeft, firstRight], [secondLeft]] = fills;
+      // The Oct 1 bar's slot, between the runs, stays clear.
+      expect(secondLeft - firstRight).toBeCloseTo(firstRight - firstLeft, 0);
+      expect(container.querySelectorAll("[data-data-note-label]")).toHaveLength(
+        1,
+      );
+    });
+
     it("keeps a narrow band's whole title, inside the chart at its right edge", async () => {
       const title = "Signups counted twice after the webhook retry";
       mocks.dataNotes = [

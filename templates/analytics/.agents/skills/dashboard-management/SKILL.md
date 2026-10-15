@@ -284,14 +284,16 @@ only the fields given); remove with `delete-data-note`.
   tracking began. Marking a note `status: "fixed"` needs an `endDate`; say what
   fixed it in `fix`. Pass `null` to clear a date or the fix.
 - Time charts shade the note's range, with an edge only where it starts or ends
-  inside the chart, and a hoverable title. Incidents are red; open data problems
-  amber; fixed data problems grey. Other charts flag the note by the title and
-  write it under the chart while it is ongoing or ended in the last 30 days.
+  inside the chart, and a hoverable title. Rows sorted by something other than
+  date shade each run of the note's rows, never a row between them, under one
+  title. Incidents are red; open data problems amber; fixed data problems grey.
+  Other charts flag the note by the title and write it under the chart while it
+  is ongoing or ended in the last 30 days.
 - A dashboard hides a note on one chart with
   `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
   keeping `hiddenKeyDateSets` and the notes already hidden in the same object.
-- Scheduled email reports shade the same ranges, title each band in the label
-  rows above the plot alongside key dates (a title with no room left is
+- Scheduled email reports shade the same ranges, title each note once in the
+  label rows above the plot alongside key dates (a title with no room left is
   counted), and write each note's text under the chart.
 
 ## Reusable Native Dashboard Patterns

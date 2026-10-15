@@ -2779,7 +2779,7 @@ function BarRenderer({
             vertical={false}
           />
           {renderDataNoteBands(
-            dataNoteLayout.bands,
+            dataNoteLayout.shaded,
             rows,
             xKey,
             dualAxis.enabled ? "left" : undefined,
@@ -2908,7 +2908,7 @@ function ComboRenderer({
             vertical={false}
           />
           {renderDataNoteBands(
-            dataNoteLayout.bands,
+            dataNoteLayout.shaded,
             rows,
             xKey,
             dualAxis.enabled ? "left" : undefined,
@@ -3051,7 +3051,7 @@ function TimeSeriesRenderer({
               vertical={false}
             />
             {renderDataNoteBands(
-              dataNoteLayout.bands,
+              dataNoteLayout.shaded,
               chartRows,
               xKey,
               dualAxis.enabled ? "left" : undefined,
@@ -3170,7 +3170,7 @@ function TimeSeriesRenderer({
             vertical={false}
           />
           {renderDataNoteBands(
-            dataNoteLayout.bands,
+            dataNoteLayout.shaded,
             chartRows,
             xKey,
             dualAxis.enabled ? "left" : undefined,

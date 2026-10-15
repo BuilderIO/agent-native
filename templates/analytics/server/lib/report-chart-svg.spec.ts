@@ -970,13 +970,11 @@ describe("renderReportChartSvg data-note bands", () => {
       height: 320,
       bands,
     });
+  const run = { startIndex: 4, endIndex: 8, startEdge: true, endEdge: true };
   const band = {
-    startIndex: 4,
-    endIndex: 8,
     label: "Builder.io account setup failures",
     color: "#dc2626",
-    startEdge: true,
-    endEdge: true,
+    runs: [run],
   };
 
   it("shades the note's run of days behind the series and titles it", () => {
@@ -992,12 +990,16 @@ describe("renderReportChartSvg data-note bands", () => {
   });
 
   it("draws no edge where the note runs past the chart or is ongoing", () => {
-    const svg = render([{ ...band, startEdge: false, endEdge: false }]);
+    const svg = render([
+      { ...band, runs: [{ ...run, startEdge: false, endEdge: false }] },
+    ]);
     expect(svg).not.toContain('stroke-opacity="0.55"');
   });
 
   it("keeps a narrow band's whole title, ending it at the band near the right edge", () => {
-    const svg = render([{ ...band, startIndex: 9, endIndex: 9 }]);
+    const svg = render([
+      { ...band, runs: [{ ...run, startIndex: 9, endIndex: 9 }] },
+    ]);
     const [, x] = svg.match(
       /<text x="([\d.]+)"[^>]*>Builder\.io account setup failures<\/text>/,
     )!;
@@ -1055,17 +1057,13 @@ describe("renderReportChartSvg data-note bands", () => {
       bands: [
         {
           ...band,
-          startIndex: 3,
-          endIndex: 6,
           label: "Account setup failures",
+          runs: [{ ...run, startIndex: 3, endIndex: 6 }],
         },
         {
-          ...band,
-          startIndex: 4,
-          endIndex: 9,
           label: "Signup events counted twice",
           color: "#d97706",
-          endEdge: false,
+          runs: [{ ...run, startIndex: 4, endIndex: 9, endEdge: false }],
         },
       ],
     });
@@ -1109,7 +1107,7 @@ describe("renderReportChartSvg data-note bands", () => {
         index,
         label: `Release ${index} shipped to every workspace`,
       })),
-      bands: [{ ...band, startIndex: 2, endIndex: 20 }],
+      bands: [{ ...band, runs: [{ ...run, startIndex: 2, endIndex: 20 }] }],
     });
     const boxes = labelBoxes(svg);
     expect(boxes.filter((box) => box.fill === "#dc2626")).toEqual([]);
@@ -1136,7 +1134,42 @@ describe("renderReportChartSvg data-note bands", () => {
   });
 
   it("skips a band outside the labels", () => {
-    const svg = render([{ ...band, startIndex: 8, endIndex: 12 }]);
+    const svg = render([
+      { ...band, runs: [{ ...run, startIndex: 8, endIndex: 12 }] },
+    ]);
     expect(svg).not.toContain("Builder.io account setup failures");
+  });
+
+  it("shades each of a note's runs, skipping the rows between them, and titles the note once", () => {
+    // Rows sorted by count: Oct 9, Oct 1, Oct 13 under an Oct 9–13 note.
+    const labels = ["2026-10-09", "2026-10-01", "2026-10-13"];
+    const svg = renderReportChartSvg({
+      labels,
+      series: [{ label: "Failures", data: [20, 3, 40] }],
+      type: "bar",
+      width: 720,
+      height: 320,
+      bands: [
+        {
+          ...band,
+          runs: [
+            { ...run, startIndex: 0, endIndex: 0 },
+            { ...run, startIndex: 2, endIndex: 2 },
+          ],
+        },
+      ],
+    });
+    const fills = [
+      ...svg.matchAll(
+        /<rect x="([\d.]+)"[^>]*width="([\d.]+)"[^>]*fill="#dc2626" fill-opacity="0\.1"/g,
+      ),
+    ].map(([, x, width]) => [Number(x), Number(x) + Number(width)]);
+    expect(fills).toHaveLength(2);
+    const [[firstLeft, firstRight], [secondLeft]] = fills;
+    // The Oct 1 row's slot, between the runs, stays clear.
+    expect(secondLeft - firstRight).toBeCloseTo(firstRight - firstLeft, 0);
+    expect(svg.split(">Builder.io account setup failures</text>")).toHaveLength(
+      2,
+    );
   });
 });
