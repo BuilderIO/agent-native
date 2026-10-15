@@ -11,10 +11,7 @@ import type {
   ActionRouteAuthAdapter,
   ActionRouteResolvedCaller,
 } from "@agent-native/core/server";
-import {
-  ActionRouteAuthRejection,
-  getSession,
-} from "@agent-native/core/server";
+import { getSession } from "@agent-native/core/server";
 
 export const WORKSPACE_APPS_ACTION_PATH =
   "/_agent-native/actions/list-workspace-apps";
@@ -27,16 +24,16 @@ const REGISTRY_AUTH_REFUSED = "Invalid workspace registry authorization";
 // misconfigured workspace would otherwise log the same refusal per request.
 const reportedRefusals = new Set<string>();
 
-// `reason` goes back to the caller, so it stays coarse: the finer `cause` (which
-// check a bad token failed) would tell an unauthenticated caller whether a
-// guessed secret was right. It is logged server-side only.
+// The caller always gets the same bare 401, whatever refused it: any finer
+// answer would tell an unauthenticated caller whether a guessed secret was
+// right. The reason and cause exist for the server log only.
 function refuseRegistryCaller(reason: string, cause?: string): never {
   const key = cause ? `${reason}:${cause}` : reason;
   if (!reportedRefusals.has(key)) {
     reportedRefusals.add(key);
     console.warn("[workspace-registry-auth] refused caller", { reason, cause });
   }
-  throw new ActionRouteAuthRejection(REGISTRY_AUTH_REFUSED, reason);
+  throw new Error(REGISTRY_AUTH_REFUSED);
 }
 
 function isWorkspaceAppsActionPath(event: any): boolean {

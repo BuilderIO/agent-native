@@ -355,7 +355,6 @@ export async function diagnoseA2ATokenFailure(
     return "malformed";
   }
   const secret = readDeployCredentialEnv("A2A_SECRET")?.trim();
-  if (!secret) return "secret-missing";
 
   const options: jose.JWTVerifyOptions = {};
   if (typeof claims.aud !== "undefined") {
@@ -367,14 +366,23 @@ export async function diagnoseA2ATokenFailure(
     options.issuer = claims.iss;
   }
 
-  const deploy = await checkAgainstSecret(token, secret, options);
-  if ("payload" in deploy) return diagnoseVerifiedPayload(deploy.payload);
+  // The verifier goes on to the organization's own secret when the deploy secret
+  // is unset or does not verify the token, so neither is the final answer yet.
+  let deployCause: A2ATokenFailureCause = "secret-missing";
+  if (secret) {
+    const deploy = await checkAgainstSecret(token, secret, options);
+    if ("payload" in deploy) return diagnoseVerifiedPayload(deploy.payload);
+    deployCause = deploy.cause;
+  }
 
-  // The verifier also accepts the organization's own secret, so a signature
-  // miss against the deploy secret is not yet a signature failure.
   const orgDomain =
     typeof claims.org_domain === "string" ? claims.org_domain.trim() : "";
-  if (deploy.cause !== "signature" || !orgDomain) return deploy.cause;
+  if (
+    (deployCause !== "signature" && deployCause !== "secret-missing") ||
+    !orgDomain
+  ) {
+    return deployCause;
+  }
 
   let organization: A2AOrganizationCredential | null;
   try {
@@ -385,7 +393,7 @@ export async function diagnoseA2ATokenFailure(
     // coercion-ok: an unreadable organization registry is the typed "org-lookup-failed" cause.
     return "org-lookup-failed";
   }
-  if (!organization) return "signature";
+  if (!organization) return deployCause;
 
   const orgCheck = await checkAgainstSecret(
     token,

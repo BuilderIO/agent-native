@@ -86,7 +86,6 @@ import {
 import { redact, redactErrorStack } from "../tracking/redaction.js";
 import { ACTION_ROUTE_PREFIX, bindActionBatch } from "./action-batch.js";
 import { notifyActionChangeForResponse } from "./action-change.js";
-import { actionRouteAuthRejectionReason } from "./action-route-auth-rejection.js";
 import {
   readBrowserSessionIdHeader,
   readBrowserTabIdHeader,
@@ -908,11 +907,6 @@ function mountActionRoutesInternal(
                 statusCode: 503,
                 statusMessage: "Identity verification temporarily unavailable",
               });
-            }
-            const rejectionReason = actionRouteAuthRejectionReason(error);
-            if (rejectionReason) {
-              setResponseStatus(event, 401);
-              return { error: "Unauthorized", reason: rejectionReason };
             }
             throw createError({
               statusCode: 401,

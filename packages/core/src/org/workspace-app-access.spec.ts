@@ -1116,18 +1116,15 @@ describe("isWorkspaceAppAccessAllowed", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("reports the registry status, audience, and reason when Dispatch refuses the token", async () => {
+    it("reports the registry status, audience, and refusal text when Dispatch refuses the token", async () => {
       stubDirectory("https://refused.example.test/dispatch");
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              error: "Unauthorized",
-              reason: "token-not-verified:signature",
-            }),
-            { status: 401, headers: { "content-type": "application/json" } },
-          ),
+          new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
         ),
       );
 
@@ -1138,7 +1135,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
         reason: "registry-http-error",
         upstreamStatus: 401,
         audience: "https://refused.example.test/dispatch",
-        detail: "token-not-verified:signature",
+        detail: "Unauthorized",
       });
     });
 

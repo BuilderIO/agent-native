@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   diagnoseA2ATokenFailure: vi.fn(),
@@ -64,41 +64,56 @@ describe("workspace app action auth", () => {
     ).rejects.toThrow("Invalid workspace registry authorization");
   });
 
-  describe("names why a registry bearer was refused", () => {
+  describe("refuses every bad registry bearer the same way and logs why", () => {
+    const REFUSED = "Invalid workspace registry authorization";
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
     async function refusalFor(authorization: string) {
       return workspaceAppActionRouteAuth
         .resolveCaller?.(eventFor(WORKSPACE_APPS_ACTION_PATH, authorization))
         .then(
           () => null,
-          (error: unknown) => error,
+          (error: unknown) => error as Error,
         );
     }
 
-    it("tells the caller only that the token was not verified, and logs which check failed", async () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The caller sees one fixed refusal, so no answer tells an unauthenticated
+    // caller which credential check a guess got past.
+    function expectBareRefusal(refusal: Error | null | undefined) {
+      expect(refusal).toBeInstanceOf(Error);
+      expect(refusal?.message).toBe(REFUSED);
+      expect(Object.keys(refusal as Error)).toEqual([]);
+    }
+
+    function expectLogged(entry: { reason: string; cause?: string }) {
+      expect(warn).toHaveBeenCalledWith(
+        "[workspace-registry-auth] refused caller",
+        entry,
+      );
+    }
+
+    it("logs which check an unverified token failed, and tells the caller nothing more", async () => {
       mocks.verifyA2AToken.mockResolvedValue({ email: null, orgDomain: null });
       mocks.diagnoseA2ATokenFailure.mockResolvedValue("signature");
 
-      const refusal = await refusalFor("Bearer wrong-secret");
+      expectBareRefusal(await refusalFor("Bearer wrong-secret"));
 
-      expect(refusal).toMatchObject({
-        name: "ActionRouteAuthRejection",
-        message: "Invalid workspace registry authorization",
-        reason: "token-not-verified",
-      });
-      expect(JSON.stringify(refusal)).not.toContain("signature");
       expect(mocks.diagnoseA2ATokenFailure).toHaveBeenCalledWith(
         "wrong-secret",
         expect.anything(),
       );
-      expect(warn).toHaveBeenCalledWith(
-        "[workspace-registry-auth] refused caller",
-        { reason: "token-not-verified", cause: "signature" },
-      );
-      warn.mockRestore();
+      expectLogged({ reason: "token-not-verified", cause: "signature" });
     });
 
-    it("reports a verified token that was demoted to an organization principal", async () => {
+    it("logs a verified token that was demoted to an organization principal", async () => {
       mocks.verifyA2AToken.mockResolvedValue({
         email: null,
         orgDomain: "builder.io",
@@ -106,25 +121,25 @@ describe("workspace app action auth", () => {
         identityAssurance: "organization",
       });
 
-      await expect(refusalFor("Bearer demoted")).resolves.toMatchObject({
-        reason: "token-without-user",
-      });
+      expectBareRefusal(await refusalFor("Bearer demoted"));
+
       expect(mocks.diagnoseA2ATokenFailure).not.toHaveBeenCalled();
+      expectLogged({ reason: "token-without-user", cause: undefined });
     });
 
-    it("reports an organization that does not exist here", async () => {
+    it("logs an organization that does not exist here", async () => {
       mocks.verifyA2AToken.mockResolvedValue({
         email: "steve@builder.io",
         orgDomain: "builder.io",
       });
       mocks.resolveOrgByDomain.mockResolvedValue(null);
 
-      await expect(refusalFor("Bearer verified")).resolves.toMatchObject({
-        reason: "org-unknown",
-      });
+      expectBareRefusal(await refusalFor("Bearer verified"));
+
+      expectLogged({ reason: "org-unknown", cause: undefined });
     });
 
-    it("reports a caller who is not a member of the organization", async () => {
+    it("logs a caller who is not a member of the organization", async () => {
       mocks.verifyA2AToken.mockResolvedValue({
         email: "steve@builder.io",
         orgDomain: "builder.io",
@@ -135,12 +150,12 @@ describe("workspace app action auth", () => {
       });
       mocks.isOrgMember.mockResolvedValue(false);
 
-      await expect(refusalFor("Bearer verified")).resolves.toMatchObject({
-        reason: "not-org-member",
-      });
+      expectBareRefusal(await refusalFor("Bearer verified"));
+
+      expectLogged({ reason: "not-org-member", cause: undefined });
     });
 
-    it("reports an organization claim that names a different organization", async () => {
+    it("logs an organization claim that names a different organization", async () => {
       mocks.verifyA2AToken.mockResolvedValue({
         email: "steve@builder.io",
         orgDomain: "builder.io",
@@ -151,15 +166,28 @@ describe("workspace app action auth", () => {
         orgName: "Builder.io",
       });
 
-      await expect(refusalFor("Bearer verified")).resolves.toMatchObject({
-        reason: "org-mismatch",
-      });
+      expectBareRefusal(await refusalFor("Bearer verified"));
+
+      expectLogged({ reason: "org-mismatch", cause: undefined });
     });
 
-    it("reports a malformed authorization header", async () => {
-      await expect(refusalFor("Basic abc")).resolves.toMatchObject({
-        reason: "malformed-authorization",
-      });
+    it("logs a malformed authorization header", async () => {
+      expectBareRefusal(await refusalFor("Basic abc"));
+
+      expectLogged({ reason: "malformed-authorization", cause: undefined });
+    });
+
+    it("logs each distinct refusal once, not once per request", async () => {
+      mocks.verifyA2AToken.mockResolvedValue({ email: null, orgDomain: null });
+      mocks.diagnoseA2ATokenFailure.mockResolvedValue("expired");
+
+      await refusalFor("Bearer old-one");
+      await refusalFor("Bearer old-two");
+
+      const expired = warn.mock.calls.filter(
+        ([, entry]) => (entry as { cause?: string }).cause === "expired",
+      );
+      expect(expired).toHaveLength(1);
     });
   });
 

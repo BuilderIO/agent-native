@@ -121,7 +121,6 @@ export function registryErrorDetail(body: unknown): string | undefined {
   if (!body || typeof body !== "object") return undefined;
   const record = body as Record<string, unknown>;
   for (const candidate of [
-    record.reason,
     record.error,
     record.statusMessage,
     record.message,

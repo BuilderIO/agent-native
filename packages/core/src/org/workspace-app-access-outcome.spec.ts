@@ -25,7 +25,7 @@ describe("workspace app access outcome", () => {
       workspaceAppAccessUnavailable("registry-http-error", {
         upstreamStatus: 401,
         audience: "https://workspace.example.test/dispatch",
-        detail: "token-not-verified:audience",
+        detail: "Unauthorized",
       }),
     );
 
@@ -34,7 +34,7 @@ describe("workspace app access outcome", () => {
       code: "registry-http-error",
       upstreamStatus: 401,
       audience: "https://workspace.example.test/dispatch",
-      detail: "token-not-verified:audience",
+      detail: "Unauthorized",
     });
   });
 
@@ -67,12 +67,6 @@ describe("workspace app access outcome", () => {
   });
 
   describe("registryErrorDetail", () => {
-    it("prefers the refusal reason over the generic error text", () => {
-      expect(
-        registryErrorDetail({ error: "Unauthorized", reason: "org-unknown" }),
-      ).toBe("org-unknown");
-    });
-
     it.each([
       [{ error: "Unauthorized" }, "Unauthorized"],
       [{ statusMessage: "Bad Gateway" }, "Bad Gateway"],

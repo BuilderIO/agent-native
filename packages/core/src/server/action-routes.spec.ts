@@ -3047,7 +3047,7 @@ describe("mountActionRoutes", () => {
                 reason: "registry-http-error",
                 upstreamStatus: 401,
                 audience: "https://slides.agent-native.test/dispatch",
-                detail: "token-not-verified:signature",
+                detail: "Unauthorized",
               }
             : true,
       );
@@ -3163,7 +3163,7 @@ describe("mountActionRoutes", () => {
         code: "registry-http-error",
         upstreamStatus: 401,
         audience: "https://slides.agent-native.test/dispatch",
-        detail: "token-not-verified:signature",
+        detail: "Unauthorized",
       });
       expect(run).not.toHaveBeenCalled();
     });
@@ -5369,51 +5369,6 @@ describe("mountActionRoutes", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 401 });
 
-    expect(getOwnerFromEvent).not.toHaveBeenCalled();
-    expect(actions["do-thing"].run).not.toHaveBeenCalled();
-  });
-
-  it("answers a typed adapter refusal with its reason, still without consulting the session", async () => {
-    const { mountActionRoutes } = await import("./action-routes.js");
-    const { ActionRouteAuthRejection } =
-      await import("./action-route-auth-rejection.js");
-    const mounted: Array<{ path: string; handler: any }> = [];
-    const nitroApp = {
-      use: vi.fn((path: string, handler: any) =>
-        mounted.push({ path, handler }),
-      ),
-    };
-    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
-    const actions: Record<string, ActionEntry> = {
-      "do-thing": {
-        run: vi.fn(async () => ({ ok: true })),
-      } as any,
-    };
-
-    mountActionRoutes(nitroApp, actions, {
-      getOwnerFromEvent,
-      actionRouteAuth: {
-        resolveCaller: async () => {
-          throw new ActionRouteAuthRejection(
-            "Invalid workspace registry authorization",
-            "token-not-verified:signature",
-          );
-        },
-      },
-    });
-
-    const event: any = {
-      _method: "POST",
-      _headers: {},
-      context: {},
-      req: { json: async () => ({}) },
-    };
-    await expect(mounted[0].handler(event)).resolves.toEqual({
-      error: "Unauthorized",
-      reason: "token-not-verified:signature",
-    });
-
-    expect(event._status).toBe(401);
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
     expect(actions["do-thing"].run).not.toHaveBeenCalled();
   });

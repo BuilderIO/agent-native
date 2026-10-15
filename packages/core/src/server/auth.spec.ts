@@ -3610,7 +3610,7 @@ describe("server/auth", () => {
           reason: "registry-http-error",
           upstreamStatus: 401,
           audience: "https://workspace.example.test/dispatch",
-          detail: "token-not-verified:signature",
+          detail: "Unauthorized",
         })),
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
@@ -3633,7 +3633,7 @@ describe("server/auth", () => {
         code: "registry-http-error",
         upstreamStatus: 401,
         audience: "https://workspace.example.test/dispatch",
-        detail: "token-not-verified:signature",
+        detail: "Unauthorized",
       });
       expect(event.res.status).toBe(503);
     });

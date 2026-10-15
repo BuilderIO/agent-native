@@ -150,6 +150,25 @@ describe("diagnoseA2ATokenFailure", () => {
       await expect(diagnoseA2ATokenFailure(token)).resolves.toBe("audience");
     });
 
+    it("still checks the organization secret when the deploy secret is unset", async () => {
+      vi.stubEnv("A2A_SECRET", "");
+      const token = await sign({
+        secret: ORG_SECRET,
+        audience: "https://workspace.example.test",
+      });
+
+      await expect(diagnoseA2ATokenFailure(token)).resolves.toBe("audience");
+    });
+
+    it("reports the missing deploy secret only when no organization credential explains the refusal", async () => {
+      vi.stubEnv("A2A_SECRET", "");
+      mocks.resolveCredentials.mockResolvedValue(null);
+
+      await expect(
+        diagnoseA2ATokenFailure(await sign({ secret: ORG_SECRET })),
+      ).resolves.toBe("secret-missing");
+    });
+
     it("blames the organization when the secret and audience check out but the domain does not bind", async () => {
       mocks.resolveCredentials.mockResolvedValue({
         orgId: "org-1",
