@@ -198,18 +198,25 @@ export function dataNotePlacement(
   now: number = Date.now(),
 ) {
   const panels = configPanels(config);
+  const belongs = panelsWithNote(note, dashboardId, panels);
   const reached = panelsShowingNote(note, dashboardId, panels, now);
   const hidden = hiddenPanelIds(configAnnotations(config), note.id);
   const shownOn = reached.filter((panel) => !hidden.has(panel.id));
   const hiddenOn = reached.filter((panel) => hidden.has(panel.id));
+  // A note can be hidden on its time charts and too old for its others, so
+  // each reason it shows nowhere is its own sentence.
+  const reasons = [
+    hiddenOn.length > 0 &&
+      "This dashboard hides the note on the charts that would draw it (config.annotations.hiddenDataNotes). Tell the person rather than unhiding it on your own.",
+    belongs.length > reached.length &&
+      `Its charts here other than line, area, bar or combo list a note only while it is ongoing or for ${RECENT_DATA_NOTE_DAYS} days after it ends.`,
+  ].filter((reason): reason is string => typeof reason === "string");
   const hint =
     shownOn.length > 0
       ? undefined
-      : hiddenOn.length > 0
-        ? "This dashboard hides the note on every chart it belongs on (config.annotations.hiddenDataNotes). Tell the person rather than unhiding it on your own."
-        : panelsWithNote(note, dashboardId, panels).length > 0
-          ? `The note belongs here only on charts other than line, area, bar or combo, and those list a note only while it is ongoing or for ${RECENT_DATA_NOTE_DAYS} days after it ends.`
-          : "The note shows on none of this dashboard's charts: no chart's SQL filters on one of matchEvents without also filtering on one of unlessEvents, and no chart is pinned in panels. Read the charts' SQL with get-sql-dashboard panelIds and use the exact event name, or pin the charts with panels.";
+      : reasons.length > 0
+        ? reasons.join(" ")
+        : "The note shows on none of this dashboard's charts: no chart's SQL filters on one of matchEvents without also filtering on one of unlessEvents, and no chart is pinned in panels. Read the charts' SQL with get-sql-dashboard panelIds and use the exact event name, or pin the charts with panels.";
   return {
     dashboardId,
     shownOn: shownOn.map(panelRef),

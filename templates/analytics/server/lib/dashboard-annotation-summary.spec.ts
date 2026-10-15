@@ -397,6 +397,33 @@ describe("dataNotePlacement", () => {
     expect(stale.hint).not.toContain("exact event name");
   });
 
+  it("gives both reasons for a note hidden on its time chart and too old for its table", () => {
+    const pinned = {
+      ...SKIPS_UNTRACKED,
+      panels: ["failures", "channels"].map((panelId) => ({
+        dashboardId: "dash",
+        panelId,
+      })),
+    };
+    const annotations = {
+      hiddenDataNotes: [{ noteId: pinned.id, panelId: "failures" }],
+    };
+
+    const placement = dataNotePlacement(
+      pinned,
+      "dash",
+      { panels, annotations },
+      DEC_1,
+    );
+
+    expect(placement).toMatchObject({
+      shownOn: [],
+      hiddenOn: [{ panelId: "failures", title: "Setup failures per day" }],
+    });
+    expect(placement.hint).toContain("hides the note");
+    expect(placement.hint).toContain("only while it is ongoing or for 30 days");
+  });
+
   it("keeps a stale note on legacy stacked charts, which render as time charts", () => {
     const pinned = {
       ...SKIPS_UNTRACKED,
