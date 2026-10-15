@@ -9,6 +9,7 @@ import type {
 } from "../protocol/index.js";
 import type { AgentStreamIntegrityReport } from "../protocol/index.js";
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   AgentProtocolValidationError,
   AgentKitProtocolError,
   createAgentKitProtocolVersionOffer,
@@ -10139,6 +10140,211 @@ describe("AgentKitClient", () => {
     } finally {
       finishRun.resolve();
       await activeRun?.completed.catch(() => undefined);
+      await client.dispose();
+    }
+  });
+
+  it("does not queue a deadline-bound prompt when a run is active", async () => {
+    const finishRun = Promise.withResolvers<void>();
+    const runStarted = Promise.withResolvers<void>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async () => ({
+        message: {
+          id: "queued-1",
+          threadId: "thread-1",
+          text: "Retry",
+          createdAt: "2026-08-29T00:00:00.000Z",
+        },
+      }),
+    );
+    let startCount = 0;
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: {
+          messageQueue: true,
+          "x-agent-native-submission-deadlines": true,
+        },
+        async startRun() {
+          startCount += 1;
+          if (startCount > 1) throw new AgentKitRunSlotBusyError("run-1");
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun({ threadId, runId }) {
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          runStarted.resolve();
+          await finishRun.promise;
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+        async cancelRun() {},
+        queueMessage,
+      },
+    });
+    let activeRun: AgentRunHandle | undefined;
+
+    try {
+      activeRun = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Current turn",
+      });
+      await runStarted.promise;
+
+      await expect(
+        client.sendMessage({
+          threadId: "thread-1",
+          text: "Retry",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+                Date.now() + 20_000,
+            },
+          },
+        }),
+      ).rejects.toBeInstanceOf(AgentKitRunSlotBusyError);
+
+      expect(startCount).toBe(2);
+      expect(queueMessage).not.toHaveBeenCalled();
+    } finally {
+      finishRun.resolve();
+      await activeRun?.completed.catch(() => undefined);
+      await client.dispose();
+    }
+  });
+
+  it("rejects a deadline-bound prompt that expires during readiness", async () => {
+    const readiness = Promise.withResolvers<void>();
+    const readinessStarted = Promise.withResolvers<void>();
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async () => ({
+        message: {
+          id: "queued-1",
+          threadId: "thread-1",
+          text: "Retry",
+          createdAt: "2026-08-29T00:00:00.000Z",
+        },
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          messageQueue: true,
+          "x-agent-native-submission-deadlines": true,
+        },
+        async assertAiSetupReady() {
+          readinessStarted.resolve();
+          await readiness.promise;
+        },
+        startRun,
+        queueMessage,
+      },
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const submission = client.sendMessage({
+      threadId: "thread-1",
+      text: "Retry",
+      metadata: {
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 1_001,
+        },
+      },
+    });
+
+    try {
+      await readinessStarted.promise;
+      now.mockReturnValue(1_001);
+      readiness.resolve();
+      await expect(submission).rejects.toMatchObject({
+        code: "submission_expired",
+      });
+      expect(startRun).not.toHaveBeenCalled();
+      expect(queueMessage).not.toHaveBeenCalled();
+    } finally {
+      readiness.resolve();
+      now.mockRestore();
+      await client.dispose();
+    }
+  });
+
+  it("rejects deadline-bound prompts when the agent has no expiry support", async () => {
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        startRun,
+      },
+    });
+
+    try {
+      await expect(
+        client.sendMessage({
+          threadId: "thread-1",
+          text: "Retry",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+                Date.now() + 60_000,
+            },
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "capability_unsupported",
+        capability: "x-agent-native-submission-deadlines",
+      });
+      expect(startRun).not.toHaveBeenCalled();
+      expect(client.getThread("thread-1").messages).toEqual([]);
+    } finally {
+      await client.dispose();
+    }
+  });
+
+  it("rejects deadline-bound queue messages when the agent has no expiry support", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, text }) => ({
+        message: {
+          id: "queued-1",
+          threadId,
+          text,
+          createdAt: "2026-08-29T00:00:00.000Z",
+        },
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        queueMessage,
+      },
+    });
+
+    try {
+      await expect(
+        client.queueMessage({
+          threadId: "thread-1",
+          text: "Retry",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+                Date.now() + 60_000,
+            },
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "capability_unsupported",
+        capability: "x-agent-native-submission-deadlines",
+      });
+      expect(queueMessage).not.toHaveBeenCalled();
+      expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    } finally {
       await client.dispose();
     }
   });

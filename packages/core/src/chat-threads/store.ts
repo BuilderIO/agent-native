@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   parseQueueMessageInput,
   type AgentRunOptions,
 } from "@agent-native/agentkit/protocol";
@@ -1699,11 +1700,35 @@ export interface ThreadQueuedMessageMutationResult {
   message?: QueuedMessage;
   claimedMessage?: QueuedMessage;
   claimBusy?: boolean;
+  submissionExpired?: boolean;
   promotionBusy?: boolean;
   released?: boolean;
 }
 
 const QUEUED_MESSAGE_CLAIM_TTL_MS = 60_000;
+
+function queuedSubmissionExpired(message: QueuedMessage, now: number): boolean {
+  const custom = message.metadata?.custom;
+  if (
+    !custom ||
+    typeof custom !== "object" ||
+    Array.isArray(custom) ||
+    !Object.prototype.hasOwnProperty.call(
+      custom,
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+    )
+  ) {
+    return false;
+  }
+  const expiresAt = (custom as Record<string, unknown>)[
+    AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY
+  ];
+  return (
+    typeof expiresAt !== "number" ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= now
+  );
+}
 
 /** Applies a queue operation to the latest durable thread state on every CAS retry. */
 export async function mutateThreadQueuedMessages(
@@ -1770,6 +1795,10 @@ export async function mutateThreadQueuedMessages(
 
         switch (mutation.type) {
           case "append": {
+            if (queuedSubmissionExpired(mutation.message, Date.now())) {
+              response = { submissionExpired: true };
+              break;
+            }
             const existing = current.find(
               (message) => message.id === mutation.message.id,
             );
@@ -1795,7 +1824,8 @@ export async function mutateThreadQueuedMessages(
             const message = current[index];
             if (
               message?.promotionClaim &&
-              message.promotionClaim.expiresAt > Date.now()
+              message.promotionClaim.expiresAt > Date.now() &&
+              !queuedSubmissionExpired(message, Date.now())
             ) {
               response = { promotionBusy: true };
               break;
@@ -1836,6 +1866,13 @@ export async function mutateThreadQueuedMessages(
             }
             const message = current[index]!;
             const now = Date.now();
+            if (queuedSubmissionExpired(message, now)) {
+              queuedMessages = current.filter(
+                (candidate) => candidate.id !== mutation.messageId,
+              );
+              response = { submissionExpired: true };
+              break;
+            }
             if (
               message.promotionClaim &&
               message.promotionClaim.id !== mutation.claimId &&

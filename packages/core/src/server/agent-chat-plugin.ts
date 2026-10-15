@@ -3911,6 +3911,7 @@ export function createAgentChatPlugin(
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
         queuedMessageClaimId?: string;
+        submissionExpiresAt?: unknown;
         /** The turn was refused before a run started; record why in the thread. */
         failure?: { code: string; message: string };
         /** What a retry of the refused turn sends besides text and attachments. */
@@ -3986,6 +3987,14 @@ export function createAgentChatPlugin(
             turnId: details.turnId,
             agentKitMessageId: details.agentKitMessageId,
             queuedMessageId: details.queuedMessageId,
+            ...(Object.prototype.hasOwnProperty.call(
+              details,
+              "submissionExpiresAt",
+            )
+              ? {
+                  submissionExpiresAt: details.submissionExpiresAt,
+                }
+              : {}),
             ...(details.failure
               ? { refusedRetry: details.retryContext ?? {} }
               : {}),
@@ -4012,6 +4021,7 @@ export function createAgentChatPlugin(
           let submissionFailure:
             | "already_claimed"
             | "claim_expired"
+            | "submission_expired"
             | "invalid_thread_data"
             | undefined;
           await updateThreadData(
@@ -4073,6 +4083,13 @@ export function createAgentChatPlugin(
               data: { code: "run_slot_busy", retryable: true },
             });
           }
+          if (submissionFailure === "submission_expired") {
+            throw createError({
+              statusCode: 409,
+              statusMessage: "Prompt submission expired before it could start",
+              data: { code: "submission_expired", retryable: false },
+            });
+          }
           if (submissionFailure === "invalid_thread_data") {
             throw new TypeError("Agent chat thread data is not valid JSON.");
           }
@@ -4087,6 +4104,7 @@ export function createAgentChatPlugin(
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
         agentKitMessageId?: string;
+        submissionExpiresAt?: unknown;
         retryContext: RefusedTurnRetryContext;
         failure: { code: string; message: string };
       }) => {

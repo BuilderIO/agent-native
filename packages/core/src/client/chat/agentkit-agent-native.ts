@@ -16,6 +16,7 @@ import type {
   TextPart,
 } from "@agent-native/agentkit/protocol";
 import {
+  AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
   agentEventSequenceEnd,
   isAgentKitProtocolVersion,
   parseAgentQueuedMessage,
@@ -3674,6 +3675,7 @@ export function createAgentNativeAgentKitTransport(
     queuedMessages: AgentQueuedMessage[];
     message?: AgentQueuedMessage;
     claimedMessage?: AgentQueuedMessage;
+    submissionExpired?: boolean;
   }> {
     if (mutation.type === "append") {
       assertNoInlineImageBytes(
@@ -3714,6 +3716,7 @@ export function createAgentNativeAgentKitTransport(
       queuedMessages: storedQueue(value.queuedMessages, threadId, now()),
       ...(message ? { message } : {}),
       ...(claimedMessage ? { claimedMessage } : {}),
+      ...(value.submissionExpired === true ? { submissionExpired: true } : {}),
     };
   }
 
@@ -3852,6 +3855,7 @@ export function createAgentNativeAgentKitTransport(
       threadForking: true,
       feedback: true,
       messageQueue: true,
+      [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
       suggestions: true,
       connectionRequests: true,
     },
@@ -3899,6 +3903,12 @@ export function createAgentNativeAgentKitTransport(
           type: "append",
           message,
         });
+        if (result.submissionExpired) {
+          throw Object.assign(
+            new Error("The prompt expired before it could be queued."),
+            { code: "submission_expired", retryable: false },
+          );
+        }
         if (!result.message) {
           throw new TypeError("Agent chat queue mutation omitted its message.");
         }
@@ -3963,6 +3973,10 @@ export function createAgentNativeAgentKitTransport(
           throw error;
         }
         try {
+          if (claim.submissionExpired) {
+            clearPromotionClaimId(threadId, messageId);
+            return { alreadyRemoved: true as const };
+          }
           if (!claim.claimedMessage) {
             throw new TypeError("Agent chat queue claim response is invalid.");
           }
@@ -4027,6 +4041,21 @@ export function createAgentNativeAgentKitTransport(
           clearPromotionClaimId(threadId, messageId);
           return run;
         } catch (error) {
+          if (asRecord(error)?.code === "submission_expired") {
+            try {
+              await persistQueueMutation(threadId, {
+                type: "remove",
+                messageId,
+              });
+            } catch (removeError) {
+              throw new AggregateError(
+                [error, removeError],
+                "An expired queued prompt could not be removed.",
+              );
+            }
+            clearPromotionClaimId(threadId, messageId);
+            return { alreadyRemoved: true as const };
+          }
           try {
             await persistQueueMutation(threadId, {
               type: "release",

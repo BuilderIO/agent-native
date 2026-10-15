@@ -4,7 +4,10 @@ import {
   AgentKitClient,
   AgentKitUploadError,
 } from "@agent-native/agentkit/client";
-import { MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS } from "@agent-native/agentkit/protocol";
+import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
+} from "@agent-native/agentkit/protocol";
 import type {
   AgentInteraction,
   FilePart,
@@ -4625,6 +4628,58 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(stored).not.toContain("data:image");
   });
 
+  it("does not report a deferred retry as submitted if saving passes its deadline", async () => {
+    chatMocks.history = { isRestoring: true };
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const compareAndSet = vi.mocked(compareAndSetClientAppState);
+    const originalCompareAndSet = compareAndSet.getMockImplementation();
+    if (!originalCompareAndSet) {
+      throw new Error("Expected the app-state compare-and-set mock.");
+    }
+    let advancedDeadline = false;
+    compareAndSet.mockImplementation(async (...args) => {
+      const saved = await originalCompareAndSet(...args);
+      if (args[0] === stateKey && args[2] !== null && !advancedDeadline) {
+        advancedDeadline = true;
+        now.mockReturnValue(1_001);
+      }
+      return saved;
+    });
+    const results: CustomEvent[] = [];
+    const listener = (event: Event) => results.push(event as CustomEvent);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+    const ref = createRef<AssistantChatHandle>();
+
+    try {
+      await mount(baseProps(), ref);
+      await expect(
+        ref.current?.sendMessage("Retry the same deck prompt", undefined, {
+          submissionExpiresAt: 1_001,
+          submitMessageId: "deadline-during-save",
+        }),
+      ).resolves.toEqual({
+        status: "rejected",
+        reason: "submission-expired",
+      });
+      expect(chatMocks.appState.has(stateKey)).toBe(false);
+      expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+      expect(results.map((event) => event.detail)).toContainEqual({
+        submitMessageId: "deadline-during-save",
+        delivered: false,
+        reason: "submission-expired",
+      });
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+      compareAndSet.mockImplementation(originalCompareAndSet);
+      now.mockRestore();
+    }
+  });
+
   it("removes an expired deferred submission without dispatching it", async () => {
     const threadId = chatMocks.threadId;
     const encodedThreadId = Array.from(threadId, (character) =>
@@ -6082,6 +6137,41 @@ describe("AgentKitAssistantChat host behavior", () => {
         queuedWhileRunActive: true,
       }),
     );
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps a deadline-bound retry out of the queue and forwards its expiry", async () => {
+    chatMocks.thread.activeRunIds = ["run-1"];
+    const ref = createRef<AssistantChatHandle>();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<AgentKitAssistantChat ref={ref} {...baseProps()} />);
+    });
+    const submissionExpiresAt = Date.now() + 20_000;
+
+    await act(async () => {
+      await expect(
+        ref.current?.sendMessage("Retry the same deck prompt", undefined, {
+          submissionExpiresAt,
+          submitMessageId: "slides-retry",
+        }),
+      ).resolves.toEqual({ status: "submitted" });
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: "Retry the same deck prompt",
+      queuedWhileRunActive: true,
+      queueWhileRunning: false,
+      metadata: {
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+            submissionExpiresAt,
+        },
+      },
+    });
     expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 

@@ -5683,6 +5683,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       capabilities: {
         feedback: true,
         messageQueue: true,
+        "x-agent-native-submission-deadlines": true,
         suggestions: true,
         threadForking: true,
         threadHistory: true,
@@ -9214,6 +9215,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       actions: false,
       feedback: true,
       messageQueue: true,
+      "x-agent-native-submission-deadlines": true,
       resumableRuns: true,
       threadForking: true,
       threadHistory: true,

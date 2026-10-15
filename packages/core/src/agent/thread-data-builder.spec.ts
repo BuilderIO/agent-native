@@ -6071,12 +6071,46 @@ describe("upsertUserMessage", () => {
     expect(result.status).toBe("already_submitted");
     if (
       result.status === "already_claimed" ||
-      result.status === "claim_expired"
+      result.status === "claim_expired" ||
+      result.status === "submission_expired"
     ) {
       throw new Error("Expected an already-submitted result.");
     }
     expect(result.repo.messages).toHaveLength(2);
     expect(result.repo.queuedMessages).toEqual([]);
+  });
+
+  it("rejects deadline-bound prompts that expire before durable submission", () => {
+    const submissionExpiresAt = Date.now() - 1;
+    const direct = applySubmittedUserMessage(
+      {},
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-direct",
+        submissionExpiresAt,
+      }),
+    );
+    expect(direct).toEqual({ status: "submission_expired" });
+
+    const queued = applySubmittedUserMessage(
+      {
+        queuedMessages: [
+          {
+            id: "queued-retry",
+            text: "Retry this deck prompt",
+            promotionClaim: { id: "tab-1", expiresAt: Date.now() + 60_000 },
+          },
+        ],
+      },
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-queued",
+        queuedMessageId: "queued-retry",
+        submissionExpiresAt,
+      }),
+      { id: "queued-retry", claimId: "tab-1" },
+    );
+    expect(queued).toEqual({ status: "submission_expired" });
   });
 
   it("submits a background operation once and reports a later run as already claimed", () => {

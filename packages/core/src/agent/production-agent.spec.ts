@@ -5483,7 +5483,10 @@ describe("createProductionAgentHandler", () => {
                         source: "workspace",
                       },
                     ],
-                    custom: { ignored: "not kept" },
+                    custom: {
+                      ignored: "not kept",
+                      agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+                    },
                   },
                 }),
               }),
@@ -5497,6 +5500,7 @@ describe("createProductionAgentHandler", () => {
         threadId: "thread-unconnected",
         message: "Create a pitch deck",
         attachments: [],
+        submissionExpiresAt: expect.any(Number),
         retryContext: {
           references: [
             {
@@ -6993,6 +6997,11 @@ describe("createProductionAgentHandler", () => {
           message: "Run the queued prompt",
           agentKitMessageId: " message-agentkit-1 ",
           queuedMessageId: " queued-1 ",
+          metadata: {
+            custom: {
+              agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+            },
+          },
         }),
       }),
     );
@@ -7007,6 +7016,7 @@ describe("createProductionAgentHandler", () => {
         message: "Run the queued prompt",
         agentKitMessageId: "message-agentkit-1",
         queuedMessageId: "queued-1",
+        submissionExpiresAt: expect.any(Number),
         turnId: expect.any(String),
       }),
     );

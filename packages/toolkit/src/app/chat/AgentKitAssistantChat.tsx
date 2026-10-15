@@ -3,6 +3,7 @@ import {
   hasActiveAgentRuns,
   selectAgentSuggestions,
   isCurrentAgentSuggestion,
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   splitAgentKitMessageContext,
   type AgentKitUploadDriver,
   type AgentThreadState,
@@ -648,6 +649,10 @@ function isSubmissionExpired(submissionExpiresAt: number | undefined): boolean {
     submissionExpiresAt !== undefined &&
     (!Number.isFinite(submissionExpiresAt) || submissionExpiresAt <= Date.now())
   );
+}
+
+function isSubmissionExpiredError(error: unknown): boolean {
+  return asRecord(error)?.code === "submission_expired";
 }
 
 interface PendingProviderSubmission {
@@ -3550,6 +3555,12 @@ const AgentKitAssistantChatBody = forwardRef<
             : props.selectedAgent;
         const actionScope = options.actionScope ?? contextScope;
         const customMetadata = {
+          ...(typeof options.submissionExpiresAt === "number"
+            ? {
+                [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+                  options.submissionExpiresAt,
+              }
+            : {}),
           ...(options.recoveryAction
             ? { agentNativeRecoveryAction: options.recoveryAction }
             : {}),
@@ -3610,6 +3621,12 @@ const AgentKitAssistantChatBody = forwardRef<
           requestMode,
         };
         if (!queuedMessageReservationId) localSubmissionRef.current = true;
+        if (isSubmissionExpired(options.submissionExpiresAt)) {
+          throw Object.assign(
+            new Error("The prompt expired before it could be sent."),
+            { code: "submission_expired", retryable: false },
+          );
+        }
         await control.sendMessage({
           text: message,
           attachments: fileParts,
@@ -3617,6 +3634,9 @@ const AgentKitAssistantChatBody = forwardRef<
           queuedWhileRunActive:
             composerOptions.queuedWhileRunActive ||
             composerOptions.intent === "queued",
+          ...(options.submissionExpiresAt !== undefined
+            ? { queueWhileRunning: false }
+            : {}),
           interruptActiveRun: composerOptions.steer,
           options: {
             model,
@@ -3784,6 +3804,14 @@ const AgentKitAssistantChatBody = forwardRef<
                 )),
             );
             submittedComposerOptions.validateSubmissionScope?.();
+            if (isSubmissionExpired(options.submissionExpiresAt)) {
+              reportAgentChatSubmitResult(
+                options.submitMessageId,
+                false,
+                "submission-expired",
+              );
+              return { status: "rejected", reason: "submission-expired" };
+            }
             const selectionChangedDuringUpload =
               selectionRevision !== selectionRevisionRef.current;
             const context = options.recoveryAction
@@ -3841,6 +3869,14 @@ const AgentKitAssistantChatBody = forwardRef<
               composerOptions: deferredComposerOptions,
               options: deferredOptions,
             };
+            if (isSubmissionExpired(options.submissionExpiresAt)) {
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "submission-expired",
+              );
+              return { status: "rejected", reason: "submission-expired" };
+            }
             const submissions = await updateDeferredProviderSubmissions(
               threadId,
               (current) =>
@@ -3848,11 +3884,32 @@ const AgentKitAssistantChatBody = forwardRef<
                   ? current
                   : [...current, submission],
             );
+            if (isSubmissionExpired(options.submissionExpiresAt)) {
+              pendingProviderSubmissionsRef.current =
+                await updateDeferredProviderSubmissions(threadId, (current) =>
+                  current.filter(({ id }) => id !== submission.id),
+                );
+              setPendingProviderSubmissionVersion((version) => version + 1);
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "submission-expired",
+              );
+              return { status: "rejected", reason: "submission-expired" };
+            }
             pendingProviderSubmissionsRef.current = submissions;
             setDeferredSubmissionsLoadedThread(threadId);
             reportAgentChatSubmitResult(submitMessageId, true);
             return { status: "submitted" };
           } catch (error) {
+            if (isSubmissionExpiredError(error)) {
+              reportAgentChatSubmitResult(
+                options.submitMessageId,
+                false,
+                "submission-expired",
+              );
+              return { status: "rejected", reason: "submission-expired" };
+            }
             reportAgentChatSubmitResult(
               options.submitMessageId,
               false,
@@ -3899,6 +3956,14 @@ const AgentKitAssistantChatBody = forwardRef<
         );
         return { status: "submitted" };
       } catch (error) {
+        if (isSubmissionExpiredError(error)) {
+          reportAgentChatSubmitResult(
+            options.submitMessageId,
+            false,
+            "submission-expired",
+          );
+          return { status: "rejected", reason: "submission-expired" };
+        }
         reportAgentChatSubmitResult(
           options.submitMessageId,
           false,
@@ -4422,6 +4487,29 @@ const AgentKitAssistantChatBody = forwardRef<
         setDeferredProviderSubmissionFailureId(null);
         setPendingProviderSubmissionVersion((version) => version + 1);
       } catch (error) {
+        if (isSubmissionExpiredError(error)) {
+          const submissions = await updateDeferredProviderSubmissions(
+            threadId,
+            (current) =>
+              current.filter(
+                (candidate) =>
+                  candidate.id !== submission.id ||
+                  !claimToken ||
+                  candidate.claim?.token !== claimToken,
+              ),
+          );
+          pendingProviderSubmissionsRef.current = submissions;
+          reportAgentChatSubmitResult(
+            submission.id,
+            false,
+            "submission-expired",
+          );
+          if (active) {
+            setDeferredProviderSubmissionFailureId(null);
+            setPendingProviderSubmissionVersion((version) => version + 1);
+          }
+          return;
+        }
         let snapshotReadFailed = false;
         const latestThread = await props
           .getThreadSnapshot(threadId)
@@ -7423,6 +7511,9 @@ const ATTACHMENT_UNREADABLE_SUBMIT_REASON = "attachment-unreadable";
 
 function submitFailureReason(error: unknown): string {
   const record = asRecord(error);
+  if (record?.code === "submission_expired") {
+    return "submission-expired";
+  }
   if (record?.code === ATTACHMENT_UNREADABLE_SUBMIT_REASON) {
     return ATTACHMENT_UNREADABLE_SUBMIT_REASON;
   }

@@ -1,6 +1,7 @@
 ---
+"@agent-native/agentkit": patch
 "@agent-native/core": patch
 "@agent-native/toolkit": patch
 ---
 
-Expire queued chat submissions when their retry window closes, so Slides cannot start a delayed retry after making it available again.
+Expire queued chat submissions when their retry window closes, and require peer support before sending deadline-bound retries.

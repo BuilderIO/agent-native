@@ -39,6 +39,8 @@ import type {
 import {
   AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
   AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
   AgentProtocolValidationError,
   AgentKitProtocolError,
   agentEventSequenceEnd,
@@ -273,6 +275,35 @@ function selectedEngineForDispatch(input: {
 }): string | undefined {
   const engine = input.metadata?.engine ?? input.options?.metadata?.engine;
   return typeof engine === "string" ? engine : undefined;
+}
+
+function submissionExpiresAt(
+  metadata?: Record<string, unknown>,
+): number | undefined {
+  const custom = metadataRecord(metadata?.custom);
+  if (
+    !custom ||
+    !Object.prototype.hasOwnProperty.call(
+      custom,
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+    )
+  ) {
+    return undefined;
+  }
+  const value = custom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY];
+  return typeof value === "number" ? value : Number.NaN;
+}
+
+function assertSubmissionNotExpired(submissionExpiresAt: number | undefined) {
+  if (
+    submissionExpiresAt !== undefined &&
+    (!Number.isFinite(submissionExpiresAt) || submissionExpiresAt <= Date.now())
+  ) {
+    throw Object.assign(
+      new Error("The prompt expired before it could be sent."),
+      { code: "submission_expired", retryable: false },
+    );
+  }
 }
 
 function sameQueuedMessageIds(
@@ -2871,10 +2902,16 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<AgentRunHandle> {
     this.assertActive();
+    const expiresAt = submissionExpiresAt(input.metadata);
+    assertSubmissionNotExpired(expiresAt);
     const requestContext = this.createRequestContext(context);
+    if (expiresAt !== undefined) {
+      await this.requireSubmissionDeadlinesCapability(requestContext);
+    }
     const current = this.getThread(input.threadId);
     const activeRunId = current.activeRunIds.at(-1);
     if (
+      expiresAt === undefined &&
       (input.queueWhileRunning !== false || input.interruptActiveRun) &&
       activeRunId &&
       hasActiveAgentRuns(current) &&
@@ -2918,6 +2955,7 @@ export class AgentKitClient implements AgentKitController {
     if (input.options?.toolChoice) {
       await this.requireCapability("toolSelection", requestContext);
     }
+    assertSubmissionNotExpired(expiresAt);
     this.assertActive();
     if (input.queuedMessageReservationId) {
       this.cancelQueuedMessageReservation(
@@ -2948,8 +2986,9 @@ export class AgentKitClient implements AgentKitController {
         [...currentAfterReadiness.messages, message],
         orderedThreadToolCalls(currentAfterReadiness),
       );
-      const result = await this.invokeRequest(requestContext, (context) =>
-        this.transport.startRun(
+      const result = await this.invokeRequest(requestContext, (context) => {
+        assertSubmissionNotExpired(expiresAt);
+        return this.transport.startRun(
           {
             threadId: input.threadId,
             messages,
@@ -2960,8 +2999,8 @@ export class AgentKitClient implements AgentKitController {
             metadata: input.metadata,
           },
           context,
-        ),
-      );
+        );
+      });
       this.assertActive();
       if (result.capabilities) {
         this.patch({
@@ -2985,6 +3024,7 @@ export class AgentKitClient implements AgentKitController {
       if (this.disposed) throw error;
       if (
         isAgentKitRunSlotBusyError(error) &&
+        expiresAt === undefined &&
         (input.queueWhileRunning !== false || input.interruptActiveRun)
       ) {
         try {
@@ -3604,11 +3644,16 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessage> {
     this.assertActive();
+    const expiresAt = submissionExpiresAt(input.metadata);
+    assertSubmissionNotExpired(expiresAt);
     const threadAtSubmit = this.getThread(input.threadId);
     const runWasActive =
       input.queuedWhileRunActive || hasActiveAgentRuns(threadAtSubmit);
     const runIdsBeforeWrite = new Set(Object.keys(threadAtSubmit.runs));
     const requestContext = this.createRequestContext(context);
+    if (expiresAt !== undefined) {
+      await this.requireSubmissionDeadlinesCapability(requestContext);
+    }
     const queueMessage = this.transport.queueMessage;
     let reservedMessage = input.queuedMessageReservationId
       ? threadAtSubmit.queuedMessages.find(
@@ -3777,8 +3822,9 @@ export class AgentKitClient implements AgentKitController {
           }
         }
         input.validateBeforeQueue?.();
-        const result = await this.invokeRequest(requestContext, (context) =>
-          queueMessage(
+        const result = await this.invokeRequest(requestContext, (context) => {
+          assertSubmissionNotExpired(expiresAt);
+          return queueMessage(
             {
               threadId: input.threadId,
               id: optimisticMessage.id,
@@ -3789,8 +3835,8 @@ export class AgentKitClient implements AgentKitController {
               options: input.options,
             },
             context,
-          ),
-        );
+          );
+        });
         this.assertActive();
         this.queuedMessageReservationIds.delete(optimisticMessage.id);
         this.pendingQueueMessageIds.delete(optimisticMessage.id);
@@ -5519,6 +5565,17 @@ export class AgentKitClient implements AgentKitController {
       );
     }
     if (capabilities[capability] === false) {
+      throw new AgentKitCapabilityError(capability);
+    }
+  }
+
+  private async requireSubmissionDeadlinesCapability(
+    context: AgentRequestContext,
+  ): Promise<void> {
+    const capability = AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID;
+    await this.requireCapability(capability, context);
+    const capabilities = await this.ensureCapabilities(context);
+    if (capabilities[capability] !== true) {
       throw new AgentKitCapabilityError(capability);
     }
   }
