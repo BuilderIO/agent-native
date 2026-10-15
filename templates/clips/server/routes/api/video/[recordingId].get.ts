@@ -6,7 +6,8 @@
  * `recording-blob-:id` and points `recordings.video_url` at this route.
  *
  * Production fallback: the editor can also hit this route as an authenticated
- * media proxy for provider-hosted URLs (Builder.io / R2 / S3). This keeps
+ * media proxy for provider-hosted URLs (Builder.io / S3-compatible storage,
+ * including GCS interop for hosted trial clips). This keeps
  * browser-only consumers such as Web Audio waveform decoding from being blocked
  * by cross-origin CDN fetches.
  *
