@@ -2558,6 +2558,7 @@ const messages = {
     auditLog: "審計記錄",
     doctorCodeChecks: "Doctor（程式碼檢查）",
     observability: "可觀測性",
+    recorder: "記錄器",
     observationalMemory: "觀測記憶",
     ciEvalGate: "CI 評測門禁",
     usingYourAgentOverview: "概覽",

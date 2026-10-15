@@ -1245,6 +1245,16 @@ export const migrations = runMigrations(
     },
     {
       version: 86,
+      name: "recording-browser-diagnostics-app-activity",
+      // Additive. Mirrors `appActivitySummaryJson` and `appActivityBlobJson`
+      // in server/db/schema.ts.
+      sql: [
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_summary_json TEXT`,
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_blob_json TEXT`,
+      ].join("; "),
+    },
+    {
+      version: 87,
       name: "clips-hosted-clip-allowances",
       sql: `CREATE TABLE IF NOT EXISTS clips_hosted_clip_allowances (
         recording_id TEXT PRIMARY KEY,
@@ -1268,7 +1278,7 @@ export const migrations = runMigrations(
         ON clips_hosted_clip_allowances (created_at)`,
     },
     {
-      version: 87,
+      version: 88,
       name: "clips-recording-storage-mode",
       sql: `ALTER TABLE recordings
         ADD COLUMN IF NOT EXISTS storage_mode TEXT

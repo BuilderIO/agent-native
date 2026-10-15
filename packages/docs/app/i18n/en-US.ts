@@ -2615,6 +2615,7 @@ const enUS = {
     auditLog: "Audit Log",
     doctorCodeChecks: "Doctor (Code Checks)",
     observability: "Observability",
+    recorder: "Recorder",
     observationalMemory: "Observational Memory",
     ciEvalGate: "CI Eval Gate",
     usingYourAgentOverview: "Overview",

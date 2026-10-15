@@ -3111,6 +3111,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "{{name}} を接続",
   "settingsSubAgents.close": "閉じる",
   "observability.insights.rawTrace": "生のトレース（すべてのスパンと入出力）",
+  "reportProblem.menuItem": "問題を報告",
+  "reportProblem.title_other":
+    "過去 {{count}} 秒間のアプリの動作を添付しますか？",
+  "reportProblem.noEvents": "まだ記録はありません。",
+  "reportProblem.send": "エージェントに送信",
+  "reportProblem.copy": "問題レポートをコピー",
+  "reportProblem.attaching": "添付中…",
+  "reportProblem.notAttached": "レポートは添付されませんでした。",
+  "reportProblem.agentMessage":
+    "アプリで問題が発生しました。添付の問題レポートをもとに、何が起きたのか説明してください。",
 };
 
 export default messages;

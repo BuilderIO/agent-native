@@ -73,8 +73,9 @@ pub async fn rewind_capture_suspension_acquire(
                 suspended_rewind: false,
             });
         }
-        SUSPENSION_ACTIVE.store(true, Ordering::Release);
-        if let Err(error) = crate::screen_memory::suspend_physical_capture(&app) {
+        if let Err(error) = crate::screen_memory::suspend_physical_capture(&app, || {
+            SUSPENSION_ACTIVE.store(true, Ordering::Release);
+        }) {
             SUSPENSION_ACTIVE.store(false, Ordering::Release);
             return Err(error);
         }
