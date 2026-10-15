@@ -51,7 +51,7 @@ if(window[externalEmbedKey]){
 if(!window[exhaustedKey]){
 const detail={reason:"external-embed"};
 window[exhaustedKey]=detail;
-try{window.dispatchEvent(new CustomEvent(exhaustedEvent,{detail}));}catch{}
+if(typeof window.dispatchEvent==="function"&&typeof CustomEvent==="function")window.dispatchEvent(new CustomEvent(exhaustedEvent,{detail}));
 }
 return;
 }
