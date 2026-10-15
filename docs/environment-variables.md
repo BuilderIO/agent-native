@@ -359,11 +359,13 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | `BETA_E2E_GLOBAL_TIMEOUT_MINUTES` | Whole minutes for Playwright's `globalTimeout`, setup included. The workflow sets it a few minutes under each job's `timeout-minutes` so a hung run ends with a report instead of a cancelled job. Defaults to 20 in CI; ignored locally. |
 | `SHARD_SELECTED`                  | Set per authenticated shard by the workflow: whether the shard's app is in the run's app selection. Workflow-internal; gates the shard's steps.                                                                                           |
 
-### Beta signup database-isolation gate
+#### Scheduled Signup E2E isolation gate
 
-| Repository variable       | Purpose                                                                                                                                               |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETA_DATABASES_ISOLATED` | Set to `true` only after every Beta app runtime and migration database is verified isolated from production; gates unattended Beta signup E2E writes. |
+| Repository variable       | Purpose                                                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `BETA_DATABASES_ISOLATED` | Gates only scheduled Signup E2E. Set to `true` after its Beta runtime and migration databases are isolated from production; it does not control the manual-only Signup agent review. |
+
+### Scheduled workflow reporters
 
 The scheduled `Beta E2E (scheduled)` workflow reports through
 `scripts/beta-e2e-digest.ts`. The Beta, production-health, and signup reporters
