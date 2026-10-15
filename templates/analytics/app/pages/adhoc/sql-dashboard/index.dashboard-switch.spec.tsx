@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, type ReactNode } from "react";
+import { act, useLayoutEffect, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   MemoryRouter,
@@ -34,6 +34,8 @@ const mocks = vi.hoisted(() => ({
     args: Record<string, unknown>,
   ) => Promise<unknown>,
   cardRenders: [] as CardRender[],
+  editorRenders: [] as { open: boolean; dashboardId: string }[],
+  submitEditorOn: null as string | null,
   session: { email: "viewer@example.com" },
   noop: () => {},
   mutation: { mutateAsync: async () => ({}), isPending: false },
@@ -155,29 +157,39 @@ vi.mock("./EmailReportDialog", () => ({
 
 vi.mock("./PanelEditorDialog", () => ({
   AddPanelPopover: ({ children }: { children: ReactNode }) => <>{children}</>,
-  PanelEditorDialog: ({
+  PanelEditorDialog: function PanelEditorDialog({
     open,
     panel,
     onSave,
+    dashboardId,
   }: {
     open: boolean;
     panel: SqlPanel | null;
     onSave: (panel: SqlPanel) => Promise<void>;
-  }) =>
-    open ? (
+    dashboardId: string;
+  }) {
+    mocks.editorRenders.push({ open, dashboardId });
+    const save = () => {
+      if (panel) {
+        void onSave({ ...panel, title: `${panel.title} edited` }).catch(
+          mocks.noop,
+        );
+      }
+    };
+    // A layout effect runs after the commit and before the page's effects,
+    // like a click that lands before the route reset.
+    useLayoutEffect(() => {
+      if (open && dashboardId === mocks.submitEditorOn) {
+        mocks.submitEditorOn = null;
+        save();
+      }
+    });
+    return open ? (
       <div data-testid="panel-editor" data-panel-id={panel?.id ?? ""}>
-        <button
-          data-testid="panel-editor-save"
-          onClick={() => {
-            if (panel) {
-              void onSave({ ...panel, title: `${panel.title} edited` }).catch(
-                mocks.noop,
-              );
-            }
-          }}
-        />
+        <button data-testid="panel-editor-save" onClick={save} />
       </div>
-    ) : null,
+    ) : null;
+  },
 }));
 
 // The real card hook keeps the personal widths; only the chart is replaced.
@@ -306,6 +318,8 @@ describe("SqlDashboardPage dashboard switch", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     window.localStorage.clear();
     mocks.cardRenders = [];
+    mocks.editorRenders = [];
+    mocks.submitEditorOn = null;
     mocks.saveDashboard = async () => ({});
     mocks.dashboards = {
       "dash-a": dashboardRecord("Dashboard A", [tablePanel("Accounts A", 200)]),
@@ -327,17 +341,25 @@ describe("SqlDashboardPage dashboard switch", () => {
     vi.unstubAllGlobals();
   });
 
-  it("closes a panel editor opened on one dashboard when the route moves to another", async () => {
+  it("never shows or saves a panel editor opened on one dashboard on the next", async () => {
+    const savedTo: unknown[] = [];
+    mocks.saveDashboard = async (args) => {
+      savedTo.push(args.dashboardId);
+      return {};
+    };
     await renderAt("/dashboards/dash-a");
     await click("edit-shared-table");
-    expect(byTestId("panel-editor")?.getAttribute("data-panel-id")).toBe(
-      "shared-table",
-    );
+    expect(byTestId("panel-editor")).not.toBeNull();
 
+    mocks.submitEditorOn = "dash-b";
     await goTo("/dashboards/dash-b");
 
+    expect(savedTo).not.toContain("dash-b");
+    expect(mocks.editorRenders).not.toContainEqual({
+      open: true,
+      dashboardId: "dash-b",
+    });
     expect(container.textContent).toContain("Accounts B");
-    expect(byTestId("panel-editor")).toBeNull();
   });
 
   it("closes report settings opened on one dashboard when the route moves to another", async () => {
