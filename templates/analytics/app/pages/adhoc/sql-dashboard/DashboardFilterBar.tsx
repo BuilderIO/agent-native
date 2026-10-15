@@ -699,33 +699,32 @@ function MultiSelectFilter({
                     saveGroup();
                   }}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <Input
-                      size="sm"
-                      autoFocus
-                      value={groupName}
-                      onChange={(event) => setGroupName(event.target.value)}
-                      placeholder={t("sqlDashboard.groupName")}
-                      aria-label={t("sqlDashboard.groupName")}
-                      aria-invalid={groupNameTaken}
-                      className="min-w-0 flex-1"
-                    />
-                    <Button
-                      type="submit"
-                      size="sm"
-                      className="shrink-0"
-                      disabled={!trimmedGroupName || groupNameTaken}
-                    >
-                      {shared
-                        ? t("sqlDashboard.saveForEveryone")
-                        : t("explorer.save")}
-                    </Button>
-                  </div>
+                  {/* The name gets the full width: beside "Save for everyone"
+                      (longer still in most locales) it would scroll out of view. */}
+                  <Input
+                    size="sm"
+                    autoFocus
+                    value={groupName}
+                    onChange={(event) => setGroupName(event.target.value)}
+                    placeholder={t("sqlDashboard.groupName")}
+                    aria-label={t("sqlDashboard.groupName")}
+                    aria-invalid={groupNameTaken}
+                  />
                   {groupNameTaken && (
                     <p role="alert" className="px-1 text-xs text-destructive">
                       {t("sqlDashboard.groupNameTaken")}
                     </p>
                   )}
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="self-end"
+                    disabled={!trimmedGroupName || groupNameTaken}
+                  >
+                    {shared
+                      ? t("sqlDashboard.saveForEveryone")
+                      : t("explorer.save")}
+                  </Button>
                 </form>
               ) : (
                 <Button
