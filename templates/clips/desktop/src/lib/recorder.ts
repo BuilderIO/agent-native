@@ -3077,7 +3077,11 @@ async function tryStartRewindFullscreenRecording(
         const activationStarted = performance.now();
         const startPromise =
           invoke<RewindClipBackendStatus>("rewind_clip_start");
-        params.onCaptureStartRequested?.(preparedRecording.id || null);
+        if (localOnly) {
+          params.onCaptureStartRequested?.(null, preparedRecording.id || null);
+        } else {
+          params.onCaptureStartRequested?.(preparedRecording.id || null);
+        }
         await guardRecordingStart(startPromise, { signal: params.signal });
         console.log(
           `[rewind-latency] countdown completion to start acknowledgement ${Math.round(performance.now() - activationStarted)}ms`,
@@ -4300,7 +4304,10 @@ export async function startRecording(
             recordingId,
             startedAt,
             includeMicrophone: params.micOn,
-            includeSystemAudio: params.systemAudioOn !== false,
+            includeSystemAudio: shouldRequestSystemAudio(
+              params.mode !== "camera",
+              params.systemAudioOn,
+            ),
             rememberedAt: startedAt,
           });
         }

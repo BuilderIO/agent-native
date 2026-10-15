@@ -392,6 +392,32 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
+  it("does not remember a local-only Rewind folder as a hosted recording", async () => {
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({
+      ...params,
+      source: "full-screen",
+      localRecordingMode: "composed",
+      lookbackEnabled: true,
+      onCaptureStartRequested,
+    });
+
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    const [recordingId, captureIdentity] =
+      onCaptureStartRequested.mock.calls[0] ?? [];
+
+    expect(recordingId).toBeNull();
+    expect(captureIdentity).toEqual(expect.any(String));
+    expect(getRewindClipOrigin(captureIdentity)).toBeNull();
+
+    await handle.cancel();
+  });
+
   it("starts the full countdown only after a slow overlay has presented", async () => {
     const overlay = deferred<number>();
     nativeCommands.set("show_countdown", async () => {
@@ -1125,7 +1151,7 @@ describe("browser recording startup cancellation", () => {
       mode: "camera",
       cameraOn: true,
       micOn: false,
-      systemAudioOn: false,
+      systemAudioOn: true,
       lookbackEnabled: true,
     });
     await vi.advanceTimersByTimeAsync(3_600);
