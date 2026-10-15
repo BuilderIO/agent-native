@@ -194,6 +194,7 @@ import {
   DEFAULT_DASHBOARD_COLUMNS,
   type DashboardCertification,
   type DashboardFilter,
+  type FilterPreset,
   type SqlDashboardConfig,
   type SqlPanel,
   type TableColumnConfig,
@@ -1680,6 +1681,26 @@ function SqlDashboardPageContent({
     setEditingName(false);
   }, [dashboard, nameInput, persist]);
 
+  const handleSaveFilterPreset = useCallback(
+    (filterId: string, preset: FilterPreset) => {
+      if (!dashboard?.filters) return;
+      persist({
+        ...dashboard,
+        filters: dashboard.filters.map((filter) =>
+          filter.id === filterId
+            ? { ...filter, presets: [...(filter.presets ?? []), preset] }
+            : filter,
+        ),
+      });
+      trackEvent("dashboard_filter_preset_saved", {
+        app_name: "analytics",
+        template_name: "analytics",
+        value_count: preset.values.length,
+      });
+    },
+    [dashboard, persist],
+  );
+
   const handleSaveDescription = useCallback(() => {
     if (!dashboard) return;
     const description = descriptionInput.trim();
@@ -2706,6 +2727,8 @@ function SqlDashboardPageContent({
             filters={dashboard.filters}
             defaultView={defaultView}
             onSaveView={canEdit ? handleSaveView : undefined}
+            onSavePreset={editing ? handleSaveFilterPreset : undefined}
+            shared={dashboardShared}
           />
         )}
 

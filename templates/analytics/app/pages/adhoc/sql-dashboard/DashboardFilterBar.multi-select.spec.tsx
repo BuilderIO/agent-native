@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,6 +36,7 @@ function SearchProbe() {
 function render(
   initialEntry = "/dashboards/test",
   list: DashboardFilter[] = filters,
+  props: Partial<ComponentProps<typeof DashboardFilterBar>> = {},
 ) {
   act(() => {
     root.render(
@@ -45,7 +46,7 @@ function render(
         persistPreference={false}
       >
         <MemoryRouter initialEntries={[initialEntry]}>
-          <DashboardFilterBar filters={list} />
+          <DashboardFilterBar filters={list} {...props} />
           <SearchProbe />
         </MemoryRouter>
       </AgentNativeI18nProvider>,
@@ -111,7 +112,10 @@ function searchInput(): HTMLInputElement {
 }
 
 function setSearchQuery(value: string) {
-  const input = searchInput();
+  typeInto(searchInput(), value);
+}
+
+function typeInto(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
     "value",
@@ -427,6 +431,106 @@ describe("multi-select dashboard filter", () => {
 
       expect(popover().querySelector('[role="group"]')).toBeNull();
       expect(optionLabel("Free")).toBeTruthy();
+    });
+  });
+
+  describe("Save as group", () => {
+    const withPreset: DashboardFilter[] = [
+      {
+        ...filters[0],
+        presets: [{ label: "Paid", values: ["self_serve", "enterprise"] }],
+      },
+    ];
+
+    function groupNameInput(): HTMLInputElement {
+      const input = popover().querySelector<HTMLInputElement>(
+        'input[aria-label="Group name"]',
+      );
+      if (!input) throw new Error("group name input not rendered");
+      return input;
+    }
+
+    it("is not offered in view mode, where no save changes the dashboard", () => {
+      render("/dashboards/test?f_plan=free,enterprise", withPreset);
+      act(() => trigger().click());
+
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+    });
+
+    it("appears only for two or more checked values that are not all values and match no preset", () => {
+      render("/dashboards/test?f_plan=free", withPreset, {
+        onSavePreset: vi.fn(),
+      });
+      act(() => trigger().click());
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+
+      act(() => optionCheckbox("Enterprise").click());
+      expect(popoverButton("Save as group…")).toBeTruthy();
+
+      act(() => optionCheckbox("Self-Serve").click());
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+
+      act(() => optionCheckbox("Free").click());
+      expect(trigger().textContent).toContain("Paid");
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+    });
+
+    it("saves the checked values in option order under the typed name", () => {
+      const onSavePreset = vi.fn();
+      render("/dashboards/test?f_plan=enterprise,free", withPreset, {
+        onSavePreset,
+      });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "  Mixed  ");
+      act(() => popoverButton("Save").click());
+
+      expect(onSavePreset).toHaveBeenCalledWith("plan", {
+        label: "Mixed",
+        values: ["free", "enterprise"],
+      });
+      expect(() => groupNameInput()).toThrow("not rendered");
+    });
+
+    it("says Save for everyone on a shared dashboard and refuses a name already in use", () => {
+      const onSavePreset = vi.fn();
+      render("/dashboards/test?f_plan=enterprise,free", withPreset, {
+        onSavePreset,
+        shared: true,
+      });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Paid");
+
+      const save = popoverButton("Save for everyone");
+      expect(save.disabled).toBe(true);
+      expect(groupNameInput().getAttribute("aria-invalid")).toBe("true");
+      expect(popover().querySelector('[role="alert"]')?.textContent).toBe(
+        "A group with this name already exists",
+      );
+      act(() => save.click());
+      expect(onSavePreset).not.toHaveBeenCalled();
+    });
+
+    it("backs out of naming on Escape and keeps the dropdown open", () => {
+      render("/dashboards/test?f_plan=enterprise,free", withPreset, {
+        onSavePreset: vi.fn(),
+      });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      act(() => {
+        groupNameInput().dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+
+      expect(popover()).toBeTruthy();
+      expect(() => groupNameInput()).toThrow("not rendered");
+      expect(document.activeElement).toBe(popoverButton("Save as group…"));
     });
   });
 });
