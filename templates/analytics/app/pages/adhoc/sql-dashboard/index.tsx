@@ -1687,7 +1687,14 @@ function SqlDashboardPageContent({
         ...dashboard,
         filters: dashboard.filters.map((filter) =>
           filter.id === filterId
-            ? { ...filter, presets: [...(filter.presets ?? []), preset] }
+            ? {
+                ...filter,
+                // The page reads config unvalidated, and the filter bar already
+                // skips a hand-edited `presets` that isn't a list.
+                presets: Array.isArray(filter.presets)
+                  ? [...filter.presets, preset]
+                  : [preset],
+              }
             : filter,
         ),
       });
