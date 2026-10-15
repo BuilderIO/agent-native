@@ -141,11 +141,20 @@ describe("buildExtensionHtml", () => {
   it("asks the host to open new-tab web links instead of opening sandboxed popups", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
 
+    // The token is announced with the binding, before extension content runs.
+    expect(html.indexOf("openUrlToken: _openUrlToken")).toBeGreaterThan(-1);
+    expect(html.indexOf("openUrlToken: _openUrlToken")).toBeLessThan(
+      html.indexOf("<div/>"),
+    );
+    // So is the listener for the host's reply.
+    expect(
+      html.indexOf("msg.type === 'agent-native-extension-open-url-ready'"),
+    ).toBeLessThan(html.indexOf("<div/>"));
     expect(html).toContain(
-      "window.parent.postMessage({ type: 'agent-native-extension-open-url', url: url }, '*');",
+      "window.parent.postMessage({ type: 'agent-native-extension-open-url', url: url, token: _openUrlToken }, '*');",
     );
     expect(html).toContain(
-      "document.addEventListener('click', _routeLinkClick);",
+      "if (!_hostOpensLinks || e.defaultPrevented) return;",
     );
     expect(html).toContain(
       "document.addEventListener('auxclick', _routeLinkClick);",
@@ -153,7 +162,6 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain(
       "return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;",
     );
-    expect(html).toContain("window.open = function(href, target, features)");
   });
 
   it("exposes a chat bridge helper to extension code", () => {

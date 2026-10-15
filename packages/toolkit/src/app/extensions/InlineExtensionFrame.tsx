@@ -16,8 +16,10 @@ import {
 import { useExtensionIframeMetaCsp } from "./iframe-display-sources.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 import {
+  announceOpenUrlSupport,
   EXTENSION_OPEN_URL_MESSAGE,
   openExtensionLink,
+  readOpenUrlToken,
 } from "./open-extension-link.js";
 
 const THEME_CSS_VARS = [
@@ -343,6 +345,7 @@ export function InlineExtensionFrame({
     isAuthor: !!providedExtension?.content,
   });
   const bindingLatchedRef = useRef(false);
+  const openUrlTokenRef = useRef<string | null>(null);
   const [fetchedExtension, setFetchedExtension] =
     useState<InlineExtensionDefinition | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -421,6 +424,7 @@ export function InlineExtensionFrame({
       ? { role: "owner", isAuthor: true }
       : { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
+    openUrlTokenRef.current = null;
     hasSubmittedRef.current = false;
     setHasSubmitted(false);
     setHeight(initialHeight);
@@ -472,6 +476,8 @@ export function InlineExtensionFrame({
       if (message.type === "agent-native-extension-binding") {
         if (bindingLatchedRef.current) return;
         bindingLatchedRef.current = true;
+        openUrlTokenRef.current = readOpenUrlToken(message);
+        if (openUrlTokenRef.current) announceOpenUrlSupport(event.source);
         const binding = (message as any).binding ?? {};
         const role = normalizeRole(binding.role);
         bridgeContextRef.current = {
@@ -511,7 +517,7 @@ export function InlineExtensionFrame({
       }
 
       if (message.type === EXTENSION_OPEN_URL_MESSAGE) {
-        openExtensionLink((message as any).url);
+        openExtensionLink(message, openUrlTokenRef.current);
         return;
       }
 

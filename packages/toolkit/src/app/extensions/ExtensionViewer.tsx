@@ -68,8 +68,10 @@ import {
 import { useExtensionIframeMetaCsp } from "./iframe-display-sources.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 import {
+  announceOpenUrlSupport,
   EXTENSION_OPEN_URL_MESSAGE,
   openExtensionLink,
+  readOpenUrlToken,
 } from "./open-extension-link.js";
 
 const THEME_CSS_VARS = [
@@ -741,6 +743,7 @@ export function ExtensionViewer({
     isAuthor: false,
   });
   const bindingLatchedRef = useRef(false);
+  const openUrlTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -782,6 +785,8 @@ export function ExtensionViewer({
       if (message.type === "agent-native-extension-binding") {
         if (bindingLatchedRef.current) return;
         bindingLatchedRef.current = true;
+        openUrlTokenRef.current = readOpenUrlToken(message);
+        if (openUrlTokenRef.current) announceOpenUrlSupport(event.source);
         const binding = message.binding ?? {};
         const role: ExtensionBridgeRole =
           binding.role === "owner" ||
@@ -817,7 +822,7 @@ export function ExtensionViewer({
       }
 
       if (message.type === EXTENSION_OPEN_URL_MESSAGE) {
-        openExtensionLink((message as any).url);
+        openExtensionLink(message, openUrlTokenRef.current);
         return;
       }
 
@@ -1081,6 +1086,7 @@ export function ExtensionViewer({
     setIframeReady(false);
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
+    openUrlTokenRef.current = null;
   }, [extensionId, extension?.updatedAt, refreshKey]);
 
   const startRename = useCallback(() => {

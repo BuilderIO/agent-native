@@ -615,6 +615,19 @@ export function buildExtensionHtml(
 
     var _extensionId = ${extensionIdJson};
     var _extensionBinding = ${bindingJson};
+    // Proves an open-url request comes from this shell document, not from a
+    // page the iframe later navigated to. Announced with the binding below.
+    var _openUrlToken = (function() {
+      try {
+        var bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        return Array.prototype.map.call(bytes, function(b) {
+          return ('0' + b.toString(16)).slice(-2);
+        }).join('');
+      } catch (_) {
+        return String(Math.random()).slice(2) + String(Date.now());
+      }
+    })();
     window.extensionBinding = _extensionBinding;
     // Legacy alias for extension bodies authored before the rename.
     window.toolBinding = _extensionBinding;
@@ -630,10 +643,18 @@ export function buildExtensionHtml(
           type: 'agent-native-extension-binding',
           extensionId: _extensionId,
           binding: _extensionBinding,
+          openUrlToken: _openUrlToken,
         },
         '*',
       );
     } catch (_) {}
+    // Listen for the host's reply here, before extension content can delay it.
+    var _hostOpensLinks = false;
+    window.addEventListener('message', function(event) {
+      if (event.source !== window.parent) return;
+      var msg = event.data;
+      if (msg && msg.type === 'agent-native-extension-open-url-ready') _hostOpensLinks = true;
+    });
     // SECURITY: when the viewer is not the author of this extension, emit a
     // clear console warning. The bridge currently runs every helper with the
     // viewer's session — a malicious shared extension can call any action,
@@ -1118,9 +1139,11 @@ export function buildExtensionHtml(
 	    });
 
 	    // A tab opened from this sandboxed iframe would inherit the sandbox (an
-	    // opaque origin with no cookies), so apps like HubSpot render blank. Ask
-	    // the host to open web links instead: it opens them unsandboxed with
-	    // noopener, so the new tab gets no handle on the host page.
+	    // opaque origin with no cookies), so apps like HubSpot render blank. Once
+	    // the host says it can, ask it to open web links instead: it opens them
+	    // unsandboxed with noopener, so the new tab gets no handle on the host
+	    // page. Without a host (a standalone /render), links behave as before.
+	    // _hostOpensLinks is set next to the binding announcement above.
 	    function _webUrl(href) {
 	      try {
 	        var url = new URL(String(href), document.baseURI);
@@ -1129,17 +1152,27 @@ export function buildExtensionHtml(
 	        return null;
 	      }
 	    }
+	    function _opensNewTab(target) {
+	      if (!target) return false;
+	      if (target === '_blank') return true;
+	      if (target.charAt(0) === '_') return false;
+	      // A named target opens a new tab unless it names a frame in this page.
+	      try {
+	        return !document.querySelector('iframe[name="' + CSS.escape(target) + '"]');
+	      } catch (e) {
+	        return false;
+	      }
+	    }
 	    function _openInHost(url) {
-	      window.parent.postMessage({ type: 'agent-native-extension-open-url', url: url }, '*');
+	      window.parent.postMessage({ type: 'agent-native-extension-open-url', url: url, token: _openUrlToken }, '*');
 	    }
 	    function _routeLinkClick(e) {
-	      if (e.defaultPrevented) return;
+	      if (!_hostOpensLinks || e.defaultPrevented) return;
 	      var el = e.target && e.target.closest ? e.target.closest('a[href]') : null;
 	      if (!el) return;
-	      var target = (el.getAttribute('target') || '').toLowerCase();
 	      var newTab = e.type === 'auxclick'
 	        ? e.button === 1
-	        : (target && target !== '_self') || e.metaKey || e.ctrlKey || e.shiftKey;
+	        : _opensNewTab(el.getAttribute('target') || '') || e.metaKey || e.ctrlKey || e.shiftKey;
 	      if (!newTab) return;
 	      var url = _webUrl(el.href);
 	      if (!url) return;
@@ -1150,8 +1183,10 @@ export function buildExtensionHtml(
 	    document.addEventListener('auxclick', _routeLinkClick);
 	    var _origWindowOpen = window.open;
 	    window.open = function(href, target, features) {
-	      var url = href === undefined || href === '' ? null : _webUrl(href);
-	      if (!url || target === '_self') return _origWindowOpen.apply(window, arguments);
+	      var url = !_hostOpensLinks || href === undefined || href === '' ? null : _webUrl(href);
+	      if (!url || (target !== undefined && target !== '' && !_opensNewTab(String(target)))) {
+	        return _origWindowOpen.apply(window, arguments);
+	      }
 	      _openInHost(url);
 	      return null;
 	    };

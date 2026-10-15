@@ -45,8 +45,10 @@ import {
 } from "./iframe-bridge.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 import {
+  announceOpenUrlSupport,
   EXTENSION_OPEN_URL_MESSAGE,
   openExtensionLink,
+  readOpenUrlToken,
 } from "./open-extension-link.js";
 
 interface Extension {
@@ -139,6 +141,7 @@ export function EmbeddedExtension({
     isAuthor: false,
   });
   const bindingLatchedRef = useRef(false);
+  const openUrlTokenRef = useRef<string | null>(null);
   const extensionRef = useRef(null as null | Extension);
 
   useEffect(() => {
@@ -205,6 +208,7 @@ export function EmbeddedExtension({
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
+    openUrlTokenRef.current = null;
     readyFiredRef.current = false;
   }, [extensionId, extension?.updatedAt]);
 
@@ -241,6 +245,8 @@ export function EmbeddedExtension({
       if (message.type === "agent-native-extension-binding") {
         if (bindingLatchedRef.current) return;
         bindingLatchedRef.current = true;
+        openUrlTokenRef.current = readOpenUrlToken(message);
+        if (openUrlTokenRef.current) announceOpenUrlSupport(event.source);
         const binding = (message as any).binding ?? {};
         const role: ExtensionBridgeRole =
           binding.role === "owner" ||
@@ -272,7 +278,7 @@ export function EmbeddedExtension({
       }
 
       if (message.type === EXTENSION_OPEN_URL_MESSAGE) {
-        openExtensionLink((message as any).url);
+        openExtensionLink(message, openUrlTokenRef.current);
         return;
       }
 
