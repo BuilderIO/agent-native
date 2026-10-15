@@ -1209,6 +1209,7 @@ export function App({
   // The context request for the current recording. It keeps its own target so
   // a later cancel removes the item from the server that created it.
   const lookbackContextRef = useRef<{
+    recordingId: string;
     target: { serverUrl: string; authToken: string };
     item: Promise<RecordingContextItem | null>;
   } | null>(null);
@@ -1898,17 +1899,18 @@ export function App({
         onRequestError(error);
         return null;
       });
-      lookbackContextRef.current = { target, item };
+      lookbackContextRef.current = { recordingId, target, item };
     } catch (error) {
       onRequestError(error);
     }
   }
 
   // A discarded recording must not keep an item that the worker would export.
-  function removeLookbackContext() {
+  function removeLookbackContext(recordingId?: string) {
     const pending = lookbackContextRef.current;
+    if (!pending || (recordingId && pending.recordingId !== recordingId))
+      return;
     lookbackContextRef.current = null;
-    if (!pending) return;
     void pending.item
       .then((item) =>
         item ? removeRecordingContext(pending.target, item.id) : null,
@@ -3918,6 +3920,8 @@ export function App({
               }),
             );
           },
+          onCaptureStartFailed: (recordingId) =>
+            removeLookbackContext(recordingId),
         },
         audioCue,
       );

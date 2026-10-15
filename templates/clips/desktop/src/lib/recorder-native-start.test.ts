@@ -922,16 +922,22 @@ describe("native recording startup", () => {
     nativeCommands.set("native_fullscreen_recording_begin", async () => {
       throw failure;
     });
+    const onCaptureStartFailed = vi.fn();
     const pending = startRecording({
       ...params,
       lookbackEnabled: true,
       micLabel: undefined,
+      onCaptureStartFailed,
     });
     const failed = expect(pending).rejects.toBe(failure);
     await vi.advanceTimersByTimeAsync(3_600);
     await failed;
+    await flush();
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
     expect(getRewindClipOrigin(createdRecordingId())).toBeNull();
+    expect(onCaptureStartFailed).toHaveBeenCalledExactlyOnceWith(
+      createdRecordingId(),
+    );
     expect(calls("native_fullscreen_recording_begin")[0][1]).toMatchObject({
       micDeviceId: params.micId,
       micDeviceLabel: null,
@@ -1539,6 +1545,7 @@ describe("browser recording startup cancellation", () => {
     mocks.transcribe.mockReturnValueOnce(transcription.promise);
     const controller = new AbortController();
     const onCaptureStartRequested = vi.fn();
+    const onCaptureStartFailed = vi.fn();
     const pending = startRecording(
       {
         ...params,
@@ -1548,6 +1555,7 @@ describe("browser recording startup cancellation", () => {
         lookbackEnabled: true,
         signal: controller.signal,
         onCaptureStartRequested,
+        onCaptureStartFailed,
       },
       audioCue,
     );
@@ -1571,6 +1579,7 @@ describe("browser recording startup cancellation", () => {
     transcription.resolve(capture());
     await vi.advanceTimersByTimeAsync(1_000);
     await flush();
+    expect(onCaptureStartFailed).not.toHaveBeenCalled();
 
     const uploads = fetchMock.mock.calls.map(([url, init]) => ({
       url: String(url),

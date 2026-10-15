@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getRecordingContextItem,
   listPendingRecordingContext,
+  removeRecordingContext,
   requestRecordingContext,
 } from "./context-api";
 
@@ -45,6 +46,24 @@ describe("requestRecordingContext", () => {
       endedAt: "2026-10-09T10:00:00.000Z",
       deviceId: "device-1",
     });
+  });
+});
+
+describe("removeRecordingContext", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the context item id to the removal action", async () => {
+    const fetchMock = stubFetch({ id: "ctx1" });
+
+    await removeRecordingContext(target, "ctx1");
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(new URL(String(url)).pathname).toBe(
+      "/_agent-native/actions/remove-recording-context",
+    );
+    expect(JSON.parse(String(init?.body))).toEqual({ id: "ctx1" });
   });
 });
 

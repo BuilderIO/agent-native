@@ -249,6 +249,7 @@ export interface StartParams {
     recordingId: string | null,
     captureIdentity?: string | null,
   ) => void;
+  onCaptureStartFailed?: (recordingId: string) => void;
   onStartupAbortStop?: (
     recordingId: string,
     stopPromise: Promise<RecorderStopResult>,
@@ -4388,15 +4389,24 @@ export async function startRecording(
     return recorderWithRewindOriginLifecycle(started, requestedRecordingId);
   } catch (err) {
     void startPromise.catch(async () => {
-      if (!requestedRecordingId) return;
-      if (startupAbortStop?.recordingId === requestedRecordingId) {
+      const recordingId = requestedRecordingId;
+      if (!recordingId) return;
+      if (startupAbortStop?.recordingId === recordingId) {
         const retained = await startupAbortStop.promise.then(
-          (result) => result.recordingId === requestedRecordingId,
+          (result) => result.recordingId === recordingId,
           () => false,
         );
         if (retained) return;
       }
-      forgetRewindClipOrigin(requestedRecordingId);
+      forgetRewindClipOrigin(recordingId);
+      try {
+        params.onCaptureStartFailed?.(recordingId);
+      } catch (cleanupError) {
+        console.error(
+          "[clips-recorder] failed to clear context after startup failure:",
+          cleanupError,
+        );
+      }
     });
     audioCue.cleanup();
     await boundedCleanup(invoke("hide_recording_chrome"));
