@@ -40,10 +40,116 @@ const useCase = {
 };
 const todaysStack = {
   heading: "Tools today",
-  items: [
-    { tool: "A doc", used_for: "Taking notes", breaks: "Notes get lost" },
-  ],
+  items: [{ text: "**A doc** keeps notes, but they get lost." }],
   in_app: "Keep the notes together.",
+};
+const replacementItems: Record<string, string[]> = {
+  "ai-meeting-notes": [
+    "**Your video call app** holds the meeting, but the notes are whatever someone typed while half-listening.",
+    "**A note-taker, like Granola,** transcribes and summarizes, but meeting notes live apart from your screen recordings and dictations.",
+    "**A shared doc** keeps the notes and decisions, until nobody opens it again and the owners and dates get lost.",
+    "**Email** carries the recap, which someone rewrites from memory.",
+  ],
+  "bug-reports-with-console-logs": [
+    "**A screen recorder, like Loom,** shows what happened on screen, but not the console errors or the failed request behind it.",
+    "**Browser DevTools** has those errors, but you have to copy them out by hand, and it's easy to grab the wrong one.",
+    "**A ticket tracker** holds the write-up, so the video, the logs, and the steps end up in three different places.",
+    "**Your coding agent** only sees what you paste into its chat. It never sees the moment things broke.",
+  ],
+  "crm-and-call-questions": [
+    "**Your CRM's reports** cover the standard pipeline views, but the view you need usually isn't one of them.",
+    "**A spreadsheet export** handles the custom analysis, and it's rebuilt every week.",
+    "**A call recorder** captures what was said, but it sits apart from the deal data.",
+    "**Slides** carry the pipeline review, with charts pasted in by hand.",
+  ],
+  "design-brief-to-prototype": [
+    "**A doc** holds the brief. People agree with it, but they only react once they see something.",
+    "**A design tool** turns the brief into screens, but someone has to draw every screen and state before anyone can click anything.",
+    "**Chat and comment threads** collect the feedback, which lands on screenshots instead of the design itself.",
+  ],
+  "dictate-instead-of-typing": [
+    "**Typing** is the default, so long prompts get shortened, and the detail is what gets cut.",
+    "**Your operating system's built-in dictation** handles quick notes, but it may stumble on product and library names, and there's usually no history to search later.",
+    "**A dictation app, like Wispr Flow,** lets you speak instead of type, but your dictations live in a separate app from your recordings and meeting notes.",
+  ],
+  "find-where-users-drop-off": [
+    "**A product analytics tool, like Amplitude or Mixpanel,** builds the funnel, but only a few people on the team know how.",
+    "**A session replay tool** shows what people actually did, but it's separate from the funnel, so the numbers and the sessions don't line up.",
+    "**A spreadsheet or doc** is how findings get shared, and the screenshot is stale by the next standup.",
+  ],
+  "landing-page-prototypes": [
+    "**Last launch's page** is the usual starting point, so you inherit its structure even when the offer is different.",
+    "**A page builder** is good for building and publishing, but harder to use for comparing directions before you commit.",
+    "**Screenshots in chat** are how review happens, so feedback arrives as a list of comments about spacing.",
+  ],
+  "see-what-your-coding-agent-plans": [
+    "**The terminal** is where the agent's plan shows up, as long text that's easy to skim and approve.",
+    "**A design doc** captures the approach before building, but it's separate from the plan the agent actually follows.",
+    "**A whiteboard or diagram tool** works for sketching the architecture and screens, but the diagram lives somewhere the agent doesn't.",
+  ],
+  "spec-your-coding-agent-builds-from": [
+    "**A doc tool** holds the spec, but your coding agent can't open it.",
+    "**Your agent's prompt** gets chunks of the spec pasted in, and that copy goes stale the moment the doc changes.",
+    "**Chat threads** are where decisions get made, and the spec never hears about them.",
+  ],
+  "startup-kpi-dashboard": [
+    "**Your billing system's export** has the revenue numbers, but someone has to export and paste them every month.",
+    "**A spreadsheet** calculates MRR, churn, and growth, but it's rebuilt by hand and goes stale between updates.",
+    "**A product analytics tool, like Amplitude or Mixpanel,** covers usage and retention, but only a few people know how to query it.",
+    "**ChatGPT with a CSV** can answer questions about the numbers, but every answer starts with uploading the data again.",
+  ],
+  "startup-pitch-deck": [
+    "**A template or last round's deck** is the starting point, so you restyle it by hand and hunt for stale numbers.",
+    "**A spreadsheet** holds the traction and financials, and every number gets pasted into slides by hand.",
+    "**Product screenshots** show the product, but they go stale as the product changes.",
+    "**A general AI chat** can draft the story, but you still build every slide in your brand yourself.",
+  ],
+  "understand-what-your-coding-agent-changed": [
+    "**The diff** is the review, line by line, and the important part is easy to miss.",
+    "**The pull request description** explains what changed, but rarely how the change behaves.",
+    "**A call with whoever made the change** answers questions, but it takes both people's time, and nothing is written down afterward.",
+  ],
+  "weekly-marketing-report": [
+    "**Google Analytics** has traffic and conversions, but its reports rarely match the question you were asked.",
+    "**Your CRM** has leads and pipeline, separate from the traffic numbers.",
+    "**A spreadsheet** is where it all gets combined, and it's rebuilt every week.",
+    "**A doc or slides** is how the report gets shared, and the screenshots go stale.",
+  ],
+  "wireframe-before-agent-builds": [
+    "**A prompt** is where you describe the layout, so the agent guesses at what you meant.",
+    "**A sketch on paper or a whiteboard** shows the layout, but the agent can't see it.",
+    "**A design tool** gives you detailed mockups, which is more than you need before the agent builds a first version.",
+  ],
+};
+const replacementConclusions: Record<string, string> = {
+  "ai-meeting-notes":
+    "In Clips, meetings from your Google Calendar get a transcript, a summary, notes, and action items, in the same searchable library as your recordings.",
+  "bug-reports-with-console-logs":
+    "In Clips, the recording, the transcript, and, with the Chrome extension, the console errors and failed requests sit behind one link that people and agents can both use.",
+  "crm-and-call-questions":
+    "In Analytics, your CRM data and the other GTM sources you connect answer plain-English questions, and the answers live in dashboards the team can share.",
+  "design-brief-to-prototype":
+    "In Design, the brief becomes an interactive prototype, directions sit side by side, and comments pin to the elements they're about.",
+  "dictate-instead-of-typing":
+    "In Clips, dictations, screen recordings, and meetings share one searchable library, and a personal vocabulary helps with your own terms.",
+  "find-where-users-drop-off":
+    "In Analytics, plain-English questions, funnels, dashboards, and session replays are in one app, and the agent writes the queries.",
+  "landing-page-prototypes":
+    "In Design, you compare versions side by side, pin comments to elements, and export the HTML. Publishing is still a separate step.",
+  "see-what-your-coding-agent-plans":
+    "In Plans, the agent's plan comes with diagrams, wireframes, and annotated code, and the agent can read your comments and revise it.",
+  "spec-your-coding-agent-builds-from":
+    "In Content, the spec, the decisions, and the tasks live in pages and databases your coding agent can reach through MCP.",
+  "startup-kpi-dashboard":
+    "In Analytics, you connect your sources, ask in plain English, and keep the answers as dashboards. The agent writes the SQL.",
+  "startup-pitch-deck":
+    "In Slides, the deck is drafted from your brief in your brand, and you edit it slide by slide or with the agent.",
+  "understand-what-your-coding-agent-changed":
+    "In Plans, a visual recap shows the behavior that changed, the files it touched, and annotated code, so you know where to look first.",
+  "weekly-marketing-report":
+    "In Analytics, traffic and pipeline data answer the same plain-English questions, and the report lives in a dashboard instead of a screenshot.",
+  "wireframe-before-agent-builds":
+    "In Plans, the wireframes are part of the agent's plan, so your comments go straight back to the agent that will build the screen.",
 };
 const recipe = {
   id: "sample-recipe",
@@ -134,6 +240,10 @@ describe("campaign content", () => {
             internal: "PRIVATE-STACK",
             items: todaysStack.items.map((item) => ({
               ...item,
+              tool: "PRIVATE-OLD-TOOL",
+              used_for: "PRIVATE-OLD-USE",
+              breaks: "PRIVATE-OLD-BREAKS",
+              unknown: "PRIVATE-UNKNOWN",
               internal: { strategy: "PRIVATE-TOOL" },
             })),
           },
@@ -158,12 +268,18 @@ describe("campaign content", () => {
     { ...todaysStack, items: undefined },
     { ...todaysStack, items: "A doc" },
     { ...todaysStack, items: [null] },
-    ...["tool", "used_for", "breaks"].flatMap((field) =>
-      [undefined, " \t ", 1].map((value) => ({
-        ...todaysStack,
-        items: [{ ...todaysStack.items[0], [field]: value }],
-      })),
-    ),
+    ...[undefined, "", " \t ", null, 1, false, {}, []].map((text) => ({
+      ...todaysStack,
+      items: [{ text }],
+    })),
+    { ...todaysStack, items: ["A doc"] },
+    { ...todaysStack, items: [{ tool: "A doc" }] },
+    {
+      ...todaysStack,
+      items: [
+        { tool: "A doc", used_for: "Taking notes", breaks: "Notes get lost" },
+      ],
+    },
   ])("skips malformed todays_stack explicitly (%#)", (stack) => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const content = parseCampaignContent(
@@ -449,7 +565,18 @@ describe("campaign content", () => {
       ["wireframe-before-agent-builds", "How a screen gets described today", 3],
     ]);
     const slugs = bundled.useCases.map((item) => item.slug);
+    expect(slugs).toEqual(Object.keys(replacementItems));
+    expect(
+      bundled.useCases.find((item) => item.slug === "ai-meeting-notes")
+        ?.next_jobs,
+    ).toEqual(["crm-and-call-questions", "dictate-instead-of-typing"]);
     for (const item of bundled.useCases) {
+      expect(item.todays_stack?.items, item.slug).toEqual(
+        replacementItems[item.slug].map((text) => ({ text })),
+      );
+      expect(item.todays_stack?.in_app, item.slug).toBe(
+        replacementConclusions[item.slug],
+      );
       expect(item.recipes, item.slug).toHaveLength(3);
       expect(
         new Set(item.recipes!.map((recipe) => recipe.id)).size,

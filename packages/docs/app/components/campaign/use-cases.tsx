@@ -302,11 +302,15 @@ export function UseCasePage({
           <ul className="campaign-body m-0 list-disc space-y-[var(--spacing-4)] ps-6">
             {item.todays_stack.items.map(({ text }, index) => (
               <li key={index}>
-                {text.split(/(\*\*[^*]+\*\*)/g).map((part, partIndex) =>
-                  part.startsWith("**") && part.endsWith("**") ? (
-                    <strong key={partIndex}>{part.slice(2, -2)}</strong>
-                  ) : part,
-                )}
+                {text
+                  .split(/(\*\*[^*]+\*\*)/g)
+                  .map((part, partIndex) =>
+                    part.startsWith("**") && part.endsWith("**") ? (
+                      <strong key={partIndex}>{part.slice(2, -2)}</strong>
+                    ) : (
+                      part
+                    ),
+                  )}
               </li>
             ))}
           </ul>
@@ -323,39 +327,62 @@ export function UseCasePage({
           </div>
           <div className="campaign-recipes-grid grid gap-px border-t border-[var(--docs-border)] bg-[var(--docs-border)] md:grid-cols-2 lg:grid-cols-3">
             {item.recipes.map((recipe) => (
-              <article key={recipe.id} className="campaign-recipe-card min-w-0 bg-[var(--b-bg-page)]">
-                <div><CampaignFrequencyTag text={recipe.how_often} /></div>
+              <article
+                key={recipe.id}
+                className="campaign-recipe-card min-w-0 bg-[var(--b-bg-page)]"
+              >
+                <div>
+                  <CampaignFrequencyTag text={recipe.how_often} />
+                </div>
                 <h3 className="campaign-card-title">{recipe.title}</h3>
-                <p className="campaign-body m-0 whitespace-pre-line">{recipe.when}</p>
+                <p className="campaign-body m-0 whitespace-pre-line">
+                  {recipe.when}
+                </p>
                 <dl className="m-0 space-y-[var(--spacing-2)]">
                   <dt className="campaign-label">{t("campaign.recipeDo")}</dt>
-                  <dd className="campaign-body m-0 whitespace-pre-line">{recipe.do}</dd>
+                  <dd className="campaign-body m-0 whitespace-pre-line">
+                    {recipe.do}
+                  </dd>
                 </dl>
                 <div
                   className={`min-w-0 max-w-full overflow-x-auto${recipe.prompt ? "" : " campaign-recipe-empty"}`}
                   aria-hidden={recipe.prompt ? undefined : true}
                 >
-                  {recipe.prompt ? <CodeBlock
-                    code={recipe.prompt}
-                    lang="text"
-                    className="m-0"
-                    onCopySuccess={() => trackEvent("recipe_copy", {
-                      slug: item.slug,
-                      job_id: item.job_id,
-                      recipe_id: recipe.id,
-                    })}
-                  /> : null}
+                  {recipe.prompt ? (
+                    <CodeBlock
+                      code={recipe.prompt}
+                      lang="text"
+                      className="m-0"
+                      onCopySuccess={() =>
+                        trackEvent("recipe_copy", {
+                          slug: item.slug,
+                          job_id: item.job_id,
+                          recipe_id: recipe.id,
+                        })
+                      }
+                    />
+                  ) : null}
                 </div>
                 <dl className="m-0 space-y-[var(--spacing-2)]">
-                  <dt className="campaign-label">{t("campaign.recipeYouGet")}</dt>
-                  <dd className="campaign-body m-0 whitespace-pre-line">{recipe.you_get}</dd>
+                  <dt className="campaign-label">
+                    {t("campaign.recipeYouGet")}
+                  </dt>
+                  <dd className="campaign-body m-0 whitespace-pre-line">
+                    {recipe.you_get}
+                  </dd>
                 </dl>
                 {recipe.save ? (
                   <dl className="campaign-recipe-footer m-0 space-y-[var(--spacing-2)] border-t border-[var(--docs-border)] bg-[var(--b-bg-raised)]">
-                    <dt className="campaign-label">{t("campaign.recipeSave")}</dt>
-                    <dd className="campaign-body m-0 whitespace-pre-line">{recipe.save}</dd>
+                    <dt className="campaign-label">
+                      {t("campaign.recipeSave")}
+                    </dt>
+                    <dd className="campaign-body m-0 whitespace-pre-line">
+                      {recipe.save}
+                    </dd>
                   </dl>
-                ) : <div className="campaign-recipe-empty" aria-hidden="true" />}
+                ) : (
+                  <div className="campaign-recipe-empty" aria-hidden="true" />
+                )}
               </article>
             ))}
           </div>

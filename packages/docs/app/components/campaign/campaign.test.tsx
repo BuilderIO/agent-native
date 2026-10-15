@@ -197,16 +197,8 @@ describe("public campaign frontend", () => {
   const stack = {
     heading: "Test tools you use today",
     items: [
-      {
-        tool: "Test recorder + editor",
-        used_for: "Capture & trim <clips>",
-        breaks: "Copy/paste loses the original context.",
-      },
-      {
-        tool: "Test notes",
-        used_for: "Save the exact wording.",
-        breaks: "The agent cannot see the source.",
-      },
+      { text: "**Test recorder + editor** captures & trims <clips>." },
+      { text: "**Test notes** save the exact wording, but lose the source." },
     ],
     in_app: "Keep the recording, transcript, and next action in one app.",
   };
@@ -229,32 +221,42 @@ describe("public campaign frontend", () => {
         />,
       ),
     );
-    const table = document.querySelector("table")!;
-    expect(table).not.toBeNull();
-    const section = table.closest("section")!;
+    const list = [...document.querySelectorAll("section > ul")].find(
+      (node) =>
+        node.closest("section")?.querySelector("h2")?.textContent ===
+        stack.heading,
+    )!;
+    expect(list).toBeDefined();
+    const section = list.closest("section")!;
     expect(section.querySelector("h2")?.textContent).toBe(stack.heading);
     expect(section.textContent).toContain("What it replaces");
-    expect(
-      [...table.querySelectorAll("th")].map((cell) => cell.textContent),
-    ).toEqual(["What you use", "For", "Where it breaks"]);
-    expect(
-      [...table.querySelectorAll("th")].every(
-        (cell) => cell.getAttribute("scope") === "col",
-      ),
-    ).toBe(true);
-    expect(
-      [...table.querySelectorAll("tbody tr")].map((row) =>
-        [...row.querySelectorAll("td")].map((cell) => cell.textContent),
-      ),
-    ).toEqual(
-      stack.items.map(({ tool, used_for, breaks }) => [tool, used_for, breaks]),
+    expect(document.querySelector("table, thead, tbody, th, td")).toBeNull();
+    expect([...list.children].map((node) => node.tagName)).toEqual([
+      "LI",
+      "LI",
+    ]);
+    expect([...list.children].map((node) => node.textContent)).toEqual(
+      stack.items.map(({ text }) => text.replaceAll("**", "")),
     );
+    expect(
+      [...list.querySelectorAll("strong")].map((node) => node.textContent),
+    ).toEqual(["Test recorder + editor", "Test notes"]);
+    for (const heading of ["What you use", "For", "Where it breaks"])
+      expect(section.textContent).not.toContain(heading);
     expect(section.querySelectorAll(":scope > p")).toHaveLength(1);
     expect(section.querySelector(":scope > p")?.textContent).toBe(stack.in_app);
-    expect(table.parentElement?.classList.contains("overflow-x-auto")).toBe(
-      true,
-    );
-    expect(table.parentElement?.classList.contains("docs-content")).toBe(true);
+    for (const panel of [
+      document.querySelector("#how-it-works")!,
+      [...document.querySelectorAll("h2")]
+        .find((node) => node.textContent === useCase.old_way.heading)!
+        .closest(".campaign-section")!,
+    ]) {
+      for (const className of ["flex", "flex-col", "gap-[var(--spacing-6)]"])
+        expect(panel.classList.contains(className)).toBe(true);
+      expect(
+        [...panel.classList].some((name) => name.startsWith("space-y-")),
+      ).toBe(false);
+    }
     expect(
       section.previousElementSibling?.querySelector("#how-it-works"),
     ).not.toBeNull();
@@ -263,6 +265,45 @@ describe("public campaign frontend", () => {
       section.nextElementSibling?.nextElementSibling?.textContent,
     ).toContain("Test question one?");
     expect(document.querySelector("time")).toBeNull();
+  });
+
+  it("interprets only paired bold spans and keeps all other stack markup literal", () => {
+    const literal =
+      '<img src=x onerror="alert(1)"> <script>alert(1)</script> <a href="https://example.com">HTML link</a> [Markdown link](javascript:alert(1)) <em>HTML emphasis</em> *emphasis* <code>HTML code</code> `code` <https://example.com> **unterminated';
+    const bold =
+      "<script>bold is still text</script> [bold link](https://example.com)";
+    const document = dom(
+      markup(
+        <UseCasePage
+          item={{
+            ...useCase,
+            todays_stack: {
+              ...stack,
+              items: [
+                {
+                  text: `Before **first** between **${bold}** after ${literal}`,
+                },
+              ],
+            },
+          }}
+          articles={[]}
+        />,
+      ),
+    );
+    const item = document.querySelector("section > ul > li")!;
+    expect(item.textContent).toBe(
+      `Before first between ${bold} after ${literal}`,
+    );
+    expect([...item.children].map((node) => node.tagName)).toEqual([
+      "STRONG",
+      "STRONG",
+    ]);
+    expect(
+      [...item.querySelectorAll("strong")].map((node) => node.textContent),
+    ).toEqual(["first", bold]);
+    expect(item.querySelector("a, img, script, em, code")).toBeNull();
+    expect(item.innerHTML).toContain("&lt;script&gt;");
+    expect(item.innerHTML).toContain("&lt;img");
   });
 
   it("does not invent a replacement section when the optional stack is absent", () => {
@@ -277,7 +318,14 @@ describe("public campaign frontend", () => {
       todays_stack: {
         ...stack,
         internal: "PRIVATE",
-        items: stack.items.map((item) => ({ ...item, internal: "PRIVATE" })),
+        items: stack.items.map((item) => ({
+          ...item,
+          tool: "PRIVATE-OLD-TOOL",
+          used_for: "PRIVATE-OLD-USE",
+          breaks: "PRIVATE-OLD-BREAKS",
+          unknown: "PRIVATE-UNKNOWN",
+          internal: "PRIVATE",
+        })),
       },
     };
     expect(publicUseCase(contaminated).todays_stack).toEqual(stack);
@@ -1274,39 +1322,53 @@ describe("public campaign frontend", () => {
     ).toEqual([recipe.title, second.title]);
     for (const [index, item] of [recipe, second].entries()) {
       const card = recipes[index];
-      expect(card.classList.contains("flex")).toBe(true);
-      expect(card.classList.contains("flex-col")).toBe(true);
-      const content = card.firstElementChild!;
-      expect(content.tagName).toBe("DIV");
-      expect(content.classList.contains("flex-1")).toBe(true);
-      expect(content.classList.contains("flex-col")).toBe(true);
-      expect([...content.children].map((node) => node.tagName)).toEqual(
-        index === 0
-          ? ["DIV", "DIV", "DL", "DIV", "DL"]
-          : ["DIV", "DIV", "DL", "DL"],
-      );
+      expect(card.classList.contains("campaign-recipe-card")).toBe(true);
+      expect([...card.children].map((node) => node.tagName)).toEqual([
+        "DIV",
+        "H3",
+        "P",
+        "DL",
+        "DIV",
+        "DL",
+        index === 0 ? "DL" : "DIV",
+      ]);
+      const [tag, title, when, action, prompt, output, save] = [
+        ...card.children,
+      ];
       expect(
-        content.children[0]
+        tag
           .querySelector(".campaign-frequency-tag")
           ?.getAttribute("aria-label"),
       ).toBe(`How often: ${item.how_often}`);
-      const title = content.querySelector("h3")!;
-      expect(title.nextElementSibling?.tagName).toBe("P");
-      expect(title.nextElementSibling?.textContent).toBe(item.when);
+      expect(title.textContent).toBe(item.title);
+      expect(when.textContent).toBe(item.when);
+      expect(when.classList.contains("campaign-body")).toBe(true);
+      expect(action.querySelector("dt")?.textContent).toBe("Do");
+      expect(action.querySelector("dd")?.textContent).toBe(item.do);
+      expect(output.querySelector("dt")?.textContent).toBe("You get");
+      expect(output.querySelector("dd")?.textContent).toBe(item.you_get);
       expect(
-        title.nextElementSibling?.classList.contains("campaign-body"),
-      ).toBe(true);
-      expect(
-        [...content.querySelectorAll("dt")].map((node) => node.textContent),
-      ).toEqual(["Do", "You get"]);
-      expect(
-        [...content.querySelectorAll("dd")].map((node) => node.textContent),
-      ).toEqual([item.do, item.you_get]);
+        [...card.querySelectorAll("dt")].map((node) => node.textContent),
+      ).toEqual(
+        index === 0
+          ? ["Do", "You get", "Save for next time"]
+          : ["Do", "You get"],
+      );
+      expect(card.textContent).not.toMatch(/How often|When/);
+      if (index === 0) {
+        expect(prompt.getAttribute("aria-hidden")).toBeNull();
+        expect(prompt.classList.contains("campaign-recipe-empty")).toBe(false);
+        expect(save.classList.contains("campaign-recipe-footer")).toBe(true);
+      } else {
+        for (const placeholder of [prompt, save]) {
+          expect(placeholder.classList.contains("campaign-recipe-empty")).toBe(
+            true,
+          );
+          expect(placeholder.getAttribute("aria-hidden")).toBe("true");
+          expect(placeholder.childNodes).toHaveLength(0);
+        }
+      }
     }
-    expect([...recipes[0].children].map((node) => node.tagName)).toEqual([
-      "DIV",
-      "DL",
-    ]);
     const footer = recipes[0].lastElementChild!;
     expect(footer.classList.contains("border-t")).toBe(true);
     expect(footer.querySelector("dt")?.textContent).toBe("Save for next time");
@@ -1314,9 +1376,7 @@ describe("public campaign frontend", () => {
     expect(recipes[0].querySelector("pre code")?.textContent).toBe(
       recipe.prompt!.trim(),
     );
-    expect([...recipes[1].children].map((node) => node.tagName)).toEqual([
-      "DIV",
-    ]);
+    expect(recipes[1].children).toHaveLength(7);
     expect(recipes[1].querySelector("button")).toBeNull();
     expect(document.querySelector("#how-it-works")?.textContent).toContain(
       "Works with: Test calendar, Test CRM",
@@ -1367,12 +1427,29 @@ describe("public campaign frontend", () => {
       expect(
         rendered.querySelector(".campaign-frequency-tag")?.textContent,
       ).toBe(recipe.how_often);
-      const footer = rendered.querySelector(":scope > dl");
+      expect(rendered.children).toHaveLength(7);
+      const promptSlot = rendered.children[4];
+      expect(promptSlot.tagName).toBe("DIV");
+      expect(promptSlot.getAttribute("aria-hidden")).toBe(
+        prompt ? null : "true",
+      );
+      expect(promptSlot.classList.contains("campaign-recipe-empty")).toBe(
+        !prompt,
+      );
+      if (!prompt) expect(promptSlot.childNodes).toHaveLength(0);
+      const footer = rendered.querySelector(":scope > .campaign-recipe-footer");
       if (save) {
         expect(footer?.classList.contains("border-t")).toBe(true);
         expect(footer?.querySelector("dd")?.textContent).toBe(save);
       } else {
         expect(footer).toBeNull();
+        const placeholder = rendered.children[6];
+        expect(placeholder.tagName).toBe("DIV");
+        expect(placeholder.classList.contains("campaign-recipe-empty")).toBe(
+          true,
+        );
+        expect(placeholder.getAttribute("aria-hidden")).toBe("true");
+        expect(placeholder.childNodes).toHaveLength(0);
         expect(rendered.textContent).not.toContain(recipe.save);
       }
     },
@@ -1489,10 +1566,9 @@ describe("public campaign frontend", () => {
     expect(recipeTag.closest("article")?.querySelector("h3")?.textContent).toBe(
       recipe.title,
     );
-    expect(
-      recipeTag.parentElement?.nextElementSibling?.querySelector("h3")
-        ?.textContent,
-    ).toBe(recipe.title);
+    expect(recipeTag.parentElement?.nextElementSibling?.textContent).toBe(
+      recipe.title,
+    );
     const absent = dom(markup(<UseCasePage item={useCase} articles={[]} />));
     expect(absent.querySelector(".campaign-frequency-tag")).toBeNull();
   });
@@ -1798,6 +1874,106 @@ describe("public campaign frontend", () => {
       expect(trackEvent).not.toHaveBeenCalled();
     },
   );
+
+  it("loads both real meeting next jobs and SSR renders their cards in declared order", async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../lib/campaign-content.server")
+    >("../../../lib/campaign-content.server");
+    const content = actual.loadCampaignContent();
+    vi.mocked(loadCampaignContent).mockReturnValue(content);
+    const data = useCaseLoader(args({ slug: "ai-meeting-notes" }));
+    const expected = ["crm-and-call-questions", "dictate-instead-of-typing"];
+    expect(data.item.next_jobs).toEqual(expected);
+    expect(data.useCases.map((item) => item.slug).sort()).toEqual(
+      [...expected].sort(),
+    );
+    const document = dom(markup(<UseCasePage {...data} />));
+    const section = [...document.querySelectorAll("section")].find(
+      (node) => node.querySelector("h2")?.textContent === "What to do next",
+    )!;
+    const cards = [...section.querySelectorAll("a")];
+    expect(cards.map((card) => card.getAttribute("href"))).toEqual(
+      expected.map((slug) => sitePathForLocale(`${USE_CASES_BASE}/${slug}`)),
+    );
+    expect(cards.map((card) => card.querySelector("h3")?.textContent)).toEqual(
+      expected.map(
+        (slug) => content.useCases.find((item) => item.slug === slug)!.title,
+      ),
+    );
+    const crm = useCaseLoader(args({ slug: "crm-and-call-questions" }));
+    expect(crm.item.slug).toBe("crm-and-call-questions");
+    expect(
+      dom(markup(<UseCasePage {...crm} />)).querySelector("h1")?.textContent,
+    ).toBe(crm.item.title);
+  });
+
+  it("SSR renders all fourteen real replacement lists and seven recipe slots without tables or column headings", async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../lib/campaign-content.server")
+    >("../../../lib/campaign-content.server");
+    const { useCases } = actual.loadCampaignContent();
+    expect(useCases).toHaveLength(14);
+    for (const item of useCases) {
+      const document = dom(markup(<UseCasePage item={item} articles={[]} />));
+      expect(document.querySelector("table, th, td"), item.slug).toBeNull();
+      const stack = item.todays_stack!;
+      expect(stack, item.slug).toBeDefined();
+      const section = [...document.querySelectorAll("section")].find(
+        (node) => node.querySelector("h2")?.textContent === stack.heading,
+      )!;
+      expect(section.querySelector(":scope > p")?.textContent).toBe(
+        stack.in_app,
+      );
+      expect(
+        [...section.querySelectorAll(":scope > ul > li")].map(
+          (node) => node.textContent,
+        ),
+      ).toEqual(stack.items.map(({ text }) => text.replaceAll("**", "")));
+      for (const entry of stack.items)
+        expect(Object.keys(entry)).toEqual(["text"]);
+      for (const label of ["What you use", "For", "Where it breaks"])
+        expect(section.textContent).not.toContain(label);
+      const cards = [...document.querySelectorAll(".campaign-recipe-card")];
+      expect(cards, item.slug).toHaveLength(3);
+      for (const [index, card] of cards.entries()) {
+        const recipe = item.recipes![index];
+        expect([...card.children].map((node) => node.tagName)).toEqual([
+          "DIV",
+          "H3",
+          "P",
+          "DL",
+          "DIV",
+          "DL",
+          recipe.save ? "DL" : "DIV",
+        ]);
+        expect(
+          card.children[0].querySelector(".campaign-frequency-tag")
+            ?.textContent,
+        ).toBe(recipe.how_often);
+        expect(card.children[1].textContent).toBe(recipe.title);
+        expect(card.children[2].textContent).toBe(recipe.when);
+        expect(
+          [...card.querySelectorAll("dt")].map((node) => node.textContent),
+        ).toEqual(
+          recipe.save
+            ? ["Do", "You get", "Save for next time"]
+            : ["Do", "You get"],
+        );
+        for (const [slot, present] of [
+          [card.children[4], !!recipe.prompt],
+          [card.children[6], !!recipe.save],
+        ] as const) {
+          expect(slot.classList.contains("campaign-recipe-empty")).toBe(
+            !present,
+          );
+          expect(slot.getAttribute("aria-hidden")).toBe(
+            present ? null : "true",
+          );
+          if (!present) expect(slot.childNodes).toHaveLength(0);
+        }
+      }
+    }
+  });
 
   it("SSR includes all fourteen real use-case cards despite filters and renders Content screenshots", async () => {
     const actual = await vi.importActual<
