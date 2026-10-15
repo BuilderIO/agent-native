@@ -241,6 +241,122 @@ describe("native Figma Motion runtime adapter", () => {
     ).toBeNull();
   });
 
+  it("recovers rounded fixed-stagger projections without stripping authored tracks", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    style.duration = 0.501;
+    const legacyDocument = decodeMotionTextDocument(
+      JSON.stringify({
+        version: 1,
+        animations: [
+          {
+            targetNodeId: "hero",
+            unit: "character",
+            direction: "forward",
+            staggerMs: 251,
+            property: "translate",
+            durationMs: 501,
+            keyframes: [
+              { t: 0, value: "0px -40px", ease: "ease-out" },
+              { t: 1, value: "0px 0px" },
+            ],
+          },
+          {
+            targetNodeId: "hero",
+            unit: "character",
+            direction: "forward",
+            staggerMs: 251,
+            property: "opacity",
+            durationMs: 501,
+            keyframes: [
+              { t: 0, value: "0", ease: "ease-out" },
+              { t: 1, value: "1" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(legacyDocument.status).toBe("valid");
+    if (legacyDocument.status !== "valid") return;
+    expect(
+      motionTextDocumentWithoutNativeStyles(legacyDocument.document, [style])
+        ?.animations,
+    ).toMatchObject([{ property: "opacity", staggerMs: 251 }]);
+  });
+
+  it("does not use legacy rounded aliases to strip version 2 authored tracks", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    style.duration = 0.501;
+    const projected = motionNativeStylesToTextAnimations([style]).find(
+      (animation) => animation.property === "translate",
+    );
+    expect(projected).toBeDefined();
+    if (!projected) return;
+
+    const modernAuthoredTrack = {
+      ...projected,
+      staggerMs: Math.round(projected.staggerMs),
+    };
+    const document = decodeMotionTextDocument(
+      JSON.stringify({ version: 2, animations: [modernAuthoredTrack] }),
+    );
+
+    expect(document.status).toBe("valid");
+    if (document.status !== "valid") return;
+    expect(
+      motionTextDocumentWithoutNativeStyles(document.document, [style])
+        ?.animations,
+    ).toEqual([modernAuthoredTrack]);
+  });
+
+  it("recovers legacy outgoing TextStagger projections", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    style.props.animationDirection = "out";
+    style.props.rotationEnabled = true;
+    style.props.rotationDirection = "clockwise";
+    const projectedRotation = motionNativeStylesToTextAnimations([style]).find(
+      (animation) => animation.property === "rotate",
+    );
+    expect(projectedRotation?.keyframes).toEqual([
+      { t: 0, value: "180deg", ease: "ease-out" },
+      { t: 1, value: "0deg" },
+    ]);
+    const legacyDocument = decodeMotionTextDocument(
+      JSON.stringify({
+        version: 1,
+        animations: [
+          {
+            targetNodeId: "hero",
+            unit: "character",
+            direction: "forward",
+            staggerMs: 250,
+            property: "rotate",
+            durationMs: 500,
+            keyframes: [
+              { t: 0, value: "0deg", ease: "ease-out" },
+              { t: 1, value: "180deg" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(legacyDocument.status).toBe("valid");
+    if (legacyDocument.status !== "valid") return;
+    expect(
+      motionTextDocumentWithoutNativeStyles(legacyDocument.document, [style]),
+    ).toBeNull();
+  });
+
   it("projects native Path trim endpoints and preserves opaque source props on edits", () => {
     const style = createMotionNativeStyleInstance({
       styleKey: "Path",
@@ -389,7 +505,7 @@ describe("native Figma Motion runtime adapter", () => {
         property: "rotate",
         durationMs: 500,
         keyframes: [
-          { t: 0, value: "-180deg", ease: "ease-out" },
+          { t: 0, value: "180deg", ease: "ease-out" },
           { t: 1, value: "0deg" },
         ],
       },
@@ -429,6 +545,39 @@ describe("native Figma Motion runtime adapter", () => {
       },
     ]);
   });
+
+  it.each([
+    ["in", "clockwise", "-180deg"],
+    ["in", "counterclockwise", "180deg"],
+    ["out", "clockwise", "180deg"],
+    ["out", "counterclockwise", "-180deg"],
+  ] as const)(
+    "keeps %s %s rotation direction when lowering TextStagger",
+    (animationDirection, rotationDirection, from) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "hero",
+      });
+      const style = {
+        ...base,
+        props: {
+          ...base.props,
+          animationDirection,
+          rotationEnabled: true,
+          rotationDirection,
+        },
+      };
+
+      expect(
+        motionNativeStylesToTextAnimations([style]).find(
+          (animation) => animation.property === "rotate",
+        )?.keyframes,
+      ).toEqual([
+        { t: 0, value: from, ease: "ease-out" },
+        { t: 1, value: "0deg" },
+      ]);
+    },
+  );
 
   it("keeps derived TextStagger separate from authored text tracks in metadata", () => {
     const style = createMotionNativeStyleInstance({
@@ -683,15 +832,29 @@ describe("native Figma Motion runtime adapter", () => {
     expect(style.props.presetStaggerOverlap).toBe(95);
     expect(motionNativeTextAnimationSettings(style).staggerMs).toBe(12.5);
 
-    style.duration = 0.01;
-    const shortDurationStyle = motionNativeStyleWithTextAnimationSettings(
-      style,
-      { ...authored, durationMs: 1 },
+    expect(() =>
+      motionNativeStyleWithTextAnimationSettings(style, {
+        ...authored,
+        durationMs: 1,
+      }),
+    ).toThrow(
+      "The authored Text stagger cannot exceed its duration when represented by TextStagger.",
     );
-    expect(shortDurationStyle.duration).toBe(0.013);
-    expect(
-      motionNativeTextAnimationSettings(shortDurationStyle).staggerMs,
-    ).toBeCloseTo(12.5);
+
+    for (const [staggerMs, durationMs] of [
+      [500.3, 500.2],
+      [500.1, 500.2],
+    ]) {
+      expect(() =>
+        motionNativeStyleWithTextAnimationSettings(style, {
+          ...authored,
+          staggerMs,
+          durationMs,
+        }),
+      ).toThrow(
+        "The authored Text stagger cannot exceed its duration when represented by TextStagger.",
+      );
+    }
 
     const filterAnimation = { ...authored, property: "filter" as const };
     const filterBase = createMotionNativeStyleInstance({

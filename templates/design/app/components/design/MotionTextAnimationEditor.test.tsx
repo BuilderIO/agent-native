@@ -334,7 +334,7 @@ describe("MotionTextAnimationEditor", () => {
     ]);
   });
 
-  it.each(["character", "word"] as const)(
+  it.each(["character", "word", "line", "paragraph"] as const)(
     "offers only horizontal ordering for %s text",
     async (unit) => {
       await render({ animations: [{ ...opacityAnimation, unit }] });
@@ -371,48 +371,10 @@ describe("MotionTextAnimationEditor", () => {
     },
   );
 
-  it.each(["line", "paragraph"] as const)(
-    "offers vertical ordering for %s text",
-    async (unit) => {
-      const onChange = vi.fn();
-      await render({
-        animations: [{ ...opacityAnimation, unit }],
-        onChange,
-      });
-      await act(async () =>
-        container
-          .querySelector<HTMLButtonElement>(
-            '[aria-label="designEditor.motion.nativeTextStagger.order"]',
-          )!
-          .click(),
-      );
-
-      expect(document.body.textContent).toContain(
-        "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
-      );
-      expect(document.body.textContent).toContain(
-        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
-      );
-      await selectOption(
-        container.querySelector<HTMLButtonElement>(
-          '[aria-label="designEditor.motion.nativeTextStagger.order"]',
-        )!,
-        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
-      );
-      expect(onChange).toHaveBeenLastCalledWith([
-        expect.objectContaining({
-          unit,
-          order: "bottom-to-top",
-          direction: "reverse",
-        }),
-      ]);
-    },
-  );
-
   it("keeps a stored vertical order selectable without offering its alternative", async () => {
     await render({
       animations: [
-        { ...opacityAnimation, unit: "word", order: "top-to-bottom" },
+        { ...opacityAnimation, unit: "line", order: "top-to-bottom" },
       ],
     });
     await act(async () =>
@@ -444,7 +406,7 @@ describe("MotionTextAnimationEditor", () => {
     },
   );
 
-  it("preserves vertical order when text grouping changes to word", async () => {
+  it("resets vertical order when text grouping changes to word", async () => {
     const onChange = vi.fn();
     await render({
       animations: [
@@ -452,7 +414,6 @@ describe("MotionTextAnimationEditor", () => {
           ...opacityAnimation,
           unit: "line",
           order: "top-to-bottom",
-          direction: "reverse",
         },
       ],
       onChange,
@@ -468,8 +429,8 @@ describe("MotionTextAnimationEditor", () => {
     expect(onChange).toHaveBeenLastCalledWith([
       expect.objectContaining({
         unit: "word",
-        order: "top-to-bottom",
-        direction: "reverse",
+        order: "left-to-right",
+        direction: "forward",
       }),
     ]);
   });

@@ -8,6 +8,9 @@ import { isValidMotionEase } from "./motion-easing";
 import type { MotionPlaybackMode } from "./motion-timeline";
 
 export const MOTION_TEXT_SOURCE_VERSION = 2 as const;
+export const MOTION_TEXT_SOURCE_VERSION_PROVENANCE: unique symbol = Symbol(
+  "motion-text-source-version-provenance",
+);
 export const MOTION_TEXT_SOURCE_ATTRIBUTE =
   "data-agent-native-motion-text-source";
 export const MOTION_TEXT_RUNTIME_ATTRIBUTE =
@@ -64,6 +67,9 @@ export interface MotionTextAnimation {
 
 export interface MotionTextDocument {
   version: 1 | typeof MOTION_TEXT_SOURCE_VERSION;
+  [MOTION_TEXT_SOURCE_VERSION_PROVENANCE]?:
+    | 1
+    | typeof MOTION_TEXT_SOURCE_VERSION;
   animations: MotionTextAnimation[];
 }
 
@@ -487,7 +493,16 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
     };
   });
 
-  return { version: MOTION_TEXT_SOURCE_VERSION, animations };
+  const document: MotionTextDocument = {
+    version: MOTION_TEXT_SOURCE_VERSION,
+    animations,
+  };
+  // Keep decode provenance available without emitting it in normalized source.
+  Object.defineProperty(document, MOTION_TEXT_SOURCE_VERSION_PROVENANCE, {
+    value: sourceVersion,
+    enumerable: false,
+  });
+  return document;
 }
 
 export function encodeMotionTextDocument(document: MotionTextDocument): string {

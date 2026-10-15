@@ -92,13 +92,9 @@ export function MotionTextAnimationEditor({
       ),
     );
   const ignoreSpaces = shared.ignoreSpaces ?? true;
-  const supportsVerticalOrder =
-    shared.unit === "line" || shared.unit === "paragraph";
-  const orderOptions = supportsVerticalOrder
-    ? [...TEXT_ORDERS, ...TEXT_VERTICAL_ORDERS]
-    : TEXT_VERTICAL_ORDERS.includes(order)
-      ? [...TEXT_ORDERS, order]
-      : TEXT_ORDERS;
+  const orderOptions = TEXT_VERTICAL_ORDERS.includes(order)
+    ? [...TEXT_ORDERS, order]
+    : TEXT_ORDERS;
   const supportsIgnoreSpaces = shared.unit === "character";
   const availableProperties = TEXT_PROPERTIES.filter(
     (property) => !usedProperties.has(property),
@@ -235,6 +231,11 @@ export function MotionTextAnimationEditor({
               updateShared({
                 unit: nextUnit,
                 ignoreSpaces: false,
+                ...(order === "top-to-bottom" || order === "bottom-to-top"
+                  ? nextUnit === "line" || nextUnit === "paragraph"
+                    ? {}
+                    : { order: "left-to-right", direction: "forward" }
+                  : {}),
               });
             }}
           >

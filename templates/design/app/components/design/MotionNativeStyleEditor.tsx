@@ -1049,12 +1049,9 @@ function NativeTextStaggerDetails({
   const storedVerticalOrder = TEXT_STAGGER_VERTICAL_ORDER_OPTIONS.find(
     (option) => option.value === order,
   );
-  const supportsVerticalOrder = grouping === "LINE" || grouping === "PARAGRAPH";
-  const orderOptions = supportsVerticalOrder
-    ? [...TEXT_STAGGER_ORDER_OPTIONS, ...TEXT_STAGGER_VERTICAL_ORDER_OPTIONS]
-    : storedVerticalOrder
-      ? [...TEXT_STAGGER_ORDER_OPTIONS, storedVerticalOrder]
-      : TEXT_STAGGER_ORDER_OPTIONS;
+  const orderOptions = storedVerticalOrder
+    ? [...TEXT_STAGGER_ORDER_OPTIONS, storedVerticalOrder]
+    : TEXT_STAGGER_ORDER_OPTIONS;
   const animationDirection = stringValue(
     instance.props.animationDirection,
     "in",
@@ -1107,11 +1104,18 @@ function NativeTextStaggerDetails({
           labelBase="designEditor.motion.textAnimation.units"
           t={t}
           onChange={(value) => {
+            const supportsVerticalOrder =
+              value === "LINE" || value === "PARAGRAPH";
+            const hasVerticalOrder =
+              order === "TOP_BOTTOM" || order === "BOTTOM_TOP";
             const props: MotionNativeStyleInstance["props"] = {
               ...instance.props,
               textDelayGrouping: value,
               ignoreSpaces: false,
             };
+            if (!supportsVerticalOrder && hasVerticalOrder) {
+              props.textDelayOrder = "LEFT_RIGHT";
+            }
             if (
               !Object.prototype.hasOwnProperty.call(
                 instance.props,

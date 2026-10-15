@@ -625,6 +625,91 @@ test("native style states persist with the Motion inspector and timeline", async
       ],
     });
 
+  const expectedOrderOptions = [
+    "Left to right",
+    "Right to left",
+    "Center out",
+    "Random",
+  ];
+  for (const name of ["Character", "Word", "Line", "Paragraph"] as const) {
+    const currentGrouping = await grouping.innerText();
+    if (currentGrouping !== name) {
+      await grouping.click();
+      const option = page.getByRole("option", { name, exact: true });
+      await expect(option).toBeVisible();
+      const save = page.waitForResponse(
+        (response) =>
+          response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+          response.request().method() === "POST",
+        { timeout: 20_000 },
+      );
+      await option.click();
+      const response = await save;
+      expect(response.ok(), await response.text()).toBe(true);
+    }
+
+    await expect(grouping).toHaveText(name);
+    const ignoreSpacesControl = page.getByRole("checkbox", {
+      name: "Ignore spaces",
+    });
+    if (name === "Character") {
+      await expect(ignoreSpacesControl).toBeVisible();
+    } else {
+      await expect(ignoreSpacesControl).toHaveCount(0);
+    }
+
+    const order = page.getByRole("combobox", { name: "Order", exact: true });
+    await order.click();
+    await expect(page.getByRole("option")).toHaveText(expectedOrderOptions);
+    await captureMotionState(
+      page,
+      `motion-text-stagger-order-menu-${name.toLowerCase()}`,
+    );
+    await page.keyboard.press("Escape");
+  }
+
+  await expect
+    .poll(() =>
+      getAction(request, "get-motion-timeline", {
+        designId,
+        sourceRef: fileId,
+      }),
+    )
+    .toMatchObject({
+      timelines: [
+        {
+          nativeStyles: expect.arrayContaining([
+            expect.objectContaining({
+              styleKey: "TextStagger",
+              props: expect.objectContaining({
+                textDelayGrouping: "PARAGRAPH",
+                textDelayOrder: "LEFT_RIGHT",
+              }),
+            }),
+          ]),
+        },
+      ],
+    });
+
+  await grouping.click();
+  const restoreCharacter = page.getByRole("option", {
+    name: "Character",
+    exact: true,
+  });
+  await expect(restoreCharacter).toBeVisible();
+  const restoreCharacterSave = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await restoreCharacter.click();
+  const restoreCharacterResponse = await restoreCharacterSave;
+  expect(
+    restoreCharacterResponse.ok(),
+    await restoreCharacterResponse.text(),
+  ).toBe(true);
+
   const timelineBeforeLegacyEdit = await getAction(
     request,
     "get-motion-timeline",

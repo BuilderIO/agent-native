@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   MOTION_TEXT_RUNTIME_ATTRIBUTE,
   MOTION_TEXT_SOURCE_ATTRIBUTE,
+  MOTION_TEXT_SOURCE_VERSION_PROVENANCE,
   compileMotionTextRuntime,
   decodeMotionTextDocument,
   encodeMotionTextDocument,
@@ -265,10 +266,18 @@ describe("Motion Text source and runtime", () => {
       ],
     };
 
-    expect(decodeMotionTextDocument(JSON.stringify(legacy))).toEqual({
+    const decoded = decodeMotionTextDocument(JSON.stringify(legacy));
+    expect(decoded).toEqual({
       status: "valid",
       document: expected,
     });
+    if (decoded.status === "valid") {
+      expect(decoded.document[MOTION_TEXT_SOURCE_VERSION_PROVENANCE]).toBe(1);
+      expect(Object.keys(decoded.document)).toEqual(["version", "animations"]);
+      expect(JSON.parse(encodeMotionTextDocument(decoded.document))).toEqual(
+        expected,
+      );
+    }
     expect(
       readMotionTextDocument(
         `<h1 data-agent-native-node-id="headline">Hello world</h1><script type="application/json" ${MOTION_TEXT_SOURCE_ATTRIBUTE}="v1">${JSON.stringify(legacy)}</script>`,

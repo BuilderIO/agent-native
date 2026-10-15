@@ -12,7 +12,10 @@ import type {
   MotionTextAnimation,
   MotionTextDocument,
 } from "./motion-text-code";
-import { MOTION_TEXT_SOURCE_VERSION } from "./motion-text-code";
+import {
+  MOTION_TEXT_SOURCE_VERSION,
+  MOTION_TEXT_SOURCE_VERSION_PROVENANCE,
+} from "./motion-text-code";
 import {
   isMotionPathSegmentV1,
   type MotionTrack,
@@ -434,11 +437,16 @@ export function motionNativeStyleWithTextAnimationSettings(
   };
   const nextStyle = { ...style, props };
   if (animation.overlapPercent === undefined) {
-    const durationMs = Math.max(
-      1,
-      Math.round(animation.durationMs),
-      Math.ceil(animation.staggerMs),
-    );
+    const durationMs = Math.max(1, Math.round(animation.durationMs));
+    if (
+      animation.staggerMs > animation.durationMs ||
+      animation.staggerMs > durationMs
+    ) {
+      throw new MotionNativeStyleRuntimeError(
+        "unsupported-style",
+        "The authored Text stagger cannot exceed its duration when represented by TextStagger.",
+      );
+    }
     nextStyle.duration = durationMs / 1000;
     nextStyle.props.presetStaggerOverlap =
       100 * (1 - animation.staggerMs / durationMs);
@@ -544,21 +552,41 @@ export function motionTextDocumentWithoutNativeStyles(
   styles: readonly MotionNativeStyleInstance[],
 ): MotionTextDocument | null {
   if (!document) return null;
-  const projected = new Map<string, number>();
-  for (const animation of motionNativeStylesToTextAnimations(styles)) {
-    const key = textAnimationKey(animation);
-    projected.set(key, (projected.get(key) ?? 0) + 1);
-  }
+  const projected = motionNativeStylesToTextAnimations(styles).map(
+    (animation) => ({
+      keys: new Set([
+        textAnimationKey(animation),
+        ...(document[MOTION_TEXT_SOURCE_VERSION_PROVENANCE] === 1
+          ? legacyTextProjectionKeys(animation)
+          : []),
+      ]),
+      matched: false,
+    }),
+  );
   const animations = document.animations.filter((animation) => {
     const key = textAnimationKey(animation);
-    const count = projected.get(key) ?? 0;
-    if (count === 0) return true;
-    projected.set(key, count - 1);
+    const projection = projected.find(
+      (candidate) => !candidate.matched && candidate.keys.has(key),
+    );
+    if (!projection) return true;
+    projection.matched = true;
     return false;
   });
-  return animations.length > 0
-    ? { version: MOTION_TEXT_SOURCE_VERSION, animations }
-    : null;
+  if (animations.length === 0) return null;
+  const filteredDocument: MotionTextDocument = {
+    version: MOTION_TEXT_SOURCE_VERSION,
+    animations,
+  };
+  Object.defineProperty(
+    filteredDocument,
+    MOTION_TEXT_SOURCE_VERSION_PROVENANCE,
+    {
+      value:
+        document[MOTION_TEXT_SOURCE_VERSION_PROVENANCE] ?? document.version,
+      enumerable: false,
+    },
+  );
+  return filteredDocument;
 }
 
 /** Combines authored and derived tracks only for runtime compilation. */
@@ -1117,7 +1145,7 @@ function textStaggerAnimations(
         delayMs,
         durationMs,
         "rotate",
-        [`${signed}deg`, "0deg"],
+        [`${animationDirection === "out" ? -signed : signed}deg`, "0deg"],
         ease,
         textOptions,
       ),
@@ -1258,6 +1286,46 @@ function booleanProp(
 
 function textAnimationKey(animation: MotionTextAnimation): string {
   return JSON.stringify(animation);
+}
+
+function legacyTextProjectionKeys(animation: MotionTextAnimation): string[] {
+  const legacyOrder =
+    animation.direction === "reverse" ? "right-to-left" : "left-to-right";
+  const [first, last] = animation.keyframes;
+  if (
+    animation.order !== legacyOrder ||
+    animation.keyframes.length !== 2 ||
+    first?.t !== 0 ||
+    last?.t !== 1
+  ) {
+    return [];
+  }
+
+  const keyframes =
+    animation.animationDirection === "out"
+      ? [
+          {
+            t: 0,
+            value: last.value,
+            ...(first.ease === undefined ? {} : { ease: first.ease }),
+          },
+          { t: 1, value: first.value },
+        ]
+      : animation.keyframes;
+  const legacyAnimation: MotionTextAnimation = {
+    targetNodeId: animation.targetNodeId,
+    unit: animation.unit,
+    direction: animation.direction,
+    staggerMs: Math.round(animation.staggerMs),
+    animationDirection: "in",
+    order: legacyOrder,
+    ignoreSpaces: true,
+    delayMs: animation.delayMs ?? 0,
+    property: animation.property,
+    durationMs: animation.durationMs,
+    keyframes,
+  };
+  return [textAnimationKey(legacyAnimation)];
 }
 
 function textAnimationSettingsKey(animation: MotionTextAnimation): string {
