@@ -2024,6 +2024,7 @@ export default {
     edit: "संपादित करें",
     markFixed: "ठीक हुआ चिह्नित करें",
     hideHere: "इस चार्ट पर छिपाएँ",
+    hideNoteHere: 'इस चार्ट पर "{{title}}" छिपाएँ',
     set: "सेट",
     newSet: "नया सेट",
     setName: "सेट का नाम",

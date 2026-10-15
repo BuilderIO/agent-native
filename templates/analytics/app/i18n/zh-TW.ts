@@ -1959,6 +1959,7 @@ export default {
     edit: "編輯",
     markFixed: "標示為已修復",
     hideHere: "在此圖表中隱藏",
+    hideNoteHere: "在此圖表中隱藏「{{title}}」",
     set: "組",
     newSet: "新增組",
     setName: "組名稱",

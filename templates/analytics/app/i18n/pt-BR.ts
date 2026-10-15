@@ -2105,6 +2105,7 @@ export default {
     edit: "Editar",
     markFixed: "Marcar como corrigido",
     hideHere: "Ocultar neste gráfico",
+    hideNoteHere: 'Ocultar "{{title}}" neste gráfico',
     set: "Grupo",
     newSet: "Novo grupo",
     setName: "Nome do grupo",

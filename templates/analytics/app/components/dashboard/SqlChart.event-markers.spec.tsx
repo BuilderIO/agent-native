@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   keyDatesFailed: false,
   dataNotesFailed: false,
   dataNotesRefetchFailed: false,
+  /** False on a dashboard shared from another organization. */
+  dataNotesEditable: true,
   t: (key: string) => key,
   toastError: vi.fn(),
   /** React Query hands back the same `data` until the list changes. */
@@ -35,7 +37,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
         ? mocks.dataNotesFailed
           ? { data: undefined, isError: true }
           : {
-              data: { notes: mocks.dataNotes },
+              data: {
+                notes: mocks.dataNotes,
+                editable: mocks.dataNotesEditable,
+              },
               isError: mocks.dataNotesRefetchFailed,
             }
         : { data: undefined, isError: false },
@@ -159,6 +164,7 @@ describe("SqlChart key-date markers", () => {
     mocks.keyDatesFailed = false;
     mocks.dataNotesFailed = false;
     mocks.dataNotesRefetchFailed = false;
+    mocks.dataNotesEditable = true;
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
@@ -555,6 +561,22 @@ describe("SqlChart key-date markers", () => {
       expect(cardButton(card, "annotations.edit")).toBeDefined();
       expect(cardButton(card, "annotations.hideHere")).toBeUndefined();
       // A fixed note has nothing left to mark fixed.
+      expect(cardButton(card, "annotations.markFixed")).toBeUndefined();
+    });
+
+    it("lets an editor hide another organization's note here, but not change it", async () => {
+      mocks.dataNotes = [{ ...SETUP_INCIDENT, status: "open" as const }];
+      mocks.dataNotesEditable = false;
+      const actions = {
+        add: vi.fn(),
+        edit: vi.fn(),
+        markFixed: vi.fn(),
+        hide: vi.fn(),
+      };
+      await renderInDashboard(failures("line"), {}, actions);
+      const card = await openNoteCard();
+      expect(cardButton(card, "annotations.hideHere")).toBeDefined();
+      expect(cardButton(card, "annotations.edit")).toBeUndefined();
       expect(cardButton(card, "annotations.markFixed")).toBeUndefined();
     });
 

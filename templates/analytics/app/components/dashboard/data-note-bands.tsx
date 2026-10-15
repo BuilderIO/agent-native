@@ -108,25 +108,27 @@ function DataNoteDetails({
           .filter(Boolean)
           .join(" · ")}
       </div>
-      {actions ? (
+      {actions?.edit || actions?.hide ? (
         <div className="-mx-2 flex flex-wrap gap-0.5">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 gap-1 px-2 text-xs"
-            disabled={pending}
-            onClick={act(() => actions.edit(note))}
-          >
-            <IconPencil className="size-3.5" />
-            {t("annotations.edit")}
-          </Button>
-          {note.status === "open" ? (
+          {actions.edit ? (
             <Button
               variant="ghost"
               size="sm"
               className="h-6 gap-1 px-2 text-xs"
               disabled={pending}
-              onClick={act(() => actions.markFixed(note))}
+              onClick={act(() => actions.edit?.(note))}
+            >
+              <IconPencil className="size-3.5" />
+              {t("annotations.edit")}
+            </Button>
+          ) : null}
+          {note.status === "open" && actions.markFixed ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs"
+              disabled={pending}
+              onClick={act(() => actions.markFixed?.(note))}
             >
               <IconCheck className="size-3.5" />
               {t("annotations.markFixed")}

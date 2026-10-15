@@ -2128,6 +2128,7 @@ export default {
     edit: "Modifier",
     markFixed: "Marquer comme corrigé",
     hideHere: "Masquer sur ce graphique",
+    hideNoteHere: "Masquer « {{title}} » sur ce graphique",
     set: "Groupe",
     newSet: "Nouveau groupe",
     setName: "Nom du groupe",

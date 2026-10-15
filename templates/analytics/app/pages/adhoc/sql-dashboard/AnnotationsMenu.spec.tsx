@@ -12,18 +12,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   sets: [] as unknown[],
   notes: [] as unknown[],
+  /** False on a dashboard shared from another organization. */
+  editable: true,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: (name: string) => ({
+  useActionQuery: vi.fn((name: string) => ({
     data:
       name === "list-key-dates"
-        ? { sets: mocks.sets }
+        ? { sets: mocks.sets, editable: mocks.editable }
         : name === "list-data-notes"
-          ? { notes: mocks.notes }
+          ? { notes: mocks.notes, editable: mocks.editable }
           : undefined,
-  }),
+  })),
 }));
+
+import { useActionQuery } from "@agent-native/core/client/hooks";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -112,6 +116,7 @@ describe("AnnotationsMenu", () => {
       set("changes", "Product changes"),
     ];
     mocks.notes = [SETUP_INCIDENT, CONNECT_UNDERCOUNT];
+    mocks.editable = true;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -152,6 +157,34 @@ describe("AnnotationsMenu", () => {
     act(() => item("menuitemcheckbox", "Launches").click());
     expect(onAnnotationsChange).toHaveBeenLastCalledWith({
       hiddenDataNotes,
+      hiddenKeyDateSets: ["launches"],
+    });
+  });
+
+  it("lists the dashboard's own key dates and notes", () => {
+    render();
+    for (const list of ["list-key-dates", "list-data-notes"]) {
+      expect(useActionQuery).toHaveBeenCalledWith(
+        list,
+        { dashboardId: "dash" },
+        expect.anything(),
+      );
+    }
+  });
+
+  it("keeps another organization's key dates and notes read-only, while an editor still hides sets", () => {
+    mocks.editable = false;
+    const { onAnnotationsChange } = render();
+    openMenu();
+
+    for (const label of ["Add key date", "Edit key dates", "Add data note"]) {
+      expect(item("menuitem", label), label).toBeUndefined();
+    }
+    expect(
+      item("menuitem", SETUP_INCIDENT.title).getAttribute("aria-disabled"),
+    ).toBe("true");
+    act(() => item("menuitemcheckbox", "Launches").click());
+    expect(onAnnotationsChange).toHaveBeenLastCalledWith({
       hiddenKeyDateSets: ["launches"],
     });
   });

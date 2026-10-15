@@ -19,10 +19,12 @@ import {
   IconArrowUpRight,
   IconLink,
   IconFlag,
+  IconEyeOff,
 } from "@tabler/icons-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { isPendingAnnotation } from "@/components/dashboard/annotation-mutations";
 import {
   useDataNoteActions,
   usePanelDataNotes,
@@ -753,14 +755,33 @@ export function SqlChartCard({
                     <IconLink className="h-4 w-4 mr-2" />
                     {t("sidebar.copyLink")}
                   </DropdownMenuItem>
-                  {dataNoteActions ? (
+                  {dataNoteActions?.add ? (
                     <DropdownMenuItem
-                      onSelect={() => dataNoteActions.add(panel.id)}
+                      onSelect={() => dataNoteActions.add?.(panel.id)}
                     >
                       <IconFlag className="h-4 w-4 mr-2" />
                       {t("annotations.addDataNote")}
                     </DropdownMenuItem>
                   ) : null}
+                  {/* The note cards are hover-only, so keyboard users hide a note here. */}
+                  {dataNoteActions?.hide
+                    ? panelDataNotes.map((note) => (
+                        <DropdownMenuItem
+                          key={note.id}
+                          disabled={isPendingAnnotation(note.id)}
+                          onSelect={() =>
+                            dataNoteActions.hide?.(note.id, panel.id)
+                          }
+                        >
+                          <IconEyeOff className="h-4 w-4 mr-2 shrink-0" />
+                          <span className="min-w-0 truncate">
+                            {t("annotations.hideNoteHere", {
+                              title: note.title,
+                            })}
+                          </span>
+                        </DropdownMenuItem>
+                      ))
+                    : null}
                   {editable || panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
                   ) : null}

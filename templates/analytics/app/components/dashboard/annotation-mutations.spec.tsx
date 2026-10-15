@@ -251,6 +251,43 @@ describe("annotation writes", () => {
     },
   );
 
+  it("shows a write on the dashboard's copy of the list too, but not on another organization's", async () => {
+    const dashboardNotes = [
+      "action",
+      "list-data-notes",
+      { dashboardId: "dash" },
+    ];
+    const sharedNotes = [
+      "action",
+      "list-data-notes",
+      { dashboardId: "shared" },
+    ];
+    client.setQueryData(dashboardNotes, {
+      notes: [SETUP_INCIDENT],
+      editable: true,
+    });
+    client.setQueryData(sharedNotes, {
+      notes: [SETUP_INCIDENT],
+      editable: false,
+    });
+    const titles = (key: unknown[]) =>
+      client
+        .getQueryData<{ notes: DataNote[] }>(key)
+        ?.notes.map((note) => note.title);
+
+    const edit = await owner(useSaveDataNote, {
+      id: SETUP_INCIDENT.id,
+      title: "Edited",
+    });
+    expect(titles(dashboardNotes)).toEqual(["Edited"]);
+    expect(notes()?.[0].title).toBe("Edited");
+    expect(titles(sharedNotes)).toEqual([SETUP_INCIDENT.title]);
+
+    await edit.fail();
+    expect(titles(dashboardNotes)).toEqual([SETUP_INCIDENT.title]);
+    expect(notes()).toEqual([SETUP_INCIDENT, CONNECT_UNDERCOUNT]);
+  });
+
   it("takes back only the failed data-note write while another is in flight", async () => {
     const edit = await owner(useSaveDataNote, {
       id: SETUP_INCIDENT.id,

@@ -28,7 +28,10 @@ vi.mock("@/components/dashboard/SqlChart", () => ({
 
 import { CONNECT_UNDERCOUNT } from "@shared/annotation-fixtures";
 
-import { DashboardAnnotationsProvider } from "@/components/dashboard/dashboard-annotations-context";
+import {
+  DashboardAnnotationsProvider,
+  type DataNoteActions,
+} from "@/components/dashboard/dashboard-annotations-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { SqlChartCard } from "./SqlChartCard";
@@ -69,11 +72,18 @@ describe("SqlChartCard data-note flag", () => {
     vi.unstubAllGlobals();
   });
 
-  const renderCard = async (panel: SqlPanel) => {
+  const renderCard = async (
+    panel: SqlPanel,
+    dataNoteActions?: DataNoteActions,
+  ) => {
     await act(async () => {
       root.render(
         <TooltipProvider>
-          <DashboardAnnotationsProvider dashboardId="dash" annotations={{}}>
+          <DashboardAnnotationsProvider
+            dashboardId="dash"
+            annotations={{}}
+            dataNoteActions={dataNoteActions}
+          >
             <SqlChartCard panel={panel} onRemove={() => {}} />
           </DashboardAnnotationsProvider>
         </TooltipProvider>,
@@ -93,6 +103,36 @@ describe("SqlChartCard data-note flag", () => {
         '[aria-label="sqlDashboard.panelOptions"]',
       ),
     ).toBeNull();
+  });
+
+  const pressEnter = (el: Element) =>
+    act(async () => {
+      el.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  const menuItem = (text: string) =>
+    [...document.querySelectorAll('[role="menuitem"]')].find(
+      (el) => el.textContent === text,
+    );
+
+  it("lets a keyboard user hide a note on this chart from the chart's menu", async () => {
+    const hide = vi.fn();
+    await renderCard(clicksByStep, { hide });
+    await pressEnter(
+      container.querySelector('[aria-label="sqlDashboard.panelOptions"]')!,
+    );
+    await pressEnter(menuItem("annotations.hideNoteHere")!);
+    expect(hide).toHaveBeenCalledWith(CONNECT_UNDERCOUNT.id, clicksByStep.id);
+  });
+
+  it("offers no hiding in the chart's menu to a viewer who can't edit the dashboard", async () => {
+    await renderCard(clicksByStep, { edit: vi.fn() });
+    await pressEnter(
+      container.querySelector('[aria-label="sqlDashboard.panelOptions"]')!,
+    );
+    expect(menuItem("annotations.hideNoteHere")).toBeUndefined();
   });
 
   it.each(["stacked-bar", "stacked-area"])(

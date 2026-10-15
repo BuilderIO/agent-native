@@ -304,7 +304,9 @@ its owner organization's. Read them with `list-data-notes`, passing
   keeping `hiddenKeyDateSets` and the notes already hidden in the same object.
 - People add a note from a chart's menu ("Add data note", pinned to that chart)
   or the Annotations menu; a note's hover card offers Edit, Mark fixed, and
-  Hide on this chart.
+  Hide on this chart, and the chart's menu offers Hide for each of its notes.
+  On a dashboard from another organization they can hide its notes and sets
+  but not add or change them.
 - Scheduled email reports shade the same ranges, title each note once in the
   label rows above the plot alongside key dates (a title with no room left is
   counted), and write each note's text under the chart.
