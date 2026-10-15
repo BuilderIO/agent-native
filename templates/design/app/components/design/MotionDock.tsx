@@ -33,7 +33,9 @@ import {
   sortMotionKeyframes,
   timelineTimeToTrackTime,
   upsertMotionKeyframeAtTime,
+  withMotionTrackIds,
   withTimelinePlaybackMode,
+  withMotionTrackIdsFromExisting,
 } from "@shared/motion-timeline";
 import {
   IconPlayerPlay,
@@ -65,6 +67,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -212,7 +215,7 @@ const PLAYBACK_MODES: {
 ];
 
 function trackKey(track: MotionTrack): string {
-  return `${track.targetNodeId}\u001f${track.property}`;
+  return track.id ?? `${track.targetNodeId}\u001f${track.property}`;
 }
 
 function keyframeSelectionKey(track: MotionTrack, t: number): string {
@@ -406,7 +409,7 @@ export interface MotionDockProps {
 }
 
 export function MotionDock({
-  tracks,
+  tracks: suppliedTracks,
   audioClips = EMPTY_MOTION_AUDIO_CLIPS,
   onAudioClipsChange,
   nativeStyles = [],
@@ -441,6 +444,10 @@ export function MotionDock({
   onToggleLayerHidden,
 }: MotionDockProps) {
   const t = useT();
+  const tracks = useMemo(
+    () => withMotionTrackIds(suppliedTracks),
+    [suppliedTracks],
+  );
 
   const [openInternal, setOpenInternal] = useState(false);
   const isOpen = openProp !== undefined ? openProp : openInternal;
@@ -458,9 +465,9 @@ export function MotionDock({
   const commitTracksChange = useCallback(
     (nextTracks: MotionDockTrack[]) => {
       if (!onTracksChange) return;
-      onTracksChange(nextTracks);
+      onTracksChange(withMotionTrackIdsFromExisting(nextTracks, tracks));
     },
-    [onTracksChange],
+    [onTracksChange, tracks],
   );
   const setOpen = useCallback(
     (v: boolean) => {
@@ -1370,16 +1377,13 @@ export function MotionDock({
 
   const updateTrack = useCallback(
     (
-      nodeId: string,
-      property: string,
+      targetTrack: MotionDockTrack,
       updater: (track: MotionDockTrack) => MotionDockTrack,
     ) => {
       if (readOnly || !onTracksChange) return;
       commitTracksChange(
         tracks.map((tr) =>
-          tr.targetNodeId === nodeId && tr.property === property
-            ? updater(tr)
-            : tr,
+          trackKey(tr) === trackKey(targetTrack) ? updater(tr) : tr,
         ),
       );
     },
@@ -1424,7 +1428,7 @@ export function MotionDock({
 
   const updateTrackEase = useCallback(
     (track: MotionDockTrack, ease: MotionEase) => {
-      updateTrack(track.targetNodeId, track.property, (current) => ({
+      updateTrack(track, (current) => ({
         ...current,
         keyframes: current.keyframes.map((keyframe, index) =>
           index === 0 ? { ...keyframe, ease } : keyframe,
@@ -1449,7 +1453,7 @@ export function MotionDock({
         value: sampled || "0",
         ease: defaultEase,
       };
-      updateTrack(track.targetNodeId, track.property, (tr) => ({
+      updateTrack(track, (tr) => ({
         ...tr,
         keyframes: upsertMotionKeyframeAtTime(tr.keyframes, newKf),
       }));
@@ -1532,7 +1536,7 @@ export function MotionDock({
 
   const toggleTrackVisibility = useCallback(
     (track: MotionDockTrack) => {
-      updateTrack(track.targetNodeId, track.property, (current) => ({
+      updateTrack(track, (current) => ({
         ...current,
         enabled: current.enabled === false,
       }));
@@ -1699,7 +1703,7 @@ export function MotionDock({
 
   const easeKeyframe = useCallback(
     (track: MotionDockTrack, index: number, ease: MotionEase) => {
-      updateTrack(track.targetNodeId, track.property, (tr) => ({
+      updateTrack(track, (tr) => ({
         ...tr,
         keyframes: tr.keyframes.map((kf, i) =>
           i === index ? { ...kf, ease } : kf,
@@ -3071,9 +3075,10 @@ function LayerGroup({
             const animationEnabled = track.enabled !== false;
             return (
               <div
-                key={`${track.targetNodeId}-${track.property}`}
+                key={trackKey(track)}
                 data-motion-property-row={track.property}
                 data-motion-target-node-id={track.targetNodeId}
+                data-motion-track-id={track.id}
                 className={cn(
                   "group relative flex shrink-0 items-center cursor-pointer hover:bg-accent/20",
                   trackKey(track) === selectedTrackKey && "bg-accent/40",
@@ -3586,7 +3591,7 @@ function LayerTrackRows({
       {expanded &&
         layer.tracks.map((track) => (
           <TrackRow
-            key={`${track.targetNodeId}-${track.property}`}
+            key={trackKey(track)}
             track={track}
             readOnly={readOnly}
             timelineDurationMs={timelineDurationMs}
@@ -4075,6 +4080,7 @@ function TrackRow({
     <div
       ref={rowRef}
       data-motion-track-row
+      data-motion-track-id={track.id}
       className={cn(
         "relative border-b border-border/30",
         selected && "bg-accent/20",

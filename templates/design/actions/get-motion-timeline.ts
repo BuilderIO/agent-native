@@ -334,16 +334,19 @@ async function readManagedCssFromFile(
   const legacyTracks = document ? [] : parseLegacyMotionCss(css);
   const authoredTracks = recoveredAuthoredHtmlDocument?.tracks ?? [];
   const tracks = document?.tracks ?? [...legacyTracks, ...authoredTracks];
-  const trackKeys = new Set<string>();
-  for (const track of tracks) {
-    const key = `${track.targetNodeId}:${track.property}`;
-    if (trackKeys.has(key)) {
+  const authoredTrackKeys = new Set(
+    authoredTracks.map((track) =>
+      JSON.stringify([track.targetNodeId, track.property]),
+    ),
+  );
+  for (const track of legacyTracks) {
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    if (authoredTrackKeys.has(key)) {
       throw invalidManagedSource(
         "motion_html_source_unsupported_authored_motion",
         "Legacy managed HTML Motion and authored CSS both animate the same target property.",
       );
     }
-    trackKeys.add(key);
   }
   const animationStyles =
     document?.animationStyles ??

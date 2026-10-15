@@ -100,6 +100,7 @@ import {
   MOTION_PATH_MAX_CONTROL_OFFSET_PX,
   MOTION_TIMELINE_DEFAULT_DURATION_MS,
   MOTION_TIMELINE_MAX_DURATION_MS,
+  isAdditiveMotionPositionTrack,
   parseMotionPosition,
   withMotionTrackIdsFromExisting,
   withTimelinePlaybackMode,
@@ -426,6 +427,7 @@ const trackSchema = z
           "rotate are individual CSS transform properties, so they compose " +
           "freely on one node as separate tracks.",
       ),
+    composition: z.enum(["replace", "add"]).optional(),
     keyframes: z
       .array(keyframeSchema)
       .min(1)
@@ -461,6 +463,17 @@ const trackSchema = z
       ),
   })
   .superRefine((track, context) => {
+    if (
+      track.composition === "add" &&
+      !isAdditiveMotionPositionTrack(track as MotionTrack)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["composition"],
+        message:
+          "Additive composition requires finite px Position values without cubic motion paths.",
+      });
+    }
     for (const [index, keyframe] of track.keyframes.entries()) {
       if (!keyframe.motionPath) continue;
       if (track.property !== "translate") {
@@ -490,6 +503,41 @@ const trackSchema = z
           path: ["keyframes", index, "value"],
           message:
             "Spatial motion paths require finite 2D px Position values or unitless zero.",
+        });
+      }
+    }
+  });
+
+const motionTracksSchema = z
+  .array(trackSchema)
+  .superRefine((tracks, context) => {
+    const tracksByKey = new Map<
+      string,
+      Array<{ index: number; track: MotionTrack }>
+    >();
+    for (const [index, track] of tracks.entries()) {
+      const key = motionTrackKey(track.targetNodeId, track.property);
+      const group = tracksByKey.get(key) ?? [];
+      group.push({ index, track: track as MotionTrack });
+      tracksByKey.set(key, group);
+    }
+
+    for (const group of tracksByKey.values()) {
+      if (group.length < 2 || group[0]!.track.property !== "translate") {
+        continue;
+      }
+      for (const { index, track } of group) {
+        if (
+          isAdditiveMotionPositionTrack(track) &&
+          track.composition !== "replace"
+        ) {
+          continue;
+        }
+        context.addIssue({
+          code: "custom",
+          path: [index],
+          message:
+            "Repeated Position tracks require finite px values or unitless zero and cannot use cubic motion paths.",
         });
       }
     }
@@ -638,7 +686,7 @@ export default defineAction({
     tracks: z
       .preprocess(
         (v) => (typeof v === "string" ? JSON.parse(v) : v),
-        z.array(trackSchema),
+        motionTracksSchema,
       )
       .describe(
         "CSS animation tracks; an empty array clears CSS tracks and supports " +
@@ -1311,8 +1359,8 @@ export default defineAction({
       );
     }
 
-    const seenTrackKeys = new Set<string>();
     const seenTrackIds = new Set<string>();
+    const tracksByKey = new Map<string, MotionTrack[]>();
     for (const track of inputTracks) {
       assertSafeMotionCssProperty(track.property, "track.property");
       if (!isMotionTrackId(track.id)) {
@@ -1329,19 +1377,33 @@ export default defineAction({
       }
       seenTrackIds.add(track.id);
       const trackKey = motionTrackKey(track.targetNodeId, track.property);
-      if (seenTrackKeys.has(trackKey)) {
-        throw new Error(
-          `Duplicate motion track for targetNodeId "${track.targetNodeId}" ` +
-            `and property "${track.property}". Each (targetNodeId, property) ` +
-            "pair may appear at most once — merge the keyframes into a single track.",
-        );
-      }
-      seenTrackKeys.add(trackKey);
+      const tracksForKey = tracksByKey.get(trackKey) ?? [];
+      tracksForKey.push(track);
+      tracksByKey.set(trackKey, tracksForKey);
       for (const kf of track.keyframes) {
         assertSafeMotionCssToken(kf.value, "keyframe value");
         if (kf.ease !== undefined) {
           assertValidMotionEase(kf.ease, "keyframe ease");
         }
+      }
+    }
+    for (const tracksForKey of tracksByKey.values()) {
+      if (
+        tracksForKey.length > 1 &&
+        tracksForKey[0]!.property === "translate" &&
+        tracksForKey.some(
+          (track) =>
+            !isAdditiveMotionPositionTrack(track) ||
+            track.composition === "replace",
+        )
+      ) {
+        fail(
+          "Repeated Position tracks require finite px values or unitless zero and cannot use cubic motion paths.",
+          {
+            errorCode: "motion_position_composition_unsupported",
+            statusCode: 422,
+          },
+        );
       }
     }
     assertValidMotionEase(defaultEase, "defaultEase");

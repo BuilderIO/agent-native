@@ -15,6 +15,7 @@ import type {
   MotionAnimationStyleMetadata,
   MotionAnimationStyleTrackDefinition,
 } from "@shared/motion-animation-styles";
+import type { MotionBuiltInRecipe } from "@shared/motion-built-in-recipes";
 import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type {
@@ -542,6 +543,7 @@ interface EditPanelProps {
   motionAnimationStyles?: MotionAnimationStyleDefinition[];
   motionAnimationStyleTargetTracks?: MotionAnimationStyleTrackDefinition[];
   onApplyMotionAnimationStyle?: (style: MotionAnimationStyleDefinition) => void;
+  onApplyMotionRecipe?: (recipe: MotionBuiltInRecipe) => void;
   onSaveMotionAnimationStyle?: (
     metadata: MotionAnimationStyleMetadata,
     tracks: MotionAnimationStyleTrackDefinition[],
@@ -2272,6 +2274,7 @@ export const EditPanel = memo(function EditPanel({
   motionAnimationStyles = [],
   motionAnimationStyleTargetTracks = [],
   onApplyMotionAnimationStyle,
+  onApplyMotionRecipe,
   onSaveMotionAnimationStyle,
   onCreateMotionTextAnimation,
   motionTextAnimations,
@@ -3147,9 +3150,9 @@ export const EditPanel = memo(function EditPanel({
                                   align="start"
                                   side="left"
                                   sideOffset={animationStyleBrowserSideOffset}
-                                  className="w-[240px] p-0"
+                                  className="h-[min(485px,calc(100dvh-4rem))] w-[240px] overflow-hidden p-0"
                                 >
-                                  <div className="h-[min(483px,calc(100dvh-4rem))]">
+                                  <div className="h-full min-h-0 overflow-hidden">
                                     <AnimationStyleBrowser
                                       styles={motionAnimationStyles}
                                       basicStyles={getMotionDockPrimaryStyles(
@@ -3162,6 +3165,9 @@ export const EditPanel = memo(function EditPanel({
                                       onApply={(style) => {
                                         onApplyMotionAnimationStyle?.(style);
                                       }}
+                                      onApplyRecipe={(recipe) =>
+                                        onApplyMotionRecipe?.(recipe)
+                                      }
                                       onApplyPreset={(style) =>
                                         onCreateMotionStyle?.(style)
                                       }

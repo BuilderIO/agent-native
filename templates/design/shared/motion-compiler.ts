@@ -19,6 +19,7 @@ import {
   MOTION_DEFAULT_PLAYBACK_MODE,
   getMotionTrackTiming,
   formatMotionPosition,
+  isAdditiveMotionPositionTrack,
   isMotionTrackId,
   isMotionPathSegmentV1,
   motionPathCubicPoints,
@@ -95,6 +96,8 @@ export function compile(
       durations: string[];
       timings: string[];
       fillModes: string[];
+      compositions: Array<"replace" | "add">;
+      hasComposition: boolean;
       delays: string[];
       hasDelay: boolean;
       pathDeclarations?: string[];
@@ -106,6 +109,18 @@ export function compile(
     if (!track.keyframes || track.keyframes.length === 0) continue;
     const key = JSON.stringify([track.targetNodeId, track.property]);
     duplicateCounts.set(key, (duplicateCounts.get(key) ?? 0) + 1);
+  }
+  for (const track of identifiedTracks) {
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    if (
+      track.property === "translate" &&
+      (duplicateCounts.get(key) ?? 0) > 1 &&
+      (!isAdditiveMotionPositionTrack(track) || track.composition === "replace")
+    ) {
+      throw new Error(
+        "Repeated Position tracks require finite px values or unitless zero and cannot use cubic motion paths.",
+      );
+    }
   }
   const sorted = tracks
     .map((track, index) => ({ track, index }))
@@ -159,6 +174,8 @@ export function compile(
       durations: [],
       timings: [],
       fillModes: [],
+      compositions: [],
+      hasComposition: false,
       delays: [],
       hasDelay: false,
       pathDeclarations: [],
@@ -167,6 +184,26 @@ export function compile(
     targetRule.durations.push(dur);
     targetRule.timings.push(cssEase(ease, easingVariables));
     targetRule.fillModes.push("both");
+    const repeatedPosition =
+      property === "translate" && duplicateCounts.get(pairKey)! > 1;
+    const composition =
+      track.composition ?? (repeatedPosition ? "add" : "replace");
+    if (
+      composition === "add" &&
+      (property !== "translate" || !isAdditiveMotionPositionTrack(track))
+    ) {
+      throw new Error(
+        `Additive motion composition is only supported for finite px Position tracks without cubic motion paths.`,
+      );
+    }
+    if (repeatedPosition && composition !== "add") {
+      throw new Error(
+        "Repeated Position tracks require additive composition and finite px values or unitless zero without cubic motion paths.",
+      );
+    }
+    targetRule.compositions.push(composition);
+    targetRule.hasComposition ||=
+      track.composition !== undefined || repeatedPosition;
     targetRule.delays.push(formatDuration(timing.startMs));
     if (spatialPath) {
       targetRule.pathDeclarations!.push(
@@ -191,6 +228,9 @@ export function compile(
       `  animation-timing-function: ${rule.timings.join(", ")};`,
       `  animation-fill-mode: ${rule.fillModes.join(", ")};`,
     ];
+    if (rule.hasComposition) {
+      lines.push(`  animation-composition: ${rule.compositions.join(", ")};`);
+    }
     if (rule.hasDelay) {
       lines.push(`  animation-delay: ${rule.delays.join(", ")};`);
     }
@@ -257,6 +297,9 @@ export function parse(css: string): MotionTrack[] {
       targetNodeId: info?.targetNodeId ?? decoded.targetNodeId,
       property: decoded.property,
       keyframes,
+      ...(info?.composition !== undefined
+        ? { composition: info.composition }
+        : {}),
     };
     if (info?.delayMs !== undefined && info.delayMs > 0) {
       track.delayMs = info.delayMs;
@@ -269,6 +312,36 @@ export function parse(css: string): MotionTrack[] {
       track.durationMs = info.durationMs;
     }
     tracks.push(track);
+  }
+
+  const tracksByKey = new Map<string, MotionTrack[]>();
+  for (const track of tracks) {
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    const group = tracksByKey.get(key) ?? [];
+    group.push(track);
+    tracksByKey.set(key, group);
+  }
+  for (const group of tracksByKey.values()) {
+    const repeatedPosition =
+      group.length > 1 && group[0]!.property === "translate";
+    for (const track of group) {
+      const composition = track.composition;
+      if (repeatedPosition) {
+        if (composition !== "add" || !isAdditiveMotionPositionTrack(track)) {
+          throw new MotionCssSourceParseError(
+            "Repeated Position tracks require additive composition and finite px values or unitless zero without cubic motion paths.",
+          );
+        }
+      } else if (
+        composition === "add" &&
+        (track.property !== "translate" ||
+          !isAdditiveMotionPositionTrack(track))
+      ) {
+        throw new MotionCssSourceParseError(
+          `Additive motion composition for "${track.targetNodeId}"/"${track.property}" cannot be represented losslessly.`,
+        );
+      }
+    }
   }
 
   if (
@@ -601,6 +674,7 @@ interface ParsedAnimationRuleEntry {
   durationMs?: number;
   offsetPath?: string;
   translate?: string;
+  composition?: "replace" | "add";
 }
 
 interface ParsedAnimationRules {
@@ -654,6 +728,7 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
     if (names.length === 0) continue;
     const durations = listOf(body, "animation-duration");
     const delays = listOf(body, "animation-delay");
+    const compositions = listOf(body, "animation-composition");
     const iterations = listOf(body, "animation-iteration-count");
     const directions = listOf(body, "animation-direction");
 
@@ -666,6 +741,15 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
     names.forEach((name, index) => {
       if (!name) return;
       const entry: ParsedAnimationRuleEntry = { targetNodeId };
+      const composition = compositions[index] ?? compositions[0];
+      if (composition !== undefined) {
+        if (composition !== "replace" && composition !== "add") {
+          throw new MotionCssSourceParseError(
+            `Motion CSS composition "${composition}" is not supported.`,
+          );
+        }
+        entry.composition = composition;
+      }
       const offsetPath = declarationOf(body, "offset-path");
       const translate = declarationOf(body, "translate");
       if (offsetPath) entry.offsetPath = offsetPath;

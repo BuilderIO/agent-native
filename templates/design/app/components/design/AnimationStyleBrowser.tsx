@@ -5,6 +5,13 @@ import type {
   MotionAnimationStyleTrackDefinition,
 } from "@shared/motion-animation-styles";
 import {
+  MOTION_BUILT_IN_RECIPES,
+  type MotionBuiltInRecipe,
+  type MotionBuiltInRecipeCategory,
+  type MotionBuiltInRecipeProperty,
+  type MotionBuiltInRecipeTempo,
+} from "@shared/motion-built-in-recipes";
+import {
   IconEye,
   IconEyeOff,
   IconMinus,
@@ -46,6 +53,12 @@ const CATEGORY_KEYS: Record<MotionAnimationStyleCategory, string> = {
   exit: "designEditor.motion.animationStyles.exit",
 };
 
+const RECIPE_TEMPO_KEYS: Record<MotionBuiltInRecipeTempo, string> = {
+  fast: "designEditor.motion.animationStyles.tempo.fast",
+  medium: "designEditor.motion.animationStyles.tempo.medium",
+  slow: "designEditor.motion.animationStyles.tempo.slow",
+};
+
 const ANIMATION_TYPES = [
   { id: "text", key: "text", properties: [] as string[] },
   { id: "position", key: "position", properties: ["translate"] },
@@ -62,6 +75,7 @@ export interface AnimationStyleBrowserProps {
   selectedTargetTracks: MotionAnimationStyleTrackDefinition[];
   disabled?: boolean;
   onApply: (style: MotionAnimationStyleDefinition) => void;
+  onApplyRecipe: (recipe: MotionBuiltInRecipe) => void;
   onApplyPreset: (style: MotionAnimationStyle) => void;
   onSaveStyle: (
     metadata: MotionAnimationStyleMetadata,
@@ -77,6 +91,7 @@ export function AnimationStyleBrowser({
   selectedTargetTracks,
   disabled = false,
   onApply,
+  onApplyRecipe,
   onApplyPreset,
   onSaveStyle,
   onClose,
@@ -106,14 +121,22 @@ export function AnimationStyleBrowser({
           return false;
         }
         if (!query) return true;
-        return [
-          style.name,
-          style.description ?? "",
-          style.category,
-          ...style.tracks.map((track) => track.property),
-        ].some((value) => value.toLocaleLowerCase().includes(query));
+        return [style.name, style.description ?? ""].some((value) =>
+          value.toLocaleLowerCase().includes(query),
+        );
       }),
     [categoryFilter, query, styles],
+  );
+  const filteredRecipes = useMemo(
+    () =>
+      MOTION_BUILT_IN_RECIPES.filter((recipe) => {
+        if (categoryFilter !== "all" && categoryFilter !== recipe.category) {
+          return false;
+        }
+        if (!query) return true;
+        return t(recipe.nameKey).toLocaleLowerCase().includes(query);
+      }),
+    [categoryFilter, query, t],
   );
   const visibleCategories =
     categoryFilter === "all" ? STYLE_CATEGORIES : [categoryFilter];
@@ -149,7 +172,7 @@ export function AnimationStyleBrowser({
   return (
     <section
       aria-label={t("designEditor.motion.animationStyles.title")}
-      className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-background"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-border bg-background"
     >
       <header className="flex items-center justify-between gap-2 border-b border-border px-2.5 py-2">
         <h2 className="min-w-0 truncate text-xs font-medium">
@@ -203,14 +226,12 @@ export function AnimationStyleBrowser({
               "designEditor.motion.animationStyles.searchPlaceholder",
             )}
             className="h-8 ps-7 text-xs"
-            disabled={disabled}
             value={search}
             onChange={(event) => setSearch(event.currentTarget.value)}
           />
         </div>
         <Select
           value={categoryFilter}
-          disabled={disabled}
           onValueChange={(value) =>
             setCategoryFilter(value as MotionAnimationStyleCategory | "all")
           }
@@ -243,14 +264,18 @@ export function AnimationStyleBrowser({
           const categoryStyles = filteredStyles.filter(
             (style) => style.category === category,
           );
+          const categoryRecipes = filteredRecipes.filter(
+            (recipe) => recipe.category === category,
+          );
           const includeBasicPresets = category === "basic";
           const hasRows =
             (includeBasicPresets && filteredBasicStyles.length > 0) ||
-            categoryStyles.length > 0;
+            categoryStyles.length > 0 ||
+            categoryRecipes.length > 0;
           if (!hasRows) return null;
           return (
             <section key={category} className="pb-1">
-              <h3 className="px-1.5 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <h3 className="px-1.5 py-1 text-[11px] font-medium text-muted-foreground">
                 {t(CATEGORY_KEYS[category])}
               </h3>
               {includeBasicPresets ? (
@@ -268,6 +293,30 @@ export function AnimationStyleBrowser({
                           className="size-3.5 shrink-0 text-muted-foreground"
                         />
                         <span className="truncate">{style.label}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {categoryRecipes.length > 0 ? (
+                <ul className="space-y-0.5">
+                  {categoryRecipes.map((recipe) => (
+                    <li key={`recipe:${recipe.id}`}>
+                      <button
+                        data-motion-recipe-id={recipe.id}
+                        data-motion-recipe-tempo={recipe.tempo}
+                        type="button"
+                        disabled={disabled}
+                        className="flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1.5 text-start text-xs outline-none transition-colors hover:bg-accent/60 focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                        onClick={() => onApplyRecipe(recipe)}
+                      >
+                        <RecipePreviewGlyph recipe={recipe} />
+                        <span className="min-w-0 flex-1 truncate font-medium">
+                          {t(recipe.nameKey)}
+                        </span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
+                          {t(RECIPE_TEMPO_KEYS[recipe.tempo])}
+                        </span>
                       </button>
                     </li>
                   ))}
@@ -306,7 +355,9 @@ export function AnimationStyleBrowser({
             </section>
           );
         })}
-        {filteredBasicStyles.length === 0 && filteredStyles.length === 0 ? (
+        {filteredBasicStyles.length === 0 &&
+        filteredStyles.length === 0 &&
+        filteredRecipes.length === 0 ? (
           <p className="px-1 py-4 text-center text-xs text-muted-foreground">
             {query
               ? t("designEditor.motion.animationStyles.noResults")
@@ -316,6 +367,131 @@ export function AnimationStyleBrowser({
       </div>
     </section>
   );
+}
+
+function RecipePreviewGlyph({ recipe }: { recipe: MotionBuiltInRecipe }) {
+  const track = recipe.tracks[0];
+  if (!track)
+    throw new Error(`Motion recipe has no preview track: ${recipe.id}`);
+
+  const from = previewState(
+    track.property,
+    track.keyframes[0].value,
+    recipe.id,
+  );
+  const to = previewState(track.property, track.keyframes[1].value, recipe.id);
+
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-5 shrink-0 text-foreground"
+      data-motion-recipe-glyph={recipe.id}
+      data-motion-recipe-property={track.property}
+      viewBox="0 0 20 20"
+    >
+      {track.property === "translate" ? (
+        <line
+          x1="10"
+          y1="10"
+          x2={to.x}
+          y2={to.y}
+          stroke="currentColor"
+          strokeDasharray="1.5 1.5"
+          strokeWidth="1.25"
+          opacity="0.75"
+        />
+      ) : null}
+      <rect
+        x="5"
+        y="5"
+        width="10"
+        height="10"
+        rx="1.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        opacity={Math.max(0.4, from.opacity) * 0.8}
+        transform={from.transform}
+      />
+      <rect
+        x="5"
+        y="5"
+        width="10"
+        height="10"
+        rx="1.5"
+        fill="currentColor"
+        opacity={Math.max(0.65, to.opacity)}
+        transform={to.transform}
+      />
+    </svg>
+  );
+}
+
+function previewState(
+  property: MotionBuiltInRecipeProperty,
+  value: string,
+  recipeId: string,
+) {
+  const invalid = () =>
+    new Error(
+      `Invalid ${property} preview value in motion recipe: ${recipeId}`,
+    );
+
+  switch (property) {
+    case "translate": {
+      const match = /^(-?[\d.]+)px\s+(-?[\d.]+)px$/.exec(value);
+      if (!match) throw invalid();
+      const x = Number(match[1]);
+      const y = Number(match[2]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw invalid();
+      const dx = Math.max(-4, Math.min(4, x / 30));
+      const dy = Math.max(-4, Math.min(4, y / 30));
+      return {
+        transform: `translate(${dx} ${dy})`,
+        opacity: 1,
+        x: 10 + dx,
+        y: 10 + dy,
+      };
+    }
+    case "scale": {
+      const match = /^(-?[\d.]+)\s+(-?[\d.]+)$/.exec(value);
+      if (!match) throw invalid();
+      const x = Number(match[1]);
+      const y = Number(match[2]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw invalid();
+      const scaleX = Math.max(0.1, Math.min(2, x));
+      const scaleY = Math.max(0.1, Math.min(2, y));
+      return {
+        transform: `translate(10 10) scale(${scaleX} ${scaleY}) translate(-10 -10)`,
+        opacity: 1,
+        x: 10,
+        y: 10,
+      };
+    }
+    case "rotate": {
+      const match = /^(-?[\d.]+)deg$/.exec(value);
+      if (!match) throw invalid();
+      const degrees = Number(match[1]);
+      if (!Number.isFinite(degrees)) throw invalid();
+      const visibleDegrees = Math.max(-45, Math.min(45, degrees));
+      return {
+        transform: `rotate(${visibleDegrees} 10 10)`,
+        opacity: 1,
+        x: 10,
+        y: 10,
+      };
+    }
+    case "opacity": {
+      const opacity = Number(value);
+      if (!Number.isFinite(opacity)) throw invalid();
+      return {
+        transform: "",
+        opacity: Math.max(0, Math.min(1, opacity)),
+        x: 10,
+        y: 10,
+      };
+    }
+  }
 }
 
 interface CreateStyleFormProps {

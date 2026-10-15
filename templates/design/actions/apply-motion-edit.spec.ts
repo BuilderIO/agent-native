@@ -60,6 +60,80 @@ describe("apply-motion-edit Text stagger validation", () => {
     }
   });
 
+  it("accepts ordered same-property tracks when they have distinct identities", () => {
+    const parsed = action.schema.safeParse({
+      ...input,
+      tracks: [
+        {
+          id: "opacity-first",
+          targetNodeId: "target-1",
+          property: "opacity",
+          keyframes: [{ t: 0, value: "0" }],
+        },
+        {
+          id: "opacity-second",
+          targetNodeId: "target-1",
+          property: "opacity",
+          keyframes: [{ t: 0, value: "1" }],
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.tracks.map((track) => track.id)).toEqual([
+        "opacity-first",
+        "opacity-second",
+      ]);
+    }
+  });
+
+  it("accepts additive Position rows but rejects Position rows with path collisions", () => {
+    const positionTrack = (id: string, value: string) => ({
+      id,
+      targetNodeId: "target-1",
+      property: "translate",
+      composition: "add",
+      keyframes: [
+        { t: 0, value: "0px 0px" },
+        { t: 1, value },
+      ],
+    });
+    const additive = action.schema.safeParse({
+      ...input,
+      tracks: [
+        positionTrack("position-x", "100px 0px"),
+        positionTrack("position-y", "0px 60px"),
+      ],
+    });
+    expect(additive.success).toBe(true);
+
+    const pathCollision = action.schema.safeParse({
+      ...input,
+      tracks: [
+        {
+          ...positionTrack("position-path", "100px 0px"),
+          composition: undefined,
+          keyframes: [
+            {
+              t: 0,
+              value: "0px 0px",
+              motionPath: {
+                version: 1,
+                type: "cubic",
+                control1: { x: 10, y: 0 },
+                control2: { x: -10, y: 0 },
+              },
+            },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+        positionTrack("position-second", "0px 60px"),
+      ],
+    });
+    expect(pathCollision.success).toBe(false);
+  });
+
   it("keeps fixed stagger bounded by the source duration limit", () => {
     const { overlapPercent: _overlapPercent, ...legacyAnimation } = animation;
 

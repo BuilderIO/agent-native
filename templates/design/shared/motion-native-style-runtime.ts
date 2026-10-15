@@ -238,25 +238,43 @@ export function motionNativeStyleEndTimeMs(
 export function motionNativeStylesToTracks(
   styles: readonly MotionNativeStyleInstance[],
 ): MotionTrack[] {
-  return styles.flatMap((style) => {
-    if (style.enabled === false) return [];
-    switch (style.styleKey) {
-      case "Position":
-        return positionTracks(style);
-      case "Scale":
-        return scaleTracks(style);
-      case "Rotation":
-        return rotationTracks(style);
-      case "Opacity":
-        return opacityTracks(style);
-      case "Size":
-        return sizeTracks(style);
-      case "TextStagger":
-        return [];
-      case "Path":
-        return pathTrimTracks(style);
-    }
+  return motionNativeStyleTrackGroups(styles).flat();
+}
+
+export function motionNativeStyleTrackGroups(
+  styles: readonly MotionNativeStyleInstance[],
+  options: { trackIds?: boolean } = {},
+): MotionTrack[][] {
+  return styles.map((style, styleIndex) => {
+    const tracks = nativeStyleTracks(style);
+    if (!options.trackIds) return tracks;
+
+    // Metadata order is the stable identity for generated native-style CSS tracks.
+    return tracks.map((track, trackIndex) => ({
+      ...track,
+      id: `native-style-${styleIndex.toString(36)}-${trackIndex.toString(36)}`,
+    }));
   });
+}
+
+function nativeStyleTracks(style: MotionNativeStyleInstance): MotionTrack[] {
+  if (style.enabled === false) return [];
+  switch (style.styleKey) {
+    case "Position":
+      return positionTracks(style);
+    case "Scale":
+      return scaleTracks(style);
+    case "Rotation":
+      return rotationTracks(style);
+    case "Opacity":
+      return opacityTracks(style);
+    case "Size":
+      return sizeTracks(style);
+    case "TextStagger":
+      return [];
+    case "Path":
+      return pathTrimTracks(style);
+  }
 }
 
 /** Derives local text-unit runtime tracks without changing Figma source props. */

@@ -275,6 +275,7 @@ export function useEditorContentAndComponents({
     setMotionPlaybackMode,
     motionDefaultEase,
     motionPlayhead,
+    motionDockLiveState,
     motionAutoKeyframeEnabled,
     motionTracksDirty,
     setMotionTracksDirty,
@@ -717,11 +718,13 @@ export function useEditorContentAndComponents({
     (
       tracks: MotionTrackWire[],
       targetNodeId: string,
+      trackId?: string,
     ): MotionPathTracksChangeResult | void => {
       if (!writeMotionAvailable) return;
       const updatedPositionTrack = motionPathTrackForTarget(
         tracks,
         targetNodeId,
+        trackId,
       );
       if (!updatedPositionTrack) {
         return {
@@ -766,10 +769,17 @@ export function useEditorContentAndComponents({
         return { status: "updated" };
       }
 
-      const currentPositionTrack = motionTracks.find(
+      const matchingPositionTracks = motionTracks.filter(
         (track) =>
           track.targetNodeId === targetNodeId && track.property === "translate",
       );
+      const currentPositionTrack = updatedPositionTrack.id
+        ? matchingPositionTracks.find(
+            (track) => track.id === updatedPositionTrack.id,
+          )
+        : matchingPositionTracks.length === 1
+          ? matchingPositionTracks[0]
+          : undefined;
       if (
         !currentPositionTrack ||
         JSON.stringify(currentPositionTrack.keyframes) ===
@@ -778,11 +788,15 @@ export function useEditorContentAndComponents({
         return currentPositionTrack ? { status: "updated" } : undefined;
       }
       setMotionTracks((current) =>
-        current.map((track) =>
-          track.targetNodeId === targetNodeId && track.property === "translate"
+        current.map((track) => {
+          const matchesTrack = updatedPositionTrack.id
+            ? track.id === updatedPositionTrack.id
+            : track.targetNodeId === targetNodeId &&
+              track.property === "translate";
+          return matchesTrack
             ? { ...track, keyframes: updatedPositionTrack.keyframes }
-            : track,
-        ),
+            : track;
+        }),
       );
       markMotionTracksDirty();
       return { status: "updated" };
@@ -1097,6 +1111,7 @@ export function useEditorContentAndComponents({
         timelineDurationMs: motionDurationMs,
         defaultEase: motionDefaultEase,
         autoKeyframeEnabled: motionAutoKeyframeEnabled,
+        trackId: motionDockLiveState.selectedTrackId ?? undefined,
       };
       if (applyMotionStyleKeyframeEdit(motionTracks, edit) === motionTracks) {
         return;
@@ -1111,6 +1126,7 @@ export function useEditorContentAndComponents({
       markMotionTracksDirty,
       motionAutoKeyframeEnabled,
       motionDefaultEase,
+      motionDockLiveState.selectedTrackId,
       motionDockOpen,
       motionDurationMs,
       motionPlayhead,
@@ -1134,6 +1150,7 @@ export function useEditorContentAndComponents({
           selectedCodeLayerNode,
           selectedElement,
           selectedMotionTargetNodeId,
+          selectedMotionTrackId: motionDockLiveState.selectedTrackId,
           setMotionTracks,
         },
         cssProperty,
@@ -1144,6 +1161,7 @@ export function useEditorContentAndComponents({
       markMotionTracksDirty,
       motionDefaultEase,
       motionPlayhead,
+      motionDockLiveState.selectedTrackId,
       selectedCodeLayerNode,
       selectedElement?.computedStyles,
       selectedElement?.tagName,

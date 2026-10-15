@@ -316,8 +316,12 @@ describe("apply-motion-edit localhost React source", () => {
     expect(mocks.insertedRows[0]).toMatchObject({
       sourceRef: "screen-1",
       filePath: "app/routes/home.tsx",
-      tracks: JSON.stringify(request.tracks),
     });
+    const persistedTracks = JSON.parse(
+      mocks.insertedRows[0]?.tracks as string,
+    ) as Array<Record<string, unknown>>;
+    expect(persistedTracks).toMatchObject(request.tracks);
+    expect(persistedTracks[0]?.id).toBe("legacy-track-0");
     expect(result).toMatchObject({
       sourceType: "localhost",
       sourceRef: "screen-1",

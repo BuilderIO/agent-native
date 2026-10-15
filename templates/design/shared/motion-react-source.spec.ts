@@ -195,6 +195,120 @@ describe("React Motion source adapter", () => {
     }
   });
 
+  it("round-trips additive Position axes through React source by id and order", () => {
+    const timeline: MotionTimeline = {
+      ...makeTimeline(),
+      tracks: [
+        {
+          id: "position-x",
+          targetNodeId: "hero-title",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+        {
+          id: "position-y",
+          targetNodeId: "hero-title",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "0px 60px" },
+          ],
+        },
+      ],
+    };
+    const first = apply(source, { timeline });
+    const read = readMotionReactSource(first.source, "Card.tsx");
+
+    expect(first.source).toContain("animation-composition: add, add;");
+    expect(read).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "position-x", property: "translate", composition: "add" },
+          { id: "position-y", property: "translate", composition: "add" },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("repeated React Position tracks were not readable");
+    }
+
+    const rewritten = apply(first.source, {
+      timeline: { ...timeline, tracks: read.document.tracks },
+    });
+    expect(readMotionReactSource(rewritten.source, "Card.tsx")).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "position-x", composition: "add" },
+          { id: "position-y", composition: "add" },
+        ],
+      },
+    });
+  });
+
+  it("round-trips additive Position axes through React source by id and order", () => {
+    const timeline: MotionTimeline = {
+      ...makeTimeline(),
+      tracks: [
+        {
+          id: "position-x",
+          targetNodeId: "hero-title",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+        {
+          id: "position-y",
+          targetNodeId: "hero-title",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "0px 60px" },
+          ],
+        },
+      ],
+    };
+    const first = apply(source, { timeline });
+    const read = readMotionReactSource(first.source, "Card.tsx");
+
+    expect(first.source).toContain("animation-composition: add, add;");
+    expect(read).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "position-x", property: "translate", composition: "add" },
+          { id: "position-y", property: "translate", composition: "add" },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("repeated React Position tracks were not readable");
+    }
+
+    const rewritten = apply(first.source, {
+      timeline: { ...timeline, tracks: read.document.tracks },
+    });
+    expect(readMotionReactSource(rewritten.source, "Card.tsx")).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "position-x", composition: "add" },
+          { id: "position-y", composition: "add" },
+        ],
+      },
+    });
+  });
+
   it("reads direct CSS edits, then writes the reconciled timeline back cleanly", () => {
     const authored = apply(source);
     const directEdit = authored.source

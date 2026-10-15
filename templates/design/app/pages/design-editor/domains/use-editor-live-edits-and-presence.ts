@@ -1304,6 +1304,7 @@ export function useEditorLiveEditsAndPresence({
       }
       return motionNativeStylesToTracks([style]).map((track) => ({
         ...track,
+        id: `native-motion-${index}`,
         nativeStyleIndex: index,
       }));
     });
@@ -1312,6 +1313,42 @@ export function useEditorLiveEditsAndPresence({
     );
     return [...authoredTracks, ...nativePreviewTracks];
   }, [motionDockOpen, motionNativeStyles, motionTracks]);
+
+  const motionPathTrackSelection = useMemo(() => {
+    const selectedPositionTrack = motionTracksWire.find(
+      (track) =>
+        track.id === motionDockLiveState.selectedTrackId &&
+        track.property === "translate",
+    );
+    if (selectedPositionTrack?.id) {
+      return {
+        targetNodeId: selectedPositionTrack.targetNodeId,
+        trackId: selectedPositionTrack.id,
+      };
+    }
+    const targetNodeId = motionSelectedTarget?.nodeId;
+    if (!targetNodeId) return null;
+    const positionTracks = motionTracksWire.filter(
+      (track) =>
+        track.targetNodeId === targetNodeId && track.property === "translate",
+    );
+    const authoredTracks = positionTracks.filter(
+      (track) => track.nativeStyleIndex === undefined,
+    );
+    const uniqueTrack =
+      authoredTracks.length === 1
+        ? authoredTracks[0]
+        : authoredTracks.length > 1 || positionTracks.length !== 1
+          ? null
+          : positionTracks[0];
+    return uniqueTrack?.id ? { targetNodeId, trackId: uniqueTrack.id } : null;
+  }, [
+    motionDockLiveState.selectedTrackId,
+    motionSelectedTarget?.nodeId,
+    motionTracksWire,
+  ]);
+  const motionPathTargetNodeId = motionPathTrackSelection?.targetNodeId ?? null;
+  const motionPathTrackId = motionPathTrackSelection?.trackId ?? null;
 
   const syncLiveScreenSnapshotPreview = useCallback(
     (screenId: string, html: string) => {
@@ -1576,6 +1613,8 @@ export function useEditorLiveEditsAndPresence({
     motionOriginEditing,
     setMotionOriginEditing,
     motionTracksWire,
+    motionPathTargetNodeId,
+    motionPathTrackId,
     replacePreviewContent,
     syncLiveScreenSnapshotPreview,
     deleteRuntimeElement,

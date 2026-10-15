@@ -28,8 +28,10 @@ describe("createMotionPresetTracks", () => {
     expect(result.timelineDurationMs).toBe(2000);
     expect(result.tracks).toEqual([
       {
+        id: expect.any(String),
         targetNodeId: "hero",
         property: "translate",
+        composition: "add",
         delayMs: 750,
         durationMs: 1250,
         keyframes: [

@@ -54,10 +54,24 @@ export interface MotionTrack {
   targetNodeId: string;
   property: string;
   keyframes: MotionKeyframe[];
+  composition?: "replace" | "add";
   enabled?: boolean;
   delayMs?: number;
   durationMs?: number;
   timelinePlaybackMode?: MotionPlaybackMode;
+}
+
+/** Repeated Position tracks compose additively only for the bounded px subset. */
+export function isAdditiveMotionPositionTrack(track: MotionTrack): boolean {
+  return (
+    track.property === "translate" &&
+    track.keyframes.length > 0 &&
+    track.keyframes.every(
+      (keyframe) =>
+        keyframe.motionPath === undefined &&
+        parseMotionPosition(keyframe.value) !== null,
+    )
+  );
 }
 
 const MOTION_TRACK_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -236,6 +250,7 @@ export function createMotionTrack(
     id: createMotionTrackId(),
     targetNodeId,
     property,
+    ...(property === "translate" ? { composition: "add" as const } : {}),
     keyframes: [
       { t: 0, value: from, ...(options.ease ? { ease: options.ease } : {}) },
       { t: 1, value: to, ...(options.ease ? { ease: options.ease } : {}) },
@@ -905,6 +920,7 @@ export interface MotionAutoKeyframeEdit {
   value: string;
   playheadT: number;
   timelineDurationMs: number;
+  trackId?: string;
 }
 
 export function applyMotionAutoKeyframe(
@@ -912,12 +928,19 @@ export function applyMotionAutoKeyframe(
   edit: MotionAutoKeyframeEdit,
   defaultEase?: MotionEase,
 ): MotionTrack[] | null {
-  const index = tracks.findIndex(
-    (track) =>
-      track.targetNodeId === edit.targetNodeId &&
-      track.property === edit.property,
+  const matchingIndices = tracks.flatMap((track, index) =>
+    track.targetNodeId === edit.targetNodeId && track.property === edit.property
+      ? [index]
+      : [],
   );
-  if (index === -1) return null;
+  const index =
+    (edit.trackId
+      ? matchingIndices.find(
+          (candidateIndex) => tracks[candidateIndex]?.id === edit.trackId,
+        )
+      : undefined) ??
+    (matchingIndices.length === 1 ? matchingIndices[0] : undefined);
+  if (index === undefined) return null;
   const track = tracks[index];
   const playheadMs =
     Math.min(1, Math.max(0, edit.playheadT)) * edit.timelineDurationMs;

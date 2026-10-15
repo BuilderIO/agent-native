@@ -570,7 +570,7 @@ test("native style states persist with the Motion inspector and timeline", async
     path: "index.html",
   });
   const encodedMotionSource = sourceAfterWordGrouping.content.match(
-    /agent-native-motion-source:v4:([^\s*]+)/,
+    /agent-native-motion-source:v5:([^\s*]+)/,
   )?.[1];
   expect(encodedMotionSource).toBeDefined();
   const decodedMotionSource = decodeURIComponent(encodedMotionSource!);

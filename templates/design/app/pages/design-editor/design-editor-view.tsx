@@ -6,6 +6,7 @@ import type {
   MotionAnimationStyleMetadata,
   MotionAnimationStyleTrackDefinition,
 } from "@shared/motion-animation-styles";
+import type { MotionBuiltInRecipe } from "@shared/motion-built-in-recipes";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type {
   MotionNativeStyleInstance,
@@ -116,6 +117,7 @@ import {
   type MotionAnimationStyle,
 } from "./motion-animation-style";
 import {
+  applyMotionBuiltInRecipeToTargets,
   applyMotionAnimationStyleToTargets,
   motionAnimationStyleDefinitionFromTracks,
   resolveSelectedMotionTargets,
@@ -1757,6 +1759,56 @@ export function renderDesignEditorView({
                   property: style.tracks
                     .map((track) => track.property)
                     .join(", "),
+                  label: motionTargetForInspector.label,
+                }),
+              );
+              return;
+            }
+            if (result.timelineDurationMs !== motionDurationMs) {
+              handleMotionDurationChange(result.timelineDurationMs);
+            }
+            const nextTracks = [...motionTracks, ...result.tracks];
+            handleMotionTracksChange(
+              motionTracks.length === 0
+                ? withTimelinePlaybackMode(
+                    nextTracks,
+                    MOTION_DEFAULT_PLAYBACK_MODE,
+                  )
+                : nextTracks,
+            );
+            setMotionDockOpenAnimated(true);
+          }
+        : undefined,
+    onApplyMotionRecipe:
+      editorLiveEditsAndPresence.motionLabEnabled &&
+      canEditActiveVisualScreen &&
+      canWriteMotion &&
+      motionTargetForInspector
+        ? (recipe: MotionBuiltInRecipe) => {
+            const targets = hasCompleteSelectedMotionTargets
+              ? uniqueSelectedMotionTargets.map(({ nodeId, label }) => ({
+                  nodeId,
+                  label,
+                }))
+              : [
+                  {
+                    nodeId: motionTargetForInspector.nodeId,
+                    label: motionTargetForInspector.label,
+                  },
+                ];
+            const result = applyMotionBuiltInRecipeToTargets({
+              existingTracks: motionTracks,
+              recipe,
+              targets,
+              currentTimeMs: motionPlayhead * motionDurationMs,
+              timelineDurationMs: motionDurationMs,
+            });
+            if (result.tracks.length === 0) {
+              toast.info(
+                t("designEditor.motion.trackExists", {
+                  property: Array.from(
+                    new Set(recipe.tracks.map((track) => track.property)),
+                  ).join(", "),
                   label: motionTargetForInspector.label,
                 }),
               );

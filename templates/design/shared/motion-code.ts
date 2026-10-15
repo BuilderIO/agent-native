@@ -27,6 +27,7 @@ import {
   motionNativeStyleEndTimeMs,
   motionNativeStyleWithPathTrimTrack,
   motionNativeStyleWithPositionTrack,
+  motionNativeStyleTrackGroups,
   motionNativeStylesToTracks,
 } from "./motion-native-style-runtime";
 import type {
@@ -37,13 +38,14 @@ import type {
 import {
   isMotionTrackId,
   isMotionPathSegmentV1,
+  isAdditiveMotionPositionTrack,
   motionTimelineDurationForTracks,
   MOTION_TIMELINE_MAX_DURATION_MS,
   parseMotionPosition,
   withMotionTrackIds,
 } from "./motion-timeline";
 
-export const MOTION_CODE_METADATA_VERSION = 4 as const;
+export const MOTION_CODE_METADATA_VERSION = 5 as const;
 const LEGACY_MOTION_CODE_METADATA_VERSION = 1;
 export const MOTION_SOURCE_MARKER_NAME = "agent-native-motion-source";
 export const MOTION_SOURCE_WRITE_UNAVAILABLE =
@@ -132,7 +134,7 @@ export function motionCodeDocumentFromTimeline(
       audioEndMs,
     ),
     defaultEase: timeline.defaultEase,
-    tracks: withMotionTrackIds(timeline.tracks),
+    tracks: withPositionTrackComposition(timeline.tracks),
     ...(timeline.playbackMode ? { playbackMode: timeline.playbackMode } : {}),
     ...(timeline.animationStyles
       ? { animationStyles: timeline.animationStyles }
@@ -152,8 +154,11 @@ export function compileMotionCode(
   options: MotionCodeCompileOptions = {},
 ) {
   const audioEndMs = motionAudioClipsEndTimeMs(options.audioClips ?? []);
-  const tracks = withMotionTrackIds(timeline.tracks);
-  const nativeTracks = motionNativeStylesToTracks(timeline.nativeStyles ?? []);
+  const tracks = withPositionTrackComposition(timeline.tracks);
+  const nativeTracks = motionNativeStyleTrackGroups(
+    timeline.nativeStyles ?? [],
+    { trackIds: true },
+  ).flat();
   const nativeStyleEndMs = Math.ceil(
     Math.max(
       0,
@@ -173,6 +178,24 @@ export function compileMotionCode(
     motionCodeDocumentFromTimeline({ ...timeline, tracks }, options),
   );
   return { css, hash: hashCss(css) };
+}
+
+function withPositionTrackComposition(
+  tracks: readonly MotionTrack[],
+): MotionTrack[] {
+  const identifiedTracks = withMotionTrackIds(tracks);
+  const counts = new Map<string, number>();
+  for (const track of identifiedTracks) {
+    if (track.property !== "translate") continue;
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return identifiedTracks.map((track) => {
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    return track.property === "translate" && (counts.get(key) ?? 0) > 1
+      ? { ...track, composition: track.composition ?? "add" }
+      : track;
+  });
 }
 
 interface MarkerLocation {
@@ -506,33 +529,69 @@ export function reconcileMotionCodeDocument(
 
   const nativeStyles: MotionNativeStyleInstance[] = [];
   const consumedTrackIndices = new Set<number>();
-  for (const style of stored.nativeStyles ?? []) {
-    let projection: MotionTrack[];
-    try {
-      projection = motionNativeStylesToTracks([style]);
-    } catch (error) {
-      throw invalidMotionCss(
-        error instanceof Error
-          ? error.message
-          : "A stored Motion style cannot be projected onto editable tracks.",
-      );
+  let nativeStyleProjections: MotionTrack[][];
+  try {
+    nativeStyleProjections = motionNativeStyleTrackGroups(
+      stored.nativeStyles ?? [],
+      { trackIds: true },
+    );
+  } catch (error) {
+    throw invalidMotionCss(
+      error instanceof Error
+        ? error.message
+        : "A stored Motion style cannot be projected onto editable tracks.",
+    );
+  }
+  const nativeTrackStyleOwners = new Map<string, number>();
+  nativeStyleProjections.forEach((projection, styleIndex) => {
+    for (const track of projection) {
+      if (track.id) nativeTrackStyleOwners.set(track.id, styleIndex);
     }
+  });
+  for (const [styleIndex, style] of (stored.nativeStyles ?? []).entries()) {
+    const projection = nativeStyleProjections[styleIndex] ?? [];
     if (style.enabled === false || projection.length === 0) {
       nativeStyles.push(style);
       continue;
     }
 
-    const exactMatches = projection.map((projected) =>
-      matchingTrackIndices(parsedTracks, (track) =>
+    const exactMatches = projection.map((projected) => {
+      const identifiedMatches = projected.id
+        ? matchingTrackIndices(
+            parsedTracks,
+            (track) =>
+              track.id === projected.id &&
+              track.targetNodeId === projected.targetNodeId &&
+              track.property === projected.property,
+          )
+        : [];
+      const candidates =
+        identifiedMatches.length > 0
+          ? identifiedMatches
+          : matchingTrackIndices(parsedTracks, (track) =>
+              motionTracksMatch(
+                projected,
+                track,
+                timelineDuration,
+                stored.defaultEase,
+                easingVariables,
+              ),
+            ).filter((index) => {
+              const owner = parsedTracks[index]?.id
+                ? nativeTrackStyleOwners.get(parsedTracks[index]!.id!)
+                : undefined;
+              return owner === undefined || owner === styleIndex;
+            });
+      return candidates.filter((index) =>
         motionTracksMatch(
           projected,
-          track,
+          parsedTracks[index]!,
           timelineDuration,
           stored.defaultEase,
           easingVariables,
         ),
-      ),
-    );
+      );
+    });
     if (
       exactMatches.every((matches) => matches.length === 1) &&
       new Set(exactMatches.map(([index]) => index)).size ===
@@ -544,26 +603,47 @@ export function reconcileMotionCodeDocument(
       continue;
     }
 
-    const propertyMatches = projection.map((projected) =>
-      matchingTrackIndices(
-        parsedTracks,
-        (track) =>
-          track.targetNodeId === projected.targetNodeId &&
-          track.property === projected.property,
-      ),
-    );
+    const propertyMatches = projection.map((projected) => {
+      const identifiedMatches = projected.id
+        ? matchingTrackIndices(
+            parsedTracks,
+            (track) =>
+              track.id === projected.id &&
+              track.targetNodeId === projected.targetNodeId &&
+              track.property === projected.property,
+          )
+        : [];
+      return identifiedMatches.length > 0
+        ? identifiedMatches
+        : matchingTrackIndices(
+            parsedTracks,
+            (track) =>
+              track.targetNodeId === projected.targetNodeId &&
+              track.property === projected.property,
+          ).filter((index) => {
+            const owner = parsedTracks[index]?.id
+              ? nativeTrackStyleOwners.get(parsedTracks[index]!.id!)
+              : undefined;
+            return owner === undefined || owner === styleIndex;
+          });
+    });
     if (propertyMatches.every((matches) => matches.length === 0)) {
-      const hasUnexpectedTargetTrack = parsedTracks.some(
-        (track) =>
+      const hasUnexpectedTargetTrack = parsedTracks.some((track) => {
+        const owner = track.id
+          ? nativeTrackStyleOwners.get(track.id)
+          : undefined;
+        return (
           track.targetNodeId === style.targetNodeId &&
+          (owner === undefined || owner === styleIndex) &&
           !stored.tracks.some(
             (storedTrack) =>
               storedTrack.enabled !== false &&
               storedTrack.keyframes.length > 0 &&
               storedTrack.targetNodeId === track.targetNodeId &&
               storedTrack.property === track.property,
-          ),
-      );
+          )
+        );
+      });
       if (hasUnexpectedTargetTrack) {
         throw invalidMotionCss(
           `The ${style.styleKey} source animation no longer maps to its existing target tracks. Repair its CSS before editing it in Motion.`,
@@ -684,6 +764,7 @@ function assertManagedMotionCssShape(root: postcss.Root): void {
     "animation-timing-function",
     "animation-fill-mode",
     "animation-delay",
+    "animation-composition",
     "animation-iteration-count",
     "animation-direction",
     "offset-path",
@@ -1047,7 +1128,7 @@ function decodeMarker(body: string): MotionCodeDocument {
       document = {
         ...parsed,
         version: MOTION_CODE_METADATA_VERSION,
-        tracks: addLegacyMotionTrackIds(parsed.tracks),
+        tracks: migrateLegacyMotionTracks(parsed.tracks),
       };
     }
     assertMotionCodeDocument(document);
@@ -1128,13 +1209,45 @@ function isMotionMarkerBody(body: string): boolean {
   return next === undefined || next === ":" || /\s/.test(next);
 }
 
-function addLegacyMotionTrackIds(tracks: unknown): unknown {
-  if (!Array.isArray(tracks)) return tracks;
-  return tracks.map((track, index) =>
-    isRecord(track) && track.id === undefined
-      ? { ...track, id: `legacy-track-${index.toString(36)}` }
-      : track,
+function migrateLegacyMotionTracks(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  const reservedIds = new Set(
+    value.flatMap((track) =>
+      isRecord(track) && typeof track.id === "string" ? [track.id] : [],
+    ),
   );
+  const usedIds = new Set<string>();
+  const tracks = value.map((track, index) => {
+    if (!isRecord(track)) return track;
+    const originalId = track.id;
+    if (originalId !== undefined && typeof originalId !== "string") {
+      return track;
+    }
+    let id: string | undefined = originalId;
+    if (id === undefined) {
+      const baseId = `legacy-track-${index.toString(36)}`;
+      id = baseId;
+      let suffix = 0;
+      while (reservedIds.has(id) || usedIds.has(id)) {
+        id = `${baseId}-${++suffix}`;
+      }
+    }
+    if (typeof id === "string") usedIds.add(id);
+    return { ...track, id };
+  });
+  const positionCounts = new Map<string, number>();
+  for (const track of tracks) {
+    if (!isRecord(track) || track.property !== "translate") continue;
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    positionCounts.set(key, (positionCounts.get(key) ?? 0) + 1);
+  }
+  return tracks.map((track) => {
+    if (!isRecord(track) || track.property !== "translate") return track;
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    return (positionCounts.get(key) ?? 0) > 1 && track.composition === undefined
+      ? { ...track, composition: "add" }
+      : track;
+  });
 }
 
 function assertMotionCodeDocument(
@@ -1235,6 +1348,7 @@ function assertMotionCodeDocument(
       "targetNodeId",
       "property",
       "keyframes",
+      "composition",
       "enabled",
       "delayMs",
       "durationMs",
@@ -1255,6 +1369,13 @@ function assertMotionCodeDocument(
     requireString(track.property, `tracks[${trackIndex}].property`);
     if (!/^-?[a-zA-Z][a-zA-Z0-9-]*$/.test(track.property)) {
       invalidDocument(`tracks[${trackIndex}].property is not a CSS property`);
+    }
+    if (
+      track.composition !== undefined &&
+      track.composition !== "replace" &&
+      track.composition !== "add"
+    ) {
+      invalidDocument(`tracks[${trackIndex}].composition is invalid`);
     }
     if (!Array.isArray(track.keyframes)) {
       invalidDocument(`tracks[${trackIndex}].keyframes must be an array`);
@@ -1344,6 +1465,36 @@ function assertMotionCodeDocument(
         }
       }
       assertOnlyKeys(keyframe, ["t", "value", "ease", "motionPath"]);
+    }
+    if (
+      track.composition === "add" &&
+      !isAdditiveMotionPositionTrack(track as unknown as MotionTrack)
+    ) {
+      invalidDocument(
+        `tracks[${trackIndex}].composition add is only supported for finite px Position tracks without cubic motion paths`,
+      );
+    }
+  }
+  const positionTracksByTarget = new Map<string, number[]>();
+  for (const [trackIndex, track] of value.tracks.entries()) {
+    if (!isRecord(track) || track.property !== "translate") continue;
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    const indices = positionTracksByTarget.get(key) ?? [];
+    indices.push(trackIndex);
+    positionTracksByTarget.set(key, indices);
+  }
+  for (const indices of positionTracksByTarget.values()) {
+    if (indices.length < 2) continue;
+    for (const trackIndex of indices) {
+      const track = value.tracks[trackIndex] as unknown as MotionTrack;
+      if (
+        !isAdditiveMotionPositionTrack(track) ||
+        track.composition === "replace"
+      ) {
+        invalidDocument(
+          `tracks[${trackIndex}] conflicts with repeated Position composition`,
+        );
+      }
     }
   }
   if (

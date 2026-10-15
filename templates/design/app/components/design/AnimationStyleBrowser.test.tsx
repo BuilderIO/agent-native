@@ -5,6 +5,7 @@ import type {
   MotionAnimationStyleMetadata,
   MotionAnimationStyleTrackDefinition,
 } from "@shared/motion-animation-styles";
+import { MOTION_BUILT_IN_RECIPES } from "@shared/motion-built-in-recipes";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -89,6 +90,9 @@ const messages: Record<string, string> = {
   "designEditor.motion.animationStyles.enter": "Enter",
   "designEditor.motion.animationStyles.cycle": "Cycle",
   "designEditor.motion.animationStyles.exit": "Exit",
+  "designEditor.motion.animationStyles.tempo.fast": "Fast",
+  "designEditor.motion.animationStyles.tempo.medium": "Medium",
+  "designEditor.motion.animationStyles.tempo.slow": "Slow",
   "designEditor.motion.animationStyles.create": "Create style",
   "designEditor.motion.animationStyles.close": "Close",
   "designEditor.motion.animationStyles.createTitle":
@@ -111,7 +115,22 @@ const messages: Record<string, string> = {
   "designEditor.motion.animationStyles.show": "Show",
   "designEditor.motion.animationStyles.removeAnimation": "Remove animation",
   "designEditor.motion.animationStyles.save": "Create style",
+  "designEditor.motion.builtInRecipes.enter.recipe04": "Builder Arrival 04",
 };
+
+function translateTestKey(key: string): string {
+  const recipe = MOTION_BUILT_IN_RECIPES.find((entry) => entry.nameKey === key);
+  if (recipe) {
+    const labelPrefix = {
+      enter: "Builder Arrival",
+      cycle: "Builder Loop",
+      exit: "Builder Departure",
+    }[recipe.category];
+    const sequence = recipe.id.match(/recipe-(\d+)$/)?.[1];
+    if (sequence) return `${labelPrefix} ${sequence.padStart(2, "0")}`;
+  }
+  return messages[key] ?? key;
+}
 
 describe("AnimationStyleBrowser", () => {
   let container: HTMLDivElement;
@@ -136,6 +155,7 @@ describe("AnimationStyleBrowser", () => {
       selectedTargetTracks: MotionAnimationStyleTrackDefinition[];
       disabled: boolean;
       onApply: (style: MotionAnimationStyleDefinition) => void;
+      onApplyRecipe: (recipe: (typeof MOTION_BUILT_IN_RECIPES)[number]) => void;
       onApplyPreset: (style: MotionAnimationStyle) => void;
       onSaveStyle: (
         metadata: MotionAnimationStyleMetadata,
@@ -151,10 +171,11 @@ describe("AnimationStyleBrowser", () => {
           basicStyles={basicStyles}
           selectedTargetTracks={selectedTargetTracks}
           onApply={vi.fn()}
+          onApplyRecipe={vi.fn()}
           onApplyPreset={vi.fn()}
           onSaveStyle={vi.fn()}
           onClose={vi.fn()}
-          t={(key) => messages[key] ?? key}
+          t={translateTestKey}
           {...overrides}
         />,
       );
@@ -204,6 +225,104 @@ describe("AnimationStyleBrowser", () => {
 
     await setValue(search!, "not a style");
     expect(container.textContent).toContain("No matching styles");
+  });
+
+  it("browses every built-in recipe and filters by category, name, and tempo", async () => {
+    await render();
+
+    const recipeRows = () =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          "[data-motion-recipe-id]",
+        ),
+      );
+    expect(recipeRows()).toHaveLength(36);
+    expect(recipeRows().map((row) => row.dataset.motionRecipeId)).toEqual(
+      MOTION_BUILT_IN_RECIPES.map((recipe) => recipe.id),
+    );
+    expect(recipeRows().map((row) => row.dataset.motionRecipeTempo)).toEqual(
+      MOTION_BUILT_IN_RECIPES.map((recipe) => recipe.tempo),
+    );
+    expect(
+      container.querySelectorAll("[data-motion-recipe-glyph]"),
+    ).toHaveLength(36);
+    expect(container.textContent).toContain("Fast");
+    expect(container.textContent).toContain("Medium");
+    expect(container.textContent).toContain("Slow");
+
+    await selectCategory("Enter");
+    expect(recipeRows()).toHaveLength(12);
+    expect(
+      recipeRows().every((row) =>
+        row.dataset.motionRecipeId?.startsWith("enter."),
+      ),
+    ).toBe(true);
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search animation styles"]',
+    );
+    expect(search).not.toBeNull();
+    await setValue(search!, "Builder Arrival 04");
+    expect(recipeRows().map((row) => row.dataset.motionRecipeId)).toEqual([
+      "enter.recipe-04",
+    ]);
+
+    await selectCategory("All");
+    await setValue(search!, "Position");
+    expect(recipeRows()).toHaveLength(0);
+    expect(
+      Array.from(container.querySelectorAll("button")).filter(
+        (button) => button.textContent === "Position",
+      ),
+    ).toHaveLength(1);
+
+    await setValue(search!, "Enter");
+    expect(recipeRows()).toHaveLength(0);
+    expect(container.textContent).toContain("No matching styles");
+
+    await setValue(search!, "Slow");
+    expect(recipeRows()).toHaveLength(0);
+    expect(container.textContent).toContain("No matching styles");
+  });
+
+  it("forwards the selected recipe unchanged with its ordered track rows", async () => {
+    const onApplyRecipe = vi.fn();
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (entry) => entry.id === "enter.recipe-04",
+    );
+    expect(recipe).toBeDefined();
+    await render({ onApplyRecipe });
+
+    const recipeRow = container.querySelector<HTMLButtonElement>(
+      '[data-motion-recipe-id="enter.recipe-04"]',
+    );
+    expect(recipeRow?.disabled).toBe(false);
+    await act(async () => recipeRow?.click());
+
+    expect(onApplyRecipe).toHaveBeenCalledOnce();
+    expect(onApplyRecipe.mock.calls[0]?.[0]).toBe(recipe);
+    expect(onApplyRecipe.mock.calls[0]?.[0].tracks).toEqual(recipe?.tracks);
+  });
+
+  it("keeps the recipe catalog searchable when applying is read-only", async () => {
+    await render({ disabled: true });
+
+    const recipeRow = container.querySelector<HTMLButtonElement>(
+      '[data-motion-recipe-id="enter.recipe-04"]',
+    );
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search animation styles"]',
+    );
+    const filter = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Filter animation styles"]',
+    );
+
+    expect(container.querySelectorAll("[data-motion-recipe-id]")).toHaveLength(
+      36,
+    );
+    expect(recipeRow?.disabled).toBe(true);
+    expect(search?.disabled).toBe(false);
+    expect(filter?.disabled).toBe(false);
   });
 
   it("applies a saved style when its row is clicked", async () => {

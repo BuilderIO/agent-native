@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
+import { MOTION_BUILT_IN_RECIPES } from "../shared/motion-built-in-recipes";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
 import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
@@ -887,6 +888,50 @@ test("Motion inspector states match the editable timeline", async ({
   await autoKeyframe.uncheck();
 });
 
+test("Motion gallery searches visible names, not hidden categories or tempo", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1728, height: 941 });
+  await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+  await gotoEditor(page, designId);
+  await selectByText(page, "Reference Rectangle", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+    deep: false,
+  });
+  await page.getByRole("button", { name: "Animations", exact: true }).click();
+
+  const gallery = page
+    .locator("[data-radix-popper-content-wrapper]")
+    .filter({ has: page.getByRole("button", { name: "Close", exact: true }) });
+  const search = gallery.getByRole("textbox", {
+    name: "Search animation styles",
+    exact: true,
+  });
+  const recipes = gallery.locator("[data-motion-recipe-id]");
+
+  await search.fill("Position");
+  await expect(recipes).toHaveCount(0);
+  await expect(
+    gallery.getByRole("button", { name: "Position", exact: true }),
+  ).toBeVisible();
+
+  await search.fill("Enter");
+  await expect(recipes).toHaveCount(0);
+  await expect(gallery.getByText("No matching styles")).toBeVisible();
+
+  await search.fill("Slow");
+  await expect(recipes).toHaveCount(0);
+  await expect(gallery.getByText("No matching styles")).toBeVisible();
+
+  await search.fill("Builder Arrival 03");
+  await expect(
+    gallery.locator('[data-motion-recipe-id="enter.recipe-03"]'),
+  ).toBeVisible();
+  await expect(recipes).toHaveCount(1);
+  await captureReferenceState(page, "motion-controls-recipe-name-search");
+});
+
 test("a new motion preset applies to every selected target", async ({
   page,
   request,
@@ -930,9 +975,125 @@ test("a new motion preset applies to every selected target", async ({
     .sort();
   expect(scaleTargetIds).toEqual([
     "e2e-motion-reference-rectangle",
+    "e2e-motion-reference-rectangle",
     "e2e-motion-reference-rectangle-2",
   ]);
 });
+
+for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
+  test(`applies ${recipeId} as ordered source-backed motion tracks`, async ({
+    page,
+    request,
+  }) => {
+    let recipeDesignId: string | undefined;
+    try {
+      const created = await postAction(request, "create-design", {
+        title: `Composite Motion recipe ${recipeId}`,
+        projectType: "prototype",
+      });
+      recipeDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+      if (!recipeDesignId) {
+        throw new Error("create-design did not return an id");
+      }
+      const file = await postAction(request, "create-file", {
+        designId: recipeDesignId,
+        filename: "index.html",
+        content: REFERENCE_FIXTURE_HTML,
+        fileType: "html",
+      });
+      if (!file.id) throw new Error("create-file did not return a file id");
+      await postAction(request, "index-components", {
+        designId: recipeDesignId,
+      });
+
+      await page.setViewportSize({ width: 1728, height: 941 });
+      await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+      await gotoEditor(page, recipeDesignId);
+      await selectByText(page, "Reference Rectangle", {
+        screenId: file.id,
+        clearPreviousSelection: true,
+        deep: false,
+      });
+
+      const recipe = MOTION_BUILT_IN_RECIPES.find(
+        (entry) => entry.id === recipeId,
+      );
+      if (!recipe) throw new Error("The sampled composite recipe is missing");
+      await page
+        .getByRole("button", { name: "Animations", exact: true })
+        .click();
+      const recipeRow = page.locator(`[data-motion-recipe-id="${recipe.id}"]`);
+      await expect(recipeRow).toBeVisible();
+      const applied = page.waitForResponse(
+        (response) =>
+          response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+          response.request().method() === "POST",
+        { timeout: 20_000 },
+      );
+      await recipeRow.click();
+      const appliedResponse = await applied;
+      expect(appliedResponse.ok(), await appliedResponse.text()).toBe(true);
+      expect(await appliedResponse.json()).toMatchObject({ persisted: true });
+
+      const timeline = await getAction(request, "get-motion-timeline", {
+        designId: recipeDesignId,
+        sourceRef: file.id,
+      });
+      const tracks = timeline.timelines?.[0]?.tracks?.filter(
+        (track: { targetNodeId: string }) =>
+          track.targetNodeId === "e2e-motion-reference-rectangle",
+      );
+      expect(tracks).toHaveLength(recipe.tracks.length);
+      expect(
+        tracks?.map(
+          (track: {
+            property: string;
+            delayMs?: number;
+            durationMs: number;
+            keyframes: Array<{ t: number; value: string; ease?: string }>;
+          }) => ({
+            property: track.property,
+            delayMs: track.delayMs ?? 0,
+            durationMs: track.durationMs,
+            keyframes: track.keyframes.map((keyframe) => ({
+              t: keyframe.t,
+              value: keyframe.value,
+              ease: keyframe.ease ?? "linear",
+            })),
+          }),
+        ),
+      ).toEqual(
+        recipe.tracks.map((track) => ({
+          property: track.property,
+          delayMs: track.delayMs,
+          durationMs: track.durationMs,
+          keyframes: track.keyframes.map((keyframe, index) => ({
+            t: keyframe.t,
+            value: keyframe.value,
+            ease: index === 0 ? track.easing : "ease",
+          })),
+        })),
+      );
+      expect(
+        new Set(tracks?.map((track: { id: string }) => track.id)).size,
+      ).toBe(recipe.tracks.length);
+      expect(
+        tracks?.filter(
+          (track: { property: string }) => track.property === "translate",
+        ),
+      ).toHaveLength(recipeId === "enter.recipe-10" ? 2 : 0);
+      expect(
+        tracks?.filter(
+          (track: { property: string }) => track.property === "scale",
+        ),
+      ).toHaveLength(recipeId === "cycle.recipe-03" ? 2 : 1);
+    } finally {
+      if (recipeDesignId) {
+        await postAction(request, "delete-design", { id: recipeDesignId });
+      }
+    }
+  });
+}
 
 test("saving imported inline CSS moves its animation into managed source", async ({
   request,

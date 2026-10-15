@@ -768,6 +768,50 @@ describe("applyMotionAutoKeyframe", () => {
       }),
     ).toBeNull();
   });
+
+  it("requires an id to keyframe one of several tracks with the same property", () => {
+    const tracks: MotionTrack[] = [
+      {
+        id: "opacity-first",
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "0.5" },
+        ],
+      },
+      {
+        id: "opacity-second",
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0.5" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+
+    expect(
+      applyMotionAutoKeyframe(tracks, {
+        targetNodeId: "hero",
+        property: "opacity",
+        value: "0.75",
+        playheadT: 0.5,
+        timelineDurationMs: 2000,
+      }),
+    ).toBeNull();
+    const next = applyMotionAutoKeyframe(tracks, {
+      targetNodeId: "hero",
+      property: "opacity",
+      trackId: "opacity-second",
+      value: "0.75",
+      playheadT: 0.5,
+      timelineDurationMs: 2000,
+    });
+
+    expect(next?.[0]?.keyframes).toEqual(tracks[0]?.keyframes);
+    expect(next?.[1]?.keyframes).toContainEqual({ t: 0.5, value: "0.75" });
+  });
 });
 
 describe("copyLayerAnimation / pasteLayerAnimation / staggerLayerTracks", () => {

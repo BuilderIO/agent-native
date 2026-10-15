@@ -1,4 +1,5 @@
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
+import { withMotionTrackIdsFromExisting } from "@shared/motion-timeline";
 
 import { MotionDock } from "@/components/design/MotionDock";
 import { projectMotionLayerVisibility } from "@/pages/design-editor/motion-layer-visibility";
@@ -143,13 +144,16 @@ export function renderMotionDockPanel({
       activeFile &&
       motionDockMounted ? (
         <MotionDock
-          tracks={[
-            ...motionTracks,
-            ...motionTextDocumentAsDockTracks(
-              motionTextDocument,
-              activeCodeLayerProjection,
-            ),
-          ]}
+          tracks={withMotionTrackIdsFromExisting(
+            [
+              ...motionTracks,
+              ...motionTextDocumentAsDockTracks(
+                motionTextDocument,
+                activeCodeLayerProjection,
+              ),
+            ],
+            motionTracks,
+          )}
           nativeStyles={motionNativeStyles}
           audioClips={motionAudioClips}
           onAudioClipsChange={

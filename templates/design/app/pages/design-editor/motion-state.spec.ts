@@ -1,9 +1,12 @@
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-styles";
+import { MOTION_BUILT_IN_RECIPES } from "@shared/motion-built-in-recipes";
 import { describe, expect, it } from "vitest";
 
 import {
   applyMotionAnimationStyleToTargets,
+  applyMotionBuiltInRecipeToTargets,
+  applyMotionStyleKeyframeEdit,
   captureMotionSourceVersionBaseline,
   hasMotionTimelineContent,
   motionAnimationStyleDefinitionFromTracks,
@@ -83,6 +86,168 @@ describe("hasMotionTimelineContent", () => {
         ],
       }),
     ).toBe(true);
+  });
+});
+
+describe("motion style keyframe identity", () => {
+  const tracks = [
+    {
+      id: "opacity-first",
+      label: "Opacity first",
+      targetNodeId: "hero",
+      property: "opacity",
+      keyframes: [
+        { t: 0, value: "0" },
+        { t: 1, value: "0.5" },
+      ],
+    },
+    {
+      id: "opacity-second",
+      label: "Opacity second",
+      targetNodeId: "hero",
+      property: "opacity",
+      keyframes: [
+        { t: 0, value: "0.5" },
+        { t: 1, value: "1" },
+      ],
+    },
+  ];
+
+  it("edits the selected duplicate and leaves ambiguous edits unchanged", () => {
+    const edit = {
+      targetNodeId: "hero",
+      label: "Hero",
+      styles: { opacity: "0.75" },
+      playhead: 0.5,
+      timelineDurationMs: 2000,
+      autoKeyframeEnabled: false,
+    };
+
+    expect(applyMotionStyleKeyframeEdit(tracks, edit)).toBe(tracks);
+    const updated = applyMotionStyleKeyframeEdit(tracks, {
+      ...edit,
+      trackId: "opacity-second",
+    });
+    expect(updated[0]?.keyframes).toEqual(tracks[0]?.keyframes);
+    expect(updated[1]?.keyframes).toContainEqual({ t: 0.5, value: "0.75" });
+  });
+});
+
+describe("built-in motion recipe application", () => {
+  it("appends ordered rows with fresh identities and keeps existing tracks intact", () => {
+    const existingTrack = {
+      id: "existing-opacity",
+      targetNodeId: "hero",
+      property: "opacity",
+      label: "Hero",
+      keyframes: [
+        { t: 0, value: "1" },
+        { t: 1, value: "0.5" },
+      ],
+    };
+    const existingTracks = [existingTrack];
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (candidate) => candidate.id === "enter.recipe-04",
+    );
+    if (!recipe) throw new Error("Expected the indexed recipe to exist");
+
+    const result = applyMotionBuiltInRecipeToTargets({
+      existingTracks,
+      recipe,
+      targets: [
+        { nodeId: "hero", label: "Hero" },
+        { nodeId: "badge", label: "Badge" },
+      ],
+      currentTimeMs: 50,
+      timelineDurationMs: 1000,
+    });
+
+    expect(
+      result.tracks.map(({ targetNodeId, property }) => [
+        targetNodeId,
+        property,
+      ]),
+    ).toEqual([
+      ["hero", "translate"],
+      ["hero", "translate"],
+      ["hero", "scale"],
+      ["hero", "translate"],
+      ["hero", "scale"],
+      ["badge", "translate"],
+      ["badge", "translate"],
+      ["badge", "scale"],
+      ["badge", "translate"],
+      ["badge", "scale"],
+      ["badge", "opacity"],
+    ]);
+    const ids = result.tracks.map((track) => track.id);
+    expect(ids.every((id) => typeof id === "string" && id.length > 0)).toBe(
+      true,
+    );
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).not.toContain(existingTrack.id);
+    expect(
+      result.tracks.every(
+        (track) => !recipe.tracks.some((row) => row.id === track.id),
+      ),
+    ).toBe(true);
+
+    expect(result.tracks.slice(0, 5)).toMatchObject([
+      {
+        targetNodeId: "hero",
+        label: "Hero",
+        property: "translate",
+        composition: "add",
+        delayMs: 50,
+        durationMs: 100,
+        keyframes: [
+          { t: 0, value: "0px -120px", ease: "cubic-bezier(0.58,0.26,1,1)" },
+          { t: 1, value: "0px 0px" },
+        ],
+      },
+      {
+        targetNodeId: "hero",
+        property: "translate",
+        composition: "add",
+        delayMs: 150,
+        durationMs: 30,
+      },
+      {
+        targetNodeId: "hero",
+        property: "scale",
+        delayMs: 150,
+        durationMs: 30,
+      },
+      {
+        targetNodeId: "hero",
+        property: "translate",
+        composition: "add",
+        delayMs: 180,
+        durationMs: 1080,
+      },
+      {
+        targetNodeId: "hero",
+        property: "scale",
+        delayMs: 180,
+        durationMs: 1080,
+      },
+    ]);
+    expect(result.tracks[0]?.keyframes).toEqual([
+      { t: 0, value: "0px -120px", ease: "cubic-bezier(0.58,0.26,1,1)" },
+      { t: 1, value: "0px 0px" },
+    ]);
+    expect(existingTracks[0]).toBe(existingTrack);
+    expect(existingTrack).toEqual({
+      id: "existing-opacity",
+      targetNodeId: "hero",
+      property: "opacity",
+      label: "Hero",
+      keyframes: [
+        { t: 0, value: "1" },
+        { t: 1, value: "0.5" },
+      ],
+    });
+    expect(result.timelineDurationMs).toBe(1260);
   });
 });
 

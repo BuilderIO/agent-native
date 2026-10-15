@@ -89,7 +89,7 @@ describe("Motion source document CSS codec", () => {
     expect(decodeMotionCodeMetadata(compiled.css)).toEqual({
       status: "valid",
       document: {
-        version: 4,
+        version: 5,
         durationMs: timeline.durationMs,
         defaultEase: timeline.defaultEase,
         playbackMode: timeline.playbackMode,
@@ -281,6 +281,66 @@ describe("Motion source document CSS codec", () => {
         values: ["0.4", "1"],
         delayMs: 250,
         durationMs: 500,
+      },
+    ]);
+  });
+
+  it("persists additive Position composition through managed CSS reconciliation", () => {
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [
+        {
+          id: "position-x",
+          targetNodeId: "hero-title",
+          property: "translate",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+        {
+          id: "position-y",
+          targetNodeId: "hero-title",
+          property: "translate",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "0px 60px" },
+          ],
+        },
+      ],
+    };
+    const compiled = compileMotionCode(sourceTimeline);
+    const metadata = decodeMotionCodeMetadata(compiled.css);
+
+    expect(compiled.css).toContain("animation-composition: add, add;");
+    expect(metadata).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "position-x", property: "translate", composition: "add" },
+          { id: "position-y", property: "translate", composition: "add" },
+        ],
+      },
+    });
+    expect(
+      reconcileMotionCodeDocument(
+        compiled.css,
+        motionCodeDocumentFromTimeline(sourceTimeline),
+      ).tracks.map((track) => ({
+        id: track.id,
+        composition: track.composition,
+        values: track.keyframes.map((keyframe) => keyframe.value),
+      })),
+    ).toEqual([
+      {
+        id: "position-x",
+        composition: "add",
+        values: ["0px 0px", "100px 0px"],
+      },
+      {
+        id: "position-y",
+        composition: "add",
+        values: ["0px 0px", "0px 60px"],
       },
     ]);
   });
@@ -530,6 +590,127 @@ describe("Motion source document CSS codec", () => {
       /Source edits to Scale are not yet representable/,
     );
     expect(compiled.css).toContain("scale: 1.2 1.2;");
+  });
+
+  it("reconciles duplicate native styles by their generated track identities", () => {
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [],
+      nativeStyles: [
+        createMotionNativeStyleInstance({
+          styleKey: "Scale",
+          targetNodeId: "hero",
+        }),
+        createMotionNativeStyleInstance({
+          styleKey: "Scale",
+          targetNodeId: "hero",
+        }),
+      ],
+    };
+    const stored = motionCodeDocumentFromTimeline(sourceTimeline);
+    const compiled = compileMotionCode(sourceTimeline);
+
+    expect(compiled.css).toContain("--track-native-style-0-0");
+    expect(compiled.css).toContain("--track-native-style-1-0");
+
+    const reconciled = reconcileMotionCodeDocument(compiled.css, stored);
+
+    expect(reconciled.tracks).toEqual([]);
+    expect(reconciled.nativeStyles).toEqual(sourceTimeline.nativeStyles);
+    expect(
+      compileMotionCode({
+        ...sourceTimeline,
+        tracks: reconciled.tracks,
+        nativeStyles: reconciled.nativeStyles,
+        durationMs: reconciled.durationMs,
+      }).css,
+    ).toBe(compiled.css);
+  });
+
+  it("removes one duplicate native source track without consuming its sibling", () => {
+    const nativeStyles = [
+      createMotionNativeStyleInstance({
+        styleKey: "Scale",
+        targetNodeId: "hero",
+      }),
+      createMotionNativeStyleInstance({
+        styleKey: "Scale",
+        targetNodeId: "hero",
+      }),
+    ];
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [],
+      nativeStyles,
+    };
+    const stored = motionCodeDocumentFromTimeline(sourceTimeline);
+    const root = postcss.parse(compileMotionCode(sourceTimeline).css);
+    root.walkAtRules("keyframes", (rule) => {
+      if (rule.params.includes("--track-native-style-0-0")) rule.remove();
+    });
+    root.walkRules('[data-agent-native-node-id="hero"]', (rule) => {
+      rule.walkDecls(
+        /^(?:animation-name|animation-duration|animation-timing-function|animation-fill-mode|animation-composition|animation-iteration-count|animation-direction)$/,
+        (declaration) => {
+          declaration.value = declaration.value
+            .split(",")
+            .slice(1)
+            .join(",")
+            .trim();
+        },
+      );
+    });
+
+    const reconciled = reconcileMotionCodeDocument(root.toString(), stored);
+
+    expect(reconciled.nativeStyles).toEqual([nativeStyles[1]]);
+    expect(reconciled.tracks).toEqual([]);
+  });
+
+  it("routes an edited duplicate native track back to its own style instance", () => {
+    const nativeStyles = [
+      createMotionNativeStyleInstance({
+        styleKey: "Position",
+        targetNodeId: "hero",
+      }),
+      createMotionNativeStyleInstance({
+        styleKey: "Position",
+        targetNodeId: "hero",
+      }),
+    ];
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [],
+      nativeStyles,
+    };
+    const stored = motionCodeDocumentFromTimeline(sourceTimeline);
+    const compiled = compileMotionCode(sourceTimeline);
+    const root = postcss.parse(compiled.css);
+    let edited = false;
+    root.walkAtRules("keyframes", (rule) => {
+      if (!rule.params.includes("--track-native-style-1-0")) return;
+      rule.walkDecls("translate", (declaration) => {
+        if (declaration.parent?.type !== "rule") return;
+        if (declaration.parent.selector !== "0%") return;
+        declaration.value = "-300px 0px";
+        edited = true;
+      });
+    });
+
+    expect(edited).toBe(true);
+    const reconciled = reconcileMotionCodeDocument(root.toString(), stored);
+
+    expect(reconciled.nativeStyles?.[0]).toEqual(nativeStyles[0]);
+    expect(reconciled.nativeStyles?.[1]).toMatchObject({
+      props: {
+        type: "custom",
+        startX: -300,
+        startY: 0,
+        endX: 0,
+        endY: 0,
+      },
+    });
+    expect(reconciled.tracks).toEqual([]);
   });
 
   it("rejects a native style when its target changes to another animated property", () => {
@@ -841,7 +1022,7 @@ describe("Motion source document CSS codec", () => {
     const document = motionCodeDocumentFromTimeline(timeline, { audioClips });
     const marker = encodeMotionCodeMetadata(document);
 
-    expect(document.version).toBe(4);
+    expect(document.version).toBe(5);
     expect(document.durationMs).toBe(1100);
     expect(document.audioClips).toEqual(audioClips);
     expect(marker).not.toContain("ID3");
@@ -1146,7 +1327,7 @@ describe("Motion source document CSS codec", () => {
       status: "valid",
       document: {
         ...legacyDocument,
-        version: 4,
+        version: 5,
         tracks: legacyDocument.tracks.map((track, index) => ({
           ...track,
           id: `legacy-track-${index.toString(36)}`,
@@ -1207,7 +1388,7 @@ describe("Motion source document CSS codec", () => {
       status: "valid",
       document: {
         ...legacyDocument,
-        version: 4,
+        version: 5,
         tracks: legacyDocument.tracks.map((track, index) => ({
           ...track,
           id: `legacy-track-${index.toString(36)}`,
@@ -1219,14 +1400,32 @@ describe("Motion source document CSS codec", () => {
     }
   });
 
-  it("upgrades version 3 track identities while preserving audio clips", () => {
+  it("upgrades version 3 track identities and duplicate order while preserving audio clips", () => {
     const currentDocument = motionCodeDocumentFromTimeline(timeline, {
       audioClips,
     });
+    const legacyTracks = [
+      {
+        targetNodeId: "hero-title",
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "20px 0px" },
+        ],
+      },
+      {
+        targetNodeId: "hero-title",
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "0px 30px" },
+        ],
+      },
+    ];
     const legacyDocument = {
       ...currentDocument,
       version: 3,
-      tracks: currentDocument.tracks.map(({ id: _id, ...track }) => track),
+      tracks: legacyTracks,
     };
     const payload = encodeURIComponent(JSON.stringify(legacyDocument)).replace(
       /\*/g,
@@ -1241,10 +1440,62 @@ describe("Motion source document CSS codec", () => {
       status: "valid",
       document: {
         ...legacyDocument,
-        version: 4,
-        tracks: legacyDocument.tracks.map((track, index) => ({
+        version: 5,
+        tracks: legacyTracks.map((track, index) => ({
           ...track,
           id: `legacy-track-${index.toString(36)}`,
+          composition: "add",
+        })),
+      },
+    });
+  });
+
+  it("upgrades version 4 composition metadata without losing IDs or audio clips", () => {
+    const currentDocument = motionCodeDocumentFromTimeline(timeline, {
+      audioClips,
+    });
+    const legacyTracks = [
+      {
+        id: "position-first",
+        targetNodeId: "hero-title",
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "30px 0px" },
+        ],
+      },
+      {
+        id: "position-second",
+        targetNodeId: "hero-title",
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "0px 40px" },
+        ],
+      },
+    ];
+    const legacyDocument = {
+      ...currentDocument,
+      version: 4,
+      tracks: legacyTracks,
+    };
+    const payload = encodeURIComponent(JSON.stringify(legacyDocument)).replace(
+      /\*/g,
+      "%2A",
+    );
+
+    expect(
+      decodeMotionCodeMetadata(
+        `/* ${MOTION_SOURCE_MARKER_NAME}:v4:${payload} */`,
+      ),
+    ).toEqual({
+      status: "valid",
+      document: {
+        ...legacyDocument,
+        version: 5,
+        tracks: legacyTracks.map((track) => ({
+          ...track,
+          composition: "add",
         })),
       },
     });
@@ -1278,7 +1529,7 @@ describe("Motion source document CSS codec", () => {
     const validMarker = encodeMotionCodeMetadata(
       motionCodeDocumentFromTimeline(timeline),
     );
-    const unknownVersion = validMarker.replace(":v4:", ":v99:");
+    const unknownVersion = validMarker.replace(":v5:", ":v99:");
     const unknownResult = decodeMotionCodeMetadata(unknownVersion);
     expect(unknownResult.status).toBe("invalid");
     if (unknownResult.status === "invalid") {
@@ -1344,6 +1595,6 @@ describe("Motion source document CSS codec", () => {
     ).toThrow(/must be in \[0, 1\]/);
     expect(() =>
       encodeMotionCodeMetadata({ ...document, version: 2 } as never),
-    ).toThrow(/version must be 4/);
+    ).toThrow(/version must be 5/);
   });
 });

@@ -110,7 +110,7 @@ describe("HTML Motion source adapter", () => {
     );
     expect(edit.source).toContain('<script src="./head.js"></script>');
     expect(edit.source).toContain('<script src="./page.js"></script>');
-    expect(edit.source).toContain("agent-native-motion-source:v4:");
+    expect(edit.source).toContain("agent-native-motion-source:v5:");
     expect(edit.targetNodeIds).toEqual(["hero-title"]);
 
     const read = readMotionHtmlSource(edit.source);
@@ -125,6 +125,67 @@ describe("HTML Motion source adapter", () => {
     if (read.status === "valid") {
       expect(decodeMotionCodeMetadata(read.css).status).toBe("valid");
     }
+  });
+
+  it("round-trips ordered additive Position tracks through HTML source", () => {
+    const timeline: MotionTimeline = {
+      ...makeTimeline(),
+      tracks: [
+        {
+          id: "position-x",
+          targetNodeId: "hero-title",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+        {
+          id: "position-y",
+          targetNodeId: "hero-title",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px" },
+            { t: 1, value: "0px 60px" },
+          ],
+        },
+      ],
+    };
+    const first = apply(html, { timeline });
+    const read = readMotionHtmlSource(first.source, "index.html");
+
+    expect(first.css).toContain("animation-composition: add, add;");
+    expect(read).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "position-x", composition: "add" },
+          { id: "position-y", composition: "add" },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("repeated HTML Position tracks were not readable");
+    }
+
+    const rewritten = applyMotionHtmlSourceEdit({
+      currentSource: first.source,
+      expectedSource: first.source,
+      preview: previewFor(first.source),
+      sourceFilePath: "index.html",
+      timeline: { ...timeline, tracks: read.document.tracks },
+    });
+    expect(readMotionHtmlSource(rewritten.source, "index.html")).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [
+          { id: "position-x", composition: "add" },
+          { id: "position-y", composition: "add" },
+        ],
+      },
+    });
   });
 
   it("fails closed when a Motion target has dynamic or Alpine motion styles", () => {
@@ -260,7 +321,7 @@ describe("HTML Motion source adapter", () => {
     expect(stripManagedStyle(next.source)).toBe(
       stripManagedStyle(first.source),
     );
-    expect(next.source.match(/agent-native-motion-source:v4:/g)).toHaveLength(
+    expect(next.source.match(/agent-native-motion-source:v5:/g)).toHaveLength(
       1,
     );
     expect(readMotionHtmlSource(next.source)).toMatchObject({
@@ -391,7 +452,7 @@ describe("HTML Motion source adapter", () => {
       },
     });
     expect(
-      written.source.match(/agent-native-motion-source:v4:/g),
+      written.source.match(/agent-native-motion-source:v5:/g),
     ).toHaveLength(1);
   });
 

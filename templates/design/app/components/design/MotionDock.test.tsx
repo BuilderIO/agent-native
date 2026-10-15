@@ -1561,6 +1561,50 @@ describe("MotionDock keyframe selection and deletion", () => {
     ).not.toBeNull();
   });
 
+  it("edits only the selected track when a target has repeated properties", async () => {
+    const onTracksChange = vi.fn();
+    const tracks: MotionDockTrack[] = [
+      {
+        id: "opacity-first",
+        label: "Opacity first",
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "0.5" },
+        ],
+      },
+      {
+        id: "opacity-second",
+        label: "Opacity second",
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0.5" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+    await renderInteractive({ tracks, onTracksChange });
+
+    const rows = container.querySelectorAll(
+      "[data-motion-track-row][data-motion-track-id]",
+    );
+    expect(rows).toHaveLength(2);
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-motion-property-row][data-motion-track-id="opacity-second"] [aria-label="Toggle animation visibility"]',
+        )!
+        .click();
+    });
+
+    expect(onTracksChange.mock.lastCall?.[0]).toEqual([
+      tracks[0],
+      { ...tracks[1], enabled: false },
+    ]);
+  });
+
   it("jumps to the previous keyframe in the selected property row", async () => {
     const onPlayheadChange = vi.fn();
     await renderInteractive({
@@ -1592,8 +1636,8 @@ describe("MotionDock keyframe selection and deletion", () => {
     await clickKeyframe(keyframe);
     expect(onLiveStateChange).toHaveBeenLastCalledWith({
       previewing: false,
-      selectedTrackId: "hero\u001ftranslate",
-      selectedKeyframeIds: [JSON.stringify(["hero\u001ftranslate", 0])],
+      selectedTrackId: "legacy-track-0",
+      selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
     });
 
     await act(async () => {
@@ -1606,8 +1650,8 @@ describe("MotionDock keyframe selection and deletion", () => {
     ).not.toBeNull();
     expect(onLiveStateChange).toHaveBeenLastCalledWith({
       previewing: true,
-      selectedTrackId: "hero\u001ftranslate",
-      selectedKeyframeIds: [JSON.stringify(["hero\u001ftranslate", 0])],
+      selectedTrackId: "legacy-track-0",
+      selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
     });
 
     await act(async () => {
@@ -1617,8 +1661,8 @@ describe("MotionDock keyframe selection and deletion", () => {
     });
     expect(onLiveStateChange).toHaveBeenLastCalledWith({
       previewing: false,
-      selectedTrackId: "hero\u001ftranslate",
-      selectedKeyframeIds: [JSON.stringify(["hero\u001ftranslate", 0])],
+      selectedTrackId: "legacy-track-0",
+      selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
     });
   });
 
