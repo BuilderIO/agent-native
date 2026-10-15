@@ -211,6 +211,22 @@ describe("MotionNativeStyleEditor", () => {
     await renderPicker();
     await openEasingPicker();
 
+    expect(
+      document.body.querySelector(
+        'input[aria-label="designEditor.motion.animationStyles.easingPicker.searchPlaceholder"]',
+      ),
+    ).toBeNull();
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.animationStyles.easingPicker.newVariable"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.animationStyles.close"]',
+      ),
+    ).not.toBeNull();
+
     const presetLabels = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>("button[aria-pressed]"),
     ).map((button) => button.textContent?.trim());
@@ -439,6 +455,49 @@ describe("MotionNativeStyleEditor", () => {
     );
   });
 
+  it("steps a decimal overlap value by one without snapping to an integer", async () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "target-1",
+    });
+    let currentStyle = style;
+    const onChange = vi.fn((next: MotionNativeStyleInstance) => {
+      currentStyle = next;
+    });
+    await render({ styles: [style], onChange });
+    await openStyleDetails();
+
+    const overlap = document.body.querySelector<HTMLInputElement>(
+      'input[type="number"][min="0"][max="100"]',
+    );
+    if (!overlap) throw new Error("Missing TextStagger overlap input");
+    await setInputValue(overlap, "50.5");
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({ presetStaggerOverlap: 50.5 }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+
+    await render({ styles: [currentStyle], onChange });
+    const updatedOverlap = document.body.querySelector<HTMLInputElement>(
+      'input[type="number"][min="0"][max="100"]',
+    );
+    if (!updatedOverlap)
+      throw new Error("Missing updated TextStagger overlap input");
+    await act(async () => {
+      updatedOverlap.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({ presetStaggerOverlap: 51.5 }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+  });
+
   it("shows the legacy whitespace default for TextStagger styles", async () => {
     const base = createMotionNativeStyleInstance({
       styleKey: "TextStagger",
@@ -609,6 +668,39 @@ describe("MotionNativeStyleEditor", () => {
     );
   });
 
+  it("clears Ignore spaces when TextStagger grouping changes", async () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "target-1",
+    });
+    const style = {
+      ...base,
+      props: {
+        ...base.props,
+        ignoreSpaces: true,
+      },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [style], onChange });
+    await openStyleDetails();
+    await selectOption(
+      document.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.nativeTextStagger.grouping"]',
+      )!,
+      "designEditor.motion.textAnimation.units.word",
+    );
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({
+          textDelayGrouping: "WORD",
+          ignoreSpaces: false,
+        }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+  });
+
   it("keeps unknown native properties while editing known fields", async () => {
     const onChange = vi.fn();
     await render({ onChange });
@@ -654,7 +746,8 @@ describe("MotionNativeStyleEditor", () => {
       'button[aria-label="designEditor.motion.animationStyles.easingPresets.easeOut"]',
     )!;
     await act(async () => easingSelect.click());
-    await clickButtonWithText(
+    expect(easingSelect.getAttribute("aria-expanded")).toBe("true");
+    await clickButtonWithLabel(
       "designEditor.motion.animationStyles.easingPresets.easeIn",
     );
     expect(onChange).toHaveBeenLastCalledWith(
@@ -772,7 +865,7 @@ describe("MotionNativeStyleEditor", () => {
       onEasingVariablesChange,
     });
     await openEasingPicker();
-    await clickButtonWithText(
+    await clickButtonWithLabel(
       "designEditor.motion.animationStyles.easingPicker.newVariable",
     );
 
@@ -811,7 +904,7 @@ describe("MotionNativeStyleEditor", () => {
     const onEasingVariablesChange = vi.fn();
     await renderPicker({ onChange, onEasingVariablesChange });
     await openEasingPicker();
-    await clickButtonWithText(
+    await clickButtonWithLabel(
       "designEditor.motion.animationStyles.easingPicker.newVariable",
     );
     await focusButtonWithText("designEditor.motion.springTab");
@@ -852,7 +945,7 @@ describe("MotionNativeStyleEditor", () => {
       onEasingVariablesChange,
     });
     await openEasingPicker();
-    await clickButtonWithText(
+    await clickButtonWithLabel(
       "designEditor.motion.animationStyles.easingPicker.newVariable",
     );
 

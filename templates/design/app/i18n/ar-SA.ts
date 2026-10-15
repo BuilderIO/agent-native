@@ -1159,6 +1159,9 @@ export default {
       addKeyframe: "إضافة إطار أساسي",
       trackExists:
         "يوجد بالفعل مسار “{{property}}” لـ {{label}}. عدّل إطاراته الأساسية في المخطط الزمني.",
+      textSyncUnsupported: "تعذرت مزامنة إعدادات حركة النص هذه.",
+      textPropertyAlreadyAnimated:
+        "تتحكم حركة نص برمجية في هذه الخاصية بالفعل.",
       layerAnimationSpan: "نطاق حركة {{label}}",
       keyframeAt: "إطار أساسي عند {{ms}} م.ث",
       deleteKeyframe: "حذف الإطار الأساسي",

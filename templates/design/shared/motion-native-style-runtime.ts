@@ -266,6 +266,251 @@ export function motionNativeStylesToTextAnimations(
   });
 }
 
+export type MotionTextAnimationSettings = Pick<
+  MotionTextAnimation,
+  "unit" | "direction" | "staggerMs" | "overlapPercent"
+> &
+  Required<
+    Pick<MotionTextAnimation, "animationDirection" | "order" | "ignoreSpaces">
+  >;
+
+/** Reads the shared TextStagger profile even when every effect is disabled. */
+export function motionNativeTextAnimationSettings(
+  style: MotionNativeStyleInstance,
+): MotionTextAnimationSettings {
+  if (style.styleKey !== "TextStagger") {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "Text settings require a TextStagger style.",
+    );
+  }
+  const [animation] = textStaggerAnimations({
+    ...style,
+    enabled: true,
+    props: {
+      ...style.props,
+      positionEnabled: true,
+      rotationEnabled: false,
+      scaleEnabled: false,
+      opacityEnabled: false,
+      blurEnabled: false,
+    },
+  });
+  if (!animation) {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "TextStagger did not produce a text settings profile.",
+    );
+  }
+  return {
+    unit: animation.unit,
+    direction: animation.direction,
+    staggerMs: animation.staggerMs,
+    animationDirection: animation.animationDirection ?? "in",
+    order:
+      animation.order ??
+      (animation.direction === "reverse" ? "right-to-left" : "left-to-right"),
+    ...(animation.overlapPercent === undefined
+      ? {}
+      : { overlapPercent: animation.overlapPercent }),
+    ignoreSpaces:
+      animation.unit === "character" ? (animation.ignoreSpaces ?? true) : true,
+  };
+}
+
+function motionTextSharedProfileKey(
+  settings: MotionTextAnimationSettings,
+): string {
+  return JSON.stringify({
+    unit: settings.unit,
+    direction: settings.direction,
+    animationDirection: settings.animationDirection,
+    order: settings.order,
+    ignoreSpaces: settings.ignoreSpaces,
+    timing:
+      settings.overlapPercent === undefined
+        ? { mode: "fixed-stagger", staggerMs: settings.staggerMs }
+        : { mode: "duration-fitted", overlapPercent: settings.overlapPercent },
+  });
+}
+
+function authoredTextSharedProfileKey(animation: MotionTextAnimation): string {
+  return motionTextSharedProfileKey({
+    unit: animation.unit,
+    direction: animation.direction,
+    staggerMs: animation.staggerMs,
+    ...(animation.overlapPercent === undefined
+      ? {}
+      : { overlapPercent: animation.overlapPercent }),
+    animationDirection: animation.animationDirection ?? "in",
+    order:
+      animation.order ??
+      (animation.direction === "reverse" ? "right-to-left" : "left-to-right"),
+    ignoreSpaces:
+      animation.unit === "character" ? (animation.ignoreSpaces ?? true) : true,
+  });
+}
+
+/** Seeds TextStagger from an authored track while avoiding duplicate properties. */
+export function motionNativeStyleWithTextAnimationSettings(
+  style: MotionNativeStyleInstance,
+  animation: MotionTextAnimation,
+): MotionNativeStyleInstance {
+  if (style.styleKey !== "TextStagger") {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "Text settings require a TextStagger style.",
+    );
+  }
+  const order =
+    animation.order ??
+    (animation.direction === "reverse" ? "right-to-left" : "left-to-right");
+  if (
+    (order === "top-to-bottom" || order === "bottom-to-top") &&
+    animation.unit !== "line" &&
+    animation.unit !== "paragraph"
+  ) {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "The authored Text settings cannot be represented by TextStagger.",
+    );
+  }
+
+  const grouping = {
+    character: "CHARACTER",
+    word: "WORD",
+    line: "LINE",
+    paragraph: "PARAGRAPH",
+  }[animation.unit];
+  const nativeOrder = {
+    "left-to-right": "LEFT_RIGHT",
+    "right-to-left": "RIGHT_LEFT",
+    "center-out": "CENTER_OUT",
+    random: "RANDOM",
+    "top-to-bottom": "TOP_BOTTOM",
+    "bottom-to-top": "BOTTOM_TOP",
+  }[order];
+
+  const props: MotionNativeStyleInstance["props"] = {
+    ...style.props,
+    textDelayGrouping: grouping,
+    textDelayOrder: nativeOrder,
+    animationDirection: animation.animationDirection ?? "in",
+    ignoreSpaces:
+      animation.unit === "character" ? (animation.ignoreSpaces ?? true) : true,
+    textDelayTimingMode:
+      animation.overlapPercent === undefined
+        ? "fixed-stagger"
+        : "duration-fitted",
+    presetStaggerOverlap:
+      animation.overlapPercent ?? style.props.presetStaggerOverlap ?? 50,
+  };
+  const nextStyle = { ...style, props };
+  if (animation.overlapPercent === undefined) {
+    const durationMs = Math.max(
+      1,
+      Math.round(animation.durationMs),
+      Math.ceil(animation.staggerMs),
+    );
+    nextStyle.duration = durationMs / 1000;
+    nextStyle.props.presetStaggerOverlap =
+      100 * (1 - animation.staggerMs / durationMs);
+  } else {
+    nextStyle.duration = animation.durationMs / 1000;
+  }
+  nextStyle.timelineOffset = 0;
+  nextStyle.props.delay = (animation.delayMs ?? 0) / 1000;
+  return nextStyle;
+}
+
+/** Applies TextStagger's shared profile while preserving each authored property track. */
+export function motionTextDocumentWithNativeStyleSettings(
+  document: MotionTextDocument | null,
+  style: MotionNativeStyleInstance,
+  previousStyle?: MotionNativeStyleInstance,
+): MotionTextDocument | null {
+  if (!document || style.styleKey !== "TextStagger") return document;
+  const targetAnimations = document.animations.filter(
+    (animation) => animation.targetNodeId === style.targetNodeId,
+  );
+  if (targetAnimations.length === 0) return document;
+
+  const settings = motionNativeTextAnimationSettings(style);
+  const sharedSettingsChanged =
+    previousStyle === undefined ||
+    motionTextSharedProfileKey(settings) !==
+      motionTextSharedProfileKey(
+        motionNativeTextAnimationSettings(previousStyle),
+      );
+  if (sharedSettingsChanged) {
+    const currentProfile = authoredTextSharedProfileKey(targetAnimations[0]!);
+    if (
+      targetAnimations.some(
+        (animation) =>
+          authoredTextSharedProfileKey(animation) !== currentProfile,
+      )
+    ) {
+      throw new MotionNativeStyleRuntimeError(
+        "unsupported-style",
+        "Text animations with different shared settings cannot be represented by one TextStagger style.",
+      );
+    }
+  }
+  const delayChanged =
+    previousStyle !== undefined &&
+    (style.timelineOffset !== previousStyle.timelineOffset ||
+      style.props.delay !== previousStyle.props.delay);
+  const durationChanged =
+    previousStyle !== undefined && style.duration !== previousStyle.duration;
+  const currentDelays = new Set(
+    targetAnimations.map((animation) => animation.delayMs ?? 0),
+  );
+  const currentDurations = new Set(
+    targetAnimations.map((animation) => animation.durationMs),
+  );
+  if (delayChanged && currentDelays.size > 1) {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "The shared TextStagger delay cannot represent different authored track delays.",
+    );
+  }
+  if (durationChanged && currentDurations.size > 1) {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "The shared TextStagger duration cannot represent different authored track durations.",
+    );
+  }
+  const delayMs = Math.round(
+    (style.timelineOffset + numeric(style.props.delay, 0)) * 1000,
+  );
+  const durationMs = Math.round(style.duration * 1000);
+  if (!sharedSettingsChanged && !delayChanged && !durationChanged) {
+    return document;
+  }
+  const animations = document.animations.map((animation) => {
+    if (animation.targetNodeId !== style.targetNodeId) return animation;
+    return {
+      ...(sharedSettingsChanged
+        ? (({
+            overlapPercent: _overlapPercent,
+            ...animationWithoutOverlap
+          }) => ({
+            ...animationWithoutOverlap,
+            ...settings,
+            ...(settings.overlapPercent === undefined
+              ? {}
+              : { staggerMs: animation.staggerMs }),
+          }))(animation)
+        : animation),
+      ...(delayChanged ? { delayMs } : {}),
+      ...(durationChanged ? { durationMs } : {}),
+    };
+  });
+  return JSON.stringify(animations) === JSON.stringify(document.animations)
+    ? document
+    : { version: MOTION_TEXT_SOURCE_VERSION, animations };
+}
+
 /** Returns authored text tracks after removing an exact native-style projection. */
 export function motionTextDocumentWithoutNativeStyles(
   document: MotionTextDocument | null,
@@ -294,17 +539,24 @@ export function motionTextDocumentWithNativeStyles(
   document: MotionTextDocument | null,
   styles: readonly MotionNativeStyleInstance[],
 ): MotionTextDocument | null {
-  const nativeAnimations = motionNativeStylesToTextAnimations(styles);
+  const authoredAnimations = document?.animations ?? [];
+  const nativeAnimations = motionNativeStylesToTextAnimations(styles).filter(
+    (native) =>
+      !authoredAnimations.some(
+        (authored) =>
+          authored.targetNodeId === native.targetNodeId &&
+          authored.property === native.property,
+      ),
+  );
   if (nativeAnimations.length === 0) return document;
 
-  const authoredAnimations = document?.animations ?? [];
   const keys = new Set(authoredAnimations.map(textAnimationKey));
   for (const animation of nativeAnimations) {
     const key = textAnimationKey(animation);
     if (keys.has(key)) {
       throw new MotionNativeStyleRuntimeError(
         "unsupported-style",
-        `Native Figma TextStagger for target "${animation.targetNodeId}" duplicates an authored Motion Text property. Remove one of the duplicate tracks before previewing.`,
+        "Multiple native TextStagger styles produce the same text animation.",
       );
     }
     if (
@@ -745,7 +997,7 @@ function textStaggerAnimations(
     invalid("Native Figma TextStagger overlap must be between 0 and 100.");
   }
   const durationMs = Math.round(style.duration * 1000);
-  const staggerMs = Math.round((durationMs * (100 - overlap)) / 100);
+  const staggerMs = (durationMs * (100 - overlap)) / 100;
   const ignoreSpaces = booleanProp(props.ignoreSpaces, true, "ignoreSpaces");
   const timingMode = textStaggerTimingMode(props);
   const textOptions: Pick<
@@ -755,7 +1007,7 @@ function textStaggerAnimations(
     animationDirection,
     order,
     ...(timingMode === "duration-fitted" ? { overlapPercent: overlap } : {}),
-    ignoreSpaces,
+    ignoreSpaces: unit === "character" ? ignoreSpaces : true,
   };
   const delayMs = Math.round(
     (style.timelineOffset + numeric(props.delay, 0)) * 1000,

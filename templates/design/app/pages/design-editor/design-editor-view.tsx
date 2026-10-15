@@ -14,6 +14,8 @@ import type {
 import {
   createMotionNativeStyleInstance,
   motionNativeStyleEndTimeMs,
+  motionNativeStyleWithTextAnimationSettings,
+  motionTextDocumentWithNativeStyleSettings,
 } from "@shared/motion-native-style-runtime";
 import type { MotionTextAnimation } from "@shared/motion-text-code";
 import {
@@ -390,6 +392,8 @@ export function renderDesignEditorView({
     markMotionTracksDirty,
     handleMotionAnimationStyleSaved,
     handleMotionTextAnimationsChange,
+    handleMotionTextDocumentChange,
+    handleMotionNativeStyleChange,
     handleMotionDurationChange,
     inspectCodeData,
     handleCreateComponent,
@@ -1592,16 +1596,50 @@ export function renderDesignEditorView({
             const targetNodeIds = hasCompleteSelectedMotionTargets
               ? uniqueSelectedMotionTargets.map(({ nodeId }) => nodeId)
               : [motionTargetForInspector.nodeId];
-            const instances = createMotionNativeStyleInstancesForTargets({
-              styleKey,
-              targetNodeIds,
-              timelineOffset: (motionPlayhead * motionDurationMs) / 1000,
-            });
+            const createdInstances = createMotionNativeStyleInstancesForTargets(
+              {
+                styleKey,
+                targetNodeIds,
+                timelineOffset: (motionPlayhead * motionDurationMs) / 1000,
+              },
+            );
+            let nextTextDocument = motionTextDocument;
+            let instances: MotionNativeStyleInstance[];
+            try {
+              instances = createdInstances.map((instance) => {
+                if (instance.styleKey !== "TextStagger") return instance;
+                const targetAnimations =
+                  nextTextDocument?.animations.filter(
+                    (animation) =>
+                      animation.targetNodeId === instance.targetNodeId,
+                  ) ?? [];
+                const firstAnimation = targetAnimations[0];
+                if (!firstAnimation) return instance;
+                const seeded = motionNativeStyleWithTextAnimationSettings(
+                  instance,
+                  firstAnimation,
+                );
+                nextTextDocument = motionTextDocumentWithNativeStyleSettings(
+                  nextTextDocument,
+                  seeded,
+                );
+                return seeded;
+              });
+            } catch {
+              toast.error(t("designEditor.motion.textSyncUnsupported"));
+              return;
+            }
             const nextDurationMs = Math.max(
               motionDurationMs,
               ...instances.map(motionNativeStyleEndTimeMs),
             );
             setMotionNativeStyles((current) => [...current, ...instances]);
+            if (
+              JSON.stringify(nextTextDocument) !==
+              JSON.stringify(motionTextDocument)
+            ) {
+              handleMotionTextDocumentChange(nextTextDocument);
+            }
             if (nextDurationMs !== motionDurationMs) {
               handleMotionDurationChange(nextDurationMs);
             } else {
@@ -1612,34 +1650,7 @@ export function renderDesignEditorView({
         : undefined,
     onMotionNativeStyleChange:
       canEditActiveVisualScreen && canWriteMotion
-        ? (
-            instance: MotionNativeStyleInstance,
-            identity: MotionNativeStyleIdentity,
-          ) => {
-            setMotionNativeStyles((current) => {
-              const index = identity.sourceInstanceId
-                ? current.findIndex(
-                    (candidate) =>
-                      candidate.sourceInstanceId ===
-                        identity.sourceInstanceId &&
-                      candidate.styleKey === identity.styleKey &&
-                      candidate.targetNodeId === identity.targetNodeId,
-                  )
-                : identity.index;
-              const previous = current[index];
-              if (
-                !previous ||
-                previous.styleKey !== identity.styleKey ||
-                previous.targetNodeId !== identity.targetNodeId
-              ) {
-                return current;
-              }
-              const next = [...current];
-              next[index] = instance;
-              return next;
-            });
-            markMotionTracksDirty();
-          }
+        ? handleMotionNativeStyleChange
         : undefined,
     onRemoveMotionNativeStyle:
       canEditActiveVisualScreen && canWriteMotion

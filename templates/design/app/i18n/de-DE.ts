@@ -1186,6 +1186,10 @@ export default {
       addKeyframe: "Keyframe hinzufügen",
       trackExists:
         "Eine „{{property}}“-Spur für {{label}} existiert bereits. Bearbeite ihre Keyframes in der Zeitleiste.",
+      textSyncUnsupported:
+        "Diese Textbewegungseinstellungen können nicht synchronisiert werden.",
+      textPropertyAlreadyAnimated:
+        "Eine Textanimation im Code steuert diese Eigenschaft bereits.",
       layerAnimationSpan: "Animationsbereich von {{label}}",
       keyframeAt: "Keyframe bei {{ms}}ms",
       deleteKeyframe: "Keyframe löschen",

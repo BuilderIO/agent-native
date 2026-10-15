@@ -1140,6 +1140,8 @@ export default {
       addKeyframe: "添加关键帧",
       trackExists:
         "「{{property}}」轨道已存在于 {{label}}。请在时间线中编辑其关键帧。",
+      textSyncUnsupported: "无法同步这些文本动态设置。",
+      textPropertyAlreadyAnimated: "代码中的文本动画已控制此属性。",
       layerAnimationSpan: "{{label}} 动效时间范围",
       keyframeAt: "{{ms}}毫秒处的关键帧",
       deleteKeyframe: "删除关键帧",

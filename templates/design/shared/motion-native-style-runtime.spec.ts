@@ -9,9 +9,12 @@ import {
   motionNativeStyleEndTimeMs,
   motionNativeStyleWithPathTrimTrack,
   motionNativeStyleWithPositionTrack,
+  motionNativeStyleWithTextAnimationSettings,
+  motionNativeTextAnimationSettings,
   motionNativeStylesToTracks,
   motionNativeStylesToTextAnimations,
   motionTextDocumentWithNativeStyles,
+  motionTextDocumentWithNativeStyleSettings,
   motionTextDocumentWithoutNativeStyles,
   switchMotionNativeStyleKey,
 } from "./motion-native-style-runtime";
@@ -347,7 +350,7 @@ describe("native Figma Motion runtime adapter", () => {
         animationDirection: "out",
         order: "right-to-left",
         overlapPercent: 20,
-        ignoreSpaces: false,
+        ignoreSpaces: true,
         delayMs: 325,
         property: "filter",
         durationMs: 500,
@@ -364,7 +367,7 @@ describe("native Figma Motion runtime adapter", () => {
         animationDirection: "out",
         order: "right-to-left",
         overlapPercent: 20,
-        ignoreSpaces: false,
+        ignoreSpaces: true,
         delayMs: 325,
         property: "translate",
         durationMs: 500,
@@ -381,7 +384,7 @@ describe("native Figma Motion runtime adapter", () => {
         animationDirection: "out",
         order: "right-to-left",
         overlapPercent: 20,
-        ignoreSpaces: false,
+        ignoreSpaces: true,
         delayMs: 325,
         property: "rotate",
         durationMs: 500,
@@ -398,7 +401,7 @@ describe("native Figma Motion runtime adapter", () => {
         animationDirection: "out",
         order: "right-to-left",
         overlapPercent: 20,
-        ignoreSpaces: false,
+        ignoreSpaces: true,
         delayMs: 325,
         property: "scale",
         durationMs: 500,
@@ -415,7 +418,7 @@ describe("native Figma Motion runtime adapter", () => {
         animationDirection: "out",
         order: "right-to-left",
         overlapPercent: 20,
-        ignoreSpaces: false,
+        ignoreSpaces: true,
         delayMs: 325,
         property: "opacity",
         durationMs: 500,
@@ -504,6 +507,407 @@ describe("native Figma Motion runtime adapter", () => {
     );
   });
 
+  it("seeds native TextStagger from authored text settings and keeps its effect settings", () => {
+    const authored: MotionTextDocument["animations"][number] = {
+      targetNodeId: "hero",
+      unit: "word",
+      direction: "forward",
+      staggerMs: 30,
+      animationDirection: "out",
+      order: "center-out",
+      ignoreSpaces: false,
+      property: "opacity",
+      durationMs: 250,
+      keyframes: [
+        { t: 0, value: "0", ease: "ease-out" },
+        { t: 1, value: "1" },
+      ],
+    };
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    base.props.opacityEnabled = true;
+    const style = motionNativeStyleWithTextAnimationSettings(base, authored);
+
+    expect(style.props).toMatchObject({
+      textDelayGrouping: "WORD",
+      textDelayOrder: "CENTER_OUT",
+      animationDirection: "out",
+      ignoreSpaces: true,
+      textDelayTimingMode: "fixed-stagger",
+      opacityEnabled: true,
+    });
+    expect(motionNativeTextAnimationSettings(style)).toMatchObject({
+      unit: "word",
+      direction: "forward",
+      staggerMs: 30,
+      animationDirection: "out",
+      order: "center-out",
+      ignoreSpaces: true,
+    });
+    const syncedDocument = motionTextDocumentWithNativeStyleSettings(
+      { version: 2, animations: [authored] },
+      style,
+    );
+    expect(
+      motionTextDocumentWithNativeStyles(syncedDocument, [style])?.animations,
+    ).toHaveLength(2);
+  });
+
+  it("reads the shared TextStagger profile when all effects are disabled", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    style.props = {
+      ...style.props,
+      positionEnabled: false,
+      rotationEnabled: false,
+      scaleEnabled: false,
+      opacityEnabled: false,
+      blurEnabled: false,
+      textDelayGrouping: "PARAGRAPH",
+      textDelayOrder: "RIGHT_LEFT",
+    };
+
+    expect(motionNativeTextAnimationSettings(style)).toMatchObject({
+      unit: "paragraph",
+      direction: "reverse",
+      order: "right-to-left",
+      staggerMs: 250,
+      overlapPercent: 50,
+    });
+  });
+
+  it("preserves fractional fixed stagger values when projecting to TextStagger", () => {
+    const authored: MotionTextDocument["animations"][number] = {
+      targetNodeId: "hero",
+      unit: "character",
+      direction: "forward",
+      staggerMs: 12.5,
+      property: "opacity",
+      durationMs: 250,
+      keyframes: [
+        { t: 0, value: "0" },
+        { t: 1, value: "1" },
+      ],
+    };
+    const style = motionNativeStyleWithTextAnimationSettings(
+      createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "hero",
+      }),
+      authored,
+    );
+
+    expect(style.props.presetStaggerOverlap).toBe(95);
+    expect(motionNativeTextAnimationSettings(style).staggerMs).toBe(12.5);
+
+    style.duration = 0.01;
+    const shortDurationStyle = motionNativeStyleWithTextAnimationSettings(
+      style,
+      { ...authored, durationMs: 1 },
+    );
+    expect(shortDurationStyle.duration).toBe(0.013);
+    expect(
+      motionNativeTextAnimationSettings(shortDurationStyle).staggerMs,
+    ).toBeCloseTo(12.5);
+
+    const filterAnimation = { ...authored, property: "filter" as const };
+    const filterBase = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    filterBase.props.blurEnabled = true;
+    const filterStyle = motionNativeStyleWithTextAnimationSettings(
+      filterBase,
+      filterAnimation,
+    );
+    expect(filterStyle.props.blurEnabled).toBe(true);
+  });
+
+  it("syncs native shared text settings without changing authored property timing", () => {
+    const document: MotionTextDocument = {
+      version: 2,
+      animations: [
+        {
+          targetNodeId: "hero",
+          unit: "character",
+          direction: "forward",
+          staggerMs: 20,
+          delayMs: 100,
+          property: "opacity",
+          durationMs: 220,
+          keyframes: [
+            { t: 0, value: "0", ease: "ease-in" },
+            { t: 1, value: "1" },
+          ],
+        },
+        {
+          targetNodeId: "hero",
+          unit: "character",
+          direction: "forward",
+          staggerMs: 20,
+          delayMs: 240,
+          property: "translate",
+          durationMs: 370,
+          keyframes: [
+            { t: 0, value: "0px 20px" },
+            { t: 1, value: "0px 0px" },
+          ],
+        },
+      ],
+    };
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    style.props = {
+      ...style.props,
+      positionEnabled: false,
+      textDelayGrouping: "WORD",
+      textDelayOrder: "RIGHT_LEFT",
+      animationDirection: "out",
+      ignoreSpaces: false,
+      textDelayTimingMode: "fixed-stagger",
+      presetStaggerOverlap: 94,
+    };
+
+    const next = motionTextDocumentWithNativeStyleSettings(document, style);
+
+    expect(next?.animations).toEqual([
+      {
+        ...document.animations[0],
+        unit: "word",
+        direction: "reverse",
+        staggerMs: 30,
+        animationDirection: "out",
+        order: "right-to-left",
+        ignoreSpaces: true,
+      },
+      {
+        ...document.animations[1],
+        unit: "word",
+        direction: "reverse",
+        staggerMs: 30,
+        animationDirection: "out",
+        order: "right-to-left",
+        ignoreSpaces: true,
+      },
+    ]);
+    expect(next?.animations[0]?.delayMs).toBe(100);
+    expect(next?.animations[0]?.durationMs).toBe(220);
+    expect(next?.animations[0]?.keyframes[0]?.ease).toBe("ease-in");
+    expect(next?.animations[1]?.delayMs).toBe(240);
+    expect(next?.animations[1]?.durationMs).toBe(370);
+  });
+
+  it("seeds native timing from code and writes representable native timing edits back", () => {
+    const authored: MotionTextDocument["animations"][number] = {
+      targetNodeId: "hero",
+      unit: "character",
+      direction: "forward",
+      staggerMs: 40,
+      delayMs: 125,
+      property: "opacity",
+      durationMs: 360,
+      keyframes: [
+        { t: 0, value: "0" },
+        { t: 1, value: "1" },
+      ],
+    };
+    const document: MotionTextDocument = { version: 2, animations: [authored] };
+    const style = motionNativeStyleWithTextAnimationSettings(
+      createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "hero",
+      }),
+      authored,
+    );
+
+    expect(style.duration).toBe(0.36);
+    expect(style.timelineOffset).toBe(0);
+    expect(style.props.delay).toBe(0.125);
+
+    const edited = {
+      ...style,
+      duration: 0.8,
+      timelineOffset: 0.2,
+      props: { ...style.props, delay: 0.1 },
+    };
+    const synced = motionTextDocumentWithNativeStyleSettings(
+      document,
+      edited,
+      style,
+    );
+    expect(synced?.animations).toHaveLength(1);
+    expect(synced?.animations[0]).toMatchObject({
+      delayMs: 300,
+      durationMs: 800,
+    });
+    expect(synced?.animations[0]?.staggerMs).toBeCloseTo(88.8888889);
+  });
+
+  it.each([
+    ["grouping", { unit: "word" as const }],
+    ["direction", { direction: "reverse" as const }],
+    ["animation direction", { animationDirection: "out" as const }],
+    ["order", { order: "center-out" as const }],
+    ["space handling", { ignoreSpaces: false }],
+    ["fixed stagger", { staggerMs: 21 }],
+    ["timing mode", { overlapPercent: 50 }],
+    ["duration-fitted overlap", { overlapPercent: 45 }],
+  ])(
+    "refuses native TextStagger creation when authored tracks disagree on %s",
+    (_label, mismatch) => {
+      const first: MotionTextDocument["animations"][number] = {
+        targetNodeId: "hero",
+        unit: "character",
+        direction: "forward",
+        staggerMs: 20,
+        animationDirection: "in",
+        order: "left-to-right",
+        ignoreSpaces: true,
+        property: "opacity",
+        durationMs: 220,
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      };
+      const second: MotionTextDocument["animations"][number] = {
+        ...first,
+        ...mismatch,
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 20px" },
+          { t: 1, value: "0px 0px" },
+        ],
+      };
+      const document: MotionTextDocument = {
+        version: 2,
+        animations: [first, second],
+      };
+      const seeded = motionNativeStyleWithTextAnimationSettings(
+        createMotionNativeStyleInstance({
+          styleKey: "TextStagger",
+          targetNodeId: "hero",
+        }),
+        first,
+      );
+
+      expect(() =>
+        motionTextDocumentWithNativeStyleSettings(document, seeded),
+      ).toThrow(
+        "Text animations with different shared settings cannot be represented by one TextStagger style.",
+      );
+      expect(document.animations).toEqual([first, second]);
+    },
+  );
+
+  it("keeps divergent authored text profiles intact when a native effect-only setting changes", () => {
+    const first: MotionTextDocument["animations"][number] = {
+      targetNodeId: "hero",
+      unit: "character",
+      direction: "forward",
+      staggerMs: 20,
+      overlapPercent: 50,
+      property: "opacity",
+      durationMs: 220,
+      keyframes: [
+        { t: 0, value: "0" },
+        { t: 1, value: "1" },
+      ],
+    };
+    const second: MotionTextDocument["animations"][number] = {
+      ...first,
+      overlapPercent: 35,
+      property: "translate",
+      keyframes: [
+        { t: 0, value: "0px 20px" },
+        { t: 1, value: "0px 0px" },
+      ],
+    };
+    const document: MotionTextDocument = {
+      version: 2,
+      animations: [first, second],
+    };
+    const previousStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const nextStyle = {
+      ...previousStyle,
+      props: { ...previousStyle.props, opacityEnabled: true },
+    };
+
+    expect(
+      motionTextDocumentWithNativeStyleSettings(
+        document,
+        nextStyle,
+        previousStyle,
+      ),
+    ).toBe(document);
+    expect(
+      document.animations.map(({ overlapPercent }) => overlapPercent),
+    ).toEqual([50, 35]);
+  });
+
+  it.each(["delay", "duration"] as const)(
+    "rejects a shared native %s edit when authored tracks have different timing",
+    (field) => {
+      const document: MotionTextDocument = {
+        version: 2,
+        animations: [
+          {
+            targetNodeId: "hero",
+            unit: "character",
+            direction: "forward",
+            staggerMs: 40,
+            delayMs: 100,
+            property: "opacity",
+            durationMs: 360,
+            keyframes: [
+              { t: 0, value: "0" },
+              { t: 1, value: "1" },
+            ],
+          },
+          {
+            targetNodeId: "hero",
+            unit: "character",
+            direction: "forward",
+            staggerMs: 40,
+            delayMs: 200,
+            property: "translate",
+            durationMs: 500,
+            keyframes: [
+              { t: 0, value: "0px 20px" },
+              { t: 1, value: "0px 0px" },
+            ],
+          },
+        ],
+      };
+      const previous = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "hero",
+      });
+      const next =
+        field === "delay"
+          ? {
+              ...previous,
+              props: { ...previous.props, delay: 0.05 },
+            }
+          : { ...previous, duration: 0.75 };
+
+      expectRuntimeError(
+        () =>
+          motionTextDocumentWithNativeStyleSettings(document, next, previous),
+        "unsupported-style",
+      );
+    },
+  );
+
   it("combines same-target authored and native text tracks with matching settings", () => {
     const style = createMotionNativeStyleInstance({
       styleKey: "TextStagger",
@@ -527,6 +931,39 @@ describe("native Figma Motion runtime adapter", () => {
     expect(
       motionTextDocumentWithNativeStyles(authored, [style])?.animations,
     ).toHaveLength(2);
+  });
+
+  it("keeps an authored property authoritative and lets native effects resume when it is removed", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    style.props.opacityEnabled = true;
+    const authored: MotionTextDocument = {
+      version: 2,
+      animations: [
+        {
+          ...motionNativeStylesToTextAnimations([style])[1]!,
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0.2", ease: "linear" },
+            { t: 1, value: "0.9" },
+          ],
+        },
+      ],
+    };
+
+    expect(
+      motionTextDocumentWithNativeStyles(authored, [style])?.animations.map(
+        ({ property }) => property,
+      ),
+    ).toEqual(["opacity", "translate"]);
+    expect(
+      motionTextDocumentWithNativeStyles(null, [style])?.animations.map(
+        ({ property }) => property,
+      ),
+    ).toEqual(["translate", "opacity"]);
+    expect(style.props.opacityEnabled).toBe(true);
   });
 
   it("keeps center-out and random order in the editable text source", () => {

@@ -1111,6 +1111,7 @@ function NativeTextStaggerDetails({
               props: {
                 ...instance.props,
                 textDelayGrouping: value,
+                ignoreSpaces: false,
                 ...(!supportsVertical && isVerticalOrder
                   ? { textDelayOrder: "LEFT_RIGHT" }
                   : {}),
@@ -1145,6 +1146,7 @@ function NativeTextStaggerDetails({
         min={0}
         max={100}
         disabled={disabled}
+        decimalArrowStep
         unit="%"
         onChange={(value) => updateNumberProp("presetStaggerOverlap", value)}
       />
@@ -1412,10 +1414,6 @@ export function MotionEasingPicker({
   }
 
   const normalizedSearch = search.trim().toLocaleLowerCase();
-  const filteredPresets = EASING_OPTIONS.filter((option) => {
-    const label = optionLabel(option, t).toLocaleLowerCase();
-    return !normalizedSearch || label.includes(normalizedSearch);
-  });
   const collections = Array.from(
     new Set(
       easingVariables.map((variable) => variable.collection?.trim() ?? ""),
@@ -1457,7 +1455,7 @@ export function MotionEasingPicker({
           />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" side="left" className="w-64 p-2">
+      <PopoverContent align="start" side="bottom" className="w-60 p-2">
         {view === "new-variable" ? (
           <NewEasingVariableForm
             easingVariables={easingVariables}
@@ -1475,43 +1473,62 @@ export function MotionEasingPicker({
           <Tabs
             value={tab}
             onValueChange={(next) => {
-              if (next === "presets" || next === "libraries") setTab(next);
+              if (next === "presets" || next === "libraries") {
+                setTab(next);
+                setSearch("");
+              }
             }}
             className="space-y-2"
           >
-            <TabsList className="grid h-7 w-full grid-cols-2 p-0.5">
-              <TabsTrigger
-                value="presets"
+            <div className="flex items-center gap-1">
+              <TabsList className="grid h-8 min-w-0 flex-1 grid-cols-2 p-0.5">
+                <TabsTrigger
+                  value="presets"
+                  disabled={disabled}
+                  className="h-7 px-2 text-[11px]"
+                >
+                  {t(`${pickerKeys}.presets`)}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="libraries"
+                  disabled={disabled}
+                  className="h-7 px-2 text-[11px]"
+                >
+                  {t(`${pickerKeys}.libraries`)}
+                </TabsTrigger>
+              </TabsList>
+              {createAvailable ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t(`${pickerKeys}.newVariable`)}
+                  title={t(`${pickerKeys}.newVariable`)}
+                  className="size-7 shrink-0"
+                  disabled={disabled}
+                  onClick={() => setView("new-variable")}
+                >
+                  <IconPlus aria-hidden="true" className="size-3.5" />
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("designEditor.motion.animationStyles.close")}
+                title={t("designEditor.motion.animationStyles.close")}
+                className="size-7 shrink-0"
                 disabled={disabled}
-                className="h-6 px-2 text-[11px]"
+                onClick={closePicker}
               >
-                {t(`${pickerKeys}.presets`)}
-              </TabsTrigger>
-              <TabsTrigger
-                value="libraries"
-                disabled={disabled}
-                className="h-6 px-2 text-[11px]"
-              >
-                {t(`${pickerKeys}.libraries`)}
-              </TabsTrigger>
-            </TabsList>
-
-            <div className="relative">
-              <Input
-                type="search"
-                aria-label={t(`${pickerKeys}.searchPlaceholder`)}
-                placeholder={t(`${pickerKeys}.searchPlaceholder`)}
-                value={search}
-                disabled={disabled}
-                className={`${CONTROL_CLASS} pl-2`}
-                onChange={(event) => setSearch(event.currentTarget.value)}
-              />
+                <IconX aria-hidden="true" className="size-3.5" />
+              </Button>
             </div>
 
             <TabsContent value="presets" className="mt-0 space-y-1">
-              <div className="max-h-52 overflow-y-auto">
-                {filteredPresets.length > 0 ? (
-                  filteredPresets.map((option) => {
+              <div className="max-h-72 overflow-y-auto">
+                {EASING_OPTIONS.length > 0 ? (
+                  EASING_OPTIONS.map((option) => {
                     const selected =
                       option.value === "custom-bezier"
                         ? isCustomBezier(value)
@@ -1522,9 +1539,10 @@ export function MotionEasingPicker({
                       <button
                         key={option.value}
                         type="button"
+                        aria-label={optionLabel(option, t)}
                         aria-pressed={selected}
                         disabled={disabled}
-                        className="flex h-7 w-full items-center gap-1 rounded px-2 text-left text-[11px] leading-none hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+                        className="flex h-8 w-full items-center gap-1 rounded px-2 text-left text-[11px] leading-none hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
                         onClick={() => selectPreset(option)}
                       >
                         <span
@@ -1551,6 +1569,17 @@ export function MotionEasingPicker({
             </TabsContent>
 
             <TabsContent value="libraries" className="mt-0 space-y-1">
+              <div className="relative">
+                <Input
+                  type="search"
+                  aria-label={t(`${pickerKeys}.searchPlaceholder`)}
+                  placeholder={t(`${pickerKeys}.searchPlaceholder`)}
+                  value={search}
+                  disabled={disabled}
+                  className={`${CONTROL_CLASS} pl-2`}
+                  onChange={(event) => setSearch(event.currentTarget.value)}
+                />
+              </div>
               <Select
                 value={collectionFilter}
                 disabled={disabled}
@@ -1617,20 +1646,6 @@ export function MotionEasingPicker({
                 )}
               </div>
             </TabsContent>
-
-            {createAvailable ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 w-full justify-start gap-1 px-2 text-[11px]"
-                disabled={disabled}
-                onClick={() => setView("new-variable")}
-              >
-                <IconPlus aria-hidden="true" className="size-3.5" />
-                {t(`${pickerKeys}.newVariable`)}
-              </Button>
-            ) : null}
           </Tabs>
         )}
       </PopoverContent>
@@ -1844,6 +1859,7 @@ function NumberField({
   max,
   disabled,
   showClock = false,
+  decimalArrowStep = false,
   unit,
   onChange,
 }: {
@@ -1854,6 +1870,7 @@ function NumberField({
   max: number;
   disabled: boolean;
   showClock?: boolean;
+  decimalArrowStep?: boolean;
   unit?: string;
   onChange: (value: string) => void;
 }) {
@@ -1876,6 +1893,24 @@ function NumberField({
           disabled={disabled}
           className={CONTROL_CLASS}
           onChange={(event) => onChange(event.currentTarget.value)}
+          onKeyDown={
+            decimalArrowStep
+              ? (event) => {
+                  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
+                    return;
+                  }
+                  const current = Number(event.currentTarget.value);
+                  if (!Number.isFinite(current)) return;
+                  event.preventDefault();
+                  const increment = event.key === "ArrowUp" ? 1 : -1;
+                  const next = Math.min(
+                    max,
+                    Math.max(min, current + increment),
+                  );
+                  onChange(String(Number(next.toPrecision(12))));
+                }
+              : undefined
+          }
         />
         {unit ? (
           <span className="shrink-0 text-[10px] text-muted-foreground">

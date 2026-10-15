@@ -484,12 +484,126 @@ test.describe.serial("React Motion source browser writeback", () => {
           },
         ],
       });
-    await page.getByRole("combobox", { name: "Unit", exact: true }).click();
+    const unitSelect = page.getByRole("combobox", {
+      name: "Unit",
+      exact: true,
+    });
+    const ignoreSpaces = page.getByRole("checkbox", {
+      name: "Ignore spaces",
+      exact: true,
+    });
+    await expect(ignoreSpaces).not.toBeChecked();
+    const enableIgnoreSpacesSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await ignoreSpaces.check();
+    const enableIgnoreSpacesResponse = await enableIgnoreSpacesSave;
+    expect(
+      enableIgnoreSpacesResponse.ok(),
+      await enableIgnoreSpacesResponse.text(),
+    ).toBe(true);
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: { animations: [{ ignoreSpaces: true }] },
+          },
+        ],
+      });
+
+    await unitSelect.click();
+    const wordBeforeCharacter = page.getByRole("option", {
+      name: "Word",
+      exact: true,
+    });
+    await expect(wordBeforeCharacter).toBeVisible();
+    const selectWordSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await wordBeforeCharacter.click();
+    const selectWordResponse = await selectWordSave;
+    expect(selectWordResponse.ok(), await selectWordResponse.text()).toBe(true);
+    await expect(
+      page.getByRole("checkbox", { name: "Ignore spaces", exact: true }),
+    ).toHaveCount(0);
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: {
+              animations: [{ unit: "word", ignoreSpaces: false }],
+            },
+          },
+        ],
+      });
+
+    await unitSelect.click();
+    const characterAfterWord = page.getByRole("option", {
+      name: "Character",
+      exact: true,
+    });
+    await expect(characterAfterWord).toBeVisible();
+    const selectCharacterSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await characterAfterWord.click();
+    const selectCharacterResponse = await selectCharacterSave;
+    expect(
+      selectCharacterResponse.ok(),
+      await selectCharacterResponse.text(),
+    ).toBe(true);
+    await expect(ignoreSpaces).not.toBeChecked();
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: {
+              animations: [{ unit: "character", ignoreSpaces: false }],
+            },
+          },
+        ],
+      });
+
+    await unitSelect.click();
+    await expect(
+      page.getByRole("option", { name: "Line", exact: true }),
+    ).toBeVisible();
     await page.getByRole("option", { name: "Line", exact: true }).click();
     await expect(
       page.getByRole("checkbox", { name: "Ignore spaces", exact: true }),
     ).toHaveCount(0);
-    await page.getByRole("combobox", { name: "Order", exact: true }).click();
+    const orderSelect = page.getByRole("combobox", {
+      name: "Order",
+      exact: true,
+    });
+    await orderSelect.click();
     for (const order of [
       "Left to right",
       "Right to left",
@@ -507,6 +621,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       page.getByRole("option", { name: "Bottom to top", exact: true }),
     ).toHaveCount(0);
     await page.keyboard.press("Escape");
+    await expect(orderSelect).toHaveAttribute("aria-expanded", "false");
     await expect
       .poll(() =>
         getAction(request, "get-motion-timeline", {
@@ -521,8 +636,11 @@ test.describe.serial("React Motion source browser writeback", () => {
           },
         ],
       });
-    await page.getByRole("combobox", { name: "Unit", exact: true }).click();
-    await page.getByRole("option", { name: "Word", exact: true }).click();
+    await expect(unitSelect).toHaveAttribute("aria-expanded", "false");
+    await unitSelect.click();
+    const wordOption = page.getByRole("option", { name: "Word", exact: true });
+    await expect(wordOption).toBeVisible();
+    await wordOption.click();
     await expect(
       page.getByRole("checkbox", { name: "Ignore spaces", exact: true }),
     ).toHaveCount(0);

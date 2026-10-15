@@ -1176,6 +1176,10 @@ export default {
       addKeyframe: "Adicionar quadro-chave",
       trackExists:
         'Uma faixa de "{{property}}" já existe para {{label}}. Edite os quadros-chave na linha do tempo.',
+      textSyncUnsupported:
+        "Não é possível sincronizar estas configurações de movimento do texto.",
+      textPropertyAlreadyAnimated:
+        "Uma animação de texto no código já controla esta propriedade.",
       layerAnimationSpan: "Intervalo de animação de {{label}}",
       keyframeAt: "Quadro-chave em {{ms}}ms",
       deleteKeyframe: "Excluir quadro-chave",

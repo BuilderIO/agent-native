@@ -1162,6 +1162,9 @@ export default {
       addKeyframe: "कीफ़्रेम जोड़ें",
       trackExists:
         "{{label}} के लिए “{{property}}” ट्रैक पहले से मौजूद है। टाइमलाइन में इसके कीफ़्रेम संपादित करें।",
+      textSyncUnsupported: "इन टेक्स्ट मोशन सेटिंग को सिंक नहीं किया जा सकता।",
+      textPropertyAlreadyAnimated:
+        "कोड टेक्स्ट एनिमेशन पहले से इस प्रॉपर्टी को नियंत्रित करता है।",
       layerAnimationSpan: "{{label}} एनिमेशन रेंज",
       keyframeAt: "{{ms}}ms पर कीफ़्रेम",
       deleteKeyframe: "कीफ़्रेम हटाएं",

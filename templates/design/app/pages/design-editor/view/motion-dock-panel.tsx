@@ -72,6 +72,7 @@ export function renderMotionDockPanel({
     handleMotionAudioClipsChange,
     handleMotionPlaybackModeChange,
     handleMotionDurationChange,
+    handleMotionNativeStyleChange,
     motionLivePlayheadRef,
     motionControlsWritable,
     markMotionTracksDirty,
@@ -98,22 +99,15 @@ export function renderMotionDockPanel({
     index: number,
   ) => {
     if (!canWriteMotion) return;
-    setMotionNativeStyles((current) => {
-      const previous = current[index];
-      if (
-        !previous ||
-        previous.styleKey !== instance.styleKey ||
-        previous.targetNodeId !== instance.targetNodeId ||
-        (previous.sourceInstanceId !== undefined &&
-          instance.sourceInstanceId !== previous.sourceInstanceId)
-      ) {
-        return current;
-      }
-      const next = [...current];
-      next[index] = instance;
-      return next;
+    handleMotionNativeStyleChange(instance, {
+      key: `${index}:${instance.styleKey}:${instance.targetNodeId}`,
+      styleKey: instance.styleKey,
+      targetNodeId: instance.targetNodeId,
+      index,
+      ...(instance.sourceInstanceId
+        ? { sourceInstanceId: instance.sourceInstanceId }
+        : {}),
     });
-    markMotionTracksDirty();
   };
   const removeMotionNativeStyle = (
     instance: MotionNativeStyleInstance,

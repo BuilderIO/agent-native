@@ -1059,7 +1059,7 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     if (animation.unit === "paragraph") {
       entries = paragraphUnits(target).map(function (unit, index) { return { unit: unit, index: index }; });
     } else {
-      var ignoreSpaces = animation.unit === "character" || animation.unit === "word"
+      var ignoreSpaces = animation.unit === "character"
         ? animation.ignoreSpaces !== false
         : true;
       var units = splitTextTarget(target, animation.unit, ignoreSpaces);

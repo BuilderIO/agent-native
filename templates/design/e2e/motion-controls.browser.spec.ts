@@ -4,7 +4,6 @@ import path from "node:path";
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
-import { MOTION_NATIVE_STYLE_INSTANCE_TYPE } from "../shared/motion-native-style";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
 import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
@@ -14,15 +13,11 @@ let fileId: string;
 let baseURLForActions: string;
 let restoreMotionLab: (() => Promise<void>) | null = null;
 
-const MOTION_FIXTURE_HTML = FIXTURE_HTML.replace(
+const REFERENCE_FIXTURE_HTML = FIXTURE_HTML.replace(
   '      <p style="font-size:18px;line-height:1.6;margin:0;color:#a1a1aa">Second fixture paragraph for selection tests.</p>',
   `      <p style="font-size:18px;line-height:1.6;margin:0;color:#a1a1aa">Second fixture paragraph for selection tests.</p>
-      <script src="./alpinejs.js" defer></script>
-      <main id="e2e-motion-text-alpine-root" x-data="{ visible: true }">
-        <h2 id="e2e-motion-text-alpine" data-agent-native-node-id="e2e-motion-text-alpine">Alpine Motion Text</h2>
-      </main>
-      <div data-agent-native-node-id="e2e-motion-style-rectangle" data-agent-native-layer-name="Rectangle" style="width:100px;height:100px;padding:0;border:0;background:#7F0EFF;color:transparent;font-size:0;line-height:0">Motion Rectangle</div>
-      <div data-agent-native-node-id="e2e-motion-style-rectangle-2" data-agent-native-layer-name="Rectangle 2" style="width:100px;height:100px;padding:0;border:0;background:#FF7A00;color:transparent;font-size:0;line-height:0">Motion Rectangle Two</div>`,
+      <div data-agent-native-node-id="e2e-motion-reference-rectangle" data-agent-native-layer-name="Rectangle" style="width:100px;height:100px;padding:0;border:0;background:#7F0EFF;color:transparent;font-size:0;line-height:0">Reference Rectangle</div>
+      <div data-agent-native-node-id="e2e-motion-reference-rectangle-2" data-agent-native-layer-name="Rectangle 2" style="width:100px;height:100px;padding:0;border:0;background:#FF7A00;color:transparent;font-size:0;line-height:0">Reference Rectangle Two</div>`,
 );
 
 async function postAction(
@@ -63,7 +58,7 @@ async function getAction(
   return response.json();
 }
 
-async function captureMotionState(
+async function captureReferenceState(
   page: import("@playwright/test").Page,
   stepId: string,
 ): Promise<void> {
@@ -137,11 +132,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
   baseURLForActions =
     (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
   const created = await postAction(request, "create-design", {
-<<<<<<<< HEAD:templates/design/e2e/motion-native-style.browser.spec.ts
-    title: "Motion Native Style",
-========
     title: "Motion Controls",
->>>>>>>> origin/main:templates/design/e2e/motion-controls.browser.spec.ts
     projectType: "prototype",
   });
   designId = created?.id ?? created?.data?.id ?? created?.design?.id;
@@ -149,7 +140,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
   const file = await postAction(request, "create-file", {
     designId,
     filename: "index.html",
-    content: MOTION_FIXTURE_HTML,
+    content: REFERENCE_FIXTURE_HTML,
     fileType: "html",
   });
   fileId = file.id;
@@ -170,11 +161,7 @@ test.afterAll(async ({ request }) => {
   if (designId) await postAction(request, "delete-design", { id: designId });
 });
 
-<<<<<<<< HEAD:templates/design/e2e/motion-native-style.browser.spec.ts
-test("native style states persist with the Motion inspector and timeline", async ({
-========
 test("Motion inspector states match the editable timeline", async ({
->>>>>>>> origin/main:templates/design/e2e/motion-controls.browser.spec.ts
   page,
   request,
 }) => {
@@ -189,7 +176,7 @@ test("Motion inspector states match the editable timeline", async ({
   await expect(canvasZoom).toBeVisible();
   await canvasZoom.click();
   await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
-  await selectByText(page, "Motion Rectangle", {
+  await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     deep: false,
   });
@@ -198,11 +185,7 @@ test("Motion inspector states match the editable timeline", async ({
     await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
   }
   await expect(canvasZoom).toHaveText(/100%/);
-<<<<<<<< HEAD:templates/design/e2e/motion-native-style.browser.spec.ts
-  await captureMotionState(page, "motion-native-style-before-selection");
-========
   await captureReferenceState(page, "motion-controls-before-selection");
->>>>>>>> origin/main:templates/design/e2e/motion-controls.browser.spec.ts
 
   const launchMotion = page.getByRole("button", {
     name: "Motion dock",
@@ -264,9 +247,6 @@ test("Motion inspector states match the editable timeline", async ({
   );
   await addAnimation.click();
   await expect(page.getByRole("menuitem", { name: "Position" })).toBeVisible();
-<<<<<<<< HEAD:templates/design/e2e/motion-native-style.browser.spec.ts
-  await captureMotionState(page, "motion-native-style-add-menu");
-========
   const addAnimationMenu = page.getByRole("menu");
   await addAnimationMenu.evaluate(async (menu) => {
     const finiteAnimations = menu
@@ -311,7 +291,6 @@ test("Motion inspector states match the editable timeline", async ({
         (menuGeometry.trigger.y + menuGeometry.trigger.height + 4),
     ),
   ).toBeLessThanOrEqual(1);
->>>>>>>> origin/main:templates/design/e2e/motion-controls.browser.spec.ts
   await page.getByRole("menuitem", { name: "Position", exact: true }).click();
   const appliedResponse = await applied;
   expect(appliedResponse.ok(), await appliedResponse.text()).toBe(true);
@@ -352,10 +331,32 @@ test("Motion inspector states match the editable timeline", async ({
   ]);
   await captureReferenceState(page, "motion-controls-position-type-menu");
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Ease out", exact: true }).click();
+  const easingTrigger = page.getByRole("button", {
+    name: "Ease out",
+    exact: true,
+  });
+  const easingTriggerRect = await easingTrigger.boundingBox();
+  await easingTrigger.click();
   const easingPresetPanel = page.getByRole("tabpanel", {
     name: "Presets",
   });
+  const easingPopup = easingPresetPanel.locator(
+    "xpath=ancestor::*[@data-side][1]",
+  );
+  const easingPopupRect = await easingPopup.boundingBox();
+  expect(easingPopupRect).not.toBeNull();
+  expect(easingTriggerRect).not.toBeNull();
+  await expect(easingPopup).toHaveAttribute("data-side", "bottom");
+  await expect(easingPopup).toHaveAttribute("data-align", "start");
+  await expect(easingPopup.locator('input[type="search"]')).toHaveCount(0);
+  await expect(
+    easingPopup.getByRole("button", { name: "New variable", exact: true }),
+  ).toBeVisible();
+  await expect(
+    easingPopup.getByRole("button", { name: "Close", exact: true }),
+  ).toBeVisible();
+  expect(easingPopupRect!.x).toBeCloseTo(easingTriggerRect!.x, 0);
+  expect(easingPopupRect!.y).toBeGreaterThan(easingTriggerRect!.y);
   for (const easing of [
     "Hold",
     "Linear",
@@ -377,8 +378,7 @@ test("Motion inspector states match the editable timeline", async ({
     ).toBeVisible();
   }
   await captureReferenceState(page, "motion-controls-easing-menu");
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await easingPopup.getByRole("button", { name: "Close", exact: true }).click();
   await expect(
     dock.locator(
       '[data-motion-native-style-row="Position"] [data-motion-select-native-style]',
@@ -452,11 +452,7 @@ test("Motion inspector states match the editable timeline", async ({
   await expect(
     dock.locator("[data-motion-playhead][data-motion-auto-keyframe]"),
   ).toHaveCount(2);
-<<<<<<<< HEAD:templates/design/e2e/motion-native-style.browser.spec.ts
-  await captureMotionState(page, "motion-native-style-auto-keyframe");
-========
   await captureReferenceState(page, "motion-controls-auto-keyframe");
->>>>>>>> origin/main:templates/design/e2e/motion-controls.browser.spec.ts
   await autoKeyframe.click();
   await expect(
     dock.locator("[data-motion-playhead][data-motion-auto-keyframe]"),
@@ -470,21 +466,12 @@ test("Motion inspector states match the editable timeline", async ({
   expect(saved.timelines?.[0]?.nativeStyles).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-<<<<<<<< HEAD:templates/design/e2e/motion-native-style.browser.spec.ts
-        type: MOTION_NATIVE_STYLE_INSTANCE_TYPE,
-========
->>>>>>>> origin/main:templates/design/e2e/motion-controls.browser.spec.ts
         styleKey: "Position",
-        targetNodeId: "e2e-motion-style-rectangle",
+        targetNodeId: "e2e-motion-reference-rectangle",
       }),
     ]),
   );
 
-<<<<<<<< HEAD:templates/design/e2e/motion-native-style.browser.spec.ts
-  await captureMotionState(page, "motion-native-style-position");
-
-========
->>>>>>>> origin/main:templates/design/e2e/motion-controls.browser.spec.ts
   await addAnimation.click();
   for (const label of ["Position", "Scale", "Rotation", "Size", "Opacity"]) {
     await expect(
@@ -495,11 +482,7 @@ test("Motion inspector states match the editable timeline", async ({
     page.getByRole("menuitem", { name: "Text Stagger", exact: true }),
   ).toHaveCount(0);
   await expect(page.getByRole("menuitem")).toHaveCount(5);
-<<<<<<<< HEAD:templates/design/e2e/motion-native-style.browser.spec.ts
-  await captureMotionState(page, "motion-native-style-add-menu");
-========
   await captureReferenceState(page, "motion-controls-add-menu");
->>>>>>>> origin/main:templates/design/e2e/motion-controls.browser.spec.ts
   await page.keyboard.press("Escape");
 
   const origin = page.getByRole("button", { name: "Origin", exact: true });
@@ -552,16 +535,12 @@ test("Motion inspector states match the editable timeline", async ({
   await expect(originMarker).toBeVisible();
   const originProxy = page.locator("[data-motion-origin-proxy]");
   await expect(originProxy).toBeVisible();
-<<<<<<<< HEAD:templates/design/e2e/motion-native-style.browser.spec.ts
-  await captureMotionState(page, "motion-native-style-origin");
-========
   await captureReferenceState(page, "motion-controls-origin");
->>>>>>>> origin/main:templates/design/e2e/motion-controls.browser.spec.ts
 
-  const motionRectangle = designFrame(page, fileId).locator(
-    '[data-agent-native-node-id="e2e-motion-style-rectangle"]',
+  const referenceRectangle = designFrame(page, fileId).locator(
+    '[data-agent-native-node-id="e2e-motion-reference-rectangle"]',
   );
-  const initialTransformOrigin = await motionRectangle.evaluate(
+  const initialTransformOrigin = await referenceRectangle.evaluate(
     (element) => getComputedStyle(element).transformOrigin,
   );
   const sourceBeforeOriginDrag = await getAction(request, "read-source-file", {
@@ -594,7 +573,7 @@ test("Motion inspector states match the editable timeline", async ({
   await expect
     .poll(() =>
       designFrame(page, fileId)
-        .locator('[data-agent-native-node-id="e2e-motion-style-rectangle"]')
+        .locator('[data-agent-native-node-id="e2e-motion-reference-rectangle"]')
         .evaluate((element) => getComputedStyle(element).transformOrigin),
     )
     .not.toBe(initialTransformOrigin);
@@ -617,300 +596,8 @@ test("Motion inspector states match the editable timeline", async ({
       page.getByRole("menuitem", { name: label, exact: true }),
     ).toBeVisible();
   }
-<<<<<<<< HEAD:templates/design/e2e/motion-native-style.browser.spec.ts
-  await expect(
-    page.getByRole("menuitem", { name: "Text animation", exact: true }),
-  ).toHaveCount(0);
   await expect(page.getByRole("menuitem")).toHaveCount(6);
-  await captureMotionState(page, "motion-native-style-text-add-menu");
-  const textStyleSave = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-      response.request().method() === "POST",
-    { timeout: 20_000 },
-  );
-  await page.getByRole("menuitem", { name: "Text", exact: true }).click();
-  const textStyleResponse = await textStyleSave;
-  expect(textStyleResponse.ok(), await textStyleResponse.text()).toBe(true);
-  const textStyleTimeline = await getAction(request, "get-motion-timeline", {
-    designId,
-    sourceRef: fileId,
-  });
-  expect(textStyleTimeline.timelines?.[0]?.nativeStyles).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        styleKey: "TextStagger",
-        targetNodeId: expect.any(String),
-        duration: 0.5,
-        props: expect.objectContaining({
-          animationDirection: "in",
-          textDelayGrouping: "CHARACTER",
-          presetStaggerOverlap: 50,
-          textDelayOrder: "LEFT_RIGHT",
-          ignoreSpaces: false,
-          delay: 0,
-          easing: { type: "EASE_OUT" },
-        }),
-      }),
-    ]),
-  );
-  const textStyleDetails = page.locator(
-    '[aria-label="Animations"] li > button[aria-pressed="true"]',
-  );
-  await expect(textStyleDetails).toBeVisible();
-  await textStyleDetails.click();
-  await expect(
-    page.getByRole("combobox", { name: "Direction", exact: true }),
-  ).toHaveText("In");
-  await expect(
-    page.getByRole("combobox", { name: "Each", exact: true }),
-  ).toHaveText("Character");
-  await expect(page.getByRole("combobox", { name: "Order" })).toHaveText(
-    "Left to right",
-  );
-  await expect(page.getByRole("spinbutton", { name: "Overlap" })).toHaveValue(
-    "50",
-  );
-  await expect(
-    page.getByRole("checkbox", { name: "Ignore spaces" }),
-  ).not.toBeChecked();
-  await expect(page.getByRole("spinbutton", { name: "Delay" })).toHaveValue(
-    "0",
-  );
-  await expect(page.getByRole("spinbutton", { name: "Duration" })).toHaveValue(
-    "500",
-  );
-  const ignoreSpaces = page.getByRole("checkbox", { name: "Ignore spaces" });
-  await expect(ignoreSpaces).not.toBeChecked();
-  await captureMotionState(page, "motion-text-preset-defaults");
-
-  const ignoreSpacesSave = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-      response.request().method() === "POST",
-    { timeout: 20_000 },
-  );
-  await ignoreSpaces.check();
-  const ignoreSpacesResponse = await ignoreSpacesSave;
-  expect(ignoreSpacesResponse.ok(), await ignoreSpacesResponse.text()).toBe(
-    true,
-  );
-  await expect(ignoreSpaces).toBeChecked();
-  await expect
-    .poll(() =>
-      getAction(request, "get-motion-timeline", {
-        designId,
-        sourceRef: fileId,
-      }),
-    )
-    .toMatchObject({
-      timelines: [
-        {
-          nativeStyles: expect.arrayContaining([
-            expect.objectContaining({
-              styleKey: "TextStagger",
-              props: expect.objectContaining({
-                ignoreSpaces: true,
-                textDelayTimingMode: "duration-fitted",
-              }),
-            }),
-          ]),
-        },
-      ],
-    });
-  const sourceWithIgnoreSpaces = await getAction(request, "read-source-file", {
-    designId,
-    path: "index.html",
-  });
-  expect(sourceWithIgnoreSpaces.content).toContain('"ignoreSpaces":true');
-
-  const timelineBeforeLegacyEdit = await getAction(
-    request,
-    "get-motion-timeline",
-    { designId, sourceRef: fileId },
-  );
-  const currentTimeline = timelineBeforeLegacyEdit.timelines?.[0];
-  if (!currentTimeline) throw new Error("The Motion timeline was not saved.");
-  let matchedTextStyle = false;
-  const legacyNativeStyles = currentTimeline.nativeStyles.map(
-    (style: Record<string, any>) => {
-      if (style.styleKey !== "TextStagger" || matchedTextStyle) return style;
-      matchedTextStyle = true;
-      return {
-        ...style,
-        props: Object.fromEntries(
-          Object.entries(style.props).filter(
-            ([key]) => key !== "ignoreSpaces" && key !== "textDelayTimingMode",
-          ),
-        ),
-      };
-    },
-  );
-  expect(matchedTextStyle).toBe(true);
-  const legacySave = await postAction(request, "apply-motion-edit", {
-    designId,
-    fileId,
-    sourceRef: fileId,
-    tracks: currentTimeline.tracks,
-    nativeStyles: legacyNativeStyles,
-    durationMs: currentTimeline.durationMs,
-    playbackMode: currentTimeline.playbackMode,
-    defaultEase: currentTimeline.defaultEase,
-  });
-  expect(legacySave.persisted).toBe(true);
-  const persistedLegacyTimeline = await getAction(
-    request,
-    "get-motion-timeline",
-    { designId, sourceRef: fileId },
-  );
-  const persistedLegacyStyle =
-    persistedLegacyTimeline.timelines?.[0]?.nativeStyles?.find(
-      (style: Record<string, any>) => style.styleKey === "TextStagger",
-    );
-  expect(persistedLegacyStyle).toBeDefined();
-  expect(
-    Object.prototype.hasOwnProperty.call(
-      persistedLegacyStyle.props,
-      "ignoreSpaces",
-    ),
-  ).toBe(false);
-  expect(
-    Object.prototype.hasOwnProperty.call(
-      persistedLegacyStyle.props,
-      "textDelayTimingMode",
-    ),
-  ).toBe(false);
-
-  await gotoEditor(page, designId);
-  await selectByText(page, "Second fixture paragraph for selection tests.", {
-    screenId: fileId,
-    clearPreviousSelection: true,
-  });
-  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
-  await page.locator('[aria-label="Animations"] li > button').first().click();
-  const legacyIgnoreSpaces = page.getByRole("checkbox", {
-    name: "Ignore spaces",
-  });
-  await expect(legacyIgnoreSpaces).toBeChecked();
-  await captureMotionState(page, "motion-native-style-legacy-ignore-spaces");
-
-  const legacyIgnoreSpacesSave = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-      response.request().method() === "POST",
-    { timeout: 20_000 },
-  );
-  await legacyIgnoreSpaces.uncheck();
-  const legacyIgnoreSpacesResponse = await legacyIgnoreSpacesSave;
-  expect(
-    legacyIgnoreSpacesResponse.ok(),
-    await legacyIgnoreSpacesResponse.text(),
-  ).toBe(true);
-  await expect(legacyIgnoreSpaces).not.toBeChecked();
-  await expect
-    .poll(() =>
-      getAction(request, "get-motion-timeline", {
-        designId,
-        sourceRef: fileId,
-      }),
-    )
-    .toMatchObject({
-      timelines: [
-        {
-          nativeStyles: expect.arrayContaining([
-            expect.objectContaining({
-              styleKey: "TextStagger",
-              props: expect.objectContaining({
-                ignoreSpaces: false,
-                textDelayTimingMode: "fixed-stagger",
-              }),
-            }),
-          ]),
-        },
-      ],
-    });
-});
-
-test("HTML Text source round trips through Alpine markup and runs in a browser", async ({
-  page,
-  request,
-}) => {
-  const document = {
-    version: 2,
-    animations: [
-      {
-        targetNodeId: "e2e-motion-text-alpine",
-        unit: "word",
-        direction: "forward",
-        staggerMs: 80,
-        animationDirection: "in",
-        order: "random",
-        overlapPercent: 35,
-        ignoreSpaces: false,
-        property: "opacity",
-        durationMs: 600,
-        keyframes: [
-          { t: 0, value: "0", ease: "ease-out" },
-          { t: 1, value: "1" },
-        ],
-      },
-    ],
-  };
-  const saved = await postAction(request, "apply-motion-edit", {
-    designId,
-    fileId,
-    sourceRef: fileId,
-    tracks: [],
-    textDocument: document,
-    durationMs: 600,
-    playbackMode: "once",
-    defaultEase: "ease-out",
-  });
-  expect(saved).toMatchObject({ persisted: true, sourceType: "inline" });
-
-  const timeline = await getAction(request, "get-motion-timeline", {
-    designId,
-    sourceRef: fileId,
-  });
-  expect(timeline.timelines?.[0]).toMatchObject({ textDocument: document });
-  const source = await getAction(request, "read-source-file", {
-    designId,
-    path: "index.html",
-  });
-  expect(source.content).toContain('x-data="{ visible: true }"');
-  expect(source.content).toContain('data-agent-native-motion-text-source="v2"');
-  expect(source.content).toContain(
-    'data-agent-native-motion-text-runtime="v2"',
-  );
-
-  await page.setContent(source.content);
-  const target = page.locator("#e2e-motion-text-alpine");
-  await expect(target).toHaveText("Alpine Motion Text");
-  await expect(page.locator("#e2e-motion-text-alpine-root")).toHaveAttribute(
-    "x-data",
-    "{ visible: true }",
-  );
-  const units = target.locator("[data-agent-native-motion-text-unit]");
-  await expect(units).toHaveCount(5);
-  await expect
-    .poll(() =>
-      units.evaluateAll(
-        (elements) =>
-          elements.filter((element) => element.getAnimations().length > 0)
-            .length,
-      ),
-    )
-    .toBe(5);
-========
-  await expect(page.getByRole("menuitem")).toHaveCount(5);
   await captureReferenceState(page, "motion-controls-text-add-menu");
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "More Motion", exact: true }).click();
-  await expect(
-    page.getByRole("menuitem", { name: "Text Stagger", exact: true }),
-  ).toBeVisible();
-  await captureReferenceState(page, "motion-controls-text-menu");
->>>>>>>> origin/main:templates/design/e2e/motion-controls.browser.spec.ts
 });
 
 test("a new motion preset applies to every selected target", async ({
@@ -920,12 +607,12 @@ test("a new motion preset applies to every selected target", async ({
   await page.setViewportSize({ width: 1728, height: 941 });
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await gotoEditor(page, designId);
-  await selectByText(page, "Motion Rectangle", {
+  await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
     deep: false,
   });
-  await selectByText(page, "Motion Rectangle Two", {
+  await selectByText(page, "Reference Rectangle Two", {
     screenId: fileId,
     additive: true,
   });
@@ -955,8 +642,8 @@ test("a new motion preset applies to every selected target", async ({
     .map((style: { targetNodeId: string }) => style.targetNodeId)
     .sort();
   expect(scaleTargetIds).toEqual([
-    "e2e-motion-style-rectangle",
-    "e2e-motion-style-rectangle-2",
+    "e2e-motion-reference-rectangle",
+    "e2e-motion-reference-rectangle-2",
   ]);
 });
 

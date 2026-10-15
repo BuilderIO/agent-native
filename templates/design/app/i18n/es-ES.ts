@@ -1181,6 +1181,10 @@ export default {
       addKeyframe: "Añadir fotograma clave",
       trackExists:
         'Ya existe una pista de "{{property}}" para {{label}}. Edita sus fotogramas clave en la línea de tiempo.',
+      textSyncUnsupported:
+        "No se pueden sincronizar estos ajustes de movimiento de texto.",
+      textPropertyAlreadyAnimated:
+        "Una animación de texto en el código ya controla esta propiedad.",
       layerAnimationSpan: "Rango de animación de {{label}}",
       keyframeAt: "Fotograma clave en {{ms}}ms",
       deleteKeyframe: "Eliminar fotograma clave",

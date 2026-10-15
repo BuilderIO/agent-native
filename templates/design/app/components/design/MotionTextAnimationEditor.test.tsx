@@ -435,6 +435,33 @@ describe("MotionTextAnimationEditor", () => {
     ]);
   });
 
+  it.each([
+    ["character", "word"],
+    ["word", "character"],
+  ] as const)(
+    "clears Ignore spaces when text grouping changes from %s to %s",
+    async (fromUnit, toUnit) => {
+      const onChange = vi.fn();
+      await render({
+        animations: [
+          { ...opacityAnimation, unit: fromUnit, ignoreSpaces: true },
+        ],
+        onChange,
+      });
+
+      await selectOption(
+        container.querySelector<HTMLButtonElement>(
+          '[aria-label="designEditor.motion.textAnimation.unit"]',
+        )!,
+        `designEditor.motion.textAnimation.units.${toUnit}`,
+      );
+
+      expect(onChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ unit: toUnit, ignoreSpaces: false }),
+      ]);
+    },
+  );
+
   it("disables controls while a source update is unavailable", async () => {
     await render({
       animations: [opacityAnimation, translateAnimation],

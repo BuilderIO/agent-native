@@ -1186,6 +1186,10 @@ export default {
       addKeyframe: "Ajouter une image clé",
       trackExists:
         "Une piste « {{property}} » existe déjà pour {{label}}. Modifiez ses images clés dans la chronologie.",
+      textSyncUnsupported:
+        "Ces réglages de mouvement du texte ne peuvent pas être synchronisés.",
+      textPropertyAlreadyAnimated:
+        "Une animation de texte dans le code contrôle déjà cette propriété.",
       layerAnimationSpan: "Plage d'animation de {{label}}",
       keyframeAt: "Image clé à {{ms}}ms",
       deleteKeyframe: "Supprimer l'image clé",

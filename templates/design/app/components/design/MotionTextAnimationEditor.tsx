@@ -230,6 +230,7 @@ export function MotionTextAnimationEditor({
               const nextUnit = unit as MotionTextUnit;
               updateShared({
                 unit: nextUnit,
+                ignoreSpaces: false,
                 ...(order === "top-to-bottom" || order === "bottom-to-top"
                   ? nextUnit === "line" || nextUnit === "paragraph"
                     ? {}

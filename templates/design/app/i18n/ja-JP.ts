@@ -1178,6 +1178,9 @@ export default {
       addKeyframe: "キーフレームを追加",
       trackExists:
         "「{{property}}」トラックは {{label}} にすでに存在します。タイムラインでキーフレームを編集してください。",
+      textSyncUnsupported: "このテキストモーション設定は同期できません。",
+      textPropertyAlreadyAnimated:
+        "コードのテキストアニメーションがこのプロパティをすでに制御しています。",
       layerAnimationSpan: "{{label}} のアニメーション範囲",
       keyframeAt: "{{ms}}ms のキーフレーム",
       deleteKeyframe: "キーフレームを削除",

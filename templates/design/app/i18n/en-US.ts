@@ -1101,6 +1101,9 @@ export default {
       addKeyframe: "Add keyframe",
       trackExists:
         'A "{{property}}" track already exists for {{label}}. Edit its keyframes in the timeline instead.',
+      textSyncUnsupported: "These Text motion settings cannot be synchronized.",
+      textPropertyAlreadyAnimated:
+        "A code text animation already controls this property.",
       layerAnimationSpan: "{{label}} animation span",
       keyframeAt: "Keyframe at {{ms}}ms",
       deleteKeyframe: "Delete keyframe",

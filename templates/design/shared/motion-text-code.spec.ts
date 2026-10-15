@@ -524,13 +524,8 @@ describe("Motion Text source and runtime", () => {
       (child) =>
         child.getAttribute("data-agent-native-motion-text-unit") !== null,
     );
-    expect(units.map((unit) => unit.textContent)).toEqual([
-      "Hello,",
-      "",
-      "world!",
-    ]);
+    expect(units.map((unit) => unit.textContent)).toEqual(["Hello,", "world!"]);
     expect(units.map((unit) => unit.animations[0]?.options)).toEqual([
-      { duration: 320, delay: 80, fill: "both" },
       { duration: 320, delay: 40, fill: "both" },
       { duration: 320, delay: 0, fill: "both" },
     ]);
@@ -587,7 +582,7 @@ describe("Motion Text source and runtime", () => {
     expect(target.textContent).toBe("A B");
   });
 
-  it("keeps punctuation separate from animated whitespace units", () => {
+  it("does not animate whitespace in word grouping when the character-only option is false", () => {
     const animation: MotionTextAnimation = {
       ...document.animations[0]!,
       unit: "word",
@@ -608,12 +603,7 @@ describe("Motion Text source and runtime", () => {
       (child) =>
         child.getAttribute("data-agent-native-motion-text-unit") !== null,
     );
-    expect(units.map((unit) => unit.textContent)).toEqual([
-      "said",
-      "",
-      '"',
-      'hi"',
-    ]);
+    expect(units.map((unit) => unit.textContent)).toEqual(["said", '"', 'hi"']);
     expect(target.textContent).toBe('said "hi"');
   });
 
@@ -772,10 +762,6 @@ describe("Motion Text source and runtime", () => {
       units.map((unit) => unit.animations.map((entry) => entry.options)),
     ).toEqual([
       [
-        { duration: 320, delay: 80, fill: "both" },
-        { duration: 160, delay: 105, fill: "both" },
-      ],
-      [
         { duration: 320, delay: 40, fill: "both" },
         { duration: 160, delay: 65, fill: "both" },
       ],
@@ -801,7 +787,6 @@ describe("Motion Text source and runtime", () => {
         unit.animations.map((entry) => entry.handle.currentTime),
       ),
     ).toEqual([
-      [120, 95],
       [160, 135],
       [200, 160],
     ]);
@@ -848,12 +833,12 @@ describe("Motion Text source and runtime", () => {
   });
 
   it.each([
-    ["loop", { duration: 320, delay: 80, fill: "both", iterations: Infinity }],
+    ["loop", { duration: 320, delay: 40, fill: "both", iterations: Infinity }],
     [
       "ping-pong",
       {
         duration: 320,
-        delay: 80,
+        delay: 40,
         fill: "both",
         iterations: Infinity,
         direction: "alternate",
@@ -913,7 +898,6 @@ describe("Motion Text source and runtime", () => {
     expect(unitNodes.map((unit) => unit.textContent)).toEqual([
       "Mo",
       "tion",
-      "",
       "works",
     ]);
     expect(
@@ -939,12 +923,12 @@ describe("Motion Text source and runtime", () => {
 
     preview.sendMessage({ type: "motion-preview", t: 0.1, durationMs: 2000 });
     expect(units.map((unit) => unit.animations[0]?.handle.currentTime)).toEqual(
-      [120, 160, 200],
+      [160, 200],
     );
 
     preview.sendMessage({ type: "motion-preview-clear" });
     expect(units.map((unit) => unit.animations[0]?.handle.currentTime)).toEqual(
-      [0, 0, 0],
+      [0, 0],
     );
   });
 
