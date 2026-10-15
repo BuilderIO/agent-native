@@ -1540,7 +1540,15 @@ fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
 
             let config =
                 normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
-            match wait_for_rotation(&app, &stop, &config, mode_change_retry_delay) {
+            let rotation_wait =
+                match wait_for_rotation(&app, &stop, &config, mode_change_retry_delay) {
+                    Ok(rotation_wait) => rotation_wait,
+                    Err(error) => {
+                        record_error(&app, error);
+                        return;
+                    }
+                };
+            match rotation_wait {
                 RotationWait::Stop => return,
                 RotationWait::Resumed => {
                     recovery_retry_delay = Duration::ZERO;
@@ -1562,11 +1570,16 @@ fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
             } else {
                 recovery_retry_delay = Duration::ZERO;
             }
-            if screen_memory_mode_change_pending(&app) {
-                mode_change_retry_delay =
-                    next_capture_recovery_retry_delay(mode_change_retry_delay);
-            } else {
-                mode_change_retry_delay = Duration::ZERO;
+            match screen_memory_mode_change_pending(&app) {
+                Ok(true) => {
+                    mode_change_retry_delay =
+                        next_capture_recovery_retry_delay(mode_change_retry_delay);
+                }
+                Ok(false) => mode_change_retry_delay = Duration::ZERO,
+                Err(error) => {
+                    record_error(&app, error);
+                    return;
+                }
             }
         }
     });
@@ -1588,23 +1601,22 @@ fn screen_memory_exclusion_active(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-fn screen_memory_mode_change_pending(app: &AppHandle) -> bool {
+fn screen_memory_mode_change_pending(app: &AppHandle) -> Result<bool, String> {
     let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
     if !config.enabled || config.paused || crate::rewind_capture_suspension::is_active(app) {
-        return false;
+        return Ok(false);
     }
     let capture_mode = effective_capture_mode(app, config.capture_mode);
-    app.state::<ScreenMemoryState>()
+    let runtime = app
+        .state::<ScreenMemoryState>()
         .inner
         .lock()
-        .map(|runtime| {
-            !runtime.exclusion_active
-                && runtime
-                    .active
-                    .as_ref()
-                    .is_some_and(|active| active.capture_mode != capture_mode)
-        })
-        .unwrap_or(false)
+        .map_err(|error| error.to_string())?;
+    Ok(!runtime.exclusion_active
+        && runtime
+            .active
+            .as_ref()
+            .is_some_and(|active| active.capture_mode != capture_mode))
 }
 
 fn wait_for_capture_recovery_retry(stop: &AtomicBool, delay: Duration) -> bool {
@@ -1669,24 +1681,24 @@ fn wait_for_rotation(
     stop: &AtomicBool,
     config: &ScreenMemoryConfig,
     mode_change_retry_delay: Duration,
-) -> RotationWait {
+) -> Result<RotationWait, String> {
     if stop.load(Ordering::Relaxed) {
-        return RotationWait::Stop;
+        return Ok(RotationWait::Stop);
     }
     if crate::rewind_capture_suspension::is_active(app) {
-        return wait_for_capture_suspension_to_clear(app, stop);
+        return Ok(wait_for_capture_suspension_to_clear(app, stop));
     }
     if screen_memory_exclusion_active(app) {
-        return wait_for_exclusion(app, stop);
+        return Ok(wait_for_exclusion(app, stop));
     }
     if screen_memory_capture_missing(app) {
         let live_config =
             normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
         let (_, exclusion_reason) = sample_active_window(&live_config);
         if let Some(reason) = exclusion_reason {
-            return suspend_for_detected_exclusion(app, stop, reason);
+            return Ok(suspend_for_detected_exclusion(app, stop, reason));
         }
-        return RotationWait::Rotate;
+        return Ok(RotationWait::Rotate);
     }
     let deadline = Instant::now() + Duration::from_secs(config.segment_seconds);
     let mode_retry_delay = if mode_change_retry_delay.is_zero() {
@@ -1695,22 +1707,22 @@ fn wait_for_rotation(
         mode_change_retry_delay
     };
     let mut mode_change_retry_at =
-        screen_memory_mode_change_pending(app).then(|| Instant::now() + mode_retry_delay);
+        screen_memory_mode_change_pending(app)?.then(|| Instant::now() + mode_retry_delay);
     let mut next_sample = Instant::now();
     let mut next_exclusion_poll = Instant::now();
     loop {
         if stop.load(Ordering::Relaxed) {
-            return RotationWait::Stop;
+            return Ok(RotationWait::Stop);
         }
         if crate::rewind_capture_suspension::is_active(app) {
-            return wait_for_capture_suspension_to_clear(app, stop);
+            return Ok(wait_for_capture_suspension_to_clear(app, stop));
         }
         if screen_memory_exclusion_active(app) {
-            return wait_for_exclusion(app, stop);
+            return Ok(wait_for_exclusion(app, stop));
         }
         let now = Instant::now();
         if now >= deadline || mode_change_retry_at.is_some_and(|retry_at| now >= retry_at) {
-            return RotationWait::Rotate;
+            return Ok(RotationWait::Rotate);
         }
         if now >= next_exclusion_poll {
             let live_config =
@@ -1721,18 +1733,18 @@ fn wait_for_rotation(
                 exclusion_reason.is_some(),
             ) {
                 ExclusionTransition::Suspend => {
-                    return suspend_for_detected_exclusion(
+                    return Ok(suspend_for_detected_exclusion(
                         app,
                         stop,
                         exclusion_reason.unwrap_or("privacy-exclusion"),
-                    );
+                    ));
                 }
                 ExclusionTransition::StaySuspended | ExclusionTransition::Resume => {
-                    return wait_for_exclusion(app, stop);
+                    return Ok(wait_for_exclusion(app, stop));
                 }
                 ExclusionTransition::KeepCapturing => {}
             }
-            mode_change_retry_at = screen_memory_mode_change_pending(app)
+            mode_change_retry_at = screen_memory_mode_change_pending(app)?
                 .then(|| mode_change_retry_at.unwrap_or(now + mode_retry_delay));
             if now >= next_sample {
                 append_event(app, event);
