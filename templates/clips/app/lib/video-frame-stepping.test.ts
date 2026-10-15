@@ -27,13 +27,18 @@ class FakeVideo {
   stalled = false;
   /** Report a seek done before presenting its frame, as Firefox may. */
   seekedFirst = false;
+  /**
+   * Runs `seeking` handlers this long after the seek starts, with the sought
+   * frame presented in between, as Chromium sometimes does.
+   */
+  seekingHandlerLagMs = 0;
   duration: number;
   private time = 0;
   private presented = 0;
   private seeks = 0;
   private callbacks = new Map<number, FrameCallback>();
   private nextHandle = 1;
-  private listeners = new Map<string, Set<() => void>>();
+  private listeners = new Map<string, Set<(event: Event) => void>>();
 
   constructor(
     readonly frames: number[],
@@ -50,16 +55,19 @@ class FakeVideo {
     this.time = seconds;
     this.seeking = true;
     const seek = ++this.seeks;
-    this.emit("seeking");
+    const lag = this.seekingHandlerLagMs;
+    const startedAt = performance.now() - lag;
+    this.emit("seeking", startedAt);
     if (this.stalled) return;
+    const shownAt = lag ? startedAt + lag / 2 : undefined;
     const finish = () => {
       this.seeking = false;
       this.emit("seeked");
     };
     // Chromium presents the sought frame before it reports the seek done.
     const [first, second] = this.seekedFirst
-      ? [finish, () => this.present()]
-      : [() => this.present(), finish];
+      ? [finish, () => this.present(shownAt)]
+      : [() => this.present(shownAt), finish];
     setTimeout(() => {
       if (seek !== this.seeks) return;
       first();
@@ -81,8 +89,9 @@ class FakeVideo {
     this.deliver(mediaTime, presentedAt);
   }
 
-  private emit(type: string) {
-    for (const listener of this.listeners.get(type) ?? []) listener();
+  private emit(type: string, timeStamp = performance.now()) {
+    const event = { type, timeStamp } as Event;
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 
   get requestVideoFrameCallback() {
@@ -116,8 +125,8 @@ class FakeVideo {
     return index;
   }
 
-  private present() {
-    this.deliver(this.frames[this.shownFrame()], performance.now());
+  private present(presentationTime = performance.now()) {
+    this.deliver(this.frames[this.shownFrame()], presentationTime);
   }
 
   private deliver(mediaTime: number, presentationTime: number) {
@@ -380,6 +389,16 @@ describe("stepVideoFrame", () => {
     await step(1);
 
     expect(fake.shownFrame()).toBe(21);
+  });
+
+  it("takes a seek's frame presented before its seeking handler ran", async () => {
+    const frames = frameStarts(24, 48, true);
+    const { fake, step, goToFrame } = setup(frames);
+    await goToFrame(5);
+    fake.seekingHandlerLagMs = 2;
+
+    expect(await step(1)).toBe(true);
+    expect(fake.shownFrame()).toBe(6);
   });
 
   it("steps onto the last frame before a cut, then across it", async () => {

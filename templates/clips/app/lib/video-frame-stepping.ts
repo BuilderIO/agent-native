@@ -88,9 +88,10 @@ export class VideoFrameClock {
     this.settleWaiters(null);
   }
 
-  private onSeeking = () => {
+  private onSeeking = (event: Event) => {
     this.seekPending = true;
-    this.seekStartedAt = performance.now();
+    // Stamped when the seek starts, before this handler gets to run.
+    this.seekStartedAt = event.timeStamp;
   };
 
   private onEmptied = () => {
