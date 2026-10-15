@@ -203,9 +203,7 @@ export function UseCasePage({
     (candidate) => candidate.id === searchParams.get("angle"),
   );
   const nextJobs = (item.next_jobs ?? []).flatMap((id) => {
-    const next = useCases.find(
-      (candidate) => candidate.slug === id,
-    );
+    const next = useCases.find((candidate) => candidate.slug === id);
     return next ? [next] : [];
   });
   const names = (value: string | string[]) =>
@@ -352,11 +350,13 @@ export function UseCasePage({
                     <CodeBlock
                       code={recipe.prompt}
                       lang="text"
-                      onCopySuccess={() => trackEvent("recipe_copy", {
-                        slug: item.slug,
-                        job_id: item.job_id,
-                        recipe_id: recipe.id,
-                      })}
+                      onCopySuccess={() =>
+                        trackEvent("recipe_copy", {
+                          slug: item.slug,
+                          job_id: item.job_id,
+                          recipe_id: recipe.id,
+                        })
+                      }
                     />
                   </div>
                 ) : null}

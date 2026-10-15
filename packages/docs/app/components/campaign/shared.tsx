@@ -23,13 +23,17 @@ export function CampaignView({ item }: { item: UseCase | Article }) {
   const use_case = article ? item.use_case : undefined;
   const category = article ? item.category : undefined;
   const [searchParams] = useSearchParams();
-  const angle = !article && item.angles?.some((entry) => entry.id === searchParams.get("angle"))
-    ? searchParams.get("angle")!
-    : "base";
+  const angle =
+    !article &&
+    item.angles?.some((entry) => entry.id === searchParams.get("angle"))
+      ? searchParams.get("angle")!
+      : "base";
   useEffect(() => {
     trackEvent(
       article ? "article_view" : "use_case_view",
-      article ? { slug, use_case, job_id, category } : { slug, job_id, app, angle },
+      article
+        ? { slug, use_case, job_id, category }
+        : { slug, job_id, app, angle },
     );
   }, [article, slug, job_id, app, use_case, category, angle]);
   return null;
@@ -44,9 +48,11 @@ export function CampaignCta({
 }) {
   const [searchParams] = useSearchParams();
   const search = new URLSearchParams(searchParams);
-  const angle = !("category" in item) && item.angles?.some((entry) => entry.id === search.get("angle"))
-    ? search.get("angle")!
-    : "base";
+  const angle =
+    !("category" in item) &&
+    item.angles?.some((entry) => entry.id === search.get("angle"))
+      ? search.get("angle")!
+      : "base";
   if (!("category" in item) && angle === "base") search.delete("angle");
   const href = safeHref(
     buildCampaignCtaUrl(item.app_cta_url, item.job_id, search.toString()),
@@ -68,7 +74,13 @@ export function CampaignCta({
                 category: item.category,
                 location,
               }
-            : { slug: item.slug, job_id: item.job_id, app: item.app, location, angle },
+            : {
+                slug: item.slug,
+                job_id: item.job_id,
+                app: item.app,
+                location,
+                angle,
+              },
         );
       }}
     >

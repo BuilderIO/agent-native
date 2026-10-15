@@ -89,28 +89,52 @@ const useCaseSchema = z.object({
       in_app: text,
     })
     .optional(),
-  recipes: z.array(z.object({
-    id: slug,
-    title: text,
-    when: text,
-    do: text,
-    prompt: text.optional(),
-    you_get: text,
-    save: text.optional(),
-    how_often: text,
-  })).optional(),
+  recipes: z
+    .array(
+      z.object({
+        id: slug,
+        title: text,
+        when: text,
+        do: text,
+        prompt: text.optional(),
+        you_get: text,
+        save: text.optional(),
+        how_often: text,
+      }),
+    )
+    .optional(),
   next_jobs: z.array(slug).optional(),
   connects_to: z.array(text).optional(),
-  frequency: z.enum(["daily", "weekly", "per-project", "occasional"]).optional(),
+  frequency: z
+    .enum(["daily", "weekly", "per-project", "occasional"])
+    .optional(),
   how_often_label: text.optional(),
-  roles: z.array(z.enum(["engineering", "product", "design", "marketing", "revops", "sales", "founders", "finance", "everyone"])).optional(),
-  angles: z.array(z.object({
-    id: slug,
-    audience: text,
-    title: text,
-    subhead: text,
-    old_way_body: text.optional(),
-  })).optional(),
+  roles: z
+    .array(
+      z.enum([
+        "engineering",
+        "product",
+        "design",
+        "marketing",
+        "revops",
+        "sales",
+        "founders",
+        "finance",
+        "everyone",
+      ]),
+    )
+    .optional(),
+  angles: z
+    .array(
+      z.object({
+        id: slug,
+        audience: text,
+        title: text,
+        subhead: text,
+        old_way_body: text.optional(),
+      }),
+    )
+    .optional(),
   story: z
     .object({
       quote: text,
