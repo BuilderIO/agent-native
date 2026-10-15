@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
     args: Record<string, unknown>,
   ) => Promise<unknown>,
   cardRenders: [] as CardRender[],
+  editableRenders: [] as boolean[],
   editorRenders: [] as { open: boolean; dashboardId: string }[],
   submitEditorOn: null as string | null,
   session: { email: "viewer@example.com" },
@@ -202,11 +203,14 @@ vi.mock("./SqlChartCard", async () => {
       panel,
       dashboardId = "",
       onEdit,
+      editable = false,
     }: {
       panel: SqlPanel;
       dashboardId?: string;
       onEdit?: () => void;
+      editable?: boolean;
     }) => {
+      mocks.editableRenders.push(editable);
       const { widths } = usePersonalColumnWidths(
         dashboardId,
         panel.id,
@@ -318,6 +322,7 @@ describe("SqlDashboardPage dashboard switch", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     window.localStorage.clear();
     mocks.cardRenders = [];
+    mocks.editableRenders = [];
     mocks.editorRenders = [];
     mocks.submitEditorOn = null;
     mocks.session = { email: "viewer@example.com" };
@@ -384,6 +389,26 @@ describe("SqlDashboardPage dashboard switch", () => {
       dashboardId: "dash-a",
     });
     expect(byTestId("panel-editor")).toBeNull();
+  });
+
+  it("never offers editing under a new account until its access loads", async () => {
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+    expect(mocks.editableRenders[mocks.editableRenders.length - 1]).toBe(true);
+
+    mocks.editableRenders = [];
+    mocks.session = { email: "other@example.com" };
+    await renderAt("/dashboards/dash-a");
+
+    expect(mocks.editableRenders.length).toBeGreaterThan(0);
+    expect(mocks.editableRenders).not.toContain(true);
   });
 
   it("closes report settings opened on one dashboard when the route moves to another", async () => {
