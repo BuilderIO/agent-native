@@ -51,118 +51,112 @@ const todaysStack = {
 };
 const replacementItems: Record<string, string[]> = {
   "ai-meeting-notes": [
-    "**Your video call app** holds the meeting, but the notes are whatever someone typed while half-listening.",
-    "**A note-taker, like Granola,** transcribes and summarizes, but meeting notes live apart from your screen recordings and dictations.",
-    "**A shared doc** keeps the notes and decisions, until nobody opens it again and the owners and dates get lost.",
-    "**Email** carries the recap, which someone rewrites from memory.",
+    "**Typing notes while half-listening** leaves gaps, and whoever takes them misses part of the conversation.",
+    "**A separate note-taker, like Granola,** transcribes and summarizes, but its notes live apart from your screen recordings and dictations.",
+    "**A shared doc nobody opens again** is where decisions, owners, and dates usually get lost.",
   ],
   "ask-your-database-in-plain-english": [
-    "**A SQL client** can answer anything, but only for the people who write SQL.",
+    "**Routing every question to whoever writes SQL,** then waiting for the answer.",
     "**A BI tool, like Looker,** covers the questions someone planned for, and new ones wait for a data request.",
     "**A chat assistant with a CSV export** can answer a question, but every answer starts with exporting the data again.",
   ],
   "bug-reports-with-console-logs": [
-    "**A screen recorder, like Loom,** shows what happened on screen, but not the console errors or the failed request behind it.",
-    "**Browser DevTools** has those errors, but you have to copy them out by hand, and it's easy to grab the wrong one.",
-    "**A ticket tracker** holds the write-up, so the video, the logs, and the steps end up in three different places.",
-    "**Your coding agent** only sees what you paste into its chat. It never sees the moment things broke.",
+    "**A screen recorder, like Loom,** shows what happened on screen, but not the console messages behind it.",
+    "**Copying errors out of DevTools by hand** is slow, and it's easy to grab the wrong one.",
+    "**Pasting logs into your coding agent's chat** gives it only what you copied, never the moment things broke.",
   ],
   "crm-and-call-questions": [
-    "**Your CRM's reports** cover the standard pipeline views, but the view you need usually isn't one of them.",
-    "**A spreadsheet export** handles the custom analysis, and it's rebuilt every week.",
-    "**A call recorder** captures what was said, but it sits apart from the deal data.",
-    "**Slides** carry the pipeline review, with charts pasted in by hand.",
+    "**Rebuilding a CRM report** when the view you need isn't one of the standard ones.",
+    "**A weekly spreadsheet export** for custom analysis, which goes stale in between.",
+    "**Pasting charts into the review deck** by hand every week.",
   ],
   "design-brief-to-prototype": [
-    "**A doc** holds the brief. People agree with it, but they only react once they see something.",
-    "**A design tool** turns the brief into screens, but someone has to draw every screen and state before anyone can click anything.",
-    "**Chat and comment threads** collect the feedback, which lands on screenshots instead of the design itself.",
+    "**Reacting to a brief on paper** means people agree with a document and only react once they see something.",
+    "**Drawing every screen and state by hand** before anyone can click anything takes the longest.",
+    "**Feedback on screenshots in chat** lands away from the design itself.",
   ],
   "dictate-instead-of-typing": [
-    "**Typing** is the default, so long prompts get shortened, and the detail is what gets cut.",
+    "**Typing long prompts** means shortening them, and the detail is what gets cut.",
     "**Your operating system's built-in dictation** handles quick notes, but it may stumble on product and library names, and there's usually no history to search later.",
-    "**A dictation app, like Wispr Flow,** lets you speak instead of type, but your dictations live in a separate app from your recordings and meeting notes.",
+    "**A separate dictation app, like Wispr Flow,** lets you speak instead of type, but your dictations live apart from your recordings and meeting notes.",
   ],
   "find-where-users-drop-off": [
     "**A product analytics tool, like Amplitude or Mixpanel,** has the events, but only a few people on the team know how to query it.",
-    "**A session replay tool** shows what people did, in a separate place from your numbers.",
-    "**A spreadsheet or doc** is how findings get shared, and the screenshot is stale by the next standup.",
+    "**A separate session replay tool** shows what people did, in a different place from your numbers.",
+    "**Sharing findings as screenshots** means they're stale by the next standup.",
   ],
   "landing-page-prototypes": [
-    "**Last launch's page** is the usual starting point, so you inherit its structure even when the offer is different.",
-    "**A page builder** is good for building and publishing, but harder to use for comparing directions before you commit.",
-    "**Screenshots in chat** are how review happens, so feedback arrives as a list of comments about spacing.",
+    "**Starting from last launch's page** means inheriting its structure, even when the offer is different.",
+    "**Describing the page in words** to whoever builds it means finding out what they pictured only when it's done.",
+    "**Reviewing screenshots in chat** turns feedback into a list of comments about spacing.",
   ],
   "see-what-your-coding-agent-plans": [
-    "**The terminal** is where the agent's plan shows up, as long text that's easy to skim and approve.",
-    "**A design doc** captures the approach before building, but it's separate from the plan the agent actually follows.",
-    "**A whiteboard or diagram tool** works for sketching the architecture and screens, but the diagram lives somewhere the agent doesn't.",
+    "**Skimming a long text plan** makes it easy to approve something you didn't read closely.",
+    "**A separate design doc** captures the approach, but it isn't the plan your agent follows.",
+    "**A whiteboard sketch** works for you, but your agent can't see it.",
   ],
   "spec-your-coding-agent-builds-from": [
-    "**A doc tool** holds the spec, but your coding agent can't open it.",
-    "**Your agent's prompt** gets chunks of the spec pasted in, and that copy goes stale the moment the doc changes.",
-    "**Chat threads** are where decisions get made, and the spec never hears about them.",
+    "**A doc tool your coding agent can't open** holds the spec.",
+    "**Pasting chunks of the spec into prompts** goes stale the moment the doc changes.",
+    "**Decisions made in chat threads** never make it back into the spec.",
   ],
   "startup-kpi-dashboard": [
-    "**Your billing system's export** has the revenue numbers, but someone has to export and paste them every month.",
-    "**A spreadsheet** calculates MRR, churn, and growth, but it's rebuilt by hand and goes stale between updates.",
+    "**Exporting from your billing system by hand** every month, then pasting the numbers into a spreadsheet.",
+    "**Rebuilding the spreadsheet** for MRR, churn, and growth, which goes stale between updates.",
     "**A product analytics tool, like Amplitude or Mixpanel,** covers usage and retention, but only a few people know how to query it.",
     "**ChatGPT with a CSV** can answer questions about the numbers, but every answer starts with uploading the data again.",
   ],
   "startup-pitch-deck": [
-    "**A template or last round's deck** is the starting point, so you restyle it by hand and hunt for stale numbers.",
-    "**A spreadsheet** holds the traction and financials, and every number gets pasted into slides by hand.",
-    "**Product screenshots** show the product, but they go stale as the product changes.",
-    "**A general AI chat** can draft the story, but you still build every slide in your brand yourself.",
+    "**Restyling a template or last round's deck by hand,** and hunting for stale numbers.",
+    "**Drafting the story in a general AI chat,** then building every slide in your brand yourself.",
   ],
   "understand-what-your-coding-agent-changed": [
-    "**The diff** is the review, line by line, and the important part is easy to miss.",
-    "**The pull request description** explains what changed, but rarely how the change behaves.",
-    "**A call with whoever made the change** answers questions, but it takes both people's time, and nothing is written down afterward.",
+    "**Starting cold on a large diff** makes the most important change easy to miss.",
+    "**A pull request description** says what changed, but rarely how the change behaves.",
+    "**A call with whoever made the change** answers questions, but nothing is written down afterward.",
   ],
   "weekly-marketing-report": [
-    "**Google Analytics** has traffic and conversions, but its reports rarely match the question you were asked.",
-    "**Your CRM** has leads and pipeline, separate from the traffic numbers.",
-    "**A spreadsheet** is where it all gets combined, and it's rebuilt every week.",
-    "**A doc or slides** is how the report gets shared, and the screenshots go stale.",
+    "**Pulling numbers from Google Analytics and your CRM** into a spreadsheet every Monday.",
+    "**Rebuilding the same report** every week.",
+    "**Sharing screenshots** that are out of date by Wednesday.",
   ],
   "wireframe-before-agent-builds": [
-    "**A prompt** is where you describe the layout, so the agent guesses at what you meant.",
-    "**A sketch on paper or a whiteboard** shows the layout, but the agent can't see it.",
-    "**A design tool** gives you detailed mockups, which is more than you need before the agent builds a first version.",
+    "**Describing layout in a prompt** leaves your agent guessing at what you meant.",
+    "**A sketch on paper or a whiteboard** shows the layout, but your agent can't see it.",
+    "**A detailed mockup in a design tool** is more than you need before your agent builds a first version.",
   ],
 };
 const replacementConclusions: Record<string, string> = {
   "ai-meeting-notes":
-    "In Clips, meetings from your Google Calendar get a transcript, a summary, notes, and action items, in the same searchable library as your recordings.",
+    "Clips doesn't replace your calendar or your video call app. Meetings from your Google Calendar get a transcript, a summary, notes, and action items, in the same searchable library as your recordings.",
   "ask-your-database-in-plain-english":
-    "In Analytics, your database answers plain-English questions, and the answers stay in dashboards your team can open.",
+    "Your database stays where it is. Analytics connects to PostgreSQL, answers plain-English questions about your tables, and keeps the answers in dashboards your team can open.",
   "bug-reports-with-console-logs":
-    "In Clips, the recording, the transcript, and, with the Chrome extension, the console messages and request details sit behind one link that people and agents can both use.",
+    "Clips works with the coding agent you already use. The recording, the transcript, and, with the Chrome extension, the console messages and request details sit behind one link you can hand to Claude, Claude Code, or Codex.",
   "crm-and-call-questions":
-    "In Analytics, your CRM data and the other GTM sources you connect answer plain-English questions, and the answers live in dashboards the team can share.",
+    "HubSpot stays your CRM, and Gong stays your call recorder. Analytics connects to both, answers plain-English questions about their data, and keeps the answers in dashboards your team can share.",
   "design-brief-to-prototype":
-    "In Design, the brief becomes an interactive prototype, directions sit side by side, and comments pin to the elements they're about.",
+    "You still write the brief. In Design, it becomes an interactive prototype, directions sit side by side, and comments pin to the elements they're about.",
   "dictate-instead-of-typing":
-    "In Clips, dictations, screen recordings, and meetings share one searchable library, and a personal vocabulary helps with your own terms.",
+    "Your words still go into the apps you already use, like your coding agent's prompt box. In Clips, dictations, screen recordings, and meetings share one searchable library.",
   "find-where-users-drop-off":
-    "In Analytics, plain-English questions, dashboards, and session replays are in one app.",
+    "Analytics connects to the product data you already collect, like PostHog, Amplitude, Mixpanel, or GA4. Plain-English questions, dashboards, and session replays are in one app.",
   "landing-page-prototypes":
-    "In Design, you compare versions side by side, pin comments to elements, and export the HTML. Publishing is still a separate step.",
+    "Design doesn't publish pages, so you still deploy with the tools you use today. Design covers the part before that: comparing versions side by side, pinning comments to elements, and exporting the HTML.",
   "see-what-your-coding-agent-plans":
-    "In Plans, the agent's plan comes with diagrams, wireframes, and annotated code, and the agent can read your comments and revise it.",
+    "Plans works inside your coding agent, like Claude Code or Codex, and your agent still writes the code. Plans adds diagrams, wireframes, and annotated code to its plan, and your agent can read your comments and revise it.",
   "spec-your-coding-agent-builds-from":
-    "In Content, the spec, the decisions, and the tasks live in pages and databases your coding agent can reach through MCP.",
+    "Your coding agent still does the building. In Content, the spec lives in pages your agent can reach through MCP.",
   "startup-kpi-dashboard":
-    "In Analytics, you connect your sources, ask in plain English, and keep the answers as dashboards. The agent writes the SQL.",
+    "Stripe stays your billing system. Analytics connects to it and your other sources, answers plain-English questions, and keeps the answers in dashboards.",
   "startup-pitch-deck":
-    "In Slides, the deck is drafted from your brief in your brand, and you edit it slide by slide or with the agent.",
+    "You still bring the story and the numbers. In Slides, the deck is drafted from your brief in your brand, and you edit it slide by slide or with the agent. Check every number before you send it.",
   "understand-what-your-coding-agent-changed":
-    "In Plans, a visual recap shows the behavior that changed, the files it touched, and annotated code, so you know where to look first.",
+    "A recap guides your review. It doesn't replace it: you still read the actual code and check the tests.",
   "weekly-marketing-report":
-    "In Analytics, traffic and pipeline data answer the same plain-English questions, and the report lives in a dashboard instead of a screenshot.",
+    "Google Analytics and HubSpot stay where they are. Analytics connects to them, answers plain-English questions about the week, and keeps the report in a dashboard instead of a screenshot.",
   "wireframe-before-agent-builds":
-    "In Plans, the wireframes are part of the agent's plan, so your comments go straight back to the agent that will build the screen.",
+    "Your coding agent still builds the screen. In Plans, the wireframes are part of its plan, so your comments go straight back to the agent that will build it.",
 };
 const recipe = {
   id: "sample-recipe",
@@ -768,37 +762,29 @@ describe("campaign content", () => {
         item.todays_stack?.items.length,
       ]),
     ).toEqual([
-      ["ai-meeting-notes", "Four places one meeting ends up", 4],
+      ["ai-meeting-notes", "What changes for every meeting", 3],
       [
         "ask-your-database-in-plain-english",
-        "Where data questions go today",
+        "What changes for data questions",
         3,
       ],
-      ["bug-reports-with-console-logs", "Four tools for one bug", 4],
-      ["crm-and-call-questions", "Four tools for one pipeline review", 4],
-      [
-        "design-brief-to-prototype",
-        "From brief to something clickable, today",
-        3,
-      ],
-      ["dictate-instead-of-typing", "Where your words go today", 3],
-      ["find-where-users-drop-off", "Three tools for one drop-off question", 3],
-      ["landing-page-prototypes", "How a launch page usually gets made", 3],
-      [
-        "see-what-your-coding-agent-plans",
-        "Where an agent's plan lives today",
-        3,
-      ],
-      ["spec-your-coding-agent-builds-from", "Where a spec lives today", 3],
-      ["startup-kpi-dashboard", "Four tools for one set of numbers", 4],
-      ["startup-pitch-deck", "What goes into a pitch deck today", 4],
+      ["bug-reports-with-console-logs", "What one recording replaces", 3],
+      ["crm-and-call-questions", "What changes for pipeline review", 3],
+      ["design-brief-to-prototype", "What a prototype replaces", 3],
+      ["dictate-instead-of-typing", "What dictation replaces", 3],
+      ["find-where-users-drop-off", "What changes for a drop-off question", 3],
+      ["landing-page-prototypes", "What changes before launch", 3],
+      ["see-what-your-coding-agent-plans", "What a visual plan replaces", 3],
+      ["spec-your-coding-agent-builds-from", "What changes for your specs", 3],
+      ["startup-kpi-dashboard", "What changes for your numbers", 4],
+      ["startup-pitch-deck", "What changes when you build the deck", 2],
       [
         "understand-what-your-coding-agent-changed",
-        "How a change gets reviewed today",
+        "What a recap adds to your review",
         3,
       ],
-      ["weekly-marketing-report", "Four tools for one weekly report", 4],
-      ["wireframe-before-agent-builds", "How a screen gets described today", 3],
+      ["weekly-marketing-report", "What changes for the weekly report", 3],
+      ["wireframe-before-agent-builds", "What a wireframe replaces", 3],
     ]);
     const slugs = bundled.useCases.map((item) => item.slug);
     expect(slugs).toEqual(Object.keys(replacementItems));

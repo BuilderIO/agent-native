@@ -24,7 +24,6 @@ import {
   CampaignBand,
   CampaignDate,
   CampaignView,
-  CopyControl,
   JsonLd,
   faqSchema,
 } from "./shared";
@@ -235,9 +234,6 @@ export function ArticlePage({
             <span className="text-sm text-[var(--fg-secondary)]">
               {t("campaign.readTime", { count: minutes })}
             </span>
-            <CopyControl
-              text={`# ${article.title}\n\n${sanitizedMarkdown(article.body)}`}
-            />
           </div>
           {useCase ? (
             <p className="mb-8 text-[var(--fg-secondary)]">

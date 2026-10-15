@@ -8,6 +8,7 @@ import {
   publicArticle,
 } from "../components/campaign/public-content";
 import { campaignMeta } from "../lib/campaign-seo";
+import { sitePathForLocale } from "../components/docs-locale";
 
 export function loader({ params }: LoaderFunctionArgs) {
   const content = loadCampaignContent();
@@ -40,13 +41,21 @@ export const meta = ({
 }) => {
   const content = data ?? loaderData;
   return content
-    ? campaignMeta(
-        content.article.title,
-        content.article.meta_description,
-        `${ARTICLES_BASE}/${content.article.slug}`,
-        "article",
-        params?.locale,
-      )
+    ? [
+        ...campaignMeta(
+          content.article.title,
+          content.article.meta_description,
+          `${ARTICLES_BASE}/${content.article.slug}`,
+          "article",
+          params?.locale,
+        ),
+        {
+          tagName: "link" as const,
+          rel: "alternate",
+          type: "text/markdown",
+          href: `${sitePathForLocale(ARTICLES_BASE, params?.locale)}${content.article.slug}.md`,
+        },
+      ]
     : [];
 };
 export default function ArticleRoute() {
