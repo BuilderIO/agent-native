@@ -279,11 +279,12 @@ its owner organization's. Read them with `list-data-notes`, passing
 `delete-data-note`.
 
 - `matchEvents` lists the event names the problem affects. A note shows on every
-  chart whose SQL filters on one of them, matched exactly and case-sensitively:
-  either side of `=` (in `WHERE` or `CASE WHEN`), an `IN (...)` item, a `LIKE`
-  pattern, or a simple `CASE event WHEN` value. A name the SQL only selects as a
-  label, returns from `THEN`/`ELSE`, excludes (`!=`, `<>`, `NOT IN`, `NOT LIKE`),
-  or writes in a comment does not count, and neither does `= ANY(ARRAY[...])` or
+  chart whose SQL filters on one of them: either side of `=` (in `WHERE` or
+  `CASE WHEN`), an `IN (...)` item, or a simple `CASE event WHEN` value,
+  matched exactly and case-sensitively; or a `LIKE` pattern (`ILIKE` in any
+  case). A name the SQL only selects as a label, returns from `THEN`/`ELSE`,
+  excludes (`!=`, `<>`, or a `NOT` over its comparison or parentheses), or
+  writes in a comment does not count, and neither does `= ANY(ARRAY[...])` or
   `IN UNNEST([...])`. `unlessEvents` skips charts that also filter on the
   corrected event. Pin a note to specific charts with
   `panels: [{ dashboardId, panelId }]` when no event filter identifies them.

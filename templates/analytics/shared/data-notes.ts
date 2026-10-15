@@ -76,57 +76,133 @@ function sqlTokens(sql: string): SqlToken[] {
   });
 }
 
-const COMPARED_AFTER = new Set(["=", "LIKE", "ILIKE", "WHEN"]);
+const COMPARED_AFTER = new Set(["=", "WHEN"]);
+const PATTERN_AFTER = new Set(["LIKE", "ILIKE"]);
+/** Tokens that end a predicate, and with it the NOT that negates it. */
+const PREDICATE_END = new Set([
+  "AND",
+  "OR",
+  ",",
+  "WHEN",
+  "THEN",
+  "ELSE",
+  "END",
+  "SELECT",
+  "FROM",
+  "WHERE",
+  "HAVING",
+  "QUALIFY",
+  "ON",
+  "GROUP",
+  "ORDER",
+  "LIMIT",
+  "UNION",
+]);
+
+interface SqlFilters {
+  values: Set<string>;
+  patterns: RegExp[];
+}
+
+/** A LIKE pattern as a regular expression: % is any run, _ one character, \ escapes. */
+function likePattern(pattern: string, ignoreCase: boolean): RegExp {
+  let source = "";
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i];
+    if (char === "%") source += "[\\s\\S]*";
+    else if (char === "_") source += "[\\s\\S]";
+    else {
+      const literal =
+        char === "\\" && i + 1 < pattern.length ? pattern[++i] : char;
+      source += literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+  return new RegExp(`^${source}$`, ignoreCase ? "i" : "");
+}
+
+interface SqlScope {
+  /** Everything inside sits under an odd number of NOTs. */
+  negated: boolean;
+  /** The parenthesis holds an IN list. */
+  inList: boolean;
+  /** A NOT is waiting on the current predicate. */
+  not: boolean;
+}
 
 /**
- * The quoted values the SQL filters rows on: either side of `=`, in WHERE or
- * CASE WHEN alike, a LIKE pattern, a simple CASE's WHEN value, or an item of
- * an IN list. A value it selects, returns from THEN or ELSE, excludes with
- * `!=`, `<>`, or NOT, or only mentions in a comment does not count.
+ * What the SQL filters rows on: quoted values on either side of `=`, in WHERE
+ * or CASE WHEN alike, a simple CASE's WHEN value, or an item of an IN list;
+ * and LIKE or ILIKE patterns. A value it selects, returns from THEN or ELSE,
+ * excludes with `!=`, `<>`, or a NOT over its predicate or parentheses, or
+ * only mentions in a comment does not count.
  */
-function sqlFilterValues(sql: string): Set<string> {
+function sqlFilters(sql: string): SqlFilters {
   const tokens = sqlTokens(sql);
-  const values = new Set<string>();
-  // Whether each open parenthesis holds an IN list.
-  const inList: boolean[] = [];
+  const filters: SqlFilters = { values: new Set(), patterns: [] };
+  const scopes: SqlScope[] = [{ negated: false, inList: false, not: false }];
   tokens.forEach((token, index) => {
+    const scope = scopes[scopes.length - 1];
     const prev = tokens[index - 1]?.text;
     const next = tokens[index + 1]?.text;
-    const negated = tokens[index - 2]?.text === "NOT";
-    if (token.text === "(") inList.push(prev === "IN" && !negated);
-    if (token.text === ")") inList.pop();
-    if (token.value === null) return;
+    if (token.text === "NOT") {
+      scope.not = !scope.not;
+      return;
+    }
+    if (token.text === "(") {
+      scopes.push({
+        negated: scope.negated !== scope.not,
+        inList: prev === "IN",
+        not: false,
+      });
+      return;
+    }
+    if (token.text === ")") {
+      if (scopes.length > 1) scopes.pop();
+      return;
+    }
+    if (PREDICATE_END.has(token.text)) {
+      scope.not = false;
+      return;
+    }
+    if (token.value === null || scope.negated !== scope.not) return;
+    if (prev !== undefined && PATTERN_AFTER.has(prev)) {
+      filters.patterns.push(likePattern(token.value, prev === "ILIKE"));
+      return;
+    }
     const compared =
-      (prev !== undefined && COMPARED_AFTER.has(prev) && !negated) ||
-      next === "=";
+      (prev !== undefined && COMPARED_AFTER.has(prev)) || next === "=";
     const listed =
-      inList[inList.length - 1] === true &&
+      scope.inList &&
       (prev === "(" || prev === ",") &&
       (next === "," || next === ")");
-    if (compared || listed) values.add(token.value);
+    if (compared || listed) filters.values.add(token.value);
   });
-  return values;
+  return filters;
 }
 
-function filtersOn(values: ReadonlySet<string>, event: string): boolean {
+function filtersOn(filters: SqlFilters, event: string): boolean {
   const name = event.trim();
-  return name !== "" && values.has(name);
+  return (
+    name !== "" &&
+    (filters.values.has(name) ||
+      filters.patterns.some((pattern) => pattern.test(name)))
+  );
 }
 
 /**
- * True when the SQL filters rows on the event name as a quoted value. Case
- * counts: SQL compares the values exactly, so 'Signup' and 'signup' are
- * different events.
+ * True when the SQL filters rows on the event name as a quoted value or a
+ * LIKE pattern. Case counts: SQL compares the values exactly, so 'Signup' and
+ * 'signup' are different events, except under ILIKE.
  */
 export function sqlCountsEvent(sql: string, event: string): boolean {
-  return filtersOn(sqlFilterValues(sql), event);
+  return filtersOn(sqlFilters(sql), event);
 }
 
 function appliesTo(
   note: Pick<DataNote, "matchEvents" | "unlessEvents" | "panels">,
   dashboardId: string,
   panelId: string,
-  filterValues: ReadonlySet<string>,
+  filters: SqlFilters,
 ): boolean {
   if (
     note.panels.some(
@@ -136,8 +212,8 @@ function appliesTo(
     return true;
   }
   return (
-    note.matchEvents.some((event) => filtersOn(filterValues, event)) &&
-    !note.unlessEvents.some((event) => filtersOn(filterValues, event))
+    note.matchEvents.some((event) => filtersOn(filters, event)) &&
+    !note.unlessEvents.some((event) => filtersOn(filters, event))
   );
 }
 
@@ -146,12 +222,7 @@ export function dataNoteAppliesTo(
   dashboardId: string,
   panel: Pick<SqlPanel, "id" | "sql">,
 ): boolean {
-  return appliesTo(
-    note,
-    dashboardId,
-    panel.id,
-    sqlFilterValues(panel.sql ?? ""),
-  );
+  return appliesTo(note, dashboardId, panel.id, sqlFilters(panel.sql ?? ""));
 }
 
 /** The notes that belong on a panel, minus the ones this dashboard hides there. */
@@ -166,11 +237,10 @@ export function dataNotesForPanel(
       .filter((entry) => entry.panelId === panel.id)
       .map((entry) => entry.noteId),
   );
-  const filterValues = sqlFilterValues(panel.sql ?? "");
+  const filters = sqlFilters(panel.sql ?? "");
   return notes.filter(
     (note) =>
-      !hidden.has(note.id) &&
-      appliesTo(note, dashboardId, panel.id, filterValues),
+      !hidden.has(note.id) && appliesTo(note, dashboardId, panel.id, filters),
   );
 }
 
