@@ -4383,14 +4383,13 @@ export function createAgentNativeAgentKitTransport(
           throw unavailableError();
         }
         if (response.ok) {
-          let serverCapabilities: Record<string, unknown> | undefined;
           try {
-            serverCapabilities = asRecord(await response.json());
+            const serverCapabilities = asRecord(await response.json());
+            supported = serverCapabilities?.[capability] === true;
           } catch (error) {
             if (context?.signal?.aborted) throw error;
             throw unavailableError();
           }
-          supported = serverCapabilities?.[capability] === true;
         }
       }
       const descriptor: AgentCapabilityDescriptor = supported
