@@ -34,7 +34,11 @@ export interface DataNoteSummary {
   status: DataNote["status"];
   startDate?: string;
   endDate?: string;
-  /** Charts on this dashboard that show the note; a time chart shades only the dates it plots. */
+  /**
+   * Charts on this dashboard the note is on. A time chart draws it only over
+   * the dates it plots, so not at all when they miss the note's; the server
+   * never sees those dates, so this can't promise a mark.
+   */
   panelIds: string[];
   /** Charts the note belongs on that this dashboard hides it from. */
   hiddenOnPanelIds?: string[];
@@ -153,7 +157,7 @@ const panelRef = (panel: SqlPanel): PanelRef => ({
   title: panel.title,
 });
 
-/** Where a saved data note draws on one dashboard, with a hint when that is nowhere. */
+/** Which charts on one dashboard a saved data note is on, as `panelIds` above, with a hint when it is on none. */
 export function dataNotePlacement(
   note: Pick<
     DataNote,

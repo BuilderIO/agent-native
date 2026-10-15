@@ -638,15 +638,29 @@ describe("get-sql-dashboard agent reads", () => {
 
   it("keeps the server's annotation summary over keys a saved config spoofs", async () => {
     const dashboard = savedDashboard([sqlPanel("p1")]);
-    Object.assign(dashboard.config, { dataNotes: ["spoofed"] });
+    Object.assign(dashboard.config, { dataNotes: ["spoofed"], editable: true });
     mocks.getDashboard.mockResolvedValue(dashboard);
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue({
+      keyDateSets: [],
+      dataNotes: [],
+      editable: false,
+    });
+    const read = async () =>
+      (await getSqlDashboard.run(
+        { id: "weekly", includeConfig: true },
+        agent,
+      )) as Record<string, unknown>;
 
-    const result = (await getSqlDashboard.run(
-      { id: "weekly", includeConfig: true },
-      agent,
-    )) as Record<string, unknown>;
-
+    const result = await read();
     expect(result.dataNotes).toEqual([]);
+    expect(result.editable).toBe(false);
+
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue({
+      keyDateSets: [],
+      dataNotes: [],
+    });
+    Object.assign(dashboard.config, { editable: false });
+    expect(await read()).not.toHaveProperty("editable");
   });
 
   it("names the result columns each chart is bound to without returning SQL", async () => {

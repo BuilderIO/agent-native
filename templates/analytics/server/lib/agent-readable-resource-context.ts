@@ -160,6 +160,7 @@ function mergeSavedConfig(
     "certified",
     "keyDateSets",
     "dataNotes",
+    "editable",
     "annotationsError",
   ]) {
     if (key in base) merged[key] = base[key];

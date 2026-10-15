@@ -332,7 +332,7 @@ reader should take away:
 
 Pass the open dashboard's id as `dashboardId` to `save-key-date` or
 `save-data-note`, and read the result's `dashboard` before replying. A note
-lists the charts it shows on in `shownOn`; a key date says only whether the
+lists the charts it is on in `shownOn`; a key date says only whether the
 dashboard shows its set, in `setShown`. Neither promises a mark: a time chart
 draws one only over the dates it plots. When `hint` says it shows on none, fix
 the event names, or tell the person why. A `hint` with neither `shownOn` nor
@@ -343,8 +343,10 @@ is that dashboard's choice, so ask before showing it.
 To explain a spike or dip, read `keyDateSets` and `dataNotes` from
 `get-sql-dashboard` or `view-screen` first and cite what they say. If
 `annotationsError` is there instead, say the markers could not be read rather
-than that there are none. `editable: false` means they are the owner
-organization's, so cite them but don't change them.
+than that there are none. A note's `panelIds` are the charts it is on, but a
+time chart draws it only over the dates it plots, so cite it for a change only
+when the change falls within the note's dates. `editable: false` means they are
+the owner organization's, so cite them but don't change them.
 
 ## Reusable Native Dashboard Patterns
 

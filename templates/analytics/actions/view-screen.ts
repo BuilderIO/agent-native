@@ -209,11 +209,18 @@ export default defineAction({
             screen.dashboard = fitDashboardScreenContext(
               buildDashboardAgentContext(dashboard, {
                 forAgent: true,
-                annotationSummary: await loadDashboardAnnotationSummary(
-                  storedDashboardAnnotationScope(dashboard, { email, orgId }),
-                  dashboard.id,
-                  dashboard.config as Record<string, unknown>,
-                ),
+                // Only SQL charts draw key dates and data notes.
+                annotationSummary:
+                  dashboard.kind === "sql"
+                    ? await loadDashboardAnnotationSummary(
+                        storedDashboardAnnotationScope(dashboard, {
+                          email,
+                          orgId,
+                        }),
+                        dashboard.id,
+                        dashboard.config as Record<string, unknown>,
+                      )
+                    : undefined,
               }),
               SCREEN_DASHBOARD_CHAR_BUDGET,
             );

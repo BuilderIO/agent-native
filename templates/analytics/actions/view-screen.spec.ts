@@ -199,6 +199,39 @@ describe("view-screen monitoring status-pages branch", () => {
     });
   });
 
+  it("describes only a SQL dashboard's key dates and data notes", async () => {
+    const dashboard = (kind: string) => ({
+      id: "dash-1",
+      kind,
+      title: "Revenue",
+      config: { name: "Revenue", panels: [] },
+      ownerEmail: "user@example.test",
+      orgId: "org-1",
+      visibility: "private",
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "user@example.test",
+      updatedAt: "2026-06-25T00:00:00.000Z",
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+    });
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/dashboards/dash-1" },
+    );
+    loadDashboardAnnotationSummary.mockClear();
+
+    getDashboard.mockResolvedValue(dashboard("sql") as never);
+    expect((await runScreen()).dashboard).toHaveProperty("keyDateSets", []);
+
+    getDashboard.mockResolvedValue(dashboard("explorer") as never);
+    const explorer = (await runScreen()).dashboard;
+    expect(explorer).toHaveProperty("kind", "explorer");
+    expect(explorer).not.toHaveProperty("keyDateSets");
+    expect(explorer).not.toHaveProperty("dataNotes");
+    expect(loadDashboardAnnotationSummary).toHaveBeenCalledTimes(1);
+  });
+
   it("lists status pages in the monitoring surfaces catalog", async () => {
     setScreen({ view: "monitoring", monitoringView: "uptime" });
     const out = await runScreen();
