@@ -597,5 +597,8 @@ describe("recordingAccessTokenFromVideoUrl", () => {
         "rec_1",
       ),
     ).toBeUndefined();
+    expect(() =>
+      recordingAccessTokenFromVideoUrl("http://[", "rec_1"),
+    ).toThrow();
   });
 });

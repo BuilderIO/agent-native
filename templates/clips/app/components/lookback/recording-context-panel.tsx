@@ -73,19 +73,15 @@ export function recordingAccessTokenFromVideoUrl(
   recordingId: string,
 ): string | undefined {
   if (!videoUrl) return undefined;
-  try {
-    const parsed = new URL(videoUrl, "http://local.test");
-    const clipRoute = `/api/video/${encodeURIComponent(recordingId)}`;
-    if (
-      parsed.origin !== "http://local.test" ||
-      !parsed.pathname.endsWith(clipRoute)
-    ) {
-      return undefined;
-    }
-    return parsed.searchParams.get("t") ?? undefined;
-  } catch {
+  const parsed = new URL(videoUrl, "http://local.test");
+  const clipRoute = `/api/video/${encodeURIComponent(recordingId)}`;
+  if (
+    parsed.origin !== "http://local.test" ||
+    !parsed.pathname.endsWith(clipRoute)
+  ) {
     return undefined;
   }
+  return parsed.searchParams.get("t") ?? undefined;
 }
 
 export function useRecordingContextItems(
