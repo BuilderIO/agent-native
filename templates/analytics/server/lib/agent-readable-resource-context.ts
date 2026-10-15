@@ -178,17 +178,18 @@ function withRequestedDetail(
   const panels = Array.isArray(config.panels)
     ? (config.panels as Array<Record<string, unknown>>)
     : [];
-  const compact: Record<string, unknown> = { ...base };
+  const requested: Record<string, unknown> = {};
   if (options.panelIds && options.panelIds.length > 0) {
     const wanted = new Set(options.panelIds);
     const found = panels.filter(
       (panel) => typeof panel.id === "string" && wanted.has(panel.id),
     );
-    compact.panelDetails = found;
+    requested.panelDetails = found;
     const foundIds = new Set(found.map((panel) => panel.id));
     const missing = options.panelIds.filter((id) => !foundIds.has(id));
-    if (missing.length > 0) compact.missingPanelIds = missing;
+    if (missing.length > 0) requested.missingPanelIds = missing;
   }
+  const compact: Record<string, unknown> = { ...base, ...requested };
   if (options.includeConfig !== true) return compact;
 
   const full = mergeSavedConfig(compact, config);
@@ -198,13 +199,23 @@ function withRequestedDetail(
   ) {
     return full;
   }
+  const cap = AGENT_FULL_CONFIG_MAX_CHARS.toLocaleString();
+  // Only the summaries are held to the cap; panels named in panelIds were
+  // asked for whole.
   return {
-    ...compact,
-    truncated: true,
-    omittedPanelIds: panels.flatMap((panel) =>
-      typeof panel.id === "string" ? [panel.id] : [],
+    ...fitDashboardScreenContext(
+      {
+        ...base,
+        truncated: true,
+        omittedPanelIds: panels.flatMap((panel) =>
+          typeof panel.id === "string" ? [panel.id] : [],
+        ),
+        hint: `The full config is over ${cap} characters, so only summaries are returned. Call get-sql-dashboard again with panelIds for the panels whose SQL and config you need.`,
+      },
+      AGENT_FULL_CONFIG_MAX_CHARS,
+      `The full config is over ${cap} characters, and so are its summaries, so only trimmed summaries are returned: panel bindings, layout rows, and key dates are omitted, as is anything an omitted* field counts or names. Call get-sql-dashboard without includeConfig for the summaries, or with panelIds for a panel's SQL and config.`,
     ),
-    hint: `The full config is over ${AGENT_FULL_CONFIG_MAX_CHARS.toLocaleString()} characters, so only summaries are returned. Call get-sql-dashboard again with panelIds for the panels whose SQL and config you need.`,
+    ...requested,
   };
 }
 
@@ -308,19 +319,23 @@ const SCREEN_CONTEXT_KEPT_KEYS: ReadonlySet<string> = new Set([
   "id",
   "url",
   "trimmed",
+  "truncated",
   "hint",
   "omittedKeys",
+  "omittedPanelIds",
   ...SCREEN_CONTEXT_LISTS.flat(),
 ]);
 
 /**
  * The auto-injected `<current-screen>` block is cut at a fixed size, mid-JSON.
  * A dashboard too big for `maxChars` sheds detail in labelled steps instead, so
- * the model always reads valid JSON and knows what was left out.
+ * the model always reads valid JSON and knows what was left out. `hint` says
+ * where to read it.
  */
 export function fitDashboardScreenContext(
   context: Record<string, unknown>,
   maxChars: number,
+  hint = "Panel bindings, layout rows, and key dates are omitted to fit, as is anything an omitted* field counts or names. Call get-sql-dashboard for them, with panelIds for a panel's SQL and config.",
 ): Record<string, unknown> {
   const length = (value: unknown) => JSON.stringify(value, null, 2).length;
   if (length(context) <= maxChars) return context;
@@ -347,7 +362,7 @@ export function fitDashboardScreenContext(
     },
     panels,
     trimmed: true,
-    hint: "Panel bindings, layout rows, and key dates are omitted to fit, as is anything an omitted* field counts or names. Call get-sql-dashboard for them, with panelIds for a panel's SQL and config.",
+    hint,
   };
   const lists = SCREEN_CONTEXT_LISTS.flatMap(([key, countKey]) => {
     const items = slim[key];

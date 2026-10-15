@@ -233,6 +233,26 @@ describe("analytics data request classification", () => {
     ).toBe(true);
   });
 
+  it("keeps context markup the user typed in the request and drops only the app's block", () => {
+    const ask = "<context>How many signups did we get last week?</context>";
+    const dashboardItem =
+      "## Dashboard: Product signups\nUser can edit: yes\nUse the Analytics dashboard actions to inspect, edit, or restore this dashboard.";
+
+    for (const typed of [
+      ask,
+      "Wrap it in <context> tags: how many signups did we get last week?",
+    ]) {
+      expect(stripInjectedAnalyticsGuardContext(typed)).toBe(typed);
+      expect(isNonDataTurn(typed)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(typed)).toBe(true);
+    }
+    expect(
+      stripInjectedAnalyticsGuardContext(
+        appendAgentChatContextToMessage(ask, dashboardItem),
+      ),
+    ).toBe(ask);
+  });
+
   it("reads only the REAL_DATA_REQUIRED item when it shares the composer's context block", () => {
     const dashboardItem =
       "## Dashboard: Product signups\nUser can edit: yes\nUse the Analytics dashboard actions to inspect, edit, or restore this dashboard.";
