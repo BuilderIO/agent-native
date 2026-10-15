@@ -273,8 +273,8 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
       }) ?? "";
     const vectorAt = html.indexOf('data-agent-native-node-id="vector"');
     const style = html.slice(vectorAt, html.indexOf(">", vectorAt));
-    expect(style).toContain("left: 60px");
-    expect(style).toContain("top: 120px");
+    expect(style).toContain("left:60px");
+    expect(style).toContain("top:120px");
   });
 
   it("gives text in a dark frame a light fill even on a light page", () => {

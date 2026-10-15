@@ -105,6 +105,20 @@ export function applyPortableStyles(
     }
     (host.style as any)[property] = value;
   });
+  for (const longhand of Array.from(authored)) {
+    const value = authored.getPropertyValue(longhand);
+    if (
+      !authoredWithoutVar(longhand) ||
+      host.style.getPropertyValue(longhand) === value
+    ) {
+      continue;
+    }
+    host.style.setProperty(
+      longhand,
+      value,
+      authored.getPropertyPriority(longhand),
+    );
+  }
 }
 
 export function applyPortableStyleSnapshotToHtml(
