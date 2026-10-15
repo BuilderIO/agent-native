@@ -2,7 +2,11 @@
    --kit-menu-font, --kit-menu-line, --kit-menu-row, --kit-menu-padding, and --kit-menu-item-radius for its own. */
 /* Shared controls: the review strip and its chips, icon buttons, buttons, the segmented control, menus,
    the click-away scrim, and toasts. Colors come from the code's tokens; --kit-accent is the prototype's accent. */
-.review { height: 36px; display: flex; align-items: center; gap: 8px; padding-inline: 12px; border-bottom: 1px solid var(--color-border); background: var(--color-muted); font-size: 12px; }
+.review { height: var(--kit-review-h); display: flex; align-items: center; gap: 8px; padding-inline: 12px; border-bottom: 1px solid var(--color-border); background: var(--color-muted); font-size: 12px; }
+/* A prototype offsets its app by --kit-review-h. The test build has no strip, so its app fills the window. */
+:root { --kit-review-h: 36px; }
+:root[data-kit-test] { --kit-review-h: 0px; }
+:root[data-kit-test] .review { display: none; }
 .review .name { font-weight: 600; }
 .review .ver { color: var(--color-muted-foreground); }
 .review .grow { flex: 1; }

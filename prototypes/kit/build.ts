@@ -1,5 +1,8 @@
 // Builds one prototype into a single self-contained page: prototypes/<name>/dist/index.html.
-// Run: node prototypes/kit/build.ts <name>
+// Run: node prototypes/kit/build.ts <name> [--test]
+//
+// --test writes dist/test.html instead, for usability sessions: KIT_TEST is true, <html> carries data-kit-test, and
+// kit/ui.css hides the review strip. The flag is baked into the page, since a published page can't count on its URL.
 //
 // Placeholders in <name>/source.html:
 //   __KIT_HEAD__    the font link, the template's tokens read from the code, and kit/base.css
@@ -20,7 +23,9 @@ const FONTS =
 
 const kit = dirname(fileURLToPath(import.meta.url));
 const name = process.argv[2];
-if (!name) throw new Error("Usage: node prototypes/kit/build.ts <name>");
+if (!name) throw new Error("Usage: node prototypes/kit/build.ts <name> [--test]");
+const test = process.argv.includes("--test");
+const out = test ? "dist/test.html" : "dist/index.html";
 const dir = join(kit, "..", name);
 const read = (path: string) => readFileSync(path, "utf8");
 
@@ -156,6 +161,7 @@ function tokensCss(template: string, extra: string[] = []): string {
 
 const config = JSON.parse(read(join(dir, "prototype.json"))) as {
   template?: string;
+  testTitle?: string;
 };
 if (!config.template)
   throw new Error(
@@ -211,11 +217,11 @@ const icons = {
 const fills: [string, string][] = [
   [
     "__KIT_HEAD__",
-    `${FONTS}\n<style>\n${tokensCss(config.template, config.tokens)}\n${read(join(kit, "base.css"))}\n${read(join(kit, "ui.css"))}\n${read(join(kit, "settings.css"))}</style>`,
+    `${test ? "<script>document.documentElement.dataset.kitTest = \"\";</script>\n" : ""}${FONTS}\n<style>\n${tokensCss(config.template, config.tokens)}\n${read(join(kit, "base.css"))}\n${read(join(kit, "ui.css"))}\n${read(join(kit, "settings.css"))}</style>`,
   ],
   [
     "__KIT_SCRIPT__",
-    `<script>\nconst KIT_ICONS = ${JSON.stringify(icons)};\nconst KIT_CHANGES = ${JSON.stringify(changes)};\nconst KIT_SETTINGS = ${JSON.stringify(settings)};\n${script("ui.ts")}\n${script("changes.ts")}\n${script("settings.ts")}</script>`,
+    `<script>\nconst KIT_TEST = ${test};\nconst KIT_ICONS = ${JSON.stringify(icons)};\nconst KIT_CHANGES = ${JSON.stringify(changes)};\nconst KIT_SETTINGS = ${JSON.stringify(settings)};\n${script("ui.ts")}\n${script("changes.ts")}\n${script("settings.ts")}</script>`,
   ],
   [
     "__LOGO_SMALL__",
@@ -234,6 +240,8 @@ html = html.replace(/__([A-Z]+)__/g, (placeholder, key: string) => {
   return read(file);
 });
 
+// A tester sees the tab title, so the test page takes the product's name ("testTitle" in prototype.json).
+if (test && config.testTitle) html = html.replace(/<title>[^<]*<\/title>/, `<title>${config.testTitle}</title>`);
 mkdirSync(join(dir, "dist"), { recursive: true });
-writeFileSync(join(dir, "dist/index.html"), html);
-console.log(`Built ${name}/dist/index.html with ${changes.length} changes.`);
+writeFileSync(join(dir, out), html);
+console.log(`Built ${name}/${out} with ${changes.length} changes.`);

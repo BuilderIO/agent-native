@@ -5,6 +5,7 @@ Clickable prototypes of the Agent-Native templates, one folder each. Each builds
 | Prototype | Template | Artifact |
 | --- | --- | --- |
 | [Analytics](analytics/) | `templates/analytics` | https://claude.ai/artifact/RtQ5m2aQTSdjdZxAZajX2H |
+| [Analytics operators](analytics-operators/) | `templates/analytics` (proposed surfaces) | https://claude.ai/artifact/Pcc3JnQmk4KVrAXi1tP5nf |
 | [Chat](chat/) | `templates/chat` | https://claude.ai/artifact/GqQxZw4AtoKkQFit9gtGH5 |
 | [Clips web](clips-web/) | `templates/clips` | https://claude.ai/artifact/YBWtSNr8esvyFwkDpBHGNw |
 | [Clips desktop](clips-desktop/) | `templates/clips/desktop` | https://claude.ai/artifact/PUNqcFC3kAogDLzHDo2XKx |
@@ -44,7 +45,7 @@ kit/              shared by every prototype
 node prototypes/kit/build.ts design
 ```
 
-This writes `design/dist/index.html`. To publish, ask Claude to publish that file as an artifact; for an existing prototype, give it the artifact link from the table above so the link stays the same.
+This writes `design/dist/index.html`. Add `--test` to write `dist/test.html` instead, for usability sessions: the same page with `KIT_TEST` set and no review strip, so the app fills the window. To publish, ask Claude to publish that file as an artifact; for an existing prototype, give it the artifact link from the table above so the link stays the same.
 
 ## Tokens come from the code
 
