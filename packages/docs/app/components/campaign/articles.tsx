@@ -113,11 +113,11 @@ export function ArticlesList({
           <div className="campaign-section">
             <SectionHeader heading={t("campaign.allTopics")} />
           </div>
-          <ul className="m-0 grid list-none gap-px bg-[var(--docs-border)] p-0 lg:grid-cols-2">
+          <ul className="m-0 list-none border-t border-[var(--docs-border)] p-0 lg:columns-2 lg:gap-0">
             {topics
               .filter((item) => item.count > 0)
               .map((item) => (
-                <li key={item.slug} className="bg-[var(--b-bg-page)]">
+                <li key={item.slug} className="break-inside-avoid border-b border-[var(--docs-border)] last:border-b-0">
                   <Link
                     to={sitePathForLocale(
                       `${ARTICLES_BASE}/topic/${item.slug}`,
