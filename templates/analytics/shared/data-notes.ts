@@ -283,6 +283,13 @@ function appliesTo(
   );
 }
 
+/** Section and extension cards draw no data notes, even ones pinned to them. */
+export function panelDrawsDataNotes(
+  panel: Pick<SqlPanel, "chartType">,
+): boolean {
+  return panel.chartType !== "section" && panel.chartType !== "extension";
+}
+
 export function dataNoteAppliesTo(
   note: Pick<DataNote, "matchEvents" | "unlessEvents" | "panels">,
   dashboardId: string,

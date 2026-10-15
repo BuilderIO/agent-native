@@ -254,27 +254,29 @@ type XAxisScale = NonNullable<ReturnType<typeof useXAxisScale>>;
 type PlotArea = NonNullable<ReturnType<typeof usePlotArea>>;
 
 /**
- * A point axis maps a value to a line, so pad half a step to cover the day. A
- * lone point has no step, and its day is the whole plot.
+ * A point axis maps a value to a line, so pad half a step, between the first
+ * two values it places, to cover the day. With fewer than two placed values
+ * (one row, or one beside a null bucket) there is no step, and the day is the
+ * whole plot.
  */
 function bandEdges(
   scale: XAxisScale,
   plot: PlotArea,
   x1: unknown,
   x2: unknown,
-  stepValues: readonly unknown[],
+  xValues: readonly unknown[],
 ): { left: number; right: number; top: number; bottom: number } | null {
   const start = scale(x1, { position: "start" });
   const end = scale(x2, { position: "end" });
   if (start == null || end == null) return null;
   let pad = 0;
   if (start === scale(x1, { position: "end" })) {
-    if (stepValues.length < 2) pad = plot.width;
-    else {
-      const a = scale(stepValues[0]);
-      const b = scale(stepValues[1]);
-      if (a != null && b != null) pad = Math.abs(b - a) / 2;
+    const placed: number[] = [];
+    for (const value of xValues) {
+      const at = value == null ? null : scale(value);
+      if (at != null && placed.push(at) === 2) break;
     }
+    pad = placed.length < 2 ? plot.width : Math.abs(placed[1] - placed[0]) / 2;
   }
   return {
     left: Math.max(plot.x, Math.min(start, end) - pad),
@@ -287,20 +289,19 @@ function bandEdges(
 function BandShape({
   x1,
   x2,
-  stepValues,
+  xValues,
   color,
   band,
 }: {
   x1: unknown;
   x2: unknown;
-  stepValues: readonly unknown[];
+  xValues: readonly unknown[];
   color: string;
   band: DataNoteBand;
 }) {
   const scale = useXAxisScale();
   const plot = usePlotArea();
-  const edges =
-    scale && plot ? bandEdges(scale, plot, x1, x2, stepValues) : null;
+  const edges = scale && plot ? bandEdges(scale, plot, x1, x2, xValues) : null;
   if (!edges) return null;
   const { left, right, top, bottom } = edges;
   return (
@@ -380,14 +381,14 @@ function BandLabels({
   shaded,
   rows,
   xKey,
-  stepValues,
+  xValues,
   panelId,
   onHoverChange,
 }: {
   shaded: readonly ShadedDataNote[];
   rows: readonly Record<string, unknown>[];
   xKey: string;
-  stepValues: readonly unknown[];
+  xValues: readonly unknown[];
   panelId?: string;
   onHoverChange?: (hovered: boolean) => void;
 }) {
@@ -400,7 +401,7 @@ function BandLabels({
       plot,
       rows[entry.bands[0].startIndex][xKey],
       rows[entry.bands[0].endIndex][xKey],
-      stepValues,
+      xValues,
     );
     return edges ? [{ entry, edges }] : [];
   });
@@ -475,7 +476,7 @@ export function renderDataNoteBands(
   },
 ): ReactNode[] {
   if (shaded.length === 0) return [];
-  const stepValues = rows.slice(0, 2).map((row) => row[xKey]);
+  const xValues = rows.map((row) => row[xKey]);
   const xValue = (index: number) => rows[index][xKey] as string | number;
   return [
     ...shaded.flatMap(({ note, bands }) =>
@@ -494,7 +495,7 @@ export function renderDataNoteBands(
               <BandShape
                 x1={x1}
                 x2={x2}
-                stepValues={stepValues}
+                xValues={xValues}
                 color={dataNoteColor(note)}
                 band={band}
               />
@@ -516,7 +517,7 @@ export function renderDataNoteBands(
           shaded={shaded}
           rows={rows}
           xKey={xKey}
-          stepValues={stepValues}
+          xValues={xValues}
           panelId={panelId}
           onHoverChange={onHoverChange}
         />
