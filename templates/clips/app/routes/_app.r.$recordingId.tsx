@@ -2461,6 +2461,7 @@ export default function RecordingPage() {
           className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
         >
           <RecordingContextSection
+            canManage={role === "owner"}
             recordingId={
               recordingId === VIEWER_REDESIGN_PREVIEW_ID
                 ? undefined

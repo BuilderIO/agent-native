@@ -17,6 +17,9 @@
  *   - non-public: caller must have a share grant (owner / viewer / editor /
  *     admin) via `resolveAccess`. Password is still enforced on top.
  *   - expired recordings 410.
+ *   - earlier-screen-time footage is a private recording of its own that is
+ *     shared with the clip it is attached to: every rule above is evaluated
+ *     against that clip, and the footage's bytes are served on its behalf.
  *
  * Lives under `/api/video/*` (not `/api/uploads/*`) so it can sit in
  * `auth.ts` publicPaths without exposing the chunk-upload POST endpoints.
@@ -64,6 +67,7 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
+import { contextClipIdForFootage } from "../../../lib/context-footage.js";
 import { allowsLegacyS3ObjectForPersistedMedia } from "../../../lib/media-storage-provenance.js";
 import {
   isHeldForRedaction,
@@ -84,6 +88,7 @@ interface RecordingRow {
   ownerEmail?: string | null;
   password?: string | null;
   sharePasswordVersion?: string | null;
+  trashedAt?: string | null;
   updatedAt?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
@@ -137,10 +142,11 @@ function setProtectedMediaAccessCookie(
   recordingId: string,
   password: string | null | undefined,
   sharePasswordVersion: string | null | undefined,
+  scopeId: string = recordingId,
 ): void {
   const token = signShortLivedToken({
     resourceId: getRecordingAccessTokenResourceId(
-      recordingId,
+      scopeId,
       password,
       sharePasswordVersion,
     ),
@@ -324,7 +330,10 @@ export default defineEventHandler(async (event: H3Event) => {
   return runWithRequestContext(
     { userEmail: session?.email, orgId },
     async () => {
-      const access = await resolveAccess("recording", recordingId);
+      const clipId = await contextClipIdForFootage(recordingId);
+      // Access, expiry, redaction, and password are the clip's, not the footage's.
+      const gateId = clipId ?? recordingId;
+      const access = await resolveAccess("recording", gateId);
       let recRow: RecordingRow | null =
         (access?.resource as RecordingRow | undefined) ?? null;
       let role: string | null = access?.role ?? null;
@@ -334,7 +343,7 @@ export default defineEventHandler(async (event: H3Event) => {
         const [row] = await db
           .select()
           .from(schema.recordings)
-          .where(eq(schema.recordings.id, recordingId))
+          .where(eq(schema.recordings.id, gateId))
           .limit(1);
         if (!row) {
           setResponseStatus(event, 404);
@@ -360,18 +369,41 @@ export default defineEventHandler(async (event: H3Event) => {
         role = "viewer";
       }
 
-      const rec = recRow;
+      const gate = recRow;
+      // The owner's context panel lists items for a trashed Clip, so the owner
+      // can still play them.
+      if (clipId && gate.trashedAt && role !== "owner") {
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }
+      let rec: RecordingRow = gate;
+      if (clipId) {
+        const [footage] = await getDb()
+          .select()
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, recordingId))
+          .limit(1);
+        if (!footage) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+        if (footage.trashedAt) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+        rec = footage as RecordingRow;
+      }
 
       if (
         isRecordingExpiredForViewer({
-          expiresAt: rec.expiresAt,
+          expiresAt: gate.expiresAt,
           viewerIsOwner: role === "owner",
         })
       ) {
         setResponseStatus(event, 410);
         return { error: "Recording has expired" };
       }
-      if (isHeldForRedaction(rec.editsJson, role)) {
+      if (isHeldForRedaction(gate.editsJson, role)) {
         setResponseStatus(event, 409);
         return { error: REDACTION_HOLD_MESSAGE, redactionPending: true };
       }
@@ -393,7 +425,7 @@ export default defineEventHandler(async (event: H3Event) => {
         password?: string;
         t?: string;
       };
-      if (rec.password && role !== "owner") {
+      if (gate.password && role !== "owner") {
         const token = typeof q.t === "string" ? q.t : "";
         const cookieToken =
           getCookie(event, protectedMediaCookieName(recordingId)) ?? "";
@@ -401,9 +433,9 @@ export default defineEventHandler(async (event: H3Event) => {
 
         let allowed = false;
         const scopedRecordingId = getRecordingAccessTokenResourceId(
-          recordingId,
-          rec.password,
-          rec.sharePasswordVersion,
+          gateId,
+          gate.password,
+          gate.sharePasswordVersion,
         );
         if (token) {
           const result = verifyShortLivedToken(token, scopedRecordingId);
@@ -416,7 +448,7 @@ export default defineEventHandler(async (event: H3Event) => {
         if (
           !allowed &&
           supplied &&
-          verifySharePassword(supplied, rec.password)
+          verifySharePassword(supplied, gate.password)
         ) {
           allowed = true;
         }
@@ -427,8 +459,9 @@ export default defineEventHandler(async (event: H3Event) => {
         setProtectedMediaAccessCookie(
           event,
           recordingId,
-          rec.password,
-          rec.sharePasswordVersion,
+          gate.password,
+          gate.sharePasswordVersion,
+          gateId,
         );
       }
 

@@ -217,7 +217,7 @@ export default {
     moveDashboard: "Move dashboard",
     folderCreateFailed: "Couldn't create folder",
     moveFailed: "Couldn't move dashboard",
-    previewSigma: "Preview Sigma",
+    importFromSigma: "Import from Sigma",
     sigmaConnection: "Sigma connection",
     sigmaConnectedTo: "Connected to {{name}}",
     sigmaChooseConnection: "Sigma connection",
@@ -225,9 +225,36 @@ export default {
     sigmaChooseConnectionDescription:
       "Choose the Sigma workspace to browse its workbooks.",
     sigmaNoConnection: "Sigma isn't connected",
+    sigmaClientId: "Client ID",
+    sigmaClientSecret: "Client secret",
+    sigmaBaseUrl: "API base URL (optional)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Connect Sigma",
+    sigmaConnecting: "Connecting…",
+    sigmaConnectFailed:
+      "Couldn't verify this Sigma connection. Check the credentials and API region, then try again.",
+    sigmaCredentialStageFailed:
+      "Couldn't securely stage the Sigma credentials. Check Vault access and try again.",
+    sigmaCredentialsRequired: "Enter the Sigma client ID and client secret.",
+    sigmaBaseUrlInvalid:
+      "Use an HTTPS Sigma API URL on a sigmacomputing.com domain.",
+    sigmaPersistenceUnavailable:
+      "Analytics can't securely save the Sigma connection right now. Try again.",
+    sigmaPolicyInvalid:
+      "The existing Analytics Sigma connection has an unexpected access policy. Manage it in Dispatch before retrying.",
+    sigmaSaveFailed:
+      "Sigma credentials were verified, but Analytics couldn't save them. Your previous connection is unchanged. Try again.",
+    sigmaCleanupPending:
+      "Temporary Sigma setup credentials remain until cleanup succeeds.",
+    sigmaCleanupFailed:
+      "Couldn't clear temporary Sigma setup credentials. Try cleanup again.",
+    sigmaRetryCleanup: "Retry cleanup",
+    sigmaDirectCredentialsUnavailable:
+      "Couldn't read Analytics's saved Sigma credentials. An organization admin can reconnect in Dispatch or enter them again in Analytics.",
     sigmaNoConnectionDescription:
-      "Open Dispatch and ask it to connect Sigma to Analytics. Credentials stay in Vault.",
-    sigmaOpenDispatch: "Set up in Dispatch",
+      "Enter credentials here to create an Analytics-only connection. Dispatch connections granted to Analytics appear here automatically; only organization admins can save credentials directly.",
+    sigmaOpenDispatch: "Connect in Dispatch",
+    sigmaOpenVault: "Open Vault",
     sigmaWorkbooksLoadFailed: "Couldn't load Sigma workbooks",
     sigmaRetryConnection: "Check the connection and try again.",
     sigmaRetry: "Retry",
@@ -239,7 +266,7 @@ export default {
     sigmaStatusImported: "Imported",
     sigmaStatusFailed: "Import failed",
     sigmaArchived: "Archived",
-    sigmaPreviewTitle: "Workbook preview",
+    sigmaPreviewTitle: "Workbook contents",
     sigmaPreviewFailed: "Couldn't preview this workbook",
     sigmaRetryPreview: "Try again to load the workbook preview.",
     sigmaImportableCount: "{{count}} importable",

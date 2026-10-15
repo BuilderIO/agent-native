@@ -51,7 +51,7 @@ export default {
     moveDashboard: "ダッシュボードを移動",
     folderCreateFailed: "フォルダーを作成できませんでした",
     moveFailed: "ダッシュボードを移動できませんでした",
-    previewSigma: "Sigma をプレビュー",
+    importFromSigma: "Sigma からインポート",
     sigmaConnection: "Sigma 接続",
     sigmaConnectedTo: "{{name}} に接続済み",
     sigmaChooseConnection: "Sigma 接続",
@@ -59,9 +59,37 @@ export default {
     sigmaChooseConnectionDescription:
       "ワークブックを表示する Sigma ワークスペースを選択してください。",
     sigmaNoConnection: "Sigma が接続されていません",
+    sigmaClientId: "クライアント ID",
+    sigmaClientSecret: "クライアントシークレット",
+    sigmaBaseUrl: "API ベース URL（省略可）",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Sigma に接続",
+    sigmaConnecting: "Sigma に接続中…",
+    sigmaConnectFailed:
+      "Sigma 接続を確認できませんでした。認証情報と API リージョンを確認して、もう一度お試しください。",
+    sigmaCredentialStageFailed:
+      "Sigma の一時認証情報を保存できませんでした。Vault へのアクセスを確認して、もう一度お試しください。",
+    sigmaCredentialsRequired:
+      "先に Sigma のクライアント ID とクライアントシークレットを保存してください。",
+    sigmaBaseUrlInvalid:
+      "sigmacomputing.com ドメインの HTTPS Sigma API URL を使用してください。",
+    sigmaPersistenceUnavailable:
+      "現在、Analytics は Sigma 接続を安全に保存できません。もう一度お試しください。",
+    sigmaPolicyInvalid:
+      "既存の Analytics Sigma 接続に想定外のアクセス ポリシーがあります。再試行する前に Dispatch で再接続してください。",
+    sigmaSaveFailed:
+      "Sigma の認証情報は検証されましたが、Analytics で保存できませんでした。以前の接続は変更されていません。もう一度お試しください。",
+    sigmaCleanupPending:
+      "クリーンアップが完了するまで、一時的な Sigma 設定認証情報は残ります。",
+    sigmaCleanupFailed:
+      "Sigma の一時認証情報を消去できませんでした。クリーンアップを再試行してください。",
+    sigmaRetryCleanup: "クリーンアップを再試行",
+    sigmaDirectCredentialsUnavailable:
+      "Analytics に保存された Sigma 認証情報を読み取れませんでした。組織の管理者は Dispatch で再接続するか、Analytics で認証情報を再入力できます。",
     sigmaNoConnectionDescription:
-      "Dispatch を開き、Sigma を Analytics に接続するよう依頼してください。認証情報は Vault に保存されます。",
-    sigmaOpenDispatch: "Dispatch で設定",
+      "ここに認証情報を入力すると Analytics 専用の接続を作成できます。Dispatch で Analytics に許可された Sigma 接続はここに自動で表示されます。認証情報を直接保存できるのは組織管理者のみです。",
+    sigmaOpenDispatch: "Dispatch で接続",
+    sigmaOpenVault: "Vault を開く",
     sigmaWorkbooksLoadFailed: "Sigma のワークブックを読み込めませんでした",
     sigmaRetryConnection: "接続を確認して、もう一度お試しください。",
     sigmaRetry: "再試行",
@@ -73,7 +101,7 @@ export default {
     sigmaStatusImported: "インポート済み",
     sigmaStatusFailed: "インポートに失敗しました",
     sigmaArchived: "アーカイブ済み",
-    sigmaPreviewTitle: "ワークブックのプレビュー",
+    sigmaPreviewTitle: "ワークブックの内容",
     sigmaPreviewFailed: "このワークブックをプレビューできませんでした",
     sigmaRetryPreview: "ワークブックのプレビューを再読み込みしてください。",
     sigmaImportableCount: "インポート可能 {{count}} 件",

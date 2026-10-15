@@ -6,6 +6,7 @@ const messages = {
     includeLast: "تضمين آخر",
     whatIsThis: "ما هذا؟",
     off: "إيقاف",
+    none: "لا شيء",
     custom: "مخصص…",
     customLabel: "مدة مخصصة",
     customAmount: "المدة",
@@ -17,6 +18,8 @@ const messages = {
     customErrorInvalid: "أدخل عددًا صحيحًا من الثواني أو الدقائق.",
     customErrorTooLong: "اجعلها 5 دقائق أو أقل.",
     turnOnRewind: "تفعيل Rewind",
+    turnOffRewind: "إيقاف",
+    turnOffRewindFailed: "تعذّر إيقاف Rewind. أوقف التسجيل ثم حاول مرة أخرى.",
     rewindOffTitle: "تفعيل Rewind",
     rewindOffBody:
       "متوقف افتراضيًا. يبقى سجل الشاشة على هذا الجهاز حتى تضيفه إلى تسجيل أو توافق على طلب لمشاركته.",

@@ -50,7 +50,7 @@ export default {
     moveDashboard: "대시보드 이동",
     folderCreateFailed: "폴더를 만들지 못했습니다",
     moveFailed: "대시보드를 이동하지 못했습니다",
-    previewSigma: "Sigma 미리 보기",
+    importFromSigma: "Sigma에서 가져오기",
     sigmaConnection: "Sigma 연결",
     sigmaConnectedTo: "{{name}}에 연결됨",
     sigmaChooseConnection: "Sigma 연결",
@@ -58,9 +58,37 @@ export default {
     sigmaChooseConnectionDescription:
       "워크북을 찾아볼 Sigma 작업공간을 선택하세요.",
     sigmaNoConnection: "Sigma가 연결되지 않았습니다",
+    sigmaClientId: "클라이언트 ID",
+    sigmaClientSecret: "클라이언트 시크릿",
+    sigmaBaseUrl: "API 기본 URL(선택 사항)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Sigma 연결",
+    sigmaConnecting: "Sigma 연결 중…",
+    sigmaConnectFailed:
+      "Sigma 연결을 확인할 수 없습니다. 자격 증명과 API 리전을 확인한 후 다시 시도하세요.",
+    sigmaCredentialStageFailed:
+      "임시 Sigma 자격 증명을 저장하지 못했습니다. Vault 액세스 권한을 확인한 후 다시 시도하세요.",
+    sigmaCredentialsRequired:
+      "먼저 Sigma 클라이언트 ID와 클라이언트 시크릿을 저장하세요.",
+    sigmaBaseUrlInvalid:
+      "sigmacomputing.com 도메인의 HTTPS Sigma API URL을 사용하세요.",
+    sigmaPersistenceUnavailable:
+      "현재 Analytics에서 Sigma 연결을 안전하게 저장할 수 없습니다. 다시 시도하세요.",
+    sigmaPolicyInvalid:
+      "기존 Analytics Sigma 연결의 액세스 정책이 예상과 다릅니다. 다시 시도하기 전에 Dispatch에서 다시 연결하세요.",
+    sigmaSaveFailed:
+      "Sigma 자격 증명은 확인되었지만 Analytics에서 저장하지 못했습니다. 이전 연결은 변경되지 않았습니다. 다시 시도하세요.",
+    sigmaCleanupPending:
+      "정리가 완료될 때까지 임시 Sigma 설정 자격 증명이 남아 있습니다.",
+    sigmaCleanupFailed:
+      "임시 Sigma 자격 증명을 지우지 못했습니다. 정리를 다시 시도하세요.",
+    sigmaRetryCleanup: "정리 재시도",
+    sigmaDirectCredentialsUnavailable:
+      "Analytics에 저장된 Sigma 자격 증명을 읽을 수 없습니다. 조직 관리자가 Dispatch에서 다시 연결하거나 Analytics에서 자격 증명을 다시 입력할 수 있습니다.",
     sigmaNoConnectionDescription:
-      "Dispatch를 열어 Sigma를 Analytics에 연결하도록 요청하세요. 인증 정보는 Vault에 보관됩니다.",
-    sigmaOpenDispatch: "Dispatch에서 설정",
+      "여기에 자격 증명을 입력하면 Analytics 전용 연결을 만들 수 있습니다. Dispatch에서 Analytics에 허용된 Sigma 연결은 여기에 자동으로 표시되며, 자격 증명을 직접 저장할 수 있는 사용자는 조직 관리자뿐입니다.",
+    sigmaOpenDispatch: "Dispatch에서 연결",
+    sigmaOpenVault: "Vault 열기",
     sigmaWorkbooksLoadFailed: "Sigma 워크북을 불러오지 못했습니다",
     sigmaRetryConnection: "연결을 확인한 후 다시 시도하세요.",
     sigmaRetry: "다시 시도",
@@ -72,7 +100,7 @@ export default {
     sigmaStatusImported: "가져옴",
     sigmaStatusFailed: "가져오지 못함",
     sigmaArchived: "보관됨",
-    sigmaPreviewTitle: "워크북 미리보기",
+    sigmaPreviewTitle: "워크북 내용",
     sigmaPreviewFailed: "이 워크북을 미리 볼 수 없습니다",
     sigmaRetryPreview: "워크북 미리보기를 다시 불러오세요.",
     sigmaImportableCount: "가져올 수 있음 {{count}}개",

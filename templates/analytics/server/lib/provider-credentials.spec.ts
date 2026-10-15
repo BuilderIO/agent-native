@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   oauthResult: null as unknown,
   oauthError: null as Error | null,
   oauthCalls: [] as Array<Record<string, unknown>>,
+  requestContext: {} as object,
 }));
 
 vi.mock("@agent-native/core/provider-api", () => ({
@@ -51,6 +52,10 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
   }),
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  getRequestContext: () => mocks.requestContext,
+}));
+
 vi.mock("./credentials", () => ({
   resolveCredentialDetailed: vi.fn(async (key: string) => {
     const value = mocks.localCredentials.get(key);
@@ -77,6 +82,223 @@ describe("analytics provider credentials", () => {
     mocks.oauthResult = null;
     mocks.oauthError = null;
     mocks.oauthCalls = [];
+    mocks.requestContext = {};
+  });
+
+  it("resolves Dispatch-granted Sigma credentials through the core resolver", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: { id: "dispatch-sigma", config: {} },
+      appAccess: null,
+    };
+    mocks.coreResult = {
+      available: true,
+      status: "resolved",
+      value: "test-value",
+      key: "SIGMA_CLIENT_SECRET",
+      provider: "sigma",
+      provenance: {
+        resolvedKey: "SIGMA_CLIENT_SECRET",
+        connectionId: "dispatch-sigma",
+        connectionLabel: "Dispatch Sigma",
+        secretScope: "org",
+      },
+    };
+
+    await expect(
+      resolveWorkspaceConnectionProviderCredential({
+        provider: "sigma",
+        keys: ["SIGMA_CLIENT_SECRET"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "dispatch-sigma",
+      }),
+    ).resolves.toMatchObject({
+      value: "test-value",
+      source: "workspace_connection",
+      connectionId: "dispatch-sigma",
+      connectionLabel: "Dispatch Sigma",
+    });
+    expect(mocks.coreResolverCalls).toContainEqual(
+      expect.objectContaining({
+        appId: "analytics",
+        provider: "sigma",
+        key: "SIGMA_CLIENT_SECRET",
+        connectionId: "dispatch-sigma",
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+      }),
+    );
+  });
+
+  it("fails distinctly when an Analytics-direct credential bundle is unavailable", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "analytics-sigma-direct",
+        config: { analyticsSetup: "analytics-direct" },
+        allowedApps: ["analytics"],
+        allowedUsers: [],
+        allowedUserGroups: [],
+        credentialRefs: [
+          {
+            key: "ANALYTICS_SIGMA_CREDENTIALS",
+            scope: "org",
+            provider: "sigma",
+          },
+        ],
+      },
+      appAccess: null,
+    };
+
+    await expect(
+      resolveWorkspaceConnectionProviderCredential({
+        provider: "sigma",
+        keys: ["SIGMA_CLIENT_SECRET"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "analytics-sigma-direct",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "sigma_direct_credentials_unavailable",
+    });
+    expect(mocks.coreResolverCalls).toHaveLength(1);
+    expect(mocks.coreResolverCalls[0]).toMatchObject({
+      key: "ANALYTICS_SIGMA_CREDENTIALS",
+      connectionId: "analytics-sigma-direct",
+    });
+  });
+
+  it("fails distinctly when an Analytics-direct credential bundle is malformed", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "analytics-sigma-direct",
+        config: { analyticsSetup: "analytics-direct" },
+        allowedApps: ["analytics"],
+        allowedUsers: [],
+        allowedUserGroups: [],
+        credentialRefs: [
+          {
+            key: "ANALYTICS_SIGMA_CREDENTIALS",
+            scope: "org",
+            provider: "sigma",
+          },
+        ],
+      },
+      appAccess: null,
+    };
+    mocks.coreResult = {
+      available: true,
+      status: "resolved",
+      value: "not-json",
+      key: "ANALYTICS_SIGMA_CREDENTIALS",
+      provider: "sigma",
+      provenance: {
+        resolvedKey: "ANALYTICS_SIGMA_CREDENTIALS",
+        connectionId: "analytics-sigma-direct",
+        connectionLabel: "Analytics Sigma",
+        secretScope: "org",
+        credentialRef: {
+          source: "connection",
+          key: "ANALYTICS_SIGMA_CREDENTIALS",
+          scope: "org",
+          provider: "sigma",
+        },
+      },
+    };
+
+    await expect(
+      resolveWorkspaceConnectionProviderCredential({
+        provider: "sigma",
+        keys: ["SIGMA_CLIENT_SECRET"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "analytics-sigma-direct",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "sigma_direct_credentials_unavailable",
+    });
+  });
+
+  it("reports an invalid direct-connection access policy with a typed error", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "analytics-sigma-direct",
+        config: { analyticsSetup: "analytics-direct" },
+        allowedApps: [],
+        allowedUsers: [],
+        allowedUserGroups: [],
+        credentialRefs: [
+          {
+            key: "ANALYTICS_SIGMA_CREDENTIALS",
+            scope: "org",
+            provider: "sigma",
+          },
+        ],
+      },
+      appAccess: null,
+    };
+
+    await expect(
+      resolveWorkspaceConnectionProviderCredential({
+        provider: "sigma",
+        keys: ["SIGMA_CLIENT_SECRET"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "analytics-sigma-direct",
+      }),
+    ).rejects.toMatchObject({ errorCode: "sigma_connection_policy_invalid" });
+    expect(mocks.coreResolverCalls).toHaveLength(0);
+  });
+
+  it("returns null for an optional field missing from a valid Analytics bundle", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "analytics-sigma-direct",
+        config: { analyticsSetup: "analytics-direct" },
+        allowedApps: ["analytics"],
+        allowedUsers: [],
+        allowedUserGroups: [],
+        credentialRefs: [
+          {
+            key: "ANALYTICS_SIGMA_CREDENTIALS",
+            scope: "org",
+            provider: "sigma",
+          },
+        ],
+      },
+      appAccess: null,
+    };
+    mocks.coreResult = {
+      available: true,
+      status: "resolved",
+      value: JSON.stringify({
+        clientId: "client-id",
+        clientSecret: "client-secret",
+      }),
+      key: "ANALYTICS_SIGMA_CREDENTIALS",
+      provider: "sigma",
+      provenance: {
+        resolvedKey: "ANALYTICS_SIGMA_CREDENTIALS",
+        connectionId: "analytics-sigma-direct",
+        connectionLabel: "Analytics Sigma",
+        secretScope: "org",
+        credentialRef: {
+          source: "connection",
+          key: "ANALYTICS_SIGMA_CREDENTIALS",
+          scope: "org",
+          provider: "sigma",
+        },
+      },
+    };
+
+    await expect(
+      resolveWorkspaceConnectionProviderCredential({
+        provider: "sigma",
+        keys: ["SIGMA_BASE_URL"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "analytics-sigma-direct",
+      }),
+    ).resolves.toBeNull();
   });
 
   it("prefers the core workspace connection helper when it resolves a value", async () => {

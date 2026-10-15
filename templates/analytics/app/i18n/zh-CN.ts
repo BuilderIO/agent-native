@@ -49,16 +49,41 @@ export default {
     moveDashboard: "移动仪表板",
     folderCreateFailed: "无法创建文件夹",
     moveFailed: "无法移动仪表板",
-    previewSigma: "预览 Sigma",
+    importFromSigma: "从 Sigma 导入",
     sigmaConnection: "Sigma 连接",
     sigmaConnectedTo: "已连接到 {{name}}",
     sigmaChooseConnection: "Sigma 连接",
     sigmaChooseConnectionPlaceholder: "选择连接",
     sigmaChooseConnectionDescription: "选择要浏览其工作簿的 Sigma 工作区。",
     sigmaNoConnection: "尚未连接 Sigma",
+    sigmaClientId: "客户端 ID",
+    sigmaClientSecret: "客户端密钥",
+    sigmaBaseUrl: "API 基础 URL（可选）",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "连接 Sigma",
+    sigmaConnecting: "正在连接 Sigma…",
+    sigmaConnectFailed:
+      "无法验证此 Sigma 连接。请检查凭据和 API 区域，然后重试。",
+    sigmaCredentialStageFailed:
+      "无法暂存临时 Sigma 凭据。请检查 Vault 访问权限，然后重试。",
+    sigmaCredentialsRequired: "请先保存 Sigma 客户端 ID 和客户端密钥。",
+    sigmaBaseUrlInvalid:
+      "请使用 sigmacomputing.com 域名下的 HTTPS Sigma API URL。",
+    sigmaPersistenceUnavailable:
+      "Analytics 目前无法安全保存 Sigma 连接。请重试。",
+    sigmaPolicyInvalid:
+      "现有 Analytics Sigma 连接的访问策略异常。请先在 Dispatch 中重新连接，然后重试。",
+    sigmaSaveFailed:
+      "Sigma 凭据已验证，但 Analytics 无法保存。之前的连接未更改。请重试。",
+    sigmaCleanupPending: "临时 Sigma 设置凭据会保留，直到清理成功。",
+    sigmaCleanupFailed: "无法清除临时 Sigma 凭据。请重试清理。",
+    sigmaRetryCleanup: "重试清理",
+    sigmaDirectCredentialsUnavailable:
+      "无法读取 Analytics 保存的 Sigma 凭据。组织管理员可以在 Dispatch 中重新连接，或在 Analytics 中重新输入凭据。",
     sigmaNoConnectionDescription:
-      "打开 Dispatch 并让它将 Sigma 连接到 Analytics。凭据会保留在 Vault 中。",
-    sigmaOpenDispatch: "在 Dispatch 中设置",
+      "在此输入凭据以创建仅供 Analytics 使用的连接。已在 Dispatch 中授权 Analytics 使用的 Sigma 连接会自动显示在这里；只有组织管理员可以直接保存凭据。",
+    sigmaOpenDispatch: "在 Dispatch 中连接",
+    sigmaOpenVault: "打开 Vault",
     sigmaWorkbooksLoadFailed: "无法加载 Sigma 工作簿",
     sigmaRetryConnection: "检查连接后重试。",
     sigmaRetry: "重试",
@@ -70,7 +95,7 @@ export default {
     sigmaStatusImported: "已导入",
     sigmaStatusFailed: "导入失败",
     sigmaArchived: "已归档",
-    sigmaPreviewTitle: "工作簿预览",
+    sigmaPreviewTitle: "工作簿内容",
     sigmaPreviewFailed: "无法预览此工作簿",
     sigmaRetryPreview: "重试以加载工作簿预览。",
     sigmaImportableCount: "{{count}} 个可导入",

@@ -51,7 +51,7 @@ export default {
     moveDashboard: "Dashboard verschieben",
     folderCreateFailed: "Ordner konnte nicht erstellt werden",
     moveFailed: "Dashboard konnte nicht verschoben werden",
-    previewSigma: "Sigma-Vorschau",
+    importFromSigma: "Aus Sigma importieren",
     sigmaConnection: "Sigma-Verbindung",
     sigmaConnectedTo: "Verbunden mit {{name}}",
     sigmaChooseConnection: "Sigma-Verbindung",
@@ -59,9 +59,37 @@ export default {
     sigmaChooseConnectionDescription:
       "Wähle den Sigma-Arbeitsbereich aus, dessen Arbeitsmappen du anzeigen möchtest.",
     sigmaNoConnection: "Sigma ist nicht verbunden",
+    sigmaClientId: "Client-ID",
+    sigmaClientSecret: "Client-Secret",
+    sigmaBaseUrl: "API-Basis-URL (optional)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Sigma verbinden",
+    sigmaConnecting: "Verbindung zu Sigma wird hergestellt…",
+    sigmaConnectFailed:
+      "Diese Sigma-Verbindung konnte nicht überprüft werden. Prüfe die Anmeldedaten und die API-Region und versuche es erneut.",
+    sigmaCredentialStageFailed:
+      "Die temporären Sigma-Zugangsdaten konnten nicht gespeichert werden. Prüfe den Vault-Zugriff und versuche es erneut.",
+    sigmaCredentialsRequired:
+      "Speichere zuerst die Sigma-Client-ID und das Client-Secret.",
+    sigmaBaseUrlInvalid:
+      "Verwende eine HTTPS-URL der Sigma-API unter einer sigmacomputing.com-Domain.",
+    sigmaPersistenceUnavailable:
+      "Analytics kann die Sigma-Verbindung derzeit nicht sicher speichern. Versuche es erneut.",
+    sigmaPolicyInvalid:
+      "Die vorhandene Analytics-Sigma-Verbindung hat eine unerwartete Zugriffsrichtlinie. Verbinde sie vor einem erneuten Versuch in Dispatch neu.",
+    sigmaSaveFailed:
+      "Die Sigma-Zugangsdaten wurden überprüft, aber Analytics konnte sie nicht speichern. Die vorherige Verbindung ist unverändert. Versuche es erneut.",
+    sigmaCleanupPending:
+      "Temporäre Sigma-Einrichtungsdaten bleiben bestehen, bis die Bereinigung erfolgreich ist.",
+    sigmaCleanupFailed:
+      "Die temporären Sigma-Zugangsdaten konnten nicht gelöscht werden. Versuche die Bereinigung erneut.",
+    sigmaRetryCleanup: "Bereinigung erneut versuchen",
+    sigmaDirectCredentialsUnavailable:
+      "Die gespeicherten Analytics-Sigma-Zugangsdaten konnten nicht gelesen werden. Ein Organisationsadmin kann Sigma in Dispatch erneut verbinden oder die Zugangsdaten in Analytics neu eingeben.",
     sigmaNoConnectionDescription:
-      "Öffne Dispatch und bitte es, Sigma mit Analytics zu verbinden. Zugangsdaten bleiben im Vault.",
-    sigmaOpenDispatch: "In Dispatch einrichten",
+      "Gib hier Zugangsdaten ein, um eine nur für Analytics verfügbare Verbindung zu erstellen. In Dispatch für Analytics freigegebene Sigma-Verbindungen erscheinen hier automatisch; nur Organisationsadmins können Zugangsdaten direkt speichern.",
+    sigmaOpenDispatch: "In Dispatch verbinden",
+    sigmaOpenVault: "Vault öffnen",
     sigmaWorkbooksLoadFailed:
       "Sigma-Arbeitsmappen konnten nicht geladen werden",
     sigmaRetryConnection: "Überprüfe die Verbindung und versuche es erneut.",
@@ -74,7 +102,7 @@ export default {
     sigmaStatusImported: "Importiert",
     sigmaStatusFailed: "Import fehlgeschlagen",
     sigmaArchived: "Archiviert",
-    sigmaPreviewTitle: "Arbeitsmappenvorschau",
+    sigmaPreviewTitle: "Inhalte der Arbeitsmappe",
     sigmaPreviewFailed: "Diese Arbeitsmappe konnte nicht angezeigt werden",
     sigmaRetryPreview: "Lade die Arbeitsmappenvorschau erneut.",
     sigmaImportableCount: "{{count}} importierbar",

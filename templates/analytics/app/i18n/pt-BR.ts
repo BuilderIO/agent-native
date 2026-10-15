@@ -51,7 +51,7 @@ export default {
     moveDashboard: "Mover painel",
     folderCreateFailed: "Não foi possível criar a pasta",
     moveFailed: "Não foi possível mover o painel",
-    previewSigma: "Pré-visualizar Sigma",
+    importFromSigma: "Importar do Sigma",
     sigmaConnection: "Conexão do Sigma",
     sigmaConnectedTo: "Conectado a {{name}}",
     sigmaChooseConnection: "Conexão do Sigma",
@@ -59,9 +59,37 @@ export default {
     sigmaChooseConnectionDescription:
       "Escolha o espaço de trabalho do Sigma para ver as pastas de trabalho.",
     sigmaNoConnection: "O Sigma não está conectado",
+    sigmaClientId: "ID do cliente",
+    sigmaClientSecret: "Segredo do cliente",
+    sigmaBaseUrl: "URL base da API (opcional)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Conectar Sigma",
+    sigmaConnecting: "Conectando ao Sigma…",
+    sigmaConnectFailed:
+      "Não foi possível verificar esta conexão do Sigma. Confira as credenciais e a região da API e tente novamente.",
+    sigmaCredentialStageFailed:
+      "Não foi possível armazenar as credenciais temporárias do Sigma. Verifique o acesso ao Vault e tente novamente.",
+    sigmaCredentialsRequired:
+      "Salve primeiro o ID e o segredo do cliente Sigma.",
+    sigmaBaseUrlInvalid:
+      "Use uma URL HTTPS da API do Sigma em um domínio sigmacomputing.com.",
+    sigmaPersistenceUnavailable:
+      "O Analytics não pode salvar a conexão do Sigma com segurança agora. Tente novamente.",
+    sigmaPolicyInvalid:
+      "A conexão existente do Sigma no Analytics tem uma política de acesso inesperada. Reconecte-a no Dispatch antes de tentar novamente.",
+    sigmaSaveFailed:
+      "As credenciais do Sigma foram verificadas, mas o Analytics não conseguiu salvá-las. A conexão anterior não foi alterada. Tente novamente.",
+    sigmaCleanupPending:
+      "As credenciais temporárias de configuração do Sigma permanecerão até que a limpeza seja concluída com sucesso.",
+    sigmaCleanupFailed:
+      "Não foi possível limpar as credenciais temporárias do Sigma. Tente a limpeza novamente.",
+    sigmaRetryCleanup: "Tentar limpeza novamente",
+    sigmaDirectCredentialsUnavailable:
+      "Não foi possível ler as credenciais do Sigma salvas no Analytics. Um administrador da organização pode reconectar no Dispatch ou inserir as credenciais novamente no Analytics.",
     sigmaNoConnectionDescription:
-      "Abra o Dispatch e peça para conectar o Sigma ao Analytics. As credenciais permanecem no Vault.",
-    sigmaOpenDispatch: "Configurar no Dispatch",
+      "Insira as credenciais aqui para criar uma conexão exclusiva do Analytics. As conexões do Sigma concedidas ao Analytics no Dispatch aparecem aqui automaticamente; somente administradores da organização podem salvar credenciais diretamente.",
+    sigmaOpenDispatch: "Conectar no Dispatch",
+    sigmaOpenVault: "Abrir Vault",
     sigmaWorkbooksLoadFailed:
       "Não foi possível carregar as pastas de trabalho do Sigma",
     sigmaRetryConnection: "Verifique a conexão e tente novamente.",
@@ -74,7 +102,7 @@ export default {
     sigmaStatusImported: "Importado",
     sigmaStatusFailed: "Falha na importação",
     sigmaArchived: "Arquivado",
-    sigmaPreviewTitle: "Prévia da pasta de trabalho",
+    sigmaPreviewTitle: "Conteúdo da pasta de trabalho",
     sigmaPreviewFailed: "Não foi possível visualizar esta pasta de trabalho",
     sigmaRetryPreview: "Tente carregar a prévia da pasta novamente.",
     sigmaImportableCount: "{{count}} importáveis",

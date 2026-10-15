@@ -61,6 +61,7 @@ import { toast } from "sonner";
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { ClipsAvatar } from "@/components/clips-avatar";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
+import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
@@ -120,6 +121,7 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
+import { missingShareRetryDelayMs } from "@/lib/missing-share-retry";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
   readRecoverableRecordingBackupForServerId,
@@ -400,8 +402,6 @@ const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
-const MISSING_SHARE_RETRY_LIMIT = 8;
-const MISSING_SHARE_RETRY_INTERVAL_MS = [250, 500, 1000, 2000] as const;
 
 function SharePageSkeleton() {
   return (
@@ -758,7 +758,15 @@ export default function ShareRoute() {
       if (agentAccessToken) {
         url.searchParams.set(CLIPS_AGENT_ACCESS_PARAM, agentAccessToken);
       }
-      const res = await fetch(url.toString());
+      const cachedMediaAccessToken = queryClient.getQueryData<{
+        data?: { recording?: { mediaAccessToken?: unknown } };
+      }>(shareQueryKey)?.data?.recording?.mediaAccessToken;
+      const res = await fetch(url.toString(), {
+        headers:
+          typeof cachedMediaAccessToken === "string" && cachedMediaAccessToken
+            ? { "x-clips-media-token": cachedMediaAccessToken }
+            : undefined,
+      });
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };
     },
@@ -768,9 +776,12 @@ export default function ShareRoute() {
       const status = (q.state.data as { status?: number } | undefined)?.status;
       const updateCount =
         queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0;
-      if (status === 404 && updateCount < MISSING_SHARE_RETRY_LIMIT) {
-        return MISSING_SHARE_RETRY_INTERVAL_MS[updateCount - 1] ?? 2000;
-      }
+      const retryDelay = missingShareRetryDelayMs({
+        status,
+        updateCount,
+        loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
+      });
+      if (retryDelay !== null) return retryDelay;
       const rec = payload?.recording;
       if (!rec) return false;
       // Poll while the recording is still being assembled / transcoded so the
@@ -1301,9 +1312,12 @@ export default function ShareRoute() {
   }, [retrySession, sessionStatus, shareNeedsSession]);
 
   const retryingMissingShare =
-    dataQ.data?.status === 404 &&
-    (queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0) <
-      MISSING_SHARE_RETRY_LIMIT;
+    missingShareRetryDelayMs({
+      status: dataQ.data?.status,
+      updateCount:
+        queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0,
+      loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
+    }) !== null;
 
   if (
     dataQ.isLoading ||
@@ -2139,6 +2153,11 @@ export default function ShareRoute() {
               value="transcript"
               className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3"
             >
+              <RecordingContextSection
+                recordingId={recording.id}
+                canManage={false}
+                accessToken={recording.mediaAccessToken ?? undefined}
+              />
               <TranscriptPanel
                 segments={transcriptSegments}
                 fullText={transcriptFullText}

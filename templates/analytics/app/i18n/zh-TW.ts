@@ -183,16 +183,41 @@ export default {
     moveDashboard: "移動儀表板",
     folderCreateFailed: "無法建立資料夾",
     moveFailed: "無法移動儀表板",
-    previewSigma: "預覽 Sigma",
+    importFromSigma: "從 Sigma 匯入",
     sigmaConnection: "Sigma 連線",
     sigmaConnectedTo: "已連線至 {{name}}",
     sigmaChooseConnection: "Sigma 連線",
     sigmaChooseConnectionPlaceholder: "選擇連線",
     sigmaChooseConnectionDescription: "選擇要瀏覽其活頁簿的 Sigma 工作區。",
     sigmaNoConnection: "尚未連線 Sigma",
+    sigmaClientId: "用戶端 ID",
+    sigmaClientSecret: "用戶端密鑰",
+    sigmaBaseUrl: "API 基礎 URL（選填）",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "連線 Sigma",
+    sigmaConnecting: "正在連線 Sigma…",
+    sigmaConnectFailed:
+      "無法驗證此 Sigma 連線。請檢查認證資料和 API 區域，然後再試一次。",
+    sigmaCredentialStageFailed:
+      "無法暫存 Sigma 臨時認證資料。請檢查 Vault 存取權限後再試一次。",
+    sigmaCredentialsRequired: "請先儲存 Sigma 用戶端 ID 和用戶端密鑰。",
+    sigmaBaseUrlInvalid:
+      "請使用 sigmacomputing.com 網域下的 HTTPS Sigma API URL。",
+    sigmaPersistenceUnavailable:
+      "Analytics 目前無法安全地儲存 Sigma 連線。請再試一次。",
+    sigmaPolicyInvalid:
+      "現有的 Analytics Sigma 連線具有非預期的存取政策。請先在 Dispatch 中重新連線，再試一次。",
+    sigmaSaveFailed:
+      "Sigma 認證資料已驗證，但 Analytics 無法儲存。先前的連線未變更。請再試一次。",
+    sigmaCleanupPending: "Sigma 暫存設定認證資料會保留，直到清理成功。",
+    sigmaCleanupFailed: "無法清除 Sigma 臨時認證資料。請重試清理。",
+    sigmaRetryCleanup: "重試清理",
+    sigmaDirectCredentialsUnavailable:
+      "無法讀取 Analytics 儲存的 Sigma 認證資料。組織管理員可以在 Dispatch 重新連線，或在 Analytics 重新輸入認證資料。",
     sigmaNoConnectionDescription:
-      "開啟 Dispatch 並請它將 Sigma 連線至 Analytics。憑證會保留在 Vault 中。",
-    sigmaOpenDispatch: "在 Dispatch 中設定",
+      "在此輸入認證資料以建立僅供 Analytics 使用的連線。在 Dispatch 中授權 Analytics 使用的 Sigma 連線會自動顯示於此；只有組織管理員可以直接儲存認證資料。",
+    sigmaOpenDispatch: "在 Dispatch 中連線",
+    sigmaOpenVault: "開啟 Vault",
     sigmaWorkbooksLoadFailed: "無法載入 Sigma 活頁簿",
     sigmaRetryConnection: "檢查連線後再試一次。",
     sigmaRetry: "重試",
@@ -204,7 +229,7 @@ export default {
     sigmaStatusImported: "已匯入",
     sigmaStatusFailed: "匯入失敗",
     sigmaArchived: "已封存",
-    sigmaPreviewTitle: "活頁簿預覽",
+    sigmaPreviewTitle: "活頁簿內容",
     sigmaPreviewFailed: "無法預覽此活頁簿",
     sigmaRetryPreview: "重試以載入活頁簿預覽。",
     sigmaImportableCount: "{{count}} 個可匯入",
