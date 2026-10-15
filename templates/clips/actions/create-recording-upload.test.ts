@@ -51,7 +51,7 @@ beforeEach(() => {
     recordingId: "rec-1",
     orgId: "org-1",
     tokenHash: "hash",
-    token: "clipsup_example-ticket",
+    token: "fake-ticket",
     expiresAt: Date.parse("2026-10-14T14:00:00.000Z"),
   });
 });
@@ -97,7 +97,7 @@ describe("create-recording-upload", () => {
       shareUrl: "https://clips.example/share/rec-1",
       method: "POST",
       headers: {
-        Authorization: "Bearer clipsup_example-ticket",
+        Authorization: "Bearer fake-ticket",
         "Content-Type": "video/mp4",
       },
       chunkSizeBytes: 3 * MIB,
