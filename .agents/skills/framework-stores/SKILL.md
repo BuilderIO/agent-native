@@ -92,14 +92,16 @@ Then run, in this order:
 
 `ready()` picks a mode from who owns the schema:
 
-- **apply** — the release step (`withMigrationRuntime`), under a lease in
-  `_an_store_migration_lock`. The only ledger writer; it verifies the ledger
-  against the registry afterwards.
+- **apply** — the release step (`withMigrationRuntime`, under a lease in
+  `_an_store_migration_lock`, verifying the ledger against the registry
+  afterwards), plus local dev, tests and self-hosted Node. Each migration runs
+  once per database. Specs that mock `getDbExec` answer ledger statements with
+  `db/store-ledger.test-helpers.ts`.
 - **trust** — hosted function of an app that migrates at release. No schema
   work at all, not even a ledger read.
-- **hosted-replay** / **replay** — hosted apps without release migrations,
-  local dev, tests, self-hosted. Runs migrations idempotently, as before,
-  without touching the ledger.
+- **hosted-replay** — hosted apps without release migrations. Runs migrations
+  idempotently, as before, and never writes the ledger: previews share
+  production's database and request writes can roll back.
 
 `SchemaNotMigratedError` is raised by the release step when the ledger does
 not cover the code being shipped. It fails that deploy; fix the migration or

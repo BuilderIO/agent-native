@@ -340,9 +340,61 @@ describe("database switch", () => {
   });
 });
 
-describe("replay (local and self-provisioning runtimes)", () => {
+describe("local and self-hosted runtimes", () => {
   it("creates tables on first use without a release step", async () => {
     const { table, store } = widgetStore();
+
+    await store.ready();
+
+    expect(await tableExists(table)).toBe(true);
+  });
+
+  it("runs each migration once per database, not once per process", async () => {
+    const counter = `widgets_${++seq}`;
+    const migrations = [
+      {
+        name: "baseline",
+        sql: `CREATE TABLE IF NOT EXISTS ${counter} (n INTEGER)`,
+      },
+      {
+        name: "seed",
+        kind: "data" as const,
+        sql: `INSERT INTO ${counter} (n) VALUES (1)`,
+      },
+    ];
+    await defineStore({ id: counter, migrations }).ready();
+    // A new process: fresh memo and ledger view, same database.
+    __resetStoreLedgerSnapshotForTests();
+    await defineStore({ id: counter, migrations }).ready();
+
+    const { rows } = await getDbExec().execute(
+      `SELECT count(*)::int AS n FROM ${counter}`,
+    );
+    expect(rows[0]?.n).toBe(1);
+  });
+
+  it("recovers when the ledger disappears behind a live executor", async () => {
+    await widgetStore().store.ready();
+    await getDbExec().execute(`DROP TABLE ${STORE_MIGRATIONS_TABLE}`);
+
+    const { table, store } = widgetStore();
+    await store.ready();
+
+    expect(await tableExists(table)).toBe(true);
+  });
+
+  it("does not let readiness from one executor stand in for another", async () => {
+    const { table, store } = widgetStore();
+    const real = getDbExec();
+    const { withDbExec } = await import("./client.js");
+    // A transaction-scoped executor that rolls back: nothing it applied may
+    // be remembered for the shared executor.
+    await withDbExec({ execute: real.execute.bind(real) }, () => store.ready());
+    await getDbExec().execute(`DROP TABLE ${table}`);
+    await getDbExec().execute({
+      sql: `DELETE FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+      args: [table],
+    });
 
     await store.ready();
 

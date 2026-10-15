@@ -26,7 +26,11 @@ import {
   withMigrationExecutionRuntime,
 } from "./migration-runtime.js";
 import { retainRequestDbPoolScope } from "./request-pool-context.js";
-import { dbClientGeneration, retryOnDdlRace } from "./runtime-facts.js";
+import {
+  dbClientGeneration,
+  retryOnDdlRace,
+  runRecordingStoreMigration,
+} from "./runtime-facts.js";
 
 export const STORE_MIGRATIONS_TABLE = "_an_store_migrations";
 
@@ -96,7 +100,7 @@ export class SchemaNotMigratedError extends Error {
   }
 }
 
-type Readiness = "apply" | "trust" | "replay" | "hosted-replay" | "skip";
+type Readiness = "apply" | "trust" | "hosted-replay" | "skip";
 
 function isHostedRuntime(): boolean {
   return (
@@ -130,7 +134,12 @@ function readiness(): Readiness {
   // a sitewide error by every request.
   if (schemaIsReleaseOwned()) return "trust";
   if (schemaEnsureSkipRequested()) return "skip";
-  return isHostedRuntime() ? "hosted-replay" : "replay";
+  // Hosted requests never write the ledger: PR previews share production's
+  // database and a request's writes can roll back with its caller.
+  if (isHostedRuntime()) return "hosted-replay";
+  // Local dev, tests and self-hosted servers own their database, so they
+  // record migrations like the release step: each runs once per database.
+  return "apply";
 }
 
 function statementsOf(migration: StoreMigration): readonly string[] {
@@ -173,20 +182,52 @@ async function runMigration(
   if (migration.run) await retryOnDdlRace(() => migration.run!(exec));
 }
 
-async function applyWithLedger(store: StoreDefinition): Promise<void> {
-  const exec = getDbExec();
-  if (!ledgerPresent) {
-    await retryOnDdlRace(() => exec.execute(LEDGER_DDL));
-    ledgerPresent = true;
+async function applyWithLedger(
+  store: StoreDefinition,
+  exec: DbExec,
+): Promise<void> {
+  try {
+    await applyPending(store, exec);
+  } catch (err) {
+    // The ledger can vanish behind a long-lived executor (a database dropped
+    // and recreated under the same client). Rebuild this executor's view once
+    // rather than failing every store until the process restarts.
+    if (!isMissingLedger(err)) throw err;
+    ledgerStates.delete(exec);
+    await applyPending(store, exec);
   }
-  const recorded = (await readLedgerSnapshot()).get(store.id);
+}
+
+function isMissingLedger(err: unknown): boolean {
+  for (let e = err as any, depth = 0; e && depth < 4; e = e.cause, depth++) {
+    if (
+      (e.code === "42P01" ||
+        /relation .* does not exist/i.test(String(e.message ?? ""))) &&
+      String(e.message ?? "").includes(STORE_MIGRATIONS_TABLE)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function applyPending(
+  store: StoreDefinition,
+  exec: DbExec,
+): Promise<void> {
+  const state = ledgerStateFor(exec);
+  if (!state.present) {
+    await retryOnDdlRace(() => exec.execute(LEDGER_DDL));
+    state.present = true;
+  }
+  const recorded = (await readLedgerSnapshot(exec)).get(store.id);
   if (recorded && store.migrations.every((m) => recorded.has(m.name))) return;
 
   const applied = new Set(recorded);
   for (const migration of store.migrations) {
     if (applied.has(migration.name)) continue;
     try {
-      await runMigration(migration, exec);
+      await runRecordingStoreMigration(() => runMigration(migration, exec));
     } catch (err) {
       throw new Error(
         `Store "${store.id}" migration "${migration.name}" failed: ${
@@ -207,7 +248,7 @@ async function applyWithLedger(store: StoreDefinition): Promise<void> {
     });
     applied.add(migration.name);
   }
-  ledgerSnapshot = undefined;
+  state.snapshot = undefined;
 }
 
 async function replay(store: StoreDefinition): Promise<void> {
@@ -217,27 +258,42 @@ async function replay(store: StoreDefinition): Promise<void> {
   }
 }
 
-let ledgerSnapshot: Promise<Map<string, Set<string>>> | undefined;
-let ledgerPresent = false;
+interface LedgerState {
+  snapshot?: Promise<Map<string, Set<string>>>;
+  present: boolean;
+}
+
+/**
+ * Ledger state is per database executor, not per process. A transaction
+ * (`withDbExec(tx, ...)`) gets its own, so nothing it records can outlive a
+ * rollback; tests that hand each case a fresh database get a fresh ledger
+ * view; and `closeDbExec()` replaces the shared executor, which starts over.
+ */
+let ledgerStates = new WeakMap<DbExec, LedgerState>();
 const allPending = new Set<Map<Readiness, Promise<void>>>();
 let stateGeneration: number | undefined;
 
+function ledgerStateFor(exec: DbExec): LedgerState {
+  let state = ledgerStates.get(exec);
+  if (!state) ledgerStates.set(exec, (state = { present: false }));
+  return state;
+}
+
 /**
- * Ledger state and every store's memo describe one database. Closing the
- * database clients (tests, dev reloads, a process that migrates several
- * databases) may point the next query at another, so start over.
+ * Process-wide memos (hosted replay, trust, skip) describe one database.
+ * Closing the database clients (tests, dev reloads) may point the next query
+ * at another, so start over.
  */
 function syncWithDatabaseGeneration(): void {
   const generation = dbClientGeneration();
   if (stateGeneration === generation) return;
   stateGeneration = generation;
-  ledgerSnapshot = undefined;
-  ledgerPresent = false;
+  ledgerStates = new WeakMap();
   for (const pending of allPending) pending.clear();
 }
 
-async function loadLedger(): Promise<Map<string, Set<string>>> {
-  const { rows } = await getDbExec().execute(
+async function loadLedger(exec: DbExec): Promise<Map<string, Set<string>>> {
+  const { rows } = await exec.execute(
     // guard:allow-unbounded-read — one row per declared migration; this is the single shared read
     `SELECT store_id, name FROM ${STORE_MIGRATIONS_TABLE}`,
   );
@@ -251,10 +307,11 @@ async function loadLedger(): Promise<Map<string, Set<string>>> {
   return ledger;
 }
 
-function readLedgerSnapshot(): Promise<Map<string, Set<string>>> {
-  const snapshot = (ledgerSnapshot ??= loadLedger());
+function readLedgerSnapshot(exec: DbExec): Promise<Map<string, Set<string>>> {
+  const state = ledgerStateFor(exec);
+  const snapshot = (state.snapshot ??= loadLedger(exec));
   snapshot.catch(() => {
-    if (ledgerSnapshot === snapshot) ledgerSnapshot = undefined;
+    if (state.snapshot === snapshot) state.snapshot = undefined;
   });
   return snapshot;
 }
@@ -267,8 +324,9 @@ function readLedgerSnapshot(): Promise<Map<string, Set<string>>> {
 export async function findUnappliedStoreMigrations(
   stores: readonly StoreDefinition[],
 ): Promise<Array<{ storeId: string; missing: string[] }>> {
-  ledgerSnapshot = undefined;
-  const ledger = await readLedgerSnapshot();
+  const exec = getDbExec();
+  ledgerStateFor(exec).snapshot = undefined;
+  const ledger = await readLedgerSnapshot(exec);
   return stores
     .map((store) => ({
       storeId: store.id,
@@ -405,6 +463,7 @@ export function defineStore(definition: StoreDefinition): Store {
 
   const pending = new Map<Readiness, Promise<void>>();
   allPending.add(pending);
+  let applied = new WeakMap<DbExec, Promise<void>>();
   const store: Store = {
     id,
     releaseOnly: definition.releaseOnly,
@@ -412,18 +471,27 @@ export function defineStore(definition: StoreDefinition): Store {
     ready() {
       syncWithDatabaseGeneration();
       const mode = readiness();
+      if (mode === "apply") {
+        const exec = getDbExec();
+        const existing = applied.get(exec);
+        if (existing) return existing;
+        const tracked = retainRequestDbPoolScope(
+          applyWithLedger(store, exec).catch((err) => {
+            if (applied.get(exec) === tracked) applied.delete(exec);
+            throw err;
+          }),
+        );
+        applied.set(exec, tracked);
+        return tracked;
+      }
       const existing = pending.get(mode);
       if (existing) return existing;
       const run =
-        mode === "apply"
-          ? applyWithLedger(store)
-          : mode === "hosted-replay"
-            ? definition.releaseOnly
-              ? Promise.resolve()
-              : withMigrationExecutionRuntime(() => replay(store))
-            : mode === "replay"
-              ? replay(store)
-              : Promise.resolve();
+        mode === "hosted-replay"
+          ? definition.releaseOnly
+            ? Promise.resolve()
+            : withMigrationExecutionRuntime(() => replay(store))
+          : Promise.resolve();
       // The memo outlives the request that started it; on Workers that
       // request's pool must stay open until the work settles.
       const tracked = retainRequestDbPoolScope(
@@ -437,12 +505,12 @@ export function defineStore(definition: StoreDefinition): Store {
     },
     reset() {
       pending.clear();
+      applied = new WeakMap();
     },
   };
   return store;
 }
 
 export function __resetStoreLedgerSnapshotForTests(): void {
-  ledgerSnapshot = undefined;
-  ledgerPresent = false;
+  ledgerStates = new WeakMap();
 }

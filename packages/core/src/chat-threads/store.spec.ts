@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+
 const executeMock = vi.hoisted(() => vi.fn());
 const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
 
@@ -12,6 +14,15 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureIndexExists: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
+
+// The store's widen-bigint migration reads the catalog; a recorded migration
+// surfaces that read's failure instead of swallowing it.
+function storeBootstrapResult(sql: string) {
+  if (/FROM information_schema\.columns/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
+  return storeLedgerResult(sql);
+}
 
 vi.mock("./emitter.js", () => ({
   emitChatThreadChange: emitChatThreadChangeMock,
@@ -109,6 +120,8 @@ describe("chat thread store", () => {
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -2428,6 +2441,8 @@ describe("chat thread store", () => {
   it("searches thread text with literal LIKE metacharacters", async () => {
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -2471,6 +2486,8 @@ describe("chat thread store", () => {
     };
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -2520,6 +2537,8 @@ describe("chat thread store", () => {
     };
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
         return { rows: [summaryRow], rowsAffected: 0 };
       }
@@ -2582,6 +2601,8 @@ describe("chat thread store", () => {
 
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -2650,6 +2671,8 @@ describe("chat thread store", () => {
     let repairScans = 0;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -2725,6 +2748,8 @@ describe("chat thread store", () => {
     const rows = new Map<string, ChatThreadRow>();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -3100,6 +3125,8 @@ describe("chat thread store", () => {
     ]);
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -3207,6 +3234,8 @@ describe("chat thread store", () => {
     ]);
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -3301,6 +3330,8 @@ describe("chat thread store", () => {
     let insertedThreadData: string | undefined;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -3413,6 +3444,8 @@ describe("adoptThreadScopeIfUnscoped", () => {
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
