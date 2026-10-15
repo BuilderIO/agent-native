@@ -57,6 +57,8 @@ const RECORDINGS_DDL = `
     id TEXT PRIMARY KEY,
     owner_email TEXT NOT NULL,
     visibility TEXT NOT NULL DEFAULT 'private',
+    password TEXT,
+    share_password_version TEXT,
     source_app_name TEXT,
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT ''
@@ -90,6 +92,8 @@ export interface SeedRecordingOptions {
   id: string;
   ownerEmail?: string;
   visibility?: string;
+  password?: string | null;
+  sharePasswordVersion?: string | null;
   sourceAppName?: string | null;
   createdAt?: string;
 }
@@ -99,11 +103,13 @@ export async function seedRecording(
   options: SeedRecordingOptions,
 ): Promise<void> {
   await client.query(
-    `INSERT INTO recordings (id, owner_email, visibility, source_app_name, created_at) VALUES ($1, $2, $3, $4, $5)`,
+    `INSERT INTO recordings (id, owner_email, visibility, password, share_password_version, source_app_name, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [
       options.id,
       options.ownerEmail ?? "owner@example.com",
       options.visibility ?? "private",
+      options.password ?? null,
+      options.sharePasswordVersion ?? null,
       options.sourceAppName ?? null,
       options.createdAt ?? RECORDING_CREATED_AT,
     ],

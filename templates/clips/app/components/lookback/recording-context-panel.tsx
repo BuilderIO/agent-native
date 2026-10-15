@@ -60,17 +60,45 @@ export function isAuthenticatedRecordingPath(
 }
 
 // Same route the editor and the Rewind extension use for a recording's own video.
-export function contextVideoSrc(mediaRecordingId: string): string {
-  return `${appBasePath()}/api/video/${encodeURIComponent(mediaRecordingId)}`;
+export function contextVideoSrc(
+  mediaRecordingId: string,
+  accessToken?: string,
+): string {
+  const src = `${appBasePath()}/api/video/${encodeURIComponent(mediaRecordingId)}`;
+  return accessToken ? `${src}?t=${encodeURIComponent(accessToken)}` : src;
+}
+
+export function recordingAccessTokenFromVideoUrl(
+  videoUrl: string | null | undefined,
+  recordingId: string,
+): string | undefined {
+  if (!videoUrl) return undefined;
+  try {
+    const parsed = new URL(videoUrl, "http://local.test");
+    const clipRoute = `/api/video/${encodeURIComponent(recordingId)}`;
+    if (
+      parsed.origin !== "http://local.test" ||
+      !parsed.pathname.endsWith(clipRoute)
+    ) {
+      return undefined;
+    }
+    return parsed.searchParams.get("t") ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function useRecordingContextItems(
   recordingId: string | undefined,
   enabled: boolean,
+  accessToken?: string,
 ) {
   return useActionQuery<ListRecordingContextResult>(
     "list-recording-context",
-    { recordingId: recordingId ?? "" },
+    {
+      recordingId: recordingId ?? "",
+      ...(accessToken ? { accessToken } : {}),
+    },
     {
       enabled: enabled && Boolean(recordingId),
       refetchInterval: (query) =>
@@ -87,9 +115,11 @@ export function useRecordingContextItems(
 export function RecordingContextSection({
   recordingId,
   canManage = true,
+  accessToken,
 }: {
   recordingId: string | undefined;
   canManage?: boolean;
+  accessToken?: string;
 }) {
   const location = useLocation();
   const { session } = useSession();
@@ -114,7 +144,7 @@ export function RecordingContextSection({
           CONTEXT_SYNC_ACTIONS.has(event.key),
       ),
   });
-  const itemsQuery = useRecordingContextItems(recordingId, true);
+  const itemsQuery = useRecordingContextItems(recordingId, true, accessToken);
   const { isError, error } = itemsQuery;
   useEffect(() => {
     if (isError) captureClientException(error);
@@ -124,19 +154,25 @@ export function RecordingContextSection({
     return null;
   }
   return (
-    <RecordingContextPanel recordingId={recordingId} canManage={canManage} />
+    <RecordingContextPanel
+      recordingId={recordingId}
+      canManage={canManage}
+      accessToken={accessToken}
+    />
   );
 }
 
 export function RecordingContextPanel({
   recordingId,
   canManage = true,
+  accessToken,
 }: {
   recordingId: string;
   canManage?: boolean;
+  accessToken?: string;
 }) {
   const t = useT();
-  const itemsQuery = useRecordingContextItems(recordingId, true);
+  const itemsQuery = useRecordingContextItems(recordingId, true, accessToken);
   // Hides an item as soon as its removal lands, without waiting for the refetch.
   const [removedIds, setRemovedIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -163,6 +199,7 @@ export function RecordingContextPanel({
               <ContextItemCard
                 item={item}
                 canManage={canManage}
+                accessToken={accessToken}
                 onRemoved={markRemoved}
               />
             </li>
@@ -209,10 +246,12 @@ function ContextPanelSkeleton() {
 function ContextItemCard({
   item,
   canManage,
+  accessToken,
   onRemoved,
 }: {
   item: RecordingContextItem;
   canManage: boolean;
+  accessToken?: string;
   onRemoved: (id: string) => void;
 }) {
   const t = useT();
@@ -227,7 +266,7 @@ function ContextItemCard({
   });
   const src =
     item.status === "ready" && item.mediaRecordingId
-      ? contextVideoSrc(item.mediaRecordingId)
+      ? contextVideoSrc(item.mediaRecordingId, accessToken)
       : null;
   // Only a pending item waits on its device. A processing item is already
   // claimed by that device, so it keeps the saving text.

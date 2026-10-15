@@ -61,6 +61,10 @@ import { toast } from "sonner";
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { ClipsAvatar } from "@/components/clips-avatar";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
+import {
+  RecordingContextSection,
+  recordingAccessTokenFromVideoUrl,
+} from "@/components/lookback/recording-context-panel";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
@@ -2069,6 +2073,14 @@ export default function ShareRoute() {
               value="transcript"
               className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3"
             >
+              <RecordingContextSection
+                recordingId={recording.id}
+                canManage={false}
+                accessToken={recordingAccessTokenFromVideoUrl(
+                  recording.videoUrl,
+                  recording.id,
+                )}
+              />
               <TranscriptPanel
                 segments={transcriptSegments}
                 fullText={transcriptFullText}

@@ -47,7 +47,7 @@ import {
   verifyShortLivedToken,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getCookie,
@@ -87,6 +87,7 @@ interface RecordingRow {
   ownerEmail?: string | null;
   password?: string | null;
   sharePasswordVersion?: string | null;
+  trashedAt?: string | null;
   updatedAt?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
@@ -325,7 +326,7 @@ async function contextClipIdForFootage(
     .where(
       and(
         eq(schema.recordingContextItems.mediaRecordingId, footageId),
-        ne(schema.recordingContextItems.status, "removed"),
+        eq(schema.recordingContextItems.status, "ready"),
       ),
     )
     .limit(1);
@@ -394,6 +395,10 @@ export default defineEventHandler(async (event: H3Event) => {
           .where(eq(schema.recordings.id, recordingId))
           .limit(1);
         if (!footage) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+        if (footage.trashedAt) {
           setResponseStatus(event, 404);
           return { error: "Not found" };
         }

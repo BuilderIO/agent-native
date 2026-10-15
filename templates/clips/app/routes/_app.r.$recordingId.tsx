@@ -80,7 +80,10 @@ import {
   PageHeader,
   type PageBreadcrumbItem,
 } from "@/components/library/page-header";
-import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
+import {
+  RecordingContextSection,
+  recordingAccessTokenFromVideoUrl,
+} from "@/components/lookback/recording-context-panel";
 import {
   BrowserDiagnosticsPanel,
   isFullBrowserDiagnostics,
@@ -2466,6 +2469,10 @@ export default function RecordingPage() {
         >
           <RecordingContextSection
             canManage={role === "owner"}
+            accessToken={recordingAccessTokenFromVideoUrl(
+              recording.videoUrl,
+              recording.id,
+            )}
             recordingId={
               recordingId === VIEWER_REDESIGN_PREVIEW_ID
                 ? undefined

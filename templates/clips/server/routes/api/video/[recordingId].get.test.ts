@@ -18,6 +18,9 @@ const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
 const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
 const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
+const mockAnd = vi.hoisted(() => vi.fn());
+const mockEq = vi.hoisted(() => vi.fn());
+const mockNe = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -79,9 +82,9 @@ vi.mock("../../../lib/share-password.js", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
-  and: vi.fn(),
-  eq: vi.fn(),
-  ne: vi.fn(),
+  and: (...args: unknown[]) => mockAnd(...args),
+  eq: (...args: unknown[]) => mockEq(...args),
+  ne: (...args: unknown[]) => mockNe(...args),
 }));
 
 vi.mock("../../../db/index.js", () => ({
@@ -92,6 +95,7 @@ vi.mock("../../../db/index.js", () => ({
       visibility: "recordings.visibility",
       videoUrl: "recordings.videoUrl",
       editsJson: "recordings.editsJson",
+      trashedAt: "recordings.trashedAt",
     },
     recordingContextItems: {
       recordingId: "recordingContextItems.recordingId",
@@ -154,6 +158,8 @@ function makeEvent() {
 describe("/api/video/:recordingId route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockVerifyShortLivedToken.mockReset();
+    mockSignShortLivedToken.mockReset();
     vi.stubGlobal("fetch", vi.fn());
     mockGetRouterParam.mockImplementation((event, name) => {
       return event.routerParams?.[String(name)];
@@ -726,6 +732,7 @@ describe("/api/video/:recordingId route", () => {
       videoUrl: "https://cdn.example.com/footage.mp4",
       ownerEmail: "owner@example.com",
       organizationId: null,
+      trashedAt: null,
     };
 
     it("is served under the access of the clip it is attached to", async () => {
@@ -752,6 +759,10 @@ describe("/api/video/:recordingId route", () => {
 
       expect(mockResolveAccess).toHaveBeenCalledWith("recording", "clip-1");
       expect(mockResolveAccess).not.toHaveBeenCalledWith("recording", "rec-1");
+      expect(mockEq).toHaveBeenCalledWith(
+        "recordingContextItems.status",
+        "ready",
+      );
       expect(result).toBeInstanceOf(Response);
       expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
         "https://cdn.example.com/footage.mp4",
@@ -793,6 +804,79 @@ describe("/api/video/:recordingId route", () => {
         passwordRequired: true,
       });
       expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("does not serve footage once it has been moved to Trash", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence(
+          [{ recordingId: "clip-1" }],
+          [{ ...footageRow, trashedAt: "2026-10-14T12:00:00.000Z" }],
+        ),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: { visibility: "public", password: null },
+      });
+
+      const event = makeEvent();
+      const result = await handler(event as any);
+
+      expect(event.status).toBe(404);
+      expect(result).toEqual({ error: "Not found" });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("does not attach footage while its Clip context is pending", async () => {
+      mockGetDb.mockReturnValue(createDbWithSelectSequence([], [footageRow]));
+      mockResolveAccess.mockResolvedValue(null);
+
+      const event = makeEvent();
+      const result = await handler(event as any);
+
+      expect(mockEq).toHaveBeenCalledWith(
+        "recordingContextItems.status",
+        "ready",
+      );
+      expect(mockResolveAccess).toHaveBeenCalledWith("recording", "rec-1");
+      expect(event.status).toBe(403);
+      expect(result).toEqual({ error: "Forbidden" });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("plays password-protected footage with the Clip's valid access token", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence([{ recordingId: "clip-1" }], [footageRow]),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: {
+          visibility: "public",
+          password: "hashed-secret",
+          sharePasswordVersion: "initial",
+        },
+      });
+      mockVerifyShortLivedToken.mockReturnValue({ ok: true });
+      mockSignShortLivedToken.mockReturnValue("renewed-token");
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("media", {
+          status: 200,
+          headers: { "content-type": "video/mp4" },
+        }),
+      );
+
+      const event = makeEvent();
+      event.query = { t: "clip-token" };
+      const result = await handler(event as any);
+
+      expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
+        "clip-token",
+        "clip-1:password-scoped",
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect(fetch).toHaveBeenCalledWith(
+        "https://cdn.example.com/footage.mp4",
+        expect.any(Object),
+      );
     });
   });
 });

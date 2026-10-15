@@ -19,6 +19,11 @@ import {
 const mocks = vi.hoisted(() => ({
   db: undefined as unknown,
   roles: {} as Record<string, "viewer" | "editor" | "owner" | undefined>,
+  tokenResult: { ok: false, reason: "malformed" } as {
+    ok: boolean;
+    reason?: string;
+  },
+  tokenCalls: [] as Array<[string, string]>,
 }));
 
 vi.mock("@agent-native/core/action", async () => {
@@ -33,9 +38,19 @@ vi.mock("@agent-native/core/sharing", async () => {
       _type: string,
       id: string,
       minRole?: "viewer" | "editor" | "owner",
-    ) => fakes.testAssertAccess(mocks.roles, id, minRole),
+    ) => {
+      fakes.testAssertAccess(mocks.roles, id, minRole);
+      return { role: mocks.roles[id] };
+    },
   };
 });
+
+vi.mock("@agent-native/core/server", () => ({
+  verifyShortLivedToken: (token: string, resourceId: string) => {
+    mocks.tokenCalls.push([token, resourceId]);
+    return mocks.tokenResult;
+  },
+}));
 
 vi.mock("../server/db/index.js", async () => {
   const schema = await import("../server/db/schema.js");
@@ -55,6 +70,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   await resetRecordingContextTestDb(client);
   mocks.roles = { rec_1: "viewer" };
+  mocks.tokenResult = { ok: false, reason: "malformed" };
+  mocks.tokenCalls = [];
   await seedRecording(client, { id: "rec_1" });
 });
 
@@ -118,6 +135,76 @@ describe("list-recording-context", () => {
     await expect(action.run({ recordingId: "rec_1" })).resolves.toEqual({
       items: [],
     });
+  });
+
+  it("requires a password token before returning protected Clip context", async () => {
+    await seedRecording(client, {
+      id: "protected",
+      visibility: "public",
+      password: "encrypted-password",
+      sharePasswordVersion: "initial",
+    });
+    await seedContextItem(client, {
+      id: "protected_item",
+      recordingId: "protected",
+      mediaRecordingId: "media_private",
+    });
+    mocks.roles = { protected: "viewer" };
+
+    await expect(
+      action.run({ recordingId: "protected" }),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      errorCode: "recording_password_required",
+    });
+    expect(mocks.tokenCalls).toEqual([]);
+
+    await expect(
+      action.run({ recordingId: "protected", accessToken: "invalid" }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(mocks.tokenCalls).toEqual([["invalid", "protected"]]);
+  });
+
+  it("allows a password-unlocked viewer to list protected context", async () => {
+    await seedRecording(client, {
+      id: "protected",
+      visibility: "public",
+      password: "encrypted-password",
+      sharePasswordVersion: "initial",
+    });
+    await seedContextItem(client, {
+      id: "protected_item",
+      recordingId: "protected",
+      mediaRecordingId: "media_private",
+    });
+    mocks.roles = { protected: "viewer" };
+    mocks.tokenResult = { ok: true };
+
+    const { items } = await action.run({
+      recordingId: "protected",
+      accessToken: "valid-token",
+    });
+
+    expect(items.map((item) => item.id)).toEqual(["protected_item"]);
+    expect(mocks.tokenCalls).toEqual([["valid-token", "protected"]]);
+  });
+
+  it("lets the owner list password-protected context without a viewer token", async () => {
+    await seedRecording(client, {
+      id: "protected",
+      password: "encrypted-password",
+      sharePasswordVersion: "initial",
+    });
+    await seedContextItem(client, {
+      id: "protected_item",
+      recordingId: "protected",
+    });
+    mocks.roles = { protected: "owner" };
+
+    const { items } = await action.run({ recordingId: "protected" });
+
+    expect(items.map((item) => item.id)).toEqual(["protected_item"]);
+    expect(mocks.tokenCalls).toEqual([]);
   });
 
   it("returns 404 recording_not_found for a Clip that was permanently deleted", async () => {

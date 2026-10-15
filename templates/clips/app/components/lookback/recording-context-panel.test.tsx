@@ -13,6 +13,7 @@ import type { RecordingContextItem } from "./recording-context-model";
 import {
   RecordingContextPanel,
   RecordingContextSection,
+  recordingAccessTokenFromVideoUrl,
 } from "./recording-context-panel";
 
 const queryState = vi.hoisted(() => ({
@@ -29,6 +30,7 @@ const sessionState = vi.hoisted(() => ({ authenticated: true }));
 const queryOptions = vi.hoisted(() => ({
   current: undefined as
     | {
+        input?: unknown;
         enabled?: boolean;
         refetchInterval?: (query: {
           state: { data?: { items: unknown[] } };
@@ -52,10 +54,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
   useActionQuery: (
     _action: string,
-    _input: unknown,
+    input: unknown,
     options?: { enabled?: boolean },
   ) => {
-    queryOptions.current = options;
+    queryOptions.current = { ...options, input };
     return queryState.current;
   },
   useActionMutation: (action: string) => ({
@@ -402,12 +404,16 @@ describe("RecordingContextSection", () => {
   function render(
     recordingId: string | undefined = "rec_1",
     pathname = "/r/rec_1",
+    accessToken?: string,
   ) {
     act(() =>
       root.render(
         <MemoryRouter key={pathname} initialEntries={[pathname]}>
           <QueryClientProvider client={queryClient}>
-            <RecordingContextSection recordingId={recordingId} />
+            <RecordingContextSection
+              recordingId={recordingId}
+              accessToken={accessToken}
+            />
           </QueryClientProvider>
         </MemoryRouter>,
       ),
@@ -450,6 +456,23 @@ describe("RecordingContextSection", () => {
     expect(container.textContent).not.toContain("Remove earlier screen time");
     expect(container.textContent).not.toContain(
       "Edit the window in Clips Desktop.",
+    );
+  });
+
+  it("passes the unlocked Clip token to context metadata and footage playback", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [item({})] },
+    });
+    render("rec_1", "/share/share-id", "signed-token");
+
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: "signed-token",
+    });
+    expect(container.querySelector("video")?.getAttribute("src")).toBe(
+      "/api/video/media_1?t=signed-token",
     );
   });
 
@@ -551,5 +574,28 @@ describe("RecordingContextSection", () => {
       ),
     );
     expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("recordingAccessTokenFromVideoUrl", () => {
+  it("accepts only the local media URL for the same Clip", () => {
+    expect(
+      recordingAccessTokenFromVideoUrl(
+        "/api/video/rec_1?t=signed-token",
+        "rec_1",
+      ),
+    ).toBe("signed-token");
+    expect(
+      recordingAccessTokenFromVideoUrl(
+        "/api/video/another?t=signed-token",
+        "rec_1",
+      ),
+    ).toBeUndefined();
+    expect(
+      recordingAccessTokenFromVideoUrl(
+        "https://media.example.com/video.mp4?t=signed-token",
+        "rec_1",
+      ),
+    ).toBeUndefined();
   });
 });
