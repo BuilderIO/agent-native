@@ -70,6 +70,7 @@ import {
 } from "../server/lib/screenshot-edits.js";
 import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
+import { parseAppActivitySummary } from "../shared/app-activity.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   CLIPS_BUILDER_CREDITS_STATE_KEY,
@@ -515,7 +516,12 @@ export default defineAction({
       })),
       browserDiagnostics: browserDiagnostics
         ? canInspectSensitiveContext
-          ? browserDiagnostics
+          ? {
+              ...browserDiagnostics,
+              appActivity: parseAppActivitySummary(
+                browserDiagnosticsRow?.appActivitySummaryJson,
+              ),
+            }
           : { summary: browserDiagnostics.summary }
         : null,
       bugReport:

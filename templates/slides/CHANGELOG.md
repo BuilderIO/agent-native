@@ -3,21 +3,48 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-10-14
+## 2026-10-15
+
+### Improved
+
+- Blank decks and simple follow-ups like adding one empty slide now finish in a single quick step instead of running the full deck-generation process.
 
 ### Fixed
 
+- Selected slide elements now show a single blue outline.
+- Slides shows fallback prompts immediately and persists generated decks before setup waits.
+- Suggestion chips have more breathing room above the chat field
+
+## 2026-10-14
+
+### Improved
+
+- Slash command options are easier to distinguish with pointer and keyboard navigation
+
+### Fixed
+
+- Backspace removes a leading space in a heading or quote without changing its formatting
+- Chats no longer stop with "result is unknown" after a rejected edit; the agent corrects the call and continues.
+- Fixed retries so the original deck request stays available if generation is delayed.
+- Slash-command keyboard navigation now starts from the first command when the menu reopens.
+- If a retry never starts, Slides keeps your prompt and lets you try again.
 - Prompting the agent no longer occasionally strips all styling from a slide
 
 ## 2026-10-13
 
 ### Improved
 
+- Long slide editing sessions preserve more undo history.
 - Choosing a single direction now continues slide generation automatically.
 - The agent now fixes colors and other small style issues across several slides with targeted edits instead of rewriting each slide, so those fixes finish much faster.
 
 ### Fixed
 
+- Bold formatting stays consistent when you format and copy selected slide text
+- Keep the caret inside list items when navigating to line edges
+- List formatting keeps the caret after a soft line break
+- Markdown formatting shortcuts preserve styling when the caret is already inside a styled run
+- Slash-menu keyboard selection stays responsive through repeated arrow presses
 - Color and style fixes across slides no longer fail partway through and stop the agent.
 - Deck creation errors disappear after the slides are edited to fix them.
 - Failed deck generations keep your original prompt so you can try again.

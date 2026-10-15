@@ -392,7 +392,7 @@ export function RecordingCard({
                 checked={selected}
                 onClick={handleCheckbox}
                 className={cn(
-                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-background/80 bg-foreground/25 text-background opacity-70 shadow-sm transition-[background-color,border-color,opacity] hover:bg-foreground/45",
+                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-ring bg-background text-foreground opacity-100 shadow-sm ring-1 ring-ring transition-[background-color,border-color,opacity] hover:bg-foreground/45",
                   selectionMode || selected
                     ? "opacity-100 sm:opacity-100"
                     : "sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100",

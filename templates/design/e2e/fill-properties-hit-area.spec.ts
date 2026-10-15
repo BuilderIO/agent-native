@@ -549,8 +549,7 @@ test("removing a converted Solid gradient closes its picker and preserves the si
 });
 
 // oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
-// fixme: product bug: The editor requests GET /design/&quot;https://example.test/image.png&quot; (404): a CSS url() is read with its HTML-entity quotes.
-test.fixme("converting the base solid appends it below sibling fills and keeps their arrays", async ({
+test("converting the base solid appends it below sibling fills and keeps their arrays", async ({
   app,
   page,
 }) => {
@@ -741,8 +740,7 @@ test("gradient-to-solid preserves sibling fill arrays and keeps the picker open"
   await expect(page.getByRole("textbox", { name: "Hex" })).toBeVisible();
 });
 
-// fixme: product bug: The editor requests GET /design/&quot;https://fills.invalid/first.png&quot; (and second/third) -> 404: CSS url() values are read with
-test.fixme("hiding and reordering an image fill keeps its cover size attached to that fill", async ({
+test("hiding and reordering an image fill keeps its cover size attached to that fill", async ({
   app,
   page,
 }) => {

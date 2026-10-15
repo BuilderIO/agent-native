@@ -1974,7 +1974,7 @@ button.agentkit-object {
 }
 
 .agentkit-host-suggestions-slot {
-  block-size: 2rem;
+  block-size: 2.5rem;
   min-inline-size: 0;
 }
 

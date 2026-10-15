@@ -37,6 +37,7 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `list-design-templates` / `list-designs` | Search paged templates/designs |
 | `generate-home-suggestions` | Suggest prompts |
 | `read-composer-source` | Read bounded Design/Slides/Figma sources |
+| `delete-file` | Delete a screen when requested |
 | `create-design-from-template` | Copy template; source screens stay locked |
 | `get-design-snapshot` / `get-design-template` | Inspect design or source template |
 | `open-visual-edit` | Open localhost screens |
