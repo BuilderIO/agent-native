@@ -379,6 +379,18 @@ describe("native recording startup", () => {
     });
 
     await handle.cancel();
+    expect(getRewindClipOrigin(recordingId)).toBeNull();
+  });
+
+  it("forgets a recording origin when the recording is discarded for restart", async () => {
+    const pending = startRecording({ ...params, lookbackEnabled: true });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    const recordingId = createdRecordingId();
+
+    expect(getRewindClipOrigin(recordingId)).not.toBeNull();
+    await handle.discardForRestart();
+    expect(getRewindClipOrigin(recordingId)).toBeNull();
   });
 
   it("does not remember a recording origin when earlier screen time is disabled", async () => {
@@ -1532,6 +1544,7 @@ describe("browser recording startup cancellation", () => {
         mode: "camera",
         cameraOn: true,
         systemAudioOn: false,
+        lookbackEnabled: true,
         signal: controller.signal,
       },
       audioCue,
@@ -1551,6 +1564,7 @@ describe("browser recording startup cancellation", () => {
     // discard what was already recorded.
     controller.abort();
     await failed;
+    expect(getRewindClipOrigin(id)).not.toBeNull();
     transcription.resolve(capture());
     await vi.advanceTimersByTimeAsync(1_000);
     await flush();
@@ -1573,5 +1587,6 @@ describe("browser recording startup cancellation", () => {
           body.includes("user_cancelled"),
       ),
     ).toBe(false);
+    expect(getRewindClipOrigin(id)).not.toBeNull();
   });
 });

@@ -249,6 +249,10 @@ export interface StartParams {
     recordingId: string | null,
     captureIdentity?: string | null,
   ) => void;
+  onStartupAbortStop?: (
+    recordingId: string,
+    stopPromise: Promise<RecorderStopResult>,
+  ) => void;
 }
 
 const REWIND_CLIP_ORIGINS_KEY = "clips.rewindClipOrigins.v1";
@@ -2924,6 +2928,43 @@ export function recorderWithCaptureSuspension(
   return handle;
 }
 
+function recorderWithRewindOriginLifecycle(
+  handle: RecorderHandle,
+  recordingId: string | null,
+): RecorderHandle {
+  if (!recordingId) return handle;
+
+  const stop = handle.stop.bind(handle);
+  const cancel = handle.cancel.bind(handle);
+  const discardForRestart = handle.discardForRestart.bind(handle);
+  let stopStarted = false;
+  let cancelPromise: Promise<void> | null = null;
+  let discardPromise: Promise<RestartHandoff> | null = null;
+
+  handle.stop = async () => {
+    stopStarted = true;
+    return stop();
+  };
+  handle.cancel = async () => {
+    if (cancelPromise) return cancelPromise;
+    cancelPromise = (async () => {
+      await cancel();
+      if (!stopStarted) forgetRewindClipOrigin(recordingId);
+    })();
+    return cancelPromise;
+  };
+  handle.discardForRestart = async () => {
+    if (discardPromise) return discardPromise;
+    discardPromise = (async () => {
+      const handoff = await discardForRestart();
+      forgetRewindClipOrigin(recordingId);
+      return handoff;
+    })();
+    return discardPromise;
+  };
+  return handle;
+}
+
 async function tryStartRewindFullscreenRecording(
   params: StartParams,
   wantsCamera: boolean,
@@ -4286,6 +4327,10 @@ export async function startRecording(
   const audioCue = preparedAudioCue ?? createAudioCue();
   const startController = new AbortController();
   let requestedRecordingId: string | null = null;
+  let startupAbortStop: {
+    recordingId: string;
+    promise: Promise<RecorderStopResult>;
+  } | null = null;
   const cancelStartup = () => {
     startController.abort();
     void emit("clips:countdown-cancel").catch(() => {});
@@ -4317,11 +4362,15 @@ export async function startRecording(
           params.onCaptureStartRequested?.(recordingId, captureIdentity);
         }
       },
+      onStartupAbortStop: (recordingId, promise) => {
+        startupAbortStop = { recordingId, promise };
+        params.onStartupAbortStop?.(recordingId, promise);
+      },
     },
     audioCue,
   );
   try {
-    return await guardRecordingStart(startPromise, {
+    const started = await guardRecordingStart(startPromise, {
       signal: params.signal,
       timeoutMs: RECORDING_START_TIMEOUT_MS,
       onCancel: cancelStartup,
@@ -4329,12 +4378,26 @@ export async function startRecording(
       // it recorded. Only a confirmed discard deletes a recording.
       onLateResolve: (handle) => {
         void handle.stop().catch((err) => {
+          if (requestedRecordingId) {
+            forgetRewindClipOrigin(requestedRecordingId);
+          }
           console.warn("[clips-recorder] late start cleanup failed:", err);
         });
       },
     });
+    return recorderWithRewindOriginLifecycle(started, requestedRecordingId);
   } catch (err) {
-    if (requestedRecordingId) forgetRewindClipOrigin(requestedRecordingId);
+    void startPromise.catch(async () => {
+      if (!requestedRecordingId) return;
+      if (startupAbortStop?.recordingId === requestedRecordingId) {
+        const retained = await startupAbortStop.promise.then(
+          (result) => result.recordingId === requestedRecordingId,
+          () => false,
+        );
+        if (retained) return;
+      }
+      forgetRewindClipOrigin(requestedRecordingId);
+    });
     audioCue.cleanup();
     await boundedCleanup(invoke("hide_recording_chrome"));
     const e = err as { name?: string; message?: string } | null;
@@ -5777,7 +5840,11 @@ async function startRecordingInner(
     // Capture has begun by now, so an aborted startup (a timeout, a closed
     // window) stops and keeps the take. Only a confirmed discard deletes it.
     const cancelOnStartupAbort = () => {
-      void handle?.stop().catch((err) => {
+      const stopPromise = handle?.stop();
+      if (stopPromise) {
+        params.onStartupAbortStop?.(id, stopPromise);
+      }
+      void stopPromise?.catch((err) => {
         console.error("[clips-recorder] startup cancellation failed:", err);
       });
     };
