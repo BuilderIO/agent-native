@@ -4,9 +4,9 @@ import {
   canPersistDashboardFilterPreference,
   dashboardFilterPreferenceSaveState,
   dashboardFilterPreferenceUpdate,
-  dashboardViewsRestoreState,
   matchesDashboardFilterRestoreState,
   resolveDashboardFilterRestoreStep,
+  serverReadState,
   type DashboardFilterRestoreProgress,
 } from "./dashboard-filter-restore";
 
@@ -268,9 +268,9 @@ describe("resolveDashboardFilterRestoreStep", () => {
   });
 
   it("waits for refetched views before reopening a cached saved view", () => {
-    const refetching = dashboardViewsRestoreState({
+    const refetching = serverReadState({
       isSuccess: true,
-      isSettled: true,
+      isError: false,
       isFetching: true,
     });
     expect(refetching).toBe("loading");
@@ -283,16 +283,16 @@ describe("resolveDashboardFilterRestoreStep", () => {
     ).toEqual({ progress: { status: "pending" }, restore: null });
 
     expect(
-      dashboardViewsRestoreState({
+      serverReadState({
         isSuccess: true,
-        isSettled: true,
+        isError: false,
         isFetching: false,
       }),
     ).toBe("success");
     expect(
-      dashboardViewsRestoreState({
+      serverReadState({
         isSuccess: false,
-        isSettled: true,
+        isError: true,
         isFetching: false,
       }),
     ).toBe("error");

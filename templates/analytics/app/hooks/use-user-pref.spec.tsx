@@ -16,6 +16,8 @@ vi.mock("sonner", () => ({
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { serverReadState } from "@/pages/adhoc/sql-dashboard/dashboard-filter-restore";
+
 import { useUserPref } from "./use-user-pref";
 
 describe("useUserPref", () => {
@@ -23,6 +25,7 @@ describe("useUserPref", () => {
   let root: Root;
 
   beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -32,6 +35,7 @@ describe("useUserPref", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.unstubAllGlobals();
   });
 
   it("keeps a failed read unavailable instead of exposing an empty preference", async () => {
@@ -61,5 +65,92 @@ describe("useUserPref", () => {
     });
 
     expect(container.textContent).toBe("error");
+  });
+
+  it("treats a cached preference as unread until its refetch returns", async () => {
+    let resolveRead: (value: unknown) => void = () => {};
+    callAction.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRead = resolve;
+      }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(
+      ["user-pref", "filters"],
+      { filters: { f_range: "7d" } },
+      { updatedAt: Date.now() - 60_000 },
+    );
+
+    function Probe() {
+      const pref = useUserPref<{ filters: Record<string, string> }>("filters");
+      return (
+        <div>
+          {serverReadState(pref)}:{pref.data.filters?.f_range}
+        </div>
+      );
+    }
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container.textContent).toBe("loading:7d");
+
+    await act(async () => {
+      resolveRead({ filters: { f_range: "30d" } });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toBe("success:30d");
+  });
+
+  it("sends a preference write only after the previous one finishes", async () => {
+    const writes: Array<{ value: unknown; finish: () => void }> = [];
+    callAction.mockImplementation(
+      (action: string, args: { value?: unknown }) => {
+        if (action === "get-user-pref") return Promise.resolve({});
+        return new Promise((resolve) => {
+          writes.push({ value: args.value, finish: () => resolve({}) });
+        });
+      },
+    );
+    let save: (value: { step: number }) => void = () => {};
+
+    function Probe() {
+      save = useUserPref<{ step: number }>("filters").save;
+      return null;
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+    });
+    await act(async () => {
+      save({ step: 1 });
+      save({ step: 2 });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(writes.map((write) => write.value)).toEqual([{ step: 1 }]);
+
+    await act(async () => {
+      writes[0].finish();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(writes.map((write) => write.value)).toEqual([
+      { step: 1 },
+      { step: 2 },
+    ]);
   });
 });

@@ -95,16 +95,18 @@ export function dashboardFilterPreferenceUpdate({
   return viewId ? { filters, viewId } : { filters };
 }
 
-// A cached list can still hold a view someone has since deleted, so a refetch
-// in flight counts as loading: restoring from it would put that view in the URL.
-export function dashboardViewsRestoreState(views: {
+// A cached read can be out of date (a view deleted since, a preference another
+// tab has changed), so a refetch in flight counts as loading: restoring from it
+// would reopen the deleted view, or bring back the old filters for the autosave
+// to write over the newer preference.
+export function serverReadState(query: {
   isSuccess: boolean;
-  isSettled: boolean;
+  isError: boolean;
   isFetching: boolean;
 }): "loading" | "error" | "success" {
-  if (views.isFetching) return "loading";
-  if (views.isSuccess) return "success";
-  return views.isSettled ? "error" : "loading";
+  if (query.isFetching) return "loading";
+  if (query.isSuccess) return "success";
+  return query.isError ? "error" : "loading";
 }
 
 export function sameDashboardFilterMap(

@@ -15,7 +15,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { dashboardCacheScope } from "@/lib/prefetch-keys";
-import { dashboardViewsRestoreState } from "@/pages/adhoc/sql-dashboard/dashboard-filter-restore";
+import { serverReadState } from "@/pages/adhoc/sql-dashboard/dashboard-filter-restore";
 
 import { useDashboardViews } from "./use-dashboard-views";
 
@@ -57,7 +57,7 @@ describe("useDashboardViews", () => {
       const views = useDashboardViews("v3");
       return (
         <div>
-          {dashboardViewsRestoreState(views)}:
+          {serverReadState(views)}:
           {views.views.map((view) => view.id).join(",")}
         </div>
       );

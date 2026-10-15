@@ -5,8 +5,11 @@ import { toast } from "sonner";
 export function useUserPref<T extends Record<string, unknown>>(key: string) {
   const queryClient = useQueryClient();
   const queryKey = ["user-pref", key];
+  // One write per key at a time: overlapping autosaves could otherwise commit
+  // an older value after a newer one.
+  const scope = { id: `user-pref:${key}` };
 
-  const { data, isLoading, isError, isSuccess } = useQuery({
+  const { data, isLoading, isError, isSuccess, isFetching } = useQuery({
     queryKey,
     queryFn: async (): Promise<T> => {
       const result = await callAction(
@@ -20,6 +23,7 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
   });
 
   const { mutate: save } = useMutation({
+    scope,
     mutationFn: (value: T) =>
       callAction("set-user-pref", { key, value }, { method: "PUT" }),
     onMutate: async (value: T) => {
@@ -35,6 +39,7 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
   });
 
   const { mutate: remove } = useMutation({
+    scope,
     mutationFn: () =>
       callAction("delete-user-pref", { key }, { method: "DELETE" }),
     onError: () => {
@@ -50,6 +55,7 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
     isLoading,
     isError,
     isSuccess,
+    isFetching,
     save,
     remove,
   };

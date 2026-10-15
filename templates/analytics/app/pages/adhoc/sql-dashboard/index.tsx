@@ -144,9 +144,9 @@ import {
   dashboardFilterParams,
   dashboardFilterPreferenceSaveState,
   dashboardFilterPreferenceUpdate,
-  dashboardViewsRestoreState,
   matchesDashboardFilterRestoreState,
   resolveDashboardFilterRestoreStep,
+  serverReadState,
   type DashboardFilterPreferenceSaveGuard,
   type DashboardFilterRestoreProgress,
 } from "./dashboard-filter-restore";
@@ -946,32 +946,16 @@ function SqlDashboardPageContent({
   ]);
 
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
-  const {
-    data: savedFilters,
-    isSuccess: filtersLoaded,
-    isError: filtersError,
-    save: saveFilterPref,
-  } = useUserPref<{ filters: Record<string, string>; viewId?: string }>(
-    filterPrefKey,
-  );
-  const savedFiltersState = filtersLoaded
-    ? "success"
-    : filtersError
-      ? "error"
-      : "loading";
+  const filterPref = useUserPref<{
+    filters: Record<string, string>;
+    viewId?: string;
+  }>(filterPrefKey);
+  const { data: savedFilters, save: saveFilterPref } = filterPref;
+  const savedFiltersState = serverReadState(filterPref);
 
-  const {
-    views,
-    isSuccess: dashboardViewsLoaded,
-    isSettled: dashboardViewsSettled,
-    isFetching: dashboardViewsFetching,
-    saveView,
-  } = useDashboardViews(dashboardId ?? undefined);
-  const dashboardViewsState = dashboardViewsRestoreState({
-    isSuccess: dashboardViewsLoaded,
-    isSettled: dashboardViewsSettled,
-    isFetching: dashboardViewsFetching,
-  });
+  const dashboardViews = useDashboardViews(dashboardId ?? undefined);
+  const { views, isSuccess: dashboardViewsLoaded, saveView } = dashboardViews;
+  const dashboardViewsState = serverReadState(dashboardViews);
   const defaultView = views.find((view) => view.isDefault);
   // A deleted view must not come back as a dangling `view` param.
   const savedViewId = views.some((view) => view.id === savedFilters?.viewId)
