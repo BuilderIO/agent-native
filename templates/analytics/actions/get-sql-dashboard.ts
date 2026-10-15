@@ -45,7 +45,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Human Review only: read a saved dashboard for an organization owner/admin. Cross-organization reads are limited to the single organization configured as this app's observability super organization. The result adds `keyDates`: the dashboard organization's key dates, minus the sets the dashboard hides.",
+        "Human Review only: read a saved dashboard for an organization owner/admin. Cross-organization reads are limited to the single organization configured as this app's observability super organization.",
       ),
     reviewOrgId: z
       .string()
