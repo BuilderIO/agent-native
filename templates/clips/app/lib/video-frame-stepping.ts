@@ -41,18 +41,6 @@ export function frameTimeMs(mediaTimeSeconds: number): number {
 }
 
 /**
- * `frameTimeMs`, kept out of cuts. Rounding up crosses into a cut that starts
- * inside the frame's first millisecond, where no whole millisecond both shows
- * the frame and is kept, so this takes the kept one just before the cut.
- */
-export function keptFrameTimeMs(
-  mediaTimeSeconds: number,
-  cuts: readonly ExcludedRange[],
-): number {
-  return beforeCut(frameTimeMs(mediaTimeSeconds), cuts);
-}
-
-/**
  * Follows the frames a video element actually presents, through
  * `requestVideoFrameCallback`, and learns the clip's frame length from
  * consecutive frames during playback.
@@ -60,6 +48,8 @@ export function keptFrameTimeMs(
 export class VideoFrameClock {
   private handle: number | null = null;
   private last: FrameMetadata | null = null;
+  /** Start of the frame playback presented just before `last`. */
+  private previousStart: number | null = null;
   private seekPending = false;
   private durations: number[] = [];
   private waiters = new Set<(mediaTime: number | null) => void>();
@@ -98,18 +88,20 @@ export class VideoFrameClock {
 
   private onEmptied = () => {
     this.last = null;
+    this.previousStart = null;
     this.durations = [];
   };
 
   private onFrame = (_now: number, metadata: FrameMetadata) => {
     const previous = this.last;
-    if (
-      previous &&
+    const consecutive =
+      previous !== null &&
       !this.seekPending &&
-      metadata.presentedFrames === previous.presentedFrames + 1
-    ) {
+      metadata.presentedFrames === previous.presentedFrames + 1;
+    if (consecutive) {
       this.recordFrameSeconds(metadata.mediaTime - previous.mediaTime);
     }
+    this.previousStart = consecutive ? previous.mediaTime : null;
     this.seekPending = false;
     this.last = {
       mediaTime: metadata.mediaTime,
@@ -131,9 +123,12 @@ export class VideoFrameClock {
     if (this.durations.length > DURATION_SAMPLES) this.durations.shift();
   }
 
-  /** Typical frame length; the median shrugs off dropped and held frames. */
-  frameSeconds(): number {
-    if (this.durations.length === 0) return FALLBACK_FRAME_SECONDS;
+  /**
+   * Typical frame length, or null until playback or a step back measures
+   * one; the median shrugs off dropped and held frames.
+   */
+  frameSeconds(): number | null {
+    if (this.durations.length === 0) return null;
     const sorted = [...this.durations].sort((a, b) => a - b);
     return sorted[Math.floor(sorted.length / 2)];
   }
@@ -148,6 +143,24 @@ export class VideoFrameClock {
     // than that is a report from another source or seek.
     if (this.video.currentTime < this.last.mediaTime - 0.05) return null;
     return this.last.mediaTime;
+  }
+
+  /**
+   * The millisecond a comment stores for the frame on screen, or null while
+   * that frame isn't known. A frame that starts less than a millisecond
+   * before a cut shows at no kept millisecond, so a comment can't return to
+   * it; the frame playback showed before it stands in.
+   */
+  presentedFrameTimeMs(cuts: readonly ExcludedRange[]): number | null {
+    const start = this.presentedFrameStart();
+    if (start === null) return null;
+    const ms = frameTimeMs(start);
+    const roundsIntoCut = cuts.some(
+      (cut) => start * 1000 < cut.startMs && ms >= cut.startMs,
+    );
+    return roundsIntoCut && this.previousStart !== null
+      ? frameTimeMs(this.previousStart)
+      : ms;
   }
 
   /**
@@ -333,7 +346,8 @@ async function stepWithinSpan(
   from: number,
   endMs: number,
 ): Promise<boolean> {
-  const frame = clock.frameSeconds();
+  const learned = clock.frameSeconds();
+  const frame = learned ?? FALLBACK_FRAME_SECONDS;
   // Aim at the middle of the next frame, then widen when a held frame
   // (screen recordings hold still screens) covers the aim point.
   let reach = 1.5 * frame;
@@ -357,11 +371,14 @@ async function stepWithinSpan(
   }
   if (next === null) return false;
 
-  // A widened probe can pass frames that follow a held one; narrow back to
+  // A widened probe can pass frames that follow a held one, and a guessed
+  // length can pass frames shorter than the guess (60 fps); narrow back to
   // the first frame after `start`.
   for (
     let probe = 0;
-    probe < MAX_NARROWING_PROBES && lo > start && next - lo > 0.5 * frame;
+    probe < MAX_NARROWING_PROBES &&
+    (lo > start || learned === null) &&
+    next - lo > 0.5 * frame;
     probe++
   ) {
     const mid = (lo + next) / 2;

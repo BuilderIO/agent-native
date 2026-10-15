@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type ExcludedRange,
   frameTimeMs,
-  keptFrameTimeMs,
   stepVideoFrame,
   VideoFrameClock,
 } from "./video-frame-stepping";
@@ -57,6 +56,12 @@ class FakeVideo {
         this.emit("seeked");
       }, 0);
     }, 0);
+  }
+
+  /** Plays on to `seconds` and presents the frame there, without a seek. */
+  playTo(seconds: number) {
+    this.time = seconds;
+    this.present();
   }
 
   private emit(type: string) {
@@ -147,14 +152,30 @@ describe("frameTimeMs", () => {
   });
 });
 
-describe("keptFrameTimeMs", () => {
-  it("stays before a cut that starts inside the frame's first millisecond", () => {
-    // At 24 fps frame 11 starts at 458.33 ms, and the cut starts at 459 ms.
-    const cuts = [{ startMs: 459, endMs: 1500 }];
+describe("VideoFrameClock.presentedFrameTimeMs", () => {
+  it("uses the frame before one that starts just before a cut", () => {
+    // At 24 fps frame 11 starts at 458.33 ms; a cut from 459 ms leaves no
+    // whole millisecond that shows it.
+    const frames = frameStarts(24, 48);
+    const { fake, clock } = setup(frames);
+    fake.playTo(frames[10]);
+    fake.playTo(frames[11] + 0.0005);
 
-    expect(keptFrameTimeMs(11 / 24, cuts)).toBe(458);
-    expect(keptFrameTimeMs(10 / 24, cuts)).toBe(417);
-    expect(keptFrameTimeMs(36 / 24, cuts)).toBe(1500);
+    expect(clock?.presentedFrameTimeMs([{ startMs: 459, endMs: 1500 }])).toBe(
+      frameTimeMs(frames[10]),
+    );
+  });
+
+  it("keeps the first frame after a cut that ends mid-frame", async () => {
+    // Frame 36 starts at 1500 ms, inside the cut, and shows from its end.
+    const frames = frameStarts(24, 48, true);
+    const { clock, seekMs } = setup(frames);
+    seekMs(1510);
+    await clock?.settledFrameStart();
+
+    expect(clock?.presentedFrameTimeMs([{ startMs: 500, endMs: 1510 }])).toBe(
+      1500,
+    );
   });
 });
 
@@ -183,6 +204,19 @@ describe("stepVideoFrame", () => {
       expect(back).toEqual([14, 13, 12, 11, 10, 9, 8, 7, 6, 5]);
     },
   );
+
+  it("finds the next frame on a 60 fps clip that hasn't played", async () => {
+    const { fake, step, goToFrame } = setup(frameStarts(60, 120));
+    await goToFrame(10);
+
+    const shown: number[] = [];
+    for (const direction of [1, 1, -1] as const) {
+      await step(direction);
+      shown.push(fake.shownFrame());
+    }
+
+    expect(shown).toEqual([11, 12, 11]);
+  });
 
   it("learns a short frame length from a step back", async () => {
     const { fake, step, goToFrame } = setup(frameStarts(60, 120));

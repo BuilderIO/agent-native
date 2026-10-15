@@ -52,11 +52,7 @@ import {
   lastKeptMs,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
-import {
-  keptFrameTimeMs,
-  stepVideoFrame,
-  VideoFrameClock,
-} from "@/lib/video-frame-stepping";
+import { stepVideoFrame, VideoFrameClock } from "@/lib/video-frame-stepping";
 
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
@@ -1156,10 +1152,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         pause: pauseVideo,
         seek: seekToVisibleMs,
         getCurrentOriginalMs: () => {
-          const presented = frameClockRef.current?.presentedFrameStart();
-          if (presented != null) {
-            return keptFrameTimeMs(presented, excludedRangesRef.current);
-          }
+          const presented = frameClockRef.current?.presentedFrameTimeMs(
+            excludedRangesRef.current,
+          );
+          if (presented != null) return presented;
           const v = videoRef.current;
           const liveOriginalMs =
             v &&
