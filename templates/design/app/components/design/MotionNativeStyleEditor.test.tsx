@@ -558,7 +558,7 @@ describe("MotionNativeStyleEditor", () => {
   );
 
   it.each(["LINE", "PARAGRAPH"] as const)(
-    "preserves a stored vertical TextStagger order for %s grouping",
+    "offers vertical TextStagger order for %s grouping",
     async (grouping) => {
       const base = createMotionNativeStyleInstance({
         styleKey: "TextStagger",
@@ -569,10 +569,11 @@ describe("MotionNativeStyleEditor", () => {
         props: {
           ...base.props,
           textDelayGrouping: grouping,
-          textDelayOrder: "TOP_BOTTOM",
+          textDelayOrder: "LEFT_RIGHT",
         },
       };
-      await render({ styles: [style] });
+      const onChange = vi.fn();
+      await render({ styles: [style], onChange });
       await openStyleDetails();
       await act(async () =>
         document
@@ -585,19 +586,28 @@ describe("MotionNativeStyleEditor", () => {
       expect(document.body.textContent).toContain(
         "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
       );
-      expect(document.body.textContent).not.toContain(
+      expect(document.body.textContent).toContain(
         "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
       );
       await selectOption(
         document.querySelector<HTMLButtonElement>(
           'button[aria-label="designEditor.motion.nativeTextStagger.order"]',
         )!,
-        "designEditor.motion.nativeTextStagger.orderOptions.leftToRight",
+        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
+      );
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          props: expect.objectContaining({
+            textDelayGrouping: grouping,
+            textDelayOrder: "BOTTOM_TOP",
+          }),
+        }),
+        expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
       );
     },
   );
 
-  it.each(["CHARACTER", "WORD", "LINE", "PARAGRAPH"] as const)(
+  it.each(["CHARACTER", "WORD"] as const)(
     "offers only horizontal TextStagger order for %s grouping",
     async (grouping) => {
       const base = createMotionNativeStyleInstance({
@@ -637,7 +647,41 @@ describe("MotionNativeStyleEditor", () => {
     },
   );
 
-  it("resets vertical TextStagger order when grouping changes to word", async () => {
+  it.each(["CHARACTER", "WORD"] as const)(
+    "keeps a stored vertical TextStagger order selectable for unsupported %s grouping",
+    async (grouping) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "target-1",
+      });
+      const style = {
+        ...base,
+        props: {
+          ...base.props,
+          textDelayGrouping: grouping,
+          textDelayOrder: "TOP_BOTTOM",
+        },
+      };
+      await render({ styles: [style] });
+      await openStyleDetails();
+      await act(async () =>
+        document
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="designEditor.motion.nativeTextStagger.order"]',
+          )!
+          .click(),
+      );
+
+      expect(document.body.textContent).toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
+      );
+      expect(document.body.textContent).not.toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
+      );
+    },
+  );
+
+  it("preserves vertical TextStagger order when grouping changes to word", async () => {
     const base = createMotionNativeStyleInstance({
       styleKey: "TextStagger",
       targetNodeId: "target-1",
@@ -664,7 +708,7 @@ describe("MotionNativeStyleEditor", () => {
       expect.objectContaining({
         props: expect.objectContaining({
           textDelayGrouping: "WORD",
-          textDelayOrder: "LEFT_RIGHT",
+          textDelayOrder: "TOP_BOTTOM",
         }),
       }),
       expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
@@ -703,6 +747,51 @@ describe("MotionNativeStyleEditor", () => {
       expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
     );
   });
+
+  it.each([
+    ["fixed-stagger", undefined],
+    ["duration-fitted", false],
+  ] as const)(
+    "preserves marker-less %s timing when TextStagger grouping changes",
+    async (timingMode, ignoreSpaces) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "target-1",
+      });
+      const {
+        ignoreSpaces: _ignoreSpaces,
+        textDelayTimingMode: _textDelayTimingMode,
+        ...legacyProps
+      } = base.props;
+      const style = {
+        ...base,
+        props: {
+          ...legacyProps,
+          ...(ignoreSpaces === undefined ? {} : { ignoreSpaces }),
+        },
+      };
+      const onChange = vi.fn();
+      await render({ styles: [style], onChange });
+      await openStyleDetails();
+      await selectOption(
+        document.querySelector<HTMLButtonElement>(
+          'button[aria-label="designEditor.motion.nativeTextStagger.grouping"]',
+        )!,
+        "designEditor.motion.textAnimation.units.word",
+      );
+
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          props: expect.objectContaining({
+            textDelayGrouping: "WORD",
+            ignoreSpaces: false,
+            textDelayTimingMode: timingMode,
+          }),
+        }),
+        expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+      );
+    },
+  );
 
   it("keeps unknown native properties while editing known fields", async () => {
     const onChange = vi.fn();

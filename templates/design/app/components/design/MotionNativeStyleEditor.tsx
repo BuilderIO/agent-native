@@ -1049,9 +1049,12 @@ function NativeTextStaggerDetails({
   const storedVerticalOrder = TEXT_STAGGER_VERTICAL_ORDER_OPTIONS.find(
     (option) => option.value === order,
   );
-  const orderOptions = storedVerticalOrder
-    ? [...TEXT_STAGGER_ORDER_OPTIONS, storedVerticalOrder]
-    : TEXT_STAGGER_ORDER_OPTIONS;
+  const supportsVerticalOrder = grouping === "LINE" || grouping === "PARAGRAPH";
+  const orderOptions = supportsVerticalOrder
+    ? [...TEXT_STAGGER_ORDER_OPTIONS, ...TEXT_STAGGER_VERTICAL_ORDER_OPTIONS]
+    : storedVerticalOrder
+      ? [...TEXT_STAGGER_ORDER_OPTIONS, storedVerticalOrder]
+      : TEXT_STAGGER_ORDER_OPTIONS;
   const animationDirection = stringValue(
     instance.props.animationDirection,
     "in",
@@ -1104,18 +1107,26 @@ function NativeTextStaggerDetails({
           labelBase="designEditor.motion.textAnimation.units"
           t={t}
           onChange={(value) => {
-            const supportsVertical = value === "LINE" || value === "PARAGRAPH";
-            const isVerticalOrder =
-              order === "TOP_BOTTOM" || order === "BOTTOM_TOP";
+            const props: MotionNativeStyleInstance["props"] = {
+              ...instance.props,
+              textDelayGrouping: value,
+              ignoreSpaces: false,
+            };
+            if (
+              !Object.prototype.hasOwnProperty.call(
+                instance.props,
+                "textDelayTimingMode",
+              )
+            ) {
+              props.textDelayTimingMode = Object.prototype.hasOwnProperty.call(
+                instance.props,
+                "ignoreSpaces",
+              )
+                ? "duration-fitted"
+                : "fixed-stagger";
+            }
             onUpdateTopLevel(instance, identity, {
-              props: {
-                ...instance.props,
-                textDelayGrouping: value,
-                ignoreSpaces: false,
-                ...(!supportsVertical && isVerticalOrder
-                  ? { textDelayOrder: "LEFT_RIGHT" }
-                  : {}),
-              },
+              props,
             });
           }}
         />
