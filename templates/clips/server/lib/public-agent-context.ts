@@ -10,6 +10,7 @@ import {
   signScopedAgentAccessToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
+import { resolveAccess, roleSatisfies } from "@agent-native/core/sharing";
 import { isImageRecording } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
 import { setResponseHeader, type H3Event } from "h3";
@@ -82,7 +83,7 @@ export interface PublicAgentAccess {
   viewerIsOwner: boolean;
   // A Share with agents grant names the person who made it; tokens minted
   // for a share password or the owner's own page are signed without one.
-  viaAgentLink: boolean;
+  agentLinkCreatorEmail: string | null;
   apiToken: string | null;
 }
 
@@ -490,17 +491,29 @@ export async function loadPublicAgentAccess(
     access: {
       recording,
       viewerIsOwner,
-      viaAgentLink: Boolean(tokenAccess?.ok && tokenAccess.viewerEmail),
+      agentLinkCreatorEmail: tokenAccess?.ok
+        ? (tokenAccess.viewerEmail ?? null)
+        : null,
       apiToken,
     },
   };
 }
 
 // Events carry more than the summary in agent context, so neither an open
-// public link nor a share password is enough: reading them takes the owner or
-// a Share with agents link.
-export function canReadAppActivityEvents(access: PublicAgentAccess): boolean {
-  return access.viewerIsOwner || access.viaAgentLink;
+// public link nor a share password is enough: reading them takes the owner, or
+// a Share with agents link made by someone who can still edit the recording.
+export async function canReadAppActivityEvents(
+  access: PublicAgentAccess,
+): Promise<boolean> {
+  if (access.viewerIsOwner) return true;
+  if (!access.agentLinkCreatorEmail) return false;
+  const creator = await resolveAccess(
+    "recording",
+    access.recording.id,
+    { userEmail: access.agentLinkCreatorEmail },
+    { skipResourceBody: true },
+  );
+  return creator !== null && roleSatisfies(creator.role, "editor");
 }
 
 export async function loadAgentTranscript(
@@ -781,6 +794,7 @@ export function buildPublicAgentContext({
   ctas,
   browserDiagnostics,
   bugReport,
+  appActivityEventsReadable = false,
 }: {
   event: H3Event;
   access: PublicAgentAccess;
@@ -796,6 +810,7 @@ export function buildPublicAgentContext({
   ctas: Awaited<ReturnType<typeof loadAgentCtas>>;
   browserDiagnostics?: BrowserDiagnosticsData | null;
   bugReport?: PublicAgentBugReport;
+  appActivityEventsReadable?: boolean;
 }) {
   const recording = access.recording;
   const requestUrl = getForwardedRequestURL(event);
@@ -953,7 +968,7 @@ export function buildPublicAgentContext({
             },
           }
         : {}),
-      ...(appActivity && canReadAppActivityEvents(access)
+      ...(appActivity && appActivityEventsReadable
         ? { appActivity: { method: "GET", url: api.appActivityUrl } }
         : {}),
     },

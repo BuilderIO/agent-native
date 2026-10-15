@@ -74,7 +74,7 @@ export default defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, failure.status);
     return failure.body;
   }
-  if (!canReadAppActivityEvents(accessResult.access)) {
+  if (!(await canReadAppActivityEvents(accessResult.access))) {
     setResponseStatus(event, 403);
     return {
       failureKind: "access",

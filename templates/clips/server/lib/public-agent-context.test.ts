@@ -8,6 +8,15 @@ const mockGetSession = vi.hoisted(() => vi.fn());
 const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockRecordings = vi.hoisted(() => ({ rows: [] as any[] }));
+const mockResolveAccess = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: mockResolveAccess,
+  roleSatisfies: (actual: string, minimum: string) => {
+    const rank = ["viewer", "commenter", "editor", "admin", "owner"];
+    return rank.indexOf(actual) >= rank.indexOf(minimum);
+  },
+}));
 
 vi.mock("@agent-native/core/application-state", () => ({
   appStateGet: (...args: unknown[]) => mockAppStateGet(...args),
@@ -203,7 +212,7 @@ describe("public agent context access", () => {
     );
   });
 
-  it("lets a Share with agents link read app activity events but never a share password", async () => {
+  it("lets a Share with agents link from an editor read app activity events but never a share password", async () => {
     mockRecordings.rows = [makeRecording({ password: "encrypted-password" })];
 
     vi.mocked(verifySharePassword).mockReturnValueOnce(true);
@@ -212,11 +221,11 @@ describe("public agent context access", () => {
     });
     expect(viaPassword).toMatchObject({
       ok: true,
-      access: { apiToken: "signed-token", viaAgentLink: false },
+      access: { apiToken: "signed-token", agentLinkCreatorEmail: null },
     });
-    expect(viaPassword.ok && canReadAppActivityEvents(viaPassword.access)).toBe(
-      false,
-    );
+    expect(
+      viaPassword.ok && (await canReadAppActivityEvents(viaPassword.access)),
+    ).toBe(false);
 
     mockVerifyScopedAgentAccessToken.mockReturnValueOnce({ ok: true });
     const replayedPasswordToken = await loadPublicAgentAccess(
@@ -226,19 +235,39 @@ describe("public agent context access", () => {
     );
     expect(
       replayedPasswordToken.ok &&
-        canReadAppActivityEvents(replayedPasswordToken.access),
+        (await canReadAppActivityEvents(replayedPasswordToken.access)),
     ).toBe(false);
+    expect(mockResolveAccess).not.toHaveBeenCalled();
 
     mockVerifyScopedAgentAccessToken.mockReturnValueOnce({
       ok: true,
-      viewerEmail: "owner@example.com",
+      viewerEmail: "editor@example.com",
     });
-    const viaAgentLink = await loadPublicAgentAccess({} as any, "rec-1", {
+    const fromEditor = await loadPublicAgentAccess({} as any, "rec-1", {
       token: "agent-link-token",
     });
+    mockResolveAccess.mockResolvedValueOnce({ role: "editor" });
     expect(
-      viaAgentLink.ok && canReadAppActivityEvents(viaAgentLink.access),
+      fromEditor.ok && (await canReadAppActivityEvents(fromEditor.access)),
     ).toBe(true);
+    expect(mockResolveAccess).toHaveBeenLastCalledWith(
+      "recording",
+      "rec-1",
+      { userEmail: "editor@example.com" },
+      { skipResourceBody: true },
+    );
+
+    mockVerifyScopedAgentAccessToken.mockReturnValueOnce({
+      ok: true,
+      viewerEmail: "viewer@example.com",
+    });
+    const fromViewer = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "viewer-link-token",
+    });
+    mockResolveAccess.mockResolvedValueOnce({ role: "viewer" });
+    expect(
+      fromViewer.ok && (await canReadAppActivityEvents(fromViewer.access)),
+    ).toBe(false);
   });
 
   it("keeps private clips hidden from callers without a scoped agent token", async () => {
@@ -523,7 +552,7 @@ describe("buildPublicAgentContext", () => {
           videoFormat: "mp4",
         }) as any,
         viewerIsOwner: false,
-        viaAgentLink: false,
+        agentLinkCreatorEmail: null,
         apiToken: "signed-token",
       },
       transcript: null,
@@ -561,7 +590,7 @@ describe("buildPublicAgentContext", () => {
           videoSizeBytes: 1024,
         }) as any,
         viewerIsOwner: false,
-        viaAgentLink: false,
+        agentLinkCreatorEmail: null,
         apiToken: "signed-token",
       },
       transcript: null,
@@ -596,7 +625,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
-        viaAgentLink: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: {
@@ -634,7 +663,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording({ status: "processing" }) as any,
         viewerIsOwner: false,
-        viaAgentLink: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: null,
@@ -669,7 +698,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
-        viaAgentLink: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: {
@@ -712,7 +741,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
-        viaAgentLink: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: null,
@@ -784,7 +813,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
-        viaAgentLink: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: null,
@@ -965,7 +994,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
-        viaAgentLink: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: null,
@@ -1035,7 +1064,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
-        viaAgentLink: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: null,
@@ -1096,11 +1125,14 @@ describe("buildPublicAgentContext", () => {
         },
       ],
     };
-    const build = (access: {
-      viewerIsOwner: boolean;
-      viaAgentLink: boolean;
-      apiToken: string | null;
-    }) =>
+    const build = (
+      access: {
+        viewerIsOwner: boolean;
+        agentLinkCreatorEmail: string | null;
+        apiToken: string | null;
+      },
+      appActivityEventsReadable = false,
+    ) =>
       buildPublicAgentContext({
         event: {
           url: new URL(
@@ -1132,13 +1164,17 @@ describe("buildPublicAgentContext", () => {
           networkRequests: [],
           appActivity,
         },
+        appActivityEventsReadable,
       });
 
-    const scoped = build({
-      viewerIsOwner: false,
-      viaAgentLink: true,
-      apiToken: "tok",
-    });
+    const scoped = build(
+      {
+        viewerIsOwner: false,
+        agentLinkCreatorEmail: "editor@example.com",
+        apiToken: "tok",
+      },
+      true,
+    );
     expect(scoped.appActivity).toEqual(appActivity);
     expect(scoped.apis).toMatchObject({
       appActivity: {
@@ -1152,7 +1188,7 @@ describe("buildPublicAgentContext", () => {
 
     const openLink = build({
       viewerIsOwner: false,
-      viaAgentLink: false,
+      agentLinkCreatorEmail: null,
       apiToken: null,
     });
     expect(openLink.appActivity).toEqual(appActivity);
@@ -1160,7 +1196,7 @@ describe("buildPublicAgentContext", () => {
 
     const passwordHolder = build({
       viewerIsOwner: false,
-      viaAgentLink: false,
+      agentLinkCreatorEmail: null,
       apiToken: "password-token",
     });
     expect(passwordHolder.apis).not.toHaveProperty("appActivity");
