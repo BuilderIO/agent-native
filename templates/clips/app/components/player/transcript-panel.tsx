@@ -67,7 +67,7 @@ export interface TranscriptPanelProps {
   onRegenerate?: () => void;
   isRegenerating?: boolean;
   transcriptSource?: string | null;
-  onImportTranscript?: (request: TranscriptImportRequest) => void;
+  onImportTranscript?: (request: TranscriptImportRequest) => Promise<unknown>;
   isImporting?: boolean;
 }
 

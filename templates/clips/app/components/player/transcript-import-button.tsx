@@ -1,5 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  isTranscriptExistsError,
+  MAX_TRANSCRIPT_IMPORT_CHARS,
   parseTranscriptImport,
   TRANSCRIPT_IMPORT_ACCEPT,
   type TranscriptImportError,
@@ -41,7 +43,8 @@ export function TranscriptImportButton({
   durationMs?: number | null;
   hasReadyTranscript: boolean;
   isImporting: boolean;
-  onImport: (request: TranscriptImportRequest) => void;
+  /** Rejects when the import fails; the caller reports the failure. */
+  onImport: (request: TranscriptImportRequest) => Promise<unknown>;
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,20 +61,42 @@ export function TranscriptImportButton({
     if (!isImporting) inputRef.current?.click();
   }
 
+  function rejectFile(fileName: string, error: TranscriptImportError) {
+    toast.error(t("transcriptImport.invalidFile", { fileName }), {
+      description: describeImportError(error, t),
+    });
+  }
+
+  async function submit(fileName: string, text: string, replace: boolean) {
+    try {
+      await onImport({ text, replace });
+    } catch (error) {
+      // A transcript became ready after this panel last loaded, so ask
+      // before replacing it, as for one that was ready all along.
+      if (!replace && isTranscriptExistsError(error)) {
+        setReplacement({ fileName, text });
+      }
+    }
+  }
+
   async function handleFile(file: File) {
+    // UTF-8 spends at most four bytes on a character, so a larger file is
+    // over the character cap without reading it into memory.
+    if (file.size > MAX_TRANSCRIPT_IMPORT_CHARS * 4) {
+      rejectFile(file.name, { code: "too-large", line: null });
+      return;
+    }
     const text = await file.text();
     const parsed = parseTranscriptImport(text, { durationMs });
     if (!parsed.ok) {
-      toast.error(t("transcriptImport.invalidFile", { fileName: file.name }), {
-        description: describeImportError(parsed.error, t),
-      });
+      rejectFile(file.name, parsed.error);
       return;
     }
     if (hasReadyTranscript) {
       setReplacement({ fileName: file.name, text });
       return;
     }
-    onImport({ text, replace: false });
+    await submit(file.name, text, false);
   }
 
   const icon = isImporting ? (
@@ -150,7 +175,7 @@ export function TranscriptImportButton({
             <AlertDialogAction
               onClick={() => {
                 if (replacement) {
-                  onImport({ text: replacement.text, replace: true });
+                  void submit(replacement.fileName, replacement.text, true);
                 }
                 setReplacement(null);
               }}

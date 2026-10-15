@@ -63,7 +63,37 @@ describe("parseTranscriptImport", () => {
       ],
       fullText:
         "This PR fixes three chart bugs & one crash. First, the axis labels overlapped.",
+      language: "en",
     });
+  });
+
+  it("ends an overlapping cue where the next starts and joins cues that start together", () => {
+    const result = parseTranscriptImport(
+      [
+        "WEBVTT",
+        "",
+        "00:00.000 --> 00:05.000",
+        "<v Ana>One",
+        "",
+        "00:00.000 --> 00:02.000",
+        "<v Ana>two",
+        "",
+        "00:03.000 --> 00:06.000",
+        "<v Ana>three",
+        "",
+        "00:03.000 --> 00:04.000",
+        "<v Ben>four",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 0, endMs: 3000, text: "One two", speaker: "Ana" },
+        { startMs: 3000, endMs: 6000, text: "three four" },
+      ],
+      language: null,
+    });
+    if (result.ok) expect(result.segments[1]).not.toHaveProperty("speaker");
   });
 
   it("reads SRT with the same timings and text as the matching VTT", () => {

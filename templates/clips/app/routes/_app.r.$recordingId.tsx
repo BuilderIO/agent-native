@@ -46,6 +46,7 @@ import {
   CLIP_SHARE_REF,
 } from "@shared/share-attribution";
 import { isDefaultTitle } from "@shared/title-source";
+import { isTranscriptExistsError } from "@shared/transcript-import";
 import type { WorkflowKind } from "@shared/workflow";
 import {
   IconCalendar,
@@ -1754,6 +1755,12 @@ export default function RecordingPage() {
       void playerDataQ.refetch();
     },
     onError: (err: Error) => {
+      // A transcript became ready since this page loaded; the panel asks
+      // whether to replace it instead.
+      if (isTranscriptExistsError(err)) {
+        void playerDataQ.refetch();
+        return;
+      }
       toast.error(t("transcriptImport.failed"), {
         description: actionErrorMessage(err) ?? t("recordingPage.networkError"),
       });
@@ -2521,7 +2528,7 @@ export default function RecordingPage() {
               onImportTranscript={
                 canEdit
                   ? ({ text, replace }) =>
-                      importTranscript.mutate({
+                      importTranscript.mutateAsync({
                         recordingId: recording.id,
                         text,
                         replace,

@@ -64,7 +64,7 @@ async function insertTranscript(row: {
 
 async function readTranscript() {
   const { rows } = await client.query(
-    `SELECT status, full_text, segments_json, source FROM recording_transcripts WHERE recording_id = 'rec_1'`,
+    `SELECT status, full_text, segments_json, source, language FROM recording_transcripts WHERE recording_id = 'rec_1'`,
   );
   return rows[0] as
     | {
@@ -72,11 +72,12 @@ async function readTranscript() {
         full_text: string;
         segments_json: string;
         source: string | null;
+        language: string;
       }
     | undefined;
 }
 
-function run(args: { text: string; replace?: boolean }) {
+function run(args: { text: string; replace?: boolean; language?: string }) {
   return (importTranscript as any).run({
     recordingId: "rec_1",
     replace: false,
@@ -133,6 +134,7 @@ describe("import-transcript", () => {
       source: "imported",
       full_text:
         "This PR fixes three chart bugs. First, the axis labels overlapped.",
+      language: "und",
     });
     expect(JSON.parse(row!.segments_json)).toEqual([
       {
@@ -208,17 +210,32 @@ describe("import-transcript", () => {
     expect(await readTranscript()).toMatchObject({ full_text: "Keep me." });
   });
 
-  it("queues title and summary generation when the recording still needs them", async () => {
-    await client.query(
-      `UPDATE recordings SET title_source = 'default', description = NULL WHERE id = 'rec_1'`,
-    );
+  it("stores the language argument, else the WebVTT Language header", async () => {
+    await run({ text: VTT.replace("WEBVTT", "WEBVTT\nLanguage: pt-BR") });
+    expect(await readTranscript()).toMatchObject({ language: "pt-BR" });
 
+    await run({ text: VTT, replace: true, language: "es" });
+    expect(await readTranscript()).toMatchObject({ language: "es" });
+  });
+
+  it("queues the transcript follow-up job for a ready recording", async () => {
     const result = await run({ text: VTT });
 
-    expect(result).toMatchObject({ metadataQueued: true });
+    expect(result).toMatchObject({ followUpQueued: true });
     expect(mocks.dispatchPostFinalizeJob).toHaveBeenCalledWith({
       recordingId: "rec_1",
       kind: "transcript",
     });
+  });
+
+  it("leaves the follow-up to finalize while the recording is still processing", async () => {
+    await client.query(
+      `UPDATE recordings SET status = 'processing' WHERE id = 'rec_1'`,
+    );
+
+    const result = await run({ text: VTT });
+
+    expect(result).toMatchObject({ followUpQueued: false });
+    expect(mocks.dispatchPostFinalizeJob).not.toHaveBeenCalled();
   });
 });

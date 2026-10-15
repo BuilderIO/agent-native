@@ -7,12 +7,12 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
-import { isAutoTitleReplaceable } from "../shared/title-source.js";
 import {
   describeTranscriptImportError,
   IMPORTED_TRANSCRIPT_SOURCE,
   MAX_TRANSCRIPT_IMPORT_CHARS,
   parseTranscriptImport,
+  TRANSCRIPT_EXISTS_ERROR_CODE,
   TRANSCRIPT_IMPORT_FORMATS,
 } from "../shared/transcript-import.js";
 import { booleanParam } from "./lib/cli-params.js";
@@ -32,6 +32,13 @@ export default defineAction({
       .describe(
         "vtt, srt, or text (timestamped lines). Detected from the contents when omitted.",
       ),
+    language: z
+      .string()
+      .regex(/^[a-z]{2,3}(?:-[a-z0-9]{1,8})*$/i)
+      .optional()
+      .describe(
+        "BCP 47 language of the transcript, such as en or pt-BR. Defaults to a WebVTT file's Language header, else und (undetermined).",
+      ),
     replace: booleanParam
       .default(false)
       .describe("Replace a transcript that is already ready."),
@@ -44,9 +51,6 @@ export default defineAction({
       .select({
         status: schema.recordings.status,
         durationMs: schema.recordings.durationMs,
-        title: schema.recordings.title,
-        titleSource: schema.recordings.titleSource,
-        description: schema.recordings.description,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
@@ -80,6 +84,7 @@ export default defineAction({
       ownerEmail: getCurrentOwnerEmail(),
       fullText: parsed.fullText,
       segmentsJson: JSON.stringify(parsed.segments),
+      language: args.language ?? parsed.language ?? "und",
       status: "ready" as const,
       failureReason: null,
       failureCode: null,
@@ -99,7 +104,6 @@ export default defineAction({
       .insert(t)
       .values({
         recordingId: args.recordingId,
-        language: "en",
         createdAt: now,
         ...values,
       })
@@ -117,7 +121,7 @@ export default defineAction({
       fail(
         "This recording already has a ready transcript. Ask the user before replacing it, then call again with replace: true.",
         {
-          errorCode: "transcript_exists",
+          errorCode: TRANSCRIPT_EXISTS_ERROR_CODE,
           statusCode: 409,
           details: { source: previous?.source ?? "automatic" },
         },
@@ -126,14 +130,10 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    const needsMetadata =
+    // The transcript job keeps an imported transcript; from it, it fills a
+    // missing title or summary and refreshes the brain export.
+    const followUpQueued =
       rec.status === "ready" &&
-      (isAutoTitleReplaceable(rec.title, rec.titleSource) ||
-        !rec.description?.trim());
-    // The transcript job keeps an imported transcript and only generates the
-    // title and summary from it.
-    const metadataQueued =
-      needsMetadata &&
       (await dispatchPostFinalizeJob({
         recordingId: args.recordingId,
         kind: "transcript",
@@ -141,7 +141,7 @@ export default defineAction({
         () => true,
         (err: unknown) => {
           console.warn(
-            `[clips] imported transcript metadata dispatch failed for ${args.recordingId}:`,
+            `[clips] imported transcript follow-up dispatch failed for ${args.recordingId}:`,
             (err as Error)?.message ?? String(err),
           );
           return false;
@@ -155,7 +155,7 @@ export default defineAction({
       format: parsed.format,
       segments: parsed.segments.length,
       replaced: previous?.status === "ready",
-      metadataQueued,
+      followUpQueued,
     };
   },
 });

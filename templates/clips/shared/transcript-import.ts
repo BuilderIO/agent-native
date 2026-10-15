@@ -6,6 +6,15 @@ export type TranscriptImportFormat = (typeof TRANSCRIPT_IMPORT_FORMATS)[number];
 export const TRANSCRIPT_IMPORT_ACCEPT = ".vtt,.srt,.txt,.md";
 export const IMPORTED_TRANSCRIPT_SOURCE = "imported" as const;
 export const MAX_TRANSCRIPT_IMPORT_CHARS = 2_000_000;
+/** Returned when an import without replace meets a ready transcript. */
+export const TRANSCRIPT_EXISTS_ERROR_CODE = "transcript_exists";
+
+export function isTranscriptExistsError(error: unknown): boolean {
+  return (
+    (error as { errorCode?: unknown } | null)?.errorCode ===
+    TRANSCRIPT_EXISTS_ERROR_CODE
+  );
+}
 
 // A start this far past the recorded duration means the file belongs to a
 // different video, not that the duration metadata rounded down.
@@ -35,6 +44,8 @@ export type TranscriptImportResult =
       format: TranscriptImportFormat;
       segments: TranscriptSegment[];
       fullText: string;
+      /** From a WebVTT `Language:` header; null when the file names none. */
+      language: string | null;
     }
   | { ok: false; format: TranscriptImportFormat; error: TranscriptImportError };
 
@@ -45,6 +56,7 @@ const CUE_TIMING = new RegExp(
 const TIMESTAMP_LINE = new RegExp(
   String.raw`^\s*(?:[-*]\s+)?(?:\*\*)?[[(]?(${TIME})[\])]?(?:\*\*)?(?:\s*[-–—:|]?\s+(.*))?$`,
 );
+const VTT_LANGUAGE_HEADER = /^Language:\s*([a-z]{2,3}(?:-[a-z0-9]{1,8})*)$/i;
 // YouTube's transcript panel can copy each timestamp's screen-reader label
 // ("1 minute, 5 seconds") on its own line under the timestamp.
 const SPOKEN_DURATION =
@@ -98,19 +110,31 @@ export function parseTranscriptImport(
     format,
     segments,
     fullText: segments.map((segment) => segment.text).join(" "),
+    language: parsed.language ?? null,
   };
 }
 
 type ParsedLines =
-  | { segments: TranscriptSegment[]; lineNumbers: number[] }
+  | {
+      segments: TranscriptSegment[];
+      lineNumbers: number[];
+      language?: string | null;
+    }
   | { error: TranscriptImportError };
 
 function parseCues(lines: string[], format: "vtt" | "srt"): ParsedLines {
   const cues: Array<{ segment: TranscriptSegment; line: number }> = [];
+  let language: string | null = null;
   const blocks = splitBlocks(lines);
   for (const [blockIndex, block] of blocks.entries()) {
     const first = block[0].text.trim();
-    if (blockIndex === 0 && /^WEBVTT(?:\s|$)/.test(first)) continue;
+    if (blockIndex === 0 && /^WEBVTT(?:\s|$)/.test(first)) {
+      for (const line of block) {
+        const header = VTT_LANGUAGE_HEADER.exec(line.text.trim());
+        if (header) language = header[1];
+      }
+      continue;
+    }
     if (/^(?:NOTE|STYLE|REGION)(?:\s|$)/.test(first)) continue;
 
     // A cue starts with an optional identifier (SRT's index) and then its
@@ -148,9 +172,31 @@ function parseCues(lines: string[], format: "vtt" | "srt"): ParsedLines {
     });
   }
   cues.sort((a, b) => a.segment.startMs - b.segment.startMs);
+  // The player shows one caption at a time, so a cue that overlaps the next
+  // would hold that cue back until it ends. End each cue where the next one
+  // starts, and join cues that start together.
+  const timed: typeof cues = [];
+  for (const cue of cues) {
+    const previous = timed[timed.length - 1];
+    if (previous && cue.segment.startMs === previous.segment.startMs) {
+      const { speaker, ...rest } = previous.segment;
+      previous.segment = {
+        ...rest,
+        endMs: Math.max(rest.endMs, cue.segment.endMs),
+        text: `${rest.text} ${cue.segment.text}`,
+        ...(speaker && speaker === cue.segment.speaker ? { speaker } : {}),
+      };
+      continue;
+    }
+    if (previous && previous.segment.endMs > cue.segment.startMs) {
+      previous.segment = { ...previous.segment, endMs: cue.segment.startMs };
+    }
+    timed.push(cue);
+  }
   return {
-    segments: cues.map((cue) => cue.segment),
-    lineNumbers: cues.map((cue) => cue.line),
+    segments: timed.map((cue) => cue.segment),
+    lineNumbers: timed.map((cue) => cue.line),
+    language,
   };
 }
 
