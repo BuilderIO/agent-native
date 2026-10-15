@@ -179,6 +179,38 @@ jobs:
           if (appDatabaseOverride) {
             throw new Error("A production app-specific database URL would override the shared Community database.");
           }
+          const runtimeDatabaseVariable = variables.find(({ key }) => key === "DATABASE_URL");
+          if (
+            runtimeDatabaseVariable &&
+            (runtimeDatabaseVariable.is_secret !== true ||
+              !runtimeDatabaseVariable.scopes?.includes("functions"))
+          ) {
+            throw new Error("DATABASE_URL must be secret and available to Functions before publishing.");
+          }
+          const runtimeDatabaseUpdate = await fetch(
+            runtimeDatabaseVariable
+              ? endpoint + "/DATABASE_URL?" + query
+              : endpoint + "?" + query,
+            {
+              method: runtimeDatabaseVariable ? "PATCH" : "POST",
+              headers,
+              body: JSON.stringify(
+                runtimeDatabaseVariable
+                  ? { context: "production", value: DATABASE_URL }
+                  : [
+                      {
+                        key: "DATABASE_URL",
+                        scopes: ["functions"],
+                        values: [{ context: "production", value: DATABASE_URL }],
+                        is_secret: true,
+                      },
+                    ],
+              ),
+            },
+          );
+          if (!runtimeDatabaseUpdate.ok) {
+            throw new Error(`Could not configure the Community runtime database URL (${responseDetails(runtimeDatabaseUpdate)}).`);
+          }
           const updateUrl = `${endpoint}/DATABASE_URL_UNPOOLED?${query}`;
           const update = await fetch(updateUrl, {
             method: "PATCH",
@@ -187,6 +219,25 @@ jobs:
           });
           if (!update.ok) {
             throw new Error(`Could not point the Community Netlify site at its migrated Neon database (${responseDetails(update)}).`);
+          }
+          const verifiedVariables = await readVariables();
+          const verifiedRuntimeDatabase = verifiedVariables.find(
+            ({ key }) => key === "DATABASE_URL",
+          );
+          const verifiedUnpooledDatabase = verifiedVariables.find(
+            ({ key }) => key === "DATABASE_URL_UNPOOLED",
+          );
+          const hasProductionFunctionValue = (variable) =>
+            variable?.is_secret === true &&
+            variable.scopes?.includes("functions") &&
+            variable.values?.some(({ context }) =>
+              ["all", "production"].includes(context),
+            );
+          if (
+            !hasProductionFunctionValue(verifiedRuntimeDatabase) ||
+            !hasProductionFunctionValue(verifiedUnpooledDatabase)
+          ) {
+            throw new Error("The Community runtime and migration database URLs must both be secret and available to production Functions.");
           }
           console.log("Runtime database metadata verified for Netlify Functions.");
           NODE
