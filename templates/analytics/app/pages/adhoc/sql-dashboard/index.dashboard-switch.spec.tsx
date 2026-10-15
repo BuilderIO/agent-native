@@ -320,6 +320,7 @@ describe("SqlDashboardPage dashboard switch", () => {
     mocks.cardRenders = [];
     mocks.editorRenders = [];
     mocks.submitEditorOn = null;
+    mocks.session = { email: "viewer@example.com" };
     mocks.saveDashboard = async () => ({});
     mocks.dashboards = {
       "dash-a": dashboardRecord("Dashboard A", [tablePanel("Accounts A", 200)]),
@@ -360,6 +361,29 @@ describe("SqlDashboardPage dashboard switch", () => {
       dashboardId: "dash-b",
     });
     expect(container.textContent).toContain("Accounts B");
+  });
+
+  it("never shows or saves a panel editor opened under another account on the same dashboard", async () => {
+    const savedTo: unknown[] = [];
+    mocks.saveDashboard = async (args) => {
+      savedTo.push(args.dashboardId);
+      return {};
+    };
+    await renderAt("/dashboards/dash-a");
+    await click("edit-shared-table");
+    expect(byTestId("panel-editor")).not.toBeNull();
+
+    mocks.editorRenders = [];
+    mocks.submitEditorOn = "dash-a";
+    mocks.session = { email: "other@example.com" };
+    await renderAt("/dashboards/dash-a");
+
+    expect(savedTo).toEqual([]);
+    expect(mocks.editorRenders).not.toContainEqual({
+      open: true,
+      dashboardId: "dash-a",
+    });
+    expect(byTestId("panel-editor")).toBeNull();
   });
 
   it("closes report settings opened on one dashboard when the route moves to another", async () => {

@@ -998,14 +998,16 @@ function SqlDashboardPageContent({
   const skipFilterPreferenceSave =
     useRef<DashboardFilterPreferenceSaveGuard | null>(null);
 
-  // Unfinished edits and open dialogs belong to the dashboard they were
-  // opened on; kept, they would reappear and act on the next one. They reset
-  // during render, not in the effect below: the first render after a switch
-  // would otherwise show them under the next dashboard's id, and a save from
-  // that render would write the old config there.
-  const [draftsDashboardId, setDraftsDashboardId] = useState(dashboardId);
-  if (draftsDashboardId !== dashboardId) {
-    setDraftsDashboardId(dashboardId);
+  // Unfinished edits and open dialogs belong to the dashboard, account and
+  // organization they were opened in; kept, they would reappear and act on
+  // the next one. They reset during render, not in the effect below: the
+  // first render after a switch would otherwise show them under the next
+  // dashboard's id, and a save from that render would write the old config
+  // there. The scope is URI-encoded, so it never contains the separator.
+  const draftsOwner = `${dashboardScope}/${dashboardId ?? ""}`;
+  const [draftsOwnerShown, setDraftsOwnerShown] = useState(draftsOwner);
+  if (draftsOwnerShown !== draftsOwner) {
+    setDraftsOwnerShown(draftsOwner);
     setEditingName(false);
     setEditingDescription(false);
     setActiveDropSlot(null);
