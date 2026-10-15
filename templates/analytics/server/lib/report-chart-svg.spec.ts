@@ -107,6 +107,15 @@ function xAxisLabels(
   });
 }
 
+/** The top grid line's y: nothing drawn above it sits on the data. */
+function plotTop(svg: string): number {
+  return Math.min(
+    ...[
+      ...svg.matchAll(/<line [^>]*y1="([\d.]+)"[^>]*stroke-width="0.8"/g),
+    ].map(([, y]) => Number(y)),
+  );
+}
+
 describe("renderReportChartSvg", () => {
   const types: Array<Exclude<ReportChartType, "funnel">> = [
     "bar",
@@ -774,12 +783,6 @@ describe("renderReportChartSvg events", () => {
     "Introducing Agent-Native Beta blog post",
     "Launch posts on X, LinkedIn",
   ];
-  const plotTop = (svg: string) =>
-    Math.min(
-      ...[
-        ...svg.matchAll(/<line [^>]*y1="([\d.]+)"[^>]*stroke-width="0.8"/g),
-      ].map(([, y]) => Number(y)),
-    );
 
   it("wraps a long same-day label onto more lines instead of cutting it", () => {
     const svg = renderReportChartSvg({
@@ -1002,7 +1005,121 @@ describe("renderReportChartSvg data-note bands", () => {
     expect(Number(x) + width).toBeLessThanOrEqual(720);
   });
 
-  it("shortens a title wider than the chart only between words", () => {
+  const labelBoxes = (svg: string) =>
+    [
+      ...svg.matchAll(
+        /<text x="([\d.]+)" y="([\d.]+)"(?: text-anchor="(start|end)")? font-size="10" fill="([^"]+)"[^>]*>([^<]*)<\/text>/g,
+      ),
+    ].map(([, x, y, anchor, fill, text]) => {
+      const width = estimateTextWidth(text, 10);
+      const left = anchor === "end" ? Number(x) - width : Number(x);
+      return {
+        text,
+        fill,
+        left,
+        right: left + width,
+        top: Number(y) - 10,
+        bottom: Number(y) + 3,
+      };
+    });
+
+  it("puts a band's title in the rows above the plot, starting at the band, not over the bars", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "Failures", data: days.map((_, index) => index + 1) }],
+      type: "bar",
+      width: 720,
+      height: 320,
+      bands: [band],
+    });
+    const [title] = labelBoxes(svg);
+    expect(title.text).toBe(band.label);
+    expect(title.bottom).toBeLessThan(plotTop(svg));
+    const [, bandLeft] = svg.match(
+      /<rect x="([\d.]+)"[^>]*fill="#dc2626" fill-opacity="0\.1"/,
+    )!;
+    expect(title.left).toBeCloseTo(Number(bandLeft) + 4, 0);
+  });
+
+  it("lays out two band titles and a same-day key-date label in one set of rows, none overlapping", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "Failures", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: [
+        { index: 4, label: "Product Hunt live" },
+        { index: 4, label: "Launch posts on X, LinkedIn" },
+      ],
+      bands: [
+        {
+          ...band,
+          startIndex: 3,
+          endIndex: 6,
+          label: "Account setup failures",
+        },
+        {
+          ...band,
+          startIndex: 4,
+          endIndex: 9,
+          label: "Signup events counted twice",
+          color: "#d97706",
+          endEdge: false,
+        },
+      ],
+    });
+    const boxes = labelBoxes(svg);
+    expect(boxes.map(({ text, fill }) => [text, fill])).toEqual(
+      expect.arrayContaining([
+        ["Product Hunt live · Launch posts on X, LinkedIn", "#09090b"],
+        ["Account setup failures", "#dc2626"],
+        ["Signup events counted twice", "#d97706"],
+      ]),
+    );
+    const top = plotTop(svg);
+    for (const box of boxes) expect(box.bottom).toBeLessThan(top);
+    const overlaps = boxes.flatMap((a, index) =>
+      boxes
+        .slice(index + 1)
+        .filter(
+          (b) =>
+            a.left < b.right &&
+            b.left < a.right &&
+            a.top < b.bottom &&
+            b.top < a.bottom,
+        )
+        .map((b) => [a.text, b.text]),
+    );
+    expect(overlaps).toEqual([]);
+  });
+
+  it("counts a band title that finds no room left instead of dropping it", () => {
+    const month = Array.from(
+      { length: 30 },
+      (_, index) => `2026-09-${String(index + 15).padStart(2, "0")}`,
+    );
+    const svg = renderReportChartSvg({
+      labels: month,
+      series: [{ label: "People", data: month.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: month.map((_, index) => ({
+        index,
+        label: `Release ${index} shipped to every workspace`,
+      })),
+      bands: [{ ...band, startIndex: 2, endIndex: 20 }],
+    });
+    const boxes = labelBoxes(svg);
+    expect(boxes.filter((box) => box.fill === "#dc2626")).toEqual([]);
+    expect(svg).toMatch(/<rect [^>]*fill="#dc2626" fill-opacity="0\.1"\/>/);
+    expect(boxes.map((box) => box.text)).toContainEqual(
+      expect.stringMatching(/^\+\d+ dates and 1 note not labeled$/),
+    );
+  });
+
+  it("wraps a title wider than half the chart at words instead of cutting it", () => {
     const title = "Signups counted twice after the webhook retry on every plan";
     const svg = renderReportChartSvg({
       labels: days,
@@ -1012,11 +1129,10 @@ describe("renderReportChartSvg data-note bands", () => {
       height: 200,
       bands: [{ ...band, label: title }],
     });
-    const [, shown] = svg.match(
-      /fill="#dc2626" stroke="[^"]+" stroke-width="3" paint-order="stroke">([^<]+)<\/text>/,
-    )!;
-    expect(shown.endsWith("...")).toBe(true);
-    expect(title.startsWith(`${shown.slice(0, -3)} `)).toBe(true);
+    const lines = labelBoxes(svg);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.map((line) => line.text).join(" ")).toBe(title);
+    expect(new Set(lines.map((line) => line.left)).size).toBe(1);
   });
 
   it("skips a band outside the labels", () => {

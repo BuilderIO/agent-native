@@ -285,8 +285,9 @@ only the fields given); remove with `delete-data-note`.
 - A dashboard hides a note on one chart with
   `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
   keeping `hiddenKeyDateSets` and the notes already hidden in the same object.
-- Scheduled email reports shade the same ranges and write each note's text under
-  the chart.
+- Scheduled email reports shade the same ranges, title each band in the label
+  rows above the plot alongside key dates (a title with no room left is
+  counted), and write each note's text under the chart.
 
 ## Reusable Native Dashboard Patterns
 
