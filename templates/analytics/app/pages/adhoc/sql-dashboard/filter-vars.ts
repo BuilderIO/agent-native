@@ -93,6 +93,14 @@ export function filterPresetIssues(
     if (index >= MAX_FILTER_PRESETS) {
       return `is past the limit of ${MAX_FILTER_PRESETS} presets`;
     }
+    // Before isFilterPreset walks the values, so an oversized list costs nothing.
+    if (
+      isRecord(preset) &&
+      Array.isArray(preset.values) &&
+      preset.values.length > MAX_FILTER_OPTIONS
+    ) {
+      return `has more than ${MAX_FILTER_OPTIONS} values`;
+    }
     if (
       !isFilterPreset(preset) ||
       preset.label.trim() === "" ||
@@ -102,9 +110,6 @@ export function filterPresetIssues(
     }
     if (labels.has(preset.label)) {
       return `label "${preset.label}" repeats an earlier preset`;
-    }
-    if (preset.values.length > MAX_FILTER_OPTIONS) {
-      return `has more than ${MAX_FILTER_OPTIONS} values`;
     }
     // A value with no checkbox would be applied to SQL unseen, as with the default.
     const unknown = preset.values.find((value) => !optionValues.has(value));
@@ -121,8 +126,9 @@ export function usableFilterPresets(
   optionValues: ReadonlySet<string>,
 ): FilterPreset[] {
   if (!Array.isArray(presets)) return [];
-  const issues = filterPresetIssues(presets, optionValues);
-  return presets.filter(
+  const bounded = presets.slice(0, MAX_FILTER_PRESETS);
+  const issues = filterPresetIssues(bounded, optionValues);
+  return bounded.filter(
     (preset, index): preset is FilterPreset => issues[index] === null,
   );
 }
