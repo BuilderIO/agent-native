@@ -2012,8 +2012,8 @@ it("accepts Firefox's retired-session warning when the request finished during t
     ).toBe(false);
   }
 
-  // Ages are read after the grace wait, so that delay widens the bound; the
-  // window before the warning itself stays one second.
+  // Ages are read after the grace wait, so that delay shifts both bounds: the
+  // request settled by the warning and within one second before it.
   const readLate = (settledAgeMs: number, evaluationDelayMs: number) =>
     isExpectedSaveReloadBrowserSessionConsoleError(
       pollWarning,
@@ -2024,6 +2024,16 @@ it("accepts Firefox's retired-session warning when the request finished during t
   expect(readLate(1_000, 0)).toBe(false);
   expect(readLate(1_299, 300)).toBe(true);
   expect(readLate(1_300, 300)).toBe(false);
+  // Settled at the warning counts; settled after it, while the grace wait was
+  // still running, does not.
+  expect(readLate(300, 300)).toBe(true);
+  expect(readLate(299, 300)).toBe(false);
+  expect(readLate(0, 300)).toBe(false);
+  expect(readLate(-1, 0)).toBe(false);
+  // The CI run this fixes: the claim settled 61 ms before the warning arrived
+  // and the candidates were read 302 ms after it (250 ms grace plus Firefox
+  // normalization).
+  expect(readLate(61 + 302, 302)).toBe(true);
 
   // The retired page polls every 500 ms until the reloaded document commits, so
   // a slow commit leaves several finished requests; any one excuses the warning.
@@ -2119,10 +2129,16 @@ it("measures the finished-request window from the warning, not from when it was 
 
     expect(await run(1_249)).toBe(true);
     expect(await run(1_250)).toBe(false);
+    // Reported age equal to the grace wait means it settled at the warning; any
+    // less means it settled afterwards, so it cannot be the cause.
+    expect(await run(250)).toBe(true);
+    expect(await run(249)).toBe(false);
     // Time spent before the wrapper ran (Firefox normalizes the message first)
     // counts too when the caller passes the warning's own timestamp.
     expect(await run(1_349, Date.now() - 100)).toBe(true);
     expect(await run(1_350, Date.now() - 100)).toBe(false);
+    expect(await run(350, Date.now() - 100)).toBe(true);
+    expect(await run(349, Date.now() - 100)).toBe(false);
   } finally {
     vi.useRealTimers();
   }

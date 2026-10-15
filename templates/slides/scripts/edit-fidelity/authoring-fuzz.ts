@@ -810,9 +810,11 @@ function isFinishedRetiredSessionRequest(
     candidate.responseStatus >= 200 &&
     candidate.responseStatus < 300 &&
     candidate.settledAgeMs !== undefined &&
-    candidate.settledAgeMs >= 0 &&
-    // Ages are read when the candidates are evaluated, which is after the grace
-    // wait, so the bound covers that delay to stay a window before the warning.
+    // Ages are read when the candidates are evaluated, evaluationDelayMs after
+    // the warning (the grace wait), so both bounds shift by it: the request must
+    // have settled by the warning and within a second before it. One that
+    // settled after the warning cannot be what tore the warned fetch down.
+    candidate.settledAgeMs >= evaluationDelayMs &&
     candidate.settledAgeMs <
       reloadNavigationConsoleGraceMs + evaluationDelayMs &&
     candidate.competingSameTypeRequest !== true
@@ -898,12 +900,14 @@ export async function isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace(
       setTimeout(resolve, retiredBrowserSessionPollConsoleGraceMs),
     );
   }
-  const candidates = getCandidates();
+  // Taken just before the candidates are read, so their ages and this delay
+  // share one instant.
+  const evaluationDelayMs = Math.max(0, Date.now() - warnedAt);
   return isExpectedSaveReloadBrowserSessionConsoleError(
     message,
     activePhase,
-    candidates,
-    Math.max(0, Date.now() - warnedAt),
+    getCandidates(),
+    evaluationDelayMs,
   );
 }
 
