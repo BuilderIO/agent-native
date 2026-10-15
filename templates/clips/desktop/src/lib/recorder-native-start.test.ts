@@ -485,12 +485,16 @@ describe("native recording startup", () => {
     expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
     expect(mocks.transcribe).not.toHaveBeenCalled();
 
+    const hideCallsBeforeLateResolution = calls("hide_recording_chrome").length;
     overlay.resolve(1);
     await flush();
-    expect(calls("finish_countdown_shortcuts")).toContainEqual([
-      "finish_countdown_shortcuts",
+    expect(calls("dismiss_countdown_for_generation")).toContainEqual([
+      "dismiss_countdown_for_generation",
       { generation: 1 },
     ]);
+    expect(calls("hide_recording_chrome")).toHaveLength(
+      hideCallsBeforeLateResolution,
+    );
   });
 
   it("does not prepare Rewind after its concurrent countdown fails", async () => {

@@ -2760,10 +2760,14 @@ async function runRecordingCountdown(
         signal,
         timeoutMs: COUNTDOWN_SHOW_TIMEOUT_MS,
         onLateResolve(generation) {
-          void invoke("finish_countdown_shortcuts", { generation }).catch(
-            () => {},
-          );
-          void invoke("hide_recording_chrome").catch(() => {});
+          void invoke("dismiss_countdown_for_generation", {
+            generation,
+          }).catch((error) => {
+            console.warn(
+              "[clips-recorder] late countdown cleanup failed:",
+              error,
+            );
+          });
         },
       },
     );

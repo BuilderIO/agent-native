@@ -81,6 +81,19 @@ mod tests {
     }
 
     #[test]
+    fn countdown_generation_cleanup_matches_only_the_active_generation() {
+        assert!(countdown_generation_matches_state(
+            (8 << 1) | COUNTDOWN_SHORTCUTS_ACTIVE_BIT,
+            8,
+        ));
+        assert!(!countdown_generation_matches_state(
+            (9 << 1) | COUNTDOWN_SHORTCUTS_ACTIVE_BIT,
+            8,
+        ));
+        assert!(!countdown_generation_matches_state(0, 8));
+    }
+
+    #[test]
     fn recording_shortcuts_match_platform_defaults() {
         #[cfg(target_os = "macos")]
         {
@@ -138,6 +151,10 @@ static MONITOR_PICKER_ESCAPE_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 fn active_countdown_generation_from_state(state: u64) -> Option<u64> {
     (state & COUNTDOWN_SHORTCUTS_ACTIVE_BIT != 0).then_some(state >> 1)
+}
+
+fn countdown_generation_matches_state(state: u64, expected_generation: u64) -> bool {
+    active_countdown_generation_from_state(state) == Some(expected_generation)
 }
 /// Escape has several owners (popover, countdown, dictation, monitor picker).
 /// Every register/unregister runs under this lock, and an owner stores its own
@@ -747,6 +764,13 @@ pub(crate) async fn retire_countdown_shortcuts(app: AppHandle) -> Result<(), Str
 
 fn active_countdown_generation() -> Option<u64> {
     active_countdown_generation_from_state(COUNTDOWN_SHORTCUTS_STATE.load(Ordering::SeqCst))
+}
+
+pub(crate) fn is_active_countdown_generation(expected_generation: u64) -> bool {
+    countdown_generation_matches_state(
+        COUNTDOWN_SHORTCUTS_STATE.load(Ordering::SeqCst),
+        expected_generation,
+    )
 }
 
 /// Observe key-down events only while Clips itself is the active application.

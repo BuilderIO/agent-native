@@ -685,6 +685,37 @@ pub async fn finish_countdown_shortcuts(app: AppHandle, generation: u64) -> Resu
     crate::shortcuts::finish_countdown_shortcuts(app, generation).await
 }
 
+#[tauri::command]
+pub async fn dismiss_countdown_for_generation(
+    app: AppHandle,
+    generation: u64,
+) -> Result<(), String> {
+    with_countdown_show_lock(async move {
+        if crate::shortcuts::is_active_countdown_generation(generation) {
+            stop_countdown_control_tracking();
+            let close_result = match app.get_webview_window(COUNTDOWN_LABEL) {
+                Some(countdown) => countdown
+                    .close()
+                    .map_err(|error| format!("Failed to close countdown window: {error}")),
+                None => Ok(()),
+            };
+            let shortcuts_result =
+                crate::shortcuts::finish_countdown_shortcuts(app, generation).await;
+            match (close_result, shortcuts_result) {
+                (Ok(()), Ok(())) => Ok(()),
+                (Err(close_error), Ok(())) => Err(close_error),
+                (Ok(()), Err(shortcuts_error)) => Err(shortcuts_error),
+                (Err(close_error), Err(shortcuts_error)) => Err(format!(
+                    "{close_error}; shortcut cleanup also failed: {shortcuts_error}"
+                )),
+            }
+        } else {
+            Ok(())
+        }
+    })
+    .await
+}
+
 fn cursor_over_countdown_control(window: &WebviewWindow) -> bool {
     let (Ok(c), Ok(p), Ok(s), Ok(scale)) = (
         window.cursor_position(),
