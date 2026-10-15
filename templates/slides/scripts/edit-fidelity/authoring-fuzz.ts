@@ -321,6 +321,25 @@ function matchesRetiredSessionHeartbeat(
   );
 }
 
+function matchesRetiredSessionRegistration(
+  method: string,
+  pathname: string,
+  requestSessionId: string | null | undefined,
+  retiredSessionId: string | null | undefined,
+  competingSameTypeRequest: boolean | undefined,
+  competingRegistrationStartedAfterNavigation: boolean | undefined,
+) {
+  return (
+    method === "POST" &&
+    pathname === "/_agent-native/browser-sessions" &&
+    requestSessionId !== null &&
+    requestSessionId !== undefined &&
+    requestSessionId === retiredSessionId &&
+    competingSameTypeRequest === false &&
+    competingRegistrationStartedAfterNavigation === false
+  );
+}
+
 export function uniquePendingBrowserSessionId(
   claims: readonly { method: string; pathname: string }[],
 ) {
@@ -478,6 +497,7 @@ export function isExpectedSaveReloadWatchedRequestAbort(
     requestSessionId: string | null;
     retiredSessionId: string | null;
     competingSameTypeRequest: boolean;
+    competingRegistrationStartedAfterNavigation?: boolean;
   },
 ) {
   return (
@@ -504,6 +524,15 @@ export function isExpectedSaveReloadWatchedRequestAbort(
             sessionCorrelation?.requestSessionId,
             sessionCorrelation?.retiredSessionId,
             sessionCorrelation?.competingSameTypeRequest,
+          )) &&
+        (rule !== browserSessionRegistrationRequestRule ||
+          matchesRetiredSessionRegistration(
+            method ?? "",
+            pathname,
+            sessionCorrelation?.requestSessionId,
+            sessionCorrelation?.retiredSessionId,
+            sessionCorrelation?.competingSameTypeRequest,
+            sessionCorrelation?.competingRegistrationStartedAfterNavigation,
           ))
       );
     })
@@ -784,12 +813,26 @@ type WatchedRequestNavigationCandidate = {
   competingSameTypeRequest?: boolean;
 };
 
+function matchesRetiredRegistrationCandidate(
+  candidate: WatchedRequestNavigationCandidate,
+) {
+  return matchesRetiredSessionRegistration(
+    candidate.method,
+    candidate.pathname,
+    candidate.requestSessionId,
+    candidate.retiredSessionId,
+    candidate.competingSameTypeRequest,
+    candidate.competingRegistrationStartedAfterNavigation,
+  );
+}
+
 function isExpectedWatchedRequestNavigationAbort(
   candidate: WatchedRequestNavigationCandidate,
   rules: readonly SaveReloadRequestAbortRule[],
   allowFinishedRequestGrace = false,
   rejectCompetingClaim = false,
   maxRequestAgeMs = reloadNavigationAbortMaxRequestAgeMs,
+  requireRegistrationIdentity = false,
 ) {
   return (
     candidate.requestWasPendingAtNavigation === true &&
@@ -828,7 +871,10 @@ function isExpectedWatchedRequestNavigationAbort(
             candidate.requestSessionId,
             candidate.retiredSessionId,
             candidate.competingSameTypeRequest,
-          ))
+          )) &&
+        (rule !== browserSessionRegistrationRequestRule ||
+          !requireRegistrationIdentity ||
+          matchesRetiredRegistrationCandidate(candidate))
       );
     })
   );
@@ -877,6 +923,7 @@ export function isExpectedWatchedRequestCorsError(
           isCleanupClaim
             ? cleanupNavigationClaimMaxRequestAgeMs
             : reloadNavigationAbortMaxRequestAgeMs,
+          activePhase === "save/reload",
         )
       );
     }).length === 1
@@ -889,6 +936,7 @@ function hasExactlyOneExpectedBrowserSessionAbort(
   allowFinishedRequestGrace = false,
   rejectCompetingClaim = false,
   maxRequestAgeMs = reloadNavigationAbortMaxRequestAgeMs,
+  requireRegistrationIdentity = false,
 ) {
   return (
     candidates.filter((candidate) =>
@@ -898,6 +946,7 @@ function hasExactlyOneExpectedBrowserSessionAbort(
         allowFinishedRequestGrace,
         rejectCompetingClaim,
         maxRequestAgeMs,
+        requireRegistrationIdentity,
       ),
     ).length === 1
   );
@@ -984,6 +1033,9 @@ function isFinishedRetiredSessionRequest(
       normalizeDocumentUrl(candidate.outgoingDocumentUrl ?? null) &&
     candidate.requestSessionId !== null &&
     candidate.requestSessionId === candidate.retiredSessionId &&
+    (requestKind !== "heartbeat" ||
+      candidate.pathname !== "/_agent-native/browser-sessions" ||
+      matchesRetiredRegistrationCandidate(candidate)) &&
     candidate.responseStatus !== undefined &&
     candidate.responseStatus >= 200 &&
     candidate.responseStatus < 300 &&
@@ -1023,7 +1075,10 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
         candidate.outgoingAbortWarningAgeMs >= 0 &&
         candidate.outgoingAbortWarningAgeMs <=
           retiredBrowserSessionPollConsoleGraceMs &&
-        candidate.competingSameTypeRequest !== true,
+        candidate.competingSameTypeRequest !== true &&
+        (candidate.outgoingRequestKind !== "heartbeat" ||
+          candidate.pathname !== "/_agent-native/browser-sessions" ||
+          matchesRetiredRegistrationCandidate(candidate)),
     ).length;
     if (aborted > 0) return aborted === 1;
     if (!message.endsWith("TypeError: Load failed")) {
@@ -1061,6 +1116,8 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
       rules,
       isPollFailure,
       isPollFailure,
+      reloadNavigationAbortMaxRequestAgeMs,
+      true,
     ) ||
       (isPollFailure && completedClaimCount === 1 && claimCandidateCount === 1))
   );
@@ -1503,6 +1560,7 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
     requestSessionId?: string | null;
     retiredSessionId?: string | null;
     competingSameTypeRequest?: boolean;
+    competingRegistrationStartedAfterNavigation?: boolean;
   }>,
 ) {
   if (activePhase !== "save/reload") return false;
@@ -2312,6 +2370,31 @@ export async function runAuthoringFuzz(
       },
     );
   };
+  const hasCompetingRegistrationStartedAfterNavigation = (request: any) => {
+    const url = new URL(request.url());
+    if (
+      request.method() !== "POST" ||
+      url.pathname !== "/_agent-native/browser-sessions"
+    ) {
+      return false;
+    }
+    return [...reloadNavigationRequests.entries()].some(
+      ([otherRequest, otherCandidate]) => {
+        if (
+          otherRequest === request ||
+          (!otherCandidate.requestStartedDuringNavigation &&
+            !otherCandidate.requestStartedAfterNavigation)
+        ) {
+          return false;
+        }
+        const otherUrl = new URL(otherRequest.url());
+        return (
+          otherRequest.method() === "POST" &&
+          otherUrl.pathname === "/_agent-native/browser-sessions"
+        );
+      },
+    );
+  };
   const hasCompetingNewBrowserSessionTraffic = () =>
     [...reloadNavigationRequests.entries()].some(([request, candidate]) =>
       isCompetingRetiredBrowserSessionTraffic({
@@ -2371,7 +2454,9 @@ export async function runAuthoringFuzz(
     requestKind: candidate.outgoingRequestKind,
     requestSessionId: candidate.requestSessionId,
     retiredSessionId: candidate.retiredSessionId,
-    competingSameTypeRequest: hasCompetingOutgoingSessionRequest(request),
+    competingSameTypeRequest:
+      hasCompetingOutgoingSessionRequest(request) ||
+      hasCompetingRegistrationStartedAfterNavigation(request),
   });
   const finalizePendingOutgoingAborts = () => {
     const errors: string[] = [];
@@ -2446,6 +2531,8 @@ export async function runAuthoringFuzz(
           candidate.requestStartedBeforeReloadCommit,
         competingClaimStartedAfterNavigation:
           hasCompetingClaimStartedAfterNavigation(request),
+        competingRegistrationStartedAfterNavigation:
+          hasCompetingRegistrationStartedAfterNavigation(request),
         outgoingNavigationAbort: candidate.outgoingNavigationAbort,
         outgoingRequestKind: candidate.outgoingRequestKind ?? undefined,
         requestSessionId: candidate.requestSessionId,
@@ -2694,6 +2781,8 @@ export async function runAuthoringFuzz(
               retiredSessionId: navigationCandidate.retiredSessionId,
               competingSameTypeRequest:
                 hasCompetingOutgoingSessionRequest(request),
+              competingRegistrationStartedAfterNavigation:
+                hasCompetingRegistrationStartedAfterNavigation(request),
             }
           : undefined,
       )

@@ -90,6 +90,7 @@ const isExpectedSameOriginSaveReloadAbort = (
     requestSessionId: string | null;
     retiredSessionId: string | null;
     competingSameTypeRequest: boolean;
+    competingRegistrationStartedAfterNavigation?: boolean;
   },
 ) =>
   isExpectedSaveReloadAbort(
@@ -1282,6 +1283,12 @@ it("clears a cleanup finish marker when the same request later fails", () => {
 });
 
 it("ignores registration aborts only when reload navigation cancels an in-flight request", () => {
+  const matchingRegistration = {
+    requestSessionId: "retired-session",
+    retiredSessionId: "retired-session",
+    competingSameTypeRequest: false,
+    competingRegistrationStartedAfterNavigation: false,
+  };
   for (const errorText of [
     "Load request cancelled",
     "cancelled",
@@ -1296,6 +1303,9 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
         "POST",
         true,
         100,
+        false,
+        false,
+        matchingRegistration,
       ),
     ).toBe(true);
   }
@@ -1308,6 +1318,39 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
       "POST",
     ),
   ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/browser-sessions",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      100,
+    ),
+  ).toBe(false);
+  for (const sessionCorrelation of [
+    { ...matchingRegistration, requestSessionId: "new-session" },
+    { ...matchingRegistration, retiredSessionId: "new-session" },
+    { ...matchingRegistration, competingSameTypeRequest: true },
+    {
+      ...matchingRegistration,
+      competingRegistrationStartedAfterNavigation: true,
+    },
+  ]) {
+    expect(
+      isExpectedSameOriginSaveReloadAbort(
+        "/_agent-native/browser-sessions",
+        "NS_BINDING_ABORTED",
+        "save/reload",
+        "POST",
+        true,
+        100,
+        false,
+        false,
+        sessionCorrelation,
+      ),
+    ).toBe(false);
+  }
   expect(
     isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions",
@@ -2132,6 +2175,10 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
     ageMs: 100,
     sameOrigin: true,
     requestWasPendingAtNavigation: true,
+    requestSessionId: "session-id",
+    retiredSessionId: "session-id",
+    competingSameTypeRequest: false,
+    competingRegistrationStartedAfterNavigation: false,
   };
   const pollWarning =
     "[Agent-Native browser session] poll failed: TypeError: Load failed";
@@ -2185,6 +2232,23 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
       [registrationCandidate],
     ),
   ).toBe(true);
+  for (const mismatchedRegistration of [
+    { ...registrationCandidate, requestSessionId: "new-session" },
+    { ...registrationCandidate, retiredSessionId: "new-session" },
+    { ...registrationCandidate, competingSameTypeRequest: true },
+    {
+      ...registrationCandidate,
+      competingRegistrationStartedAfterNavigation: true,
+    },
+  ]) {
+    expect(
+      isExpectedSaveReloadBrowserSessionConsoleError(
+        heartbeatWarning,
+        "save/reload",
+        [mismatchedRegistration],
+      ),
+    ).toBe(false);
+  }
   expect(
     isExpectedSaveReloadBrowserSessionConsoleError(
       pollWarning,
@@ -2366,6 +2430,27 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
     }),
   ).toBe(false);
 
+  const registrationAbort = {
+    ...claimAbort,
+    pathname: "/_agent-native/browser-sessions",
+    requestKind: "heartbeat" as const,
+  };
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort(registrationAbort),
+  ).toBe(true);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...registrationAbort,
+      requestSessionId: "new-session-id",
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...registrationAbort,
+      competingSameTypeRequest: true,
+    }),
+  ).toBe(false);
+
   const registrationBody = JSON.stringify({
     session: { id: sessionId },
     sessionId,
@@ -2456,6 +2541,7 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
     retiredSessionId: sessionId,
     outgoingAbortWarningAgeMs: 10,
     competingSameTypeRequest: false,
+    competingRegistrationStartedAfterNavigation: false,
   };
   expect(
     isExpectedSaveReloadBrowserSessionConsoleError(
@@ -2580,6 +2666,7 @@ it("accepts Firefox's retired-session warning when the request finished during t
     url: "http://localhost/_agent-native/browser-sessions",
     pathname: "/_agent-native/browser-sessions",
     outgoingRequestKind: "heartbeat" as const,
+    competingRegistrationStartedAfterNavigation: false,
   };
   const expected = (
     message: string,
@@ -2741,6 +2828,7 @@ it("accepts only a matching heartbeat that finished just before reload navigatio
     requestSessionId: "retired-session-id",
     retiredSessionId: "retired-session-id",
     competingSameTypeRequest: false,
+    competingRegistrationStartedAfterNavigation: false,
   };
 
   expect(
@@ -3705,6 +3793,43 @@ it("does not hide aged browser-session registration CORS errors", () => {
       },
     ]),
   ).toBe(false);
+});
+
+it("matches save/reload registration CORS errors to the retired session", () => {
+  const url = "http://localhost:45715/_agent-native/browser-sessions";
+  const message = `Fetch API cannot load ${url} due to access control checks.`;
+  const candidate = {
+    url,
+    pathname: "/_agent-native/browser-sessions",
+    method: "POST",
+    ageMs: 100,
+    sameOrigin: true,
+    requestWasPendingAtReloadNavigation: true,
+    requestSessionId: "retired-session",
+    retiredSessionId: "retired-session",
+    competingSameTypeRequest: false,
+    competingRegistrationStartedAfterNavigation: false,
+  };
+
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      candidate,
+    ]),
+  ).toBe(true);
+  for (const mismatchedRegistration of [
+    { ...candidate, requestSessionId: "new-session" },
+    { ...candidate, retiredSessionId: "new-session" },
+    { ...candidate, competingSameTypeRequest: true },
+    { ...candidate, competingRegistrationStartedAfterNavigation: true },
+  ]) {
+    expect(
+      isExpectedSaveReloadWatchedRequestCorsConsoleError(
+        message,
+        "save/reload",
+        [mismatchedRegistration],
+      ),
+    ).toBe(false);
+  }
 });
 
 it("keeps a prior authoring regression's failure exit when a later seed cannot run", () => {
