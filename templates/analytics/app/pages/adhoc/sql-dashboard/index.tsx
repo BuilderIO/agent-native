@@ -166,7 +166,10 @@ import {
   otherViewerCount,
   useDashboardSaveFeedback,
 } from "./dashboard-save-feedback";
-import { createDashboardSaveQueue } from "./dashboard-save-queue";
+import {
+  createDashboardSaveQueue,
+  type DashboardSaveQueue,
+} from "./dashboard-save-queue";
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
@@ -615,7 +618,7 @@ async function saveDashboard(
   dashboardId: string,
   data: SqlDashboardConfig,
   expectedUpdatedAt?: string,
-): Promise<{ updatedAt?: string }> {
+): Promise<{ updatedAt?: string; changed: boolean }> {
   return await callAction("update-dashboard", {
     dashboardId,
     config: data as unknown as Record<string, unknown>,
@@ -712,10 +715,11 @@ function SqlDashboardPageContent({
   useEffect(() => {
     dashboardUpdatedAtRef.current = dashboardUpdatedAt;
   }, [dashboardUpdatedAt]);
-  const dashboardSaveQueueRef = useRef<{
-    dashboardId: string;
-    queue: ReturnType<typeof createDashboardSaveQueue<SqlDashboardConfig>>;
-  } | null>(null);
+  // One queue per dashboard for the page's life: a second queue for a
+  // dashboard you come back to would run its saves alongside the first's.
+  const dashboardSaveQueuesRef = useRef(
+    new Map<string, DashboardSaveQueue<SqlDashboardConfig>>(),
+  );
   // A queued save can land after the page has moved to another dashboard; it
   // must not stamp that dashboard's concurrency token.
   const openDashboardIdRef = useRef(dashboardId);
@@ -1247,36 +1251,35 @@ function SqlDashboardPageContent({
     dashboardViewsSettled,
   ]);
 
-  const enqueueDashboardSave = useCallback(
-    (id: string, updated: SqlDashboardConfig) => {
-      if (dashboardSaveQueueRef.current?.dashboardId !== id) {
-        // Saves still queued after the page moves to another dashboard must
-        // send this dashboard's concurrency token, not the open one's.
-        let expectedUpdatedAt = dashboardUpdatedAtRef.current;
-        dashboardSaveQueueRef.current = {
-          dashboardId: id,
-          queue: createDashboardSaveQueue(async (config) => {
-            // While it's open, undo and adopted remote edits move the token too.
-            if (openDashboardIdRef.current === id) {
-              expectedUpdatedAt = dashboardUpdatedAtRef.current;
-            }
-            const result = await saveDashboard(
-              id,
-              config,
-              expectedUpdatedAt ?? undefined,
-            );
-            if (typeof result?.updatedAt !== "string") return;
-            expectedUpdatedAt = result.updatedAt;
-            if (openDashboardIdRef.current === id) {
-              dashboardUpdatedAtRef.current = result.updatedAt;
-            }
-          }),
-        };
-      }
-      return dashboardSaveQueueRef.current.queue.enqueue(updated);
-    },
-    [],
-  );
+  const dashboardSaveQueue = useCallback((id: string) => {
+    const existing = dashboardSaveQueuesRef.current.get(id);
+    if (existing) return existing;
+    // Saves still queued after the page moves to another dashboard must send
+    // this dashboard's concurrency token, not the open one's.
+    let expectedUpdatedAt = dashboardUpdatedAtRef.current;
+    const queue = createDashboardSaveQueue<SqlDashboardConfig>(
+      async (config) => {
+        // While it's open, undo and adopted remote edits move the token too.
+        if (openDashboardIdRef.current === id) {
+          expectedUpdatedAt = dashboardUpdatedAtRef.current;
+        }
+        const result = await saveDashboard(
+          id,
+          config,
+          expectedUpdatedAt ?? undefined,
+        );
+        if (typeof result.updatedAt === "string") {
+          expectedUpdatedAt = result.updatedAt;
+          if (openDashboardIdRef.current === id) {
+            dashboardUpdatedAtRef.current = result.updatedAt;
+          }
+        }
+        return { changed: result.changed };
+      },
+    );
+    dashboardSaveQueuesRef.current.set(id, queue);
+    return queue;
+  }, []);
 
   const persist = useCallback(
     (updated: SqlDashboardConfig) => {
@@ -1289,7 +1292,8 @@ function SqlDashboardPageContent({
       holdDashboardConfig();
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
-      void trackSave(enqueueDashboardSave(dashboardId, updated))
+      const queue = dashboardSaveQueue(dashboardId);
+      void trackSave(queue.enqueue(updated))
         .then(({ isLatest }) => {
           if (!isLatest) return;
           queryClient.removeQueries({
@@ -1309,6 +1313,9 @@ function SqlDashboardPageContent({
           });
         })
         .catch((err) => {
+          // A newer queued save sends the whole config again and reports its
+          // own outcome, so this one no longer says what the dashboard holds.
+          if (queue.pending() > 0) return;
           pendingConfigRef.current = null;
           void queryClient.invalidateQueries({
             queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
@@ -1326,7 +1333,7 @@ function SqlDashboardPageContent({
       dashboardId,
       dashboardScope,
       canEdit,
-      enqueueDashboardSave,
+      dashboardSaveQueue,
       holdDashboardConfig,
       queryClient,
       resetRevisionNavigation,
@@ -1347,7 +1354,7 @@ function SqlDashboardPageContent({
       let isLatest: boolean;
       try {
         ({ isLatest } = await trackSave(
-          enqueueDashboardSave(dashboardId, updated),
+          dashboardSaveQueue(dashboardId).enqueue(updated),
         ));
       } catch (err) {
         pendingConfigRef.current = null;
@@ -1379,7 +1386,7 @@ function SqlDashboardPageContent({
       dashboardId,
       dashboardScope,
       canEdit,
-      enqueueDashboardSave,
+      dashboardSaveQueue,
       holdDashboardConfig,
       queryClient,
       resetRevisionNavigation,

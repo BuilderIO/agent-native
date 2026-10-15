@@ -19,6 +19,7 @@ const toastMock = vi.hoisted(() => ({
 vi.mock("sonner", () => ({ toast: toastMock }));
 
 const ME = "me@example.com";
+const WROTE = { changed: true };
 
 let container: HTMLDivElement;
 let root: Root;
@@ -95,7 +96,7 @@ describe("useDashboardSaveFeedback", () => {
   it("turns one toast from saving into saved, with the viewer count and Undo", async () => {
     const onUndo = vi.fn();
     render(<FeedbackProbe shared otherViewers={2} onUndo={onUndo} />);
-    const save = deferred<void>();
+    const save = deferred<{ changed: boolean }>();
 
     act(() => {
       void track(save.promise);
@@ -104,7 +105,7 @@ describe("useDashboardSaveFeedback", () => {
       id: "dashboard-save:d1",
     });
 
-    await act(async () => save.resolve());
+    await act(async () => save.resolve(WROTE));
     const [message, options] = toastMock.success.mock.calls[0];
     expect(message).toBe("Saved for everyone");
     expect(options).toMatchObject({
@@ -118,24 +119,45 @@ describe("useDashboardSaveFeedback", () => {
 
   it("leaves the toast pending until the newest save lands", async () => {
     render(<FeedbackProbe shared={false} otherViewers={0} onUndo={vi.fn()} />);
-    const first = deferred<void>();
-    const second = deferred<void>();
+    const first = deferred<{ changed: boolean }>();
+    const second = deferred<{ changed: boolean }>();
 
     act(() => {
       void track(first.promise);
       void track(second.promise);
     });
-    await act(async () => first.resolve());
+    await act(async () => first.resolve(WROTE));
     expect(toastMock.success).not.toHaveBeenCalled();
 
-    await act(async () => second.resolve());
+    await act(async () => second.resolve(WROTE));
     expect(toastMock.success).toHaveBeenCalledOnce();
     expect(toastMock.success.mock.calls[0][0]).toBe("Saved");
   });
 
+  it("offers Undo only when a save the toast covers changed the dashboard", async () => {
+    render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
+    const unchanged = deferred<{ changed: boolean }>();
+    act(() => {
+      void track(unchanged.promise);
+    });
+    await act(async () => unchanged.resolve({ changed: false }));
+    expect(toastMock.success).not.toHaveBeenCalled();
+    expect(toastMock.dismiss).toHaveBeenCalledWith("dashboard-save:d1");
+
+    const wrote = deferred<{ changed: boolean }>();
+    const thenUnchanged = deferred<{ changed: boolean }>();
+    act(() => {
+      void track(wrote.promise);
+      void track(thenUnchanged.promise);
+    });
+    await act(async () => wrote.resolve(WROTE));
+    await act(async () => thenUnchanged.resolve({ changed: false }));
+    expect(toastMock.success).toHaveBeenCalledOnce();
+  });
+
   it("drops the pending toast when the newest save fails", async () => {
     render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
-    const save = deferred<void>();
+    const save = deferred<{ changed: boolean }>();
 
     act(() => {
       void track(save.promise).catch(() => {});
@@ -147,8 +169,8 @@ describe("useDashboardSaveFeedback", () => {
 
   it("keeps a newer save's toast when an earlier save fails", async () => {
     render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
-    const first = deferred<void>();
-    const second = deferred<void>();
+    const first = deferred<{ changed: boolean }>();
+    const second = deferred<{ changed: boolean }>();
 
     act(() => {
       void track(first.promise).catch(() => {});
@@ -157,7 +179,7 @@ describe("useDashboardSaveFeedback", () => {
     await act(async () => first.reject(new Error("Conflict")));
     expect(toastMock.dismiss).not.toHaveBeenCalled();
 
-    await act(async () => second.resolve());
+    await act(async () => second.resolve(WROTE));
     expect(toastMock.success).toHaveBeenCalledOnce();
   });
 
@@ -171,7 +193,7 @@ describe("useDashboardSaveFeedback", () => {
         onUndo={onUndo}
       />,
     );
-    const save = deferred<void>();
+    const save = deferred<{ changed: boolean }>();
     act(() => {
       void track(save.promise);
     });
@@ -186,7 +208,7 @@ describe("useDashboardSaveFeedback", () => {
     );
     expect(toastMock.dismiss).toHaveBeenCalledWith("dashboard-save:d1");
 
-    await act(async () => save.resolve());
+    await act(async () => save.resolve(WROTE));
     expect(toastMock.success).not.toHaveBeenCalled();
   });
 });
