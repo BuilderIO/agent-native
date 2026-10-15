@@ -1266,6 +1266,7 @@ export default {
     selectAll: "Tout sélectionner",
     selectOnly: "Uniquement",
     selectOnlyValue: "Uniquement {{value}}",
+    presets: "Préréglages",
     untitledDashboard: "Tableau de bord sans titre",
     dashboardFallback: "tableau de bord",
     viewOnly: "Vous disposez d'un accès en lecture seule à ce tableau de bord.",

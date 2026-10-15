@@ -237,6 +237,30 @@ vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
 import action from "./delete-file.js";
 
 describe("delete-file", () => {
+  it("requires per-call approval to bypass locked-layer protection", async () => {
+    expect(action.needsApproval).toBeTypeOf("function");
+    expect(
+      await action.needsApproval?.(
+        { id: "file-b", allowLockedLayers: true },
+        { caller: "mcp", actionName: "delete-file" },
+      ),
+    ).toBe(true);
+    // MCP checks approval on raw tool args before schema boolean coercion.
+    expect(
+      await action.needsApproval?.(
+        { id: "file-b", allowLockedLayers: "true" } as never,
+        { caller: "mcp", actionName: "delete-file" },
+      ),
+    ).toBe(true);
+    expect(
+      await action.needsApproval?.(
+        { id: "file-b", allowLockedLayers: false },
+        { caller: "mcp", actionName: "delete-file" },
+      ),
+    ).toBe(false);
+    expect(action.allowPersistentApproval).toBe(false);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.setPriorRestoreClaims([]);

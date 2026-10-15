@@ -687,6 +687,10 @@ const messages: ToolkitAgentChatTranslation = {
     "モデルプロバイダーがこのリクエストを不正な形式として拒否したため、再試行されませんでした。再試行するか、繰り返し発生する場合は新しいチャットを開始してください。",
   "errorMessages.requestTooLarge":
     "このリクエストはサーバーのサイズ上限を超えました（HTTP 413）。新しいチャットを開始するか、大きな添付ファイルや参照を削除して再試行してください。",
+  "errorMessages.capabilityUnavailable":
+    "現在メッセージを送信できませんでした。少し待ってからもう一度お試しください。",
+  "errorMessages.capabilityUnsupported":
+    "このアプリは、保存したプロンプトをまだ安全に再試行できません。アプリを更新してから、もう一度お試しください。",
   "errorMessages.runInterrupted": "エージェントは完了前に停止しました。",
   "errorMessages.runFailed": "エージェントの実行に失敗しました。",
   "errorMessages.runUnverified":
@@ -3107,6 +3111,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "{{name}} を接続",
   "settingsSubAgents.close": "閉じる",
   "observability.insights.rawTrace": "生のトレース（すべてのスパンと入出力）",
+  "reportProblem.menuItem": "問題を報告",
+  "reportProblem.title_other":
+    "過去 {{count}} 秒間のアプリの動作を添付しますか？",
+  "reportProblem.noEvents": "まだ記録はありません。",
+  "reportProblem.send": "エージェントに送信",
+  "reportProblem.copy": "問題レポートをコピー",
+  "reportProblem.attaching": "添付中…",
+  "reportProblem.notAttached": "レポートは添付されませんでした。",
+  "reportProblem.agentMessage":
+    "アプリで問題が発生しました。添付の問題レポートをもとに、何が起きたのか説明してください。",
 };
 
 export default messages;

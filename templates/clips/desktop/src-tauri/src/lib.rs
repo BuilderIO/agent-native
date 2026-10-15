@@ -220,6 +220,7 @@ pub fn run() {
             clips::set_bubble_capture_excluded,
             clips::hide_overlays,
             clips::hide_recording_chrome,
+            clips::dismiss_countdown_for_generation,
             clips::show_region_guides,
             clips::hide_region_guides,
             clips::show_region_record_border,

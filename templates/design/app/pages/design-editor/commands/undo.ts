@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { recorder } from "@agent-native/core/client/recorder";
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { type CodeLayerNode } from "@shared/code-layer";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -1719,6 +1720,7 @@ export function runUndo({
           recreatedCreatedAt.push(
             result.createdAt === undefined ? file.createdAt : result.createdAt,
           );
+          recorder.log("screen.restored", { from: file.id, to: result.id });
         }
 
         const restoreEntry = {

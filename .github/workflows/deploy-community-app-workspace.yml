@@ -147,9 +147,15 @@ jobs:
           };
           const query = new URLSearchParams({ site_id: NETLIFY_SITE_ID });
           const endpoint = `https://api.netlify.com/api/v1/accounts/${encodeURIComponent(NETLIFY_ACCOUNT_ID)}/env`;
+          const responseDetails = (response) => {
+            const requestId = response.headers.get("x-nf-request-id");
+            return `HTTP ${response.status}${requestId ? ` (Netlify request ${requestId})` : ""}`;
+          };
           const readVariables = async () => {
             const response = await fetch(`${endpoint}?${query}`, { headers });
-            if (!response.ok) throw new Error("Could not read Netlify environment metadata.");
+            if (!response.ok) {
+              throw new Error(`Could not read Netlify environment metadata (${responseDetails(response)}).`);
+            }
             return response.json();
           };
           const variables = await readVariables();
@@ -179,7 +185,9 @@ jobs:
             headers,
             body: JSON.stringify({ context: "production", value: DATABASE_URL }),
           });
-          if (!update.ok) throw new Error("Could not point the Community Netlify site at its migrated Neon database.");
+          if (!update.ok) {
+            throw new Error(`Could not point the Community Netlify site at its migrated Neon database (${responseDetails(update)}).`);
+          }
           console.log("Runtime database metadata verified for Netlify Functions.");
           NODE
 

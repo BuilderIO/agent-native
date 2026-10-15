@@ -1424,16 +1424,14 @@ button[title="Open agent sidebar"] {
 
 [data-slide-selection-chrome="true"] {
   --slide-chrome-color: #1a73e8;
-  --slide-chrome-halo: 0 0 0 4px rgba(138, 180, 248, 0.6);
   border: 2px solid var(--slide-chrome-color) !important;
   border-radius: 0 !important;
-  box-shadow: var(--slide-chrome-halo) !important;
+  box-shadow: none !important;
 }
 
 /* Group whose member is selected: same geometry, gray. */
 [data-slide-selection-chrome="true"][data-slide-selection-chrome-parent="true"] {
   --slide-chrome-color: #747775;
-  --slide-chrome-halo: none;
 }
 
 /* The group's chrome only shows context; the selected member owns the gestures. */

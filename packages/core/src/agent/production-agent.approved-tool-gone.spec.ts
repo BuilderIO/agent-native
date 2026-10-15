@@ -2,7 +2,11 @@ import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
 import { runWithRequestContext } from "../server/request-context.js";
-import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import type {
+  AgentEngine,
+  EngineEvent,
+  EngineStreamOptions,
+} from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
 import type { AgentChatStructuredMessage } from "./types.js";
 
@@ -46,7 +50,11 @@ const pausedTurn: AgentChatStructuredMessage[] = [
 ];
 
 function testEngine() {
-  const stream = vi.fn(async function* (): AsyncIterable<EngineEvent> {
+  const messages: EngineStreamOptions["messages"][] = [];
+  const stream = vi.fn(async function* (
+    options: EngineStreamOptions,
+  ): AsyncIterable<EngineEvent> {
+    messages.push(options.messages);
     yield {
       type: "assistant-content",
       parts: [{ type: "text", text: "I'll draft it another way." }],
@@ -67,11 +75,15 @@ function testEngine() {
     },
     stream,
   };
-  return { engine, stream };
+  return { engine, stream, messages };
 }
 
-async function approve(threadId: string, actions: Record<string, ActionEntry>) {
-  const { engine, stream } = testEngine();
+async function approve(
+  threadId: string,
+  actions: Record<string, ActionEntry>,
+  structuredHistory: AgentChatStructuredMessage[] = pausedTurn,
+) {
+  const { engine, stream, messages } = testEngine();
   const handler = createProductionAgentHandler({
     systemPrompt: "Test",
     engine,
@@ -90,7 +102,7 @@ async function approve(threadId: string, actions: Record<string, ActionEntry>) {
               message: "Approved",
               threadId,
               turnId: `${threadId}-turn`,
-              structuredHistory: pausedTurn,
+              structuredHistory,
               approvedToolCalls: [toolCallCacheKey("send-email", EMAIL)],
             }),
           }),
@@ -102,7 +114,7 @@ async function approve(threadId: string, actions: Record<string, ActionEntry>) {
     .split("\n")
     .filter((line) => line.startsWith("data: "))
     .map((line) => JSON.parse(line.slice("data: ".length)));
-  return { stream, events };
+  return { stream, events, messages };
 }
 
 describe("an approved call", () => {
@@ -131,11 +143,11 @@ describe("an approved call", () => {
     expect(events.map((event) => event.type)).not.toContain("done");
   });
 
-  it("runs the approved call directly when its tool is still there", async () => {
+  it("continues with the result when the approved tool is still there", async () => {
     consumeApproval.mockClear();
     const sendEmail = vi.fn(async () => "Sent email receipt-1");
 
-    const { stream, events } = await approve("thread-present", {
+    const { stream, events, messages } = await approve("thread-present", {
       "send-email": {
         tool: {
           description: "Send an email",
@@ -149,9 +161,57 @@ describe("an approved call", () => {
 
     expect(consumeApproval).toHaveBeenCalledOnce();
     expect(sendEmail).toHaveBeenCalledOnce();
-    expect(stream).not.toHaveBeenCalled();
+    expect(stream).toHaveBeenCalled();
+    const continuedResult = messages
+      .flatMap((messagesForCall) => messagesForCall)
+      .flatMap((message) => message.content)
+      .find(
+        (part) => part.type === "tool-result" && part.toolCallId === "email-1",
+      );
+    expect(continuedResult).toMatchObject({
+      type: "tool-result",
+      content: "Sent email receipt-1",
+    });
+    expect(continuedResult).not.toHaveProperty("approvalPause");
+    expect(continuedResult).not.toHaveProperty("approvalAskId");
     expect(events).not.toContainEqual(
       expect.objectContaining({ errorCode: "tool_unavailable" }),
+    );
+  });
+
+  it("does not execute an approved action when its paused result is not resumable", async () => {
+    consumeApproval.mockClear();
+    const sendEmail = vi.fn(async () => "Sent email receipt-1");
+    const structuredHistory = [
+      pausedTurn[0]!,
+      pausedTurn[1]!,
+      { ...pausedTurn[2]!, role: "system" },
+    ] as unknown as AgentChatStructuredMessage[];
+
+    const { stream, events } = await approve(
+      "thread-unresumable-result",
+      {
+        "send-email": {
+          tool: {
+            description: "Send an email",
+            parameters: { type: "object", properties: {} },
+          },
+          readOnly: false,
+          needsApproval: true,
+          run: sendEmail,
+        },
+      },
+      structuredHistory,
+    );
+
+    expect(consumeApproval).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "approved_tool_call_result_missing",
+      }),
     );
   });
 });

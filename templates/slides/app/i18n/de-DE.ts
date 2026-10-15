@@ -819,6 +819,8 @@ const messages = {
       "Es wurden keine Folien erstellt. Prüfe die Details im Chat und versuche es erneut.",
     generationOutcomeUnresolved:
       "Wir konnten nicht bestätigen, ob Folien erstellt wurden. Prüfe das Deck, bevor du es erneut versuchst.",
+    generationOutcomeUnresolvedWithSlides:
+      "Wir konnten nicht bestätigen, ob die Folienerstellung abgeschlossen ist. Sieh dir die hier angezeigten Folien an, bevor du fortfährst.",
     partialGenerationFailed:
       "Wir konnten deine Folien nicht fertigstellen. Sieh dir die vorhandenen Folien und deine ursprüngliche Anfrage an, bevor du fortfährst.",
     originalPrompt: "Deine Anfrage",
