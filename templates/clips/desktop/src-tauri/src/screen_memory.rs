@@ -65,6 +65,12 @@ struct ActiveExclusionGap {
     sources: Vec<CaptureSource>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FailedModeChangeRecovery {
+    KeepActive,
+    StopActive,
+}
+
 fn active_exclusion_gap(
     started_at: Instant,
     capture_mode: RewindCaptureMode,
@@ -72,6 +78,45 @@ fn active_exclusion_gap(
     ActiveExclusionGap {
         started_at,
         sources: requested_sources(capture_mode),
+    }
+}
+
+fn merge_exclusion_gaps(
+    earlier: Option<ActiveExclusionGap>,
+    later: ActiveExclusionGap,
+) -> ActiveExclusionGap {
+    let Some(earlier) = earlier else {
+        return later;
+    };
+    let mut sources: BTreeSet<_> = earlier.sources.into_iter().collect();
+    sources.extend(later.sources);
+    ActiveExclusionGap {
+        started_at: earlier.started_at.min(later.started_at),
+        sources: sources.into_iter().collect(),
+    }
+}
+
+fn begin_exclusion_gap(
+    runtime: &mut ScreenMemoryRuntime,
+    started_at: Instant,
+    capture_mode: RewindCaptureMode,
+) {
+    runtime.exclusion_active = true;
+    runtime.exclusion_gap = Some(merge_exclusion_gaps(
+        runtime.exclusion_gap.take(),
+        active_exclusion_gap(started_at, capture_mode),
+    ));
+}
+
+fn failed_mode_change_recovery(
+    active_mode: RewindCaptureMode,
+    requested_mode: RewindCaptureMode,
+) -> FailedModeChangeRecovery {
+    match (active_mode, requested_mode) {
+        (RewindCaptureMode::VisualsAudio, RewindCaptureMode::Visuals) => {
+            FailedModeChangeRecovery::StopActive
+        }
+        _ => FailedModeChangeRecovery::KeepActive,
     }
 }
 
@@ -1666,6 +1711,27 @@ fn record_source_coverage_gap(app: &AppHandle, gap: ActiveExclusionGap, ended_at
     }
 }
 
+fn discard_excluded_segment(
+    app: &AppHandle,
+    active: ActiveScreenMemorySegment,
+) -> Result<(), String> {
+    let segment_id = active.id.clone();
+    let started_at = active.started_at;
+    let capture_mode = active.capture_mode;
+    discard_active_segment(active);
+
+    let state_result = app
+        .state::<ScreenMemoryState>()
+        .inner
+        .lock()
+        .map_err(|error| error.to_string())
+        .map(|mut runtime| begin_exclusion_gap(&mut runtime, started_at, capture_mode));
+    let artifacts_result = discard_segment_artifacts(app, &segment_id);
+    end_rewind_lease(app);
+    let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+    state_result.and(artifacts_result)
+}
+
 fn discard_segment_artifacts(app: &AppHandle, segment_id: &str) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     {
@@ -1811,7 +1877,44 @@ fn rotate_segment_with_capture_mode_change(
     app: &AppHandle,
     config: &ScreenMemoryConfig,
 ) -> Result<(), String> {
-    let next = start_new_segment(app, config.capture_mode)?;
+    let next = match start_new_segment(app, config.capture_mode) {
+        Ok(next) => next,
+        Err(start_error) => {
+            let (active, exclusion_active) = {
+                let state = app.state::<ScreenMemoryState>();
+                let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
+                let should_stop_active = runtime.exclusion_active
+                    || runtime.active.as_ref().is_some_and(|active| {
+                        active.exclusion_tainted.load(Ordering::SeqCst)
+                            || failed_mode_change_recovery(active.capture_mode, config.capture_mode)
+                                == FailedModeChangeRecovery::StopActive
+                    });
+                (
+                    should_stop_active.then(|| runtime.active.take()).flatten(),
+                    runtime.exclusion_active,
+                )
+            };
+            if let Some(active) = active {
+                if exclusion_active || active.exclusion_tainted.load(Ordering::SeqCst) {
+                    if let Err(error) = discard_excluded_segment(app, active) {
+                        record_error(app, error);
+                    }
+                } else {
+                    let ended_at = Instant::now();
+                    let ended_at_iso = now_iso();
+                    let finalize_result =
+                        finalize_active_segment_at(app, active, ended_at, ended_at_iso)
+                            .and_then(|segment| persist_finalized_segment(app, segment));
+                    end_rewind_lease(app);
+                    let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+                    if let Err(error) = finalize_result {
+                        record_error(app, error);
+                    }
+                }
+            }
+            return Err(start_error);
+        }
+    };
     let (active, exclusion_active) = {
         let state = app.state::<ScreenMemoryState>();
         let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
@@ -1822,12 +1925,11 @@ fn rotate_segment_with_capture_mode_change(
         return Err("Screen Memory capture changed during a mode transition.".into());
     };
     if exclusion_active || active.exclusion_tainted.load(Ordering::SeqCst) {
-        let state = app.state::<ScreenMemoryState>();
-        let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
-        runtime.active = Some(active);
-        drop(runtime);
+        let next_id = next.id.clone();
         discard_active_segment(next);
-        return Ok(());
+        let next_artifacts_result = discard_segment_artifacts(app, &next_id);
+        let active_cleanup_result = discard_excluded_segment(app, active);
+        return next_artifacts_result.and(active_cleanup_result);
     }
 
     // Keep the old stream live until the replacement is ready, then join the
@@ -3621,6 +3723,51 @@ command = "keep"
         let started_at = Instant::now() - Duration::from_secs(7);
         let gap = active_exclusion_gap(started_at, RewindCaptureMode::VisualsAudio);
         assert_eq!(gap.started_at, started_at);
+        assert_eq!(
+            gap.sources,
+            vec![
+                CaptureSource::Screen,
+                CaptureSource::SystemAudio,
+                CaptureSource::Microphone
+            ]
+        );
+    }
+
+    #[test]
+    fn failed_visuals_audio_downgrade_stops_the_active_segment() {
+        assert_eq!(
+            failed_mode_change_recovery(
+                RewindCaptureMode::VisualsAudio,
+                RewindCaptureMode::Visuals,
+            ),
+            FailedModeChangeRecovery::StopActive
+        );
+        assert_eq!(
+            failed_mode_change_recovery(
+                RewindCaptureMode::Visuals,
+                RewindCaptureMode::VisualsAudio,
+            ),
+            FailedModeChangeRecovery::KeepActive
+        );
+    }
+
+    #[test]
+    fn exclusion_gap_keeps_earlier_start_and_union_of_discarded_sources() {
+        let earlier_start = Instant::now() - Duration::from_secs(10);
+        let active_start = earlier_start + Duration::from_secs(5);
+        let mut runtime = ScreenMemoryRuntime {
+            exclusion_gap: Some(active_exclusion_gap(
+                earlier_start,
+                RewindCaptureMode::Visuals,
+            )),
+            ..ScreenMemoryRuntime::default()
+        };
+
+        begin_exclusion_gap(&mut runtime, active_start, RewindCaptureMode::VisualsAudio);
+
+        assert!(runtime.exclusion_active);
+        let gap = runtime.exclusion_gap.unwrap();
+        assert_eq!(gap.started_at, earlier_start);
         assert_eq!(
             gap.sources,
             vec![

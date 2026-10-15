@@ -59,6 +59,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  vi.useRealTimers();
 });
 
 // The widest window is five minutes; the saved window is its last thirty seconds.
@@ -121,7 +122,7 @@ function setOpen(props: LookbackEditDialogProps, open: boolean) {
 
 async function flush() {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 250));
   });
 }
 
@@ -150,6 +151,98 @@ function startHandle(): HTMLElement {
 }
 
 describe("LookbackEditDialog preview", () => {
+  it("debounces range changes and serializes preview cuts", async () => {
+    vi.useFakeTimers();
+    const firstCut = deferred<{ path: string }>();
+    const secondCut = deferred<{ path: string }>();
+    const secondRequestStarted = deferred<void>();
+    const secondRequestReturned = deferred<void>();
+    let activePreviews = 0;
+    let maximumActivePreviews = 0;
+    let previewCount = 0;
+    const invoke = vi.fn(async (command: string) => {
+      if (command !== "rewind_preview_window") return undefined;
+      const index = previewCount++;
+      if (index === 1) secondRequestStarted.resolve();
+      activePreviews += 1;
+      maximumActivePreviews = Math.max(maximumActivePreviews, activePreviews);
+      try {
+        const result = await (index === 0 ? firstCut : secondCut).promise;
+        if (index === 1) secondRequestReturned.resolve();
+        return result;
+      } finally {
+        activePreviews -= 1;
+      }
+    });
+    renderDialog({ invoke });
+
+    for (let index = 0; index < 3; index += 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      act(() => {
+        startHandle().dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+        );
+      });
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(219);
+    });
+    expect(previewCount).toBe(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(previewCount).toBe(1);
+    expect(invoke).toHaveBeenCalledWith("rewind_preview_window", {
+      startedAt: "2026-10-09T10:04:33.000Z",
+      endedAt: item.endedAt,
+    });
+
+    act(() => {
+      startHandle().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(220);
+    });
+    expect(previewCount).toBe(1);
+
+    await act(async () => {
+      firstCut.resolve({ path: PREVIEW_PATH });
+      await secondRequestStarted.promise;
+    });
+    expect(previewCount).toBe(2);
+    expect(maximumActivePreviews).toBe(1);
+    expect(
+      invoke.mock.calls.filter(
+        ([command]) => command === "rewind_preview_window",
+      ),
+    ).toEqual([
+      [
+        "rewind_preview_window",
+        {
+          startedAt: "2026-10-09T10:04:33.000Z",
+          endedAt: item.endedAt,
+        },
+      ],
+      [
+        "rewind_preview_window",
+        {
+          startedAt: "2026-10-09T10:04:34.000Z",
+          endedAt: item.endedAt,
+        },
+      ],
+    ]);
+
+    await act(async () => {
+      secondCut.resolve({ path: PREVIEW_PATH });
+      await secondRequestReturned.promise;
+    });
+  });
+
   it("previews the selected range instead of the whole five-minute window", async () => {
     const invoke = previewInvoke();
     renderDialog({ invoke });
@@ -259,6 +352,7 @@ describe("LookbackEditDialog preview", () => {
     const pending = deferred<{ path: string }>();
     const invoke = previewInvoke(() => pending.promise);
     const props = renderDialog({ invoke });
+    await flush();
     setOpen(props, false);
 
     await act(async () => pending.resolve({ path: PREVIEW_PATH }));

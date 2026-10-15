@@ -67,6 +67,8 @@ type PreviewState =
   | { status: "ready"; src: string; metadataLoaded: boolean }
   | { status: "error" };
 
+const PREVIEW_DEBOUNCE_MS = 220;
+
 // Radix unmounts the content on close, so each open starts from the item's window.
 function LookbackEditForm({
   item,
@@ -97,6 +99,7 @@ function LookbackEditForm({
   const [position, setPosition] = useState<number | null>(null);
   const [selectionStop, setSelectionStop] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const previewTaskRef = useRef<Promise<void> | null>(null);
   const unchanged =
     value.startedAt === item.startedAt && value.endedAt === item.endedAt;
 
@@ -110,25 +113,47 @@ function LookbackEditForm({
     setPreview({ status: "loading" });
     setPosition(null);
     setSelectionStop(null);
-    loadRewindPreview(value, invoke)
-      .then((result) => {
-        if (cancelled) {
-          void discardQuietly(result.path, invoke);
-          return;
-        }
-        loadedPath = result.path;
-        setPreview({ status: "ready", src: result.src, metadataLoaded: false });
-      })
-      .catch((previewError) => {
+    const timer = window.setTimeout(() => {
+      const previousTask = previewTaskRef.current;
+      const task = (async () => {
+        await previousTask?.catch(() => {});
         if (cancelled) return;
-        console.warn(
-          "[record-pill] earlier screen time preview failed:",
-          previewError,
-        );
-        setPreview({ status: "error" });
-      });
+
+        try {
+          const result = await loadRewindPreview(value, invoke);
+          if (cancelled) {
+            await discardQuietly(result.path, invoke);
+            return;
+          }
+          loadedPath = result.path;
+          setPreview({
+            status: "ready",
+            src: result.src,
+            metadataLoaded: false,
+          });
+        } catch (previewError) {
+          if (cancelled) return;
+          console.warn(
+            "[record-pill] earlier screen time preview failed:",
+            previewError,
+          );
+          setPreview({ status: "error" });
+        }
+      })();
+      previewTaskRef.current = task;
+      void task.then(
+        () => {
+          if (previewTaskRef.current === task) previewTaskRef.current = null;
+        },
+        () => {
+          if (previewTaskRef.current === task) previewTaskRef.current = null;
+        },
+      );
+    }, PREVIEW_DEBOUNCE_MS);
+
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       if (loadedPath) void discardQuietly(loadedPath, invoke);
     };
   }, [attempt, value.startedAt, value.endedAt, invoke]);
