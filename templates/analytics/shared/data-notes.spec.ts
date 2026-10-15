@@ -307,6 +307,22 @@ describe("resolveDataNoteBands", () => {
     ]);
   });
 
+  it("steps hourly rows sorted by value by the hour, not by the gaps between rows", () => {
+    const oct10 = {
+      ...SETUP_INCIDENT,
+      startDate: "2026-10-10",
+      endDate: "2026-10-10",
+    };
+    expect(
+      resolveDataNoteBands(oct10, [
+        "2026-10-09T22:00:00Z",
+        "2026-10-10T12:00:00Z",
+        "2026-10-10T03:00:00Z",
+        "2026-10-09T23:00:00Z",
+      ]),
+    ).toEqual([{ startIndex: 1, endIndex: 2, startEdge: true, endEdge: true }]);
+  });
+
   it("leaves a null bucket between covered rows unshaded, without an edge on either side", () => {
     expect(
       resolveDataNoteBands(SETUP_INCIDENT, [
