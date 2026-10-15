@@ -4,7 +4,10 @@ import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY } from "@agent-native/agentkit/protocol";
+import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+} from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -4703,6 +4706,80 @@ describe("createProductionAgentHandler", () => {
       ).not.toContain("Injected history");
       expect(engine.stream).not.toHaveBeenCalled();
     } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it("keeps the server-normalized expiry when promoting a queued message", async () => {
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-queued-expiry",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-expiry",
+              text: "Retry the saved prompt",
+              metadata: {
+                custom: {
+                  [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 11_200,
+                },
+              },
+              options: {
+                metadata: {
+                  custom: {
+                    [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 99_999_999,
+                    [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 60_000,
+                  },
+                },
+              },
+              promotionClaim: { id: "claim-expiry", expiresAt: 20_000 },
+            },
+          ],
+        }),
+      } as never);
+    const onRunPrepared = vi.fn();
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      onRunPrepared,
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Retry the saved prompt",
+          threadId: "thread-queued-expiry",
+          queuedMessageId: "queued-expiry",
+          queuedMessageClaimId: "claim-expiry",
+        }),
+      }),
+    );
+
+    try {
+      await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(onRunPrepared).toHaveBeenCalledWith(
+        expect.objectContaining({ submissionExpiresAt: 11_200 }),
+      );
+    } finally {
+      now.mockRestore();
       resolveThreadAccess.mockRestore();
     }
   });

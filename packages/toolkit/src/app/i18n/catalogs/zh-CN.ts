@@ -634,6 +634,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.requestTooLarge":
     "此请求超出了服务器大小限制（HTTP 413）。请开始新聊天，或移除较大的附件或引用后重试。",
   "errorMessages.capabilityUnavailable": "暂时无法发送你的消息。请稍后重试。",
+  "errorMessages.capabilityUnsupported":
+    "此应用目前无法安全地重试已保存的提示。请先更新应用，然后重试。",
   "errorMessages.runInterrupted": "智能体在完成前停止了。",
   "errorMessages.runFailed": "智能体运行失败。",
   "errorMessages.runUnverified":

@@ -1348,6 +1348,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Diese Anfrage überschritt das Größenlimit des Servers (HTTP 413). Starte einen neuen Chat oder entferne große Anhänge oder Referenzen und versuche es erneut.",
   "errorMessages.capabilityUnavailable":
     "Deine Nachricht konnte gerade nicht gesendet werden. Bitte versuche es gleich noch einmal.",
+  "errorMessages.capabilityUnsupported":
+    "Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut.",
   "errorMessages.runInterrupted": "Der Agent hat vor dem Abschluss aufgehört.",
   "errorMessages.runFailed": "Der Agent-Lauf ist fehlgeschlagen.",
   "errorMessages.runUnverified":

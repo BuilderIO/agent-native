@@ -14,6 +14,7 @@ import {
 import {
   BUILDER_SPACE_SETTINGS_URL,
   CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
+  CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
   NEW_CHAT_ACTION_HREF,
   PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
   SERVER_AUTHORED_CREDENTIAL_CODES,
@@ -561,6 +562,20 @@ describe("localizeKnownChatErrorText", () => {
       ),
     ).toBe(
       "Fehler: No fue posible enviar tu mensaje ahora. Inténtalo de nuevo en breve.",
+    );
+  });
+
+  it("localizes an unsupported capability message", () => {
+    expect(
+      localizeKnownChatErrorText(
+        `Error: ${CHAT_CAPABILITY_UNSUPPORTED_MESSAGE}`,
+        (key, options) =>
+          key === "agentChat.errorMessages.capabilityUnsupported"
+            ? "Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut."
+            : interpolate(key, options),
+      ),
+    ).toBe(
+      "Fehler: Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut.",
     );
   });
 

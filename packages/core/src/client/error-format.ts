@@ -90,6 +90,8 @@ export const CHAT_REQUEST_TOO_LARGE_MESSAGE =
   "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.";
 export const CHAT_CAPABILITY_UNAVAILABLE_MESSAGE =
   "We couldn't send your message right now. Please try again shortly.";
+export const CHAT_CAPABILITY_UNSUPPORTED_MESSAGE =
+  "This app can't safely retry your saved prompt yet. Update the app, then try again.";
 const MALFORMED_REQUEST_CODES = new Set([
   "invalid_request",
   "invalid_request_error",
@@ -168,6 +170,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
   [
     CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
     "agentChat.errorMessages.capabilityUnavailable",
+  ],
+  [
+    CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
+    "agentChat.errorMessages.capabilityUnsupported",
   ],
   [
     "No LLM provider is connected. Open this app's Manage agent > LLM, then use Builder.io or add a provider key.",

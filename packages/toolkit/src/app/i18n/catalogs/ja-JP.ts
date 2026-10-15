@@ -689,6 +689,8 @@ const messages: ToolkitAgentChatTranslation = {
     "このリクエストはサーバーのサイズ上限を超えました（HTTP 413）。新しいチャットを開始するか、大きな添付ファイルや参照を削除して再試行してください。",
   "errorMessages.capabilityUnavailable":
     "現在メッセージを送信できませんでした。少し待ってからもう一度お試しください。",
+  "errorMessages.capabilityUnsupported":
+    "このアプリは、保存したプロンプトをまだ安全に再試行できません。アプリを更新してから、もう一度お試しください。",
   "errorMessages.runInterrupted": "エージェントは完了前に停止しました。",
   "errorMessages.runFailed": "エージェントの実行に失敗しました。",
   "errorMessages.runUnverified":

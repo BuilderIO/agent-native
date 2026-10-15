@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
   MAX_AGENT_REQUEST_ATTACHMENTS,
   type AgentSuggestion,
@@ -1779,6 +1780,37 @@ function submissionExpiryMetadata(
       AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY
     ],
   };
+}
+
+function mergeQueuedPromotionMetadata(
+  admittedMetadata: unknown,
+  optionMetadata: unknown,
+): Record<string, unknown> {
+  const admitted = queuedPromotionRecord(admittedMetadata) ?? {};
+  const options = queuedPromotionRecord(optionMetadata) ?? {};
+  const admittedCustom = queuedPromotionRecord(admitted.custom) ?? {};
+  const optionCustom = queuedPromotionRecord(options.custom) ?? {};
+  const custom = { ...admittedCustom, ...optionCustom };
+
+  delete custom[AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY];
+  delete custom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY];
+  if (
+    Object.prototype.hasOwnProperty.call(
+      admittedCustom,
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+    )
+  ) {
+    custom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY] =
+      admittedCustom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY];
+  }
+
+  const metadata = { ...admitted, ...options };
+  if (Object.keys(custom).length > 0) {
+    metadata.custom = custom;
+  } else {
+    delete metadata.custom;
+  }
+  return metadata;
 }
 
 export interface PreparedAgentRequest {
@@ -11213,10 +11245,10 @@ export function createProductionAgentHandler(
     if (admittedQueuedMessage) {
       // A claim admits the persisted queue payload, not extra fields in this request.
       const promotionOptions = admittedQueuedMessage.options ?? {};
-      const promotionMetadata = {
-        ...(admittedQueuedMessage.metadata ?? {}),
-        ...(queuedPromotionRecord(promotionOptions.metadata) ?? {}),
-      };
+      const promotionMetadata = mergeQueuedPromotionMetadata(
+        admittedQueuedMessage.metadata,
+        promotionOptions.metadata,
+      );
       requestMessage = admittedQueuedMessage.text;
       agentKitMessageId = admittedQueuedMessage.id;
       requestDisplayMessage = admittedQueuedMessage.text;

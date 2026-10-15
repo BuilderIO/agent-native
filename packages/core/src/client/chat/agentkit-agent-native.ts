@@ -53,6 +53,7 @@ import {
 import { agentNativePath } from "../api-path.js";
 import {
   CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
+  CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
   CHAT_REQUEST_TOO_LARGE_MESSAGE,
 } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
@@ -4406,8 +4407,7 @@ export function createAgentNativeAgentKitTransport(
               id: capability,
               state: "unsupported",
               error: createCapabilityUnsupportedError(capability, {
-                message:
-                  "This server does not advertise deadline-safe prompt recovery.",
+                message: CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
               }),
             };
       const legacy = { ...discovery.legacy };
