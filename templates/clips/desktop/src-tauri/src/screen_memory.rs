@@ -315,25 +315,33 @@ pub async fn screen_memory_start(app: AppHandle) -> Result<ScreenMemoryStatus, S
     feature_config.screen_memory.paused = false;
     feature_config.screen_memory = normalize_screen_memory_config(feature_config.screen_memory);
     crate::config::set_feature_config(app.clone(), feature_config).await?;
-    let status = build_status(&app)?;
+    let status = match build_status(&app) {
+        Ok(status) => status,
+        Err(error) => {
+            return Err(rollback_screen_memory_start(&app, &previous_screen_memory, error).await);
+        }
+    };
     if let Some(error) =
         screen_memory_start_error(&status, crate::rewind_capture_suspension::is_active(&app))
     {
-        let mut current_config = crate::config::feature_config(&app);
-        restore_screen_memory_start_config(
-            &mut current_config.screen_memory,
-            &previous_screen_memory,
-        );
-        if let Err(rollback_error) =
-            crate::config::set_feature_config(app.clone(), current_config).await
-        {
-            return Err(format!(
-                "{error}; restoring the previous Rewind setting also failed: {rollback_error}"
-            ));
-        }
-        return Err(error);
+        return Err(rollback_screen_memory_start(&app, &previous_screen_memory, error).await);
     }
     Ok(status)
+}
+
+async fn rollback_screen_memory_start(
+    app: &AppHandle,
+    previous: &ScreenMemoryConfig,
+    error: String,
+) -> String {
+    let mut current_config = crate::config::feature_config(app);
+    restore_screen_memory_start_config(&mut current_config.screen_memory, previous);
+    match crate::config::set_feature_config(app.clone(), current_config).await {
+        Ok(()) => error,
+        Err(rollback_error) => {
+            format!("{error}; restoring the previous Rewind setting also failed: {rollback_error}")
+        }
+    }
 }
 
 fn screen_memory_start_error(
