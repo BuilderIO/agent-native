@@ -56,6 +56,11 @@ const replacementItems: Record<string, string[]> = {
     "**A shared doc** keeps the notes and decisions, until nobody opens it again and the owners and dates get lost.",
     "**Email** carries the recap, which someone rewrites from memory.",
   ],
+  "ask-your-database-in-plain-english": [
+    "**A SQL client** can answer anything, but only for the people who write SQL.",
+    "**A BI tool, like Looker,** covers the questions someone planned for, and new ones wait for a data request.",
+    "**A chat assistant with a CSV export** can answer a question, but every answer starts with exporting the data again.",
+  ],
   "bug-reports-with-console-logs": [
     "**A screen recorder, like Loom,** shows what happened on screen, but not the console errors or the failed request behind it.",
     "**Browser DevTools** has those errors, but you have to copy them out by hand, and it's easy to grab the wrong one.",
@@ -79,8 +84,8 @@ const replacementItems: Record<string, string[]> = {
     "**A dictation app, like Wispr Flow,** lets you speak instead of type, but your dictations live in a separate app from your recordings and meeting notes.",
   ],
   "find-where-users-drop-off": [
-    "**A product analytics tool, like Amplitude or Mixpanel,** builds the funnel, but only a few people on the team know how.",
-    "**A session replay tool** shows what people actually did, but it's separate from the funnel, so the numbers and the sessions don't line up.",
+    "**A product analytics tool, like Amplitude or Mixpanel,** has the events, but only a few people on the team know how to query it.",
+    "**A session replay tool** shows what people did, in a separate place from your numbers.",
     "**A spreadsheet or doc** is how findings get shared, and the screenshot is stale by the next standup.",
   ],
   "landing-page-prototypes": [
@@ -130,8 +135,10 @@ const replacementItems: Record<string, string[]> = {
 const replacementConclusions: Record<string, string> = {
   "ai-meeting-notes":
     "In Clips, meetings from your Google Calendar get a transcript, a summary, notes, and action items, in the same searchable library as your recordings.",
+  "ask-your-database-in-plain-english":
+    "In Analytics, your database answers plain-English questions, and the answers stay in dashboards your team can open.",
   "bug-reports-with-console-logs":
-    "In Clips, the recording, the transcript, and, with the Chrome extension, the console errors and failed requests sit behind one link that people and agents can both use.",
+    "In Clips, the recording, the transcript, and, with the Chrome extension, the console messages and request details sit behind one link that people and agents can both use.",
   "crm-and-call-questions":
     "In Analytics, your CRM data and the other GTM sources you connect answer plain-English questions, and the answers live in dashboards the team can share.",
   "design-brief-to-prototype":
@@ -139,7 +146,7 @@ const replacementConclusions: Record<string, string> = {
   "dictate-instead-of-typing":
     "In Clips, dictations, screen recordings, and meetings share one searchable library, and a personal vocabulary helps with your own terms.",
   "find-where-users-drop-off":
-    "In Analytics, plain-English questions, funnels, dashboards, and session replays are in one app, and the agent writes the queries.",
+    "In Analytics, plain-English questions, dashboards, and session replays are in one app.",
   "landing-page-prototypes":
     "In Design, you compare versions side by side, pin comments to elements, and export the HTML. Publishing is still a separate step.",
   "see-what-your-coding-agent-plans":
@@ -533,6 +540,34 @@ describe("campaign content", () => {
     },
   );
 
+  it("accepts a standalone article without a use case or screenshot alt", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { use_case: _useCase, screenshot_alt: _alt, ...standalone } = article;
+    const content = parseCampaignContent(
+      sources(
+        {},
+        {
+          "sample.md": markdown({
+            ...standalone,
+            topic: "agentic-apps",
+            apps: [],
+          }),
+        },
+      ),
+    );
+    expect(content.articles).toHaveLength(1);
+    expect(content.articles[0]).toMatchObject({
+      slug: article.slug,
+      title: article.title,
+      topic: "agentic-apps",
+      apps: [],
+      body: "\nPublic article body.",
+    });
+    expect(content.articles[0]).not.toHaveProperty("use_case");
+    expect(content.articles[0]).not.toHaveProperty("screenshot_alt");
+    expect(error).not.toHaveBeenCalled();
+  });
+
   it.each([
     null,
     "clips",
@@ -642,18 +677,33 @@ describe("campaign content", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  it("validates all fourteen use cases and eight articles through bundled and disk loaders without warnings", () => {
+  it("validates all fifteen use cases and eleven articles through bundled and disk loaders without warnings", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const bundled = loadCampaignContent();
     const disk = loadCampaignContentFromDisk(
       new URL("..", import.meta.url).pathname,
     );
-    expect(bundled.useCases).toHaveLength(14);
-    expect(bundled.articles).toHaveLength(8);
+    expect(bundled.useCases).toHaveLength(15);
+    expect(bundled.articles).toHaveLength(11);
     expect(
       bundled.articles.map(({ slug, topic, apps }) => ({ slug, topic, apps })),
     ).toEqual([
+      {
+        slug: "can-people-and-an-ai-agent-edit-the-same-document",
+        topic: "agentic-apps",
+        apps: [],
+      },
+      {
+        slug: "how-do-you-add-skills-to-claude-code-and-codex",
+        topic: "coding-agents",
+        apps: ["plans"],
+      },
+      {
+        slug: "what-is-an-agent-native-app",
+        topic: "agentic-apps",
+        apps: [],
+      },
       {
         slug: "how-do-you-build-a-landing-page-with-ai",
         topic: "prototyping",
@@ -695,11 +745,22 @@ describe("campaign content", () => {
         apps: ["clips"],
       },
     ]);
-    for (const item of bundled.articles)
+    for (const item of bundled.articles) {
       expect(item).not.toHaveProperty("category");
+      if (item.topic === "agentic-apps") {
+        expect(item).not.toHaveProperty("use_case");
+        expect(item).not.toHaveProperty("screenshot_alt");
+      }
+    }
+    expect(
+      bundled.articles.find(
+        (item) =>
+          item.slug === "how-do-you-add-skills-to-claude-code-and-codex",
+      )?.use_case,
+    ).toBe("see-what-your-coding-agent-plans");
     expect(
       getArticleTopics(bundled.articles).map(({ count }) => count),
-    ).toEqual([2, 2, 2, 1, 1]);
+    ).toEqual([2, 3, 2, 2, 1, 1]);
     expect(
       bundled.useCases.map((item) => [
         item.slug,
@@ -708,6 +769,11 @@ describe("campaign content", () => {
       ]),
     ).toEqual([
       ["ai-meeting-notes", "Four places one meeting ends up", 4],
+      [
+        "ask-your-database-in-plain-english",
+        "Where data questions go today",
+        3,
+      ],
       ["bug-reports-with-console-logs", "Four tools for one bug", 4],
       ["crm-and-call-questions", "Four tools for one pipeline review", 4],
       [

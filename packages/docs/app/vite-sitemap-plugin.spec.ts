@@ -149,11 +149,12 @@ describe("docs agent web generation", () => {
     expect(new Set(mirrors).size).toBe(mirrors.length);
   });
 
-  it("publishes precisely the five populated real topic pages and counts in every locale", () => {
+  it("publishes precisely the six populated real topic pages and counts in every locale", () => {
     const content = loadCampaignContentFromDisk(rootDir);
     const summaries = getArticleTopics(content.articles);
     expect(summaries.map(({ slug, count }) => [slug, count])).toEqual([
-      ["coding-agents", 2],
+      ["agentic-apps", 2],
+      ["coding-agents", 3],
       ["prototyping", 2],
       ["meetings-and-notes", 2],
       ["metrics", 1],
@@ -334,6 +335,31 @@ describe("docs agent web generation", () => {
           .filter((file) => /^sitemap-.+\.xml$/.test(file))
           .sort(),
       ).toEqual(locales.map((locale) => `sitemap-${locale}.xml`).sort());
+    });
+
+    it("makes the new use case and articles discoverable in every locale sitemap", () => {
+      const newPaths = [
+        `${USE_CASES_BASE}/ask-your-database-in-plain-english`,
+        `${ARTICLES_BASE}/what-is-an-agent-native-app`,
+        `${ARTICLES_BASE}/can-people-and-an-ai-agent-edit-the-same-document`,
+        `${ARTICLES_BASE}/how-do-you-add-skills-to-claude-code-and-codex`,
+        `${ARTICLES_BASE}/topic/agentic-apps`,
+      ];
+      for (const locale of DOCS_LOCALES) {
+        const urls = locsIn(
+          fs.readFileSync(
+            path.join(clientDir, `sitemap-${locale.toLowerCase()}.xml`),
+            "utf8",
+          ),
+        );
+        for (const path of newPaths) {
+          const localizedPath = sitePathForLocale(path, locale);
+          expect(urls).toContain(`${SITE_URL}${localizedPath}`);
+          expect(
+            pages.find((page) => page.path === localizedPath)?.markdown,
+          ).toBeTruthy();
+        }
+      }
     });
 
     it("lists every page in exactly one per-locale sitemap", () => {

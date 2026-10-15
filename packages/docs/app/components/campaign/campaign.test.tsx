@@ -1312,19 +1312,32 @@ describe("public campaign frontend", () => {
   it.each([undefined, []])(
     "renders no article screenshot without apps (%j)",
     (apps) => {
-      expect(markup(<CampaignScreenshot item={{ ...article, apps }} />)).toBe(
-        "",
-      );
+      const {
+        use_case: _useCase,
+        screenshot_alt: _alt,
+        ...standalone
+      } = article;
+      const item: Article = { ...standalone, topic: "agentic-apps", apps };
+      expect(markup(<CampaignScreenshot item={item} />)).toBe("");
       const document = dom(
-        markup(
-          <ArticlePage
-            article={{ ...article, apps }}
-            useCase={null}
-            more={[]}
-          />,
-        ),
+        markup(<ArticlePage article={item} useCase={null} more={[]} />),
       );
       expect(document.querySelector("figure, .docs-image-frame")).toBeNull();
+      expect(document.body.textContent).not.toContain("Part of:");
+      expect(document.querySelector('a[href*="/use-cases/"]')).toBeNull();
+      const ctas = [...document.querySelectorAll("a")].filter(
+        (link) => link.textContent === item.cta_label,
+      );
+      expect(ctas).toHaveLength(2);
+      expect(ctas[0].closest(".campaign-article-content")).not.toBeNull();
+      const band = [...document.querySelectorAll("section")].at(-1)!;
+      expect(band.querySelector("h2")?.textContent).toBe(item.cta_band_heading);
+      expect(band.contains(ctas[1])).toBe(true);
+      for (const cta of ctas) {
+        const url = new URL(cta.getAttribute("href")!);
+        expect(`${url.origin}${url.pathname}`).toBe(item.app_cta_url);
+        expect(url.searchParams.get("job")).toBe(item.job_id);
+      }
     },
   );
 
@@ -2213,12 +2226,12 @@ describe("public campaign frontend", () => {
     ).toBe(crm.item.title);
   });
 
-  it("SSR renders all fourteen real replacement lists and only present recipe slots without tables or column headings", async () => {
+  it("SSR renders all fifteen real replacement lists and only present recipe slots without tables or column headings", async () => {
     const actual = await vi.importActual<
       typeof import("../../../lib/campaign-content.server")
     >("../../../lib/campaign-content.server");
     const { useCases } = actual.loadCampaignContent();
-    expect(useCases).toHaveLength(14);
+    expect(useCases).toHaveLength(15);
     for (const item of useCases) {
       const document = dom(markup(<UseCasePage item={item} articles={[]} />));
       expect(document.querySelector("table, th, td"), item.slug).toBeNull();
@@ -2288,12 +2301,12 @@ describe("public campaign frontend", () => {
     }
   });
 
-  it("SSR includes all fourteen real use-case cards despite filters and renders Content screenshots", async () => {
+  it("SSR includes all fifteen real use-case cards despite filters and renders Content screenshots", async () => {
     const actual = await vi.importActual<
       typeof import("../../../lib/campaign-content.server")
     >("../../../lib/campaign-content.server");
     const { useCases } = actual.loadCampaignContent();
-    expect(useCases).toHaveLength(14);
+    expect(useCases).toHaveLength(15);
     const document = dom(
       markup(
         <UseCasesIndex items={useCases} />,
@@ -2301,7 +2314,7 @@ describe("public campaign frontend", () => {
       ),
     );
     const wrappers = [...document.querySelectorAll(".grid.gap-px > div")];
-    expect(wrappers).toHaveLength(14);
+    expect(wrappers).toHaveLength(15);
     expect(document.querySelectorAll("[hidden]")).toHaveLength(0);
     const cards = wrappers.map(
       (wrapper) => wrapper.querySelector(":scope > a")!,
@@ -2353,6 +2366,7 @@ describe("public campaign frontend", () => {
         ),
       ).toEqual([
         "2 articles",
+        "3 articles",
         "2 articles",
         "2 articles",
         "1 article",
@@ -2364,6 +2378,9 @@ describe("public campaign frontend", () => {
         ),
       ).toEqual(articles.map((item) => ARTICLE_TOPICS[item.topic].name));
       const expectedApps = [
+        null,
+        "plan",
+        null,
         "design",
         "clips",
         "design",
@@ -2376,14 +2393,19 @@ describe("public campaign frontend", () => {
       expect(articles).toHaveLength(expectedApps.length);
       for (const [index, item] of articles.entries()) {
         const screenshot = dom(markup(<CampaignScreenshot item={item} />));
-        expect(
-          screenshot.querySelector(".theme-img-dark")?.getAttribute("src"),
-          item.slug,
-        ).toBe(TEMPLATE_SCREENSHOTS[expectedApps[index]].dark);
-        expect(
-          screenshot.querySelector(".theme-img-light")?.getAttribute("src"),
-          item.slug,
-        ).toBe(TEMPLATE_SCREENSHOTS[expectedApps[index]].light);
+        const app = expectedApps[index];
+        if (app === null) {
+          expect(screenshot.querySelector("figure, img"), item.slug).toBeNull();
+        } else {
+          expect(
+            screenshot.querySelector(".theme-img-dark")?.getAttribute("src"),
+            item.slug,
+          ).toBe(TEMPLATE_SCREENSHOTS[app].dark);
+          expect(
+            screenshot.querySelector(".theme-img-light")?.getAttribute("src"),
+            item.slug,
+          ).toBe(TEMPLATE_SCREENSHOTS[app].light);
+        }
       }
       expect(CATEGORY_NAMES.content).toBe("Content");
       expect(CATEGORY_NAMES.clips).toBe("Clips");
