@@ -248,6 +248,10 @@ export {
 } from "./better-auth-migrations.js";
 export { runFrameworkReleaseMigrations } from "./release-migrations.js";
 export {
+  runAppReleaseMigrations,
+  type AppReleaseMigrationResult,
+} from "./app-release-migrations.js";
+export {
   initServerSentry,
   isServerSentryEnabled,
   setSentryUserForRequest,
