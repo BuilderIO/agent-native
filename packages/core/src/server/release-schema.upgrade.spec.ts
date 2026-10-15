@@ -6,7 +6,10 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { closeDbExec, getDbExec, getPgliteClient } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
-import { schemaFingerprint, type SchemaFingerprint } from "../db/schema-catalog.js";
+import {
+  schemaFingerprint,
+  type SchemaFingerprint,
+} from "../db/schema-catalog.js";
 import { runFrameworkReleaseMigrations } from "./release-migrations.js";
 
 /**
@@ -46,8 +49,10 @@ function drift(a: SchemaFingerprint, b: SchemaFingerprint): string[] {
   for (const key of ["tables", "columns", "indexes", "constraints"] as const) {
     const left = new Set(a[key]);
     const right = new Set(b[key]);
-    for (const item of left) if (!right.has(item)) out.push(`fresh only: ${item}`);
-    for (const item of right) if (!left.has(item)) out.push(`upgraded only: ${item}`);
+    for (const item of left)
+      if (!right.has(item)) out.push(`fresh only: ${item}`);
+    for (const item of right)
+      if (!left.has(item)) out.push(`upgraded only: ${item}`);
   }
   return out.filter((entry) => !KNOWN_DRIFT.includes(entry)).sort();
 }

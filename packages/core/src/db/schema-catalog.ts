@@ -9,7 +9,8 @@
 import type { DbExec } from "./client.js";
 
 /** Tables whose rows are migration bookkeeping, dumped with their data. */
-const BOOKKEEPING_TABLE = /(?:^_.*migrations?$|_migrations$|^_an_store_migrations$)/;
+const BOOKKEEPING_TABLE =
+  /(?:^_.*migrations?$|_migrations$|^_an_store_migrations$)/;
 
 export interface SchemaFingerprint {
   tables: string[];
@@ -143,6 +144,7 @@ export async function dumpSchemaSql(exec: DbExec): Promise<string> {
   for (const table of [...byTable.keys()].filter((t) =>
     BOOKKEEPING_TABLE.test(t),
   )) {
+    // guard:allow-unbounded-read — release tooling dumping migration bookkeeping, never a request path
     const data = await rows(exec, `SELECT * FROM ${quoteIdent(table)}`);
     for (const row of data) {
       const keys = Object.keys(row);
