@@ -159,12 +159,7 @@ export function LookbackRow({
           value={String(shownSeconds)}
           onValueChange={(value) => onSecondsChange(Number(value))}
         >
-          <DropdownMenuRadioItem
-            value="0"
-            aria-describedby={
-              shownSeconds === 0 ? noneExplanationId : undefined
-            }
-          >
+          <DropdownMenuRadioItem value="0" aria-describedby={noneExplanationId}>
             {t("lookbackContext.none")}
           </DropdownMenuRadioItem>
           {SCREEN_HISTORY_PRESETS.map((preset) => (
@@ -183,14 +178,16 @@ export function LookbackRow({
             </>
           ) : null}
         </DropdownMenuRadioGroup>
-        {shownSeconds === 0 ? (
-          <DropdownMenuLabel
-            id={noneExplanationId}
-            className="whitespace-normal text-start font-normal leading-4"
-          >
-            {t("lookbackContext.noneExplanation")}
-          </DropdownMenuLabel>
-        ) : null}
+        <DropdownMenuLabel
+          id={noneExplanationId}
+          className={
+            shownSeconds === 0
+              ? "whitespace-normal text-start font-normal leading-4"
+              : "sr-only"
+          }
+        >
+          {t("lookbackContext.noneExplanation")}
+        </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem inset onSelect={openCustom}>
           {t("lookbackContext.custom")}

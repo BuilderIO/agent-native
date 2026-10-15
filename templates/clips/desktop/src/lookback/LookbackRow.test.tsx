@@ -200,13 +200,18 @@ describe("LookbackRow with Rewind on", () => {
     expect(buttonWithText("Turn on Rewind")).toBeUndefined();
 
     openMenu();
-    expect(document.body.textContent).not.toContain(
-      "None means new Clips won’t include earlier screen time.",
-    );
     const noneOption = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
     ).find((item) => item.textContent?.trim() === "None");
-    expect(noneOption?.hasAttribute("aria-describedby")).toBe(false);
+    const descriptionId = noneOption?.getAttribute("aria-describedby");
+
+    expect(descriptionId).toBeTruthy();
+    expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
+      "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
+    );
+    expect(document.getElementById(descriptionId ?? "")?.className).toContain(
+      "sr-only",
+    );
     expect(menuItemTexts()).toEqual([
       "None",
       "30 s",
@@ -240,6 +245,9 @@ describe("LookbackRow with Rewind on", () => {
     expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
       "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
     );
+    expect(
+      document.getElementById(descriptionId ?? "")?.className,
+    ).not.toContain("sr-only");
     expect(document.body.textContent).toContain(
       "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
     );
