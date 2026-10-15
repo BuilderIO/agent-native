@@ -203,6 +203,17 @@ export function runErrorHeadline(
   return info.recoverable === true ? labels.recoverable : labels.terminal;
 }
 
+function isManuallyRetryableProviderError(errorCode?: string): boolean {
+  const code = errorCode?.trim().toLowerCase();
+  // Keep daily/account caps terminal; these codes represent transient rejections.
+  return (
+    code === "http_429" ||
+    code === "http_529" ||
+    code === "provider_rate_limited" ||
+    code === "provider_transient_rejection"
+  );
+}
+
 export function getRequestModeMetadata(
   message: unknown,
 ): "act" | "plan" | null {
@@ -794,6 +805,9 @@ export function RunErrorRecoveryCard({
   // Retrying or continuing sends the rejected attachment again.
   const attachmentRejected = info.errorCode === "invalid_attachment";
   const canRecover = info.recoverable === true && !attachmentRejected;
+  const manuallyRetryableProviderError = isManuallyRetryableProviderError(
+    info.errorCode,
+  );
   const retryWithoutAttachments =
     onRetryWithoutAttachments ?? onRetryWithoutAttachment;
   const canRetryWithoutAttachments =
@@ -840,7 +854,11 @@ export function RunErrorRecoveryCard({
   // credentials. Without this the common case — a rejected workspace or
   // deployment credential the reader cannot see, let alone edit — rendered a
   // "Connected ✓" panel with no action at all.
-  const canRetry = canRecover || isUnblockableExternally || isProviderAuthError;
+  const canRetry =
+    canRecover ||
+    isUnblockableExternally ||
+    isProviderAuthError ||
+    manuallyRetryableProviderError;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&
@@ -1158,9 +1176,17 @@ export function RunErrorRecoveryCard({
                   ? t("agentChat.recovery.diagnoseRetry")
                   : t("agentChat.common.retry")
               }
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              className={cn(
+                "inline-flex h-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
+                manuallyRetryableProviderError ? "gap-1.5 px-2" : "w-7",
+              )}
             >
               <IconRefresh size={14} />
+              {manuallyRetryableProviderError && (
+                <span className="text-[11px] font-medium">
+                  {t("agentChat.common.retry")}
+                </span>
+              )}
             </button>
           )}
           {canRecover && isConnectionRecoveryError && (

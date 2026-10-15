@@ -38,12 +38,19 @@ export interface FilterOption {
   label: string;
 }
 
+// A named selection of a multi-select filter's option values.
+export interface FilterPreset {
+  label: string;
+  values: string[];
+}
+
 export interface DashboardFilter {
   id: string;
   label: string;
   type: FilterType;
   default?: string;
   options?: FilterOption[];
+  presets?: FilterPreset[];
 }
 
 export type ColumnFormat =

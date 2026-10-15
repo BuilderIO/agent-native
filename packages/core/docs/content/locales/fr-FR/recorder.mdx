@@ -1,0 +1,259 @@
+---
+title: "Enregistreur"
+description: "L'enregistreur est un journal court, en mémoire, de ce qu'une app vient de faire, dont les données sensibles sont masquées. Il devient un rapport pour l'agent de l'app, Clips, Sentry ou toute destination que vous enregistrez."
+---
+
+# Enregistreur
+
+L'enregistreur est un journal court, en mémoire, de ce qu'une app Agent-Native vient de faire, dont les données sensibles sont masquées. Chaque app enregistre ses actions, ses écritures dans `application_state`, ses changements de route, ses erreurs et ses toasts d'erreur des deux dernières minutes, sans code applicatif. Quand quelque chose tourne mal, ce journal devient un rapport que l'agent de l'app, un enregistrement Clips, Sentry ou votre propre destination peut lire.
+
+```ts
+import { recorder } from "@agent-native/core/client/recorder";
+
+const report = recorder.report();
+```
+
+Rien n'est stocké sur le serveur et rien ne quitte le navigateur tant qu'un rapport n'est pas envoyé quelque part. L'enregistreur n'effectue aucune requête réseau de lui-même.
+
+## Ce qu'il capture {#captured}
+
+| Type     | Origine                                                                                                                                    | Exemple                                                                                 |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `action` | Chaque appel à `useActionQuery()`, `useActionMutation()` et `callAction()`. Chaque action d'une lecture groupée est un événement distinct. | `list-folders` a échoué avec `403` et `forbidden_scope` dans un lot qui a renvoyé `200` |
+| `state`  | Chaque écriture et suppression dans `application_state`, y compris celles qui ont échoué ou ont été annulées                               | `design-selection` a changé `state` de `hover` à `focus`                                |
+| `nav`    | Changements de route. Seul le chemin est conservé.                                                                                         | `/design/d_8f2c1a`                                                                      |
+| `error`  | Erreurs non interceptées et rejets de promesses non gérés, avec le premier cadre de pile                                                   | `TypeError` à `/app/pages/design-editor/commands/undo.ts:1715`                          |
+| `toast`  | Toasts d'erreur et d'avertissement vus par l'utilisateur                                                                                   | `This screen changed elsewhere. Your edit was not saved.`                               |
+| `log`    | Événements que l'app ajoute avec `recorder.log()`                                                                                          | `screen.restored` de `f_1` à `f_9`                                                      |
+
+Chaque événement a les mêmes champs :
+
+| Champ       | Signification                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `t`         | Secondes avant la création du rapport. La valeur est négative.                                               |
+| `at`        | Millisecondes depuis l'epoch. Les diagnostics Clips utilisent la même horloge.                               |
+| `type`      | `action`, `state`, `nav`, `error`, `toast` ou `log`                                                          |
+| `name`      | Le nom de l'action, la clé d'état, le chemin de route, le type d'erreur, le niveau du toast ou le nom du log |
+| `ok`        | Si une action ou une écriture d'état a réussi                                                                |
+| `status`    | Le statut HTTP, s'il y en a un                                                                               |
+| `errorCode` | Le code d'erreur de l'action. Un appel ou une écriture que l'app a annulé a `errorCode: "cancelled"`.        |
+| `ms`        | La durée d'une action ou d'une écriture d'état                                                               |
+| `requestId` | L'id de requête du serveur, qui apparaît aussi dans ses logs et dans son événement Sentry                    |
+| `data`      | Détails masqués et bornés. Une action contient sa méthode HTTP et, en cas d'échec, son message d'erreur.     |
+
+Une écriture d'état n'enregistre que ce qui a changé depuis la dernière valeur sauvegardée pour cette clé. La première écriture d'une clé enregistre `data.value`. Les écritures suivantes enregistrent `data.changed`, où un champ supprimé s'affiche comme `"[removed]"`. Une écriture qui n'a rien changé enregistre `data.unchanged`, et une suppression enregistre `data.deleted`. Une écriture échouée a aussi `data.error`, et l'écriture suivante est toujours comparée à la dernière valeur sauvegardée.
+
+## Rapports {#reports}
+
+Un rapport contient les événements de la fenêtre, plus les valeurs que l'app surveille et le travail encore en cours.
+
+```json
+{
+  "app": "design",
+  "build": "59929e9",
+  "url": "/design/d_8f2c1a?file=[redacted]",
+  "at": "2026-10-14T16:20:05.120Z",
+  "reason": "user",
+  "windowSeconds": 120,
+  "events": [
+    {
+      "t": -12.4,
+      "at": 1791994792720,
+      "type": "state",
+      "name": "design-selection",
+      "ok": true,
+      "ms": 41,
+      "data": { "changed": { "state": "hover" } }
+    },
+    {
+      "t": -10.9,
+      "at": 1791994794220,
+      "type": "action",
+      "name": "update-file",
+      "ok": true,
+      "status": 200,
+      "ms": 180,
+      "requestId": "req_a1",
+      "data": { "method": "POST" }
+    }
+  ],
+  "watched": {
+    "inspector": {
+      "state": "focus",
+      "fields": [{ "label": "Opacity", "shown": "91%" }]
+    }
+  },
+  "pending": [],
+  "dropped": 0
+}
+```
+
+- **app** : l'id de l'app. S'il manque, l'hôte de la page est utilisé, par exemple `localhost:8080`, il n'est donc jamais vide.
+- **url** : le chemin de route. Chaque valeur des paramètres de requête est masquée et le hash est omis.
+- **windowSeconds** : le nombre de secondes couvertes par le rapport.
+- **pending** : les actions et écritures d'état encore en cours, chacune avec son `ageMs`.
+- **dropped** : les événements perdus à cause des plafonds depuis le chargement de la page ou la déconnexion de l'utilisateur. Les événements sortis de la fenêtre parce qu'ils sont trop anciens ne sont pas comptés.
+
+## Le SDK {#sdk}
+
+### `recorder.report()` {#report}
+
+`recorder.report()` renvoie le rapport actuel. Il est synchrone. Il accepte un objet facultatif :
+
+- **seconds** : ne conserver que les `seconds` dernières secondes de la fenêtre.
+- **reason** : `"user"`, `"error"`, `"test"` ou `"manual"`. La valeur par défaut est `"manual"`.
+
+```ts
+const report = recorder.report();
+```
+
+Passez `seconds` pour obtenir une tranche plus courte, comme la demi-minute précédant le début d'un enregistrement :
+
+```ts
+const before = recorder.report({ seconds: 30 });
+```
+
+Toute raison autre que `"manual"` envoie aussi le rapport aux écouteurs de `recorder.onReport()`. Un simple appel à `recorder.report()` ne le fait jamais, donc un écouteur peut construire un rapport sans boucler.
+
+### `recorder.log()` {#log}
+
+`recorder.log()` ajoute un événement formulé dans les termes de l'app. Il accepte un nom et des données facultatives. Les données qui ne sont pas un objet simple sont enregistrées comme `{ value }`.
+
+Design journalise le nouvel id de chaque écran que l'annulation restaure, car l'annulation recrée les écrans supprimés avec de nouveaux ids :
+
+```ts
+recorder.log("screen.restored", { from: file.id, to: result.id });
+```
+
+### `recorder.watch()` {#watch}
+
+`recorder.watch()` ajoute une valeur en direct à chaque rapport. Il accepte un nom et une fonction qui renvoie la valeur, et renvoie une fonction qui arrête la surveillance.
+
+L'inspecteur de Design ajoute ce qu'il affiche et l'état d'interaction qu'il modifie. Aucun des deux n'est dans `application_state`, donc sans cela un rapport ne pourrait pas les montrer :
+
+```tsx
+useEffect(
+  () =>
+    recorder.watch("inspector", () => ({
+      state: interactionState ?? "default",
+      fields: readVisualScrubInputs(),
+    })),
+  [interactionState],
+);
+```
+
+Une fonction qui lève une exception est signalée comme `{ unreadable: "<message>" }` au lieu d'être omise.
+
+### `recorder.onReport()` {#on-report}
+
+`recorder.onReport()` envoie les rapports vers une destination. Il accepte un écouteur et renvoie une fonction qui le retire. L'écouteur reçoit chaque rapport construit avec une raison autre que `"manual"`. Cela couvre « Signaler un problème » (`"user"`), les erreurs non interceptées (`"error"`) et les tests (`"test"`).
+
+```ts
+recorder.onReport((report) => posthog.capture("problem_report", report));
+```
+
+```ts
+recorder.onReport((report) =>
+  navigator.sendBeacon("/api/logs", JSON.stringify(report)),
+);
+```
+
+Une erreur non interceptée envoie au plus un rapport toutes les dix secondes, pour qu'une boucle d'erreurs ne puisse pas inonder une destination. Un écouteur qui lève une exception est journalisé, et les autres écouteurs s'exécutent quand même.
+
+### `recorder.redact()` {#redact}
+
+`recorder.redact()` masque d'autres champs dans chaque événement enregistré après l'appel et dans chaque valeur surveillée. Passez des noms de champs, ou des chemins à points qui commencent par le nom de l'événement. Un `*` correspond à n'importe quel champ unique.
+
+```ts
+recorder.redact("email");
+recorder.redact("compose.body", "payment.*");
+```
+
+### `recorder.pending()` {#pending}
+
+`recorder.pending()` liste les actions et écritures d'état encore en cours. Les tests l'utilisent pour attendre un vrai état inactif plutôt qu'une pause fixe. Les tests de bout en bout de Design attendent qu'il soit vide dans `app.settled()`, et joignent `recorder.json` à chaque test en échec.
+
+```ts
+await expect
+  .poll(() =>
+    page.evaluate(
+      () => window.__agentNativeRecorder?.report({ seconds: 0 }).pending,
+    ),
+  )
+  .toEqual([]);
+```
+
+### `recorder.disable()` {#disable}
+
+`recorder.disable()` désactive l'enregistreur. Il fait la même chose que `configureRecorder({ enabled: false })`.
+
+## `configureRecorder()` {#configure}
+
+`configureRecorder()` est un appel unique et facultatif. Voici les valeurs par défaut :
+
+```ts
+import { configureRecorder } from "@agent-native/core/client/recorder";
+
+configureRecorder({
+  windowSeconds: 120,
+  maxEvents: 2000,
+  sentry: true,
+  enabled: true,
+});
+```
+
+- **windowSeconds** : jusqu'où dans le passé l'enregistreur conserve les événements.
+- **maxEvents** : le nombre maximal d'événements conservés. Une fois le plafond atteint, les événements les plus anciens sont abandonnés et comptés dans `dropped`.
+- **sentry** : si les erreurs Sentry reçoivent les événements récents. Cela n'agit que si l'app utilise Sentry côté navigateur.
+- **enabled** : si l'enregistreur fonctionne ou non.
+
+Une fenêtre ou un plafond qui n'est pas un nombre positif lève une `RangeError` au lieu de revenir à une valeur par défaut. L'enregistreur plafonne aussi sa taille totale à environ 512 Ko de JSON, quelle que soit la valeur de `maxEvents`, ce qui le maintient sous 2 Mo de mémoire par onglet.
+
+## Destinations des rapports {#destinations}
+
+### Signaler un problème {#report-a-problem}
+
+Toutes les apps proposent **Signaler un problème**. L'option se trouve en bas de la barre latérale, dans le menu d'options du panneau de l'agent et dans le menu de commandes (⌘K).
+
+- Elle demande s'il faut joindre ce que l'app a fait au cours des deux dernières minutes, et affiche un aperçu des compteurs, des échecs et des premiers événements. Elle le demande à chaque fois.
+- Si l'utilisateur accepte, le rapport complet est stocké dans un fichier privé que seul cet utilisateur peut lire. L'agent de l'app reçoit un court résumé avec une référence au fichier.
+- L'agent lit la suite du rapport avec l'action `read-problem-report`, filtrée par type d'événement ou par période.
+- Quand la page n'a pas de chat d'agent, le bouton copie le résumé et la référence à la place.
+- Le rapport nécessite un stockage de fichiers. Sans lui, la boîte de dialogue indique que le rapport n'a pas été joint, et rien n'est envoyé.
+
+### Sentry {#sentry}
+
+Quand une app a Sentry côté navigateur configuré via Agent-Native (voir [Rapport d'erreurs](/docs/observability#sentry)), chaque événement d'erreur Sentry reçoit :
+
+- les 100 derniers événements sous forme de breadcrumbs dans les catégories `recorder.action`, `recorder.state` et similaires, chacun avec son résultat, son statut et son id de requête
+- le rapport complet en pièce jointe `recorder.json`
+
+Aucun code applicatif n'est nécessaire. `configureRecorder({ sentry: false })` le désactive.
+
+### Votre propre destination {#own-destination}
+
+Enregistrez un écouteur avec [`recorder.onReport()`](#on-report).
+
+### Clips et extensions de navigateur {#extensions}
+
+La page expose `window.__agentNativeRecorder.report()`. Une extension de navigateur le lit depuis le monde principal de la page.
+
+Quand les journaux développeur sont activés, l'extension Clips le lit dans l'onglet enregistré au démarrage de l'enregistrement (les 30 dernières secondes) et à son arrêt. Les événements rejoignent les entrées de console et de réseau de l'enregistrement sur la même horloge, et l'agent du clip reçoit un résumé des échecs. Voir [Journaux de navigateur de Clips](/docs/template-clips-features#chrome-extension-browser-logs).
+
+## Confidentialité {#privacy}
+
+- **Tout reste dans le navigateur.** Un rapport ne sort que lorsqu'une destination l'envoie : « Signaler un problème » après l'accord de l'utilisateur, un enregistrement Clips lancé par l'utilisateur, Sentry, ou un écouteur enregistré par le développeur.
+- **Les secrets sont retirés.** Un champ dont le nom ressemble à un secret (`password`, `token`, `secret`, `apiKey`, `authorization`, `cookie`, `session`, `card`, `cvv`) s'affiche comme `"[redacted]"`. Le texte qui ressemble à un jeton dans n'importe quelle valeur, comme les JWT, les jetons bearer et les clés d'API de fournisseurs, est lui aussi remplacé par `[redacted]`. Ce sont les mêmes fonctions de masquage que core utilise pour les rapports d'erreurs.
+- **Les valeurs sont bornées.** Les chaînes sont coupées à 200 caractères et chaque événement à environ 2 Ko. Chaque coupure indique ce qui a été retiré. Les corps des requêtes et des réponses ne sont jamais enregistrés.
+- **Il oublie.** Il ne conserve que la fenêtre, dans la limite de ses plafonds. Il est vidé au rechargement et à la déconnexion.
+- **Aucun nouvel accès.** L'enregistreur ne voit que ce qui passe déjà par l'app. Les appels d'actions vont déjà au serveur, et `application_state` est déjà stocké et lu par l'agent.
+
+## Le désactiver {#off}
+
+```ts
+import { configureRecorder } from "@agent-native/core/client/recorder";
+
+configureRecorder({ enabled: false });
+```
+
+Un enregistreur désactivé oublie ce qu'il contenait, cesse d'écouter et retire `window.__agentNativeRecorder` de la page. Son `recorder.report()` ne renvoie aucun événement ni aucune valeur surveillée, et il n'envoie rien aux écouteurs. `configureRecorder({ enabled: true })` le redémarre.

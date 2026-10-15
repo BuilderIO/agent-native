@@ -1031,7 +1031,7 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain(
       "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
     );
-    expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(3);
+    expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(4);
     expect(source).toContain("event.preventDefault();");
     expect(overflowMenu).toContain(
       "toggleHistory,\n                    pendingHeaderOverlayRef",

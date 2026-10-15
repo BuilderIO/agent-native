@@ -2121,41 +2121,47 @@ export default function DeckEditor() {
                 ? "deck_refresh_failed"
                 : "deck_not_visible_after_refresh",
           });
-          const emptyDeckConfirmed = slideCountRef.current === 0;
-          if (emptyDeckConfirmed && generationContext) {
-            const failureCode = "outcome_unresolved";
+          const failureCode = "outcome_unresolved";
+          const currentSlides = getDeckLatest(id)?.slides ?? deck?.slides ?? [];
+          const emptyDeckConfirmed =
+            slideCountRef.current === 0 && currentSlides.length === 0;
+          if (generationContext) {
             updateDeck(id, {
               generationContext: {
                 ...generationContext,
                 generationFailureCode: failureCode,
                 generationFailureAttemptId: generationAttemptId,
                 generationFailureSlidesFingerprint:
-                  partialGenerationFailureSlidesFingerprint([]),
+                  partialGenerationFailureSlidesFingerprint(currentSlides),
               },
             });
-            const recovery: EmptyGenerationRecovery = {
-              kind: "generation_failure",
-              attemptId: generationAttemptId,
-              failureCode,
-            };
-            const serializedRecovery = JSON.stringify(recovery);
-            if (retryRecoveryStorageKey) {
-              try {
-                window.localStorage.setItem(
-                  retryRecoveryStorageKey,
-                  serializedRecovery,
-                );
-                emptyGenerationRecoveryRef.current = serializedRecovery;
-              } catch (error) {
-                console.error(
-                  "Failed to store Slides generation recovery data.",
-                  error,
-                );
+            let serializedRecovery: string | null = null;
+            if (emptyDeckConfirmed) {
+              const recovery: EmptyGenerationRecovery = {
+                kind: "generation_failure",
+                attemptId: generationAttemptId,
+                failureCode,
+              };
+              serializedRecovery = JSON.stringify(recovery);
+              if (retryRecoveryStorageKey) {
+                try {
+                  window.localStorage.setItem(
+                    retryRecoveryStorageKey,
+                    serializedRecovery,
+                  );
+                  emptyGenerationRecoveryRef.current = serializedRecovery;
+                } catch (error) {
+                  console.error(
+                    "Failed to store Slides generation recovery data.",
+                    error,
+                  );
+                }
               }
             }
             try {
               await flushDeckSave(id);
               if (
+                serializedRecovery &&
                 clearEmptyGenerationRecovery(
                   retryRecoveryStorageKey,
                   serializedRecovery,
@@ -4795,7 +4801,11 @@ export default function DeckEditor() {
       {showPartialGenerationFailure ? (
         <div className="shrink-0 border-b bg-muted/50 px-4 py-3" role="alert">
           <div className="mx-auto max-w-6xl text-start">
-            <p>{t("deckEditor.partialGenerationFailed")}</p>
+            <p>
+              {generationContext?.generationFailureCode === "outcome_unresolved"
+                ? t("deckEditor.generationOutcomeUnresolvedWithSlides")
+                : t("deckEditor.partialGenerationFailed")}
+            </p>
             {typeof generationContext?.originalPrompt === "string" &&
             generationContext.originalPrompt.trim() ? (
               <div className="mt-2">
