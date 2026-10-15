@@ -9,10 +9,15 @@ export type IntegrationRequestScope = {
 export async function resolveIntegrationRequestScope(input: {
   ownerEmail: string;
   orgId?: string | null;
+  orgScope?: "personal";
   principalType?: "user" | "service";
 }): Promise<IntegrationRequestScope> {
   const explicitOrgId = input.orgId?.trim();
   if (explicitOrgId) return { orgId: explicitOrgId };
+
+  if (input.orgScope === "personal") {
+    return { orgId: null, orgScope: "personal" };
+  }
 
   if (input.principalType === "service") {
     return { orgId: null, defaultAgentEngineScope: "deployment" };

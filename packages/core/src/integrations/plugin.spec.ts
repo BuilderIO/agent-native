@@ -690,11 +690,41 @@ describe("integrations plugin routes", () => {
     });
     expect(startGoogleDocsPollerMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        ownerEmail: "integration@google-docs",
+        ownerEmail: "owner@example.test",
         webhookUrl:
           "https://app.test/_agent-native/integrations/google-docs/webhook",
       }),
     );
+  });
+
+  it("keeps a queued personal task in personal request scope", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    task.id = "personal-task";
+    task.ownerEmail = "personal+qa@example.test";
+    task.orgId = null;
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce(undefined);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(200);
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      {
+        userEmail: task.ownerEmail,
+        orgScope: "personal",
+        isIntegrationCaller: true,
+      },
+      expect.any(Function),
+    );
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
   it("serializes concurrent Google Docs enable and disable transitions", async () => {

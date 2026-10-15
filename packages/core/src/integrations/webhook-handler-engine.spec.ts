@@ -1602,8 +1602,9 @@ describe("integration webhook handler engine resolution", () => {
       const sendResponse = vi.fn(async () => ({
         status: "delivered" as const,
       }));
-      resolveOrgScopeForEmailMock.mockResolvedValueOnce({
-        status: "personal",
+      resolveOrgScopeForEmailMock.mockResolvedValue({
+        status: "organization",
+        orgId: "org-after-enqueue",
       });
       getConfiguredEngineNameForRequestMock.mockImplementationOnce(async () => {
         const { getRequestContext } =
@@ -1643,6 +1644,11 @@ describe("integration webhook handler engine resolution", () => {
         ownerEmail: task.ownerEmail,
         anthropicFallback: "",
       });
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+      const stagedPayload = JSON.parse(
+        stageTaskDeliveryPayloadMock.mock.calls.at(-1)![1],
+      );
+      expect(stagedPayload).toMatchObject({ orgScope: "personal" });
     },
   );
 

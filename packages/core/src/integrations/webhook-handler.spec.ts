@@ -148,6 +148,26 @@ describe("integration webhook handler", () => {
     expect(sendResponse).not.toHaveBeenCalled();
   });
 
+  it("persists a confirmed personal scope with the queued message", async () => {
+    resolveOrgScopeForEmailMock.mockResolvedValueOnce({ status: "personal" });
+
+    await handleWebhook(createEvent(), {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "alice+qa@agent-native.test",
+      incoming: createIncoming(1002),
+    });
+
+    const task = insertPendingTaskMock.mock.calls[0][0];
+    expect(task.orgId).toBeNull();
+    expect(JSON.parse(task.payload)).toMatchObject({
+      principalType: "user",
+      orgScope: "personal",
+    });
+  });
+
   it("never returns a verification challenge before authenticating it", async () => {
     const adapter = {
       ...createAdapter(),

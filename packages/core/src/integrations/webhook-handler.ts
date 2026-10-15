@@ -199,6 +199,7 @@ export type IntegrationResponseDeliveryTaskPayload = {
   incoming: IncomingMessage;
   message: OutgoingMessage;
   principalType?: "user" | "service";
+  orgScope?: "personal";
   placeholderRef?: string;
   strictTargetRef?: boolean;
   internalThreadId?: string;
@@ -459,6 +460,7 @@ async function enqueueAndDispatch(
     incoming,
     placeholderRef,
     principalType: options.principalType ?? "user",
+    ...(requestScope.orgScope ? { orgScope: requestScope.orgScope } : {}),
   });
 
   await insertPendingTask({
@@ -535,7 +537,12 @@ export async function processIntegrationTask(
     incoming: IncomingMessage;
     placeholderRef?: string;
     principalType?: "user" | "service";
+    orgScope?: "personal";
   };
+  const principalType = parsed.principalType ?? options.principalType ?? "user";
+  const orgScope =
+    parsed.orgScope ??
+    (task.orgId === null && principalType === "user" ? "personal" : undefined);
 
   if (!campaignOptions?.continuationInvocation) {
     await recordInboundIntegrationAudit(task, parsed.incoming);
@@ -545,8 +552,9 @@ export async function processIntegrationTask(
     taskId: task.id,
     attempts: task.attempts,
     placeholderRef: parsed.placeholderRef,
-    orgId: task.orgId ?? undefined,
-    principalType: parsed.principalType ?? options.principalType ?? "user",
+    orgId: task.orgId,
+    orgScope,
+    principalType,
     durableCampaign: campaignOptions?.enabled === true,
   });
 }
@@ -597,7 +605,8 @@ async function processIncomingMessage(
     taskId?: string;
     attempts?: number;
     placeholderRef?: string;
-    orgId?: string;
+    orgId?: string | null;
+    orgScope?: "personal";
     principalType?: "user" | "service";
     durableCampaign?: boolean;
   } = {},
@@ -614,7 +623,8 @@ async function processIncomingMessage(
   } = options;
   const requestScope = await resolveIntegrationRequestScope({
     ownerEmail,
-    orgId: opts.orgId ?? options.orgId,
+    orgId: opts.orgId === undefined ? options.orgId : opts.orgId,
+    orgScope: opts.orgScope,
     principalType: opts.principalType,
   });
   const orgId = requestScope.orgId;
@@ -706,6 +716,7 @@ async function processIncomingMessage(
       incoming,
       message: outgoing,
       principalType: opts.principalType ?? "user",
+      ...(requestScope.orgScope ? { orgScope: requestScope.orgScope } : {}),
       ...(opts.placeholderRef ? { placeholderRef: opts.placeholderRef } : {}),
     };
     try {
@@ -877,6 +888,7 @@ async function processIncomingMessage(
         incoming,
         message: exhaustedMessage,
         principalType: opts.principalType ?? "user",
+        ...(requestScope.orgScope ? { orgScope: requestScope.orgScope } : {}),
         ...(exhaustedProgress?.responseTargetRef
           ? {
               placeholderRef: exhaustedProgress.responseTargetRef,
@@ -1408,6 +1420,9 @@ async function processIncomingMessage(
               incoming,
               message: outgoing,
               principalType: opts.principalType ?? "user",
+              ...(requestScope.orgScope
+                ? { orgScope: requestScope.orgScope }
+                : {}),
               ...(progress?.responseTargetRef
                 ? {
                     placeholderRef: progress.responseTargetRef,
@@ -1698,6 +1713,9 @@ async function processIncomingMessage(
                   incoming,
                   message: outgoingForDelivery,
                   principalType: opts.principalType ?? "user",
+                  ...(requestScope.orgScope
+                    ? { orgScope: requestScope.orgScope }
+                    : {}),
                   internalThreadId: threadId,
                 }),
                 ...(threadCheckpoint?.userMessageId

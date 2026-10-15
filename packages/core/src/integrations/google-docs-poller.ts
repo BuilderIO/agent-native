@@ -773,7 +773,6 @@ async function processComment(
   const adapter = googleDocsAdapter();
   const requestScope = await resolveIntegrationRequestScope({
     ownerEmail: options.ownerEmail,
-    principalType: "service",
   });
   const requestContext = integrationRequestContext(requestScope);
   const key = commentKey(fileId, commentId);

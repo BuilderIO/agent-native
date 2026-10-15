@@ -881,7 +881,10 @@ export function createIntegrationsPlugin(
         .then(operation)
         .finally(release);
     };
-    const createGoogleDocsPollerOptions = (requestBaseUrl?: string) => {
+    const createGoogleDocsPollerOptions = (
+      ownerEmail: string,
+      requestBaseUrl?: string,
+    ) => {
       const configuredBaseUrl = getAppConfig().integrations.webhookBaseUrl;
       const baseUrl = configuredBaseUrl || requestBaseUrl;
       const webhookUrl = baseUrl
@@ -894,7 +897,7 @@ export function createIntegrationsPlugin(
         initialToolNames,
         model: model ?? "",
         apiKey: getApiKey(),
-        ownerEmail: "integration@google-docs",
+        ownerEmail,
         webhookUrl,
       };
     };
@@ -903,18 +906,41 @@ export function createIntegrationsPlugin(
       adapters,
       webhookUrl: (baseUrl, platform) => `${baseUrl}${P}/${platform}/webhook`,
       async setEnabled(platform, enabled, { actorEmail, baseUrl }) {
+        if (platform === "google-docs") {
+          if (enabled) {
+            const ownerEmail = actorEmail?.trim();
+            if (!ownerEmail) {
+              throw new Error(
+                "Google Docs requires a signed-in owner to start polling.",
+              );
+            }
+            await saveIntegrationConfig(
+              platform,
+              { enabled },
+              "default",
+              ownerEmail,
+            );
+            await runGoogleDocsPollerTransition(() =>
+              startGoogleDocsPoller(
+                createGoogleDocsPollerOptions(ownerEmail, baseUrl),
+              ),
+            );
+          } else {
+            await saveIntegrationConfig(
+              platform,
+              { enabled },
+              "default",
+              actorEmail,
+            );
+            await runGoogleDocsPollerTransition(stopGoogleDocsPoller);
+          }
+          return;
+        }
         await saveIntegrationConfig(
           platform,
           { enabled },
           "default",
           actorEmail,
-        );
-        if (platform !== "google-docs") return;
-        await runGoogleDocsPollerTransition(
-          enabled
-            ? () =>
-                startGoogleDocsPoller(createGoogleDocsPollerOptions(baseUrl))
-            : stopGoogleDocsPoller,
         );
       },
       async registerWebhook(platform, baseUrl) {
@@ -2059,7 +2085,11 @@ export function createIntegrationsPlugin(
           | IntegrationSystemNoticeTaskPayload
           | IntegrationResponseDeliveryTaskPayload
           | AutomationWebhookTaskPayload
-          | { kind?: undefined; principalType?: "user" | "service" };
+          | {
+              kind?: undefined;
+              principalType?: "user" | "service";
+              orgScope?: "personal";
+            };
         try {
           taskPayload = JSON.parse(task.payload) as typeof taskPayload;
         } catch {
@@ -2191,15 +2221,22 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 404);
             return { error: "Unknown platform" };
           }
+          const principalType =
+            taskPayload.kind === "system-notice"
+              ? "service"
+              : "principalType" in taskPayload
+                ? (taskPayload.principalType ?? "user")
+                : "user";
+          const orgScope =
+            ("orgScope" in taskPayload ? taskPayload.orgScope : undefined) ??
+            (task.orgId === null && principalType === "user"
+              ? "personal"
+              : undefined);
           const requestScope = await resolveIntegrationRequestScope({
             ownerEmail: task.ownerEmail,
             orgId: task.orgId,
-            principalType:
-              taskPayload.kind === "system-notice"
-                ? "service"
-                : "principalType" in taskPayload
-                  ? (taskPayload.principalType ?? "user")
-                  : "user",
+            orgScope,
+            principalType,
           });
           const processingResult = await runWithRequestContext(
             {
@@ -3583,9 +3620,20 @@ export function createIntegrationsPlugin(
 
       if (adapterMap.has("google-docs")) {
         setTimeout(() => {
-          void runGoogleDocsPollerTransition(() =>
-            startGoogleDocsPoller(createGoogleDocsPollerOptions()),
-          );
+          void runGoogleDocsPollerTransition(async () => {
+            const config = await getIntegrationConfig("google-docs");
+            const ownerEmail = config?.owner?.trim();
+            if (!config?.configData?.enabled) return;
+            if (!ownerEmail) {
+              console.error(
+                "[google-docs] Cannot start poller without a configured owner",
+              );
+              return;
+            }
+            await startGoogleDocsPoller(
+              createGoogleDocsPollerOptions(ownerEmail),
+            );
+          });
         }, 2000);
       }
     }

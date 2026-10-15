@@ -65,6 +65,21 @@ describe("integration request scope", () => {
     expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
+  it("keeps a queued personal scope when the owner later joins an organization", async () => {
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-new",
+    });
+    await expect(
+      resolveIntegrationRequestScope({
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        orgScope: "personal",
+      }),
+    ).resolves.toEqual({ orgId: null, orgScope: "personal" });
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+  });
+
   it("fails closed when a user's organization scope is unknown", async () => {
     resolveOrgScopeForEmailMock.mockResolvedValue({ status: "unknown" });
 
