@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import type { RecordingContextItem } from "./context-api";
 import {
+  settlePendingLookbackContextAfterStop,
   takePendingLookbackContext,
   takePendingLookbackContextAfterStop,
   type PendingLookbackContext,
@@ -11,6 +13,13 @@ function pending(recordingId: string): PendingLookbackContext {
     recordingId,
     target: { serverUrl: "https://clips.example.test", authToken: "" },
     item: Promise.resolve(null),
+  };
+}
+
+function pendingWithItem(recordingId: string): PendingLookbackContext {
+  return {
+    ...pending(recordingId),
+    item: Promise.resolve({ id: "context-1" } as RecordingContextItem),
   };
 }
 
@@ -56,5 +65,39 @@ describe("takePendingLookbackContextAfterStop", () => {
       ),
     ).toBe(retained);
     expect(contexts.get(newer.recordingId)).toBe(newer);
+  });
+});
+
+describe("settlePendingLookbackContextAfterStop", () => {
+  it("removes the server request when recording stop fails", async () => {
+    const context = pendingWithItem("recording-a");
+    const contexts = new Map([[context.recordingId, context]]);
+    const removeItem = vi.fn(async () => {});
+
+    await settlePendingLookbackContextAfterStop(
+      contexts,
+      context.recordingId,
+      false,
+      removeItem,
+    );
+
+    expect(removeItem).toHaveBeenCalledWith(context.target, "context-1");
+    expect(contexts.has(context.recordingId)).toBe(false);
+  });
+
+  it("keeps the server request when recording stop succeeded", async () => {
+    const context = pendingWithItem("recording-a");
+    const contexts = new Map([[context.recordingId, context]]);
+    const removeItem = vi.fn(async () => {});
+
+    await settlePendingLookbackContextAfterStop(
+      contexts,
+      context.recordingId,
+      true,
+      removeItem,
+    );
+
+    expect(removeItem).not.toHaveBeenCalled();
+    expect(contexts.has(context.recordingId)).toBe(false);
   });
 });

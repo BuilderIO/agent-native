@@ -26,3 +26,16 @@ export function takePendingLookbackContextAfterStop(
   if (recordingId !== stoppedRecordingId) return null;
   return takePendingLookbackContext(contexts, recordingId);
 }
+
+export async function settlePendingLookbackContextAfterStop(
+  contexts: Map<string, PendingLookbackContext>,
+  recordingId: string | null | undefined,
+  stopSucceeded: boolean,
+  removeItem: (target: ClipsActionTarget, itemId: string) => Promise<unknown>,
+): Promise<void> {
+  const pending = takePendingLookbackContext(contexts, recordingId);
+  if (!pending || stopSucceeded) return;
+
+  const item = await pending.item;
+  if (item) await removeItem(pending.target, item.id);
+}

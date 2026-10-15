@@ -314,8 +314,8 @@ export function forgetRewindClipOrigin(recordingId: string): void {
 function rememberRewindClipOriginForStart(
   recordingId: string,
   params: StartParams,
-): boolean {
-  if (!params.lookbackEnabled || getRewindClipOrigin(recordingId)) return false;
+): void {
+  if (!params.lookbackEnabled || getRewindClipOrigin(recordingId)) return;
   const startedAt = new Date().toISOString();
   rememberRewindClipOrigin({
     recordingId,
@@ -327,7 +327,6 @@ function rememberRewindClipOriginForStart(
     ),
     rememberedAt: startedAt,
   });
-  return true;
 }
 
 export const RESTART_CAPTURE_ENDED_MESSAGE =
@@ -3586,7 +3585,6 @@ async function startNativeFullscreenRecording(
   let captureRegion: RegionCaptureRect | null = null;
   let transcriptionCapture: TranscriptionCapture | null = null;
   let countdownPromise: Promise<void> | null = null;
-  let rewindOriginCreatedForStart: string | null = null;
   const captureSuspensionCleanup: {
     release: (() => Promise<void>) | null;
   } = { release: null };
@@ -3720,9 +3718,6 @@ async function startNativeFullscreenRecording(
       await activeCountdown;
       await audioCue.playBeforeCapture();
       assertStartupActive();
-      if (rememberRewindClipOriginForStart(recordingId, params)) {
-        rewindOriginCreatedForStart = recordingId;
-      }
       const captureSuspension = await guardRecordingStart(
         acquireRewindCaptureSuspension({
           requiresScreen: true,
@@ -3875,9 +3870,6 @@ async function startNativeFullscreenRecording(
     localCameraExport?.start(2_000);
   } catch (err) {
     startupFailed = true;
-    if (rewindOriginCreatedForStart) {
-      forgetRewindClipOrigin(rewindOriginCreatedForStart);
-    }
     if (countdownPromise) {
       countdownController.abort();
       await emit("clips:countdown-cancel", {

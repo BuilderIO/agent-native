@@ -280,7 +280,7 @@ import {
 } from "./lookback/lookback-settings";
 import { LookbackRow } from "./lookback/LookbackRow";
 import {
-  takePendingLookbackContext,
+  settlePendingLookbackContextAfterStop,
   takePendingLookbackContextAfterStop,
   type PendingLookbackContext,
 } from "./lookback/pending-lookback-context";
@@ -1938,24 +1938,30 @@ export function App({
     }
   }
 
-  // A discarded recording must not keep an item that the worker would export.
-  function removeLookbackContext(recordingId?: string) {
-    const pending = takePendingLookbackContext(
+  // Failed stops remove their server item; successful stops leave it for the worker.
+  function settleLookbackContextAfterStop(
+    recordingId: string | null | undefined,
+    stopSucceeded: boolean,
+  ) {
+    void settlePendingLookbackContextAfterStop(
       lookbackContextRef.current,
+      recordingId,
+      stopSucceeded,
+      removeRecordingContext,
+    ).catch((error: unknown) => {
+      console.error(
+        "[clips-popover] removing earlier screen time failed:",
+        error,
+      );
+      setLookbackNotice(t("lookbackContext.removeFailed"));
+    });
+  }
+
+  function removeLookbackContext(recordingId?: string) {
+    settleLookbackContextAfterStop(
       recordingId ?? sessionRecordingIdRef.current,
+      false,
     );
-    if (!pending) return;
-    void pending.item
-      .then((item) =>
-        item ? removeRecordingContext(pending.target, item.id) : null,
-      )
-      .catch((error: unknown) => {
-        console.error(
-          "[clips-popover] removing earlier screen time failed:",
-          error,
-        );
-        setLookbackNotice(t("lookbackContext.removeFailed"));
-      });
   }
 
   const processLookbackItem = useCallback(
@@ -3456,9 +3462,9 @@ export function App({
       }
       await loadPendingUploads();
     } finally {
-      takePendingLookbackContext(
-        lookbackContextRef.current,
+      settleLookbackContextAfterStop(
         stoppingRecordingId ?? stopResult?.recordingId,
+        stopResult !== null,
       );
       recordingStopFinalizingRef.current = false;
       setRecordingStopFinalizing(false);

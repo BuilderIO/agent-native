@@ -352,6 +352,13 @@ describe("native recording startup", () => {
   it("requests earlier screen time for a hosted window recording", async () => {
     let originAtSuspension: ReturnType<typeof getRewindClipOrigin> = null;
     let originAtWarm: ReturnType<typeof getRewindClipOrigin> = null;
+    let originAtCaptureStartRequest: ReturnType<typeof getRewindClipOrigin> =
+      null;
+    let startedAtCaptureStartRequest: string | null = null;
+    const initialTime = new Date("2026-10-15T00:00:00.000Z");
+    vi.setSystemTime(initialTime);
+    const warmStarted = deferred<void>();
+    const warm = deferred<void>();
     let acquiredAfterCountdown = false;
     let transcriptionStartedBeforeSuspension = false;
     const captureStartOrder: string[] = [];
@@ -368,6 +375,8 @@ describe("native recording startup", () => {
     nativeCommands.set("native_fullscreen_recording_warm", async () => {
       captureStartOrder.push("screen-warm");
       originAtWarm = getRewindClipOrigin(createdRecordingId());
+      warmStarted.resolve(undefined);
+      await warm.promise;
     });
     nativeCommands.set("native_fullscreen_recording_begin", async () => {
       captureStartOrder.push("begin");
@@ -376,19 +385,37 @@ describe("native recording startup", () => {
       captureStartOrder.push("microphone");
       return capture();
     });
-    const pending = startRecording({ ...params, lookbackEnabled: true });
+    const pending = startRecording({
+      ...params,
+      lookbackEnabled: true,
+      onCaptureStartRequested: (recordingId) => {
+        captureStartOrder.push("capture-start-requested");
+        startedAtCaptureStartRequest = new Date().toISOString();
+        originAtCaptureStartRequest = recordingId
+          ? getRewindClipOrigin(recordingId)
+          : null;
+      },
+    });
     await vi.advanceTimersByTimeAsync(3_600);
+    await warmStarted.promise;
+    expect(originAtSuspension).toBeNull();
+    expect(originAtWarm).toBeNull();
+    vi.setSystemTime(new Date(initialTime.getTime() + 90_000));
+    warm.resolve(undefined);
     const handle = await pending;
     const recordingId = createdRecordingId();
 
-    expect(originAtSuspension).toMatchObject({ recordingId });
-    expect(originAtWarm).toMatchObject({ recordingId });
+    expect(originAtCaptureStartRequest).toMatchObject({ recordingId });
+    expect(originAtCaptureStartRequest?.startedAt).toBe(
+      startedAtCaptureStartRequest,
+    );
     expect(acquiredAfterCountdown).toBe(true);
     expect(transcriptionStartedBeforeSuspension).toBe(false);
     expect(captureStartOrder).toEqual([
       "rewind-suspended",
       "screen-warm",
       "microphone",
+      "capture-start-requested",
       "begin",
     ]);
     const origin = getRewindClipOrigin(recordingId);
@@ -477,6 +504,33 @@ describe("native recording startup", () => {
 
     expect(recordingId).toBeNull();
     expect(captureIdentity).toEqual(expect.any(String));
+    expect(getRewindClipOrigin(captureIdentity)).toBeNull();
+
+    await handle.cancel();
+  });
+
+  it("does not remember a local-only native fallback folder as hosted", async () => {
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "incompatible",
+      active: false,
+    }));
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({
+      ...params,
+      source: "full-screen",
+      localRecordingMode: "composed",
+      lookbackEnabled: true,
+      onCaptureStartRequested,
+    });
+
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    const [recordingId, captureIdentity] =
+      onCaptureStartRequested.mock.calls[0] ?? [];
+
+    expect(recordingId).toBeNull();
+    expect(captureIdentity).toEqual(expect.any(String));
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(1);
     expect(getRewindClipOrigin(captureIdentity)).toBeNull();
 
     await handle.cancel();
