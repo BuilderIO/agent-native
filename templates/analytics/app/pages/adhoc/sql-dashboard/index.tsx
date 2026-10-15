@@ -1372,10 +1372,12 @@ function SqlDashboardPageContent({
     ],
   );
 
+  // Undo and redo restore a revision for everyone, so they run only in edit
+  // mode, whichever control calls them.
   const handleUndo = useCallback(async () => {
     if (
       !dashboardId ||
-      !canEdit ||
+      !editing ||
       restoreDashboardRevision.isPending ||
       revisionRestoreInFlightRef.current
     ) {
@@ -1416,10 +1418,10 @@ function SqlDashboardPageContent({
       revisionRestoreInFlightRef.current = false;
     }
   }, [
-    canEdit,
     dashboardId,
     dashboardRevisions,
     dashboardUpdatedAt,
+    editing,
     holdDashboardConfig,
     restoreDashboardRevision,
     refetchDashboardRevisions,
@@ -1432,7 +1434,7 @@ function SqlDashboardPageContent({
   const handleRedo = useCallback(async () => {
     if (
       !dashboardId ||
-      !canEdit ||
+      !editing ||
       !canRedo ||
       restoreDashboardRevision.isPending
     ) {
@@ -1465,10 +1467,10 @@ function SqlDashboardPageContent({
       revisionRestoreInFlightRef.current = false;
     }
   }, [
-    canEdit,
     canRedo,
     dashboardId,
     dashboardUpdatedAt,
+    editing,
     holdDashboardConfig,
     redoRevisionIds,
     resetRevisionNavigation,
