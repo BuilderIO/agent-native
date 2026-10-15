@@ -1766,8 +1766,8 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     specUrls: ["https://www.twittrapi.com/openapi.json"],
     templateUses: ["analytics"],
     notes: [
-      "Read endpoints for tweets, users, followers, search, lists and communities. Add format=simple for flat camelCase JSON with a {data, cursor} envelope.",
-      "Paginated endpoints return a cursor; pass it back as the cursor query parameter for the next page.",
+      "Read endpoints for tweets, users, followers, search, lists and communities. Add format=simple for flat camelCase JSON in a {data, nextCursor, previousCursor, hasNextPage} envelope.",
+      "While hasNextPage is true, pass nextCursor back as the cursor query parameter for the next page.",
     ],
     examples: [
       {
