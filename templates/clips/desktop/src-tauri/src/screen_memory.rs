@@ -1522,12 +1522,7 @@ fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         let mut recovery_retry_delay = Duration::ZERO;
         loop {
-            let state = app.state::<ScreenMemoryState>();
-            let capture_missing = state
-                .inner
-                .lock()
-                .map(|runtime| runtime.active.is_none() && !runtime.exclusion_active)
-                .unwrap_or(false);
+            let capture_missing = screen_memory_capture_missing(&app);
             if !capture_missing {
                 recovery_retry_delay = Duration::ZERO;
             } else if !recovery_retry_delay.is_zero()
@@ -1551,26 +1546,24 @@ fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
             if !config.enabled || config.paused {
                 return;
             }
-            match rotate_segment(&app, &config) {
-                Ok(()) => recovery_retry_delay = Duration::ZERO,
-                Err(err) => {
-                    record_error(&app, err);
-                    let state = app.state::<ScreenMemoryState>();
-                    let capture_missing = state
-                        .inner
-                        .lock()
-                        .map(|runtime| runtime.active.is_none() && !runtime.exclusion_active)
-                        .unwrap_or(false);
-                    if capture_missing {
-                        recovery_retry_delay =
-                            next_capture_recovery_retry_delay(recovery_retry_delay);
-                    } else {
-                        recovery_retry_delay = Duration::ZERO;
-                    }
-                }
+            if let Err(err) = rotate_segment(&app, &config) {
+                record_error(&app, err);
+            }
+            if screen_memory_capture_missing(&app) {
+                recovery_retry_delay = next_capture_recovery_retry_delay(recovery_retry_delay);
+            } else {
+                recovery_retry_delay = Duration::ZERO;
             }
         }
     });
+}
+
+fn screen_memory_capture_missing(app: &AppHandle) -> bool {
+    app.state::<ScreenMemoryState>()
+        .inner
+        .lock()
+        .map(|runtime| runtime.active.is_none() && !runtime.exclusion_active)
+        .unwrap_or(false)
 }
 
 fn wait_for_capture_recovery_retry(stop: &AtomicBool, delay: Duration) -> bool {
@@ -1635,13 +1628,7 @@ fn wait_for_rotation(
     stop: &AtomicBool,
     config: &ScreenMemoryConfig,
 ) -> RotationWait {
-    let state = app.state::<ScreenMemoryState>();
-    if state
-        .inner
-        .lock()
-        .map(|runtime| runtime.active.is_none() && !runtime.exclusion_active)
-        .unwrap_or(false)
-    {
+    if screen_memory_capture_missing(app) {
         return RotationWait::Rotate;
     }
     let deadline = Instant::now() + Duration::from_secs(config.segment_seconds);
