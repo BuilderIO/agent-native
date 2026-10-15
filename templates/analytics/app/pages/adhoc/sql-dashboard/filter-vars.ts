@@ -268,14 +268,18 @@ export function resolveFilterVars(
           value === "all");
       const fallbackStart = impliesBounds ? dateRangeStart(defaultRange) : "";
       const fallbackEnd = impliesBounds ? daysAgo(0) : "";
+      // A customRange select only takes bounds from the URL while "custom" is
+      // picked, so a stale range in a shared link can't hide behind a period
+      // label.
+      const urlBounds = filter.customRange !== true || value === "custom";
       out[filter.id] = value;
       out[startKey] = resolveDateParam(
-        getParam(startKey),
+        urlBounds ? getParam(startKey) : "",
         fallbackStart,
         fallbackStart,
       );
       out[endKey] = resolveDateParam(
-        getParam(endKey),
+        urlBounds ? getParam(endKey) : "",
         fallbackEnd,
         fallbackEnd,
       );

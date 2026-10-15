@@ -271,6 +271,37 @@ describe("resolveFilterVars", () => {
     );
   });
 
+  it("ignores URL bounds on a customRange select unless custom is picked", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        default: "this",
+        customRange: true,
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "30d", label: "Last 30 days" },
+          { value: "custom", label: "Custom date range" },
+        ],
+      },
+    ];
+    const stale = { quarterStart: "2025-01-01", quarterEnd: "2025-02-01" };
+    const resolve = (quarter: string) =>
+      resolveFilterVars(
+        filters,
+        (key) => ({ quarter, ...stale })[key as "quarter"] || "",
+      );
+
+    expect(resolve("this")).toEqual({
+      quarter: "this",
+      quarterStart: "",
+      quarterEnd: "",
+    });
+    expect(resolve("30d").quarterStart).toBe(daysAgo(30));
+    expect(resolve("custom")).toEqual({ quarter: "custom", ...stale });
+  });
+
   it("gives an all-time option an all-time start, with or without customRange", () => {
     for (const customRange of [true, undefined]) {
       const filters: DashboardFilter[] = [
