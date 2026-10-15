@@ -821,7 +821,7 @@ const messages = {
     editorMarkupNotSaved:
       "This edit wasn't saved because it would have added editor markup to the slide.",
     historyStepConflict:
-      "Some changes in this history step were skipped because the slide changed elsewhere.",
+      "This history step was skipped because the slide changed elsewhere.",
     historyStepFailed:
       "This history step was skipped because it could not be applied.",
     textEditConflictNotSaved:

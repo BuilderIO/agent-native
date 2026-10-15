@@ -841,7 +841,7 @@ const messages = {
     editorMarkupNotSaved:
       "Esta edición no se guardó porque habría añadido marcado del editor a la diapositiva.",
     historyStepConflict:
-      "Se omitieron algunos cambios de este paso del historial porque la diapositiva cambió en otro lugar.",
+      "Se omitió este paso del historial porque la diapositiva cambió en otro lugar.",
     historyStepFailed:
       "Se omitió este paso del historial porque no se pudo aplicar.",
     textEditConflictNotSaved:

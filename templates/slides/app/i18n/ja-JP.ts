@@ -824,7 +824,7 @@ const messages = {
     editorMarkupNotSaved:
       "この編集は、スライドにエディターのマークアップが追加されるため保存されませんでした。",
     historyStepConflict:
-      "スライドが別の場所で変更されたため、この履歴操作の一部がスキップされました。",
+      "スライドが別の場所で変更されたため、この履歴ステップはスキップされました。",
     historyStepFailed:
       "この履歴操作は適用できなかったため、スキップされました。",
     textEditConflictNotSaved:

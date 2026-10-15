@@ -847,7 +847,7 @@ const messages = {
     editorMarkupNotSaved:
       "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
     historyStepConflict:
-      "Certaines modifications de cette étape de l’historique ont été ignorées, car la diapositive a changé ailleurs.",
+      "Cette étape de l’historique a été ignorée, car la diapositive a changé ailleurs.",
     historyStepFailed:
       "Cette étape de l’historique a été ignorée, car elle n’a pas pu être appliquée.",
     textEditConflictNotSaved:

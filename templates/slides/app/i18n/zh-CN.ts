@@ -795,7 +795,7 @@ const messages = {
     leaveWithoutSaving: "不保存退出",
     editorMarkupNotSaved: "此编辑未保存，因为它会向幻灯片添加编辑器标记。",
     historyStepConflict:
-      "幻灯片在其他位置发生了更改，因此跳过了此历史步骤中的部分更改。",
+      "幻灯片在其他位置发生了更改，因此跳过了此历史记录步骤。",
     historyStepFailed: "此历史记录步骤无法应用，因此已跳过。",
     textEditConflictNotSaved:
       "你的文本编辑未保存，因为同一段文本同时在其他地方被更改。",
