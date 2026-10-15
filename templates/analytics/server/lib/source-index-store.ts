@@ -51,8 +51,11 @@ export function sourceIndexSourcesFreshness(
 ): SourceIndexSourcesFreshness {
   let unknownTimestampCount = 0;
   let staleSourceCount = 0;
+  const activeSources = bundle.sources.filter(
+    (source) => source.status !== "deprecated",
+  );
 
-  for (const source of bundle.sources) {
+  for (const source of activeSources) {
     if (!source.generatedAt) {
       unknownTimestampCount += 1;
       continue;
@@ -63,11 +66,11 @@ export function sourceIndexSourcesFreshness(
   }
 
   return {
-    sourceCount: bundle.sources.length,
+    sourceCount: activeSources.length,
     unknownTimestampCount,
     staleSourceCount,
     fresh:
-      bundle.sources.length > 0 &&
+      activeSources.length > 0 &&
       unknownTimestampCount === 0 &&
       staleSourceCount === 0,
   };
@@ -201,12 +204,12 @@ export function mergeSourceIndexBundles(
     ...source,
     id: sourceIdMap.get(source.id) ?? source.id,
     sourceKind: source.sourceKind ?? sourceKind(update, source.id),
+    status: "active" as const,
   }));
   const replacedSourceIds = new Set(updatedSources.map((source) => source.id));
   const preservedSources = current.sources.filter(
     (source) => !replacedSourceIds.has(source.id),
   );
-  const sources = [...preservedSources, ...updatedSources];
   const preservedEntries = current.entries.filter(
     (entry) => !replacedSourceIds.has(entry.source),
   );
@@ -228,6 +231,14 @@ export function mergeSourceIndexBundles(
       )
       .map((source) => source.id),
   );
+  const sources = [
+    ...preservedSources.map((source) =>
+      retiredDbtSourceIds.has(source.id)
+        ? { ...source, status: "deprecated" as const }
+        : source,
+    ),
+    ...updatedSources,
+  ];
   const retainedEntries = preservedEntries.map((entry) =>
     retiredDbtSourceIds.has(entry.source)
       ? { ...entry, status: "deprecated" as const }

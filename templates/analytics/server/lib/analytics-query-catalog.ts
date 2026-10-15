@@ -322,17 +322,22 @@ function requestedTemporalUnit(search: string): string | null {
 }
 
 function isExplicitMembershipSnapshotRequest(search: string): boolean {
-  return /\b(?:as of|snapshot|snapshots|historical|history|month[- ]end)\b/i.test(
+  return /\b(?:as of|at (?:the )?end of|snapshot|snapshots|historical|history|month[- ]end)\b/i.test(
     search,
   );
 }
 
 function requestedHistoricalTemporalUnit(search: string): string | null {
-  const unit = requestedTemporalUnit(search);
+  const unit =
+    requestedTemporalUnit(search) ??
+    (/\b(?:as of|at (?:the )?end of)\s+(?:the\s+)?month[- ]end\b/i.test(search)
+      ? "month"
+      : null);
   if (
     !unit ||
     !isExplicitMembershipSnapshotRequest(search) ||
-    !/\b(?:last|past|previous|prior)\b/i.test(search) ||
+    (!/\b(?:last|past|previous|prior)\b/i.test(search) &&
+      !/\b(?:as of|at (?:the )?end of)\b/i.test(search)) ||
     /\b(?:this|current|next)\s+(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+)?(?:day|week|month|quarter|year)s?\b/i.test(
       search,
     )
@@ -728,9 +733,10 @@ function sqlKeywordEndAt(
   if (isSqlWordCharacter(sql[index - 1])) return null;
   let cursor = index;
   const words = keyword.toLowerCase().split(" ");
-  const normalized = sql.toLowerCase();
   for (const [wordIndex, word] of words.entries()) {
-    if (!normalized.startsWith(word, cursor)) return null;
+    if (sql.slice(cursor, cursor + word.length).toLowerCase() !== word) {
+      return null;
+    }
     cursor += word.length;
     if (isSqlWordCharacter(sql[cursor])) return null;
     if (wordIndex < words.length - 1) {
@@ -870,6 +876,36 @@ function stripSqlComments(sql: string): string | null {
   return blockComment ? null : output.join("");
 }
 
+function maskSqlStringLiterals(sql: string): string {
+  const output: string[] = [];
+  let inString = false;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index]!;
+    if (!inString) {
+      if (character === "'") {
+        inString = true;
+        output.push(" ");
+      } else {
+        output.push(character);
+      }
+      continue;
+    }
+    if (character === "'" && sql[index + 1] === "'") {
+      output.push("  ");
+      index += 1;
+    } else if (character === "\\" && sql[index + 1] !== undefined) {
+      output.push("  ");
+      index += 1;
+    } else if (character === "'") {
+      inString = false;
+      output.push(" ");
+    } else {
+      output.push(character === "\n" ? "\n" : " ");
+    }
+  }
+  return output.join("");
+}
+
 function stripSingleTrailingSqlTerminator(sql: string): string | null {
   const semicolonPositions: number[] = [];
   let quote: "'" | '"' | "`" | null = null;
@@ -935,6 +971,7 @@ function parseSimpleDashboardMembershipSelect(sql: string): {
   sql: string;
   selectExpressions: string[];
   groupByExpressions: string[] | null;
+  qualifyExpression: string | null;
 } | null {
   const statement = sql.trim();
   if (!statement) return null;
@@ -950,20 +987,39 @@ function parseSimpleDashboardMembershipSelect(sql: string): {
   ) {
     return null;
   }
+  const selectList = statement.slice(select.end, from.start);
+  const selectModifier = selectList.match(/^\s*(?:all|distinct)\b\s*/i);
   const selectExpressions = splitTopLevelSqlList(
-    statement.slice(select.end, from.start),
+    selectList.slice(selectModifier?.[0].length ?? 0),
   );
   if (!selectExpressions) return null;
 
   const groupBy = findTopLevelSqlKeyword(statement, "group by", from.end);
+  const having = findTopLevelSqlKeyword(statement, "having", from.end);
+  const qualify = findTopLevelSqlKeyword(statement, "qualify", from.end);
+  const qualifyEnd = qualify
+    ? ["order by", "limit", "fetch"]
+        .map((keyword) =>
+          findTopLevelSqlKeyword(statement, keyword, qualify.end),
+        )
+        .filter(
+          (match): match is { start: number; end: number } => match !== null,
+        )
+        .reduce((end, match) => Math.min(end, match.start), statement.length)
+    : null;
+  const qualifyExpression =
+    qualify && qualifyEnd !== null
+      ? statement.slice(qualify.end, qualifyEnd).trim()
+      : null;
+  if (qualify && !qualifyExpression) return null;
   if (!groupBy) {
-    if (
-      findTopLevelSqlKeyword(statement, "having", from.end) ||
-      findTopLevelSqlKeyword(statement, "qualify", from.end)
-    ) {
-      return null;
-    }
-    return { sql: statement, selectExpressions, groupByExpressions: null };
+    if (having) return null;
+    return {
+      sql: statement,
+      selectExpressions,
+      groupByExpressions: null,
+      qualifyExpression,
+    };
   }
   const clauseEnd = ["order by", "having", "qualify", "limit", "fetch"]
     .map((keyword) => findTopLevelSqlKeyword(statement, keyword, groupBy.end))
@@ -991,13 +1047,19 @@ function parseSimpleDashboardMembershipSelect(sql: string): {
       return null;
     }
   }
-  return { sql: statement, selectExpressions, groupByExpressions };
+  return {
+    sql: statement,
+    selectExpressions,
+    groupByExpressions,
+    qualifyExpression,
+  };
 }
 
 function parseSimpleDashboardMembershipQuery(sql: string): Array<{
   sql: string;
   selectExpressions: string[];
   groupByExpressions: string[] | null;
+  qualifyExpression: string | null;
 }> | null {
   const withoutComments = stripSqlComments(sql);
   const statement = withoutComments
@@ -1012,6 +1074,7 @@ function parseSimpleDashboardMembershipQuery(sql: string): Array<{
     sql: string;
     selectExpressions: string[];
     groupByExpressions: string[] | null;
+    qualifyExpression: string | null;
   }>;
 }
 
@@ -1051,38 +1114,238 @@ function splitDashboardProjectionAlias(expression: string): {
   return { expression: trimmed, alias: null };
 }
 
+type DashboardCteDefinition = {
+  query: string;
+  columns: string[] | null;
+};
+
+type DashboardRelationReference = {
+  name: string;
+  alias: string;
+  derived: boolean;
+};
+
+const DERIVED_DASHBOARD_RELATION = "__derived_relation__";
+const DASHBOARD_RELATION_ALIAS_KEYWORDS = new Set([
+  "cross",
+  "fetch",
+  "full",
+  "group",
+  "having",
+  "inner",
+  "join",
+  "left",
+  "limit",
+  "on",
+  "order",
+  "outer",
+  "right",
+  "qualify",
+  "where",
+  "window",
+  "union",
+]);
+
+function skipSqlWhitespace(sql: string, start: number): number {
+  let cursor = start;
+  while (/\s/.test(sql[cursor] ?? "")) cursor += 1;
+  return cursor;
+}
+
+function readSqlIdentifier(
+  sql: string,
+  start: number,
+): {
+  value: string;
+  end: number;
+} | null {
+  const cursor = skipSqlWhitespace(sql, start);
+  const match = sql
+    .slice(cursor)
+    .match(
+      /^(?:"([a-z_][a-z0-9_$]*)"|`([a-z_][a-z0-9_$]*)`|([a-z_][a-z0-9_$]*))/i,
+    );
+  if (!match) return null;
+  return {
+    value: (match[1] ?? match[2] ?? match[3]!).toLowerCase(),
+    end: cursor + match[0].length,
+  };
+}
+
+function readSqlIdentifierPath(
+  sql: string,
+  start: number,
+): {
+  value: string;
+  end: number;
+} | null {
+  const cursor = skipSqlWhitespace(sql, start);
+  const match = sql
+    .slice(cursor)
+    .match(
+      /^(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*)(?:\s*\.\s*(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*))*/i,
+    );
+  if (!match) return null;
+  return {
+    value: match[0]
+      .replace(/["`]/g, "")
+      .split(".")
+      .slice(-1)[0]!
+      .trim()
+      .toLowerCase(),
+    end: cursor + match[0].length,
+  };
+}
+
+function matchingSqlParenthesis(sql: string, openIndex: number): number | null {
+  let depth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  for (let index = openIndex; index < sql.length; index += 1) {
+    const character = sql[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (sql[index + 1] === quote) index += 1;
+        else quote = null;
+      } else if (character === "\\") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth -= 1;
+      if (depth === 0) return index;
+      if (depth < 0) return null;
+    }
+  }
+  return null;
+}
+
+function dashboardCteDefinitions(
+  query: string,
+): Map<string, DashboardCteDefinition> {
+  const definitions = new Map<string, DashboardCteDefinition>();
+  const sql = stripSqlComments(query);
+  if (!sql) return definitions;
+  let cursor = skipSqlWhitespace(sql, 0);
+  const withEnd = sqlKeywordEndAt(sql, cursor, "with");
+  if (withEnd === null) return definitions;
+  cursor = skipSqlWhitespace(sql, withEnd);
+
+  const recursiveEnd = sqlKeywordEndAt(sql, cursor, "recursive");
+  if (recursiveEnd !== null) cursor = skipSqlWhitespace(sql, recursiveEnd);
+
+  while (cursor < sql.length) {
+    const name = readSqlIdentifier(sql, cursor);
+    if (!name) return new Map();
+    cursor = skipSqlWhitespace(sql, name.end);
+    let columns: string[] | null = null;
+    if (sql[cursor] === "(") {
+      const close = matchingSqlParenthesis(sql, cursor);
+      if (close === null) return new Map();
+      const parsedColumns = splitTopLevelSqlList(sql.slice(cursor + 1, close));
+      if (!parsedColumns) return new Map();
+      columns = parsedColumns.map((column) => {
+        const identifier = readSqlIdentifier(column, 0);
+        return identifier?.value ?? "";
+      });
+      if (columns.some((column) => !column)) return new Map();
+      cursor = skipSqlWhitespace(sql, close + 1);
+    }
+
+    const asEnd = sqlKeywordEndAt(sql, cursor, "as");
+    if (asEnd === null) return new Map();
+    cursor = skipSqlWhitespace(sql, asEnd);
+    const materializedEnd = sqlKeywordEndAt(sql, cursor, "materialized");
+    if (materializedEnd !== null)
+      cursor = skipSqlWhitespace(sql, materializedEnd);
+    else {
+      const notMaterializedEnd = sqlKeywordEndAt(
+        sql,
+        cursor,
+        "not materialized",
+      );
+      if (notMaterializedEnd !== null) {
+        cursor = skipSqlWhitespace(sql, notMaterializedEnd);
+      }
+    }
+    if (sql[cursor] !== "(") return new Map();
+    const close = matchingSqlParenthesis(sql, cursor);
+    if (close === null) return new Map();
+    definitions.set(name.value, {
+      query: sql.slice(cursor + 1, close),
+      columns,
+    });
+    cursor = skipSqlWhitespace(sql, close + 1);
+    if (sql[cursor] !== ",") break;
+    cursor = skipSqlWhitespace(sql, cursor + 1);
+  }
+  return definitions;
+}
+
+function dashboardTopLevelRelationReferences(
+  query: string,
+): DashboardRelationReference[] {
+  const sql = stripSqlComments(query);
+  if (!sql) return [];
+  const relations: DashboardRelationReference[] = [];
+  let searchStart = 0;
+  while (searchStart < sql.length) {
+    const next = ["from", "join"]
+      .map((keyword) => findTopLevelSqlKeyword(sql, keyword, searchStart))
+      .filter(
+        (match): match is { start: number; end: number } => match !== null,
+      )
+      .sort((left, right) => left.start - right.start)[0];
+    if (!next) break;
+
+    let cursor = skipSqlWhitespace(sql, next.end);
+    let name: string;
+    let alias: string;
+    let derived = false;
+    if (sql[cursor] === "(") {
+      const close = matchingSqlParenthesis(sql, cursor);
+      if (close === null) return [];
+      cursor = skipSqlWhitespace(sql, close + 1);
+      const asEnd = sqlKeywordEndAt(sql, cursor, "as");
+      if (asEnd !== null) cursor = skipSqlWhitespace(sql, asEnd);
+      const derivedAlias = readSqlIdentifier(sql, cursor);
+      name = DERIVED_DASHBOARD_RELATION;
+      alias = derivedAlias?.value ?? name;
+      if (derivedAlias) cursor = derivedAlias.end;
+      derived = true;
+    } else {
+      const relation = readSqlIdentifierPath(sql, cursor);
+      if (!relation) {
+        searchStart = next.end;
+        continue;
+      }
+      name = relation.value;
+      cursor = skipSqlWhitespace(sql, relation.end);
+      const asEnd = sqlKeywordEndAt(sql, cursor, "as");
+      if (asEnd !== null) cursor = skipSqlWhitespace(sql, asEnd);
+      const candidateAlias = readSqlIdentifier(sql, cursor);
+      alias =
+        candidateAlias &&
+        !DASHBOARD_RELATION_ALIAS_KEYWORDS.has(candidateAlias.value)
+          ? candidateAlias.value
+          : name;
+      if (alias !== name && candidateAlias) cursor = candidateAlias.end;
+    }
+    relations.push({ name, alias, derived });
+    searchStart = Math.max(next.end, cursor);
+  }
+  return relations;
+}
+
 function dashboardRelationAliases(query: string): Map<string, string> {
   const aliases = new Map<string, string>();
-  const aliasKeywords = new Set([
-    "cross",
-    "fetch",
-    "full",
-    "group",
-    "having",
-    "inner",
-    "join",
-    "left",
-    "limit",
-    "on",
-    "order",
-    "outer",
-    "right",
-    "qualify",
-    "where",
-    "window",
-    "union",
-  ]);
-  for (const match of query.matchAll(
-    /\b(?:from|join)\s+([a-z0-9_."`]+)(?:\s+(?:as\s+)?([a-z][a-z0-9_]*))?/gi,
-  )) {
-    const table = match[1]!.replace(/["`]/g, "").split(".").pop()!;
-    const candidateAlias = match[2]?.toLowerCase();
-    const alias =
-      candidateAlias && !aliasKeywords.has(candidateAlias)
-        ? candidateAlias
-        : table;
-    aliases.set(alias.toLowerCase(), table.toLowerCase());
-    aliases.set(table.toLowerCase(), table.toLowerCase());
+  for (const relation of dashboardTopLevelRelationReferences(query)) {
+    aliases.set(relation.alias, relation.name);
+    if (!relation.derived) aliases.set(relation.name, relation.name);
   }
   return aliases;
 }
@@ -1097,71 +1360,204 @@ function simpleSqlIdentifierPath(expression: string): string[] | null {
     .map((part) => part.trim().replace(/["`]/g, "").toLowerCase());
 }
 
+function dashboardCteProjection(
+  definition: DashboardCteDefinition,
+  column: string,
+): Array<{
+  expression: string;
+  query: string;
+  selectExpressions: string[];
+}> | null {
+  const branches = parseSimpleDashboardMembershipQuery(definition.query);
+  if (!branches?.length) return null;
+  const firstBranch = branches[0]!;
+  const outputNames = firstBranch.selectExpressions.map((expression) => {
+    const parsed = splitDashboardProjectionAlias(expression);
+    if (parsed.alias) return parsed.alias;
+    const path = simpleSqlIdentifierPath(parsed.expression);
+    return path?.[path.length - 1] ?? null;
+  });
+  const columnNames = definition.columns ?? outputNames;
+  const position = columnNames.findIndex(
+    (name) => name === column.toLowerCase(),
+  );
+  if (position < 0) return null;
+  const projections = branches.map((branch) => {
+    const expression = branch.selectExpressions[position];
+    return expression
+      ? {
+          expression,
+          query: branch.sql,
+          selectExpressions: branch.selectExpressions,
+        }
+      : null;
+  });
+  return projections.every(Boolean)
+    ? projections.filter(
+        (
+          projection,
+        ): projection is {
+          expression: string;
+          query: string;
+          selectExpressions: string[];
+        } => projection !== null,
+      )
+    : null;
+}
+
+function dashboardPhysicalRelationNames(
+  query: string,
+  inheritedCtes: Map<string, DashboardCteDefinition> = new Map(),
+  visiting = new Set<string>(),
+): string[] {
+  const ctes = new Map(inheritedCtes);
+  for (const [name, definition] of dashboardCteDefinitions(query)) {
+    ctes.set(name, definition);
+  }
+  return dashboardTopLevelRelationReferences(query).flatMap((relation) => {
+    if (relation.derived) return [];
+    const definition = ctes.get(relation.name);
+    if (!definition || visiting.has(relation.name)) return [relation.name];
+    const nextVisiting = new Set(visiting).add(relation.name);
+    const branches = parseSimpleDashboardMembershipQuery(definition.query);
+    return (
+      branches?.flatMap((branch) =>
+        dashboardPhysicalRelationNames(branch.sql, ctes, nextVisiting),
+      ) ?? []
+    );
+  });
+}
+
+function hasDashboardIdentityColumnAtSource(
+  column: string,
+  relation: string,
+  entity: "user" | "organization",
+): boolean {
+  const normalizedColumn = column.replace(/[_-]+/g, " ");
+  const normalizedRelation = relation.replace(/[_-]+/g, " ");
+  const isUserTable = /\b(?:users?|members?|people|persons?)\b/.test(
+    normalizedRelation,
+  );
+  const isOrganizationTable =
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(normalizedRelation);
+  const isMembershipTable = hasMembershipRelationEvidence(normalizedRelation);
+
+  if (entity === "user") {
+    if (hasMembershipIdentityKey(normalizedColumn)) {
+      return isMembershipTable || isUserTable;
+    }
+    if (/\b(?:user|member|person)\s+(?:email|key)\b/.test(normalizedColumn)) {
+      return isMembershipTable || isUserTable;
+    }
+    return (
+      isUserTable &&
+      /^(?:id|email|email_address|full_name|display_name|name)$/.test(column)
+    );
+  }
+
+  if (hasOrganizationIdentityKey(normalizedColumn)) {
+    return isMembershipTable || isOrganizationTable;
+  }
+  if (
+    /\b(?:organization|org|workspace|team)\s+(?:key|name)\b/.test(
+      normalizedColumn,
+    )
+  ) {
+    return isMembershipTable || isOrganizationTable;
+  }
+  return isOrganizationTable && /^(?:id|name|slug|key)$/.test(column);
+}
+
+function dashboardProjectionExpressionHasIdentity(
+  expression: string,
+  entity: "user" | "organization",
+  query: string,
+  aliasExpressions: string[],
+  inheritedCtes: Map<string, DashboardCteDefinition>,
+  visitedAliases: Set<string>,
+  visitedCtes: Set<string>,
+): boolean {
+  const parsed = splitDashboardProjectionAlias(expression);
+  const path = simpleSqlIdentifierPath(parsed.expression);
+  if (!path) return false;
+  const ctes = new Map(inheritedCtes);
+  for (const [name, definition] of dashboardCteDefinitions(query)) {
+    ctes.set(name, definition);
+  }
+
+  const selectedAliases = new Map<string, string>();
+  for (const projection of aliasExpressions) {
+    const alias = splitDashboardProjectionAlias(projection);
+    if (alias.alias) selectedAliases.set(alias.alias, alias.expression);
+  }
+  if (path.length === 1 && selectedAliases.has(path[0]!)) {
+    const alias = path[0]!;
+    if (visitedAliases.has(alias)) return false;
+    return dashboardProjectionExpressionHasIdentity(
+      selectedAliases.get(alias)!,
+      entity,
+      query,
+      aliasExpressions,
+      ctes,
+      new Set(visitedAliases).add(alias),
+      visitedCtes,
+    );
+  }
+
+  const relations = dashboardTopLevelRelationReferences(query);
+  const relationAliases = dashboardRelationAliases(query);
+  const relation =
+    path.length > 1
+      ? relationAliases.get(path[path.length - 2]!)
+      : relations.length === 1
+        ? relations[0]!.name
+        : undefined;
+  if (!relation || relation === DERIVED_DASHBOARD_RELATION) return false;
+
+  const column = path[path.length - 1]!;
+  const cte = ctes.get(relation);
+  if (cte) {
+    if (visitedCtes.has(relation)) return false;
+    const projections = dashboardCteProjection(cte, column);
+    if (!projections?.length) return false;
+    const nextVisited = new Set(visitedCtes).add(relation);
+    return projections.every((projection) =>
+      dashboardProjectionExpressionHasIdentity(
+        projection.expression,
+        entity,
+        projection.query,
+        projection.selectExpressions,
+        ctes,
+        new Set(),
+        nextVisited,
+      ),
+    );
+  }
+  return hasDashboardIdentityColumnAtSource(column, relation, entity);
+}
+
 function hasDashboardProjectionEntity(
   expressions: string[],
   entity: "user" | "organization",
   query: string,
   aliasExpressions = expressions,
+  inheritedCtes: Map<string, DashboardCteDefinition> = new Map(),
 ): boolean {
-  const relationAliases = dashboardRelationAliases(query);
-  const selectedAliases = new Map<string, string>();
-  for (const projection of aliasExpressions) {
-    const parsed = splitDashboardProjectionAlias(projection);
-    if (parsed.alias) selectedAliases.set(parsed.alias, parsed.expression);
+  const ctes = new Map(inheritedCtes);
+  for (const [name, definition] of dashboardCteDefinitions(query)) {
+    ctes.set(name, definition);
   }
-
-  const isUserTable = (table: string | undefined) =>
-    table !== undefined &&
-    /\b(?:users?|members?|people|persons?)\b/.test(
-      table.replace(/[_-]+/g, " "),
-    );
-  const isOrganizationTable = (table: string | undefined) =>
-    table !== undefined &&
-    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(
-      table.replace(/[_-]+/g, " "),
-    );
-
-  return expressions.some((projection) => {
-    const parsed = splitDashboardProjectionAlias(projection);
-    let sourceExpression = parsed.expression;
-    const selectedAlias = simpleSqlIdentifierPath(sourceExpression);
-    if (selectedAlias?.length === 1) {
-      sourceExpression =
-        selectedAliases.get(selectedAlias[0]!) ?? sourceExpression;
-    }
-    const path = simpleSqlIdentifierPath(sourceExpression);
-    if (!path) return false;
-    const column = path[path.length - 1]!;
-    const qualifier = path.length > 1 ? path[path.length - 2]! : undefined;
-    const table = qualifier ? relationAliases.get(qualifier) : undefined;
-    const normalizedColumn = column.replace(/[_-]+/g, " ");
-
-    if (entity === "user") {
-      if (hasMembershipIdentityKey(normalizedColumn)) return true;
-      if (/\b(?:user|member|person)\s+(?:email|key)\b/.test(normalizedColumn)) {
-        return true;
-      }
-      if (isUserTable(table)) {
-        return /^(?:id|email|email_address|full_name|display_name|name)$/.test(
-          column,
-        );
-      }
-      // Explicitly named user/member email columns can be unqualified in a
-      // membership projection. A bare `email` or an aliased billing email is
-      // ambiguous and must not prove member identity.
-      return /^(?:user|member|person)_email$/.test(column);
-    }
-
-    if (hasOrganizationIdentityKey(normalizedColumn)) return true;
-    if (
-      /\b(?:organization|org|workspace|team)\s+(?:key|name)\b/.test(
-        normalizedColumn,
-      )
-    ) {
-      return true;
-    }
-    return isOrganizationTable(table) && /^(?:id|name|slug|key)$/.test(column);
-  });
+  return expressions.some((projection) =>
+    dashboardProjectionExpressionHasIdentity(
+      projection,
+      entity,
+      query,
+      aliasExpressions,
+      ctes,
+      new Set(),
+      new Set(),
+    ),
+  );
 }
 
 function hasRowLevelDashboardMembershipOutput(
@@ -1173,34 +1569,51 @@ function hasRowLevelDashboardMembershipOutput(
   if (typeof candidate.query !== "string") return false;
   const parsed = parseSimpleDashboardMembershipQuery(candidate.query);
   if (!parsed) return false;
-  const queryText = parsed
-    .map((branch) => branch.sql)
-    .join(" ")
-    .toLowerCase()
-    .replace(/[_-]+/g, " ");
-  if (
-    !hasMembershipIdentityKey(queryText) ||
-    !hasOrganizationIdentityKey(queryText) ||
-    !hasMembershipRelationEvidence(queryText)
-  ) {
-    return false;
-  }
+  const inheritedCtes = dashboardCteDefinitions(candidate.query);
   return parsed.every((branch) => {
+    const physicalRelations = dashboardPhysicalRelationNames(
+      branch.sql,
+      inheritedCtes,
+    );
     if (
+      dashboardHasTopLevelCommaJoin(branch.sql) ||
+      !physicalRelations.length ||
+      !hasMembershipRelationEvidence(
+        physicalRelations
+          .map((relation) => relation.replace(/[_-]+/g, " "))
+          .join(" "),
+      ) ||
       !hasDashboardProjectionEntity(
         branch.selectExpressions,
         "user",
         branch.sql,
+        branch.selectExpressions,
+        inheritedCtes,
       ) ||
       !hasDashboardProjectionEntity(
         branch.selectExpressions,
         "organization",
         branch.sql,
+        branch.selectExpressions,
+        inheritedCtes,
       )
     ) {
       return false;
     }
-    if (!branch.groupByExpressions) return !hasAggregateShape(candidate);
+    if (
+      branch.qualifyExpression &&
+      !hasRowLevelMembershipQualify(
+        branch.qualifyExpression,
+        branch.sql,
+        branch.selectExpressions,
+        inheritedCtes,
+      )
+    ) {
+      return false;
+    }
+    if (!branch.groupByExpressions) {
+      return !hasAggregateSelectExpression(branch.selectExpressions);
+    }
     const normalizedGroupBy = branch.groupByExpressions
       .join(" ")
       .toLowerCase()
@@ -1218,20 +1631,141 @@ function hasRowLevelDashboardMembershipOutput(
         "user",
         branch.sql,
         branch.selectExpressions,
+        inheritedCtes,
       ) &&
       hasDashboardProjectionEntity(
         branch.groupByExpressions,
         "organization",
         branch.sql,
         branch.selectExpressions,
+        inheritedCtes,
       )
     );
   });
 }
 
+function dashboardHasTopLevelCommaJoin(query: string): boolean {
+  const sql = stripSqlComments(query);
+  if (!sql) return true;
+  const from = findTopLevelSqlKeyword(sql, "from");
+  if (!from) return true;
+  const clauseEnd = [
+    "where",
+    "group by",
+    "having",
+    "qualify",
+    "order by",
+    "limit",
+    "fetch",
+    "union",
+    "intersect",
+    "except",
+  ]
+    .map((keyword) => findTopLevelSqlKeyword(sql, keyword, from.end))
+    .filter((match): match is { start: number; end: number } => match !== null)
+    .reduce((end, match) => Math.min(end, match.start), sql.length);
+  const fromClause = sql.slice(from.end, clauseEnd);
+  return (splitTopLevelSqlList(fromClause)?.length ?? 0) > 1;
+}
+
+function hasAggregateSelectExpression(expressions: string[]): boolean {
+  return expressions.some((expression) => {
+    const sql = maskNestedDashboardSubqueries(
+      maskSqlStringLiterals(expression),
+    );
+    const aggregateCalls = /\b(?:count|sum|avg|average|min|max|median)\s*\(/gi;
+    for (const aggregate of sql.matchAll(aggregateCalls)) {
+      const openParen = aggregate.index! + aggregate[0].lastIndexOf("(");
+      const closeParen = matchingSqlParenthesis(sql, openParen);
+      if (closeParen === null) return true;
+
+      let cursor = skipSqlWhitespace(sql, closeParen + 1);
+      const filterEnd = sqlKeywordEndAt(sql, cursor, "filter");
+      if (filterEnd !== null) {
+        cursor = skipSqlWhitespace(sql, filterEnd);
+        if (sql[cursor] !== "(") return true;
+        const filterClose = matchingSqlParenthesis(sql, cursor);
+        if (filterClose === null) return true;
+        cursor = skipSqlWhitespace(sql, filterClose + 1);
+      }
+
+      const overEnd = sqlKeywordEndAt(sql, cursor, "over");
+      if (overEnd === null || sql[skipSqlWhitespace(sql, overEnd)] !== "(") {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+function maskNestedDashboardSubqueries(sql: string): string {
+  const output = sql.split("");
+  for (let index = 0; index < sql.length; index += 1) {
+    if (sql[index] !== "(") continue;
+    const close = matchingSqlParenthesis(sql, index);
+    if (close === null) continue;
+    const queryStart = skipSqlWhitespace(sql, index + 1);
+    if (
+      sqlKeywordEndAt(sql, queryStart, "select") === null &&
+      sqlKeywordEndAt(sql, queryStart, "with") === null
+    ) {
+      continue;
+    }
+    for (let cursor = index; cursor <= close; cursor += 1) {
+      if (output[cursor] !== "\n") output[cursor] = " ";
+    }
+    index = close;
+  }
+  return output.join("");
+}
+
+function hasRowLevelMembershipQualify(
+  qualifyExpression: string,
+  query: string,
+  selectExpressions: string[],
+  inheritedCtes: Map<string, DashboardCteDefinition>,
+): boolean {
+  const rowNumber = /\brow_number\s*\(\s*\)\s*over\s*\(/i.exec(
+    qualifyExpression,
+  );
+  if (!rowNumber) return false;
+  const openParen = rowNumber.index + rowNumber[0].lastIndexOf("(");
+  const closeParen = matchingSqlParenthesis(qualifyExpression, openParen);
+  if (
+    closeParen === null ||
+    !/^\s*(?:=|<=)\s*1\b/i.test(qualifyExpression.slice(closeParen + 1))
+  ) {
+    return false;
+  }
+  const window = qualifyExpression.slice(openParen + 1, closeParen);
+  const partition = findTopLevelSqlKeyword(window, "partition by");
+  if (!partition) return false;
+  const orderBy = findTopLevelSqlKeyword(window, "order by", partition.end);
+  const partitionExpressions = splitTopLevelSqlList(
+    window.slice(partition.end, orderBy?.start ?? window.length),
+  );
+  return (
+    partitionExpressions !== null &&
+    hasDashboardProjectionEntity(
+      partitionExpressions,
+      "user",
+      query,
+      selectExpressions,
+      inheritedCtes,
+    ) &&
+    hasDashboardProjectionEntity(
+      partitionExpressions,
+      "organization",
+      query,
+      selectExpressions,
+      inheritedCtes,
+    )
+  );
+}
+
 function hasMembershipRelationEvidence(value: string): boolean {
   return (
-    /\bmembership\b/.test(value) ||
+    /\bmemberships?\b/.test(value) ||
     /\b(?:(?:user|member)\s+)?(?:organization|org|workspace|team)\s+memberships?\b/.test(
       value,
     ) ||

@@ -89,6 +89,93 @@ describe("sourceIndexSourcesFreshness", () => {
       fresh: false,
     });
   });
+
+  it("treats legacy replaced dbt sources with only deprecated entries as retired", () => {
+    const now = Date.parse("2026-10-13T00:00:00.000Z");
+    const bundle = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [
+        {
+          id: "old-dbt",
+          sourceKind: "dbt",
+          repositoryRef: "old-org/analytics-dbt",
+          revision: "111111111111",
+          generatedAt: "2026-06-01T00:00:00.000Z",
+        },
+        {
+          id: "current-dbt",
+          sourceKind: "dbt",
+          repositoryRef: "builder/analytics-dbt",
+          revision: "222222222222",
+          generatedAt: "2026-10-12T00:00:00.000Z",
+        },
+      ],
+      entries: [
+        {
+          id: "old-users",
+          metric: "model:users",
+          definition: "Legacy users model.",
+          source: "old-dbt",
+          sourceKind: "dbt",
+          status: "deprecated",
+        },
+        {
+          id: "current-users",
+          metric: "model:users",
+          definition: "Current users model.",
+          source: "current-dbt",
+          sourceKind: "dbt",
+        },
+      ],
+    });
+
+    expect(
+      bundle.sources.find((source) => source.id === "old-dbt")?.status,
+    ).toBe("deprecated");
+    expect(sourceIndexSourcesFreshness(bundle, now)).toEqual({
+      sourceCount: 1,
+      unknownTimestampCount: 0,
+      staleSourceCount: 0,
+      fresh: true,
+    });
+  });
+
+  it("keeps legacy source records with no entries active", () => {
+    const bundle = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [
+        {
+          id: "empty-dbt",
+          sourceKind: "dbt",
+          repositoryRef: "builder/analytics-dbt",
+          revision: "abcdef123456",
+          generatedAt: "2026-10-12T00:00:00.000Z",
+        },
+        {
+          id: "code",
+          sourceKind: "code",
+          revision: "123456abcdef",
+          generatedAt: "2026-10-12T00:00:00.000Z",
+        },
+      ],
+      entries: [
+        {
+          id: "signup-event",
+          metric: "event:signup",
+          definition: "Signup event.",
+          source: "code",
+          sourceKind: "code",
+        },
+      ],
+    });
+
+    expect(bundle.sources[0]?.status).toBeUndefined();
+    expect(sourceIndexSourcesFreshness(bundle)).toMatchObject({
+      sourceCount: 2,
+    });
+  });
 });
 
 describe("parseSourceIndexBundle scan summary compatibility", () => {
@@ -726,14 +813,14 @@ describe("mergeSourceIndexBundles", () => {
   it("preserves a previous dbt repository when a configured repo changes", () => {
     const current = parseSourceIndexBundle({
       schemaVersion: 1,
-      generatedAt: "2026-09-01T00:00:00.000Z",
+      generatedAt: "2026-06-01T00:00:00.000Z",
       sources: [
         {
           id: "analytics-dbt",
           sourceKind: "dbt",
           repositoryRef: "old-org/analytics-dbt",
           revision: "111111111111",
-          generatedAt: "2026-09-01T00:00:00.000Z",
+          generatedAt: "2026-06-01T00:00:00.000Z",
         },
       ],
       entries: [
@@ -777,6 +864,24 @@ describe("mergeSourceIndexBundles", () => {
     expect(currentRepository?.id).not.toBe("analytics-dbt");
     expect(firstMerge.sources).toHaveLength(2);
     expect(firstMerge.entries).toHaveLength(2);
+    expect(firstMerge.sources).toContainEqual(
+      expect.objectContaining({
+        id: "analytics-dbt",
+        repositoryRef: "old-org/analytics-dbt",
+        status: "deprecated",
+      }),
+    );
+    expect(
+      sourceIndexSourcesFreshness(
+        firstMerge,
+        Date.parse("2026-10-13T00:00:00.000Z"),
+      ),
+    ).toEqual({
+      sourceCount: 1,
+      unknownTimestampCount: 0,
+      staleSourceCount: 0,
+      fresh: true,
+    });
     expect(firstMerge.entries).toContainEqual(
       expect.objectContaining({
         id: "active-users",
