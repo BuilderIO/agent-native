@@ -56,7 +56,10 @@ vi.mock("../db/index.js", () => ({
 }));
 
 import { CONTENT_USER_PREFS_KEY } from "../../shared/content-user-prefs.js";
-import { notifyDocumentComment } from "./comment-notifications.js";
+import {
+  notifyDocumentComment,
+  notifyEditedCommentMentions,
+} from "./comment-notifications.js";
 
 function stubDb(participants: string[] = []) {
   mocks.select.mockReturnValue({
@@ -127,6 +130,23 @@ describe("content comment notifications", () => {
       "first@example.com",
       "writer@example.com",
     ]);
+  });
+
+  it("tells only the people an edit newly mentions, as a mention", async () => {
+    stubDb(["first@example.com"]);
+
+    await notifyEditedCommentMentions({
+      ...BASE,
+      isReply: true,
+      mentions: [{ email: "Reviewer@Example.com", name: "Reviewer" }],
+    });
+
+    const args = notifyArgs();
+    expect(args.candidates).toEqual(["reviewer@example.com"]);
+    await args.send("reviewer@example.com");
+    expect(mocks.sendEmail.mock.calls[0][0].subject).toBe(
+      'Writer mentioned you on "Launch plan"',
+    );
   });
 
   it("tells a mentioned recipient they were mentioned", async () => {

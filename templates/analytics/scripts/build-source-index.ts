@@ -3638,6 +3638,8 @@ export async function compileSourceIndex(
       "The source index supports at most 10 roots.",
     );
   }
+  const generatedAt =
+    options.generatedAt ?? generatedAtFromDbtCommits(dbtRoots);
   const seenIds = new Set<string>();
   for (const { context } of roots) {
     if (seenIds.has(context.id)) {
@@ -3659,11 +3661,18 @@ export async function compileSourceIndex(
       sourceKind: kind,
       ...(context.revision ? { revision: context.revision } : {}),
       contentFingerprint: scan.contentFingerprint,
+      ...(context.committedAt ? { generatedAt: context.committedAt } : {}),
     });
     entries.push(
       ...scan.entries.map((entry) => ({ ...entry, sourceKind: kind })),
     );
     addScanSummary(scanSummary, scan.scanSummary);
+  }
+  if (!generatedAt) {
+    codedError(
+      "dbt_commit_metadata_required",
+      "Each dbt root must have Git commit metadata so generatedAt is reproducible.",
+    );
   }
   if (options.sigmaReviewedManifest) {
     if (seenIds.has("sigma")) {
@@ -3679,6 +3688,9 @@ export async function compileSourceIndex(
       manifestPath: options.sigmaReviewedManifest,
       ...credentials,
     });
+    // Sigma uses the oldest reviewed workbook update as its freshness marker.
+    // The bundle timestamp stays pinned to dbt; Git-backed roots keep their
+    // individual commit timestamps above.
     sources.push({ ...sigma.source, sourceKind: "sigma" });
     entries.push(
       ...sigma.entries.map((entry) => ({
@@ -3689,14 +3701,6 @@ export async function compileSourceIndex(
     scanSummary.unsafeFieldsOmitted += sigma.scanSummary.unsafeFieldsOmitted;
     scanSummary.truncatedFields += sigma.scanSummary.truncatedFields;
     scanSummary.unsafeEntriesOmitted += sigma.scanSummary.unsafeEntriesOmitted;
-  }
-  const generatedAt =
-    options.generatedAt ?? generatedAtFromDbtCommits(dbtRoots);
-  if (!generatedAt) {
-    codedError(
-      "dbt_commit_metadata_required",
-      "Each dbt root must have Git commit metadata so generatedAt is reproducible.",
-    );
   }
   const indexedEntries = entries
     .map((entry) => ({ ...entry, status: entry.status ?? "active" }))

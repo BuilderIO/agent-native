@@ -5,6 +5,10 @@ import { parse } from "yaml";
 
 const workflowPath = ".github/workflows/beta-e2e.yml";
 const scheduledWorkflowPath = ".github/workflows/beta-e2e-scheduled.yml";
+const signupScheduledWorkflowPath =
+  ".github/workflows/signup-e2e-scheduled.yml";
+const signupAgentScheduledWorkflowPath =
+  ".github/workflows/signup-agent-scheduled.yml";
 const reportWorkflowPath = ".github/workflows/beta-e2e-report.yml";
 const scheduledDigestPath = "scripts/beta-e2e-digest.ts";
 const fleetPath = "e2e/beta/lib/fleet.ts";
@@ -51,6 +55,8 @@ function findExportedConstDeclaration(
 
 const workflow = read(workflowPath);
 const scheduledWorkflow = read(scheduledWorkflowPath);
+const signupScheduledWorkflow = read(signupScheduledWorkflowPath);
+const signupAgentScheduledWorkflow = read(signupAgentScheduledWorkflowPath);
 const reportWorkflow = read(reportWorkflowPath);
 const scheduledDigest = read(scheduledDigestPath);
 const fleet = read(fleetPath);
@@ -854,6 +860,42 @@ if (scheduledWorkflow) {
         `${scheduledWorkflowPath} must run the beta E2E check on the 0 */6 * * * schedule.`,
       );
     }
+
+    const jobs = parsed.jobs as
+      | Record<string, { with?: Record<string, unknown>; secrets?: unknown }>
+      | undefined;
+    const scheduledBetaE2E = jobs?.["beta-e2e"];
+    if (scheduledBetaE2E?.with?.lane !== "public") {
+      issues.push(
+        `${scheduledWorkflowPath} must run only the public lane until Beta databases are isolated; authenticated tests can write to production.`,
+      );
+    }
+    const scheduledSecrets = scheduledBetaE2E?.secrets;
+    const scheduledSlackSecret =
+      typeof scheduledSecrets === "object" &&
+      scheduledSecrets !== null &&
+      !Array.isArray(scheduledSecrets)
+        ? (scheduledSecrets as Record<string, unknown>).QA_SLACK_BOT_TOKEN
+        : undefined;
+    if (
+      typeof scheduledSecrets !== "object" ||
+      scheduledSecrets === null ||
+      Array.isArray(scheduledSecrets) ||
+      Object.keys(scheduledSecrets).some(
+        (name) => name !== "QA_SLACK_BOT_TOKEN",
+      ) ||
+      scheduledSlackSecret !== "${{ secrets.QA_SLACK_BOT_TOKEN }}"
+    ) {
+      issues.push(
+        `${scheduledWorkflowPath} must pass only QA_SLACK_BOT_TOKEN from its matching secret to the public scheduled suite.`,
+      );
+    }
+    const report = jobs?.report;
+    if (report?.with?.update_baseline !== false) {
+      issues.push(
+        `${scheduledWorkflowPath} must preserve the shared full-suite notification baseline because its public lane does not cover authenticated failures.`,
+      );
+    }
   } catch (error) {
     issues.push(
       `${scheduledWorkflowPath} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
@@ -862,14 +904,13 @@ if (scheduledWorkflow) {
 
   const requiredFragments = [
     "uses: ./.github/workflows/beta-e2e.yml",
-    "lane: public+authed",
     "uses: ./.github/workflows/beta-e2e-report.yml",
     "run_result: " + "$" + "{{ needs.beta-e2e.result }}",
   ];
   for (const fragment of requiredFragments) {
     if (!scheduledWorkflow.includes(fragment)) {
       issues.push(
-        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the full authenticated suite.`,
+        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the public suite and shared report workflow.`,
       );
     }
   }
@@ -907,6 +948,7 @@ if (scheduledWorkflow) {
   const scheduledReportFragments = [
     "uses: ./.github/workflows/beta-e2e-report.yml",
     "run_result: " + "$" + "{{ needs.beta-e2e.result }}",
+    "update_baseline: false",
     "actions: read",
     "contents: read",
   ];
@@ -919,6 +961,115 @@ if (scheduledWorkflow) {
           "; its single report job must call the shared report workflow.",
       );
     }
+  }
+}
+
+if (signupScheduledWorkflow) {
+  try {
+    const parsed = parse(signupScheduledWorkflow) as {
+      on?: Record<string, unknown>;
+      jobs?: Record<
+        string,
+        {
+          if?: unknown;
+          steps?: Array<{ if?: unknown; name?: unknown; run?: unknown }>;
+        }
+      >;
+    };
+    const condition = parsed.jobs?.["signup-e2e"]?.if;
+    const normalizedCondition =
+      typeof condition === "string"
+        ? condition
+            .replace(/^\$\{\{|\}\}$/g, "")
+            .replace(/\s+/g, " ")
+            .trim()
+        : "";
+    if (
+      normalizedCondition !==
+        "github.event_name != 'schedule' || vars.BETA_DATABASES_ISOLATED == 'true'" ||
+      !Object.hasOwn(parsed.on ?? {}, "workflow_dispatch")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must gate scheduled signup writes on BETA_DATABASES_ISOLATED == 'true' while preserving manual dispatch.`,
+      );
+    }
+
+    const reportSteps = parsed.jobs?.report?.steps ?? [];
+    const skippedSummary = reportSteps.find(
+      (step) => step.name === "Explain skipped Beta signup schedule",
+    );
+    const degradedReport = reportSteps.find(
+      (step) =>
+        step.name === "Build a degraded report when collection itself failed",
+    );
+    const continuityPlan = reportSteps.find(
+      (step) => step.name === "Plan the Signup E2E recovery rollup",
+    );
+    const slackConfig = reportSteps.find(
+      (step) => step.name === "Check Slack configuration",
+    );
+    if (
+      typeof skippedSummary?.if !== "string" ||
+      !skippedSummary.if.includes("needs.signup-e2e.result == 'skipped'") ||
+      typeof skippedSummary.run !== "string" ||
+      !skippedSummary.run.includes("BETA_DATABASES_ISOLATED")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must explain an isolation-gated schedule skip in the run summary.`,
+      );
+    }
+    if (
+      typeof degradedReport?.if !== "string" ||
+      !degradedReport.if.includes("needs.signup-e2e.result == 'failure'") ||
+      !degradedReport.if.includes("needs.signup-e2e.result == 'cancelled'") ||
+      degradedReport.if.includes("needs.signup-e2e.result != 'success'")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must not report an intentional skipped signup run as a collection failure.`,
+      );
+    }
+    if (
+      typeof continuityPlan?.run !== "string" ||
+      !continuityPlan.run.includes("outcome=inconclusive")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must preserve the prior report state when signup is skipped or inconclusive.`,
+      );
+    }
+    if (
+      typeof slackConfig?.if !== "string" ||
+      !slackConfig.if.includes(
+        "steps.previous-state.outputs.continuity_unknown == 'true' && needs.signup-e2e.result == 'success'",
+      )
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must not attempt Slack delivery for unknown continuity when the signup job was intentionally skipped.`,
+      );
+    }
+  } catch (error) {
+    issues.push(
+      `${signupScheduledWorkflowPath} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+if (signupAgentScheduledWorkflow) {
+  try {
+    const parsed = parse(signupAgentScheduledWorkflow) as {
+      on?: Record<string, unknown>;
+    };
+    if (
+      Object.hasOwn(parsed.on ?? {}, "schedule") ||
+      !Object.hasOwn(parsed.on ?? {}, "workflow_dispatch")
+    ) {
+      issues.push(
+        `${signupAgentScheduledWorkflowPath} must keep its unattended schedule disabled until Beta database isolation is verified and preserve manual dispatch.`,
+      );
+    }
+  } catch (error) {
+    issues.push(
+      `${signupAgentScheduledWorkflowPath} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 

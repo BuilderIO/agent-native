@@ -3,14 +3,45 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-14
+
+### Improved
+
+- Show Figma fidelity warnings in Home URL imports
+
 ## 2026-10-13
 
 ### Added
 
 - Right-clicking a layer now has a Send to menu that opens Claude, Claude Code or Codex with your design's agent prompt, or copies that prompt.
 
+### Improved
+
+- Fill and effect rows keep the reorder handle outside the field, so OKLCH values show in full.
+- HTML token imports now skip prose and preserve CSS declaration precedence.
+- Left panels keep one width, Tokens search and rows match Layers, the org menu matches other apps, and the import picker names Figma and HTML files.
+- Share panel uses the compact underline-tab design shared across apps.
+
 ### Fixed
 
+- Comment pins no longer show in Interact mode or paint over the editor panels.
+- Design token imports now accept trailing commas after quoted values
+- Design token imports now handle size-limited files, attribute-selector CSS, and SCSS interpolation.
+- Design token imports preserve multiline CSS values, skip unsafe sources, and report omitted files accurately.
+- Design token imports recognize common labels, reject remote-loading values, continue when a selected file cannot be read, and report files omitted by import limits accurately.
+- Design token imports report skipped files and reject invalid values.
+- Dragging a layer on the canvas now moves it by the full distance from where you pressed, so it stays under the cursor instead of landing a few pixels short.
+- Improve design token imports to preserve HTML screens, validate CSS substitutions, and report unreadable files accurately.
+- Pasted design token imports can include prose headings
+- Pasting a copied layer or screen after panning away now lands in the current view.
+- Preserve quoted font stacks and reject malformed math expressions in imported tokens.
+- Responsive preview labels stay within their frames at low zoom
+- Selecting a plain frame no longer shows margin handles around it.
+- Tailwind config imports no longer report object and array headers as rejected tokens
+- Token imports continue with eligible files when selected files exceed import limits.
+- Token imports find stylesheet tokens even when a design has many small notes
+- Token imports now explain unreadable files and inputs skipped by limits
+- Valid multiline CSS declarations are preserved in token imports
 - Disable Design exports until a screen exists
 
 ## 2026-10-12
@@ -22,6 +53,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Large .fig imports now let you pick Figma pages, show size and frame limits up front, and skip frames too complex to import instead of failing the whole file.
 - Empty-canvas right-click menu now leads with Explore with Agent and Copy link
 - Feedback and comment controls stay readable in compact layouts, and long import frame names remain visible.
 - Layers panel right-click menu is simpler: Copy, Copy link to the layer, Rename, Hide, Lock, plus Arrange and Transform submenus

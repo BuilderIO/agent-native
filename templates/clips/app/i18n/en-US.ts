@@ -4,6 +4,7 @@ const messages = {
     includeLast: "Include last",
     whatIsThis: "What is this?",
     off: "Off",
+    none: "None",
     custom: "Custom…",
     customLabel: "Custom length",
     customAmount: "Length",
@@ -15,6 +16,9 @@ const messages = {
     customErrorInvalid: "Enter a whole number of seconds or minutes.",
     customErrorTooLong: "Keep it to 5 min or less.",
     turnOnRewind: "Turn on Rewind",
+    turnOffRewind: "Turn off",
+    turnOffRewindFailed:
+      "Couldn't turn off Rewind. Stop your recording and try again.",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
       "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",
@@ -1850,6 +1854,8 @@ const messages = {
     copyLinkAction: "Copy link",
     noLocalRecordingData: "No local recording data is available to download.",
     recordingDownloadStarted: "Recording download started",
+    partialLocalCopyDownloadStarted:
+      "The local copy may be incomplete. The available recording data is downloading.",
     backToLibrary: "Back to library",
     clipsRecorder: "Clips recorder",
     preparingSources: "Preparing sources…",
@@ -2010,6 +2016,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI",
     cleanupComplete: "Dictation cleaned up",
     cleanupFailed: "Couldn't clean up dictation",
+    undoCleanup: "Undo",
+    restoreOriginal: "Restore original",
+    cleanupRestored: "Original dictation restored",
+    cleanupRestoreFailed: "Couldn't restore original dictation",
     startFirst: "Turn your thoughts into text",
     recordOnDesktop: "Record on desktop",
     emptyDesktopDescription:

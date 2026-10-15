@@ -178,6 +178,10 @@ export default defineAction({
       height: 680,
     }),
   },
+  // Append skips ids already present and merges onto the latest row, so a replay
+  // adds nothing. Overwrite and refreshExisting replace panels with no revision
+  // fence, so a replay could erase an edit made between calls.
+  retrySafe: (input) => !input.overwrite && !input.refreshExisting,
   run: async (args, actionContext?: ActionRunContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

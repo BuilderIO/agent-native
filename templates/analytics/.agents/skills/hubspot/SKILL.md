@@ -26,7 +26,8 @@ actions do not expose, inspect the provider catalog/docs and call
 
 ## Actions
 
-- `account-deep-dive` — first choice for named account/deal deep dives. It
+- `account-deep-dive` — first choice for the CRM side of a named account/deal
+  deep dive (use `run-gong-native-insight` for what was said in calls). It
   searches matching HubSpot deals, loads associated companies, contacts,
   tickets, notes, and emails, then pairs that CRM context with Gong evidence.
 - `hubspot-deals` — deals with normalized stage, pipeline, owner, forecast, and

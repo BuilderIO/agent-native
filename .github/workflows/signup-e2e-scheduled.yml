@@ -10,7 +10,7 @@ on:
         required: false
         default: "all"
       environments:
-        description: "Comma-separated environments: beta,production"
+        description: "Comma-separated environments: beta,production. Beta apps may write durable accounts to production-shared data until isolation is verified."
         required: false
         default: "beta"
 
@@ -24,6 +24,9 @@ permissions:
 jobs:
   signup-e2e:
     name: Full signup flow
+    # Each run creates durable canary accounts. Keep the unattended Beta
+    # schedule disabled until every Beta runtime and migration database is isolated.
+    if: ${{ github.event_name != 'schedule' || vars.BETA_DATABASES_ISOLATED == 'true' }}
     uses: ./.github/workflows/beta-e2e.yml
     with:
       apps: ${{ inputs.apps || 'all' }}
@@ -64,6 +67,15 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
+
+      - name: Explain skipped Beta signup schedule
+        if: ${{ github.event_name == 'schedule' && needs.signup-e2e.result == 'skipped' }}
+        run: |
+          {
+            echo "### Signup E2E schedule skipped"
+            echo
+            echo "Beta signup tests create durable accounts. Set the repository variable BETA_DATABASES_ISOLATED to true only after all Beta runtime and migration databases are verified isolated from production."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Restore the previous scheduled report state
         id: previous-state
@@ -380,7 +392,7 @@ jobs:
 
       - name: Build a degraded report when collection itself failed
         if: >-
-          ${{ always() && needs.signup-e2e.result != 'success' && (steps.report.outcome != 'success' || steps.slack-report.outcome != 'success') }}
+          ${{ always() && (needs.signup-e2e.result == 'failure' || needs.signup-e2e.result == 'cancelled') && (steps.report.outcome != 'success' || steps.slack-report.outcome != 'success') }}
         env:
           REPORT_ARTIFACT_URL: ${{ steps.report-artifact.outputs.artifact-url }}
         run: |
@@ -437,7 +449,8 @@ jobs:
 
       - name: Check Slack configuration
         id: slack_config
-        if: ${{ always() && (needs.signup-e2e.result == 'failure' || needs.signup-e2e.result == 'cancelled' || steps.continuity-plan.outputs.recovered == 'true' || steps.previous-state.outputs.continuity_unknown == 'true') }}
+        if: >-
+          ${{ always() && (needs.signup-e2e.result == 'failure' || needs.signup-e2e.result == 'cancelled' || steps.continuity-plan.outputs.recovered == 'true' || (steps.previous-state.outputs.continuity_unknown == 'true' && needs.signup-e2e.result == 'success')) }}
         env:
           QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
         run: |

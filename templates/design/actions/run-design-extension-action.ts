@@ -105,7 +105,7 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
   "design.motion-presets:apply": {
     action: "apply-motion-edit",
     paramHint:
-      "Call apply-motion-edit with { designId, fileId?, tracks, durationMs, defaultEase, playbackMode? } for inline HTML. For supported localhost React/JSX, pass the selected screen as sourceRef and localSource { connectionId, modulePath, moduleVersionHash } from the live preview. That path checks the current bridge version and target structure and requires explicit user write consent; other localhost formats and Fusion source writes are unsupported.",
+      "Call apply-motion-edit with { designId, fileId?, tracks, durationMs, defaultEase, playbackMode? } for inline HTML. For supported localhost React/JSX, pass the selected screen as sourceRef and localSource { connectionId, modulePath, moduleVersionHash, timelineVersionHash } from the live preview and timeline snapshot. That path checks both versions and target structure and requires explicit user write consent; other localhost formats and Fusion source writes are unsupported.",
     readOnly: false,
   },
   "design.motion-presets:write-source": {

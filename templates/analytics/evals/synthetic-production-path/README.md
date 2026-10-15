@@ -24,7 +24,123 @@ runs in each phase to complete the production path. Keep this CSV only as a
 record of the harness failure; use a comparison whose baseline and candidate
 both meet that completion threshold.
 
-## Latest measured v21 comparison
+## Historical v24 comparison (superseded)
+
+The v24 artifact compares baseline commit
+`757e1dd35809cce59999f5e54762151c00750a6b` with candidate commit
+`cf46270ac7ee6b6f5fdbe30910aeb5dab11e5bc3`. It runs the same 25 synthetic
+retrieval cases twice in each phase, including the aggregate-only abstention
+case, using identical harness bytes. This historical artifact measures the
+pinned candidate only; later PR revisions are not included, so it does not
+measure the current PR head.
+
+Top-1 retrieval rose from 46/48 (95.8%) to 48/48 (100%). Correct abstentions
+rose from 0/2 to 2/2, and total contract accuracy rose from 46/50 (92%) to
+50/50 (100%). All 100 runs completed without aborts; each made one `find-data`
+call and no other or failed action. Mean local harness latency rose from 35.0
+ms to 59.1 ms. This deterministic synthetic timing does not predict hosted
+model or production latency.
+
+The evaluated code hashes are
+`sha256:be8c3426f227f48c193b4cedd7395c1a13b9b50f38f60a3e92940e55c232eafb`
+and
+`sha256:090fa4775bcd5cae7bc3896d27bd58be65a68672356eefc4d90f92217e0b794e`.
+Both phases use the same candidate harness bytes,
+`sha256:c75aaf0790f81dc25897143367bb374b5669baf03e9ef5231635be12421bd9bc`.
+The validator pins revisions, hashes, case IDs, paired runs, privacy-safe CSV
+fields, completion, and stale-index markers. The artifact is
+[`SYNTHETIC-analytics-production-path-v24-before-after.csv`](./SYNTHETIC-analytics-production-path-v24-before-after.csv).
+
+To reproduce the before phase, check out the pinned baseline, copy the
+candidate `production-path.spec.ts` to the same relative path, install
+dependencies, build the Analytics dependencies, and run:
+
+```sh
+ANALYTICS_EVAL_PHASE=before \
+ANALYTICS_EVAL_GIT_REVISION=757e1dd35809cce59999f5e54762151c00750a6b \
+ANALYTICS_EVAL_HARNESS_REVISION=cf46270ac7ee6b6f5fdbe30910aeb5dab11e5bc3 \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+Run the after phase from a clean checkout at the candidate commit:
+
+```sh
+ANALYTICS_EVAL_PHASE=after \
+ANALYTICS_EVAL_GIT_REVISION=cf46270ac7ee6b6f5fdbe30910aeb5dab11e5bc3 \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+This fixture-backed production-path evaluation is not a hosted-model,
+BigQuery-connection, or production-data test, and it does not replay historical
+user chats. The CSV contains no prompts, SQL, identities, or source values.
+
+## Historical measured v23 comparison (superseded by v24)
+
+The v23 artifact compares baseline commit
+`1da583a5059d855ef7f61dc1e017607416e123d9` with candidate commit
+`fe0be8aea0fb0d32b46627f047d0956f805a4b04`. It runs the same 25 synthetic
+retrieval cases twice in each phase, including the aggregate-only abstention
+case.
+
+These scores apply only to the pinned candidate and harness revisions above.
+The v23 score deltas do not measure the later changes included in v24.
+
+Top-1 retrieval rises from 46/48 (95.8%) to 48/48 (100%). Correct abstentions
+rise from 0/2 to 2/2, and total contract accuracy rises from 46/50 (92%) to
+50/50 (100%). All 100 runs complete the production path without aborts; each
+makes one `find-data` call and no other or failed action. The stale-index marker
+appears in four rows in each phase.
+
+The baseline and candidate code hashes are
+`sha256:3318fa7f1d05ddb47311de6ada0b040eed206bbd0896e6a68a5ec6709f593c5e`
+and
+`sha256:18f36c78aab1ae868080c79a457f681979a118c9711e50b94278a58227253fae`.
+Both phases use the same candidate harness bytes,
+`sha256:97f2a9c3c235790d7992d7c53596dead93ed0e25ec611273262e8485a8ee44e6`.
+The validator pins the revisions, hashes, case IDs, paired runs, privacy-safe
+CSV fields, production-path completion, and stale-index markers.
+
+To reproduce the before phase, check out the pinned baseline, copy the
+candidate `production-path.spec.ts` to the same relative path, install the
+workspace dependencies, build the Analytics dependencies, and run:
+
+```sh
+ANALYTICS_EVAL_PHASE=before \
+ANALYTICS_EVAL_GIT_REVISION=1da583a5059d855ef7f61dc1e017607416e123d9 \
+ANALYTICS_EVAL_HARNESS_REVISION=fe0be8aea0fb0d32b46627f047d0956f805a4b04 \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+corepack pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+Run the after phase from a clean checkout at the candidate commit:
+
+```sh
+ANALYTICS_EVAL_PHASE=after \
+ANALYTICS_EVAL_GIT_REVISION=fe0be8aea0fb0d32b46627f047d0956f805a4b04 \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+corepack pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+Each phase prints 50 data rows. The before checkout may change only the
+candidate harness; the after checkout must be clean. This is a deterministic
+synthetic in-memory evaluation. It does not call a hosted model, Builder.io
+BigQuery, or a connected data source. It measures retrieval over fixture-backed
+catalog data, not answer quality on real chats or production latency. The CSV
+contains no prompts, tool inputs, SQL, identities, or source values. The
+artifact is
+[`SYNTHETIC-analytics-production-path-v23-before-after.csv`](./SYNTHETIC-analytics-production-path-v23-before-after.csv).
+
+## Historical v22 comparison
+
+The preserved v22 artifact measures candidate revision
+`4021bd355e7de06321bd692cb754a6d7a06ad72e`, which predates the current catalog
+and abstention harness changes. It remains available as historical evidence;
+v23 above reruns the same cases against the candidate at `fe0be8a` with matching
+harness bytes on both sides.
+
+## Historical measured v21 comparison (superseded by v23)
 
 The v21 artifact compares the freshly fetched `origin/main` snapshot
 `8961aeb5a901eb8be8e821c10b957fa9203796c7` with the Analytics PR candidate
@@ -192,8 +308,8 @@ artifact is
 
 The v18 artifact has the same case set and completion results, measured on an
 earlier candidate snapshot `1e9eb1188e5250d594d43c0a37b0eef7f177fe60`. It is
-retained for historical comparison; v19 is the current measurement. Its
-evaluated-code hashes were
+retained for historical comparison; the newer v19 artifact is described
+above. Its evaluated-code hashes were
 `sha256:14d8e0b6b7400765132207c578c268605e30183307067481a91a075e7d46de5a`
 before and
 `sha256:f22d56316f7e06cba5aa5824bcc27e75c885f1f715f21a5786891bb025a5c912`
@@ -205,7 +321,7 @@ The artifact is
 ## Historical measured v17 comparison (superseded)
 
 The v17 artifact below uses older main and candidate snapshots. It is retained
-for historical comparison; v18 is the current measurement.
+for historical comparison; the newer v18 artifact follows it in this archive.
 
 The v17 artifact evaluates the same twenty-four synthetic retrieval cases twice
 per phase through the Analytics production agent loop. Its baseline was

@@ -897,6 +897,51 @@ describe("StorageSetupCard", () => {
       ]);
     });
 
+    it("ties every step event to the recording waiting on storage", async () => {
+      const onSkip = vi.fn();
+      await act(async () => {
+        root.render(
+          <StorageSetupCard
+            onConfigured={vi.fn()}
+            onSkip={onSkip}
+            connectSource="clips_record_after_stop"
+            recordingAttemptId="local-7"
+          />,
+        );
+      });
+      act(() => bodyButton("agentChat.onboarding.skipForNow")?.click());
+
+      await act(async () => {
+        root.render(
+          <StorageSetupCard
+            onConfigured={vi.fn()}
+            connectSource="clips_recording_page_storage_setup_card"
+            outputId="rec-9"
+          />,
+        );
+      });
+
+      expect(storageEvents()).toEqual([
+        [
+          "onboarding_step_viewed",
+          expect.objectContaining({ recording_attempt_id: "local-7" }),
+        ],
+        [
+          "onboarding_step_skipped",
+          expect.objectContaining({ recording_attempt_id: "local-7" }),
+        ],
+        [
+          "onboarding_step_viewed",
+          {
+            step_id: "file-storage",
+            flow: "clips_recording_page_storage_setup_card",
+            step_view_id: "view-1",
+            output_id: "rec-9",
+          },
+        ],
+      ]);
+    });
+
     it("records an explicit skip once, and no completion", async () => {
       const onSkip = vi.fn();
       await renderCard(vi.fn(), onSkip);

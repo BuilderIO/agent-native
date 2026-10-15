@@ -685,6 +685,7 @@ export async function instrumentAgentLoop(opts: {
     end: number;
     usage?: AgentLoopUsage;
     stopReason?: string;
+    errorCode?: string;
     errorMessage?: string | null;
     input?: unknown[];
     assistantText: BoundedAssistantText;
@@ -850,7 +851,7 @@ export async function instrumentAgentLoop(opts: {
       finishOtelModelSpan(tripIndex, {
         status: modelCallFailed ? "error" : "success",
         errorMessage: modelErrorMessage,
-        errorCode: finalErrorCode,
+        errorCode: trip?.errorCode ?? finalErrorCode,
         attributes: modelSpanAttributes(tripIndex),
         endTime: modelRoundTrips[tripIndex]?.end,
       });
@@ -971,6 +972,7 @@ export async function instrumentAgentLoop(opts: {
           if (trip) {
             trip.end = end;
             if (event.reason) trip.stopReason = event.reason;
+            if (event.errorCode) trip.errorCode = event.errorCode;
           }
           if (event.reason === undefined || event.reason === "error") {
             modelSpansAwaitingFinalError.add(tripIndex);
@@ -1802,6 +1804,12 @@ export async function instrumentAgentLoop(opts: {
               tripIndex === interruptedModelRoundTrip ||
               !trip.stopReason ||
               trip.stopReason === "error",
+            // Only the last call's failure can be the one that ended the run.
+            errorCode:
+              trip.errorCode ??
+              (tripIndex === modelRoundTrips.length - 1
+                ? runTerminalCode
+                : undefined),
             inputTokens: trip.usage?.inputTokens,
             outputTokens: trip.usage?.outputTokens,
           });

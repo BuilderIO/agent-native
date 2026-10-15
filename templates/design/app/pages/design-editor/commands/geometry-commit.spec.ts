@@ -207,6 +207,7 @@ describe("runGeometryCommit", () => {
     const after = {
       screen: { x: 2, y: 0, width: 400, height: 400 },
     };
+    const events: string[] = [];
     const designDataJsonRef = { current: { canvasFrames: before } };
     const selection: GeometryHistorySelection = {
       overviewSelectedScreenIds: ["screen"],
@@ -235,8 +236,10 @@ describe("runGeometryCommit", () => {
         lastGeometryCommitSourceRef: { current: "keyboard" },
         liveFrameGeometryRef: { current: before },
         locallyPinnedHeightIdsRef: { current: new Set<string>() },
-        queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
-        queueFrameGeometrySave: vi.fn(),
+        queryClient: {
+          setQueryData: vi.fn(() => events.push("publish")),
+        } as unknown as QueryClient,
+        queueFrameGeometrySave: vi.fn(() => events.push("queue")),
         syncUndoRedoState: vi.fn(),
         writeFrameGeometrySnapshot: vi.fn(),
       },
@@ -246,6 +249,7 @@ describe("runGeometryCommit", () => {
     );
 
     expect(designDataJsonRef.current.canvasFrames).toEqual(after);
+    expect(events).toEqual(["queue", "publish"]);
   });
 
   it("keeps keyboard nudges separate across content history", () => {

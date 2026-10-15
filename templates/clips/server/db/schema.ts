@@ -10,7 +10,7 @@ import {
   index,
   sql,
 } from "@agent-native/core/db/schema";
-import { boolean } from "drizzle-orm/pg-core";
+import { bigint, boolean } from "drizzle-orm/pg-core";
 
 export const organizationSettings = table("organization_settings", {
   organizationId: text("organization_id").primaryKey(),
@@ -587,6 +587,9 @@ export const dictations = table("clips_dictations", {
   startedAt: text("started_at").notNull().default(now()),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  cleanupVersion: bigint("cleanup_version", { mode: "number" })
+    .notNull()
+    .default(0),
   ...ownableColumns(),
 });
 

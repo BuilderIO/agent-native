@@ -373,6 +373,91 @@ describe("MCP OAuth callback flow validation", () => {
     );
   });
 
+  describe("workspace callback URIs", () => {
+    async function startWorkspaceOAuth(serverUrl: string, extraQuery = "") {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+      callbackMocks.getH3App.mockReturnValue({
+        use: (_base: string, handler: (event: H3Event) => unknown) => {
+          routes.push({ handler });
+        },
+      });
+      callbackMocks.startMcpOAuthAuthorization.mockResolvedValue({
+        authorizationUrl: new URL("https://auth.example.com/authorize"),
+        codeVerifier: "<CODE_VERIFIER>",
+        state: "<STATE>",
+        clientInformation: { client_id: "mcp-client" },
+      });
+      mountMcpOAuthRoutes({}, { reconfigure: vi.fn() });
+      // h3 strips the mount prefix; the original path stays on the context.
+      const event = mockEvent(
+        new Request(
+          `https://app.example.com/start?name=remote&url=${encodeURIComponent(serverUrl)}&scope=user${extraQuery}`,
+          {
+            headers: { host: "app.example.com", "x-forwarded-proto": "https" },
+          },
+        ),
+      );
+      event.context._mountedPathname =
+        "/dispatch/_agent-native/mcp/servers/oauth/start";
+      const result = await routes[0]!.handler(event);
+      const redirectUrl =
+        callbackMocks.startMcpOAuthAuthorization.mock.calls[0]?.[0]
+          ?.redirectUrl;
+      return { event, result, redirectUrl };
+    }
+
+    it("keeps dynamically registered clients on the starting app's mount", async () => {
+      const { result, redirectUrl } = await startWorkspaceOAuth(
+        "https://mcp.granola.ai/mcp",
+      );
+
+      expect((result as Response).status).toBe(302);
+      expect(redirectUrl).toBe(
+        "https://app.example.com/dispatch/_agent-native/mcp/servers/oauth/callback",
+      );
+    });
+
+    it("rejects a supplied root callback for a dynamically registered client", async () => {
+      const { event } = await startWorkspaceOAuth(
+        "https://mcp.granola.ai/mcp",
+        `&redirect_uri=${encodeURIComponent("https://app.example.com/_agent-native/mcp/servers/oauth/callback")}`,
+      );
+
+      expect(event.res.status).toBe(400);
+      expect(callbackMocks.startMcpOAuthAuthorization).not.toHaveBeenCalled();
+    });
+
+    it("keeps pre-registered managed clients on the shared root callback", async () => {
+      resolveSecretPairsMock.mockResolvedValue([
+        "hubspot-id",
+        "hubspot-secret",
+      ]);
+
+      const { result, redirectUrl } = await startWorkspaceOAuth(
+        "https://mcp.hubspot.com/",
+      );
+
+      expect((result as Response).status).toBe(302);
+      expect(redirectUrl).toBe(
+        "https://app.example.com/_agent-native/mcp/servers/oauth/callback",
+      );
+    });
+
+    it("uses the app mount when an optional managed client falls back to dynamic registration", async () => {
+      resolveSecretPairsMock.mockResolvedValue(null);
+
+      const { redirectUrl } = await startWorkspaceOAuth(
+        "https://mcp.gong.io/mcp",
+      );
+
+      expect(redirectUrl).toBe(
+        "https://app.example.com/dispatch/_agent-native/mcp/servers/oauth/callback",
+      );
+    });
+  });
+
   it("reuses the authorization server from a saved OAuth grant", async () => {
     const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
     callbackMocks.getH3App.mockReturnValue({
