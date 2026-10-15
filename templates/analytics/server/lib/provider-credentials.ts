@@ -1,4 +1,7 @@
-import { isAgentConnectionRequiredError } from "@agent-native/core/action";
+import {
+  fail,
+  isAgentConnectionRequiredError,
+} from "@agent-native/core/action";
 import {
   isProviderApiId,
   resolveProviderApiOAuthAccessToken,
@@ -79,7 +82,7 @@ interface SigmaDirectCredentialSnapshot {
 
 type SigmaDirectCredentialRead =
   | { kind: "not-direct" }
-  | { kind: "direct"; snapshot: SigmaDirectCredentialSnapshot | null };
+  | { kind: "direct"; snapshot: SigmaDirectCredentialSnapshot };
 
 const sigmaDirectCredentialReads = new WeakMap<
   object,
@@ -145,8 +148,16 @@ async function readSigmaDirectCredentials(
         credentialScope: "org",
       });
       const provenance = resolution.provenance;
-      if (!resolution.available || !resolution.value || !provenance) {
-        return { kind: "direct", snapshot: null };
+      if (
+        !resolution.available ||
+        resolution.status !== "resolved" ||
+        !resolution.value ||
+        !provenance
+      ) {
+        fail("The saved Analytics Sigma credentials could not be read.", {
+          errorCode: "sigma_direct_credentials_unavailable",
+          statusCode: 503,
+        });
       }
       if (
         provenance.connectionId !== connectionId ||
@@ -361,7 +372,7 @@ export async function resolveWorkspaceConnectionProviderCredential(
       );
       if (directRead.kind === "direct") {
         const directCredentials = directRead.snapshot;
-        const value = directCredentials?.credentials[field];
+        const value = directCredentials.credentials[field];
         if (!value) return null;
         return {
           value,

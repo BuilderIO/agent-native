@@ -198,6 +198,23 @@ export default {
     sigmaConnecting: "正在連線 Sigma…",
     sigmaConnectFailed:
       "無法驗證此 Sigma 連線。請檢查認證資料和 API 區域，然後再試一次。",
+    sigmaCredentialStageFailed:
+      "無法暫存 Sigma 臨時認證資料。請檢查 Vault 存取權限後再試一次。",
+    sigmaCredentialsRequired: "請先儲存 Sigma 用戶端 ID 和用戶端密鑰。",
+    sigmaBaseUrlInvalid:
+      "請使用 sigmacomputing.com 網域下的 HTTPS Sigma API URL。",
+    sigmaPersistenceUnavailable:
+      "Analytics 目前無法安全地儲存 Sigma 連線。請再試一次。",
+    sigmaPolicyInvalid:
+      "現有的 Analytics Sigma 連線具有非預期的存取政策。請先在 Dispatch 中重新連線，再試一次。",
+    sigmaSaveFailed:
+      "Sigma 認證資料已驗證，但 Analytics 無法儲存。先前的連線未變更。請再試一次。",
+    sigmaCleanupPending:
+      "Sigma 已連線，但暫存設定認證資料會保留，直到清理成功。",
+    sigmaCleanupFailed: "無法清除 Sigma 臨時認證資料。請重試清理。",
+    sigmaRetryCleanup: "重試清理",
+    sigmaDirectCredentialsUnavailable:
+      "無法讀取已儲存的 Analytics Sigma 認證資料。請在 Dispatch 中重新連線，或重新輸入認證資料。",
     sigmaNoConnectionDescription:
       "在此輸入認證資料以建立僅供 Analytics 使用的連線。在 Dispatch 中授權 Analytics 使用的 Sigma 連線會自動顯示於此；只有組織管理員可以直接儲存認證資料。",
     sigmaOpenDispatch: "在 Dispatch 中連線",

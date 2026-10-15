@@ -67,6 +67,25 @@ export default {
     sigmaConnecting: "Conectando ao Sigma…",
     sigmaConnectFailed:
       "Não foi possível verificar esta conexão do Sigma. Confira as credenciais e a região da API e tente novamente.",
+    sigmaCredentialStageFailed:
+      "Não foi possível armazenar as credenciais temporárias do Sigma. Verifique o acesso ao Vault e tente novamente.",
+    sigmaCredentialsRequired:
+      "Salve primeiro o ID e o segredo do cliente Sigma.",
+    sigmaBaseUrlInvalid:
+      "Use uma URL HTTPS da API do Sigma em um domínio sigmacomputing.com.",
+    sigmaPersistenceUnavailable:
+      "O Analytics não pode salvar a conexão do Sigma com segurança agora. Tente novamente.",
+    sigmaPolicyInvalid:
+      "A conexão existente do Sigma no Analytics tem uma política de acesso inesperada. Reconecte-a no Dispatch antes de tentar novamente.",
+    sigmaSaveFailed:
+      "As credenciais do Sigma foram verificadas, mas o Analytics não conseguiu salvá-las. A conexão anterior não foi alterada. Tente novamente.",
+    sigmaCleanupPending:
+      "O Sigma está conectado, mas as credenciais temporárias de configuração permanecerão até que a limpeza seja concluída com sucesso.",
+    sigmaCleanupFailed:
+      "Não foi possível limpar as credenciais temporárias do Sigma. Tente a limpeza novamente.",
+    sigmaRetryCleanup: "Tentar limpeza novamente",
+    sigmaDirectCredentialsUnavailable:
+      "Não foi possível ler as credenciais do Sigma salvas no Analytics. Reconecte no Dispatch ou insira as credenciais novamente.",
     sigmaNoConnectionDescription:
       "Insira as credenciais aqui para criar uma conexão exclusiva do Analytics. As conexões do Sigma concedidas ao Analytics no Dispatch aparecem aqui automaticamente; somente administradores da organização podem salvar credenciais diretamente.",
     sigmaOpenDispatch: "Conectar no Dispatch",

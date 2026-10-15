@@ -88,7 +88,11 @@ export default defineAction({
       useDefaultBaseUrl: z.boolean(),
     }),
   ]),
-  outputSchema: z.object({ connectionId: z.string(), status: z.string() }),
+  outputSchema: z.object({
+    connectionId: z.string(),
+    status: z.string(),
+    cleanupPending: z.boolean(),
+  }),
   agentTool: false,
   audit: {
     recordInputs: false,
@@ -104,220 +108,220 @@ export default defineAction({
     });
     if (input.operation === "discard") {
       await clearSigmaSetupCredentials(admin.orgId, input.setupId);
-      return { connectionId: "", status: "discarded" };
+      return { connectionId: "", status: "discarded", cleanupPending: false };
     }
 
     const credentialKeys = setupCredentialKeys(input.setupId);
     const setupConnectionId = `analytics-sigma-credential-check-${input.setupId}`;
-    let setupCredentialsCleared = false;
+    const db = getDbExec();
+    if (!db.transaction) {
+      fail(
+        "Analytics could not safely save the Sigma connection. Try again from the Analytics app.",
+        {
+          errorCode: "sigma_connection_transactions_unavailable",
+          statusCode: 503,
+        },
+      );
+    }
+
+    await clearExpiredSigmaSetupCredentials(admin.orgId);
+    const credentialContext = {
+      userEmail: admin.userEmail,
+      orgId: admin.orgId,
+      credentialScope: "org" as const,
+    };
+    const [setupClientId, setupClientSecret, setupBaseUrlSecret] =
+      await Promise.all(
+        credentialKeys.map((key) =>
+          readAppSecret({ key, scope: "workspace", scopeId: admin.orgId }),
+        ),
+      );
+    if (!setupClientId?.value.trim() || !setupClientSecret?.value) {
+      fail("Save the Sigma client ID and client secret first.", {
+        errorCode: "sigma_credentials_required",
+        statusCode: 409,
+      });
+    }
+
+    const setupBaseUrl = input.useDefaultBaseUrl
+      ? undefined
+      : setupBaseUrlSecret?.value.trim() || undefined;
+    const validatedBaseUrl = setupBaseUrl
+      ? normalizeSigmaBaseUrl(setupBaseUrl)
+      : undefined;
+    if (setupBaseUrl && !validatedBaseUrl) {
+      fail("Use an HTTPS Sigma API URL on a sigmacomputing.com domain.", {
+        errorCode: "sigma_base_url_invalid",
+        statusCode: 400,
+      });
+    }
+
+    const runtime = createProviderApiRuntime({
+      appId: ANALYTICS_APP_ID,
+      providerIds: [SIGMA_PROVIDER_ID],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ appId, provider, key, connectionId }) => {
+        if (
+          appId !== ANALYTICS_APP_ID ||
+          provider !== SIGMA_PROVIDER_ID ||
+          connectionId !== setupConnectionId
+        ) {
+          return null;
+        }
+        const normalizedKey = key.trim().toUpperCase();
+        const value =
+          normalizedKey === "SIGMA_CLIENT_ID"
+            ? setupClientId.value.trim()
+            : normalizedKey === "SIGMA_CLIENT_SECRET"
+              ? setupClientSecret.value
+              : normalizedKey === "SIGMA_BASE_URL"
+                ? validatedBaseUrl
+                : undefined;
+        if (!value) return null;
+        return {
+          key: normalizedKey,
+          value,
+          source: "analytics_sigma_setup",
+          provider: SIGMA_PROVIDER_ID,
+          connectionId: setupConnectionId,
+          scope: "org",
+          scopeId: admin.orgId,
+        };
+      },
+    });
+
+    let verificationResponse: unknown;
     try {
-      await clearExpiredSigmaSetupCredentials(admin.orgId);
-      const credentialContext = {
-        userEmail: admin.userEmail,
-        orgId: admin.orgId,
-        credentialScope: "org" as const,
-      };
-      const [setupClientId, setupClientSecret, setupBaseUrlSecret] =
-        await Promise.all(
-          credentialKeys.map((key) =>
-            readAppSecret({ key, scope: "workspace", scopeId: admin.orgId }),
-          ),
-        );
-      if (!setupClientId?.value.trim() || !setupClientSecret?.value) {
-        fail("Save the Sigma client ID and client secret first.", {
-          errorCode: "sigma_credentials_required",
-          statusCode: 409,
-        });
-      }
+      const result = (await runtime.executeRequest({
+        provider: SIGMA_PROVIDER_ID,
+        method: "GET",
+        path: "/v2/workbooks",
+        query: { limit: 1 },
+        connectionId: setupConnectionId,
+        timeoutMs: 30_000,
+        maxBytes: 64_000,
+      })) as { response?: unknown };
+      verificationResponse = result.response;
+    } catch {
+      fail(
+        "Sigma credentials could not be verified. Check the client ID, client secret, and API region.",
+        {
+          errorCode: "sigma_connection_verification_failed",
+          statusCode: 502,
+        },
+      );
+    }
+    const response =
+      verificationResponse && typeof verificationResponse === "object"
+        ? (verificationResponse as Record<string, unknown>)
+        : null;
+    if (
+      !response ||
+      response.ok !== true ||
+      response.truncated === true ||
+      !isWorkbookListResponse(response.json)
+    ) {
+      fail(
+        "Sigma credentials could not be verified. Check the client ID, client secret, and API region.",
+        {
+          errorCode: "sigma_connection_verification_failed",
+          statusCode: 502,
+        },
+      );
+    }
 
-      const setupBaseUrl = input.useDefaultBaseUrl
-        ? undefined
-        : setupBaseUrlSecret?.value.trim() || undefined;
-      const validatedBaseUrl = setupBaseUrl
-        ? normalizeSigmaBaseUrl(setupBaseUrl)
-        : undefined;
-      if (setupBaseUrl && !validatedBaseUrl) {
-        fail("Use an HTTPS Sigma API URL on a sigmacomputing.com domain.", {
-          errorCode: "sigma_base_url_invalid",
-          statusCode: 400,
-        });
-      }
-
-      const runtime = createProviderApiRuntime({
-        appId: ANALYTICS_APP_ID,
-        providerIds: [SIGMA_PROVIDER_ID],
-        getCredentialContext: () => credentialContext,
-        resolveCredential: async ({ appId, provider, key, connectionId }) => {
-          if (
-            appId !== ANALYTICS_APP_ID ||
-            provider !== SIGMA_PROVIDER_ID ||
-            connectionId !== setupConnectionId
-          ) {
-            return null;
-          }
-          const normalizedKey = key.trim().toUpperCase();
-          const value =
-            normalizedKey === "SIGMA_CLIENT_ID"
-              ? setupClientId.value.trim()
-              : normalizedKey === "SIGMA_CLIENT_SECRET"
-                ? setupClientSecret.value
-                : normalizedKey === "SIGMA_BASE_URL"
-                  ? validatedBaseUrl
-                  : undefined;
-          if (!value) return null;
-          return {
-            key: normalizedKey,
-            value,
-            source: "analytics_sigma_setup",
+    const directCredentials = JSON.stringify({
+      clientId: setupClientId.value.trim(),
+      clientSecret: setupClientSecret.value,
+      ...(validatedBaseUrl ? { baseUrl: validatedBaseUrl } : {}),
+    });
+    try {
+      const connection = await db.transaction((tx) =>
+        withDbExec(tx, async () => {
+          await tx.execute({
+            sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+            args: [`agent-native:analytics-sigma-connection:${admin.orgId}`],
+          });
+          const existingConnections = await listWorkspaceConnectionsForApp({
+            appId: ANALYTICS_APP_ID,
             provider: SIGMA_PROVIDER_ID,
-            connectionId: setupConnectionId,
+            includeDisabled: true,
+          });
+          const directConnection = existingConnections.find(
+            (connection) =>
+              connection.config.analyticsSetup ===
+              SIGMA_DIRECT_CONNECTION_MARKER,
+          );
+          if (
+            directConnection &&
+            (directConnection.allowedApps.length !== 1 ||
+              directConnection.allowedApps[0] !== ANALYTICS_APP_ID ||
+              directConnection.allowedUsers.length > 0 ||
+              (directConnection.allowedUserGroups?.length ?? 0) > 0)
+          ) {
+            fail(
+              "The existing Analytics Sigma connection has an unexpected access policy.",
+              {
+                errorCode: "sigma_connection_policy_invalid",
+                statusCode: 409,
+              },
+            );
+          }
+
+          await writeAppSecret({
+            key: SIGMA_DIRECT_CREDENTIALS_KEY,
+            value: directCredentials,
             scope: "org",
             scopeId: admin.orgId,
-          };
-        },
-      });
+          });
 
-      let verificationResponse: unknown;
-      try {
-        const result = (await runtime.executeRequest({
-          provider: SIGMA_PROVIDER_ID,
-          method: "GET",
-          path: "/v2/workbooks",
-          query: { limit: 1 },
-          connectionId: setupConnectionId,
-          timeoutMs: 30_000,
-          maxBytes: 64_000,
-        })) as { response?: unknown };
-        verificationResponse = result.response;
-      } catch {
-        fail(
-          "Sigma credentials could not be verified. Check the client ID, client secret, and API region.",
-          {
-            errorCode: "sigma_connection_verification_failed",
-            statusCode: 502,
-          },
-        );
-      }
-      const response =
-        verificationResponse && typeof verificationResponse === "object"
-          ? (verificationResponse as Record<string, unknown>)
-          : null;
-      if (
-        !response ||
-        response.ok !== true ||
-        response.truncated === true ||
-        !isWorkbookListResponse(response.json)
-      ) {
-        fail(
-          "Sigma credentials could not be verified. Check the client ID, client secret, and API region.",
-          {
-            errorCode: "sigma_connection_verification_failed",
-            statusCode: 502,
-          },
-        );
-      }
-
-      await clearSigmaSetupCredentials(admin.orgId, input.setupId);
-      setupCredentialsCleared = true;
-
-      const db = getDbExec();
-      if (!db.transaction) {
-        fail(
-          "Analytics could not safely save the Sigma connection. Try again from the Analytics app.",
-          {
-            errorCode: "sigma_connection_transactions_unavailable",
-            statusCode: 503,
-          },
-        );
-      }
-      const directCredentials = JSON.stringify({
-        clientId: setupClientId.value.trim(),
-        clientSecret: setupClientSecret.value,
-        ...(validatedBaseUrl ? { baseUrl: validatedBaseUrl } : {}),
-      });
-      try {
-        const connection = await db.transaction((tx) =>
-          withDbExec(tx, async () => {
-            await tx.execute({
-              sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-              args: [`agent-native:analytics-sigma-connection:${admin.orgId}`],
-            });
-            const existingConnections = await listWorkspaceConnectionsForApp({
-              appId: ANALYTICS_APP_ID,
-              provider: SIGMA_PROVIDER_ID,
-              includeDisabled: true,
-            });
-            const directConnection = existingConnections.find(
-              (connection) =>
-                connection.config.analyticsSetup ===
-                SIGMA_DIRECT_CONNECTION_MARKER,
-            );
-            if (
-              directConnection &&
-              (directConnection.allowedApps.length !== 1 ||
-                directConnection.allowedApps[0] !== ANALYTICS_APP_ID ||
-                directConnection.allowedUsers.length > 0 ||
-                (directConnection.allowedUserGroups?.length ?? 0) > 0)
-            ) {
-              fail(
-                "The existing Analytics Sigma connection has an unexpected access policy.",
-                {
-                  errorCode: "sigma_connection_policy_invalid",
-                  statusCode: 409,
-                },
-              );
-            }
-
-            await writeAppSecret({
-              key: SIGMA_DIRECT_CREDENTIALS_KEY,
-              value: directCredentials,
-              scope: "org",
-              scopeId: admin.orgId,
-            });
-
-            return upsertWorkspaceConnection({
-              id:
-                directConnection?.id ??
-                `analytics-sigma-direct-${input.setupId}`,
-              provider: SIGMA_PROVIDER_ID,
-              label: SIGMA_DIRECT_CONNECTION_LABEL,
-              accountId: directConnection?.accountId ?? null,
-              accountLabel: directConnection?.accountLabel ?? null,
-              scopes: directConnection?.scopes ?? [],
-              config: {
-                analyticsSetup: SIGMA_DIRECT_CONNECTION_MARKER,
+          return upsertWorkspaceConnection({
+            id:
+              directConnection?.id ?? `analytics-sigma-direct-${input.setupId}`,
+            provider: SIGMA_PROVIDER_ID,
+            label: SIGMA_DIRECT_CONNECTION_LABEL,
+            accountId: directConnection?.accountId ?? null,
+            accountLabel: directConnection?.accountLabel ?? null,
+            scopes: directConnection?.scopes ?? [],
+            config: {
+              analyticsSetup: SIGMA_DIRECT_CONNECTION_MARKER,
+            },
+            allowedApps: [ANALYTICS_APP_ID],
+            allowedUsers: [],
+            allowedUserGroups: [],
+            credentialRefs: [
+              {
+                key: SIGMA_DIRECT_CREDENTIALS_KEY,
+                scope: "org" as const,
+                provider: SIGMA_PROVIDER_ID,
               },
-              allowedApps: [ANALYTICS_APP_ID],
-              allowedUsers: [],
-              allowedUserGroups: [],
-              credentialRefs: [
-                {
-                  key: SIGMA_DIRECT_CREDENTIALS_KEY,
-                  scope: "org" as const,
-                  provider: SIGMA_PROVIDER_ID,
-                },
-              ],
-              status: "connected",
-              lastCheckedAt: Date.now(),
-              lastError: null,
-            });
-          }),
-        );
-        return { connectionId: connection.id, status: connection.status };
-      } catch (error) {
-        if (isActionContractError(error)) throw error;
-        fail(
-          "Sigma credentials were verified, but Analytics could not save them. The previous connection is unchanged.",
-          {
-            errorCode: "sigma_connection_save_failed",
-            statusCode: 500,
-          },
-        );
-      }
-    } finally {
-      if (!setupCredentialsCleared) {
+            ],
+            status: "connected",
+            lastCheckedAt: Date.now(),
+            lastError: null,
+          });
+        }),
+      );
+      let cleanupPending = false;
+      try {
         await clearSigmaSetupCredentials(admin.orgId, input.setupId);
+      } catch {
+        cleanupPending = true;
       }
+      return {
+        connectionId: connection.id,
+        status: connection.status,
+        cleanupPending,
+      };
+    } catch (error) {
+      if (isActionContractError(error)) throw error;
+      fail(
+        "Sigma credentials were verified, but Analytics could not save them. The previous connection is unchanged.",
+        {
+          errorCode: "sigma_connection_save_failed",
+          statusCode: 500,
+        },
+      );
     }
   },
 });

@@ -68,6 +68,25 @@ export default {
     sigmaConnecting: "Connexion à Sigma…",
     sigmaConnectFailed:
       "Impossible de vérifier cette connexion Sigma. Vérifiez les identifiants et la région de l’API, puis réessayez.",
+    sigmaCredentialStageFailed:
+      "Impossible de stocker temporairement les identifiants Sigma. Vérifiez l’accès au Vault, puis réessayez.",
+    sigmaCredentialsRequired:
+      "Enregistrez d’abord l’ID client et le secret client Sigma.",
+    sigmaBaseUrlInvalid:
+      "Utilisez une URL HTTPS de l’API Sigma sur un domaine sigmacomputing.com.",
+    sigmaPersistenceUnavailable:
+      "Analytics ne peut pas enregistrer la connexion Sigma de manière sécurisée pour le moment. Réessayez.",
+    sigmaPolicyInvalid:
+      "La connexion Sigma existante d’Analytics a une règle d’accès inattendue. Reconnectez-la dans Dispatch avant de réessayer.",
+    sigmaSaveFailed:
+      "Les identifiants Sigma ont été vérifiés, mais Analytics n’a pas pu les enregistrer. La connexion précédente est inchangée. Réessayez.",
+    sigmaCleanupPending:
+      "Sigma est connecté, mais les identifiants temporaires de configuration restent présents jusqu’à la réussite du nettoyage.",
+    sigmaCleanupFailed:
+      "Impossible d’effacer les identifiants Sigma temporaires. Réessayez le nettoyage.",
+    sigmaRetryCleanup: "Réessayer le nettoyage",
+    sigmaDirectCredentialsUnavailable:
+      "Impossible de lire les identifiants Sigma enregistrés pour Analytics. Reconnectez Sigma dans Dispatch ou saisissez à nouveau les identifiants.",
     sigmaNoConnectionDescription:
       "Saisissez ici les identifiants pour créer une connexion réservée à Analytics. Les connexions Sigma autorisées pour Analytics dans Dispatch s’affichent automatiquement ici ; seuls les administrateurs de l’organisation peuvent enregistrer directement des identifiants.",
     sigmaOpenDispatch: "Connecter dans Dispatch",

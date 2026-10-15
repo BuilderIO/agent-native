@@ -233,6 +233,24 @@ export default {
     sigmaConnecting: "Connecting…",
     sigmaConnectFailed:
       "Couldn't verify this Sigma connection. Check the credentials and API region, then try again.",
+    sigmaCredentialStageFailed:
+      "Couldn't securely stage the Sigma credentials. Check Vault access and try again.",
+    sigmaCredentialsRequired: "Enter the Sigma client ID and client secret.",
+    sigmaBaseUrlInvalid:
+      "Use an HTTPS Sigma API URL on a sigmacomputing.com domain.",
+    sigmaPersistenceUnavailable:
+      "Analytics can't securely save the Sigma connection right now. Try again.",
+    sigmaPolicyInvalid:
+      "The existing Analytics Sigma connection has an unexpected access policy. Manage it in Dispatch before retrying.",
+    sigmaSaveFailed:
+      "Sigma credentials were verified, but Analytics couldn't save them. Your previous connection is unchanged. Try again.",
+    sigmaCleanupPending:
+      "Sigma is connected, but temporary setup credentials remain until cleanup succeeds.",
+    sigmaCleanupFailed:
+      "Couldn't clear temporary Sigma setup credentials. Try cleanup again.",
+    sigmaRetryCleanup: "Retry cleanup",
+    sigmaDirectCredentialsUnavailable:
+      "Couldn't read Analytics's saved Sigma credentials. Reconnect in Dispatch or enter them again.",
     sigmaNoConnectionDescription:
       "Enter credentials here to create an Analytics-only connection. Dispatch connections granted to Analytics appear here automatically; only organization admins can save credentials directly.",
     sigmaOpenDispatch: "Connect in Dispatch",

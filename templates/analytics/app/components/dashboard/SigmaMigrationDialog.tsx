@@ -1,5 +1,4 @@
 import {
-  actionErrorMessage,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
@@ -15,7 +14,7 @@ import {
   IconLoader2,
   IconSparkles,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -128,7 +127,11 @@ type MigrationArgs = {
 };
 
 type LoadedWorkbookPage = { cursor?: string; workbooks: SigmaWorkbook[] };
-type SigmaConnectionSaveResult = { connectionId: string; status: string };
+type SigmaConnectionSaveResult = {
+  connectionId: string;
+  status: string;
+  cleanupPending: boolean;
+};
 type SigmaConnectionSaveArgs =
   | { operation: "discard"; setupId: string }
   | { operation: "verify"; setupId: string; useDefaultBaseUrl: boolean };
@@ -200,6 +203,9 @@ export function SigmaMigrationDialog({
   const listResultIsValid = listData ? isWorkbookListResult(listData) : false;
   const listHasError =
     workbookList.isError || Boolean(listData && !listResultIsValid);
+  const directCredentialsUnavailable =
+    actionErrorCode(workbookList.error) ===
+    "sigma_direct_credentials_unavailable";
   const isLoadingList =
     workbookList.isPending ||
     (workbookList.isFetching && workbookList.isPlaceholderData);
@@ -365,6 +371,12 @@ export function SigmaMigrationDialog({
   const [sigmaBaseUrl, setSigmaBaseUrl] = useState("");
   const [sigmaSetupError, setSigmaSetupError] = useState<string | null>(null);
   const [savingSigmaCredentials, setSavingSigmaCredentials] = useState(false);
+  const [sigmaCleanupPending, setSigmaCleanupPending] = useState(false);
+  const [sigmaCleanupError, setSigmaCleanupError] = useState<string | null>(
+    null,
+  );
+  const [savingSigmaCleanup, setSavingSigmaCleanup] = useState(false);
+  const sigmaSetupId = useRef<string | null>(null);
 
   const connected = Boolean(
     listStateForCurrentConnection?.connected &&
@@ -469,7 +481,10 @@ export function SigmaMigrationDialog({
     event.preventDefault();
     setSigmaSetupError(null);
     setSavingSigmaCredentials(true);
-    const setupId = crypto.randomUUID();
+    setSigmaCleanupError(null);
+    const setupId = sigmaSetupId.current ?? crypto.randomUUID();
+    sigmaSetupId.current = setupId;
+    setSigmaCleanupPending(false);
     let setupPhase: "credentials" | "connection" = "credentials";
     try {
       await saveApiKeyValue({
@@ -503,39 +518,95 @@ export function SigmaMigrationDialog({
         result.status !== "connected"
       ) {
         setSigmaSetupError(t("dashboardOverview.sigmaConnectFailed"));
+        setSigmaCleanupPending(true);
         return;
       }
+      if (!result.cleanupPending) sigmaSetupId.current = null;
+      setSigmaCleanupPending(result.cleanupPending);
       setSigmaClientId("");
       setSigmaClientSecret("");
       setSigmaBaseUrl("");
       setRefreshVersion((current) => current + 1);
     } catch (error) {
-      const errorMessage =
-        setupPhase === "credentials"
-          ? error instanceof Error
-            ? error.message.trim()
-            : ""
-          : (actionErrorMessage(error) ?? "");
-      const redactedErrorMessage = [
-        sigmaClientId.trim(),
-        sigmaClientSecret,
-        sigmaClientSecret.trim(),
-        sigmaBaseUrl.trim(),
-      ]
-        .filter(Boolean)
-        .reduce(
-          (message, value) => message.split(value).join("[redacted]"),
-          errorMessage,
-        );
-      setSigmaSetupError(
-        redactedErrorMessage || t("dashboardOverview.sigmaConnectFailed"),
-      );
-      await saveSigmaConnection
-        .mutateAsync({ operation: "discard", setupId })
-        .catch(() => undefined);
+      const code = actionErrorCode(error);
+      switch (code) {
+        case "sigma_credentials_required":
+          setSigmaSetupError(t("dashboardOverview.sigmaCredentialsRequired"));
+          break;
+        case "sigma_base_url_invalid":
+          setSigmaSetupError(t("dashboardOverview.sigmaBaseUrlInvalid"));
+          break;
+        case "sigma_connection_transactions_unavailable":
+          setSigmaSetupError(
+            t("dashboardOverview.sigmaPersistenceUnavailable"),
+          );
+          break;
+        case "sigma_connection_policy_invalid":
+          setSigmaSetupError(t("dashboardOverview.sigmaPolicyInvalid"));
+          break;
+        case "sigma_connection_save_failed":
+          setSigmaSetupError(t("dashboardOverview.sigmaSaveFailed"));
+          break;
+        default:
+          setSigmaSetupError(
+            setupPhase === "credentials"
+              ? t("dashboardOverview.sigmaCredentialStageFailed")
+              : t("dashboardOverview.sigmaConnectFailed"),
+          );
+      }
+      setSigmaCleanupPending(true);
     } finally {
       setSavingSigmaCredentials(false);
     }
+  };
+
+  const cleanupSigmaSetupCredentials = async (): Promise<boolean> => {
+    const setupId = sigmaSetupId.current;
+    if (!setupId) {
+      setSigmaCleanupPending(false);
+      setSigmaCleanupError(null);
+      return true;
+    }
+    setSavingSigmaCleanup(true);
+    setSigmaCleanupError(null);
+    try {
+      const result = await saveSigmaConnection.mutateAsync({
+        operation: "discard",
+        setupId,
+      });
+      if (
+        !isSigmaConnectionSaveResult(result) ||
+        result.status !== "discarded" ||
+        result.cleanupPending
+      ) {
+        throw new Error("Sigma setup cleanup did not complete.");
+      }
+      sigmaSetupId.current = null;
+      setSigmaCleanupPending(false);
+      return true;
+    } catch {
+      setSigmaCleanupPending(true);
+      setSigmaCleanupError(t("dashboardOverview.sigmaCleanupFailed"));
+      return false;
+    } finally {
+      setSavingSigmaCleanup(false);
+    }
+  };
+
+  const handleDialogOpenChange = async (nextOpen: boolean) => {
+    if (nextOpen) {
+      onOpenChange(true);
+      return;
+    }
+    if (
+      savingSigmaCredentials ||
+      saveSigmaConnection.isPending ||
+      savingSigmaCleanup
+    ) {
+      return;
+    }
+    if (!(await cleanupSigmaSetupCredentials())) return;
+    onOpenChange(false);
   };
 
   useEffect(() => {
@@ -544,6 +615,8 @@ export function SigmaMigrationDialog({
     setSigmaClientSecret("");
     setSigmaBaseUrl("");
     setSigmaSetupError(null);
+    setSigmaCleanupPending(false);
+    setSigmaCleanupError(null);
   }, [open]);
 
   useEffect(() => {
@@ -649,20 +722,50 @@ export function SigmaMigrationDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => void handleDialogOpenChange(nextOpen)}
+      >
         <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-w-xl">
           <DialogHeader className="px-6 pt-6">
             <DialogTitle>{t("dashboardOverview.importFromSigma")}</DialogTitle>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-2">
+            {sigmaCleanupPending ? (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3 text-sm"
+                role="alert"
+              >
+                <span>
+                  {sigmaCleanupError ??
+                    t("dashboardOverview.sigmaCleanupPending")}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void cleanupSigmaSetupCredentials()}
+                  disabled={savingSigmaCleanup || savingSigmaCredentials}
+                >
+                  {savingSigmaCleanup ? (
+                    <IconLoader2 className="animate-spin" />
+                  ) : null}
+                  {t("dashboardOverview.sigmaRetryCleanup")}
+                </Button>
+              </div>
+            ) : null}
             {isLoadingList && workbooks.length === 0 ? (
               <WorkbookListSkeleton />
             ) : listHasError && workbooks.length === 0 ? (
               <StateMessage
                 icon={<IconAlertCircle className="size-4" />}
                 title={t("dashboardOverview.sigmaWorkbooksLoadFailed")}
-                detail={t("dashboardOverview.sigmaRetryConnection")}
+                detail={
+                  directCredentialsUnavailable
+                    ? t("dashboardOverview.sigmaDirectCredentialsUnavailable")
+                    : t("dashboardOverview.sigmaRetryConnection")
+                }
                 action={
                   <div className="flex flex-wrap gap-2">
                     {chooseConnectionButton}
@@ -1304,8 +1407,16 @@ function isSigmaConnectionSaveResult(
   if (!value || typeof value !== "object") return false;
   const result = value as SigmaConnectionSaveResult;
   return (
-    typeof result.connectionId === "string" && typeof result.status === "string"
+    typeof result.connectionId === "string" &&
+    typeof result.status === "string" &&
+    typeof result.cleanupPending === "boolean"
   );
+}
+
+function actionErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const errorCode = (error as { errorCode?: unknown }).errorCode;
+  return typeof errorCode === "string" ? errorCode : undefined;
 }
 
 function isWorkbookInspection(

@@ -67,6 +67,25 @@ export default {
     sigmaConnecting: "Verbindung zu Sigma wird hergestellt…",
     sigmaConnectFailed:
       "Diese Sigma-Verbindung konnte nicht überprüft werden. Prüfe die Anmeldedaten und die API-Region und versuche es erneut.",
+    sigmaCredentialStageFailed:
+      "Die temporären Sigma-Zugangsdaten konnten nicht gespeichert werden. Prüfe den Vault-Zugriff und versuche es erneut.",
+    sigmaCredentialsRequired:
+      "Speichere zuerst die Sigma-Client-ID und das Client-Secret.",
+    sigmaBaseUrlInvalid:
+      "Verwende eine HTTPS-URL der Sigma-API unter einer sigmacomputing.com-Domain.",
+    sigmaPersistenceUnavailable:
+      "Analytics kann die Sigma-Verbindung derzeit nicht sicher speichern. Versuche es erneut.",
+    sigmaPolicyInvalid:
+      "Die vorhandene Analytics-Sigma-Verbindung hat eine unerwartete Zugriffsrichtlinie. Verbinde sie vor einem erneuten Versuch in Dispatch neu.",
+    sigmaSaveFailed:
+      "Die Sigma-Zugangsdaten wurden überprüft, aber Analytics konnte sie nicht speichern. Die vorherige Verbindung ist unverändert. Versuche es erneut.",
+    sigmaCleanupPending:
+      "Sigma ist verbunden, aber temporäre Einrichtungsdaten bleiben bestehen, bis die Bereinigung erfolgreich ist.",
+    sigmaCleanupFailed:
+      "Die temporären Sigma-Zugangsdaten konnten nicht gelöscht werden. Versuche die Bereinigung erneut.",
+    sigmaRetryCleanup: "Bereinigung erneut versuchen",
+    sigmaDirectCredentialsUnavailable:
+      "Die gespeicherten Analytics-Sigma-Zugangsdaten konnten nicht gelesen werden. Verbinde Sigma in Dispatch neu oder gib die Zugangsdaten erneut ein.",
     sigmaNoConnectionDescription:
       "Gib hier Zugangsdaten ein, um eine nur für Analytics verfügbare Verbindung zu erstellen. In Dispatch für Analytics freigegebene Sigma-Verbindungen erscheinen hier automatisch; nur Organisationsadmins können Zugangsdaten direkt speichern.",
     sigmaOpenDispatch: "In Dispatch verbinden",

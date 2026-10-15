@@ -67,6 +67,24 @@ export default {
     sigmaConnecting: "جارٍ الاتصال بـ Sigma…",
     sigmaConnectFailed:
       "تعذر التحقق من اتصال Sigma هذا. تحقق من بيانات الاعتماد ومنطقة API، ثم حاول مرة أخرى.",
+    sigmaCredentialStageFailed:
+      "تعذر تخزين بيانات اعتماد Sigma المؤقتة. تحقق من إمكانية الوصول إلى Vault ثم حاول مرة أخرى.",
+    sigmaCredentialsRequired: "احفظ معرّف عميل Sigma وسر العميل أولًا.",
+    sigmaBaseUrlInvalid:
+      "استخدم عنوان HTTPS لواجهة Sigma API ضمن نطاق sigmacomputing.com.",
+    sigmaPersistenceUnavailable:
+      "لا يمكن لـ Analytics حفظ اتصال Sigma بأمان حاليًا. حاول مرة أخرى.",
+    sigmaPolicyInvalid:
+      "تتضمن سياسة الوصول لاتصال Sigma الحالي في Analytics إعدادًا غير متوقع. أعد الاتصال به في Dispatch قبل المحاولة مرة أخرى.",
+    sigmaSaveFailed:
+      "تم التحقق من بيانات اعتماد Sigma، لكن تعذر على Analytics حفظها. لم يتغير الاتصال السابق. حاول مرة أخرى.",
+    sigmaCleanupPending:
+      "تم الاتصال بـ Sigma، لكن بيانات اعتماد الإعداد المؤقتة ستظل موجودة حتى تكتمل عملية التنظيف بنجاح.",
+    sigmaCleanupFailed:
+      "تعذر مسح بيانات اعتماد Sigma المؤقتة. أعد محاولة التنظيف.",
+    sigmaRetryCleanup: "إعادة محاولة التنظيف",
+    sigmaDirectCredentialsUnavailable:
+      "تعذرت قراءة بيانات اعتماد Sigma المحفوظة في Analytics. أعد الاتصال عبر Dispatch أو أدخل بيانات الاعتماد مرة أخرى.",
     sigmaNoConnectionDescription:
       "أدخل بيانات الاعتماد هنا لإنشاء اتصال مخصص لـ Analytics. تظهر هنا تلقائيًا اتصالات Sigma الممنوحة لـ Analytics في Dispatch؛ ولا يمكن حفظ بيانات الاعتماد مباشرةً إلا لمسؤولي المؤسسة.",
     sigmaOpenDispatch: "الاتصال عبر Dispatch",

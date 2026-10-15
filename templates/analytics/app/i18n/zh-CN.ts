@@ -64,6 +64,22 @@ export default {
     sigmaConnecting: "正在连接 Sigma…",
     sigmaConnectFailed:
       "无法验证此 Sigma 连接。请检查凭据和 API 区域，然后重试。",
+    sigmaCredentialStageFailed:
+      "无法暂存临时 Sigma 凭据。请检查 Vault 访问权限，然后重试。",
+    sigmaCredentialsRequired: "请先保存 Sigma 客户端 ID 和客户端密钥。",
+    sigmaBaseUrlInvalid:
+      "请使用 sigmacomputing.com 域名下的 HTTPS Sigma API URL。",
+    sigmaPersistenceUnavailable:
+      "Analytics 目前无法安全保存 Sigma 连接。请重试。",
+    sigmaPolicyInvalid:
+      "现有 Analytics Sigma 连接的访问策略异常。请先在 Dispatch 中重新连接，然后重试。",
+    sigmaSaveFailed:
+      "Sigma 凭据已验证，但 Analytics 无法保存。之前的连接未更改。请重试。",
+    sigmaCleanupPending: "Sigma 已连接，但临时设置凭据会保留，直到清理成功。",
+    sigmaCleanupFailed: "无法清除临时 Sigma 凭据。请重试清理。",
+    sigmaRetryCleanup: "重试清理",
+    sigmaDirectCredentialsUnavailable:
+      "无法读取已保存的 Analytics Sigma 凭据。请在 Dispatch 中重新连接，或重新输入凭据。",
     sigmaNoConnectionDescription:
       "在此输入凭据以创建仅供 Analytics 使用的连接。已在 Dispatch 中授权 Analytics 使用的 Sigma 连接会自动显示在这里；只有组织管理员可以直接保存凭据。",
     sigmaOpenDispatch: "在 Dispatch 中连接",
