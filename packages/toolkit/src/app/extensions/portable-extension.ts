@@ -442,6 +442,10 @@ export function normalizeAgentNativeExtensionSandbox(
       .filter(Boolean),
   );
   tokens.delete("allow-same-origin");
+  // Without this, a link opened from the extension (target="_blank") inherits
+  // the iframe's sandbox: the new tab gets an opaque origin with no cookies or
+  // storage, so apps like HubSpot render a blank page.
+  if (tokens.has("allow-popups")) tokens.add("allow-popups-to-escape-sandbox");
   tokens.add("allow-scripts");
   tokens.add("allow-downloads");
   return Array.from(tokens).join(" ");
