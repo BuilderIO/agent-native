@@ -22,14 +22,16 @@ export type ReportChartType =
 
 export type ReportChartEvent = { index: number; label: string; color?: string };
 
-/** A data note's shaded run of x values; an edge is drawn only where the note starts or ends on the chart. */
+/** A data note's shaded runs of x values, titled once over the first; an edge is drawn only where the note starts or ends on the chart. */
 export type ReportChartBand = {
-  startIndex: number;
-  endIndex: number;
   label: string;
   color: string;
-  startEdge: boolean;
-  endEdge: boolean;
+  runs: Array<{
+    startIndex: number;
+    endIndex: number;
+    startEdge: boolean;
+    endEdge: boolean;
+  }>;
 };
 
 export type ReportChartAxis = "left" | "right";
@@ -678,23 +680,38 @@ function renderCartesianChartSvg({
     fit && series.length > 1 ? layoutLegend(legendSeries, plotWidth) : null;
   const slot = plotWidth / Math.max(labels.length, 1);
   const centerFor = (index: number) => chartLeft + slot * index + slot / 2;
-  const placedBands = (bands ?? []).flatMap((band) =>
-    band.startIndex >= 0 &&
-    band.endIndex < labels.length &&
-    band.startIndex <= band.endIndex
+  const placedBands = (bands ?? []).flatMap((band) => {
+    const runs = band.runs.flatMap((run) =>
+      run.startIndex >= 0 &&
+      run.endIndex < labels.length &&
+      run.startIndex <= run.endIndex
+        ? [
+            {
+              ...run,
+              left: chartLeft + slot * run.startIndex,
+              right: chartLeft + slot * (run.endIndex + 1),
+            },
+          ]
+        : [],
+    );
+    return runs.length > 0
       ? [
           {
-            ...band,
-            left: chartLeft + slot * band.startIndex,
-            right: chartLeft + slot * (band.endIndex + 1),
+            label: band.label,
             color: safeColor(band.color, theme.tickColor),
+            runs,
           },
         ]
-      : [],
-  );
+      : [];
+  });
   const eventLayout = layoutLabelRows(
     groupEventsByIndex(events ?? [], labels.length),
-    placedBands,
+    placedBands.map(({ label, color, runs: [first] }) => ({
+      left: first.left,
+      right: first.right,
+      label,
+      color,
+    })),
     centerFor,
     chartLeft,
     chartRight,
@@ -930,11 +947,13 @@ function renderCartesianChartSvg({
   }`;
 
   const bandFills = placedBands
-    .map(({ left, right, color, startEdge, endEdge }) => {
-      const edge = (x: number) =>
-        `<line x1="${formatCoord(x)}" x2="${formatCoord(x)}" y1="${chartTop}" y2="${chartBottom}" stroke="${color}" stroke-opacity="0.55" stroke-width="1"/>`;
-      return `<rect x="${formatCoord(left)}" y="${chartTop}" width="${formatCoord(right - left)}" height="${formatCoord(plotHeight)}" fill="${color}" fill-opacity="0.1"/>${startEdge ? edge(left) : ""}${endEdge ? edge(right) : ""}`;
-    })
+    .flatMap(({ color, runs }) =>
+      runs.map(({ left, right, startEdge, endEdge }) => {
+        const edge = (x: number) =>
+          `<line x1="${formatCoord(x)}" x2="${formatCoord(x)}" y1="${chartTop}" y2="${chartBottom}" stroke="${color}" stroke-opacity="0.55" stroke-width="1"/>`;
+        return `<rect x="${formatCoord(left)}" y="${chartTop}" width="${formatCoord(right - left)}" height="${formatCoord(plotHeight)}" fill="${color}" fill-opacity="0.1"/>${startEdge ? edge(left) : ""}${endEdge ? edge(right) : ""}`;
+      }),
+    )
     .join("");
 
   const rowTopFor = (row: number) => eventsTop + row * EVENT_LABEL_ROW_HEIGHT;

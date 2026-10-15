@@ -261,6 +261,10 @@ Annotations menu, which also adds and edits key dates and sets.
   badge, and label text, including on combo charts. Labels sit in rows above the
   plot: same-day labels join, a long one wraps at words, and days that find no
   room are counted, not cut.
+- Human Review previews of a dashboard draw the key dates of the dashboard's
+  organization, minus the sets it hides, even when the reviewer is in another
+  organization: `get-sql-dashboard` with `reviewPreview` returns them as
+  `keyDates`.
 
 ## Data Notes
 
@@ -272,25 +276,32 @@ Notes belong to the organization, like key-date sets. Read them with
 only the fields given); remove with `delete-data-note`.
 
 - `matchEvents` lists the event names the problem affects. A note shows on every
-  chart whose SQL names one of them as a quoted string; `unlessEvents` skips
-  charts that also count the corrected event. Pin a note to specific charts with
-  `panels: [{ dashboardId, panelId }]` when no event name identifies them.
+  chart whose SQL filters on one of them, matched exactly and case-sensitively:
+  either side of `=` (in `WHERE` or `CASE WHEN`), an `IN (...)` item, a `LIKE`
+  pattern, or a simple `CASE event WHEN` value. A name the SQL only selects as a
+  label, returns from `THEN`/`ELSE`, excludes (`!=`, `<>`, `NOT IN`, `NOT LIKE`),
+  or writes in a comment does not count, and neither does `= ANY(ARRAY[...])` or
+  `IN UNNEST([...])`. `unlessEvents` skips charts that also filter on the
+  corrected event. Pin a note to specific charts with
+  `panels: [{ dashboardId, panelId }]` when no event filter identifies them.
 - `startDate` and `endDate` are `YYYY-MM-DD`. Leave out `endDate` while the
   problem is ongoing, and `startDate` when it has been wrong since before
   tracking began. Marking a note `status: "fixed"` needs an `endDate`; say what
   fixed it in `fix`. Pass `null` to clear a date or the fix.
 - Time charts shade the note's range, with an edge only where it starts or ends
-  inside the chart, and a hoverable title. Incidents are red; open data problems
-  amber; fixed data problems grey. Other charts flag the note by the title and
-  write it under the chart while it is ongoing or ended in the last 30 days.
+  inside the chart, and a hoverable title. Rows sorted by something other than
+  date shade each run of the note's rows, never a row between them, under one
+  title. Incidents are red; open data problems amber; fixed data problems grey.
+  Other charts flag the note by the title and write it under the chart while it
+  is ongoing or ended in the last 30 days.
 - A dashboard hides a note on one chart with
   `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
   keeping `hiddenKeyDateSets` and the notes already hidden in the same object.
 - People add a note from a chart's menu ("Add data note", pinned to that chart)
   or the Annotations menu; a note's hover card offers Edit, Mark fixed, and
   Hide on this chart.
-- Scheduled email reports shade the same ranges, title each band in the label
-  rows above the plot alongside key dates (a title with no room left is
+- Scheduled email reports shade the same ranges, title each note once in the
+  label rows above the plot alongside key dates (a title with no room left is
   counted), and write each note's text under the chart.
 
 ## Adding A Marker

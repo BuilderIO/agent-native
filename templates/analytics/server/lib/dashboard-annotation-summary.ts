@@ -168,7 +168,7 @@ export function dataNotePlacement(
         ? "This dashboard hides the note on every chart it belongs on (config.annotations.hiddenDataNotes). Tell the person rather than unhiding it on your own."
         : panels.some((panel) => dataNoteAppliesTo(note, dashboardId, panel))
           ? `The note belongs here only on charts other than line, area, bar or combo, and those list a note only while it is ongoing or for ${RECENT_DATA_NOTE_DAYS} days after it ends.`
-          : "The note shows on none of this dashboard's charts: no chart's SQL names one of matchEvents as a quoted string without also naming one of unlessEvents, and no chart is pinned in panels. Read the charts' SQL with get-sql-dashboard panelIds and use the exact event name, or pin the charts with panels.";
+          : "The note shows on none of this dashboard's charts: no chart's SQL filters on one of matchEvents without also filtering on one of unlessEvents, and no chart is pinned in panels. Read the charts' SQL with get-sql-dashboard panelIds and use the exact event name, or pin the charts with panels.";
   return {
     dashboardId,
     shownOn: shownOn.map(panelRef),

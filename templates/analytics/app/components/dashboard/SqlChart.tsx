@@ -132,7 +132,7 @@ import {
   renderDataNoteBands,
   useDataNoteLayout,
 } from "./data-note-bands";
-import { renderEventMarkers } from "./event-markers";
+import { renderEventMarkers, useEventMarkerGroups } from "./event-markers";
 
 export { limitChartRows };
 
@@ -2734,6 +2734,7 @@ function BarRenderer({
     rows,
     xKey,
   );
+  const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2780,7 +2781,7 @@ function BarRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
-          {renderDataNoteBands(dataNoteLayout.bands, {
+          {renderDataNoteBands(dataNoteLayout.shaded, {
             rows: rows,
             xKey,
             yAxisId: dualAxis.enabled ? "left" : undefined,
@@ -2819,9 +2820,7 @@ function BarRenderer({
             />
           ))}
           {renderEventMarkers(
-            panelEvents,
-            rows,
-            xKey,
+            eventGroups,
             dualAxis.enabled ? "left" : undefined,
             setEventHovered,
           )}
@@ -2864,6 +2863,7 @@ function ComboRenderer({
     rows,
     xKey,
   );
+  const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2911,7 +2911,7 @@ function ComboRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
-          {renderDataNoteBands(dataNoteLayout.bands, {
+          {renderDataNoteBands(dataNoteLayout.shaded, {
             rows: rows,
             xKey,
             yAxisId: dualAxis.enabled ? "left" : undefined,
@@ -2960,9 +2960,7 @@ function ComboRenderer({
             ),
           )}
           {renderEventMarkers(
-            panelEvents,
-            rows,
-            xKey,
+            eventGroups,
             dualAxis.enabled ? "left" : undefined,
             setEventHovered,
           )}
@@ -3025,6 +3023,7 @@ function TimeSeriesRenderer({
     [rows, xKey, yKeys, splitPartialDay],
   );
   const dataNoteLayout = useDataNoteLayout(dataNotes, chartRows, xKey);
+  const eventGroups = useEventMarkerGroups(panelEvents, chartRows, xKey);
 
   if (chartType === "line") {
     return (
@@ -3056,7 +3055,7 @@ function TimeSeriesRenderer({
               stroke="hsl(var(--border))"
               vertical={false}
             />
-            {renderDataNoteBands(dataNoteLayout.bands, {
+            {renderDataNoteBands(dataNoteLayout.shaded, {
               rows: chartRows,
               xKey,
               yAxisId: dualAxis.enabled ? "left" : undefined,
@@ -3109,9 +3108,7 @@ function TimeSeriesRenderer({
               ) : null,
             )}
             {renderEventMarkers(
-              panelEvents,
-              chartRows,
-              xKey,
+              eventGroups,
               dualAxis.enabled ? "left" : undefined,
               setEventHovered,
             )}
@@ -3177,7 +3174,7 @@ function TimeSeriesRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
-          {renderDataNoteBands(dataNoteLayout.bands, {
+          {renderDataNoteBands(dataNoteLayout.shaded, {
             rows: chartRows,
             xKey,
             yAxisId: dualAxis.enabled ? "left" : undefined,
@@ -3235,9 +3232,7 @@ function TimeSeriesRenderer({
             ) : null,
           )}
           {renderEventMarkers(
-            panelEvents,
-            chartRows,
-            xKey,
+            eventGroups,
             dualAxis.enabled ? "left" : undefined,
             setEventHovered,
           )}

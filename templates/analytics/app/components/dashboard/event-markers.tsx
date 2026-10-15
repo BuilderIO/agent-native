@@ -5,7 +5,7 @@ import {
   resolvePanelEvents,
   type PanelEventGroup,
 } from "@shared/panel-events";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ReferenceLine } from "recharts";
 
 import {
@@ -113,19 +113,33 @@ function EventMarkerBadge({
   );
 }
 
-export function renderEventMarkers(
+/**
+ * A chart's markers, worked out again only when its events, rows, or x key
+ * change: a chart renders again on every hover.
+ */
+export function useEventMarkerGroups(
   events: unknown,
   rows: Record<string, unknown>[],
   xKey: string,
+): PanelEventGroup[] {
+  return useMemo(
+    () =>
+      groupPanelEvents(
+        resolvePanelEvents(
+          events,
+          rows.map((row) => row[xKey]),
+        ),
+      ),
+    [events, rows, xKey],
+  );
+}
+
+export function renderEventMarkers(
+  groups: readonly PanelEventGroup[],
   yAxisId?: string,
   onHoverChange?: (hovered: boolean) => void,
 ): ReactNode[] {
-  return groupPanelEvents(
-    resolvePanelEvents(
-      events,
-      rows.map((row) => row[xKey]),
-    ),
-  ).map((group) => {
+  return groups.map((group) => {
     const color = group.events[0].color ?? DEFAULT_EVENT_COLOR;
     return (
       <ReferenceLine
