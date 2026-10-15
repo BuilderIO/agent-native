@@ -3,8 +3,9 @@ name: review-prs
 description: >-
   Review recent BuilderIO/agent-native human pull requests, approve eligible
   internal PRs, and merge changes that are ready by Steve's bar. Use for
-  scheduled or manual PR sweeps; flag external non-bug work and unresolved major
-  product or UX decisions to Steve.
+  scheduled or manual PR sweeps; flag external work needing a major product
+  call or new framework API, and unresolved major product or UX decisions, to
+  Steve.
 user-invocable: true
 scope: dev
 metadata:
@@ -20,10 +21,12 @@ approve an external or unverified author.
 
 Approval and merge readiness are separate. A **Ready to merge by Steve's bar**
 result means merge the PR under the guarded merge procedure below. For a
-confirmed external author, only a clear bug fix enters evidence review and the
-possible merge flow; external authors are never eligible for an approval
-review. Surface other external work for Steve's explicit approval before a full
-review or merge; a scheduled or manual sweep is not that approval.
+confirmed external author, a clear bug fix or a bounded improvement that
+follows existing patterns enters evidence review and the possible merge flow;
+external authors are never eligible for an approval review. Surface external
+work that needs a major product call or a new framework API for Steve's explicit
+approval before a full review or merge; a scheduled or manual sweep is not that
+approval.
 
 ## Selection and evidence
 
@@ -52,6 +55,11 @@ author and draft state:
    the evidence sweep. For all PRs that pass that gate, read the current review
    summary to determine whether the PR already has a current, non-dismissed
    `APPROVED` review.
+
+ - Before the scope gate, check a confirmed nonmember's PR from a fork for
+   assignees. If any assignee is a verified current BuilderIO member, ignore
+   the PR completely, like a draft: that person owns it under `community-prs`.
+   Take no review, reply, or merge action, and leave it out of the recap.
 
  - Reuse that review as the code assessment only after verifying the reviewer
    is a different, current BuilderIO member and is eligible under the PR's
@@ -99,17 +107,28 @@ the patch looks safe or the issue is obviously valid.
 
 ## External-contribution scope gate
 
-For an author the membership API confirms is not a current BuilderIO member,
-continue into the normal evidence sweep only for a clear bug fix: a change that
-corrects a specific reported or reproducible defect by restoring intended
-behavior. A feature, improvement, refactor, new or changed product behavior, or
-mixed bug-fix-and-enhancement scope is not a clear bug fix. If the title, issue,
-and initial diff do not establish a clear bug fix, treat it as non-bug work.
+Builder devs decide bounded outside contributions; Steve keeps major product
+calls and new framework APIs.
 
-For external non-bug work, stop before the full code review, approval or review
-action, merge-readiness disposition, author-facing draft, or merge. Report it to
-Steve as **Needs Steve's approval for scope**, with the PR link, author, stated
-scope, and why it is not a clear bug fix. Wait for Steve's explicit go-ahead on
+For an author the membership API confirms is not a current BuilderIO member,
+continue into the normal evidence sweep for a clear bug fix or a bounded
+improvement. A clear bug fix corrects a specific reported or reproducible
+defect by restoring intended behavior. A bounded improvement stays within one
+established workflow, app, or framework area and follows the patterns already
+there.
+
+External work needs Steve when it makes a major product call (as defined under
+Product and UX decisions) or adds a new framework API: a new public export,
+configuration option, action, plugin or hook contract, or CLI surface in a
+published package under `packages/`. A fix or bounded improvement to an existing
+API stays with devs when it keeps that API's contract. If the title, issue, and
+initial diff do not establish a clear bug fix or a bounded improvement, treat it
+as needing Steve.
+
+For external work that needs Steve, stop before the full code review, approval
+or review action, merge-readiness disposition, author-facing draft, or merge.
+Report it to Steve as **Needs Steve's approval for scope**, with the PR link,
+author, stated scope, and which call it needs. Wait for Steve's explicit go-ahead on
 that PR before continuing. Invoking or scheduling `review-prs`, approving a
 different PR, or prior approval of another external contribution does not
 authorize it. If membership is unknown, use the existing unknown-membership
@@ -117,6 +136,8 @@ policy; do not classify the author as external. The scope gate does not apply
 solely because membership could not be verified. Keep the no-approval outcome,
 report the missing membership check, and assess merge readiness under the
 existing unknown-membership policy.
+
+Builder devs own outside PRs end to end with `community-prs`.
 
 ## Liamdebeasi approval policy
 
@@ -296,9 +317,10 @@ merge scope and must remain completely untouched.
 For a PR that fails an approval gate, do not submit an approval. Flag the exact
 concern and the evidence needed to resolve it. External or unverified authors
 never receive an approval review, but their PRs can still be merged when they
-meet the readiness gate below. Confirmed external bug fixes must also pass the
-external-contribution scope gate; confirmed external non-bug work remains
-stopped at Steve's approval gate. For unknown membership, do not apply the
+meet the readiness gate below. Confirmed external PRs must also pass the
+external-contribution scope gate; external work that needs a major product call
+or a new framework API remains stopped at Steve's approval gate. For unknown
+membership, do not apply the
 external scope gate solely because verification failed; preserve the
 no-approval outcome, assess readiness under the existing unknown-membership
 policy, and name the missing check.
@@ -504,7 +526,8 @@ non-auto-approved external PR that needs an update or screenshot, include its
 draft reply in a separate section, or mark it waiting on the contributor with
 a link to Steve's outstanding request. For internal PRs, report the needed
 update or screenshot without drafting an author-facing reply. Do not add rows
-for bots, `steve8708`, or drafts; those are ignored completely.
+for bots, `steve8708`, drafts, or external PRs assigned to a BuilderIO member;
+those are ignored completely.
 
 Use this shape:
 
@@ -525,4 +548,4 @@ blocker when the PR is ready and the guarded admin merge is available.
 
 ## Related skills
 
-`concurrent-agents`, `verifying-changes`, `ship`, `babysit-pr`
+`concurrent-agents`, `verifying-changes`, `ship`, `babysit-pr`, `community-prs`
