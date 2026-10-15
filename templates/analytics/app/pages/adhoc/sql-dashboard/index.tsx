@@ -651,13 +651,27 @@ function SqlDashboardPageContent({
   const dashboardId = searchParams.get("id") || routeId;
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
 
-  const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
-  // The route id `dashboard` and its access were loaded for. A route change
-  // leaves them in state for one render before the reset effect clears them,
-  // so anything that acts on "this dashboard" must not pair them with the new
-  // route id.
-  const [loadedDashboardId, setLoadedDashboardId] = useState<string | null>(
-    null,
+  // The dashboard config together with the route id it was loaded for. A
+  // route change leaves it in state for one render before the reset effect
+  // clears it, so anything that acts on "this dashboard" must not pair it with
+  // the new route id. Writes name their dashboard too: a save that resolves
+  // after the route moved on must not put its config under the next id.
+  const [loadedDashboard, setLoadedDashboard] = useState<{
+    id: string;
+    config: SqlDashboardConfig | null;
+  } | null>(null);
+  const dashboard = loadedDashboard?.config ?? null;
+  const loadedDashboardId = loadedDashboard?.id ?? null;
+  const updateDashboard = useCallback(
+    (
+      id: string,
+      update: (current: SqlDashboardConfig | null) => SqlDashboardConfig | null,
+    ) => {
+      setLoadedDashboard((loaded) =>
+        loaded?.id === id ? { id, config: update(loaded.config) } : loaded,
+      );
+    },
+    [],
   );
 
   useEffect(() => {
@@ -929,7 +943,7 @@ function SqlDashboardPageContent({
   }, [awareness, ydoc]);
 
   useEffect(() => {
-    if (!ydoc || !collabSynced) return;
+    if (!dashboardId || !ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
     const handler = () => {
       const raw = ytext.toJSON();
@@ -943,7 +957,7 @@ function SqlDashboardPageContent({
             resetRevisionNavigation();
           }
           holdDashboardConfig();
-          setDashboard(parsed);
+          updateDashboard(dashboardId, () => parsed);
           updateCachedDashboardConfig(parsed);
         }
       } catch {
@@ -955,11 +969,13 @@ function SqlDashboardPageContent({
       ytext.unobserve(handler);
     };
   }, [
+    dashboardId,
     ydoc,
     collabSynced,
     holdDashboardConfig,
     resetRevisionNavigation,
     updateCachedDashboardConfig,
+    updateDashboard,
   ]);
 
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
@@ -988,8 +1004,7 @@ function SqlDashboardPageContent({
     filterRestoreProgress.current = { status: "pending" };
     skipFilterPreferenceSave.current = null;
     setLoaded(false);
-    setDashboard(null);
-    setLoadedDashboardId(null);
+    setLoadedDashboard(null);
     setArchivedAt(null);
     setHiddenAt(null);
     setDashboardOrgId(null);
@@ -1000,10 +1015,20 @@ function SqlDashboardPageContent({
     setDashboardUpdatedBy(null);
     setResourceAccess(null);
     setEditMode(false);
-    // An unfinished rename or description belongs to the dashboard it was
-    // typed on; kept, it would reappear and save onto the next one.
+    // Unfinished edits and open dialogs belong to the dashboard they were
+    // opened on; kept, they would reappear and act on the next one.
     setEditingName(false);
     setEditingDescription(false);
+    setActiveDropSlot(null);
+    setActiveDragPanelId(null);
+    setEditorOpen(false);
+    setEditingPanel(null);
+    setDashboardActionsOpen(false);
+    setOpenDeleteAfterMenuClose(false);
+    setConfirmDeleteOpen(false);
+    setEmailReportOpen(false);
+    setHistoryOpen(false);
+    setContextSheetOpen(false);
     resetRevisionNavigation();
     revisionRestoreInFlightRef.current = false;
     if (!dashboardId) setLoaded(true);
@@ -1042,8 +1067,7 @@ function SqlDashboardPageContent({
       fetched?.visibility === "public"
         ? fetched.visibility
         : null;
-    setDashboard(fetchedConfig);
-    setLoadedDashboardId(dashboardId);
+    setLoadedDashboard({ id: dashboardId, config: fetchedConfig });
     setArchivedAt(fetched?.archivedAt ?? null);
     setHiddenAt(fetched?.hiddenAt ?? null);
     setDashboardOrgId(fetched?.orgId ?? null);
@@ -1278,7 +1302,7 @@ function SqlDashboardPageContent({
       }
       resetRevisionNavigation();
       holdDashboardConfig();
-      setDashboard(updated);
+      updateDashboard(dashboardId, () => updated);
       updateCachedDashboardConfig(updated);
       void enqueueDashboardSave(dashboardId, updated)
         .then(({ isLatest }) => {
@@ -1323,6 +1347,7 @@ function SqlDashboardPageContent({
       resetRevisionNavigation,
       t,
       updateCachedDashboardConfig,
+      updateDashboard,
     ],
   );
 
@@ -1345,7 +1370,7 @@ function SqlDashboardPageContent({
         throw err;
       }
       if (!isLatest) return;
-      setDashboard(updated);
+      updateDashboard(dashboardId, () => updated);
       updateCachedDashboardConfig(updated);
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
@@ -1373,6 +1398,7 @@ function SqlDashboardPageContent({
       resetRevisionNavigation,
       t,
       updateCachedDashboardConfig,
+      updateDashboard,
     ],
   );
 
@@ -1699,11 +1725,13 @@ function SqlDashboardPageContent({
     return out;
   }, [dashboard?.filters, searchParams]);
 
+  // Reruns on a dashboard change, after the reset closed the dialog, so a
+  // report-settings link to another dashboard still opens it.
   useEffect(() => {
     if (!reportScreenshot && reportSettingsRequested) {
       setEmailReportOpen(true);
     }
-  }, [reportScreenshot, reportSettingsRequested]);
+  }, [dashboardId, reportScreenshot, reportSettingsRequested]);
 
   const handleEmailReportOpenChange = useCallback(
     (open: boolean) => {
@@ -1934,7 +1962,7 @@ function SqlDashboardPageContent({
           : undefined,
       );
       if (certification) {
-        setDashboard((current) =>
+        updateDashboard(dashboardId, (current) =>
           current ? { ...current, certification } : current,
         );
       }
@@ -1958,6 +1986,7 @@ function SqlDashboardPageContent({
     dashboardScope,
     queryClient,
     t,
+    updateDashboard,
   ]);
 
   const dismissDemoIntro = useCallback(() => {
@@ -2695,7 +2724,10 @@ function SqlDashboardPageContent({
           </CardContent>
         </Card>
       ) : (
+        // Keyed by dashboard: a card's state, such as personal column widths,
+        // must not carry over to a panel with the same id on the next one.
         <DndContext
+          key={loadedDashboardId}
           sensors={sensors}
           collisionDetection={dashboardCollisionDetection}
           onDragStart={editing ? handleDragStart : undefined}
