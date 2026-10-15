@@ -507,6 +507,85 @@ describe("native Figma Motion runtime adapter", () => {
     );
   });
 
+  it.each([
+    ["word", "WORD"],
+    ["line", "LINE"],
+    ["paragraph", "PARAGRAPH"],
+  ] as const)(
+    "treats ignoreSpaces as equivalent for %s native projections without rewriting source",
+    (unit, grouping) => {
+      const style = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "hero",
+      });
+      style.props.textDelayGrouping = grouping;
+      const authored: MotionTextDocument = {
+        version: 2,
+        animations: [
+          {
+            targetNodeId: "hero",
+            unit,
+            direction: "forward",
+            staggerMs: 250,
+            animationDirection: "in",
+            order: "left-to-right",
+            overlapPercent: 50,
+            ignoreSpaces: false,
+            property: "opacity",
+            durationMs: 500,
+            keyframes: [
+              { t: 0, value: "0" },
+              { t: 1, value: "1" },
+            ],
+          },
+        ],
+      };
+
+      const combined = motionTextDocumentWithNativeStyles(authored, [style]);
+
+      expect(
+        combined?.animations.map((animation) => animation.ignoreSpaces),
+      ).toEqual([false, true]);
+      expect(authored.animations[0]?.ignoreSpaces).toBe(false);
+      expect(style.props.ignoreSpaces).toBe(false);
+    },
+  );
+
+  it("keeps character ignoreSpaces mismatches fail-closed without rewriting either side", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const authored: MotionTextDocument = {
+      version: 2,
+      animations: [
+        {
+          targetNodeId: "hero",
+          unit: "character",
+          direction: "forward",
+          staggerMs: 250,
+          animationDirection: "in",
+          order: "left-to-right",
+          overlapPercent: 50,
+          ignoreSpaces: true,
+          property: "opacity",
+          durationMs: 500,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+
+    expectRuntimeError(
+      () => motionTextDocumentWithNativeStyles(authored, [style]),
+      "unsupported-style",
+    );
+    expect(authored.animations[0]?.ignoreSpaces).toBe(true);
+    expect(style.props.ignoreSpaces).toBe(false);
+  });
+
   it("seeds native TextStagger from authored text settings and keeps its effect settings", () => {
     const authored: MotionTextDocument["animations"][number] = {
       targetNodeId: "hero",

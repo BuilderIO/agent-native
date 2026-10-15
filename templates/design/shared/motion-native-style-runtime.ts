@@ -351,6 +351,33 @@ function authoredTextSharedProfileKey(animation: MotionTextAnimation): string {
   });
 }
 
+/** Aligns only whitespace when a new TextStagger otherwise matches authored text. */
+export function motionNativeStyleWithMatchingAuthoredTextWhitespace(
+  style: MotionNativeStyleInstance,
+  animation: MotionTextAnimation,
+): MotionNativeStyleInstance {
+  if (style.styleKey !== "TextStagger") return style;
+
+  const settings = motionNativeTextAnimationSettings(style);
+  const authoredIgnoreSpaces =
+    animation.unit === "character" ? (animation.ignoreSpaces ?? true) : true;
+  if (settings.ignoreSpaces === authoredIgnoreSpaces) return style;
+
+  if (
+    motionTextSharedProfileKey({
+      ...settings,
+      ignoreSpaces: authoredIgnoreSpaces,
+    }) !== authoredTextSharedProfileKey(animation)
+  ) {
+    return style;
+  }
+
+  return {
+    ...style,
+    props: { ...style.props, ignoreSpaces: authoredIgnoreSpaces },
+  };
+}
+
 /** Seeds TextStagger from an authored track while avoiding duplicate properties. */
 export function motionNativeStyleWithTextAnimationSettings(
   style: MotionNativeStyleInstance,
@@ -1244,7 +1271,8 @@ function textAnimationSettingsKey(animation: MotionTextAnimation): string {
       animation.order ??
       (animation.direction === "reverse" ? "right-to-left" : "left-to-right"),
     overlapPercent: animation.overlapPercent,
-    ignoreSpaces: animation.ignoreSpaces ?? true,
+    ignoreSpaces:
+      animation.unit === "character" ? (animation.ignoreSpaces ?? true) : true,
   });
 }
 

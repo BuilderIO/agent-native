@@ -365,6 +365,60 @@ describe("Motion Text source and runtime", () => {
     ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
   });
 
+  it.each(["word", "line", "paragraph"] as const)(
+    "preserves per-track ignoreSpaces values for %s grouping",
+    (unit) => {
+      const first = {
+        ...document.animations[0]!,
+        unit,
+        ignoreSpaces: false,
+      };
+      const second = {
+        ...first,
+        ignoreSpaces: true,
+        property: "translate" as const,
+        keyframes: [
+          { t: 0, value: "0px", ease: "ease-out" },
+          { t: 1, value: "12px" },
+        ],
+      };
+      const composite: MotionTextDocument = {
+        version: 2,
+        animations: [first, second],
+      };
+
+      expect(
+        decodeMotionTextDocument(encodeMotionTextDocument(composite)),
+      ).toEqual({ status: "valid", document: composite });
+    },
+  );
+
+  it("keeps character ignoreSpaces mismatches invalid", () => {
+    const first = {
+      ...document.animations[0]!,
+      unit: "character" as const,
+      ignoreSpaces: false,
+    };
+    const second = {
+      ...first,
+      ignoreSpaces: true,
+      property: "translate" as const,
+      keyframes: [
+        { t: 0, value: "0px", ease: "ease-out" },
+        { t: 1, value: "12px" },
+      ],
+    };
+
+    expect(() =>
+      encodeMotionTextDocument({ version: 2, animations: [first, second] }),
+    ).toThrow("must use the same unit, direction, and timing settings");
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({ version: 2, animations: [first, second] }),
+      ),
+    ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
+  });
+
   it("allows duration-derived stagger values when overlap controls timing", () => {
     const firstTrack: MotionTextAnimation = {
       ...document.animations[0]!,

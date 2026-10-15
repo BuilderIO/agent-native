@@ -553,6 +553,111 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     });
   });
 
+  it("seeds a new TextStagger from an authored v2 whitespace default", async () => {
+    const textDocument = {
+      version: 2 as const,
+      animations: [
+        {
+          targetNodeId: "node-caption",
+          unit: "character" as const,
+          direction: "forward" as const,
+          staggerMs: 250,
+          animationDirection: "in" as const,
+          order: "left-to-right" as const,
+          overlapPercent: 50,
+          property: "opacity" as const,
+          durationMs: 500,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const nativeStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "node-caption",
+    });
+    expect(nativeStyle.props.ignoreSpaces).toBe(false);
+
+    await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument,
+      nativeStyles: [nativeStyle],
+      durationMs: 600,
+    } as never);
+
+    const sourceText = readMotionTextDocument(currentFileRef().content);
+    expect(sourceText.status).toBe("valid");
+    if (sourceText.status === "valid") {
+      expect(sourceText.document.animations[0]?.ignoreSpaces).toBe(true);
+    }
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+    expect(readback.timelines[0]?.nativeStyles[0]?.props.ignoreSpaces).toBe(
+      true,
+    );
+  });
+
+  it("rejects an existing TextStagger when authored whitespace semantics change", async () => {
+    const textDocument = {
+      version: 2 as const,
+      animations: [
+        {
+          targetNodeId: "node-caption",
+          unit: "character" as const,
+          direction: "forward" as const,
+          staggerMs: 250,
+          animationDirection: "in" as const,
+          order: "left-to-right" as const,
+          overlapPercent: 50,
+          ignoreSpaces: false,
+          property: "opacity" as const,
+          durationMs: 500,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const nativeStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "node-caption",
+    });
+    await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument,
+      nativeStyles: [nativeStyle],
+      durationMs: 600,
+    } as never);
+    const savedContent = currentFileRef().content;
+
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: [],
+        textDocument: {
+          ...textDocument,
+          animations: textDocument.animations.map((animation) => ({
+            ...animation,
+            ignoreSpaces: true,
+          })),
+        },
+        nativeStyles: [nativeStyle],
+        durationMs: 600,
+      } as never),
+    ).rejects.toThrow("grouping or timing settings differ");
+    expect(currentFileRef().content).toBe(savedContent);
+  });
+
   it("source-backs audio clips, preserves them when omitted, and clears them explicitly", async () => {
     const audioClips = [
       {

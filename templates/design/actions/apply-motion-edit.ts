@@ -56,6 +56,7 @@ import {
 } from "../shared/motion-html-source.js";
 import {
   motionNativeStyleEndTimeMs,
+  motionNativeStyleWithMatchingAuthoredTextWhitespace,
   motionTextDocumentWithNativeStyles,
   motionTextDocumentWithoutNativeStyles,
   MotionNativeStyleRuntimeError,
@@ -1134,7 +1135,7 @@ export default defineAction({
         { errorCode: "motion_easing_variables_invalid", statusCode: 422 },
       );
     }
-    const nativeStyles: MotionNativeStyleInstance[] =
+    let nativeStyles: MotionNativeStyleInstance[] =
       nativeStylesInput === undefined
         ? existingNativeStyles
         : (nativeStylesInput as MotionNativeStyleInstance[]);
@@ -1153,6 +1154,31 @@ export default defineAction({
     }
     let runtimeTextDocument: MotionTextDocument | null;
     try {
+      if (nativeStylesInput !== undefined && textDocument) {
+        // A new style inherits authored whitespace only when that is its sole
+        // profile difference; an existing style keeps its explicit choice.
+        nativeStyles = nativeStyles.map((style) => {
+          if (
+            style.styleKey !== "TextStagger" ||
+            existingNativeStyles.some(
+              (existing) =>
+                existing.styleKey === "TextStagger" &&
+                existing.targetNodeId === style.targetNodeId,
+            )
+          ) {
+            return style;
+          }
+          const authoredAnimation = textDocument.animations.find(
+            (animation) => animation.targetNodeId === style.targetNodeId,
+          );
+          return authoredAnimation
+            ? motionNativeStyleWithMatchingAuthoredTextWhitespace(
+                style,
+                authoredAnimation,
+              )
+            : style;
+        });
+      }
       runtimeTextDocument = motionTextDocumentWithNativeStyles(
         textDocument,
         nativeStyles,

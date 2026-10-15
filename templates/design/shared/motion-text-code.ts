@@ -375,7 +375,7 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
         targetTrack.animationDirection !== animationDirection ||
         targetTrack.order !== order ||
         targetTrack.overlapPercent !== overlapPercent ||
-        targetTrack.ignoreSpaces !== ignoreSpaces
+        (unit === "character" && targetTrack.ignoreSpaces !== ignoreSpaces)
       ) {
         sourceError(
           "invalid-document",
