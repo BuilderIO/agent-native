@@ -94,6 +94,30 @@ describe("memoizeAgentEngineStatus", () => {
     expect(load).toHaveBeenCalledTimes(3);
   });
 
+  it("separates org readiness when live agent chat mode changes", async () => {
+    const load = vi.fn(async () => ({ chatEligible: true }));
+    const identity = {
+      userEmail: "steve@example.test",
+      orgId: "org-1",
+      isDirectLoopbackRequest: true,
+      isAgentChatDevModeEnabled: false,
+    };
+
+    await memoizeAgentEngineStatus(identity, load);
+    expect(
+      getMemoizedAgentEngineStatus({
+        ...identity,
+        isAgentChatDevModeEnabled: true,
+      }),
+    ).toBeUndefined();
+    await memoizeAgentEngineStatus(
+      { ...identity, isAgentChatDevModeEnabled: true },
+      load,
+    );
+
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it("expires the answer after one second and clears it after a credential change", async () => {
     let configured = false;
     const load = vi.fn(async () => ({ chatEligible: configured }));

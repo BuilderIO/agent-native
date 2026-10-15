@@ -5907,6 +5907,7 @@ export function createCoreRoutesPlugin(
               await resolveAgentEngineStatusIdentity(event);
             const loopbackRequest = isLoopbackRequest(event);
             const directLoopbackRequest = isDirectLoopbackRequest(event);
+            const agentChatDevModeEnabled = isAgentChatDevModeEnabled(nitroApp);
             const requestOrigin = getForwardedRequestOrigin(event);
             const status = await memoizeAgentEngineStatus(
               {
@@ -5914,6 +5915,7 @@ export function createCoreRoutesPlugin(
                 orgId,
                 isLoopbackRequest: loopbackRequest,
                 isDirectLoopbackRequest: directLoopbackRequest,
+                isAgentChatDevModeEnabled: agentChatDevModeEnabled,
                 requestOrigin,
               },
               async () =>
@@ -5932,8 +5934,7 @@ export function createCoreRoutesPlugin(
                       status: engineStatus,
                       detectFromUserSecrets: deps.detectFromUserSecrets,
                       allowChatGPTSubscriptionInOrg:
-                        directLoopbackRequest &&
-                        isAgentChatDevModeEnabled(nitroApp),
+                        directLoopbackRequest && agentChatDevModeEnabled,
                     });
                     return { ...engineStatus, chatEligible };
                   },
