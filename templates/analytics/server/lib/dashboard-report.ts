@@ -180,7 +180,7 @@ export async function collectReportSnapshot(
     panelIds: listReportablePanelIds(config.panels),
     panels: config.panels,
     keyDates: keyDateEvents(
-      await listKeyDateSets({ email: sub.ownerEmail, orgId: sub.orgId }),
+      await listKeyDateSets(dashboard.annotationScope),
       config.annotations,
     ),
     variables: config.variables,

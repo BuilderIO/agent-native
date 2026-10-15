@@ -15,14 +15,16 @@ export interface KeyDate {
   /** IANA zone for `time` */
   timeZone?: string;
   label: string;
-  addedBy: string;
+  /** Absent for a reader from another organization. */
+  addedBy?: string;
   updatedAt: string;
 }
 
 export interface KeyDateSet {
   id: string;
   name: string;
-  createdBy: string;
+  /** Absent for a reader from another organization. */
+  createdBy?: string;
   updatedAt: string;
   dates: KeyDate[];
 }
