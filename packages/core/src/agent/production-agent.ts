@@ -1442,6 +1442,7 @@ export function pinAdditionalActionsToTurn(
       ? resolved[name]
       : ({
           [UNAVAILABLE_ACTION]: true,
+          agentTool: false,
           tool: {
             description: `${name} is no longer available to this caller.`,
             parameters: { type: "object", properties: {} },
@@ -5023,10 +5024,26 @@ function readHistoryToolNames(
   for (const name of loadedNames) {
     if (typeof name === "string") names.add(name);
   }
+  // A call that already got "Unknown tool" named a tool that never existed.
+  const unknownCallIds = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== "user") continue;
+    for (const part of message.content) {
+      if (
+        part.type === "tool-result" &&
+        typeof part.content === "string" &&
+        part.content.startsWith("Error: Unknown tool")
+      ) {
+        unknownCallIds.add(part.toolCallId);
+      }
+    }
+  }
   for (const message of messages) {
     if (message.role !== "assistant") continue;
     for (const part of message.content) {
-      if (part.type === "tool-call") names.add(part.name);
+      if (part.type === "tool-call" && !unknownCallIds.has(part.id)) {
+        names.add(part.name);
+      }
     }
   }
   return names;

@@ -220,6 +220,49 @@ describe("tools that are gone since earlier in the conversation", () => {
     );
   });
 
+  it("keeps Unknown tool for a name that already got Unknown tool earlier", async () => {
+    const actions = attachToolSearch({ "task-run": tool("Run a task") });
+    const tools = actionsToEngineTools(actions);
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine: engineWith([[callTo("invented-tool", "again")]], []),
+      model: "test-model",
+      systemPrompt: "system",
+      tools,
+      availableTools: tools,
+      messages: [
+        userText("do it"),
+        {
+          role: "assistant",
+          content: [callTo("invented-tool", "first")],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "first",
+              toolName: "invented-tool",
+              toolInput: "{}",
+              content: 'Error: Unknown tool "invented-tool".',
+              isError: true,
+            },
+          ],
+        },
+        userText("try again"),
+      ],
+      actions,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const done = events.find(
+      (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+        event.type === "tool_done" && event.id === "again",
+    );
+    expect(done?.result).toMatch(/^Error: Unknown tool "invented-tool"/);
+  });
+
   it("stops instead of continuing when the tool the user approved is gone", async () => {
     const { seen, events, done } = await run({
       registry: { "task-run": tool("Run a task") },
@@ -248,6 +291,15 @@ describe("a durable continuation whose pinned tool was removed", () => {
       ["editor-format", "task-run"],
       {},
     );
+
+  it("does not offer the placeholder to the model as a tool", () => {
+    const names = actionsToEngineTools(attachToolSearch(pinned())).map(
+      (engineTool) => engineTool.name,
+    );
+
+    expect(names).toContain("task-run");
+    expect(names).not.toContain("editor-format");
+  });
 
   it("treats the placeholder as gone, not as a tool that failed", async () => {
     const { seen, done } = await run({
