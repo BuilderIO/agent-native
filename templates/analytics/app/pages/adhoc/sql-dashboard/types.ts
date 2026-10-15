@@ -162,6 +162,13 @@ export interface SqlDashboardConfig {
   variables?: Record<string, string>;
   columns?: number;
   panels: SqlPanel[];
+  annotations?: DashboardAnnotations;
+}
+
+/** Dashboard-level settings for key dates; per-panel `events` stay in panel config. */
+export interface DashboardAnnotations {
+  /** Key-date sets this dashboard leaves off its charts. Every other set shows on every time chart. */
+  hiddenKeyDateSets?: string[];
 }
 
 export const MIN_DASHBOARD_COLUMNS = 1;

@@ -124,6 +124,7 @@ import type {
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
 import { renderEventMarkers } from "./event-markers";
+import { usePanelEvents } from "./key-dates-context";
 
 export { limitChartRows };
 
@@ -2711,6 +2712,7 @@ function BarRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2786,7 +2788,7 @@ function BarRenderer({
             />
           ))}
           {renderEventMarkers(
-            panel.config?.events,
+            panelEvents,
             rows,
             xKey,
             dualAxis.enabled ? "left" : undefined,
@@ -2825,6 +2827,7 @@ function ComboRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2911,7 +2914,7 @@ function ComboRenderer({
             ),
           )}
           {renderEventMarkers(
-            panel.config?.events,
+            panelEvents,
             rows,
             xKey,
             dualAxis.enabled ? "left" : undefined,
@@ -2949,6 +2952,7 @@ function TimeSeriesRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
   const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
     useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
@@ -3047,7 +3051,7 @@ function TimeSeriesRenderer({
               ) : null,
             )}
             {renderEventMarkers(
-              panel.config?.events,
+              panelEvents,
               chartRows,
               xKey,
               dualAxis.enabled ? "left" : undefined,
@@ -3163,7 +3167,7 @@ function TimeSeriesRenderer({
             ) : null,
           )}
           {renderEventMarkers(
-            panel.config?.events,
+            panelEvents,
             chartRows,
             xKey,
             dualAxis.enabled ? "left" : undefined,

@@ -72,6 +72,7 @@ import { toast } from "sonner";
 
 import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
 import { DashboardMetadata } from "@/components/dashboard/DashboardMetadata";
+import { DashboardKeyDatesProvider } from "@/components/dashboard/key-dates-context";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -551,6 +552,7 @@ async function fetchDashboard(
         variables: data.variables,
         columns: typeof data.columns === "number" ? data.columns : undefined,
         panels: data.panels ?? [],
+        annotations: data.annotations,
       },
       archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
       hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
@@ -2459,7 +2461,7 @@ function SqlDashboardPageContent({
     return <BlankDashboard />;
   }
 
-  return (
+  const content = (
     <DashboardReportCaptureSurface
       className="space-y-4"
       phase="ready"
@@ -2789,5 +2791,10 @@ function SqlDashboardPageContent({
         />
       ) : null}
     </DashboardReportCaptureSurface>
+  );
+  return (
+    <DashboardKeyDatesProvider annotations={dashboard.annotations}>
+      {content}
+    </DashboardKeyDatesProvider>
   );
 }

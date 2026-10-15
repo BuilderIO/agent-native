@@ -6,9 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
+  keyDateSets: [] as unknown[],
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionQuery: (name: string) => ({
+    data: name === "list-key-dates" ? { sets: mocks.keyDateSets } : undefined,
+  }),
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
@@ -41,6 +45,7 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
 
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
+import { DashboardKeyDatesProvider } from "./key-dates-context";
 import { SqlChart } from "./SqlChart";
 
 const CHART_SIZE = { width: 640, height: 320 };
@@ -107,6 +112,7 @@ describe("SqlChart key-date markers", () => {
   });
 
   afterEach(() => {
+    mocks.keyDateSets = [];
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
@@ -149,5 +155,65 @@ describe("SqlChart key-date markers", () => {
       "Product Hunt live12:01 AM PT",
       "Launch posts on X, LinkedIn12:00 PM ET",
     ]);
+  });
+
+  describe("with the dashboard's key-date sets", () => {
+    const keyDate = (setId: string, date: string, label: string) => ({
+      id: `${setId}-${date}`,
+      setId,
+      date,
+      label,
+      addedBy: "alice@example.test",
+      updatedAt: "2026-10-14T00:00:00.000Z",
+    });
+
+    beforeEach(() => {
+      mocks.keyDateSets = [
+        {
+          id: "changes",
+          name: "Product changes",
+          createdBy: "alice@example.test",
+          updatedAt: "2026-10-14T00:00:00.000Z",
+          dates: [keyDate("changes", "2026-10-11", "Visitor source kept")],
+        },
+        {
+          id: "launches",
+          name: "Launches",
+          createdBy: "alice@example.test",
+          updatedAt: "2026-10-14T00:00:00.000Z",
+          dates: [keyDate("launches", "2026-10-13", "Clips launch")],
+        },
+      ];
+    });
+
+    const unmarked = (chartType: SqlPanel["chartType"]): SqlPanel => ({
+      ...panel(chartType),
+      config: { xKey: "day", yKeys: ["people"] },
+    });
+
+    it("marks a chart that lists no events of its own", async () => {
+      await act(async () => {
+        root.render(
+          <DashboardKeyDatesProvider>
+            <SqlChart panel={unmarked("bar")} />
+          </DashboardKeyDatesProvider>,
+        );
+      });
+      expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(2);
+    });
+
+    it("leaves off the sets the dashboard hides", async () => {
+      await act(async () => {
+        root.render(
+          <DashboardKeyDatesProvider
+            annotations={{ hiddenKeyDateSets: ["launches"] }}
+          >
+            <SqlChart panel={panel("line")} />
+          </DashboardKeyDatesProvider>,
+        );
+      });
+      // The panel's Oct 12 and Oct 14 markers, plus the Oct 11 product change.
+      expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(3);
+    });
   });
 });

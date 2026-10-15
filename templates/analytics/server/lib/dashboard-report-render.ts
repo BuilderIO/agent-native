@@ -12,12 +12,14 @@ import {
 import type {
   ColumnFormat,
   SqlDashboardConfig,
+  PanelEvent,
   SqlPanel,
   TableColumnConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
 import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { formatDollars } from "../../shared/format-dollars";
+import { panelEventsWithKeyDates } from "../../shared/key-dates";
 import { resolvePanelEvents } from "../../shared/panel-events";
 import {
   chartPointLimit,
@@ -58,6 +60,8 @@ export type ReportSnapshot = {
   generatedAt: string;
   panelIds: string[];
   panels: SqlDashboardConfig["panels"];
+  /** The dashboard's key dates, drawn on every time chart alongside each panel's own events. */
+  keyDates?: PanelEvent[];
   variables?: Record<string, string>;
 };
 
@@ -464,6 +468,7 @@ function buildChartInput(
   rows: Array<Record<string, unknown>>,
   chartType: ReportChartType,
   forcedYKeys: string[] | undefined,
+  keyDates: readonly PanelEvent[] = [],
 ): ChartInput | null {
   const config = panel.config;
   const detected = detectChartKeys(rows, config, forcedYKeys);
@@ -494,9 +499,10 @@ function buildChartInput(
   const events =
     chartType === "pie"
       ? []
-      : resolvePanelEvents(config?.events, visible.map((row) => row[xKey])).map(
-          ({ index, label, color }) => ({ index, label, color }),
-        );
+      : resolvePanelEvents(
+          panelEventsWithKeyDates(panel, keyDates),
+          visible.map((row) => row[xKey]),
+        ).map(({ index, label, color }) => ({ index, label, color }));
 
   return {
     events,
@@ -865,9 +871,16 @@ async function renderChartBlock(args: {
   chartType: Exclude<ReportChartType, "funnel">;
   index: number;
   description: string;
+  keyDates?: readonly PanelEvent[];
 }): Promise<PanelBlock> {
   const { panel, rows, chartType, index, description } = args;
-  const input = buildChartInput(panel, rows, chartType, args.forcedYKeys);
+  const input = buildChartInput(
+    panel,
+    rows,
+    chartType,
+    args.forcedYKeys,
+    args.keyDates,
+  );
   if (!input) {
     const table = renderTableHtml(panel, rows);
     return {
@@ -1116,6 +1129,7 @@ export async function renderReportEmail(args: {
         chartType,
         index: chartIndex++,
         description,
+        ...(snapshot.keyDates ? { keyDates: snapshot.keyDates } : {}),
       });
       if (truncatedNote) block.html += truncatedNote;
       blocks.push(block);

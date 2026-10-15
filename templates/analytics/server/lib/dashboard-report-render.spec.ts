@@ -1003,3 +1003,57 @@ describe("report chart parity with the dashboard", () => {
     ]);
   });
 });
+
+describe("renderReportEmail key dates", () => {
+  const rows = [
+    { date: "2026-10-12", people: 10 },
+    { date: "2026-10-13", people: 12 },
+    { date: "2026-10-14", people: 30 },
+  ];
+  const keyDates = [
+    {
+      date: "2026-10-14",
+      time: "00:01",
+      timeZone: "America/Los_Angeles",
+      label: "Product Hunt live",
+    },
+  ];
+
+  async function chartEvents(chartType: SqlPanel["chartType"]) {
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "people",
+            chartType,
+            config: {
+              xKey: "date",
+              yKeys: ["people"],
+              events: [{ date: "2026-10-12", label: "Role step first" }],
+            },
+          }),
+        ]),
+        keyDates,
+      },
+      panelData: new Map([
+        ["people", { status: "rows" as const, rows, schema: [] }],
+      ]),
+    });
+    return (
+      mocks.renderReportChartSvg.mock.calls[0]?.[0] as
+        | { events: Array<{ index: number; label: string }> }
+        | undefined
+    )?.events;
+  }
+
+  it("draws the dashboard's key dates next to the panel's own events", async () => {
+    expect(await chartEvents("line")).toEqual([
+      { index: 0, label: "Role step first" },
+      { index: 2, label: "Product Hunt live" },
+    ]);
+  });
+
+  it("leaves key dates off charts that do not draw events", async () => {
+    expect(await chartEvents("pie")).toEqual([]);
+  });
+});

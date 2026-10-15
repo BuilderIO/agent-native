@@ -4,10 +4,12 @@ import { getAppProductionUrl, sendEmail } from "@agent-native/core/server";
 import { normalizeMultiSelectValue } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
 import { listReportablePanelIds } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import type {
+  DashboardAnnotations,
   DashboardFilter,
   FilterType,
   SqlDashboardConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
+import { keyDateEvents } from "../../shared/key-dates";
 import {
   fetchReportPanelData,
   renderReportEmail,
@@ -21,6 +23,7 @@ import {
   type DashboardReportSubscription,
 } from "./dashboard-report-subscriptions";
 import { ANALYTICS_DASHBOARD_REPORT_EMAIL_ID } from "./emails";
+import { listKeyDateSets } from "./key-dates-store";
 
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
   "date",
@@ -112,6 +115,7 @@ function dashboardConfigFromRecord(raw: Record<string, unknown>) {
         : undefined,
     columns: typeof raw.columns === "number" ? raw.columns : undefined,
     panels: Array.isArray(raw.panels) ? (raw.panels as any[]) : [],
+    annotations: raw.annotations as DashboardAnnotations | undefined,
   } satisfies SqlDashboardConfig;
 }
 
@@ -175,6 +179,10 @@ export async function collectReportSnapshot(
     generatedAt: new Date().toISOString(),
     panelIds: listReportablePanelIds(config.panels),
     panels: config.panels,
+    keyDates: keyDateEvents(
+      await listKeyDateSets({ email: sub.ownerEmail, orgId: sub.orgId }),
+      config.annotations,
+    ),
     variables: config.variables,
   };
 }

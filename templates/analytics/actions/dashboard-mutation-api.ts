@@ -38,6 +38,8 @@ type DashboardPatch = {
   variables?: Record<string, string>;
   /** Id of another dashboard to nest this one under in the sidebar. */
   parentId?: string;
+  /** Key-date sets (ids from list-key-dates) to leave off this dashboard's charts. */
+  annotations?: { hiddenKeyDateSets?: string[] };
 };
 
 type PanelTimeScope =

@@ -839,6 +839,42 @@ export const externalDashboardMigrations = table(
   }),
 );
 
+/** Named groups of key dates (launches, product changes) shown on every time chart of a dashboard. */
+export const analyticsKeyDateSets = table(
+  "analytics_key_date_sets",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    name: varchar("name", { length: 80 }).notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    orgIdx: index("analytics_key_date_sets_org_idx").on(t.orgId),
+  }),
+);
+
+export const analyticsKeyDates = table(
+  "analytics_key_dates",
+  {
+    id: text("id").primaryKey(),
+    setId: text("set_id").notNull(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    date: varchar("date", { length: 10 }).notNull(),
+    time: varchar("time", { length: 5 }),
+    timeZone: varchar("time_zone", { length: 64 }),
+    label: varchar("label", { length: 120 }).notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    setIdx: index("analytics_key_dates_set_idx").on(t.setId, t.date),
+    orgIdx: index("analytics_key_dates_org_idx").on(t.orgId),
+  }),
+);
+
 export const sessionRecordings = table(
   "session_recordings",
   {

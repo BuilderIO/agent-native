@@ -25,6 +25,14 @@ registerIdentityColumns([
     reason:
       "The original migrator identity preserves provenance and gates remigration of an imported external dashboard.",
   },
+  ...["analytics_key_date_sets", "analytics_key_dates"].map((table) => ({
+    table,
+    column: "owner_email",
+    emailChange: "rekey" as const,
+    offboard: "retain" as const,
+    reason:
+      "Records who added an organization's key date or set; the dates stay with the organization when that person leaves.",
+  })),
   {
     table: "session_recordings",
     column: "session_id",

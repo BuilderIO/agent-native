@@ -48,6 +48,7 @@ const mocks = vi.hoisted(() => ({
     deliveredChannels: ["slack"],
   })),
   getAppProductionUrl: vi.fn(() => "https://analytics.example.test"),
+  listKeyDateSets: vi.fn(async (_scope: AccessCtx): Promise<unknown[]> => []),
   getReportDashboard: vi.fn(
     async (
       _dashboardId: string,
@@ -77,6 +78,9 @@ vi.mock("@agent-native/core/notifications", () => ({
 vi.mock("./dashboard-report-render", () => ({
   fetchReportPanelData: mocks.fetchReportPanelData,
   renderReportEmail: mocks.renderReportEmail,
+}));
+vi.mock("./key-dates-store", () => ({
+  listKeyDateSets: mocks.listKeyDateSets,
 }));
 vi.mock("./dashboard-report-subscriptions", () => ({
   getReportDashboard: mocks.getReportDashboard,
@@ -659,6 +663,39 @@ describe("dashboard report email", () => {
       email: "steve@builder.io",
       orgId: "org_1",
     });
+  });
+
+  it("adds the owner's key dates, minus the sets the dashboard hides", async () => {
+    const keyDate = (setId: string, label: string) => ({
+      id: `${setId}-1`,
+      setId,
+      date: "2026-10-14",
+      label,
+      addedBy: "steve@builder.io",
+      updatedAt: "2026-10-14T00:00:00.000Z",
+    });
+    mocks.listKeyDateSets.mockResolvedValueOnce([
+      { id: "launches", dates: [keyDate("launches", "Product Hunt live")] },
+      { id: "changes", dates: [keyDate("changes", "Role step first")] },
+    ]);
+    const dashboard = dashboardWith([panel("p1")]);
+    mocks.getReportDashboard.mockResolvedValue({
+      ...dashboard,
+      config: {
+        ...dashboard.config,
+        annotations: { hiddenKeyDateSets: ["changes"] },
+      },
+    });
+
+    const snapshot = await collectReportSnapshot(subscription());
+
+    expect(mocks.listKeyDateSets).toHaveBeenCalledWith({
+      email: "steve@builder.io",
+      orgId: "org_1",
+    });
+    expect(snapshot.keyDates).toEqual([
+      { date: "2026-10-14", label: "Product Hunt live" },
+    ]);
   });
 
   it("fails loudly when the dashboard is not readable", async () => {

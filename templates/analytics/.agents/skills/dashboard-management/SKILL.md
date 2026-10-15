@@ -211,9 +211,19 @@ flattens into the baseline and reads as "no data."
 
 ## Key-Date Event Markers
 
-Mark a launch, release, or incident on a `line`, `area`, `bar`, or `combo`
-chart with a date x-axis using `config.events`. Do not add a fake series or an
-extension for this.
+Key dates mark a launch, release, or product change on `line`, `area`, `bar`,
+and `combo` charts with a date x-axis. Do not add a fake series or an extension
+for this. They live in two places:
+
+- **Key-date sets** hold moments that matter across charts, such as Launches or
+  Product changes. A set belongs to the organization (to the user when there is
+  no organization) and draws on every time chart of every dashboard. Read sets
+  with `list-key-dates`; add or edit a date with `save-key-date` (name the set
+  with `setName` and it is created if missing); rename or create a set with
+  `save-key-date-set`; remove with `delete-key-date` or `delete-key-date-set`.
+  Prefer a set to copying one date into many panels.
+- **Panel events** in `config.events` hold a date that matters to one chart
+  only, in the same shape:
 
 ```json
 "config": {
@@ -223,6 +233,10 @@ extension for this.
   ]
 }
 ```
+
+A dashboard leaves sets off its charts with `config.annotations`, set through
+`mutate-dashboard`'s `setDashboard({ annotations: { hiddenKeyDateSets: [setId, ...] } })`.
+The patch replaces the whole list, so include the sets already hidden.
 
 - Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
   multiple are allowed. `date` is the calendar date in the event's own zone.
@@ -236,10 +250,11 @@ extension for this.
   sits in its own hour.
 - A date missing from the data snaps to the nearest x value; a date outside the
   visible range is hidden; a non-date x-axis shows nothing.
+- A set's date that a panel also lists in `config.events` draws once.
 - `mutate-dashboard` rejects malformed events and other chart types.
-- Scheduled email reports draw the guide line, badge, and label text, including
-  on combo charts. Same-day labels join into one; labels that would overlap
-  move to a second row.
+- Scheduled email reports draw key dates and panel events: the guide line,
+  badge, and label text, including on combo charts. Same-day labels join into
+  one; labels that would overlap move to a second row.
 
 ## Reusable Native Dashboard Patterns
 
