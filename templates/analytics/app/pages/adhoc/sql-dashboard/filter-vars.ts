@@ -32,6 +32,10 @@ export const FILTER_TYPES: DashboardFilter["type"][] = [
 
 function daysAgo(n: number): string {
   const d = new Date();
+  // More days back than ALL_TIME_START is all time; a huge "Nd" value from a
+  // URL would otherwise make an invalid Date, and toISOString would throw.
+  const maxDays = Math.floor(d.getTime() / 86_400_000);
+  if (!Number.isSafeInteger(n) || n < 0 || n >= maxDays) return ALL_TIME_START;
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
 }

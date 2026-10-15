@@ -326,6 +326,29 @@ describe("resolveFilterVars", () => {
     }
   });
 
+  it("treats an oversized day count as all time instead of throwing", () => {
+    for (const customRange of [true, undefined]) {
+      const filters: DashboardFilter[] = [
+        {
+          id: "window",
+          label: "Window",
+          type: "select",
+          default: "30d",
+          customRange,
+          options: [
+            { value: "30d", label: "Last 30 days" },
+            { value: "all", label: "All time" },
+          ],
+        },
+      ];
+      const vars = resolveFilterVars(filters, (key) =>
+        key === "window" ? "99999999999d" : "",
+      );
+      expect(vars.windowStart).toBe("1970-01-01");
+      expect(vars.windowEnd).toBe(daysAgo(0));
+    }
+  });
+
   it("leaves quarter-style selects without customRange as plain selects", () => {
     expect(
       isDateRangePresetFilter({
