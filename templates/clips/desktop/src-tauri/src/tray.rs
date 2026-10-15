@@ -343,6 +343,7 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     );
     let tray = TrayIconBuilder::with_id("main")
         .tooltip("Clips")
+        .title("Clips")
         .menu(&menu)
         .icon(tray_icon)
         .icon_as_template(cfg!(target_os = "macos"))
