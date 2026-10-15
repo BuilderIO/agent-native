@@ -628,6 +628,114 @@ describe("callAction", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it("times out a uiOnly action whose UI capability mint hangs", async () => {
+    vi.useFakeTimers();
+    let settleMint = () => {};
+    try {
+      const fetchMock = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            settleMint = () => resolve(jsonResponse({ ok: true }));
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const promise = callActionBlob(
+        "render-export-png",
+        {},
+        { timeoutMs: 1_000, uiOnly: true },
+      );
+      const assertion = expect(promise).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "render-export-png timed out after 1s",
+        ),
+        timedOut: true,
+      });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await assertion;
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      settleMint();
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a uiOnly action while its UI capability mint is pending", async () => {
+    let settleMint = () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          settleMint = () => resolve(jsonResponse({ ok: true }));
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    try {
+      const promise = callActionBlob(
+        "render-export-png",
+        {},
+        { signal: controller.signal, uiOnly: true },
+      );
+      controller.abort();
+      await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      settleMint();
+    }
+  });
+
+  it("mints and retries once when an action answers ui_capability_required", async () => {
+    vi.stubGlobal("window", {});
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ errorCode: "ui_capability_required" }, { status: 403 }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ done: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(callAction("confirm-email")).resolves.toEqual({ done: true });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/_agent-native/actions/confirm-email",
+      "/_agent-native/ui-capability",
+      "/_agent-native/actions/confirm-email",
+    ]);
+  });
+
+  it("times out a ui_capability_required retry whose mint hangs", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    let settleMint = () => {};
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse(
+            { errorCode: "ui_capability_required" },
+            { status: 403 },
+          ),
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise<Response>((resolve) => {
+              settleMint = () => resolve(jsonResponse({ ok: true }));
+            }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const promise = callAction("confirm-email", {}, { timeoutMs: 1_000 });
+      const assertion = expect(promise).rejects.toMatchObject({
+        timedOut: true,
+      });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await assertion;
+    } finally {
+      settleMint();
+      vi.useRealTimers();
+    }
+  });
+
   it("passes scoped capability headers through imperative action calls", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);

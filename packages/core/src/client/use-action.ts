@@ -243,7 +243,9 @@ type InternalActionFetchOptions = ActionFetchOptions & {
 
 let uiCapabilityRequest: Promise<void> | undefined;
 
-async function ensureUiActionCapability(): Promise<void> {
+// The mint is shared by concurrent callers, so one caller's abort rejects only
+// its own wait and never cancels the request the others are waiting on.
+function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   const request =
     uiCapabilityRequest ??
     (uiCapabilityRequest = fetch(
@@ -258,7 +260,15 @@ async function ensureUiActionCapability(): Promise<void> {
       .finally(() => {
         uiCapabilityRequest = undefined;
       }));
-  return request;
+  if (!signal) return request;
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    request
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 export const ACTION_KEEPALIVE_BODY_BUDGET_BYTES = 48_000;
@@ -388,7 +398,7 @@ async function performActionFetch<T>(
   let readError: unknown;
   try {
     try {
-      const request =
+      const send = () =>
         method === "GET" && canBatchActionGet(options)
           ? fetchActionGet({
               name,
@@ -399,6 +409,9 @@ async function performActionFetch<T>(
               batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
             })
           : fetch(url, init);
+      const request = options?.uiOnly
+        ? ensureUiActionCapability(controller?.signal).then(send)
+        : send();
       res = await Promise.race([request, timedOutSignal]);
       throwIfAborted(outerSignal);
       options?.onResponse?.(res);
@@ -475,9 +488,9 @@ async function performActionFetch<T>(
       !options?.uiCapabilityRetry &&
       typeof window !== "undefined"
     ) {
-      await ensureUiActionCapability();
       return performActionFetch<T>(name, method, params, {
         ...options,
+        uiOnly: true,
         uiCapabilityRetry: true,
       });
     }
@@ -692,7 +705,6 @@ async function actionFetch<T>(
   let error: unknown;
 
   try {
-    if (options?.uiOnly) await ensureUiActionCapability();
     return await performActionFetch<T>(name, method, params, {
       ...options,
       onResponse: (nextResponse) => {
