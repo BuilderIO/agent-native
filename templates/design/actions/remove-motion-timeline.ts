@@ -17,7 +17,9 @@ import {
 } from "../server/source-workspace.js";
 import {
   MotionHtmlSourceError,
+  removeUnversionedManagedMotionStyle,
   removeMotionHtmlSource,
+  readMotionHtmlSource,
 } from "../shared/motion-html-source.js";
 import {
   MotionPathTrimSourceError,
@@ -27,10 +29,6 @@ import {
   MotionReactSourceError,
   removeMotionReactSource,
 } from "../shared/motion-react-source.js";
-import {
-  MotionTextSourceError,
-  removeMotionTextRuntime,
-} from "../shared/motion-text-code.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import {
   isBridgeSha256VersionHash,
@@ -44,35 +42,6 @@ import {
 } from "./motion-localhost-relay.js";
 import readLocalFileAction from "./read-local-file.js";
 import writeLocalFileAction from "./write-local-file.js";
-
-const MOTION_STYLE_OPEN = "<style data-agent-native-motion>";
-const MOTION_STYLE_CLOSE = "</style>";
-
-function removeMotionStyleBlock(html: string): string {
-  const openIdx = html.indexOf(MOTION_STYLE_OPEN);
-  if (openIdx === -1) return html;
-  if (
-    html.indexOf(MOTION_STYLE_OPEN, openIdx + MOTION_STYLE_OPEN.length) !== -1
-  ) {
-    fail("HTML contains duplicate managed Motion style blocks.", {
-      errorCode: "motion_source_ambiguous",
-      statusCode: 422,
-    });
-  }
-  const closeIdx = html.indexOf(
-    MOTION_STYLE_CLOSE,
-    openIdx + MOTION_STYLE_OPEN.length,
-  );
-  if (closeIdx === -1) {
-    fail("HTML contains an incomplete managed Motion style block.", {
-      errorCode: "motion_source_malformed",
-      statusCode: 422,
-    });
-  }
-  const end = closeIdx + MOTION_STYLE_CLOSE.length;
-  const tail = html[end] === "\n" ? end + 1 : end;
-  return html.slice(0, openIdx) + html.slice(tail);
-}
 
 export default defineAction({
   description:
@@ -91,6 +60,13 @@ export default defineAction({
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     timelineId: z.string().describe("motion_timeline.id to delete."),
+    timelineVersionHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional()
+      .describe(
+        "SHA-256 source version captured when the Motion timeline was read; required for localhost deletion.",
+      ),
     fileId: z
       .string()
       .optional()
@@ -105,7 +81,12 @@ export default defineAction({
       "remove-motion-timeline",
       args,
     );
-    const { designId, timelineId, fileId: fileIdInput } = args;
+    const {
+      designId,
+      timelineId,
+      timelineVersionHash,
+      fileId: fileIdInput,
+    } = args;
     await assertAccess("design", designId, "editor");
 
     const db = getDb();
@@ -256,6 +237,15 @@ export default defineAction({
           {
             errorCode: "motion_local_source_version_unavailable",
             statusCode: 502,
+          },
+        );
+      }
+      if (!timelineVersionHash || live.versionHash !== timelineVersionHash) {
+        fail(
+          "The localhost Motion source changed after this timeline was read; reload the source before removing it.",
+          {
+            errorCode: "motion_local_source_stale_timeline",
+            statusCode: 409,
           },
         );
       }
@@ -433,21 +423,40 @@ export default defineAction({
     const bytesBefore = currentContent.length;
     let cleanedContent: string;
     try {
-      cleanedContent = removeMotionTextRuntime(
-        removeMotionStyleBlock(currentContent),
-      );
-      cleanedContent = restoreMotionPathTrimSource(cleanedContent, "html");
-    } catch (error) {
-      if (error instanceof MotionTextSourceError) {
-        fail(error.message, {
-          errorCode: `motion_text_source_${error.code.replace(/-/g, "_")}`,
-          statusCode: 422,
-        });
+      const htmlRead = readMotionHtmlSource(currentContent, file.filename);
+      let sourceForRemoval =
+        htmlRead.status === "invalid" &&
+        htmlRead.error.code === "invalid-managed-style"
+          ? removeUnversionedManagedMotionStyle(currentContent)
+          : currentContent;
+      if (
+        htmlRead.status === "invalid" &&
+        htmlRead.error.code === "invalid-managed-style"
+      ) {
+        try {
+          sourceForRemoval = restoreMotionPathTrimSource(
+            sourceForRemoval,
+            "html",
+          );
+        } catch (error) {
+          if (error instanceof MotionPathTrimSourceError) {
+            throw new MotionHtmlSourceError("invalid-path-trim", error.message);
+          }
+          throw error;
+        }
       }
-      if (error instanceof MotionPathTrimSourceError) {
+      cleanedContent = removeMotionHtmlSource(
+        sourceForRemoval,
+        file.filename,
+      ).source;
+    } catch (error) {
+      if (error instanceof MotionHtmlSourceError) {
         fail(error.message, {
-          errorCode: `motion_path_trim_source_${error.code.replace(/-/g, "_")}`,
-          statusCode: 422,
+          errorCode: `motion_html_source_${error.code.replace(/-/g, "_")}`,
+          statusCode:
+            error.code === "stale-source" || error.code === "stale-preview"
+              ? 409
+              : 422,
         });
       }
       throw error;

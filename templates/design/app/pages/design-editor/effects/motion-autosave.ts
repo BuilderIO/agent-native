@@ -117,6 +117,7 @@ export interface MotionAutosaveArgs {
   motionSourceConflictRef: RefObject<boolean>;
   motionSourceConflictMessage: string;
   motionReloadFromSourceLabel: string;
+  motionFileActivationEpochRef: RefObject<number>;
   previousMotionFileIdRef: RefObject<string | null>;
   queryClient: QueryClient;
   requestLocalhostWrite: (opts: {
@@ -177,6 +178,7 @@ export function runMotionAutosave({
   motionSourceConflictRef,
   motionSourceConflictMessage,
   motionReloadFromSourceLabel,
+  motionFileActivationEpochRef,
   previousMotionFileIdRef,
   queryClient,
   requestLocalhostWrite,
@@ -204,6 +206,10 @@ export function runMotionAutosave({
     fileIdAtSchedule,
     fileRevisionAtSchedule ?? null,
   ]);
+  const activationEpochAtSchedule = motionFileActivationEpochRef.current;
+  const isCurrentActivation = () =>
+    motionFileActivationEpochRef.current === activationEpochAtSchedule &&
+    previousMotionFileIdRef.current === fileIdAtSchedule;
   const localConnectionId =
     activeCanvasSourceType === "localhost"
       ? activeCodeLayerProjection.source.connectionId?.trim()
@@ -224,7 +230,7 @@ export function runMotionAutosave({
       retry: () => void;
     },
   ) => {
-    const isCurrentFile = previousMotionFileIdRef.current === fileIdAtSchedule;
+    const isCurrentFile = isCurrentActivation();
     if (
       isCurrentFile &&
       motionAutosaveRevisionRef.current === motionAutosaveRevision
@@ -240,7 +246,7 @@ export function runMotionAutosave({
         action: {
           label: motionReloadFromSourceLabel,
           onClick: async () => {
-            if (previousMotionFileIdRef.current !== fileIdAtSchedule) return;
+            if (!isCurrentActivation()) return;
             const queryKey = [
               "action",
               "get-motion-timeline",
@@ -259,7 +265,7 @@ export function runMotionAutosave({
               reportError(reloadError);
               return;
             }
-            if (previousMotionFileIdRef.current !== fileIdAtSchedule) return;
+            if (!isCurrentActivation()) return;
             motionSourceConflictRef.current = false;
             setMotionHydrationFingerprint(null);
             setMotionTracksDirty(false);
@@ -273,7 +279,7 @@ export function runMotionAutosave({
       !localConnectionId ||
       !isLocalhostWriteConsentError(error) ||
       motionAutosaveRevisionRef.current !== motionAutosaveRevision ||
-      previousMotionFileIdRef.current !== fileIdAtSchedule
+      !isCurrentActivation()
     ) {
       reportError(error);
       return;
@@ -287,7 +293,7 @@ export function runMotionAutosave({
         if (
           retryStarted ||
           motionAutosaveRevisionRef.current !== motionAutosaveRevision ||
-          previousMotionFileIdRef.current !== fileIdAtSchedule ||
+          !isCurrentActivation() ||
           motionAutosaveFailedRevisionRef.current !== motionAutosaveRevision
         ) {
           return;
@@ -327,21 +333,36 @@ export function runMotionAutosave({
       designId: id,
       timelineId: timelineIdAtSchedule,
       fileId: activeFile.id,
+      ...(activeCanvasSourceType === "localhost" &&
+      motionSourceVersionHashRef.current
+        ? { timelineVersionHash: motionSourceVersionHashRef.current }
+        : {}),
     };
     const removeWithConsentRetry = (allowConsentRetry: boolean) =>
       removeMotionTimeline(removeArgs, {
         onSuccess: () => {
-          if (motionAutosaveFailedRevisionRef.current === revisionAtSchedule) {
+          const isCurrent = isCurrentActivation();
+          if (
+            isCurrent &&
+            motionAutosaveFailedRevisionRef.current === revisionAtSchedule
+          ) {
             motionAutosaveFailedRevisionRef.current = null;
           }
-          setMotionTimelineId((current) =>
-            current === timelineIdAtSchedule ? null : current,
-          );
-          setMotionHydrationFingerprint(null);
+          if (isCurrent) {
+            setMotionTimelineId((current) =>
+              current === timelineIdAtSchedule ? null : current,
+            );
+            setMotionHydrationFingerprint(null);
+          }
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-motion-timeline"],
           });
-          if (motionAutosaveRevisionRef.current !== revisionAtSchedule) return;
+          if (
+            !isCurrent ||
+            motionAutosaveRevisionRef.current !== revisionAtSchedule
+          ) {
+            return;
+          }
           setMotionTracksDirty(false);
         },
         onError: (error: unknown) =>
@@ -469,7 +490,10 @@ export function runMotionAutosave({
     const applyWithConsentRetry = (allowConsentRetry: boolean) =>
       applyMotionEdit(applyArgs, {
         onSuccess: (result) => {
-          if (motionAutosaveFailedRevisionRef.current === revisionAtSchedule) {
+          if (
+            isCurrentActivation() &&
+            motionAutosaveFailedRevisionRef.current === revisionAtSchedule
+          ) {
             motionAutosaveFailedRevisionRef.current = null;
           }
           const response = result as {
@@ -481,8 +505,7 @@ export function runMotionAutosave({
             filePath?: unknown;
             versionHash?: unknown;
           };
-          const isStillActiveFile =
-            previousMotionFileIdRef.current === fileIdAtSchedule;
+          const isStillActiveFile = isCurrentActivation();
           if (typeof response.versionHash === "string" && isStillActiveFile) {
             motionSourceVersionHashRef.current = response.versionHash;
             motionSourceVersionCapturedRef.current = true;
@@ -540,6 +563,7 @@ export function runMotionAutosave({
           if (
             typeof response.fileId === "string" &&
             response.fileId === fileIdAtSchedule &&
+            isStillActiveFile &&
             response.contentPatched !== false
           ) {
             const freshContent = isStillActiveFile

@@ -282,6 +282,7 @@ export function useEditorLiveEditsAndPresence({
   const lastScheduledMotionAutosaveFileVersionRef = useRef<string | null>(null);
   const lastScheduledMotionAutosaveRevisionRef = useRef(0);
   const previousMotionFileIdRef = useRef<string | null>(null);
+  const motionFileActivationEpochRef = useRef(0);
 
   const [selectedStateId, setSelectedStateId] = useState<string | null>(null);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
@@ -975,6 +976,7 @@ export function useEditorLiveEditsAndPresence({
   useEffect(() => {
     const fileId = activeFile?.id ?? null;
     if (previousMotionFileIdRef.current === fileId) return;
+    motionFileActivationEpochRef.current += 1;
     previousMotionFileIdRef.current = fileId;
     const flushPendingMotionAutosave = motionAutosaveFlushRef.current;
     motionAutosaveFlushRef.current = null;
@@ -1509,6 +1511,7 @@ export function useEditorLiveEditsAndPresence({
     motionAutosaveFailedRevisionRef,
     lastScheduledMotionAutosaveFileVersionRef,
     lastScheduledMotionAutosaveRevisionRef,
+    motionFileActivationEpochRef,
     previousMotionFileIdRef,
     selectedStateId,
     saveTemplateOpen,

@@ -32,7 +32,9 @@ import {
 import type { MotionEasingVariable } from "../shared/motion-easing.js";
 import {
   inspectMotionHtmlSourceWriteCapability,
+  removeUnversionedManagedMotionStyle,
   readMotionHtmlSource,
+  MotionHtmlSourceError,
   type MotionHtmlSourceWriteCapability,
 } from "../shared/motion-html-source.js";
 import { motionTextDocumentWithoutNativeStyles } from "../shared/motion-native-style-runtime.js";
@@ -210,6 +212,7 @@ async function readManagedCssFromFile(
   file: SourceWorkspaceFile,
 ): Promise<ManagedCssSource | null> {
   const { content } = await readLiveSourceFile(file);
+  let recoveredAuthoredHtmlDocument: MotionCodeDocument | null = null;
   const textRead =
     file.fileType === "html" && /\.html?$/i.test(file.filename)
       ? readMotionTextDocument(content)
@@ -236,6 +239,30 @@ async function readManagedCssFromFile(
           `motion_html_source_${htmlRead.error.code.replace(/-/g, "_")}`,
           htmlRead.error,
         );
+      }
+      let sourceWithoutLegacyBlock: string;
+      try {
+        sourceWithoutLegacyBlock = removeUnversionedManagedMotionStyle(content);
+      } catch (error) {
+        throw invalidManagedSource(
+          error instanceof MotionHtmlSourceError
+            ? `motion_html_source_${error.code.replace(/-/g, "_")}`
+            : "motion_html_source_invalid_managed_style",
+          error instanceof Error ? error : htmlRead.error,
+        );
+      }
+      const authoredHtmlRead = readMotionHtmlSource(
+        sourceWithoutLegacyBlock,
+        file.filename,
+      );
+      if (authoredHtmlRead.status === "invalid") {
+        throw invalidManagedSource(
+          `motion_html_source_${authoredHtmlRead.error.code.replace(/-/g, "_")}`,
+          authoredHtmlRead.error,
+        );
+      }
+      if (authoredHtmlRead.status === "valid") {
+        recoveredAuthoredHtmlDocument = authoredHtmlRead.document;
       }
     } else if (htmlRead.status === "absent") {
       return null;
@@ -299,15 +326,36 @@ async function readManagedCssFromFile(
       );
     }
   }
-  const tracks = document?.tracks ?? parseLegacyMotionCss(css);
-  const animationStyles = document?.animationStyles ?? [];
-  const nativeStyles = document?.nativeStyles ?? [];
+  const legacyTracks = document ? [] : parseLegacyMotionCss(css);
+  const authoredTracks = recoveredAuthoredHtmlDocument?.tracks ?? [];
+  const tracks = document?.tracks ?? [...legacyTracks, ...authoredTracks];
+  const trackKeys = new Set<string>();
+  for (const track of tracks) {
+    const key = `${track.targetNodeId}:${track.property}`;
+    if (trackKeys.has(key)) {
+      throw invalidManagedSource(
+        "motion_html_source_unsupported_authored_motion",
+        "Legacy managed HTML Motion and authored CSS both animate the same target property.",
+      );
+    }
+    trackKeys.add(key);
+  }
+  const animationStyles =
+    document?.animationStyles ??
+    recoveredAuthoredHtmlDocument?.animationStyles ??
+    [];
+  const nativeStyles =
+    document?.nativeStyles ?? recoveredAuthoredHtmlDocument?.nativeStyles ?? [];
   const authoredTextDocument = motionTextDocumentWithoutNativeStyles(
     textDocument,
     nativeStyles,
   );
-  const easingVariables = document?.easingVariables ?? [];
-  const audioClips = document?.audioClips ?? [];
+  const easingVariables =
+    document?.easingVariables ??
+    recoveredAuthoredHtmlDocument?.easingVariables ??
+    [];
+  const audioClips =
+    document?.audioClips ?? recoveredAuthoredHtmlDocument?.audioClips ?? [];
   if (
     tracks.length === 0 &&
     !authoredTextDocument &&
@@ -330,13 +378,21 @@ async function readManagedCssFromFile(
     textDocument: authoredTextDocument,
     durationMs: document
       ? document.durationMs
-      : (parseTimelineSpanMs(css) ?? parseFirstAnimationDurationMs(css)),
+      : Math.max(
+          parseTimelineSpanMs(css) ?? parseFirstAnimationDurationMs(css) ?? 0,
+          recoveredAuthoredHtmlDocument?.durationMs ?? 0,
+        ) || null,
     playbackMode: document
       ? (document.playbackMode ??
         readTimelinePlaybackMode(document.tracks) ??
         parsePlaybackMode(css))
-      : parsePlaybackMode(css),
-    defaultEase: document?.defaultEase ?? null,
+      : (parsePlaybackMode(css) ??
+        recoveredAuthoredHtmlDocument?.playbackMode ??
+        null),
+    defaultEase:
+      document?.defaultEase ??
+      recoveredAuthoredHtmlDocument?.defaultEase ??
+      null,
   };
 }
 

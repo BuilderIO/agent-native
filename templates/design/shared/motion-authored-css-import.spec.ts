@@ -176,6 +176,47 @@ describe("importAuthoredCssAnimations", () => {
     expect(remainder).toContain("@keyframes pulse");
   });
 
+  it("preserves the global reduced-motion overrides without importing them", () => {
+    const css = `@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+.hero {
+  animation-name: pulse;
+  animation-duration: 1s;
+  animation-fill-mode: both;
+}
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+    const result = importAuthoredCssAnimations(css, resolveHero);
+
+    expect(result).toMatchObject({
+      status: "valid",
+      tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
+    });
+    if (result.status !== "valid") return;
+
+    const reducedMotionDeclarations = [
+      "animation-duration: 0.01ms !important;",
+      "animation-iteration-count: 1 !important;",
+    ];
+    expect(
+      result.rangesToRemove.some((range) =>
+        reducedMotionDeclarations.some((declaration) =>
+          css.slice(range.start, range.end).includes(declaration),
+        ),
+      ),
+    ).toBe(false);
+    const remainder = removeAuthoredCssSourceRanges(css, result.rangesToRemove);
+    expect(remainder).toContain("@media (prefers-reduced-motion: reduce)");
+    for (const declaration of reducedMotionDeclarations) {
+      expect(remainder).toContain(declaration);
+    }
+  });
+
   it.each([
     ["animation shorthand", ".hero { animation: pulse 1s both; }"],
     [
@@ -205,6 +246,18 @@ describe("importAuthoredCssAnimations", () => {
     [
       "conditional animation rules",
       "@media (min-width: 1px) { .hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; } } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }",
+    ],
+    [
+      "animation definitions inside the reduced-motion query",
+      "@media (prefers-reduced-motion: reduce) { .hero { animation-name: pulse; animation-duration: 1ms !important; animation-fill-mode: both; } } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }",
+    ],
+    [
+      "target-specific reduced-motion overrides",
+      "@media (prefers-reduced-motion: reduce) { .hero { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; } }",
+    ],
+    [
+      "non-reducing global reduced-motion overrides",
+      "@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 2s !important; animation-iteration-count: 1 !important; } }",
     ],
   ])("returns unsupported for %s", (_label, css) => {
     const result = importAuthoredCssAnimations(css, resolveHero);

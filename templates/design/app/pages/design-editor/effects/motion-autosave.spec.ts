@@ -53,6 +53,7 @@ function createArgs(
     getScreenContent: () => "<html></html>",
     id: "design-1",
     ...refs,
+    motionFileActivationEpochRef: { current: 0 },
     motionAutosavePending: false,
     motionAutosaveRevision: 7,
     motionDefaultEase: "ease",
@@ -630,6 +631,9 @@ describe("runMotionAutosave", () => {
     args.requestLocalhostWrite = requestLocalhostWrite;
 
     runMotionAutosave(args);
+    expect(removeMotionTimeline.mock.calls[0]?.[0]).toMatchObject({
+      timelineVersionHash: "a".repeat(64),
+    });
 
     const firstCall = removeMotionTimeline.mock.calls[0] as unknown as [
       unknown,
@@ -805,6 +809,56 @@ describe("runMotionAutosave", () => {
 
     expect(args.motionSourceConflictRef.current).toBe(false);
     expect(args.motionAutosaveFailedRevisionRef.current).toBeNull();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("ignores a late source conflict from an earlier activation of the same file", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", globalThis);
+    const refs = {
+      lastScheduledMotionAutosaveFileVersionRef: { current: null },
+      lastScheduledMotionAutosaveRevisionRef: { current: 0 },
+      motionAutosaveRevisionRef: { current: 7 },
+      motionAutosaveTimerRef: { current: null },
+      motionAutosaveFlushRef: { current: null },
+      previousMotionFileIdRef: { current: "file-1" },
+      lastLocalContentRef: { current: null },
+      latestActiveContentRef: { current: null },
+      motionAutosaveFailedRevisionRef: { current: null },
+    } as unknown as Pick<
+      MotionAutosaveArgs,
+      | "lastScheduledMotionAutosaveFileVersionRef"
+      | "lastScheduledMotionAutosaveRevisionRef"
+      | "motionAutosaveRevisionRef"
+      | "motionAutosaveTimerRef"
+      | "motionAutosaveFlushRef"
+      | "previousMotionFileIdRef"
+      | "lastLocalContentRef"
+      | "latestActiveContentRef"
+      | "motionAutosaveFailedRevisionRef"
+    >;
+    const args = createArgs("revision-1", refs);
+    const applyMotionEdit = vi.fn();
+    args.applyMotionEdit =
+      applyMotionEdit as unknown as MotionAutosaveArgs["applyMotionEdit"];
+
+    runMotionAutosave(args);
+    vi.advanceTimersByTime(500);
+    const firstCall = applyMotionEdit.mock.calls[0] as unknown as [
+      unknown,
+      { onError: (error: unknown) => void },
+    ];
+
+    args.motionFileActivationEpochRef.current += 2;
+    firstCall[1].onError(
+      Object.assign(new Error("Motion source is stale."), {
+        errorCode: "motion_local_source_stale_timeline",
+      }),
+    );
+
+    expect(refs.previousMotionFileIdRef.current).toBe("file-1");
+    expect(args.motionSourceConflictRef.current).toBe(false);
+    expect(refs.motionAutosaveFailedRevisionRef.current).toBeNull();
     expect(toast.error).not.toHaveBeenCalled();
   });
 

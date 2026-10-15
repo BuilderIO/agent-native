@@ -381,6 +381,17 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("does not reject static animation style props on unrelated JSX", () => {
+    const authored = apply(source).source.replace(
+      "    </main>",
+      '      <button style={{ animationName: "pulse", animationDuration: "800ms", animationFillMode: "both" }}>Unrelated</button>\n    </main>',
+    );
+
+    expect(
+      readMotionReactSource(authored, "src/components/Card.tsx"),
+    ).toMatchObject({ status: "valid", targetNodeIds: ["hero-title"] });
+  });
+
   it("rejects a dynamic style prop on a managed Motion target", () => {
     const authored = apply(source).source.replace(
       '<h1 data-agent-native-node-id="hero-title">',
@@ -417,10 +428,15 @@ describe("React Motion source adapter", () => {
     const dynamicStyleElement = `function Card({ motionCss }: { motionCss: string }) {
   return <main><style>{motionCss}</style><h1 id="hero">Hello</h1></main>;
 }`;
-    const aliasedStyleProp = `const motionStyle = { animationName: "hero-fade" };
-function Card() {
-  return <main><button style={motionStyle}>Hello</button></main>;
-}`;
+    const aliasedStyleProp = apply(source)
+      .source.replace(
+        'import React from "react";',
+        'import React from "react";\n\nconst motionStyle = { animationName: "hero-fade" };',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" style={motionStyle}>Hello</h1>',
+      );
 
     for (const authored of [dynamicStyleElement, aliasedStyleProp]) {
       expect(
@@ -444,9 +460,10 @@ function Card(style = { animationName: "fade" }) {
   });
 
   it("fails closed on animation declarations in React style props", () => {
-    const authored = `function Card() {
-  return <main><button style={{ opacity: 1, animationName: "fade" }}>Hello</button></main>;
-}`;
+    const authored = apply(source).source.replace(
+      '<h1 data-agent-native-node-id="hero-title">',
+      '<h1 data-agent-native-node-id="hero-title" style={{ opacity: 1, animationName: "fade" }}>',
+    );
 
     expect(
       readMotionReactSource(authored, "src/components/Card.tsx"),
@@ -543,6 +560,26 @@ function Card(style = { animationName: "fade" }) {
     ).toThrow(
       /require a CSS track, Text animation, or saved animation style library/,
     );
+  });
+
+  it.each([
+    "animationTimeline",
+    "animationRange",
+    "animationRangeStart",
+    "animationRangeEnd",
+    "animationComposition",
+  ])("rejects %s on a managed Motion target", (property) => {
+    const authored = apply(source).source.replace(
+      '<h1 data-agent-native-node-id="hero-title">',
+      `<h1 data-agent-native-node-id="hero-title" style={{ ${property}: "auto" }}>`,
+    );
+
+    expect(
+      readMotionReactSource(authored, "src/components/Card.tsx"),
+    ).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
   });
 
   it("does not let easing variables bypass native-style target validation", () => {

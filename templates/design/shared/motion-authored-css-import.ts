@@ -141,11 +141,13 @@ export function importAuthoredCssAnimations(
     }
   });
 
+  const reducedMotionOverrides = findReducedMotionOverrideDeclarations(root);
   const animationDeclarations: postcss.Declaration[] = [];
   root.walkDecls((declaration) => {
     if (
       !isInsideKeyframes(declaration) &&
-      isAnimationProperty(declaration.prop)
+      isAnimationProperty(declaration.prop) &&
+      !reducedMotionOverrides.has(declaration)
     ) {
       animationDeclarations.push(declaration);
     }
@@ -526,6 +528,67 @@ function isAnimationProperty(property: string): boolean {
     normalized.startsWith("animation-") ||
     /^-[a-z]+-animation(?:-|$)/.test(normalized)
   );
+}
+
+function findReducedMotionOverrideDeclarations(
+  root: postcss.Root,
+): Set<postcss.Declaration> {
+  const overrides = new Set<postcss.Declaration>();
+  root.walkRules((rule) => {
+    const media = rule.parent;
+    if (
+      !media ||
+      media.type !== "atrule" ||
+      media.name.toLowerCase() !== "media" ||
+      media.parent !== root ||
+      media.params.replace(/\s+/g, "").toLowerCase() !==
+        "(prefers-reduced-motion:reduce)" ||
+      rule.selector.replace(/\s+/g, "").toLowerCase() !==
+        "*,*::before,*::after" ||
+      !rule.nodes?.every(
+        (node) => node.type === "decl" || node.type === "comment",
+      )
+    ) {
+      return;
+    }
+
+    const declarations = rule.nodes.filter(
+      (node): node is postcss.Declaration =>
+        node.type === "decl" && isAnimationProperty(node.prop),
+    );
+    const durations = declarations.filter(
+      (declaration) =>
+        decodeMotionCssIdentifier(declaration.prop).toLowerCase() ===
+        "animation-duration",
+    );
+    const iterations = declarations.filter(
+      (declaration) =>
+        decodeMotionCssIdentifier(declaration.prop).toLowerCase() ===
+        "animation-iteration-count",
+    );
+    if (
+      declarations.length !== 2 ||
+      durations.length !== 1 ||
+      iterations.length !== 1 ||
+      durations[0]!.important !== true ||
+      !isReducedMotionDuration(durations[0]!.value) ||
+      iterations[0]!.important !== true ||
+      iterations[0]!.value.trim() !== "1"
+    ) {
+      return;
+    }
+
+    for (const declaration of declarations) overrides.add(declaration);
+  });
+  return overrides;
+}
+
+function isReducedMotionDuration(value: string): boolean {
+  const match = /^(\d+(?:\.\d*)?|\.\d+)(ms|s)$/i.exec(value.trim());
+  if (!match) return false;
+  const durationMs =
+    Number(match[1]) * (match[2]!.toLowerCase() === "s" ? 1000 : 1);
+  return Number.isFinite(durationMs) && durationMs >= 0 && durationMs <= 1;
 }
 
 function isInsideKeyframes(declaration: postcss.Declaration): boolean {

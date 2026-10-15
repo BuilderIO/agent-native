@@ -722,10 +722,14 @@ test.describe.serial("React Motion source browser writeback", () => {
     });
     for (const timeline of existing.timelines ?? []) {
       if (timeline.id) {
+        if (typeof timeline.sourceVersionHash !== "string") {
+          throw new Error("React Motion source version is missing.");
+        }
         await postAction(request, "remove-motion-timeline", {
           designId,
           timelineId: timeline.id,
           fileId: screenId,
+          timelineVersionHash: timeline.sourceVersionHash,
         });
       }
     }
@@ -898,11 +902,16 @@ createRoot(document.getElementById("root")!).render(<App />);
     if (!persistedTimelineId) {
       throw new Error("The imported React Motion timeline was not persisted.");
     }
+    const sourceVersionHash = roundTrip.timelines[0]?.sourceVersionHash;
+    if (typeof sourceVersionHash !== "string") {
+      throw new Error("The imported React Motion source version is missing.");
+    }
     const viteChangesBeforeRemoval = viteChangedFiles.length;
     await postAction(request, "remove-motion-timeline", {
       designId,
       timelineId: persistedTimelineId,
       fileId: screenId,
+      timelineVersionHash: sourceVersionHash,
     });
     const removedSource = fs.readFileSync(sourceFilePath, "utf8");
     expect(removedSource).not.toContain("data-agent-native-motion");

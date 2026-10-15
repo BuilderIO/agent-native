@@ -528,9 +528,18 @@ export function reconcileMotionCodeDocument(
       ),
     );
     if (propertyMatches.every((matches) => matches.length === 0)) {
-      if (
-        parsedTracks.some((track) => track.targetNodeId === style.targetNodeId)
-      ) {
+      const hasUnexpectedTargetTrack = parsedTracks.some(
+        (track) =>
+          track.targetNodeId === style.targetNodeId &&
+          !stored.tracks.some(
+            (storedTrack) =>
+              storedTrack.enabled !== false &&
+              storedTrack.keyframes.length > 0 &&
+              storedTrack.targetNodeId === track.targetNodeId &&
+              storedTrack.property === track.property,
+          ),
+      );
+      if (hasUnexpectedTargetTrack) {
         throw invalidMotionCss(
           `The ${style.styleKey} source animation no longer maps to its existing target tracks. Repair its CSS before editing it in Motion.`,
         );

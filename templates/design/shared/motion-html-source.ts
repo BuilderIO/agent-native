@@ -608,7 +608,7 @@ function assertTargetsExist(
     const conflictingMotionBinding = target.attrs?.find(
       ({ name }) =>
         name.startsWith("x-transition") ||
-        [":style", "x-bind:style", "v-bind:style"].includes(name),
+        [":style", "x-bind", "x-bind:style", "v-bind:style"].includes(name),
     );
     if (conflictingMotionBinding) {
       sourceError(
@@ -884,11 +884,14 @@ function isDynamicHtmlAttribute(
 ): boolean {
   if (!selectorAttribute) return false;
   const normalized = name.toLowerCase();
-  return [
-    `:${selectorAttribute}`,
-    `x-bind:${selectorAttribute}`,
-    `v-bind:${selectorAttribute}`,
-  ].includes(normalized);
+  return (
+    normalized === "x-bind" ||
+    [
+      `:${selectorAttribute}`,
+      `x-bind:${selectorAttribute}`,
+      `v-bind:${selectorAttribute}`,
+    ].includes(normalized)
+  );
 }
 
 function matchesHtmlSelector(

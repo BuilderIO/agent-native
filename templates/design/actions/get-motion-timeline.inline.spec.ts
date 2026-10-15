@@ -267,6 +267,13 @@ describe("get-motion-timeline inline source recovery", () => {
   50% { opacity: 0.5; }
   to { opacity: 1; }
 }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
   </style>
 </head>
 <body><h1 class="hero" data-agent-native-node-id="hero-css">Hello</h1></body>
@@ -310,6 +317,56 @@ describe("get-motion-timeline inline source recovery", () => {
     ).rejects.toMatchObject({
       errorCode: "motion_html_source_unsupported_authored_motion",
       statusCode: 422,
+    });
+  });
+
+  it("recovers legacy managed and separate authored HTML animation tracks together", async () => {
+    const legacyManagedCss = compileMotionCode({
+      ...timeline,
+      tracks: [
+        {
+          targetNodeId: "hero-legacy",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0", ease: "linear" },
+            { t: 1, value: "1", ease: "ease-out" },
+          ],
+        },
+      ],
+      durationMs: 500,
+      animationStyles: [],
+    }).css.replace(/\/\* agent-native-motion-source:[\s\S]*? \*\//, "");
+    mocks.setLiveContents({
+      "file-1": `<!doctype html><html><head>
+<style data-agent-native-motion>${legacyManagedCss}</style>
+<style>
+.authored { animation-name: authored-fade; animation-duration: 700ms; animation-fill-mode: both; }
+@keyframes authored-fade { from { transform: translateX(8px); } to { transform: translateX(0px); } }
+</style>
+</head><body>
+<h1 class="legacy" data-agent-native-node-id="hero-legacy">Legacy</h1>
+<p class="authored" data-agent-native-node-id="hero-authored">Authored</p>
+</body></html>`,
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "file-1",
+    });
+
+    expect(result.timelines[0]).toMatchObject({
+      source: "recovered-css",
+      durationMs: 700,
+      tracks: [
+        expect.objectContaining({
+          targetNodeId: "hero-legacy",
+          property: "opacity",
+        }),
+        expect.objectContaining({
+          targetNodeId: "hero-authored",
+          property: "transform",
+        }),
+      ],
     });
   });
 

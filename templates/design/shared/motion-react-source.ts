@@ -915,10 +915,7 @@ function assertNoUnsupportedReactStylePropAnimations(
       const attributes = node.parent;
       const opening = attributes.parent;
       const host = ts.isJsxOpeningElement(opening) ? opening.parent : opening;
-      if (
-        inspection === "motion" ||
-        (inspection === "unknown" && targetElements.has(host))
-      ) {
+      if (targetElements.has(host) && inspection !== "safe") {
         throw new MotionReactSourceError(
           "unsupported-authored-motion",
           inspection === "motion"
@@ -1122,7 +1119,7 @@ function isReactNodeWithinScope(
 function isReactMotionStylePropName(name: string): boolean {
   const normalized = name.toLowerCase().replace(/-/g, "");
   return (
-    /^(?:webkit|moz|ms|o)?animation(?:name|duration|delay|timingfunction|fillmode|iterationcount|direction|playstate)?$/.test(
+    /^(?:webkit|moz|ms|o)?animation(?:name|duration|delay|timingfunction|fillmode|iterationcount|direction|playstate|composition|timeline|range(?:start|end)?)?$/.test(
       normalized,
     ) ||
     /^(?:webkit|moz|ms|o)?transition(?:property|duration|delay|timingfunction)?$/.test(

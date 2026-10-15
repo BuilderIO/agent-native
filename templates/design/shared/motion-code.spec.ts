@@ -416,6 +416,41 @@ describe("Motion source document CSS codec", () => {
     );
   });
 
+  it("removes a deleted native projection while preserving an independent target track", () => {
+    const positionStyle = createMotionNativeStyleInstance({
+      styleKey: "Position",
+      targetNodeId: "hero",
+    });
+    const opacityTrack = {
+      targetNodeId: "hero",
+      property: "opacity",
+      keyframes: [
+        { t: 0, value: "0", ease: "linear" },
+        { t: 1, value: "1", ease: "ease-out" },
+      ],
+    };
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [opacityTrack],
+      nativeStyles: [positionStyle],
+    };
+    const stored = motionCodeDocumentFromTimeline(sourceTimeline);
+    const sourceWithoutPosition = compileMotionCode({
+      ...sourceTimeline,
+      nativeStyles: [],
+    });
+
+    const reconciled = reconcileMotionCodeDocument(
+      sourceWithoutPosition.css,
+      stored,
+    );
+
+    expect(reconciled.tracks).toMatchObject([
+      { targetNodeId: "hero", property: "opacity" },
+    ]);
+    expect(reconciled.nativeStyles).toEqual([]);
+  });
+
   it("rejects duplicate CSS declarations instead of reading a stale first value", () => {
     const root = postcss.parse(compileMotionCode(timeline).css);
     let targetRules = 0;

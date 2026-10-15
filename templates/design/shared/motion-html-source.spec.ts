@@ -128,6 +128,7 @@ describe("HTML Motion source adapter", () => {
   it("fails closed when a Motion target has dynamic or Alpine motion styles", () => {
     for (const attribute of [
       'x-transition.opacity=""',
+      'x-bind="attrs"',
       ':style="style"',
       'x-bind:style="style"',
       'v-bind:style="style"',
@@ -195,13 +196,15 @@ describe("HTML Motion source adapter", () => {
 
   it.each([
     ["x-transition.opacity"],
+    ['x-bind="attrs"'],
     ['x-bind:style="style"'],
     ['style="animation: pulse 1s infinite"'],
   ])("validates generated Motion targets with %s during reads", (attribute) => {
-    const source = `<!doctype html><html><head><style>
-.hero { animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; }
-@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-</style></head><body><h1 class="hero" ${attribute}>Hello</h1></body></html>`;
+    const generated = apply(html).source;
+    const source = generated.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${attribute}>Hello</h1>`,
+    );
 
     expect(readMotionHtmlSource(source, "pages/home.html")).toMatchObject({
       status: "invalid",
@@ -482,17 +485,23 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
-  it("fails closed when an inline CSS selector can match an Alpine-bound class", () => {
-    const source = `<!doctype html><html><head><style>
+  it.each([
+    ["an Alpine-bound class", ':class="{ hero: active }"'],
+    ["a generic Alpine binding", 'x-bind="attrs"'],
+  ])(
+    "fails closed when an inline CSS selector can match %s",
+    (_label, binding) => {
+      const source = `<!doctype html><html><head><style>
 .hero { animation-name: hero-fade; animation-duration: 800ms; animation-fill-mode: both; }
 @keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }
-</style></head><body><main :class="{ hero: active }">Hello</main></body></html>`;
+</style></head><body><main ${binding}>Hello</main></body></html>`;
 
-    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
-      status: "invalid",
-      error: { code: "unsupported-authored-motion" },
-    });
-  });
+      expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+    },
+  );
 
   it("uses stable generated preview IDs and persists selected IDs on write", () => {
     const sourcePath = "pages/index.html";
