@@ -48,10 +48,13 @@ type WorkflowStep = {
 };
 type WorkflowJob = {
   if?: unknown;
+  permissions?: Record<string, unknown>;
+  strategy?: { matrix?: unknown };
   env?: Record<string, unknown>;
   steps?: WorkflowStep[];
 };
 type ParsedWorkflow = {
+  permissions?: Record<string, unknown>;
   on?: Record<
     string,
     { inputs?: Record<string, { required?: unknown; default?: unknown }> }
@@ -226,7 +229,14 @@ describe("guard:beta-e2e-suite", () => {
     assert.equal(callInputs?.diagnostic_run, undefined);
 
     const jobs = workflow.jobs ?? {};
-    for (const name of ["public", "fleet", "advisory", "signup", "report"]) {
+    for (const name of [
+      "public",
+      "fleet",
+      "authed",
+      "advisory",
+      "signup",
+      "report",
+    ]) {
       assert.match(String(jobs[name]?.if), /inputs\.diagnostic_run == ''/);
     }
     assert.match(String(jobs.gate?.if), /inputs\.diagnostic_run != ''/);
@@ -265,7 +275,7 @@ describe("guard:beta-e2e-suite", () => {
     );
     assert.match(
       String(jobs.authed?.env?.SHARD_SELECTED),
-      /inputs\.diagnostic_run == ''[\s\S]*needs\.discover\.outputs\.apps/,
+      /needs\.discover\.outputs\.apps/,
     );
 
     const steps = jobs.authed?.steps ?? [];
@@ -275,7 +285,8 @@ describe("guard:beta-e2e-suite", () => {
     const regular = steps.find(
       (step) => step.name === "Authenticated ${{ matrix.slot }}",
     );
-    const diagnostic = steps.find(
+    const diagnosticJob = jobs["saved-thread-diagnostics"];
+    const diagnostic = diagnosticJob?.steps?.find(
       (step) => step.name === "Read saved thread provenance",
     );
     const upload = steps.find(
@@ -283,13 +294,11 @@ describe("guard:beta-e2e-suite", () => {
         typeof step.uses === "string" &&
         step.uses.includes("actions/upload-artifact"),
     );
-    assert.match(
-      String(browserSetup?.with?.browser),
-      /inputs\.diagnostic_run == ''[\s\S]*'false'/,
-    );
-    assert.match(String(regular?.if), /inputs\.diagnostic_run == ''/);
-    assert.match(String(diagnostic?.if), /inputs\.diagnostic_run != ''/);
-    assert.match(String(upload?.if), /inputs\.diagnostic_run == ''/);
+    assert.ok(browserSetup);
+    assert.equal(browserSetup.with?.browser, undefined);
+    assert.equal(regular?.if, "${{ env.SHARD_SELECTED == 'true' }}");
+    assert.match(String(diagnosticJob?.if), /inputs\.diagnostic_run != ''/);
+    assert.equal(upload?.if, "${{ always() && env.SHARD_SELECTED == 'true' }}");
     assert.equal(jobs.authed?.env?.BETA_E2E_OPENAI_API_KEY, undefined);
     assert.equal(
       regular?.env?.BETA_E2E_OPENAI_API_KEY,
@@ -351,6 +360,65 @@ describe("guard:beta-e2e-suite", () => {
       invoke({ ...valid("content"), diagnostic_run: "123; echo bad" }).status,
       2,
     );
+  });
+
+  it("isolates Actions read permission and execution to the optional diagnostic job", () => {
+    const workflow = parse(
+      readFileSync(
+        path.join(repoRoot, ".github/workflows/beta-e2e.yml"),
+        "utf8",
+      ),
+    ) as ParsedWorkflow;
+    const jobs = workflow.jobs ?? {};
+    const normal = jobs.authed;
+    const diagnostic = jobs["saved-thread-diagnostics"];
+    assert.deepEqual(workflow.permissions, { contents: "read" });
+    assert.equal(normal?.permissions, undefined);
+    assert.equal(
+      normal?.if,
+      "${{ always() && !cancelled() && inputs.diagnostic_run == '' && inputs.lane != 'public' && inputs.lane != 'signup' && needs.gate.result == 'success' && needs.discover.result == 'success' }}",
+    );
+    assert.equal(
+      normal?.env?.SHARD_SELECTED,
+      "${{ matrix.app == '' && needs.discover.outputs.apps != 'design' || matrix.app != '' && contains(format(',{0},', needs.discover.outputs.apps), format(',{0},', matrix.app)) }}",
+    );
+    assert.ok(normal?.steps?.length);
+    for (const step of normal.steps) {
+      assert.equal(step.env?.GH_TOKEN, undefined);
+      assert.doesNotMatch(String(step.run), /read-saved-thread/);
+    }
+    assert.equal(
+      jobs.discover?.steps?.find(
+        (step) => step.name === "Build the host matrix",
+      )?.env?.REQUESTED_APPS,
+      "${{ inputs.apps }}",
+    );
+    assert.equal(
+      diagnostic?.if,
+      "${{ always() && !cancelled() && inputs.diagnostic_run != '' && needs.gate.result == 'success' && needs.discover.result == 'success' }}",
+    );
+    assert.deepEqual(diagnostic.permissions, {
+      actions: "read",
+      contents: "read",
+    });
+    assert.equal(diagnostic.env, undefined);
+    assert.equal(
+      diagnostic.strategy?.matrix,
+      "${{ fromJSON(needs.discover.outputs.matrix) }}",
+    );
+    const steps = diagnostic.steps ?? [];
+    assert.equal(steps.length, 3);
+    assert.match(String(steps[0].uses), /^actions\/checkout@/);
+    assert.equal(steps[1].uses, "./.github/actions/beta-e2e-setup");
+    assert.deepEqual(steps[1].with, { browser: "false" });
+    assert.equal(steps[2].name, "Read saved thread provenance");
+    assert.equal(steps[2].run, "pnpm exec tsx e2e/beta/read-saved-thread.ts");
+    assert.deepEqual(steps[2].env, {
+      GH_TOKEN: "${{ github.token }}",
+      BETA_E2E_APPS: "${{ matrix.app }}",
+      BETA_E2E_EMAIL: "${{ secrets.BETA_E2E_EMAIL }}",
+      BETA_E2E_SESSION_TOKENS: "${{ secrets.BETA_E2E_SESSION_TOKENS }}",
+    });
   });
 
   it("requires chat to be sharded per app with unique slots", () => {

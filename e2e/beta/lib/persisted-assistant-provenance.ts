@@ -69,6 +69,13 @@ export interface SnapshotAssistantProvenance {
   partsScanned: number;
   partsTruncated: boolean;
   partsUnreadable: boolean;
+  rootMessageIdMatchCount: number;
+  submittedUserInferredRootRunMatchCount: number;
+  nativeServerRunRootMessageIdMatchCount: number;
+  anyEventReferenceCount: number;
+  otherEventSameRunRootMatchCount: number;
+  rootAgentKitAliasPresentCount: number;
+  rootAgentKitAliasMessageIdMatchCount: number;
   exactRootMatchCount: number;
   strictPrefixRootMatchCount: number;
   sameRunRootCount: number;
@@ -83,6 +90,7 @@ export interface SnapshotAssistantProvenance {
 
 export interface PersistedAssistantProvenance {
   kind: "ok" | "unreadable";
+  scanComplete: boolean;
   reason: Reason;
   rootMessages: ProvenanceMessageScan;
   snapshotMessages: ProvenanceMessageScan;
@@ -153,6 +161,7 @@ function messageScan(state: State): ProvenanceMessageScan {
 function unreadableResult(reason: Reason): PersistedAssistantProvenance {
   return {
     kind: "unreadable",
+    scanComplete: false,
     reason,
     rootMessages: messageScan("unreadable"),
     snapshotMessages: messageScan("unreadable"),
@@ -315,17 +324,50 @@ function idCounts(
 
 function indexEvents(values: readonly unknown[]): {
   byId: Map<string, EventEvidence>;
+  references: Map<
+    string,
+    { count: number; otherRunCounts: Map<string, number> }
+  >;
   ambiguous: Set<string>;
   unreadableCount: number;
 } {
   const byId = new Map<string, EventEvidence>();
+  const references = new Map<
+    string,
+    { count: number; otherRunCounts: Map<string, number> }
+  >();
   const ambiguous = new Set<string>();
   let unreadableCount = 0;
   for (const value of values) {
     const event = record(value);
-    if (!event) {
+    if (!event || typeof event.type !== "string" || !event.type.trim()) {
       unreadableCount++;
       continue;
+    }
+    const referenceIds = new Set([
+      stringId(event.messageId),
+      stringId(record(event.message)?.id),
+      stringId(record(event.toolCall)?.messageId),
+      stringId(record(event.invocation)?.messageId),
+    ]);
+    for (const referenceId of referenceIds) {
+      if (!referenceId) continue;
+      const reference = references.get(referenceId) ?? {
+        count: 0,
+        otherRunCounts: new Map<string, number>(),
+      };
+      reference.count++;
+      const runId = stringId(event.runId);
+      if (
+        runId &&
+        event.type !== "message.created" &&
+        event.type !== "message.completed"
+      )
+        reference.otherRunCounts.set(
+          runId,
+          (reference.otherRunCounts.get(runId) ?? 0) + 1,
+        );
+      references.set(referenceId, reference);
     }
     if (event.type !== "message.created" && event.type !== "message.completed")
       continue;
@@ -358,7 +400,7 @@ function indexEvents(values: readonly unknown[]): {
     if (runId) evidence.runIds.add(runId);
     byId.set(id, evidence);
   }
-  return { byId, ambiguous, unreadableCount };
+  return { byId, references, ambiguous, unreadableCount };
 }
 
 function indexRuns(values: readonly unknown[]): {
@@ -462,6 +504,46 @@ function safeStatus(message: Record<string, unknown>): Status {
   return allowedStatus(record(message.metadata)?.status);
 }
 
+function submittedUserRuns(
+  rootValues: readonly unknown[],
+  snapshotValues: readonly unknown[],
+): (string | null)[] {
+  const byUserId = new Map<string, string | null>();
+  for (const value of rootValues) {
+    const root = messageRecord(value);
+    if (root?.role !== "user") continue;
+    const custom = record(record(root.metadata)?.custom);
+    const id =
+      typeof custom?.agentKitMessageId === "string"
+        ? custom.agentKitMessageId
+        : typeof root.id === "string"
+          ? root.id
+          : undefined;
+    const runId = custom?.submittedRunId;
+    if (!id || typeof runId !== "string") continue;
+    byUserId.set(id, byUserId.has(id) ? null : runId);
+  }
+  const userCounts = new Map<string, number>();
+  for (const value of snapshotValues) {
+    const candidate = messageRecord(value);
+    if (candidate?.role === "user" && typeof candidate.id === "string")
+      userCounts.set(candidate.id, (userCounts.get(candidate.id) ?? 0) + 1);
+  }
+  let precedingRunId: string | null = null;
+  const inferred: (string | null)[] = [];
+  for (const value of snapshotValues) {
+    const candidate = messageRecord(value);
+    if (candidate?.role === "user") {
+      const id = typeof candidate.id === "string" ? candidate.id : null;
+      precedingRunId =
+        id && userCounts.get(id) === 1 ? (byUserId.get(id) ?? null) : null;
+    } else if (candidate?.role === "assistant") {
+      inferred.push(precedingRunId);
+    }
+  }
+  return inferred;
+}
+
 function snapshotResult(
   snapshot: Assistant,
   ordinal: number,
@@ -473,6 +555,7 @@ function snapshotResult(
   runs: ReturnType<typeof indexRuns>,
   runScan: ProvenanceScan,
   messageScansComplete: boolean,
+  submittedUserRunId: string | null,
 ): SnapshotAssistantProvenance {
   const id = snapshot.id;
   const event = id ? events.byId.get(id) : undefined;
@@ -496,7 +579,30 @@ function snapshotResult(
   let exactRootMatchCount = 0;
   let strictPrefixRootMatchCount = 0;
   let sameRunRootCount = 0;
+  let nativeServerRunRootMessageIdMatchCount = 0;
+  let otherEventSameRunRootMatchCount = 0;
+  let rootAgentKitAliasPresentCount = 0;
+  let rootAgentKitAliasMessageIdMatchCount = 0;
+  const reference = id ? events.references.get(id) : undefined;
   for (const root of roots) {
+    const metadata = record(root.message.metadata);
+    const explicitRootRunId = stringId(metadata?.runId);
+    if (
+      id &&
+      explicitRootRunId &&
+      !root.runIdAmbiguous &&
+      root.runId === explicitRootRunId &&
+      id === `server-${explicitRootRunId}`
+    )
+      nativeServerRunRootMessageIdMatchCount++;
+    if (root.runId && !root.runIdAmbiguous)
+      otherEventSameRunRootMatchCount +=
+        reference?.otherRunCounts.get(root.runId) ?? 0;
+    const alias = stringId(record(metadata?.custom)?.agentKitMessageId);
+    if (alias) {
+      rootAgentKitAliasPresentCount++;
+      if (id && alias === id) rootAgentKitAliasMessageIdMatchCount++;
+    }
     if (snapshot.runId && root.runId && snapshot.runId === root.runId)
       sameRunRootCount++;
     const a = snapshot.text;
@@ -535,6 +641,22 @@ function snapshotResult(
     partsScanned: snapshot.text.partsScanned,
     partsTruncated: snapshot.text.partsTruncated,
     partsUnreadable: snapshot.text.partsUnreadable,
+    rootMessageIdMatchCount: id ? (rootIds.get(id) ?? 0) : 0,
+    submittedUserInferredRootRunMatchCount:
+      id &&
+      messageScansComplete &&
+      !snapshot.runIdPresent &&
+      !snapshot.runIdAmbiguous &&
+      submittedUserRunId
+        ? roots.filter(
+            (root) => !root.runIdAmbiguous && root.runId === submittedUserRunId,
+          ).length
+        : 0,
+    nativeServerRunRootMessageIdMatchCount,
+    anyEventReferenceCount: reference?.count ?? 0,
+    otherEventSameRunRootMatchCount,
+    rootAgentKitAliasPresentCount,
+    rootAgentKitAliasMessageIdMatchCount,
     exactRootMatchCount,
     strictPrefixRootMatchCount,
     sameRunRootCount,
@@ -635,8 +757,14 @@ export function inspectPersistedAssistantProvenance(
       ...[...events.ambiguous].filter((id) => snapshotIds.has(id)),
     ]).size;
     const readable =
-      rootArray.summary.state === "present" ||
-      snapshotArray.summary.state === "present";
+      (rootArray.summary.state === "present" ||
+        snapshotArray.summary.state === "present") &&
+      ![
+        rootSummary,
+        snapshotSummary,
+        eventArray.summary,
+        runArray.summary,
+      ].some((scan) => scan.state === "unreadable" || scan.unreadable);
     const messageScansComplete =
       rootSummary.state !== "unreadable" &&
       snapshotSummary.state !== "unreadable" &&
@@ -644,8 +772,30 @@ export function inspectPersistedAssistantProvenance(
       !snapshotSummary.truncated &&
       !rootSummary.unreadable &&
       !snapshotSummary.unreadable;
+    const submittedRuns = submittedUserRuns(
+      rootArray.values,
+      snapshotArray.values,
+    );
     return {
       kind: readable ? "ok" : "unreadable",
+      scanComplete:
+        readable &&
+        [
+          rootSummary,
+          snapshotSummary,
+          eventArray.summary,
+          runArray.summary,
+        ].every(
+          (scan) =>
+            !scan.truncated && !scan.unreadable && scan.state !== "unreadable",
+        ) &&
+        [...roots, ...snapshots].every(
+          ({ text }) =>
+            !text.unreadable &&
+            !text.truncated &&
+            !text.partsUnreadable &&
+            !text.partsTruncated,
+        ),
       reason: readable ? "none" : "messages-shape",
       rootMessages: rootSummary,
       snapshotMessages: snapshotSummary,
@@ -666,6 +816,7 @@ export function inspectPersistedAssistantProvenance(
           runs,
           runArray.summary,
           messageScansComplete,
+          submittedRuns[index] ?? null,
         ),
       ),
     };

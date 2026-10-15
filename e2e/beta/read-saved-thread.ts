@@ -17,6 +17,8 @@ import {
   type RecoveryArtifactSelection,
 } from "./lib/recovery-artifact-selection";
 import { recoveryCookieHeader } from "./lib/recovery-cookies";
+import { discardRecoveryResponseBody } from "./lib/recovery-response-body";
+import { selectRecoverySessionToken } from "./lib/recovery-session-token";
 import { expectedEmail, sessionTokenFor } from "./lib/session";
 import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./lib/test-traffic";
 
@@ -48,6 +50,7 @@ class DiagnosticFailure extends Error {
 interface DiagnosticRequest {
   app: AppId;
   runId: string;
+  singleApp: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -95,14 +98,14 @@ function readRequest(): DiagnosticRequest {
     ) {
       fail("request", "invalid_shape");
     }
-    return { app, runId };
+    return { app, runId, singleApp: apps === app };
   } catch (error) {
     if (error instanceof DiagnosticFailure) throw error;
     fail("request", "event_unreadable");
   }
 }
 
-function tokenForApp(app: AppId): string {
+function tokenForApp(app: AppId, singleApp: boolean): string {
   const raw = process.env.BETA_E2E_SESSION_TOKENS;
   if (!raw) fail("session", "app_token_missing");
   if (raw.length > MAX_EVENT_BYTES) fail("session", "token_map_unreadable");
@@ -113,20 +116,20 @@ function tokenForApp(app: AppId): string {
     fail("session", "token_map_unreadable");
   }
   if (!isRecord(tokens)) fail("session", "token_map_unreadable");
-  const mappedToken = tokens[app];
-  if (typeof mappedToken !== "string" || !mappedToken.trim()) {
-    fail("session", "app_token_missing");
-  }
   let resolved: string | undefined;
   try {
     resolved = sessionTokenFor(app);
   } catch {
     fail("session", "token_map_unreadable");
   }
-  if (!resolved || resolved !== mappedToken.trim()) {
-    fail("session", "app_token_ambiguous");
-  }
-  return resolved;
+  const selection = selectRecoverySessionToken(
+    app,
+    tokens,
+    resolved,
+    singleApp,
+  );
+  if (selection.kind !== "selected") fail("session", selection.code);
+  return selection.token;
 }
 
 function apiBase(): URL {
@@ -141,12 +144,9 @@ function githubHeaders(token: string): HeadersInit {
   };
 }
 
-async function cancelBody(response: Response): Promise<void> {
-  try {
-    await response.body?.cancel();
-  } catch {
-    // The response is already being discarded; no body details are useful here.
-  }
+async function cancelBody(response: Response, phase: Phase): Promise<void> {
+  const result = await discardRecoveryResponseBody(response.body);
+  if (result.kind === "unreadable") fail(phase, "response_discard_failed");
 }
 
 async function boundedResponseBytes(
@@ -158,11 +158,11 @@ async function boundedResponseBytes(
   const contentLength = response.headers.get("content-length");
   if (contentLength !== null) {
     if (!/^\d+$/.test(contentLength)) {
-      await cancelBody(response);
+      await cancelBody(response, phase);
       fail(phase, "invalid_content_length");
     }
     if (Number(contentLength) > maximumBytes) {
-      await cancelBody(response);
+      await cancelBody(response, phase);
       fail(phase, tooLargeCode);
     }
   }
@@ -207,11 +207,11 @@ async function githubJson(url: URL, token: string): Promise<unknown> {
     fail("artifact", "github_unavailable");
   }
   if (response.status === 404) {
-    await cancelBody(response);
+    await cancelBody(response, "artifact");
     fail("artifact", "run_or_artifact_missing", 1);
   }
   if (response.status !== 200) {
-    await cancelBody(response);
+    await cancelBody(response, "artifact");
     fail("artifact", "github_response");
   }
   const bytes = await boundedResponseBytes(
@@ -329,7 +329,7 @@ async function downloadArtifactZip(
 
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get("location");
-    await cancelBody(response);
+    await cancelBody(response, "artifact");
     if (!location || location.length > 8192) {
       fail("artifact", "artifact_download_unreadable");
     }
@@ -357,7 +357,7 @@ async function downloadArtifactZip(
     }
   }
   if (response.status !== 200) {
-    await cancelBody(response);
+    await cancelBody(response, "artifact");
     fail("artifact", "artifact_download_response");
   }
   return boundedResponseBytes(
@@ -479,12 +479,12 @@ async function boundedJsonFetch(
     fail(phase, "read_unavailable");
   }
   if (response.status !== 200) {
-    await cancelBody(response);
+    await cancelBody(response, phase);
     return { status: response.status };
   }
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("application/json")) {
-    await cancelBody(response);
+    await cancelBody(response, phase);
     fail(phase, "read_unreadable");
   }
   const bytes = await boundedResponseBytes(
@@ -506,10 +506,11 @@ async function boundedJsonFetch(
 async function readExistingThread(
   app: AppId,
   threadRef: string,
+  singleApp: boolean,
 ): Promise<unknown> {
   const site = siteById(app);
   const origin = new URL(originFor(site));
-  const token = tokenForApp(app);
+  const token = tokenForApp(app, singleApp);
   let context: APIRequestContext | undefined;
   let exchangeResponse: APIResponse | undefined;
   let value: unknown;
@@ -631,7 +632,7 @@ function emit(record: Record<string, unknown>): void {
 }
 
 async function main(): Promise<void> {
-  const { app, runId } = readRequest();
+  const { app, runId, singleApp } = readRequest();
   const token = process.env.GH_TOKEN;
   if (!token) fail("artifact", "github_token_missing");
   const artifactId = await findRunArtifact(runId, app, token);
@@ -641,14 +642,15 @@ async function main(): Promise<void> {
   if (selection.kind !== "selected") selectionFailure(selection);
   const summary = summarizeProvenance(
     app,
-    await readExistingThread(app, selection.threadRef),
+    await readExistingThread(app, selection.threadRef, singleApp),
   );
   emit({
     app: summary.app,
     phase: summary.phase,
     provenance: summary.provenance,
   });
-  if (summary.provenance.kind === "unreadable") process.exitCode = 2;
+  if (summary.provenance.kind !== "ok" || !summary.provenance.scanComplete)
+    process.exitCode = 2;
 }
 
 void main().catch((error: unknown) => {

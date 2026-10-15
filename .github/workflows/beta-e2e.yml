@@ -151,7 +151,7 @@ jobs:
       - name: Build the host matrix
         id: matrix
         env:
-          REQUESTED_APPS: ${{ inputs.diagnostic_run != '' && 'content,dispatch' || inputs.apps }}
+          REQUESTED_APPS: ${{ inputs.apps }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -335,11 +335,8 @@ jobs:
   authed:
     name: Authenticated ${{ matrix.slot }}
     needs: [discover, gate]
-    if: ${{ always() && !cancelled() && inputs.lane != 'public' && inputs.lane != 'signup' && needs.gate.result == 'success' && needs.discover.result == 'success' }}
+    if: ${{ always() && !cancelled() && inputs.diagnostic_run == '' && inputs.lane != 'public' && inputs.lane != 'signup' && needs.gate.result == 'success' && needs.discover.result == 'success' }}
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
@@ -430,7 +427,7 @@ jobs:
       # A shard with `app` runs only that app, and only when the run selected
       # it; the unsharded slots run whenever something other than design alone
       # was selected (design has its own slot).
-      SHARD_SELECTED: ${{ inputs.diagnostic_run != '' && matrix.cluster == 'chat' && (matrix.app == 'content' || matrix.app == 'dispatch') && contains(format(',{0},', inputs.apps), format(',{0},', matrix.app)) || inputs.diagnostic_run == '' && (matrix.app == '' && needs.discover.outputs.apps != 'design' || matrix.app != '' && contains(format(',{0},', needs.discover.outputs.apps), format(',{0},', matrix.app))) }}
+      SHARD_SELECTED: ${{ matrix.app == '' && needs.discover.outputs.apps != 'design' || matrix.app != '' && contains(format(',{0},', needs.discover.outputs.apps), format(',{0},', matrix.app)) }}
       BETA_E2E_APPS: ${{ matrix.app || needs.discover.outputs.apps }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
       # True when the caller narrowed the run (an app list or a title filter), so
@@ -447,10 +444,8 @@ jobs:
         if: ${{ env.SHARD_SELECTED == 'true' }}
       - uses: ./.github/actions/beta-e2e-setup
         if: ${{ env.SHARD_SELECTED == 'true' }}
-        with:
-          browser: ${{ inputs.diagnostic_run == '' && 'true' || 'false' }}
       - name: Authenticated ${{ matrix.slot }}
-        if: ${{ env.SHARD_SELECTED == 'true' && inputs.diagnostic_run == '' }}
+        if: ${{ env.SHARD_SELECTED == 'true' }}
         env:
           BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
           BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
@@ -503,16 +498,8 @@ jobs:
             exit "$selection_status"
           fi
           pnpm e2e:beta "${select_args[@]}"
-      - name: Read saved thread provenance
-        if: ${{ env.SHARD_SELECTED == 'true' && inputs.diagnostic_run != '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BETA_E2E_APPS: ${{ matrix.app }}
-          BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
-          BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
-        run: pnpm exec tsx e2e/beta/read-saved-thread.ts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ always() && inputs.diagnostic_run == '' && env.SHARD_SELECTED == 'true' }}
+        if: ${{ always() && env.SHARD_SELECTED == 'true' }}
         with:
           name: beta-e2e-authed-${{ matrix.slot }}-${{ github.run_id }}
           path: |
@@ -520,6 +507,31 @@ jobs:
             e2e/beta/test-results/
           if-no-files-found: warn
           retention-days: 7
+
+  saved-thread-diagnostics:
+    name: Saved thread diagnostics ${{ matrix.app }}
+    needs: [discover, gate]
+    if: ${{ always() && !cancelled() && inputs.diagnostic_run != '' && needs.gate.result == 'success' && needs.discover.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ./.github/actions/beta-e2e-setup
+        with:
+          browser: "false"
+      - name: Read saved thread provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BETA_E2E_APPS: ${{ matrix.app }}
+          BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
+          BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
+        run: pnpm exec tsx e2e/beta/read-saved-thread.ts
 
   advisory:
     name: Advisory findings (non-gating)
