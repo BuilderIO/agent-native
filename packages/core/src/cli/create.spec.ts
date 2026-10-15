@@ -168,6 +168,31 @@ describe("createApp", { timeout: 30000 }, () => {
     });
   });
 
+  it("keeps column-zero list items that hold a colon inside their section", () => {
+    const workspaceYaml = [
+      "minimumReleaseAgeExclude:",
+      '- "legacy:@scope/pkg"',
+      '- "@agent-native/core"',
+      "overrides:",
+      '  nf3: "0.3.17"',
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlListItems(
+      workspaceYaml,
+      "minimumReleaseAgeExclude",
+      ['"@agent-native/core"', '"@agent-native/*"'],
+    );
+
+    expect(parseYaml(merged)).toEqual({
+      minimumReleaseAgeExclude: [
+        "@agent-native/*",
+        "legacy:@scope/pkg",
+        "@agent-native/core",
+      ],
+      overrides: { nf3: "0.3.17" },
+    });
+  });
+
   it("fails clearly for scalar values in sections it needs to merge", () => {
     expect(() =>
       _mergeWorkspaceYamlSections("overrides: null", {

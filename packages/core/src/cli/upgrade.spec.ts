@@ -1420,6 +1420,177 @@ describe("runUpgrade", () => {
       ).toBe(olderWorkspaceYaml);
     });
 
+    it("updates a parent workspace whose flow-style packages list covers the project", async () => {
+      const flowYaml = olderWorkspaceYaml.replace(
+        'packages:\n  - "apps/*"\n',
+        'packages: ["services/*"]\n',
+      );
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "old-workspace", private: true },
+        workspaceYaml: flowYaml,
+        workspaces: {
+          "services/web": {
+            name: "web",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+        },
+      });
+      const { io, out } = captureIo();
+
+      expect(
+        await runUpgrade(
+          ["--cwd", path.join(root, "services", "web"), ...skipArgs],
+          io,
+        ),
+      ).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(
+        flowYaml.replace(
+          "minimumReleaseAgeExclude:\n",
+          'minimumReleaseAgeExclude:\n  - "@agent-native/*"\n',
+        ),
+      );
+    });
+
+    it.each([
+      ["a flow-style list of other globs", 'packages: ["services/*"]\n'],
+      ["no packages list", ""],
+      ["an exclusion for it", 'packages:\n  - "apps/*"\n  - "!apps/web"\n'],
+    ])(
+      "leaves a parent workspace alone when its packages has %s",
+      async (_, packages) => {
+        const workspaceYaml = olderWorkspaceYaml.replace(
+          'packages:\n  - "apps/*"\n',
+          packages,
+        );
+        const root = makeTempProject({
+          kind: "workspace",
+          rootPkg: { name: "unrelated-workspace", private: true },
+          workspaceYaml,
+          apps: {
+            web: {
+              name: "web",
+              dependencies: { "@agent-native/core": "latest" },
+            },
+          },
+        });
+        const { io, out } = captureIo();
+
+        expect(
+          await runUpgrade(
+            ["--cwd", path.join(root, "apps", "web"), ...skipArgs],
+            io,
+          ),
+        ).toBe(0);
+
+        expect(out.join("\n")).not.toContain("release-age");
+        expect(
+          fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+        ).toBe(workspaceYaml);
+      },
+    );
+
+    it("checks membership without listing the workspace's directories", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "old-workspace", private: true },
+        workspaceYaml: olderWorkspaceYaml,
+        apps: {
+          web: {
+            name: "web",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+          locked: { name: "locked" },
+        },
+      });
+      const readdirSync = fs.readdirSync;
+      vi.spyOn(fs, "readdirSync").mockImplementation(((
+        dir: fs.PathLike,
+        options?: unknown,
+      ) => {
+        if (path.resolve(String(dir)) === path.join(root, "apps")) {
+          throw new Error("EACCES: permission denied, scandir");
+        }
+        return readdirSync(dir, options as never);
+      }) as typeof fs.readdirSync);
+      const { io, out } = captureIo();
+
+      expect(
+        await runUpgrade(
+          ["--cwd", path.join(root, "apps", "web"), ...skipArgs],
+          io,
+        ),
+      ).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+    });
+
+    it("stops with a failed step when a parent workspace file cannot be read", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "old-workspace", private: true },
+        workspaceYaml: olderWorkspaceYaml,
+        apps: {
+          web: {
+            name: "web",
+            dependencies: { "@agent-native/core": "^0.190.0" },
+          },
+        },
+      });
+      const memberDir = path.join(root, "apps", "web");
+      const packageJson = fs.readFileSync(
+        path.join(memberDir, "package.json"),
+        "utf-8",
+      );
+      const yamlPath = path.join(root, "pnpm-workspace.yaml");
+      const readFileSync = fs.readFileSync;
+      vi.spyOn(fs, "readFileSync").mockImplementation(((
+        file: fs.PathOrFileDescriptor,
+        options?: unknown,
+      ) => {
+        if (typeof file === "string" && path.resolve(file) === yamlPath) {
+          throw new Error("EACCES: permission denied, open");
+        }
+        return readFileSync(file, options as never);
+      }) as typeof fs.readFileSync);
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", memberDir, ...skipArgs], io)).toBe(1);
+
+      expect(out.join("\n")).toContain("[failed] release-age");
+      expect(readFileSync(path.join(memberDir, "package.json"), "utf-8")).toBe(
+        packageJson,
+      );
+    });
+
+    it("updates a symlinked workspace file through its target", async () => {
+      const root = makeOlderWorkspace();
+      const shared = fs.mkdtempSync(path.join(os.tmpdir(), "an-upgrade-"));
+      tmpRoots.push(shared);
+      const sharedYaml = path.join(shared, "pnpm-workspace.yaml");
+      fs.writeFileSync(sharedYaml, olderWorkspaceYaml);
+      const yamlPath = path.join(root, "pnpm-workspace.yaml");
+      fs.rmSync(yamlPath);
+      fs.symlinkSync(sharedYaml, yamlPath);
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(fs.lstatSync(yamlPath).isSymbolicLink()).toBe(true);
+      expect(fs.readlinkSync(yamlPath)).toBe(sharedYaml);
+      expect(fs.readFileSync(sharedYaml, "utf-8")).toBe(
+        olderWorkspaceYaml.replace(
+          "minimumReleaseAgeExclude:\n",
+          'minimumReleaseAgeExclude:\n  - "@agent-native/*"\n',
+        ),
+      );
+    });
+
     it("leaves a parent workspace alone when the project installs with npm", async () => {
       const root = makeTempProject({
         kind: "workspace",

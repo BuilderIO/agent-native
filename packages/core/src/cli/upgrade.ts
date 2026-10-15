@@ -15,7 +15,10 @@ import {
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { writeTextFileAtomically } from "./atomic-json-file.js";
 import type { MigrationCodemodResult } from "./migration-codemod.js";
-import { addMinimumReleaseAgeExclude } from "./workspace-yaml.js";
+import {
+  addMinimumReleaseAgeExclude,
+  pnpmWorkspaceListsProject,
+} from "./workspace-yaml.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
 // New workspaces exclude every first-party package from pnpm's release-age
@@ -663,20 +666,12 @@ function applyBumps(pkg: PackageJsonLike, bumps: AgentNativeDepBump[]): void {
 
 // pnpm reads the nearest pnpm-workspace.yaml at or above the directory it runs
 // in, so an upgrade started from a member app still installs under the
-// workspace root's release-age settings. An ancestor's file only counts when
-// that workspace lists the project; an unrelated parent is left alone.
-function findGoverningPnpmWorkspaceFile(
-  project: UpgradeProject,
-): string | null {
-  if (detectPackageManager(project.root) !== "pnpm") return null;
-  let dir = project.root;
+// workspace root's release-age settings.
+function findNearestPnpmWorkspaceFile(projectRoot: string): string | null {
+  let dir = projectRoot;
   while (true) {
     const file = path.join(dir, "pnpm-workspace.yaml");
-    if (fs.existsSync(file)) {
-      if (dir === project.root) return file;
-      const manifest = path.join(project.root, "package.json");
-      return workspacePackageFiles(dir, file).includes(manifest) ? file : null;
-    }
+    if (fs.existsSync(file)) return file;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -687,7 +682,8 @@ function alignReleaseAgeExclude(
   project: UpgradeProject,
   dryRun: boolean,
 ): UpgradeRunResult["steps"][number] | null {
-  const file = findGoverningPnpmWorkspaceFile(project);
+  if (detectPackageManager(project.root) !== "pnpm") return null;
+  const file = findNearestPnpmWorkspaceFile(project.root);
   if (!file) return null;
   const displayFile = relativeTo(project.root, file);
   const failed = (error: unknown): UpgradeRunResult["steps"][number] => ({
@@ -699,6 +695,18 @@ function alignReleaseAgeExclude(
   let updated: string;
   try {
     current = fs.readFileSync(file, "utf-8");
+    // An ancestor's file only counts when that workspace lists the project;
+    // an unrelated parent is left alone.
+    const workspaceRoot = path.dirname(file);
+    if (
+      workspaceRoot !== project.root &&
+      !pnpmWorkspaceListsProject(
+        current,
+        path.relative(workspaceRoot, project.root).split(path.sep).join("/"),
+      )
+    ) {
+      return null;
+    }
     updated = addMinimumReleaseAgeExclude(
       current,
       AGENT_NATIVE_RELEASE_AGE_EXCLUDE,
@@ -715,7 +723,9 @@ function alignReleaseAgeExclude(
     };
   }
   try {
-    writeTextFileAtomically(file, updated);
+    // Write through a symlinked workspace file so the link keeps pointing at
+    // the shared file instead of being replaced by a copy.
+    writeTextFileAtomically(fs.realpathSync(file), updated);
   } catch (error) {
     return failed(error);
   }
