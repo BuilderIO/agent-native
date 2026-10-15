@@ -10076,6 +10076,57 @@ describe("AgentKitClient", () => {
     }
   });
 
+  it("promotes the next queued message after removing an expired queue head", async () => {
+    const threadId = "thread-expired-queue-head";
+    const expiredHead = {
+      id: "queued-expired",
+      threadId,
+      text: "Expired retry",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const nextMessage = {
+      id: "queued-next",
+      threadId,
+      text: "Next prompt",
+      createdAt: "2026-10-01T00:00:01.000Z",
+    };
+    let queuedMessages = [expiredHead, nextMessage];
+    const steeredMessageIds: string[] = [];
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: { messageQueue: true },
+        async getThreadSnapshot() {
+          return {
+            id: threadId,
+            createdAt: expiredHead.createdAt,
+            updatedAt: nextMessage.createdAt,
+            messages: [],
+            queuedMessages,
+          };
+        },
+        async steerQueuedMessage({ messageId }) {
+          steeredMessageIds.push(messageId);
+          if (messageId === expiredHead.id) {
+            queuedMessages = [nextMessage];
+            return { alreadyRemoved: true };
+          }
+          queuedMessages = [];
+          return undefined;
+        },
+      },
+    });
+
+    try {
+      await client.loadThread(threadId);
+      await vi.waitFor(() =>
+        expect(steeredMessageIds).toEqual([expiredHead.id, nextMessage.id]),
+      );
+      expect(client.getThread(threadId).queuedMessages).toEqual([]);
+    } finally {
+      await client.dispose();
+    }
+  });
+
   it("honors queueWhileRunning=false when the server reports a busy slot", async () => {
     const finishRun = Promise.withResolvers<void>();
     const runStarted = Promise.withResolvers<void>();
@@ -10273,6 +10324,106 @@ describe("AgentKitClient", () => {
       await client.dispose();
     }
   });
+
+  it.each([
+    { scenario: "at the runtime handoff", expireAtHandoff: true },
+    { scenario: "in the server persistence request", expireAtHandoff: false },
+  ])(
+    "removes an expired optimistic prompt and restores suggestions when it expires $scenario",
+    async ({ expireAtHandoff }) => {
+      const suggestion = {
+        id: "suggestion-1",
+        label: "Continue",
+        prompt: "Continue the review",
+      };
+      const expiredError = Object.assign(
+        new Error("The prompt expired before it could be submitted."),
+        { code: "submission_expired", retryable: false },
+      );
+      let rejectFirstStart = !expireAtHandoff;
+      const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+        if (rejectFirstStart) {
+          rejectFirstStart = false;
+          throw expiredError;
+        }
+        return { runId: "run-1" };
+      });
+      const client = new AgentKitClient({
+        transport: {
+          ...createTransport([]),
+          capabilities: {
+            "x-agent-native-submission-deadlines": true,
+          },
+          getThreadSnapshot: async () => ({
+            id: "thread-1",
+            createdAt: "2026-08-29T00:00:00.000Z",
+            updatedAt: "2026-08-29T00:00:01.000Z",
+            messages: [],
+            suggestions: [suggestion],
+          }),
+          startRun,
+          async *subscribeToRun({ threadId, runId }) {
+            yield {
+              ...protocolEvent(1, { type: "run.started" }),
+              threadId,
+              runId,
+            };
+            yield {
+              ...protocolEvent(2, { type: "run.completed" }),
+              threadId,
+              runId,
+            };
+          },
+        },
+      });
+      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+
+      try {
+        await client.loadThread("thread-1");
+        await expect(
+          client.sendMessage({
+            threadId: "thread-1",
+            text: "Retry the prompt",
+            metadata: {
+              custom: {
+                [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 1_001,
+              },
+            },
+            onLocalSubmit() {
+              expect(client.getThread("thread-1").messages).toHaveLength(1);
+              expect(client.getThread("thread-1").suggestions).toEqual([]);
+              if (expireAtHandoff) now.mockReturnValue(1_001);
+            },
+          }),
+        ).rejects.toMatchObject({ code: "submission_expired" });
+
+        expect(startRun).toHaveBeenCalledTimes(expireAtHandoff ? 0 : 1);
+        expect(client.getThread("thread-1").messages).toEqual([]);
+        expect(client.getThread("thread-1").suggestions).toEqual([suggestion]);
+        expect(
+          client.getThread("thread-1").suggestionsPendingTurn,
+        ).toBeUndefined();
+        expect(client.getSnapshot().connection).toBe("connected");
+        expect(client.getSnapshot().error).toBeUndefined();
+
+        now.mockReturnValue(1_000);
+        const nextRun = await client.sendMessage({
+          threadId: "thread-1",
+          text: "Fresh prompt",
+        });
+        expect(startRun.mock.calls.at(-1)?.[0].messages).toEqual([
+          expect.objectContaining({
+            role: "user",
+            parts: [{ type: "text", text: "Fresh prompt" }],
+          }),
+        ]);
+        await nextRun.completed;
+      } finally {
+        now.mockRestore();
+        await client.dispose();
+      }
+    },
+  );
 
   it("rejects deadline-bound prompts when the agent has no expiry support", async () => {
     const startRun = vi.fn(async () => ({ runId: "run-1" }));

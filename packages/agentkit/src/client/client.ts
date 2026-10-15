@@ -2972,6 +2972,8 @@ export class AgentKitClient implements AgentKitController {
       parts: [{ type: "text", text: input.text }, ...(input.attachments ?? [])],
       metadata: input.metadata,
     };
+    const previousConnection = this.snapshot.connection;
+    const previousError = this.snapshot.error;
     this.setThread(input.threadId, {
       ...currentAfterReadiness,
       messages: [...currentAfterReadiness.messages, message],
@@ -3110,15 +3112,31 @@ export class AgentKitClient implements AgentKitController {
         }
       }
       const failed = this.getThread(input.threadId);
+      const submissionExpired =
+        errorProperty(error, "code") === "submission_expired";
       this.setThread(input.threadId, {
         ...failed,
-        messages: failed.messages.map((candidate) =>
-          candidate.id === message.id
-            ? { ...candidate, status: "error" }
-            : candidate,
-        ),
+        messages: submissionExpired
+          ? failed.messages.filter((candidate) => candidate.id !== message.id)
+          : failed.messages.map((candidate) =>
+              candidate.id === message.id
+                ? { ...candidate, status: "error" }
+                : candidate,
+            ),
+        ...(submissionExpired
+          ? {
+              suggestions: currentAfterReadiness.suggestions,
+              suggestionsPendingTurn:
+                currentAfterReadiness.suggestionsPendingTurn,
+            }
+          : {}),
       });
-      this.fail(error, "run_start_failed");
+      if (submissionExpired) {
+        this.patch({ connection: previousConnection, error: previousError });
+        this.report(error, "run_start_failed");
+      } else {
+        this.fail(error, "run_start_failed");
+      }
       throw error;
     }
   }
@@ -4198,6 +4216,9 @@ export class AgentKitClient implements AgentKitController {
           this.removeQueuedMessageFromState(threadId, messageId);
           await this.loadThread(threadId, requestContext);
           this.assertActive();
+          if (this.queuePromotions.has(threadId)) {
+            this.queuePromotionAfterReconciliation.add(threadId);
+          }
           return;
         }
         const reconcileSubmittedMessage = Boolean(result?.alreadySubmitted);
