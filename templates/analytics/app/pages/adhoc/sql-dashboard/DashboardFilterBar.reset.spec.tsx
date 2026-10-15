@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18nCatalog } from "../../../i18n";
 import {
   DashboardFilterBar,
-  type DashboardDefaultView,
+  type DashboardSavedView,
 } from "./DashboardFilterBar";
 import type { DashboardFilter } from "./types";
 
@@ -63,7 +63,7 @@ function render(
   initialEntry: string,
   options: {
     list?: DashboardFilter[];
-    defaultView?: DashboardDefaultView;
+    views?: DashboardSavedView[] | null;
   } = {},
 ) {
   act(() => {
@@ -76,7 +76,7 @@ function render(
         <MemoryRouter initialEntries={[initialEntry]}>
           <DashboardFilterBar
             filters={options.list ?? filters}
-            defaultView={options.defaultView}
+            views={options.views}
           />
           <SearchProbe />
         </MemoryRouter>
@@ -152,26 +152,73 @@ describe("resetting dashboard filters", () => {
     expect(container.textContent).toContain("Enterprise");
   });
 
-  it("resets to the dashboard's default view when it has one", () => {
-    const defaultView: DashboardDefaultView = {
+  describe("with saved views", () => {
+    const defaultView: DashboardSavedView = {
       id: "launch-window",
       filters: { f_timeRange: "7d", f_emailFilter: "all" },
+      isDefault: true,
     };
-    render("/dashboards/v3?f_timeRange=90d&f_plan=free", { defaultView });
-    act(() => resetButton()!.click());
+    const enterprise: DashboardSavedView = {
+      id: "enterprise",
+      filters: { f_timeRange: "90d", f_plan: "enterprise" },
+    };
+    const views = [defaultView, enterprise];
 
-    expect(Object.fromEntries(params())).toEqual({
-      f_timeRange: "7d",
-      f_emailFilter: "all",
-      view: "launch-window",
-    });
-    expect(resetButton()).toBeUndefined();
-  });
+    it("resets to the dashboard's default view when no view is open", () => {
+      render("/dashboards/v3?f_timeRange=90d&f_plan=free", { views });
+      act(() => resetButton()!.click());
 
-  it("offers the reset when the default view is set but the URL has no filters", () => {
-    render("/dashboards/v3", {
-      defaultView: { id: "launch-window", filters: { f_timeRange: "7d" } },
+      expect(Object.fromEntries(params())).toEqual({
+        f_timeRange: "7d",
+        f_emailFilter: "all",
+        view: "launch-window",
+      });
+      expect(resetButton()).toBeUndefined();
     });
-    expect(resetButton()).toBeDefined();
+
+    it("offers the reset when the default view is set but the URL has no filters", () => {
+      render("/dashboards/v3", { views });
+      expect(resetButton()).toBeDefined();
+    });
+
+    it("returns to the open view after one of its filters changes, not to the default view", () => {
+      render(
+        "/dashboards/v3?view=enterprise&f_timeRange=7d&f_plan=enterprise",
+        {
+          views,
+        },
+      );
+      act(() => resetButton()!.click());
+
+      expect(Object.fromEntries(params())).toEqual({
+        f_timeRange: "90d",
+        f_plan: "enterprise",
+        view: "enterprise",
+      });
+      expect(resetButton()).toBeUndefined();
+    });
+
+    it("hides the reset while the filters match the open view, even though they differ from the defaults", () => {
+      render(
+        "/dashboards/v3?view=enterprise&f_timeRange=90d&f_plan=enterprise",
+        {
+          views,
+        },
+      );
+      expect(resetButton()).toBeUndefined();
+    });
+
+    it("falls back to the default view when the URL names a view that no longer exists", () => {
+      render("/dashboards/v3?view=deleted&f_timeRange=90d", { views });
+      act(() => resetButton()!.click());
+
+      expect(params().get("view")).toBe("launch-window");
+      expect(params().get("f_timeRange")).toBe("7d");
+    });
+
+    it("hides the reset until the saved views load, since its target is unknown", () => {
+      render("/dashboards/v3?view=enterprise&f_timeRange=7d", { views: null });
+      expect(resetButton()).toBeUndefined();
+    });
   });
 });
