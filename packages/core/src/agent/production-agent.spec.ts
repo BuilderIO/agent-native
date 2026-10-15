@@ -5406,6 +5406,8 @@ describe("createProductionAgentHandler", () => {
     expect(resolveAdditionalActions.mock.calls[0]?.[0]).toMatchObject({
       ownerEmail: "alice@example.com",
       orgId: "acme",
+      threadId: "authenticated-mcp",
+      internalContinuation: false,
     });
     expect(seenActionNames[0]).toContain(mcpToolName);
 

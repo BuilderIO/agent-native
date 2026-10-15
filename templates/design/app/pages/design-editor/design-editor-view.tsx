@@ -1778,6 +1778,8 @@ export function renderDesignEditorView({
           }
         : undefined,
     motionWriteUnavailable: !canWriteMotion,
+    motionWriteUnavailableReason:
+      editorContentAndComponents.motionSourceReadUnavailableReason ?? undefined,
     motionAudioClips,
     onMotionAudioClipsChange: canWriteMotion
       ? handleMotionAudioClipsChange

@@ -1065,6 +1065,8 @@ export default {
       timelineDescription:
         "Línea de tiempo de fotogramas clave. {{tracks}} pistas, {{keyframes}} fotogramas clave. Usa las flechas o Espacio + arrastrar para desplazarte, pellizca o usa Cmd/Ctrl + rueda para ampliar, arrastra para mover fotogramas clave, usa Mayús/Cmd para seleccionar varios y haz doble clic para añadirlos.",
       size: "Tamaño",
+      sourceReadUnavailable:
+        "Motion no puede leer esta animación sin cambiar su comportamiento.",
       sourceWriteUnavailable:
         "Por ahora, el código de movimiento solo se puede escribir en diseños HTML integrados.",
       sourceConflict:

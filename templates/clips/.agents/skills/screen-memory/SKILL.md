@@ -44,8 +44,11 @@ the user explicitly exports and imports them.
 
 ## Earlier screen time (lab)
 
-Behind the `clips.lookback-context` lab (`CLIPS_LOOKBACK_CONTEXT`, off by
-default). When the lab is off, do not offer this feature.
+Behind the `clips.lookback-context` lab (`CLIPS_LOOKBACK_CONTEXT`, on by
+default). This only makes the option available: Rewind is off by default, and
+the per-device lookback duration starts at `0` / Off. The user must enable
+Rewind and choose a duration before earlier screen time is captured. When the
+lab is off, do not offer this feature.
 
 This is not Screen Memory. It is passive metadata on one clip: screen history
 from before that recording started, attached to the clip as its own context.

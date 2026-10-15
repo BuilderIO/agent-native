@@ -9,6 +9,7 @@ import {
 } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { resetAppConfigForTests } from "../app-config/index.js";
 
 vi.mock("../db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../db/client.js")>();
@@ -99,11 +100,30 @@ afterAll(async () => {
 });
 
 describe("workspace connection store", () => {
+  it("does not run schema DDL in hosted apps without release migrations", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "workspace-groups-test");
+    resetAppConfigForTests();
+    const execute = vi.spyOn(sharedClient, "execute");
+    try {
+      const { workspaceUserGroupsStore } = await import("./groups.js");
+      workspaceUserGroupsStore.reset();
+      await workspaceUserGroupsStore.ready();
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      execute.mockRestore();
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
+  });
+
   it("does not run runtime schema DDL in hosted function invocations", async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     const previousNetlifyFunctionName = process.env.NETLIFY_FUNCTION_NAME;
     process.env.NODE_ENV = "production";
     process.env.NETLIFY_FUNCTION_NAME = "workspace-groups-test";
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    resetAppConfigForTests();
     const execute = vi.spyOn(sharedClient, "execute");
     try {
       const { ensureWorkspaceUserGroupsTable } = await import("./groups.js");
@@ -111,6 +131,8 @@ describe("workspace connection store", () => {
       expect(execute).not.toHaveBeenCalled();
     } finally {
       execute.mockRestore();
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previousNodeEnv;
       if (previousNetlifyFunctionName === undefined) {

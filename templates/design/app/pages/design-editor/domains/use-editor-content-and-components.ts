@@ -19,6 +19,11 @@ import {
   motionNativeStyleWithTextAnimationSettings,
   motionTextDocumentWithNativeStyleSettings,
 } from "@shared/motion-native-style-runtime";
+import {
+  motionSourceReadCapabilityForSource,
+  motionSourceReadAllowsWrites,
+  type MotionSourceReadCapability,
+} from "@shared/motion-source-read";
 import type {
   MotionTextAnimation,
   MotionTextDocument,
@@ -296,6 +301,7 @@ export function useEditorContentAndComponents({
     replacePreviewContent,
     sourceCapabilities,
     activeRuntimeCodeLayerProjection,
+    motionSourceReadCapability,
   } = editorLiveEditsAndPresence;
   const selectedMotionProofNodeId =
     selectedMotionTargetNodeId ??
@@ -330,11 +336,13 @@ export function useEditorContentAndComponents({
   }, [activeFile?.id]);
   const { data: motionSourceCapabilityResult } = useActionQuery<{
     sourceWriteCapability?: MotionSourceWriteCapabilitySnapshot | null;
+    sourceReadCapability?: MotionSourceReadCapability | null;
   }>(
     "get-motion-timeline",
     {
       designId: id ?? "",
       sourceRef: activeFile?.id ?? "",
+      passiveRead: true,
       targetNodeIds: motionProofTargetNodeIds,
       ...(localhostMotionProof
         ? {
@@ -395,19 +403,34 @@ export function useEditorContentAndComponents({
       localhostMotionProof,
       motionProofTargetNodeIds,
     );
+  const activeMotionSourceReadCapability = motionSourceReadCapabilityForSource(
+    [
+      motionSourceReadCapability,
+      motionSourceCapabilityResult?.sourceReadCapability,
+    ],
+    activeFile?.id,
+  );
+  const motionSourceReadUnavailableReason = activeMotionSourceReadCapability
+    ? t("designEditor.motion.sourceReadUnavailable")
+    : null;
+  const motionSourceReadable = motionSourceReadAllowsWrites(
+    activeMotionSourceReadCapability,
+  );
   const motionControlsWritable =
-    (activeCanvasSourceType === "inline" &&
+    motionSourceReadable &&
+    ((activeCanvasSourceType === "inline" &&
       sourceCapabilities.includes("writeMotion")) ||
-    (activeCanvasSourceType === "localhost" &&
-      Boolean(activeCodeLayerProjection.source.connectionId) &&
-      Boolean(localhostMotionProof) &&
-      motionSourceTargetsWritable);
+      (activeCanvasSourceType === "localhost" &&
+        Boolean(activeCodeLayerProjection.source.connectionId) &&
+        Boolean(localhostMotionProof) &&
+        motionSourceTargetsWritable));
   const writeMotionAvailable =
-    (activeCanvasSourceType === "inline" &&
+    motionSourceReadable &&
+    ((activeCanvasSourceType === "inline" &&
       sourceCapabilities.includes("writeMotion")) ||
-    (activeCanvasSourceType === "localhost" &&
-      Boolean(activeCodeLayerProjection.source.connectionId) &&
-      Boolean(localhostMotionProof));
+      (activeCanvasSourceType === "localhost" &&
+        Boolean(activeCodeLayerProjection.source.connectionId) &&
+        Boolean(localhostMotionProof)));
   const requestLocalhostWriteRef = useRef<RequestLocalhostWrite | null>(null);
   const [uiHidden, setUiHidden] = useState(false);
   const motionLivePlayheadRef = useRef<number | null>(null);
@@ -1726,9 +1749,9 @@ export function useEditorContentAndComponents({
         requestLocalhostWrite: (opts) =>
           requestLocalhostWriteRef.current?.(opts) ?? "not-editable",
         writeMotionAvailable,
-        sourceWriteUnavailableMessage: t(
-          "designEditor.motion.sourceWriteUnavailable",
-        ),
+        sourceWriteUnavailableMessage:
+          motionSourceReadUnavailableReason ??
+          t("designEditor.motion.sourceWriteUnavailable"),
         motionSourceConflictMessage: t("designEditor.motion.sourceConflict"),
         motionReloadFromSourceLabel: t("designEditor.motion.reloadFromSource"),
       }),
@@ -1758,6 +1781,7 @@ export function useEditorContentAndComponents({
       motionProofTargetNodeIds,
       motionTextDocument,
       motionTracksDirty,
+      motionSourceReadUnavailableReason,
       motionSourceVersionHashRef,
       motionSourceVersionCapturedRef,
       motionSourceConflictRef,
@@ -2067,6 +2091,7 @@ export function useEditorContentAndComponents({
     markMotionTracksDirty,
     pruneMotionTracksByNodeId,
     motionControlsWritable,
+    motionSourceReadUnavailableReason,
     handleMotionTracksChange,
     handleMotionDockTracksChange,
     handleMotionAudioClipsChange,

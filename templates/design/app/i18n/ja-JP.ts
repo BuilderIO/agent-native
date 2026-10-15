@@ -1062,6 +1062,8 @@ export default {
       timelineDescription:
         "キーフレームタイムライン。トラック {{tracks}} 個、キーフレーム {{keyframes}} 個。矢印キーまたは Space + ドラッグでスクロール、ピンチまたは Cmd/Ctrl + ホイールでズーム、ドラッグでキーフレームを移動、Shift/Cmd で複数選択、ダブルクリックで追加します。",
       size: "サイズ",
+      sourceReadUnavailable:
+        "このアニメーションは、動作を変えずに Motion で読み取ることができません。",
       sourceWriteUnavailable:
         "現在、Motion のコードを書き込めるのはインライン HTML デザインのみです。",
       sourceConflict:

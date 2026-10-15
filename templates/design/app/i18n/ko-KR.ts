@@ -1049,6 +1049,8 @@ export default {
       timelineDescription:
         "키프레임 타임라인. 트랙 {{tracks}}개, 키프레임 {{keyframes}}개. 화살표 키 또는 Space + 드래그로 스크롤하고, 핀치 또는 Cmd/Ctrl + 휠로 확대/축소하며, 드래그로 키프레임을 이동하고, Shift/Cmd로 여러 항목을 선택하고, 두 번 클릭해 추가합니다.",
       size: "크기",
+      sourceReadUnavailable:
+        "Motion은 동작을 변경하지 않고는 이 애니메이션을 읽을 수 없습니다.",
       sourceWriteUnavailable:
         "현재 Motion 코드는 인라인 HTML 디자인에만 쓸 수 있습니다.",
       sourceConflict:

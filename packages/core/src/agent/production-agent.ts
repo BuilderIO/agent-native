@@ -1173,6 +1173,12 @@ export interface ActionEntry {
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
   allowPersistentApproval?: boolean;
+  /**
+   * Identifies what this entry does under its name. Approvals, including
+   * "always allow", are bound to it, so a tool that keeps its name but changes
+   * revision must be approved again.
+   */
+  revision?: string;
   endsTurn?: boolean;
   frameworkGroup?: import("../framework-tools.js").FrameworkToolGroup;
 }
@@ -1403,6 +1409,20 @@ function readPersistedAdditionalActionNames(
   return names;
 }
 
+// Marks the placeholders that keep a removed name in a pinned turn's registry,
+// so the agent loop treats them as absent: same gone-tool error and stop. A
+// symbol key, not object identity, because registries copy entries by spread.
+const UNAVAILABLE_ACTION = Symbol("agent-native.unavailableAction");
+
+export function isUnavailableActionEntry(
+  entry: ActionEntry | undefined,
+): boolean {
+  return (
+    entry !== undefined &&
+    (entry as { [UNAVAILABLE_ACTION]?: true })[UNAVAILABLE_ACTION] === true
+  );
+}
+
 /**
  * A durable continuation re-resolves the caller's additional actions, which
  * may have changed since the turn started. Keep the turn's names: drop entries
@@ -1420,7 +1440,9 @@ export function pinAdditionalActionsToTurn(
     if (Object.hasOwn(registered, name)) continue;
     pinned[name] = Object.hasOwn(resolved, name)
       ? resolved[name]
-      : {
+      : ({
+          [UNAVAILABLE_ACTION]: true,
+          agentTool: false,
           tool: {
             description: `${name} is no longer available to this caller.`,
             parameters: { type: "object", properties: {} },
@@ -1431,7 +1453,7 @@ export function pinAdditionalActionsToTurn(
               `${name} is no longer available to this caller; it was removed after this turn started.`,
             );
           },
-        };
+        } as ActionEntry);
   }
   return pinned;
 }
@@ -1800,6 +1822,9 @@ export interface ProductionAgentOptions {
     event: any;
     ownerEmail: string | null;
     orgId: string | null;
+    threadId?: string;
+    requestedTurnId?: string;
+    internalContinuation: boolean;
   }) => Record<string, ActionEntry> | Promise<Record<string, ActionEntry>>;
   systemPrompt: string | ((event: any) => string | Promise<string>);
   apiKey?: string;
@@ -4717,6 +4742,8 @@ export interface ExecuteAgentToolCallOptions {
 
 export interface AgentApprovalBinding {
   toolName: string;
+  /** The entry's `revision` when the call was made; null when it has none. */
+  toolRevision: string | null;
   input: unknown;
   callId: string;
   approvalKey: string;
@@ -4980,6 +5007,89 @@ function readToolSearchHistory(messages: EngineMessage[]): {
     }
   }
   return { names, unreadable };
+}
+
+export const TOOL_NO_LONGER_AVAILABLE_PREFIX =
+  "Error: Tool no longer available";
+const MAX_DROPPED_TOOL_NOTE_NAMES = 20;
+// History is client-supplied on some transports, so only tool-name-shaped
+// strings reach the prompt.
+const HISTORY_TOOL_NAME_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+function readHistoryToolNames(
+  messages: EngineMessage[],
+  loadedNames: readonly unknown[],
+): Set<string> {
+  const names = new Set<string>();
+  for (const name of loadedNames) {
+    if (typeof name === "string") names.add(name);
+  }
+  // A call that already got "Unknown tool" named a tool that never existed.
+  const unknownCallIds = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== "user") continue;
+    for (const part of message.content) {
+      if (
+        part.type === "tool-result" &&
+        typeof part.content === "string" &&
+        part.content.startsWith("Error: Unknown tool")
+      ) {
+        unknownCallIds.add(part.toolCallId);
+      }
+    }
+  }
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type === "tool-call" && !unknownCallIds.has(part.id)) {
+        names.add(part.name);
+      }
+    }
+  }
+  return names;
+}
+
+function isHistoryToolName(name: unknown): name is string {
+  return typeof name === "string" && HISTORY_TOOL_NAME_PATTERN.test(name);
+}
+
+function formatDroppedToolsNote(names: readonly string[], max: number): string {
+  const shown = names.slice(0, max);
+  const more = names.length - shown.length;
+  return (
+    `Tools loaded earlier in this conversation are no longer available: ${shown.join(", ")}` +
+    (more > 0 ? ` (and ${more} more)` : "") +
+    ". Do not call them; use tool-search for alternatives."
+  );
+}
+
+function appendUserContextNote(messages: EngineMessage[], text: string): void {
+  const last = messages[messages.length - 1];
+  if (last?.role === "user") {
+    messages[messages.length - 1] = {
+      ...last,
+      content: [...last.content, { type: "text", text }],
+    };
+    return;
+  }
+  messages.push({ role: "user", content: [{ type: "text", text }] });
+}
+
+// The user approved a call whose tool has since gone; letting the model carry
+// on would have it improvise around an approval that no longer applies.
+function approvedToolUnavailableStop(name: string): TerminalActionStop {
+  return {
+    message: `${name} is no longer available, so the call you approved did not run.`,
+    errorCode: "tool_unavailable",
+  };
+}
+
+export function formatToolNoLongerAvailable(name: string): string {
+  return (
+    `${TOOL_NO_LONGER_AVAILABLE_PREFIX}: "${name}". It was available earlier in ` +
+    "this conversation, but it is not among this run's tools. It did NOT " +
+    "execute; do not retry it."
+  );
 }
 
 function normalizeToolInputSchema(
@@ -6237,7 +6347,11 @@ export async function runAgentLoop(opts: {
     for (const name of requested) noteToolNeeded(name);
     const wanted = [...requested].flatMap((name) => {
       const tool = availableToolMap.get(name);
-      return tool && !activeToolNames.has(name) ? [tool] : [];
+      return tool &&
+        !activeToolNames.has(name) &&
+        !isUnavailableActionEntry(actions[name])
+        ? [tool]
+        : [];
     });
     const added: string[] = [];
     const overflow: string[] = [];
@@ -6302,6 +6416,30 @@ export async function runAgentLoop(opts: {
   }
   // Newest searches lead, so they win if history alone overflows the cap.
   expandActiveTools(priorSearches.names.reverse());
+  // Each run resolves the caller's current tools, so a tool the conversation
+  // already used or loaded can be gone now. Calls to it are told so rather
+  // than "Unknown tool", and loaded ones that went away are named up front.
+  const historyToolNames = readHistoryToolNames(messages, priorSearches.names);
+  const droppedToolNames = [...new Set(priorSearches.names)].filter(
+    (name) =>
+      isHistoryToolName(name) &&
+      (!availableToolMap.has(name) || isUnavailableActionEntry(actions[name])),
+  );
+  if (droppedToolNames.length > 0) {
+    // In-process continuations rerun this loop on the same messages.
+    const note = formatDroppedToolsNote(
+      droppedToolNames,
+      MAX_DROPPED_TOOL_NOTE_NAMES,
+    );
+    const alreadyNoted = messages.some(
+      (message) =>
+        message.role === "user" &&
+        message.content.some(
+          (part) => part.type === "text" && part.text === note,
+        ),
+    );
+    if (!alreadyNoted) appendUserContextNote(messages, note);
+  }
 
   const processorChain =
     opts.processors && opts.processors.length > 0
@@ -7524,7 +7662,10 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
       noteToolNeeded(toolCall.name);
-      const actionEntry = actions[toolCall.name];
+      const registeredEntry = actions[toolCall.name];
+      const actionEntry = isUnavailableActionEntry(registeredEntry)
+        ? undefined
+        : registeredEntry;
       const strictToolInput = getStrictToolInputValidator(actionEntry);
       const placeholderNormalization =
         actionEntry && !strictToolInput
@@ -7763,9 +7904,21 @@ export async function runAgentLoop(opts: {
       }
 
       if (!actionEntry) {
+        const noLongerAvailable =
+          historyToolNames.has(toolCall.name) ||
+          isUnavailableActionEntry(registeredEntry);
         const result = finalizeToolErrorResult(
-          `Error: Unknown tool "${toolCall.name}"`,
+          noLongerAvailable
+            ? formatToolNoLongerAvailable(toolCall.name)
+            : `Error: Unknown tool "${toolCall.name}"`,
         );
+        if (
+          approvedToolCallKeys.has(
+            toolCallCacheKey(toolCall.name, toolCall.input),
+          )
+        ) {
+          requestedActionStop ??= approvedToolUnavailableStop(toolCall.name);
+        }
         send({
           type: "tool_start",
           id: toolCall.id,
@@ -7823,6 +7976,7 @@ export async function runAgentLoop(opts: {
       const requestedApproval = approvedToolCallKeys.delete(approvalKey);
       const approvalBinding: AgentApprovalBinding = {
         toolName: toolCall.name,
+        toolRevision: actionEntry.revision ?? null,
         input: toolCall.input,
         callId: toolCall.id,
         approvalKey,
@@ -11426,6 +11580,11 @@ export function createProductionAgentHandler(
         event,
         ownerEmail,
         orgId: getRequestOrgId() ?? null,
+        ...(threadId ? { threadId } : {}),
+        ...(typeof requestTurnId === "string" && requestTurnId.trim()
+          ? { requestedTurnId: requestTurnId.trim() }
+          : {}),
+        internalContinuation: Boolean(internalContinuation),
       });
       const turnAdditionalActionNames = isBackgroundWorker
         ? readPersistedAdditionalActionNames(body)
@@ -12586,6 +12745,7 @@ export function createProductionAgentHandler(
         threadId: effectiveThreadId,
         turnId: effectiveTurnId,
         toolName: binding.toolName,
+        toolRevision: binding.toolRevision,
         callId: binding.callId,
         approvalKey: binding.approvalKey,
         ...(binding.approvalId ? { approvalId: binding.approvalId } : {}),
@@ -12605,6 +12765,7 @@ export function createProductionAgentHandler(
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
           toolName: binding.toolName,
+          toolRevision: binding.toolRevision,
         });
       },
     };
@@ -13633,11 +13794,47 @@ export function createProductionAgentHandler(
 
         let instrumented = false;
         try {
+          const isRequestToolGone = (name: string) =>
+            !requestActions[name] ||
+            isUnavailableActionEntry(requestActions[name]);
           if (
             exactApprovedToolCall &&
             approvedToolCallsForExecution &&
-            requestActions[exactApprovedToolCall.name]
+            isRequestToolGone(exactApprovedToolCall.name)
           ) {
+            const result = formatToolNoLongerAvailable(
+              exactApprovedToolCall.name,
+            );
+            const input = JSON.parse(
+              JSON.stringify(exactApprovedToolCall.input ?? {}),
+            );
+            send({
+              type: "tool_start",
+              id: exactApprovedToolCall.callId,
+              tool: exactApprovedToolCall.name,
+              input,
+            });
+            send({
+              type: "tool_done",
+              id: exactApprovedToolCall.callId,
+              tool: exactApprovedToolCall.name,
+              input,
+              result,
+              isError: true,
+              completedSideEffect: false,
+            });
+            const stop = approvedToolUnavailableStop(
+              exactApprovedToolCall.name,
+            );
+            send({
+              type: "error",
+              error: stop.message,
+              errorCode: stop.errorCode,
+              recoverable: false,
+            });
+            return;
+          }
+          if (exactApprovedToolCall && approvedToolCallsForExecution) {
             send({
               type: "activity",
               label: `Running approved ${exactApprovedToolCall.name} action`,

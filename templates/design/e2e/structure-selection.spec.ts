@@ -2088,8 +2088,7 @@ test.describe("groups", () => {
     expect(viteUpdates).toEqual([]);
   });
 
-  // fixme: product bug: After Cmd+Shift+G the selection shows a '120 × 80' badge (one item) instead of '270 × 80' for the two selected layers. Saved state is
-  test.fixme("Cmd+Shift+G ungroups: the children return to the page at their original positions and stay selected together", async ({
+  test("Cmd+Shift+G ungroups: the children return to the page at their original positions and stay selected together", async ({
     app,
   }) => {
     const id = await openSeeded(app);

@@ -465,6 +465,79 @@ describe("get-motion-timeline inline source recovery", () => {
     });
   });
 
+  it("returns an explicit unsupported state only for passive source hydration", async () => {
+    const malformedPathCss = compileMotionCode({
+      ...timeline,
+      tracks: [
+        {
+          targetNodeId: "hero",
+          property: "translate",
+          keyframes: [
+            {
+              t: 0,
+              value: "0px 0px",
+              motionPath: {
+                version: 1,
+                type: "cubic",
+                control1: { x: 0, y: 100 },
+                control2: { x: 0, y: 100 },
+              },
+            },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+      ],
+    })
+      .css.replace(/\/\* agent-native-motion-source:[\s\S]*? \*\//, "")
+      .replace("offset-distance: 100%;", "offset-distance: 99%;");
+    const sourceRef = "file-unsupported";
+    const storedTimeline = {
+      ...timeline,
+      id: "stored-timeline",
+      sourceRef,
+      tracks: JSON.stringify(timeline.tracks),
+    };
+    mocks.setTimelineRows([storedTimeline]);
+    mocks.setFileRows([fileRow(sourceRef)]);
+    mocks.setLiveContents({
+      [sourceRef]: injectManagedMotionCss(
+        '<html><body><p data-agent-native-node-id="hero">Hello</p></body></html>',
+        malformedPathCss,
+      ),
+    });
+
+    const passiveResult = await action.run({
+      designId: "design-1",
+      sourceRef,
+      passiveRead: true,
+    });
+
+    expect(passiveResult).toMatchObject({
+      count: 1,
+      timelines: [
+        {
+          id: "stored-timeline",
+          sourceRef,
+          tracks: timeline.tracks,
+          source: "stored",
+        },
+      ],
+      sourceReadCapability: {
+        status: "unsupported",
+        sourceRef,
+        errorCode: "motion_css_source_unreadable",
+        reason: expect.stringMatching(/path animation that cannot be read/),
+      },
+    });
+
+    await expect(
+      action.run({ designId: "design-1", sourceRef }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_css_source_unreadable",
+      statusCode: 422,
+    });
+  });
+
   it("continues recovery across bounded source-file pages", async () => {
     const rows = Array.from({ length: 51 }, (_, index) => {
       const id = `file-${String(index + 1).padStart(3, "0")}`;

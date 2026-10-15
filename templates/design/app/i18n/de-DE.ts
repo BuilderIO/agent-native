@@ -1070,6 +1070,8 @@ export default {
       timelineDescription:
         "Keyframe-Zeitleiste. {{tracks}} Spuren, {{keyframes}} Keyframes. Mit Pfeiltasten oder Leertaste + Ziehen scrollen, mit Pinch oder Strg/Cmd + Mausrad zoomen, Keyframes zum Verschieben ziehen, Umschalt/Cmd zur Mehrfachauswahl, doppelklicken zum Hinzufügen.",
       size: "Größe",
+      sourceReadUnavailable:
+        "Motion kann diese Animation nicht lesen, ohne ihr Verhalten zu ändern.",
       sourceWriteUnavailable:
         "Motion-Code kann derzeit nur in eingebettete HTML-Designs geschrieben werden.",
       sourceConflict:

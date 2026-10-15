@@ -1549,6 +1549,8 @@ export function useEditorLiveEditsAndPresence({
     selectedMotionTargetNodeId,
     selectedElementHasMotionTrack,
     motionTimelineFilePath: activeMotionTimeline?.filePath ?? null,
+    motionSourceReadCapability:
+      motionTimelineResult?.sourceReadCapability ?? null,
     motionKeyframeState,
     selectedCanvasSelectorCandidates,
     selectedCanvasSelector,

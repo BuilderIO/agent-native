@@ -10186,7 +10186,10 @@ describe("AgentKitAssistantChat host behavior", () => {
       title: "Allow publishing?",
       description: "publish-release",
       kind: "approval",
-      metadata: { toolName: "publish-release" },
+      metadata: {
+        toolName: "publish-release",
+        approvalAskId: "agent-tool-approval-1",
+      },
     };
     await mount(baseProps());
 
@@ -10202,13 +10205,56 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(chatMocks.callAction).toHaveBeenCalledWith(
       "set-tool-approval-policy",
-      { toolName: "publish-release", enabled: true },
+      {
+        toolName: "publish-release",
+        enabled: true,
+        approvalId: "agent-tool-approval-1",
+      },
     );
     expect(chatMocks.control.resolveApproval).toHaveBeenCalledWith(
       "run-1",
       "approval-default-policy",
       { decision: "approve", optionIds: ["approve"] },
     );
+  });
+
+  it("saves a name-only policy when the approval has no server approval id", async () => {
+    chatMocks.approvalRequest = {
+      id: "provider-approval-7",
+      title: "Allow this connector tool?",
+      kind: "approval",
+      metadata: { toolName: "connector-tool" },
+    };
+    await mount(baseProps());
+
+    await act(async () => {
+      await chatMocks.approvalCardProps.onAlwaysAllow();
+    });
+
+    expect(chatMocks.callAction).toHaveBeenCalledWith(
+      "set-tool-approval-policy",
+      { toolName: "connector-tool", enabled: true },
+    );
+    expect(chatMocks.control.resolveApproval).toHaveBeenCalledWith(
+      "run-1",
+      "provider-approval-7",
+      { decision: "approve", optionIds: ["approve"] },
+    );
+  });
+
+  it("offers no always-allow for an approval that cannot persist", async () => {
+    chatMocks.approvalRequest = {
+      id: "approval-managed",
+      title: "Allow this managed agent tool?",
+      kind: "approval",
+      metadata: {
+        toolName: "managed-agent-tool",
+        allowPersistentApproval: false,
+      },
+    };
+    await mount(baseProps());
+
+    expect(chatMocks.approvalCardProps.onAlwaysAllow).toBeUndefined();
   });
 
   it("opens active reasoning and omits explicitly hidden reasoning", async () => {

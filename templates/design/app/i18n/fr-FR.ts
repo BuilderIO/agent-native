@@ -1069,6 +1069,8 @@ export default {
       timelineDescription:
         "Timeline des images clés. {{tracks}} pistes, {{keyframes}} images clés. Utilisez les flèches ou Espace + glisser pour faire défiler, pincez ou utilisez Cmd/Ctrl + molette pour zoomer, faites glisser les images clés pour les déplacer, utilisez Maj/Cmd pour en sélectionner plusieurs et double-cliquez pour en ajouter.",
       size: "Taille",
+      sourceReadUnavailable:
+        "Motion ne peut pas lire cette animation sans en modifier le comportement.",
       sourceWriteUnavailable:
         "Pour le moment, le code Motion ne peut être écrit que dans des designs HTML intégrés.",
       sourceConflict:

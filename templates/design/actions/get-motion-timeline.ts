@@ -45,6 +45,10 @@ import {
   type MotionReactSourceWriteCapability,
 } from "../shared/motion-react-source.js";
 import {
+  passiveMotionSourceReadCapability,
+  type MotionSourceReadCapability,
+} from "../shared/motion-source-read.js";
+import {
   decodeMotionTextDocument,
   readMotionTextDocument,
   type MotionTextDocument,
@@ -839,6 +843,12 @@ export default defineAction({
       .describe(
         "Project-relative React module or HTML path witnessed by the preview.",
       ),
+    passiveRead: z
+      .boolean()
+      .optional()
+      .describe(
+        "For the Design editor's background hydration query only. Known unsupported source syntax is returned as an explicit sourceReadCapability; other validation errors still fail.",
+      ),
   }),
   run: async (args, context) => {
     context = withMotionLocalhostRelayIdentity(
@@ -853,7 +863,11 @@ export default defineAction({
       targetNodeIds,
       previewModuleVersionHash,
       previewModulePath,
+      passiveRead: requestedPassiveRead,
     } = args;
+    const passiveRead = Boolean(
+      requestedPassiveRead && sourceRef && !timelineId,
+    );
     const access = await assertAccess("design", designId, "viewer");
 
     const db = getDb();
@@ -928,9 +942,16 @@ export default defineAction({
     const sourceType = designSourceTypeFromData(design.data);
     const useLocalSource =
       sourceType === "localhost" || Boolean(timelines[0]?.filePath);
+    let sourceReadCapability: MotionSourceReadCapability | null = null;
+    type InlineManagedSourceRead =
+      | { kind: "readable"; managedCss: ManagedCssSource | null }
+      | {
+          kind: "unsupported";
+          capability: MotionSourceReadCapability;
+        };
     const inlineManagedSourceCache = new Map<
       string,
-      Promise<ManagedCssSource | null>
+      Promise<InlineManagedSourceRead>
     >();
     const readInlineManagedSource = (inlineSourceRef: string) => {
       let result = inlineManagedSourceCache.get(inlineSourceRef);
@@ -938,7 +959,17 @@ export default defineAction({
         result = readManagedCssForSource({
           designId,
           sourceRef: inlineSourceRef,
-        });
+        }).then((managedCss) => ({ kind: "readable" as const, managedCss }));
+        if (passiveRead) {
+          result = result.catch((error: unknown) => {
+            const capability = passiveMotionSourceReadCapability(
+              error,
+              inlineSourceRef,
+            );
+            if (!capability) throw error;
+            return { kind: "unsupported", capability };
+          });
+        }
         inlineManagedSourceCache.set(inlineSourceRef, result);
       }
       return result;
@@ -970,7 +1001,7 @@ export default defineAction({
       } of recovery.recovered) {
         inlineManagedSourceCache.set(
           recoveredSourceRef,
-          Promise.resolve(managedCss),
+          Promise.resolve({ kind: "readable" as const, managedCss }),
         );
         timelines.push({
           id: null,
@@ -998,10 +1029,15 @@ export default defineAction({
     }
     if (sourceType === "inline" && !useLocalSource) {
       for (const timeline of timelines) {
-        const managedCss = timeline.sourceRef
+        const sourceRead = timeline.sourceRef
           ? await readInlineManagedSource(timeline.sourceRef)
           : null;
-        if (!managedCss) {
+        if (sourceRead?.kind === "unsupported") {
+          sourceReadCapability = sourceRead.capability;
+        }
+        const managedCss =
+          sourceRead?.kind === "readable" ? sourceRead.managedCss : null;
+        if (!managedCss && sourceRead?.kind !== "unsupported") {
           fail(
             "The stored inline Motion timeline is missing its canonical managed source.",
             { errorCode: "motion_inline_source_missing", statusCode: 422 },
@@ -1051,28 +1087,50 @@ export default defineAction({
         );
       }
     }
+    const localSourceRead = await (async () => {
+      try {
+        const result =
+          useLocalSource && canReadLocalSource && localSourceLocation
+            ? isLocalHtmlSource
+              ? await readManagedHtmlForSource({
+                  designId,
+                  location: localSourceLocation,
+                  context,
+                  targetNodeIds: [...new Set(targetNodeIds ?? [])],
+                  previewModuleVersionHash,
+                })
+              : await readManagedReactForSource({
+                  designId,
+                  location: localSourceLocation,
+                  context,
+                  targetNodeIds: [...new Set(targetNodeIds ?? [])],
+                  previewModuleVersionHash,
+                })
+            : null;
+        return { kind: "readable" as const, result };
+      } catch (error) {
+        const capability = passiveRead
+          ? passiveMotionSourceReadCapability(error, managedSourceRef ?? "")
+          : null;
+        if (!capability) throw error;
+        return { kind: "unsupported" as const, capability };
+      }
+    })();
+    if (localSourceRead.kind === "unsupported") {
+      sourceReadCapability = localSourceRead.capability;
+    }
     const localSourceResult =
-      useLocalSource && canReadLocalSource && localSourceLocation
-        ? isLocalHtmlSource
-          ? await readManagedHtmlForSource({
-              designId,
-              location: localSourceLocation,
-              context,
-              targetNodeIds: [...new Set(targetNodeIds ?? [])],
-              previewModuleVersionHash,
-            })
-          : await readManagedReactForSource({
-              designId,
-              location: localSourceLocation,
-              context,
-              targetNodeIds: [...new Set(targetNodeIds ?? [])],
-              previewModuleVersionHash,
-            })
-        : null;
+      localSourceRead.kind === "readable" ? localSourceRead.result : null;
     if (isLocalhostBridgeRelay(localSourceResult)) return localSourceResult;
     const localSource = localSourceResult?.managed ?? null;
     const sourceWriteCapability = localSourceResult?.writeCapability ?? null;
-    if (useLocalSource && canReadLocalSource && !localSource && timelines[0]) {
+    if (
+      useLocalSource &&
+      canReadLocalSource &&
+      !localSource &&
+      timelines[0] &&
+      sourceReadCapability?.sourceRef !== managedSourceRef
+    ) {
       fail(
         `The stored local Motion timeline is missing its canonical managed source for ${isLocalHtmlSource ? "HTML" : "React"}.`,
         {
@@ -1137,17 +1195,28 @@ export default defineAction({
               : (localSource.sourceVersionHash ?? null),
         }
       : null;
+    const inlineSourceRead =
+      sourceType === "inline" && !useLocalSource && managedSourceRef
+        ? await readInlineManagedSource(managedSourceRef)
+        : null;
+    if (inlineSourceRead?.kind === "unsupported") {
+      sourceReadCapability = inlineSourceRead.capability;
+    }
     const managedCss =
       useLocalSource && !canReadLocalSource
         ? null
-        : localSourceResult
-          ? managedLocalCss
-          : sourceType === "inline" && managedSourceRef
-            ? await readInlineManagedSource(managedSourceRef)
-            : await readManagedCssForSource({
-                designId,
-                sourceRef: managedSourceRef ?? undefined,
-              });
+        : localSourceRead.kind === "unsupported"
+          ? null
+          : localSourceResult
+            ? managedLocalCss
+            : inlineSourceRead?.kind === "unsupported"
+              ? null
+              : inlineSourceRead?.kind === "readable"
+                ? inlineSourceRead.managedCss
+                : await readManagedCssForSource({
+                    designId,
+                    sourceRef: managedSourceRef ?? undefined,
+                  });
 
     if (managedCss) {
       const [first] = timelines;
@@ -1245,6 +1314,7 @@ export default defineAction({
       count: timelines.length,
       recoveryErrors,
       sourceWriteCapability,
+      sourceReadCapability,
     };
   },
 });
