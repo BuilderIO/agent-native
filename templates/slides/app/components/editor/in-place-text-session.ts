@@ -3605,11 +3605,20 @@ export function startInPlaceTextSession(
   }
 
   function indent(item: HTMLElement) {
-    const previous = item.previousElementSibling;
+    const list = item.parentElement!;
+    // Adjacent same-type lists render as one list, so the first item of the
+    // second nests under the last item of the first.
+    const before = list.previousElementSibling;
+    const previous =
+      item.previousElementSibling ??
+      (list !== el &&
+      before instanceof HTMLElement &&
+      before.tagName === list.tagName
+        ? before.lastElementChild
+        : null);
     if (!(previous instanceof HTMLElement) || previous.tagName !== "LI") {
       return false;
     }
-    const list = item.parentElement!;
     let nested = previous.lastElementChild;
     if (!nested || nested.tagName !== list.tagName) {
       const computed = window.getComputedStyle(list);
@@ -3621,6 +3630,7 @@ export function startInPlaceTextSession(
       previous.append(nested);
     }
     nested.append(item);
+    if (!list.children.length && !hasRenderedContent(list)) list.remove();
     return true;
   }
 
@@ -3725,6 +3735,19 @@ export function startInPlaceTextSession(
       10,
     );
     return Number.isFinite(override) ? override : ordinal;
+  }
+
+  function continuesOrderedList(previous: Element | null, number: number) {
+    if (!(previous instanceof HTMLElement) || previous.tagName !== "OL") {
+      return false;
+    }
+    const items = Array.from(previous.children).filter(
+      (child): child is HTMLElement => child.tagName === "LI",
+    );
+    return (
+      items.length > 0 &&
+      orderedOrdinalAt(previous, items, items.length - 1) + 1 === number
+    );
   }
 
   function listSlice(
@@ -4707,14 +4730,70 @@ export function startInPlaceTextSession(
         (child) => child.tagName === "OL" || child.tagName === "UL",
       );
       const content = document.createElement(tagName);
-      const moved = Array.from(block.childNodes).filter(
-        (child) => !lists.includes(child as HTMLElement),
-      );
-      content.append(...moved);
-      block.insertBefore(content, lists[0] ?? null);
+      keepingSelection(() => {
+        const moved = Array.from(block.childNodes).filter(
+          (child) => !lists.includes(child as HTMLElement),
+        );
+        content.append(...moved);
+        block.insertBefore(content, lists[0] ?? null);
+        return true;
+      });
       return;
     }
     if (block.tagName !== tagName) retag(block, tagName);
+  }
+
+  /** Quotes the block, or lifts it out of the quote it is already in. */
+  function quoteBlock(block: HTMLElement, remove: boolean) {
+    const quote = quoteAt(block);
+    if (!remove) {
+      if (!quote) retagBlock(block, "BLOCKQUOTE");
+      return;
+    }
+    if (!quote) return;
+    if (quote === block) {
+      retagBlock(block, "P");
+      return;
+    }
+    if (quote === el) {
+      retagRoot("DIV");
+      return;
+    }
+    keepingSelection(() => {
+      let child: Node = block;
+      while (child.parentNode !== quote) child = child.parentNode!;
+      const holdsContent = (nodes: Node[]) =>
+        nodes.some(
+          (node) => node instanceof Element || hasRenderedContent(node),
+        );
+      const before: Node[] = [];
+      for (
+        let prev = child.previousSibling;
+        prev;
+        prev = prev.previousSibling
+      ) {
+        before.push(prev);
+      }
+      const following: Node[] = [];
+      for (let next = child.nextSibling; next; next = next.nextSibling) {
+        following.push(next);
+      }
+      // The quote keeps its identity on the side that still holds content.
+      if (!holdsContent(before)) {
+        quote.before(child);
+        if (!holdsContent(following)) quote.remove();
+        return true;
+      }
+      if (holdsContent(following)) {
+        const trailing = quote.cloneNode(false) as HTMLElement;
+        stripCopiedIdentity(trailing);
+        trailing.append(...following);
+        quote.after(child, trailing);
+      } else {
+        quote.after(child);
+      }
+      return true;
+    });
   }
 
   function materializeRootInlineBlocks() {
@@ -4770,44 +4849,60 @@ export function startInPlaceTextSession(
     }
   }
 
-  function canMergeAdjacentLists(left: HTMLElement, right: HTMLElement) {
-    if (left.tagName !== right.tagName || right.hasAttribute("id"))
-      return false;
-    if (
-      left.tagName === "OL" &&
-      (left.hasAttribute("reversed") ||
-        right.hasAttribute("reversed") ||
-        right.hasAttribute("start"))
-    ) {
-      return false;
-    }
-    const attributes = (list: HTMLElement) =>
-      Array.from(list.attributes)
-        .filter((attribute) => attribute.name !== "id")
-        .map((attribute) => `${attribute.name}\0${attribute.value}`)
-        .sort();
-    return attributes(left).join("\0") === attributes(right).join("\0");
+  function listAttributes(list: HTMLElement) {
+    return Array.from(list.attributes)
+      .filter((attribute) => attribute.name !== "id")
+      .map((attribute) => `${attribute.name}\0${attribute.value}`)
+      .sort()
+      .join("\0");
   }
 
-  function mergeAdjacentLists(list: HTMLElement) {
+  function canJoinLists(left: HTMLElement, right: HTMLElement) {
+    if (left.tagName !== right.tagName || right.hasAttribute("id")) {
+      return false;
+    }
+    return (
+      left.tagName !== "OL" ||
+      !(
+        left.hasAttribute("reversed") ||
+        right.hasAttribute("reversed") ||
+        right.hasAttribute("start")
+      )
+    );
+  }
+
+  /**
+   * Folds a list holding one fresh item into the same-type lists around it. The
+   * fresh list carries no author styling, so the item joins the neighbour and
+   * takes its look; two lists that were already separate merge only when they
+   * look the same.
+   */
+  function joinFreshList(list: HTMLElement) {
+    const item = list.firstElementChild;
+    if (!item) return;
     let target = list;
-    const previous = target.previousElementSibling;
-    if (
-      previous instanceof HTMLElement &&
-      canMergeAdjacentLists(previous, target)
-    ) {
-      previous.append(...Array.from(target.childNodes));
-      target.remove();
+    const previous = list.previousElementSibling;
+    if (previous instanceof HTMLElement && canJoinLists(previous, list)) {
+      previous.append(item);
+      list.remove();
       target = previous;
     }
     const next = target.nextElementSibling;
-    if (next instanceof HTMLElement && canMergeAdjacentLists(target, next)) {
+    if (!(next instanceof HTMLElement) || !canJoinLists(target, next)) return;
+    if (target === list) {
+      next.prepend(item);
+      list.remove();
+    } else if (listAttributes(target) === listAttributes(next)) {
       target.append(...Array.from(next.childNodes));
       next.remove();
     }
   }
 
-  function toggleListAtBlock(block: HTMLElement, kind: SlideListKind): boolean {
+  function toggleListAtBlock(
+    block: HTMLElement,
+    kind: SlideListKind,
+    join = true,
+  ): boolean {
     const caretBefore = selectionRange();
     const elementCaretOffset =
       caretBefore?.collapsed &&
@@ -4854,7 +4949,7 @@ export function startInPlaceTextSession(
       const caret = selectionRange();
       if (caret) {
         const target = commandBlock(caret.startContainer);
-        if (target !== el) return toggleListAtBlock(target, kind);
+        if (target !== el) return toggleListAtBlock(target, kind, join);
       }
     }
     let convertedLine: HTMLElement | null = null;
@@ -4908,7 +5003,7 @@ export function startInPlaceTextSession(
       keepTextLook(line, look);
       line.replaceWith(list);
       list.append(line);
-      mergeAdjacentLists(list);
+      if (join) joinFreshList(list);
       return true;
     });
     if (changed && elementCaretOffset !== null && convertedLine) {
@@ -4993,6 +5088,7 @@ export function startInPlaceTextSession(
     kind: InPlaceTextAuthoringCommand,
     block: HTMLElement,
     caret: Range,
+    join = true,
   ) {
     if (
       isBulletRow(block) &&
@@ -5024,11 +5120,11 @@ export function startInPlaceTextSession(
         break;
       }
       case "bulletList":
-        return toggleListAtBlock(block, "bullet");
+        return toggleListAtBlock(block, "bullet", join);
       case "orderedList":
-        return toggleListAtBlock(block, "ordered");
+        return toggleListAtBlock(block, "ordered", join);
       case "quote":
-        retagBlock(block, block.tagName === "BLOCKQUOTE" ? "P" : "BLOCKQUOTE");
+        quoteBlock(block, quoteAt(block) !== null);
         break;
       case "divider":
         insertDividerAtBlock(block, caret);
@@ -5063,11 +5159,11 @@ export function startInPlaceTextSession(
       kind === "heading4"
         ? `H${kind.slice(-1)}`
         : null;
+    const unquote =
+      kind === "quote" && blocks.every((block) => quoteAt(block) !== null);
     const tagName =
       kind === "quote"
-        ? blocks.every((block) => block.tagName === "BLOCKQUOTE")
-          ? "P"
-          : "BLOCKQUOTE"
+        ? "BLOCKQUOTE"
         : headingTag
           ? blocks.every((block) => block.tagName === headingTag)
             ? "P"
@@ -5081,7 +5177,8 @@ export function startInPlaceTextSession(
         if (isBulletRow(block) && block !== el) {
           unwrapBulletRowForBlockCommand(block);
         }
-        retagBlock(block, tagName);
+        if (kind === "quote") quoteBlock(block, unquote);
+        else retagBlock(block, tagName);
       }
       return true;
     });
@@ -5346,6 +5443,11 @@ export function startInPlaceTextSession(
           kind,
           target,
           selectionRange() ?? current,
+          !ordered ||
+            continuesOrderedList(
+              target.previousElementSibling,
+              Number(ordered[1]),
+            ),
         );
         if (applied && ordered) {
           const item = listItemAt(
@@ -5358,7 +5460,7 @@ export function startInPlaceTextSession(
               : (Array.from(el.children).find(
                   (child) => child.tagName === "OL",
                 ) as HTMLElement | undefined));
-          if (list) {
+          if (list && !item?.previousElementSibling) {
             if (Number(ordered[1]) === 1) list.removeAttribute("start");
             else list.setAttribute("start", ordered[1]);
           }
@@ -5583,9 +5685,11 @@ export function startInPlaceTextSession(
             rows.length > 0 &&
             selectedRows.length === 0 &&
             selectedUnmarkedRows.length > 0;
+          const nested =
+            listItemAt(block)?.parentElement?.parentElement?.tagName === "LI";
           if (
             block !== el &&
-            selectedRows.length === 0 &&
+            (selectedRows.length === 0 || nested) &&
             !hasLegacyBulletAction
           ) {
             return toggleListAtBlock(block, kind);
