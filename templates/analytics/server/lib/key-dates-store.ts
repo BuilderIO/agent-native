@@ -184,20 +184,42 @@ export async function deleteKeyDateSet(
   });
 }
 
+/** An edit keeps the time and zone it omits; null clears one. */
 export type SaveKeyDateInput = {
   id?: string;
   setId?: string;
   setName?: string;
   date: string;
-  time?: string;
-  timeZone?: string;
+  time?: string | null;
+  timeZone?: string | null;
   label: string;
 };
+
+type StoredKeyDate = {
+  date: typeof dates.$inferSelect;
+  set: typeof sets.$inferSelect;
+};
+
+async function findKeyDate(
+  tx: any,
+  scope: KeyDateScope,
+  id: string,
+): Promise<StoredKeyDate> {
+  const [stored] = await tx
+    .select({ date: dates, set: sets })
+    .from(dates)
+    .innerJoin(sets, eq(sets.id, dates.setId))
+    .where(and(inScope(dates, scope), inScope(sets, scope), eq(dates.id, id)))
+    .limit(1);
+  if (!stored) notFound("date", id);
+  return stored;
+}
 
 async function resolveSet(
   tx: any,
   scope: KeyDateScope,
-  input: Pick<SaveKeyDateInput, "id" | "setId" | "setName">,
+  input: Pick<SaveKeyDateInput, "setId" | "setName">,
+  stored: StoredKeyDate | undefined,
 ): Promise<typeof sets.$inferSelect> {
   if (input.setId) {
     const set = await findSet(tx, scope, eq(sets.id, input.setId));
@@ -210,22 +232,51 @@ async function resolveSet(
       (await findSet(tx, scope, sameName(name))) ?? createSet(tx, scope, name)
     );
   }
-  if (!input.id) {
+  if (!stored) {
     fail("Name the set of a new key date with setId or setName.", {
       errorCode: "invalid_key_date",
       statusCode: 400,
     });
   }
-  const [current] = await tx
-    .select({ set: sets })
-    .from(dates)
-    .innerJoin(sets, eq(sets.id, dates.setId))
-    .where(
-      and(inScope(dates, scope), inScope(sets, scope), eq(dates.id, input.id)),
-    )
-    .limit(1);
-  if (!current) notFound("date", input.id);
-  return current.set;
+  return stored.set;
+}
+
+/**
+ * The event an add or edit saves, unvalidated. Clearing the time clears its
+ * zone too; an empty string stays in, so validation rejects it.
+ */
+function keyDateEvent(
+  input: SaveKeyDateInput,
+  label: string,
+  stored: StoredKeyDate | undefined,
+) {
+  const time =
+    input.time === undefined ? (stored?.date.time ?? null) : input.time;
+  const timeZone =
+    input.timeZone !== undefined || input.time === null
+      ? (input.timeZone ?? null)
+      : (stored?.date.timeZone ?? null);
+  return {
+    date: input.date,
+    label,
+    ...(time === null ? {} : { time }),
+    ...(timeZone === null ? {} : { timeZone }),
+  };
+}
+
+function validKeyDate(event: ReturnType<typeof keyDateEvent>) {
+  const problem =
+    panelEventProblem(event) ??
+    (event.label.length > MAX_LABEL_LENGTH
+      ? `label must be at most ${MAX_LABEL_LENGTH} characters`
+      : null);
+  if (problem) {
+    fail(
+      `Invalid key date: ${problem}. A key date needs date "YYYY-MM-DD", a label of 1 to ${MAX_LABEL_LENGTH} characters, an optional time "HH:MM", and a time zone (IANA, e.g. "America/New_York") only with a time; null, not "", clears either.`,
+      { errorCode: "invalid_key_date", statusCode: 400 },
+    );
+  }
+  return event;
 }
 
 export async function saveKeyDate(
@@ -233,25 +284,14 @@ export async function saveKeyDate(
   input: SaveKeyDateInput,
 ): Promise<KeyDate & { setName: string }> {
   const label = input.label.trim();
-  const event = {
-    date: input.date,
-    label,
-    ...(input.time ? { time: input.time } : {}),
-    ...(input.timeZone ? { timeZone: input.timeZone } : {}),
-  };
-  const problem =
-    panelEventProblem(event) ??
-    (label.length > MAX_LABEL_LENGTH
-      ? `label must be at most ${MAX_LABEL_LENGTH} characters`
-      : null);
-  if (problem) {
-    fail(
-      `Invalid key date: ${problem}. A key date needs date "YYYY-MM-DD", a label of 1 to ${MAX_LABEL_LENGTH} characters, an optional time "HH:MM", and a time zone (IANA, e.g. "America/New_York") only with a time.`,
-      { errorCode: "invalid_key_date", statusCode: 400 },
-    );
-  }
+  // An add has nothing stored to merge, so it can be refused before any query.
+  if (!input.id) validKeyDate(keyDateEvent(input, label, undefined));
   return writeInAnnotationScope(scope, async (tx) => {
-    const set = await resolveSet(tx, scope, input);
+    const stored = input.id
+      ? await findKeyDate(tx, scope, input.id)
+      : undefined;
+    const event = validKeyDate(keyDateEvent(input, label, stored));
+    const set = await resolveSet(tx, scope, input, stored);
     const now = new Date().toISOString();
     const values = {
       setId: set.id,

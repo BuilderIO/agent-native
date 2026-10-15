@@ -6,7 +6,7 @@ import {
   type DataNotePanelRef,
 } from "@shared/data-notes";
 import { IconX } from "@tabler/icons-react";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 
 import {
   useDeleteDataNote,
@@ -157,8 +157,12 @@ function DataNoteForm({
   const ids = useId();
   const saveNote = useSaveDataNote();
   const deleteNote = useDeleteDataNote();
-  const [form, setForm] = useState<FormState>(() => initialForm(draft));
+  const [initial] = useState<FormState>(() => initialForm(draft));
+  const [form, setForm] = useState(initial);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const fixRef = useRef<HTMLInputElement>(null);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
 
   const update = (patch: Partial<FormState>) =>
     setForm((current) => ({ ...current, ...patch }));
@@ -244,15 +248,32 @@ function DataNoteForm({
   return (
     <>
       <Dialog open onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
+        <DialogContent
+          className="flex max-h-[90vh] flex-col overflow-hidden p-0 sm:max-w-[480px]"
+          onOpenAutoFocus={(event) => {
+            const field = marksFixed(draft)
+              ? fixRef.current
+              : existing
+                ? null
+                : titleRef.current;
+            if (!field) return;
+            event.preventDefault();
+            field.focus();
+          }}
+          // Escape, Cancel and the close button still discard an edit; a
+          // stray click beside the dialog must not.
+          onInteractOutside={(event) => {
+            if (dirty) event.preventDefault();
+          }}
+        >
+          <DialogHeader className="px-6 pt-6">
             <DialogTitle>
               {existing
                 ? t("annotations.editDataNote")
                 : t("annotations.addDataNote")}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-1">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-1">
             <ToggleGroup
               type="single"
               value={form.kind}
@@ -271,11 +292,11 @@ function DataNoteForm({
             <div className="space-y-1.5">
               <Label htmlFor={`${ids}-title`}>{t("annotations.title")}</Label>
               <Input
+                ref={titleRef}
                 id={`${ids}-title`}
                 value={form.title}
                 maxLength={120}
                 onChange={(event) => update({ title: event.target.value })}
-                autoFocus={!existing}
               />
             </div>
             <div className="space-y-1.5">
@@ -328,12 +349,12 @@ function DataNoteForm({
             </label>
             {form.fixed ? (
               <Input
+                ref={fixRef}
                 aria-label={t("annotations.fixedBy")}
                 placeholder={t("annotations.fixedBy")}
                 value={form.fix}
                 maxLength={500}
                 onChange={(event) => update({ fix: event.target.value })}
-                autoFocus={marksFixed(draft)}
               />
             ) : null}
             <div className="space-y-1.5">
@@ -438,7 +459,7 @@ function DataNoteForm({
               </div>
             ) : null}
           </div>
-          <DialogFooter className="gap-2 sm:justify-between">
+          <DialogFooter className="gap-2 border-t border-border/60 px-6 py-4 sm:justify-between">
             {existing ? (
               <Button
                 variant="ghost"

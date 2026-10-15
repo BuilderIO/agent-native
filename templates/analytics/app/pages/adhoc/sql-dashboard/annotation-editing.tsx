@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
+import { isPendingAnnotation } from "@/components/dashboard/annotation-mutations";
 import type { DataNoteActions } from "@/components/dashboard/dashboard-annotations-context";
 
 import { AnnotationsMenu } from "./AnnotationsMenu";
@@ -36,6 +37,15 @@ export function useAnnotationEditing({
   const updateAnnotations = useCallback(
     (next: DashboardAnnotations) => {
       if (!dashboard) return;
+      const placeholder = [
+        ...(next.hiddenKeyDateSets ?? []),
+        ...(next.hiddenDataNotes ?? []).map((entry) => entry.noteId),
+      ].find(isPendingAnnotation);
+      if (placeholder) {
+        throw new Error(
+          `Can't save the unconfirmed annotation ${placeholder} to the dashboard; its controls should stay disabled until the server confirms it.`,
+        );
+      }
       const { annotations: _previous, ...rest } = dashboard;
       persist(
         Object.keys(next).length > 0 ? { ...rest, annotations: next } : rest,

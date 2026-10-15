@@ -5,11 +5,9 @@ import {
   trimToWholeWords,
 } from "@shared/chart-axis-labels";
 import {
-  dataNoteIsRecent,
+  dataNotesOnChart,
   dataNoteTone,
   formatDataNoteDates,
-  resolveDataNoteBand,
-  xValuesAreDates,
   type DataNote,
   type DataNoteBand,
   type DataNoteTone,
@@ -20,7 +18,7 @@ import {
   IconFlagFilled,
   IconPencil,
 } from "@tabler/icons-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode, type SyntheticEvent } from "react";
 import { ReferenceArea, usePlotArea, useXAxisScale } from "recharts";
 
 import { Button } from "@/components/ui/button";
@@ -30,6 +28,8 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 
+import { isPendingAnnotation } from "./annotation-mutations";
+import { useChartHoverCardOpen } from "./chart-hover-card";
 import { useDataNoteActions } from "./dashboard-annotations-context";
 
 const TONE_COLORS: Record<DataNoteTone, string> = {
@@ -66,6 +66,7 @@ function DataNoteDetails({
   const t = useT();
   const actions = useDataNoteActions();
   const dates = formatDataNoteDates(note);
+  const pending = isPendingAnnotation(note.id);
   const act = (run: () => void) => () => {
     onAction();
     run();
@@ -113,6 +114,7 @@ function DataNoteDetails({
             variant="ghost"
             size="sm"
             className="h-6 gap-1 px-2 text-xs"
+            disabled={pending}
             onClick={act(() => actions.edit(note))}
           >
             <IconPencil className="size-3.5" />
@@ -123,6 +125,7 @@ function DataNoteDetails({
               variant="ghost"
               size="sm"
               className="h-6 gap-1 px-2 text-xs"
+              disabled={pending}
               onClick={act(() => actions.markFixed(note))}
             >
               <IconCheck className="size-3.5" />
@@ -134,6 +137,7 @@ function DataNoteDetails({
               variant="ghost"
               size="sm"
               className="h-6 gap-1 px-2 text-xs"
+              disabled={pending}
               onClick={act(() => actions.hide?.(note.id, panelId))}
             >
               <IconEyeOff className="size-3.5" />
@@ -146,29 +150,38 @@ function DataNoteDetails({
   );
 }
 
+/**
+ * The card is portaled out of the chart's DOM but not out of its React tree,
+ * so its focus and key events would reach the chart as the chart's own:
+ * clicking a card button would pin the chart's tooltip at its first point.
+ */
+const keepFromChart = (event: SyntheticEvent) => event.stopPropagation();
+
 function DataNoteHoverCard({
   notes,
   panelId,
+  side,
   children,
   onHoverChange,
 }: {
   notes: readonly DataNote[];
   panelId?: string;
+  /** Toward the chart, so a card by its top edge doesn't cover the header. */
+  side: "top" | "bottom";
   children: ReactNode;
   onHoverChange?: (hovered: boolean) => void;
 }) {
-  const [open, setOpenState] = useState(false);
-  const setOpen = (value: boolean) => {
-    setOpenState(value);
-    onHoverChange?.(value);
-  };
+  const [open, setOpen] = useChartHoverCardOpen(onHoverChange);
   return (
     // Portaled, so the card is never clipped by the chart or the card edge.
     <HoverCard open={open} onOpenChange={setOpen} openDelay={0} closeDelay={80}>
       <HoverCardTrigger asChild>{children}</HoverCardTrigger>
       <HoverCardContent
-        side="top"
+        side={side}
         collisionPadding={8}
+        onFocus={keepFromChart}
+        onBlur={keepFromChart}
+        onKeyDown={keepFromChart}
         className="w-80 max-w-[calc(100vw-1rem)] space-y-3 divide-y divide-border p-3 text-xs [&>*+*]:pt-3"
       >
         {notes.map((note) => (
@@ -190,8 +203,8 @@ export interface PlacedDataNoteBand {
 }
 
 /**
- * Where each note falls on a chart's x values. When the x axis is not
- * dates, no note can be placed, so recent ones are listed under the chart.
+ * Where each note falls on a chart's x values: a band over the dates it
+ * covers, or a line under the chart when it can't be placed on them.
  */
 export function useDataNoteLayout(
   notes: readonly DataNote[],
@@ -200,18 +213,14 @@ export function useDataNoteLayout(
 ): { bands: PlacedDataNoteBand[]; unplaced: DataNote[] } {
   return useMemo(() => {
     if (notes.length === 0) return { bands: [], unplaced: [] };
-    const xValues = rows.map((row) => row[xKey]);
-    if (!xValuesAreDates(xValues)) {
-      return {
-        bands: [],
-        unplaced: notes.filter((note) => dataNoteIsRecent(note)),
-      };
-    }
-    const bands = notes.flatMap((note) => {
-      const band = resolveDataNoteBand(note, xValues);
-      return band ? [{ note, band }] : [];
-    });
-    return { bands, unplaced: [] };
+    const shown = dataNotesOnChart(
+      notes,
+      rows.map((row) => row[xKey]),
+    );
+    return {
+      bands: shown.flatMap(({ note, band }) => (band ? [{ note, band }] : [])),
+      unplaced: shown.flatMap(({ note, band }) => (band ? [] : [note])),
+    };
   }, [notes, rows, xKey]);
 }
 
@@ -381,6 +390,7 @@ function BandLabels({
             key={entry.note.id}
             notes={[entry.note]}
             panelId={panelId}
+            side="bottom"
             onHoverChange={onHoverChange}
           >
             <g
@@ -482,7 +492,7 @@ export function renderDataNoteBands(
 
 const MAX_LINES = 2;
 
-/** One line per note under a chart that can't place notes on a date axis. */
+/** One line per note under a chart that can't place it on its dates. */
 export function DataNoteLines({
   notes,
   panelId,
@@ -500,7 +510,7 @@ export function DataNoteLines({
         const dates = formatDataNoteDates(note);
         return (
           <li key={note.id} className="min-w-0">
-            <DataNoteHoverCard notes={[note]} panelId={panelId}>
+            <DataNoteHoverCard notes={[note]} panelId={panelId} side="top">
               <button
                 type="button"
                 className="flex w-full min-w-0 items-center gap-1.5 rounded text-left text-muted-foreground hover:text-foreground"
@@ -520,7 +530,7 @@ export function DataNoteLines({
       })}
       {rest.length > 0 ? (
         <li>
-          <DataNoteHoverCard notes={rest} panelId={panelId}>
+          <DataNoteHoverCard notes={rest} panelId={panelId} side="top">
             <button
               type="button"
               className="rounded text-muted-foreground hover:text-foreground"
@@ -548,7 +558,7 @@ export function DataNoteFlag({
     notes.some((note) => dataNoteTone(note) === candidate),
   )!;
   return (
-    <DataNoteHoverCard notes={notes} panelId={panelId}>
+    <DataNoteHoverCard notes={notes} panelId={panelId} side="bottom">
       <button
         type="button"
         className="shrink-0 rounded p-0.5"

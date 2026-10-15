@@ -1,9 +1,10 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { KeyDate } from "@shared/key-dates";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 
 import {
+  isPendingAnnotation,
   useDeleteKeyDate,
   useSaveKeyDate,
   type KeyDateInput,
@@ -26,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 /** An existing key date to edit, or the set a new one goes in. */
 export type KeyDateDraft = { keyDate?: KeyDate; setId?: string };
@@ -78,18 +80,33 @@ function KeyDateForm({
   const saveKeyDate = useSaveKeyDate();
   const deleteKeyDate = useDeleteKeyDate();
   const existing = draft.keyDate;
-  const [setId, setSetId] = useState(
-    existing?.setId ?? draft.setId ?? sets[0]?.id ?? NEW_SET,
-  );
+  const [initial] = useState(() => ({
+    setId:
+      existing?.setId ??
+      draft.setId ??
+      sets.find((set) => !isPendingAnnotation(set.id))?.id ??
+      NEW_SET,
+    label: existing?.label ?? "",
+    date: existing?.date ?? "",
+    time: existing?.time ?? "",
+    // A saved time without a zone is UTC; only a time added here starts in
+    // the viewer's zone.
+    timeZone: existing?.time ? (existing.timeZone ?? "UTC") : viewerTimeZone(),
+  }));
+  const [setId, setSetId] = useState(initial.setId);
   const [setName, setSetName] = useState("");
-  const [label, setLabel] = useState(existing?.label ?? "");
-  const [date, setDate] = useState(existing?.date ?? "");
-  const [time, setTime] = useState(existing?.time ?? "");
-  // A saved time without a zone is UTC; only a time added here starts in the
-  // viewer's zone.
-  const [timeZone, setTimeZone] = useState(() =>
-    existing?.time ? (existing.timeZone ?? "UTC") : viewerTimeZone(),
-  );
+  const [label, setLabel] = useState(initial.label);
+  const [date, setDate] = useState(initial.date);
+  const [time, setTime] = useState(initial.time);
+  const [timeZone, setTimeZone] = useState(initial.timeZone);
+  const labelRef = useRef<HTMLInputElement>(null);
+  const dirty =
+    setId !== initial.setId ||
+    setName !== "" ||
+    label !== initial.label ||
+    date !== initial.date ||
+    time !== initial.time ||
+    timeZone !== initial.timeZone;
 
   const newSet = setId === NEW_SET || !sets.some((set) => set.id === setId);
   const canSave =
@@ -102,7 +119,9 @@ function KeyDateForm({
       ...(newSet ? { setName: setName.trim() } : { setId }),
       date,
       label: label.trim(),
-      ...(time ? { time, timeZone } : {}),
+      // An edit keeps a time it leaves out, so a cleared time is sent as null.
+      time: time || null,
+      timeZone: time ? timeZone : null,
     };
     onClose();
     saveKeyDate.mutate(input);
@@ -116,15 +135,27 @@ function KeyDateForm({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[420px]">
-        <DialogHeader>
+      <DialogContent
+        className="flex max-h-[90vh] flex-col overflow-hidden p-0 sm:max-w-[420px]"
+        // Radix focuses the first control, the Set select, over autoFocus.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          labelRef.current?.focus();
+        }}
+        // Escape, Cancel and the close button still discard an edit; a stray
+        // click beside the dialog must not.
+        onInteractOutside={(event) => {
+          if (dirty) event.preventDefault();
+        }}
+      >
+        <DialogHeader className="px-6 pt-6">
           <DialogTitle>
             {existing
               ? t("annotations.editKeyDate")
               : t("annotations.addKeyDate")}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 py-1">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-1">
           <div className="space-y-1.5">
             <Label>{t("annotations.set")}</Label>
             <Select value={newSet ? NEW_SET : setId} onValueChange={setSetId}>
@@ -133,7 +164,11 @@ function KeyDateForm({
               </SelectTrigger>
               <SelectContent>
                 {sets.map((set) => (
-                  <SelectItem key={set.id} value={set.id}>
+                  <SelectItem
+                    key={set.id}
+                    value={set.id}
+                    disabled={isPendingAnnotation(set.id)}
+                  >
                     {set.name}
                   </SelectItem>
                 ))}
@@ -155,11 +190,11 @@ function KeyDateForm({
           <div className="space-y-1.5">
             <Label htmlFor={`${ids}-label`}>{t("annotations.label")}</Label>
             <Input
+              ref={labelRef}
               id={`${ids}-label`}
               value={label}
               maxLength={120}
               onChange={(event) => setLabel(event.target.value)}
-              autoFocus
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -183,25 +218,25 @@ function KeyDateForm({
               />
             </div>
           </div>
-          {time ? (
-            <div className="space-y-1.5">
-              <Label>{t("annotations.timeZone")}</Label>
-              <Select value={timeZone} onValueChange={setTimeZone}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {timeZoneOptions(timeZone).map((zone) => (
-                    <SelectItem key={zone} value={zone}>
-                      {zone}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
+          {/* Holds its place without a time, so typing one doesn't grow and
+              re-center the dialog. */}
+          <div className={cn("space-y-1.5", !time && "invisible")}>
+            <Label>{t("annotations.timeZone")}</Label>
+            <Select value={timeZone} onValueChange={setTimeZone}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {timeZoneOptions(timeZone).map((zone) => (
+                  <SelectItem key={zone} value={zone}>
+                    {zone}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-        <DialogFooter className="gap-2 sm:justify-between">
+        <DialogFooter className="gap-2 border-t border-border/60 px-6 py-4 sm:justify-between">
           {existing ? (
             <Button
               variant="ghost"

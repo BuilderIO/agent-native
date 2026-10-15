@@ -2,7 +2,7 @@ import type {
   DashboardAnnotations,
   SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
-import { xInstant } from "./panel-events";
+import { xBucketEnd, xCadence, xDatePoints, xInstant } from "./panel-events";
 
 export const DATA_NOTE_KINDS = ["data", "incident"] as const;
 export type DataNoteKind = (typeof DATA_NOTE_KINDS)[number];
@@ -48,11 +48,15 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** True when the SQL names the event as a quoted string, the way a filter on it does. */
+/**
+ * True when the SQL names the event as a quoted string, the way a filter on
+ * it does. Case counts: SQL compares the values exactly, so 'Signup' and
+ * 'signup' are different events.
+ */
 export function sqlCountsEvent(sql: string, event: string): boolean {
   const name = event.trim();
   if (!name) return false;
-  return new RegExp(`(['"])${escapeRegExp(name)}\\1`, "i").test(sql);
+  return new RegExp(`(['"])${escapeRegExp(name)}\\1`).test(sql);
 }
 
 export function dataNoteAppliesTo(
@@ -118,16 +122,6 @@ function isRowLabel(value: unknown): boolean {
   return value.trim() === "" || !Number.isFinite(Number(value));
 }
 
-/** The rows whose x is a date, by their position in xValues. */
-function dateRows(
-  xValues: readonly unknown[],
-): { row: number; instant: number }[] {
-  return xValues.flatMap((x, row) => {
-    const instant = xDateInstant(x);
-    return instant === null ? [] : [{ row, instant }];
-  });
-}
-
 /**
  * True when notes can be placed on the axis: some x values are dates and the
  * rest are blank or labels such as a total row. Any number makes it a
@@ -151,44 +145,102 @@ export interface DataNoteBand {
   endEdge: boolean;
 }
 
-/**
- * The run of x values a note covers. Each x value stands for the bucket up
- * to the next later one, so a weekly point covers its whole week whichever
- * way the rows are sorted. Rows whose x is not a date (a null bucket, a
- * total row) are skipped. Null when the x axis is not dates or the note is
- * outside it.
- */
-export function resolveDataNoteBand(
-  note: Pick<DataNote, "startDate" | "endDate">,
-  xValues: readonly unknown[],
-): DataNoteBand | null {
+interface DateAxis {
+  /** Each date row with the time its x value stands for, from start up to end. */
+  buckets: { row: number; start: number; end: number }[];
+  start: number;
+  end: number;
+}
+
+/** The chart's date rows by their position in xValues; null when the x axis is not dates. */
+function dateAxis(xValues: readonly unknown[]): DateAxis | null {
   if (!xValuesAreDates(xValues)) return null;
-  const rows = dateRows(xValues);
-  const known = rows.map(({ instant }) => instant);
-  const points = [...new Set(known)].sort((a, b) => a - b);
-  const gaps = points.slice(1).map((point, index) => point - points[index]);
-  const lastSpan = gaps.length ? Math.min(...gaps) : DAY_MS;
-  const spanEnds = new Map(
-    points.map((point, index) => [
-      point,
-      points[index + 1] ?? point + lastSpan,
-    ]),
-  );
-  const start = note.startDate ? Date.parse(note.startDate) : -Infinity;
-  const end = note.endDate ? Date.parse(note.endDate) + DAY_MS : Infinity;
-  const covered = rows.flatMap(({ row, instant }) =>
-    instant < end && spanEnds.get(instant)! > start ? [row] : [],
+  const points = xDatePoints(xValues, xDateInstant);
+  const cadence = xCadence(points);
+  const buckets = points.map(({ row, instant, day }) => {
+    const start = cadence.unit === "time" ? instant : day;
+    return { row, start, end: xBucketEnd(cadence, start) };
+  });
+  return {
+    buckets,
+    start: Math.min(...buckets.map((bucket) => bucket.start)),
+    end: Math.max(...buckets.map((bucket) => bucket.end)),
+  };
+}
+
+/** A note's days, from start up to end; a missing date leaves that side open. */
+function noteSpan(note: Pick<DataNote, "startDate" | "endDate">) {
+  return {
+    start: note.startDate ? Date.parse(note.startDate) : -Infinity,
+    end: note.endDate ? Date.parse(note.endDate) + DAY_MS : Infinity,
+  };
+}
+
+function bandOnAxis(
+  note: Pick<DataNote, "startDate" | "endDate">,
+  axis: DateAxis,
+): DataNoteBand | null {
+  const { start, end } = noteSpan(note);
+  const { buckets } = axis;
+  const covered = buckets.flatMap((bucket) =>
+    bucket.start < end && bucket.end > start ? [bucket.row] : [],
   );
   if (covered.length === 0) return null;
-  const startInside = start >= points[0];
-  const endInside = end <= points[points.length - 1] + lastSpan;
-  const newestFirst = known[0] > known[known.length - 1];
+  const startInside = start >= axis.start;
+  const endInside = end <= axis.end;
+  const newestFirst = buckets[0].start > buckets[buckets.length - 1].start;
   return {
     startIndex: covered[0],
     endIndex: covered[covered.length - 1],
     startEdge: newestFirst ? endInside : startInside,
     endEdge: newestFirst ? startInside : endInside,
   };
+}
+
+/**
+ * The run of x values a note covers. Each x value stands for one step of the
+ * axis's cadence, so a weekly point covers its whole week whichever way the
+ * rows are sorted, and a day the query returned no row for belongs to no x
+ * value. Rows whose x is not a date (a null bucket, a total row) are skipped.
+ * Null when the x axis is not dates or no x value falls in the note.
+ */
+export function resolveDataNoteBand(
+  note: Pick<DataNote, "startDate" | "endDate">,
+  xValues: readonly unknown[],
+): DataNoteBand | null {
+  const axis = dateAxis(xValues);
+  return axis ? bandOnAxis(note, axis) : null;
+}
+
+export interface ChartDataNote {
+  note: DataNote;
+  /** Null when the note is written under the chart instead of shaded on it. */
+  band: DataNoteBand | null;
+}
+
+/**
+ * The notes a chart shows, in order. A date axis shades each note over the
+ * x values it covers, writes one that falls only between them, on days the
+ * query returned no row for, under the chart, and leaves off one outside its
+ * dates. Any other axis writes the recent notes under the chart.
+ */
+export function dataNotesOnChart(
+  notes: readonly DataNote[],
+  xValues: readonly unknown[],
+  now: number = Date.now(),
+): ChartDataNote[] {
+  const axis = dateAxis(xValues);
+  if (!axis) {
+    return notes
+      .filter((note) => dataNoteIsRecent(note, now))
+      .map((note) => ({ note, band: null }));
+  }
+  return notes.flatMap((note): ChartDataNote[] => {
+    const band = bandOnAxis(note, axis);
+    if (band) return [{ note, band }];
+    const { start, end } = noteSpan(note);
+    return start < axis.end && end > axis.start ? [{ note, band: null }] : [];
+  });
 }
 
 export type DataNoteTone = "incident" | "data" | "fixed";

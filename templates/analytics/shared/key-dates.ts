@@ -33,6 +33,13 @@ export const KEY_DATE_CHART_TYPES: ReadonlySet<SqlPanel["chartType"]> = new Set(
   ["line", "area", "bar", "combo"],
 );
 
+/** True for a chart type that draws key dates, including a legacy alias such as "stacked-bar". */
+export function isKeyDateChartType(chartType: SqlPanel["chartType"]): boolean {
+  return KEY_DATE_CHART_TYPES.has(
+    LEGACY_CHART_TYPE_ALIASES[chartType] ?? chartType,
+  );
+}
+
 const MAX_HIDDEN_SETS = 100;
 
 /** Key dates from every set the dashboard has not hidden, as chart events. */
@@ -65,9 +72,7 @@ export function panelEventsWithKeyDates(
   keyDates: readonly PanelEvent[],
 ): unknown {
   const own = panel.config?.events;
-  const chartType =
-    LEGACY_CHART_TYPE_ALIASES[panel.chartType] ?? panel.chartType;
-  if (keyDates.length === 0 || !KEY_DATE_CHART_TYPES.has(chartType)) {
+  if (keyDates.length === 0 || !isKeyDateChartType(panel.chartType)) {
     return own;
   }
   const ownEvents: unknown[] = Array.isArray(own) ? own : [];

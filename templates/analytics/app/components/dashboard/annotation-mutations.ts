@@ -27,9 +27,18 @@ const KEY_DATE_SETS: AnnotationList<{ sets: KeyDateSet[] }, KeyDateSet> = {
 /** An optimistic edit, and how to take back only that edit. */
 type Change<T> = { next: T; revert: (current: T) => T };
 
+const PENDING_PREFIX = "pending-";
 let pendingCount = 0;
 /** Unique, so a failed add takes back its own placeholder and no other. */
-const pendingId = () => `pending-${++pendingCount}`;
+const pendingId = () => `${PENDING_PREFIX}${++pendingCount}`;
+
+/**
+ * Whether an annotation is still the placeholder shown before the server
+ * confirms it. The server knows no such id, so nothing may act on one or save
+ * it until the refetch brings the real id.
+ */
+export const isPendingAnnotation = (id: string) =>
+  id.startsWith(PENDING_PREFIX);
 
 function insertAt<T>(items: readonly T[], index: number, item: T): T[] {
   return [...items.slice(0, index), item, ...items.slice(index)];
@@ -172,8 +181,9 @@ export type KeyDateInput = {
   setId?: string;
   setName?: string;
   date: string;
-  time?: string;
-  timeZone?: string;
+  /** Omitted on an edit keeps the saved time; null clears it and its zone. */
+  time?: string | null;
+  timeZone?: string | null;
   label: string;
 };
 
@@ -210,7 +220,14 @@ function withKeyDate(
   input: KeyDateInput,
   ids: { date: string; newSet: string },
 ): KeyDateSet[] {
-  const { id: _id, setId, setName, ...fields } = input;
+  const { id: _id, setId, setName, time, timeZone, ...fields } = input;
+  const saved = findKeyDate(sets, ids.date)?.date;
+  // The server's rules, so the optimistic date matches what it will save.
+  const keptTime = time === undefined ? saved?.time : (time ?? undefined);
+  const keptZone =
+    timeZone !== undefined || time === null
+      ? (timeZone ?? undefined)
+      : saved?.timeZone;
   const target =
     sets.find((set) => set.id === setId) ??
     sets.find(
@@ -219,9 +236,11 @@ function withKeyDate(
   const date: KeyDate = {
     id: ids.date,
     setId: target?.id ?? ids.newSet,
-    addedBy: findKeyDate(sets, ids.date)?.date.addedBy ?? "",
+    addedBy: saved?.addedBy ?? "",
     updatedAt: new Date().toISOString(),
     ...fields,
+    ...(keptTime === undefined ? {} : { time: keptTime }),
+    ...(keptZone === undefined ? {} : { timeZone: keptZone }),
   };
   const without = withoutKeyDate(sets, ids.date);
   if (!target) {
