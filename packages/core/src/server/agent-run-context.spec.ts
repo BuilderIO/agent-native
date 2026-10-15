@@ -38,6 +38,7 @@ import {
 } from "../agent/durable-background.js";
 import {
   resolveAgentRunOrgId,
+  resolveAgentRunOrgScope,
   resolveAgentRunRequestContext,
   resolveAgentRunOwnerContext,
   runWithAgentRunContext,
@@ -194,6 +195,22 @@ describe("server/agent-run-context", () => {
     ).resolves.toMatchObject({ orgId: undefined, orgScope: "personal" });
   });
 
+  it("returns the confirmed personal scope for secondary route contexts", async () => {
+    getSessionMock.mockResolvedValue({ orgId: null });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+    });
+    resolveOrgScopeForEmailMock.mockResolvedValue({ status: "personal" });
+
+    await expect(
+      resolveAgentRunOrgScope({
+        event: makeEvent(),
+        ownerContext: { owner: "alice@example.com", anonymous: false },
+      }),
+    ).resolves.toEqual({ orgScope: "personal" });
+  });
+
   it("keeps organization scope unknown when an organization lookup fails", async () => {
     getSessionMock.mockRejectedValue(new Error("session unavailable"));
     getOrgContextMock.mockRejectedValue(new Error("org store unavailable"));
@@ -206,6 +223,19 @@ describe("server/agent-run-context", () => {
 
     expect(requestContext.orgId).toBeUndefined();
     expect(requestContext.orgScope).toBeUndefined();
+  });
+
+  it("keeps secondary route scope unknown when membership resolution fails", async () => {
+    getSessionMock.mockRejectedValue(new Error("session unavailable"));
+    getOrgContextMock.mockRejectedValue(new Error("org store unavailable"));
+    resolveOrgScopeForEmailMock.mockResolvedValue({ status: "unknown" });
+
+    await expect(
+      resolveAgentRunOrgScope({
+        event: makeEvent(),
+        ownerContext: { owner: "alice@example.com", anonymous: false },
+      }),
+    ).resolves.toEqual({});
   });
 
   it("does not treat a swallowed membership read failure as personal scope", async () => {

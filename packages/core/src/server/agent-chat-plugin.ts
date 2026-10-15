@@ -251,6 +251,7 @@ import { sortResourceSkills } from "./agent-chat/skill-frontmatter.js";
 import { discoverAgents } from "./agent-discovery.js";
 import {
   resolveAgentRunOrgId,
+  resolveAgentRunOrgScope,
   resolveAgentRunOwnerContext,
   runWithAgentRunContext,
   seedAgentRunOwnerContext,
@@ -5508,10 +5509,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           orgCtx = null;
         }
 
-        const orgId =
-          (options?.resolveOrgId
-            ? await options.resolveOrgId(event)
-            : (orgCtx?.orgId ?? session.orgId ?? null)) ?? null;
+        const orgScope = await resolveAgentRunOrgScope({
+          event,
+          ownerContext: { owner: session.email, anonymous: false },
+          resolveOrgId: options?.resolveOrgId,
+        });
+        const orgId = orgScope.orgId ?? null;
         const canUpdate = await canUpdateAgentAppModelDefaultSettings(
           session.email,
           orgId,
@@ -5521,6 +5524,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           ok: true as const,
           userEmail: session.email,
           orgId,
+          ...(orgScope.orgScope === "personal"
+            ? { orgScope: "personal" as const }
+            : {}),
           orgName: orgCtx?.orgId === orgId ? (orgCtx.orgName ?? null) : null,
           role: orgCtx?.orgId === orgId ? (orgCtx.role ?? null) : null,
           canUpdate,
@@ -5528,7 +5534,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       };
 
       const listModelDefaultEngineOptions = async (
-        ctx: { userEmail?: string; orgId?: string | null },
+        ctx: {
+          userEmail?: string;
+          orgId?: string | null;
+          orgScope?: "personal";
+        },
         event: any,
       ) => {
         registerBuiltinEngines();
@@ -5536,6 +5546,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         const directLoopbackRequest = isDirectLoopbackRequest(event);
         const chatGPTEnabled =
           directLoopbackRequest &&
+          ctx.orgScope === "personal" &&
           !ctx.orgId &&
           !!ctx.userEmail &&
           availableEngines.some(
@@ -5577,6 +5588,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           {
             userEmail: ctx.userEmail,
             orgId: ctx.orgId ?? undefined,
+            ...(ctx.orgScope === "personal"
+              ? { orgScope: "personal" as const }
+              : {}),
             requestOrigin: getForwardedRequestOrigin(event),
             isLoopbackRequest: isLoopbackRequest(event),
             isDirectLoopbackRequest: isDirectLoopbackRequest(event),
@@ -5741,6 +5755,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               {
                 userEmail: ctx.userEmail,
                 orgId: ctx.orgId ?? undefined,
+                ...(ctx.orgScope === "personal"
+                  ? { orgScope: "personal" as const }
+                  : {}),
                 requestOrigin: getForwardedRequestOrigin(event),
                 isLoopbackRequest: isLoopbackRequest(event),
                 isDirectLoopbackRequest: isDirectLoopbackRequest(event),
@@ -6498,10 +6515,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
-          const orgId = await getOrgIdFromEvent(event);
+          const orgScope = await resolveAgentRunOrgScope({
+            event,
+            ownerContext: titleOwnerContext,
+            resolveOrgId: options?.resolveOrgId,
+          });
           const titleRequestContext = {
             userEmail: ownerEmail,
-            orgId,
+            ...orgScope,
             requestOrigin: getForwardedRequestOrigin(event),
             isLoopbackRequest: isLoopbackRequest(event),
             isDirectLoopbackRequest: isDirectLoopbackRequest(event),
@@ -7133,11 +7154,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         async (event) => {
           const ownerContext = await resolveOwnerContext(event);
           const owner = ownerContext.owner;
-          const orgId = await resolveAgentRunOrgId({
+          const orgScope = await resolveAgentRunOrgScope({
             event,
             ownerContext,
             resolveOrgId: options?.resolveOrgId,
           });
+          const orgId = orgScope.orgId;
           const method = getMethod(event);
 
           const { threadId, tail: threadTail } = parseThreadRoute(event);
@@ -7477,7 +7499,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 await runWithRequestContext(
                   {
                     userEmail: owner,
-                    orgId,
+                    ...orgScope,
                     requestOrigin: getForwardedRequestOrigin(event),
                     isLoopbackRequest: isLoopbackRequest(event),
                     isDirectLoopbackRequest: isDirectLoopbackRequest(event),
@@ -7922,10 +7944,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "Authentication required" };
           }
           try {
+            const orgScope = await resolveAgentRunOrgScope({
+              event,
+              ownerContext: { owner: session.email, anonymous: false },
+              resolveOrgId: options?.resolveOrgId,
+            });
             return {
               token: await createAgentChatStreamToken({
                 ownerEmail: session.email,
-                orgId: session.orgId ?? null,
+                orgId: orgScope.orgId ?? null,
+                orgScope: orgScope.orgScope,
                 authUserId: session.authUserId,
               }),
               ttlSeconds: AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
@@ -7967,6 +7995,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 owner: principal.ownerEmail,
                 anonymous: false,
                 orgId: principal.orgId,
+                ...(principal.orgScope === "personal"
+                  ? { orgScope: "personal" as const }
+                  : {}),
                 ...(principal.authUserId
                   ? { authUserId: principal.authUserId }
                   : {}),

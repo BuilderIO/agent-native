@@ -11,6 +11,11 @@ const listRoute = source.slice(
   source.indexOf("const listModelDefaultEngineOptions"),
   source.indexOf("const buildModelDefaultsPayload"),
 );
+const contextStart = source.indexOf("const resolveModelDefaultsContext");
+const contextRoute = source.slice(
+  contextStart,
+  source.indexOf("const listModelDefaultEngineOptions", contextStart),
+);
 const putRouteStart = source.indexOf(
   'if (method !== "PUT" && method !== "DELETE")',
 );
@@ -28,9 +33,17 @@ describe("agent app model-default ChatGPT options", () => {
     expect(listRoute).toContain("ctx.userEmail");
     expect(listRoute).toContain("CHATGPT_SUBSCRIPTION_LAB");
     expect(listRoute).toContain("directLoopbackRequest &&");
+    expect(listRoute).toContain('ctx.orgScope === "personal" &&');
     expect(listRoute).toContain("!ctx.orgId &&");
     expect(listRoute).toContain("chatGPTEnabled && ctx.userEmail");
     expect(listRoute).toContain("visibleEngines.map(async (entry) => ({");
+  });
+
+  it("preserves resolved personal scope through catalog reads and validation", () => {
+    expect(contextRoute).toContain("resolveAgentRunOrgScope({");
+    expect(contextRoute).toContain('orgScope.orgScope === "personal"');
+    expect(listRoute).toContain('orgScope: "personal" as const');
+    expect(putRoute).toContain('orgScope: "personal" as const');
   });
 
   it("uses the personal catalog and lets catalog read failures fail the route", () => {

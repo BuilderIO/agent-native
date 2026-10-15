@@ -410,7 +410,8 @@ describe("request-scoped action surface", () => {
       'if (titleOwnerContext.anonymous) return { title: "" };',
     );
     expect(route).toContain("runWithRequestContext");
-    expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");
+    expect(route).toContain("resolveAgentRunOrgScope({");
+    expect(route).toContain("...orgScope,");
     expect(route).toContain("const titleRequestContext = {");
     expect(route).toContain("requestOrigin: getForwardedRequestOrigin(event)");
     expect(route).toContain("isLoopbackRequest: isLoopbackRequest(event)");
@@ -453,6 +454,12 @@ describe("request-scoped action surface", () => {
     const queueStart = source.indexOf('isThreadSubroute("queued")');
     const queueEnd = source.indexOf("let result: Awaited<", queueStart);
     const queueMutation = source.slice(queueStart, queueEnd);
+    const threadRouteStart = source.indexOf("const threadRouteHandler =");
+    const threadRouteEnd = source.indexOf(
+      "const threadRouteApp",
+      threadRouteStart,
+    );
+    const threadRoute = source.slice(threadRouteStart, threadRouteEnd);
     expect(queueMutation).toContain(
       "requestOrigin: getForwardedRequestOrigin(event)",
     );
@@ -462,6 +469,27 @@ describe("request-scoped action surface", () => {
     expect(queueMutation).toContain(
       "isDirectLoopbackRequest: isDirectLoopbackRequest(event)",
     );
+    expect(threadRoute).toContain(
+      "const orgScope = await resolveAgentRunOrgScope({",
+    );
+    expect(queueMutation).toContain("...orgScope,");
+    const mintStart = source.indexOf("streamTokenPath,");
+    const mintEnd = source.indexOf("if (streamingRuntime)", mintStart);
+    const mintRoute = source.slice(mintStart, mintEnd);
+    const runtimeStart = source.indexOf("if (streamingRuntime)");
+    const streamStart = source.indexOf(
+      "app.use(\n          AGENT_CHAT_STREAM_PATH",
+      runtimeStart,
+    );
+    const streamEnd = source.indexOf(
+      "// ─── Durable background agent-chat run processor",
+      streamStart,
+    );
+    const streamRoute = source.slice(streamStart, streamEnd);
+
+    expect(mintRoute).toContain("resolveAgentRunOrgScope({");
+    expect(mintRoute).toContain("orgScope: orgScope.orgScope");
+    expect(streamRoute).toContain('orgScope: "personal" as const');
   });
 
   it("keeps local coding tools available while scoping app actions in dev", () => {

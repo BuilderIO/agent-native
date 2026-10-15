@@ -268,6 +268,11 @@ export async function resolveAgentRunOwnerContext(
   });
 }
 
+export type AgentRunOrgScope = {
+  orgId?: string;
+  orgScope?: "personal";
+};
+
 export async function resolveAgentRunOrgId(options: {
   event: H3Event;
   ownerContext: AgentRunOwnerContext;
@@ -276,11 +281,11 @@ export async function resolveAgentRunOrgId(options: {
   return (await resolveAgentRunOrgScope(options)).orgId;
 }
 
-async function resolveAgentRunOrgScope(options: {
+export async function resolveAgentRunOrgScope(options: {
   event: H3Event;
   ownerContext: AgentRunOwnerContext;
   resolveOrgId?: OrgIdResolver;
-}): Promise<{ orgId?: string; orgScope?: "personal" }> {
+}): Promise<AgentRunOrgScope> {
   const { ownerContext } = options;
   const hasOwnerOrgId = Object.prototype.hasOwnProperty.call(
     ownerContext,
