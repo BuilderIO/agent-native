@@ -6381,7 +6381,13 @@ function RewindConsentDialog({
   const t = useT();
 
   return (
-    <UiAlertDialog open={open} onOpenChange={onOpenChange}>
+    <UiAlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (busy && !nextOpen) return;
+        onOpenChange(nextOpen);
+      }}
+    >
       <UiAlertDialogContent className="max-w-md">
         <UiAlertDialogHeader>
           <UiAlertDialogTitle>
@@ -6397,7 +6403,7 @@ function RewindConsentDialog({
           </Alert>
         ) : null}
         <UiAlertDialogFooter>
-          <UiAlertDialogCancel>
+          <UiAlertDialogCancel disabled={busy}>
             {t("lookbackContext.rewindConsentCancel")}
           </UiAlertDialogCancel>
           <UiAlertDialogAction

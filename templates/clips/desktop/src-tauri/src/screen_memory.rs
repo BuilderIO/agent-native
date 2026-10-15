@@ -310,20 +310,40 @@ pub async fn screen_memory_configure(
 #[tauri::command]
 pub async fn screen_memory_start(app: AppHandle) -> Result<ScreenMemoryStatus, String> {
     let mut feature_config = crate::config::feature_config(&app);
+    let previous_screen_memory = feature_config.screen_memory.clone();
     feature_config.screen_memory.enabled = true;
     feature_config.screen_memory.paused = false;
     feature_config.screen_memory = normalize_screen_memory_config(feature_config.screen_memory);
     crate::config::set_feature_config(app.clone(), feature_config).await?;
     let status = build_status(&app)?;
-    if !crate::rewind_capture_suspension::is_active(&app) {
-        if let Some(error) = screen_memory_start_error(&status) {
-            return Err(error);
+    if let Some(error) = screen_memory_start_error(
+        &status,
+        crate::rewind_capture_suspension::is_active(&app),
+    ) {
+        let mut current_config = crate::config::feature_config(&app);
+        restore_screen_memory_start_config(
+            &mut current_config.screen_memory,
+            &previous_screen_memory,
+        );
+        if let Err(rollback_error) =
+            crate::config::set_feature_config(app.clone(), current_config).await
+        {
+            return Err(format!(
+                "{error}; restoring the previous Rewind setting also failed: {rollback_error}"
+            ));
         }
+        return Err(error);
     }
     Ok(status)
 }
 
-fn screen_memory_start_error(status: &ScreenMemoryStatus) -> Option<String> {
+fn screen_memory_start_error(
+    status: &ScreenMemoryStatus,
+    capture_suspended: bool,
+) -> Option<String> {
+    if capture_suspended {
+        return None;
+    }
     (status.config.enabled
         && !status.config.paused
         && status.active_segment.is_none()
@@ -334,6 +354,14 @@ fn screen_memory_start_error(status: &ScreenMemoryStatus) -> Option<String> {
                 .clone()
                 .unwrap_or_else(|| "Rewind did not start recording.".to_string())
         })
+}
+
+fn restore_screen_memory_start_config(
+    current: &mut ScreenMemoryConfig,
+    previous: &ScreenMemoryConfig,
+) {
+    current.enabled = previous.enabled;
+    current.paused = previous.paused;
 }
 
 #[tauri::command]
@@ -3408,18 +3436,40 @@ mod tests {
         };
 
         assert_eq!(
-            screen_memory_start_error(&status).as_deref(),
+            screen_memory_start_error(&status, false).as_deref(),
             Some("Screen capture permission is required.")
         );
+        assert_eq!(screen_memory_start_error(&status, true), None);
 
         status.last_error = None;
         assert_eq!(
-            screen_memory_start_error(&status).as_deref(),
+            screen_memory_start_error(&status, false).as_deref(),
             Some("Rewind did not start recording.")
         );
 
         status.exclusion_active = true;
-        assert_eq!(screen_memory_start_error(&status), None);
+        assert_eq!(screen_memory_start_error(&status, false), None);
+    }
+
+    #[test]
+    fn failed_screen_memory_start_restores_only_enabled_and_paused_config() {
+        let previous = ScreenMemoryConfig {
+            enabled: false,
+            paused: false,
+            ..ScreenMemoryConfig::default()
+        };
+        let mut current = ScreenMemoryConfig {
+            enabled: true,
+            paused: false,
+            retention_hours: 6,
+            ..ScreenMemoryConfig::default()
+        };
+
+        restore_screen_memory_start_config(&mut current, &previous);
+
+        assert!(!current.enabled);
+        assert!(!current.paused);
+        assert_eq!(current.retention_hours, 6);
     }
 
     #[test]
