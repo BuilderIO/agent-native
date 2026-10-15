@@ -1294,6 +1294,7 @@ export default {
     selectAll: "Alle auswählen",
     selectOnly: "Nur",
     selectOnlyValue: "Nur {{value}}",
+    presets: "Vorlagen",
     untitledDashboard: "Unbenanntes Dashboard",
     dashboardFallback: "Dashboard",
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",

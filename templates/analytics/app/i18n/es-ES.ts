@@ -1283,6 +1283,7 @@ export default {
     selectAll: "Seleccionar todo",
     selectOnly: "Solo",
     selectOnlyValue: "Solo {{value}}",
+    presets: "Ajustes predefinidos",
     untitledDashboard: "Panel de control sin título",
     dashboardFallback: "panel",
     viewOnly: "Tiene acceso de solo lectura a este panel.",

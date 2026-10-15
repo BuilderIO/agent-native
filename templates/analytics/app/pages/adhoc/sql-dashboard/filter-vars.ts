@@ -1,4 +1,4 @@
-import type { DashboardFilter, FilterType } from "./types";
+import type { DashboardFilter, FilterPreset, FilterType } from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
@@ -52,15 +52,68 @@ export function isDashboardFilter(value: unknown): value is DashboardFilter {
     return false;
   }
   return (
-    value.options === undefined ||
-    (Array.isArray(value.options) &&
-      value.options.length <= 100 &&
-      value.options.every(
-        (option) =>
-          isRecord(option) &&
-          typeof option.value === "string" &&
-          typeof option.label === "string",
-      ))
+    (value.options === undefined ||
+      (Array.isArray(value.options) &&
+        value.options.length <= 100 &&
+        value.options.every(
+          (option) =>
+            isRecord(option) &&
+            typeof option.value === "string" &&
+            typeof option.label === "string",
+        ))) &&
+    (value.presets === undefined ||
+      (Array.isArray(value.presets) && value.presets.every(isFilterPreset)))
+  );
+}
+
+export function isFilterPreset(value: unknown): value is FilterPreset {
+  return (
+    isRecord(value) &&
+    typeof value.label === "string" &&
+    Array.isArray(value.values) &&
+    value.values.every((v) => typeof v === "string")
+  );
+}
+
+// The one usability check for presets, aligned with the input: null for a
+// usable preset, else why not. Saves reject the first issue. The filter bar
+// skips each unusable preset, because a config edited through the shared
+// document reaches it unchecked and isDashboardFilter stays structural so it
+// never drops the whole filter set.
+export function filterPresetIssues(
+  presets: readonly unknown[],
+  optionValues: ReadonlySet<string>,
+): (string | null)[] {
+  const labels = new Set<string>();
+  return presets.map((preset) => {
+    if (
+      !isFilterPreset(preset) ||
+      preset.label.trim() === "" ||
+      preset.values.length === 0
+    ) {
+      return "must be an object with a non-empty label and a non-empty values array";
+    }
+    if (labels.has(preset.label)) {
+      return `label "${preset.label}" repeats an earlier preset`;
+    }
+    // A value with no checkbox would be applied to SQL unseen, as with the default.
+    const unknown = preset.values.find((value) => !optionValues.has(value));
+    if (unknown !== undefined) {
+      return `names "${unknown}", which is not one of its options`;
+    }
+    labels.add(preset.label);
+    return null;
+  });
+}
+
+export function usableFilterPresets(
+  presets: unknown,
+  optionValues: ReadonlySet<string>,
+): FilterPreset[] {
+  if (!Array.isArray(presets)) return [];
+  const issues = filterPresetIssues(presets, optionValues);
+  return presets.filter(
+    (preset, index): preset is FilterPreset => issues[index] === null,
   );
 }
 

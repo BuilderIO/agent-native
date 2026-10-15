@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import {
   FILTER_TYPES,
+  filterPresetIssues,
   MULTI_SELECT_EMPTY,
   normalizeMultiSelectValue,
 } from "../app/pages/adhoc/sql-dashboard/filter-vars";
@@ -366,6 +367,24 @@ function collectDashboardConfigIssues(
               `config.filters[${i}].default names "${unknown}", which is not one of its options`,
             );
           }
+        }
+      }
+      if (f.presets !== undefined) {
+        // isDashboardFilter rejects a malformed preset, so a save that passes here would drop the whole filter set on read.
+        if (f.type !== "multi-select" || !Array.isArray(f.presets)) {
+          return dashboardIssue(
+            `config.filters[${i}].presets must be an array, and only multi-select filters take presets`,
+          );
+        }
+        const optionValues = new Set(
+          options.map((option) => (option as { value: string }).value),
+        );
+        const issues = filterPresetIssues(f.presets, optionValues);
+        const j = issues.findIndex((issue) => issue !== null);
+        if (j !== -1) {
+          return dashboardIssue(
+            `config.filters[${i}].presets[${j}] ${issues[j]}`,
+          );
         }
       }
       if (seen.has(id)) continue;
