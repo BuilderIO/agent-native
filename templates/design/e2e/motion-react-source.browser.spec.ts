@@ -448,6 +448,25 @@ test.describe.serial("React Motion source browser writeback", () => {
           },
         ],
       });
+    await page.getByRole("combobox", { name: "Unit", exact: true }).click();
+    await page.getByRole("option", { name: "Line", exact: true }).click();
+    await expect(
+      page.getByRole("checkbox", { name: "Ignore spaces", exact: true }),
+    ).toHaveCount(0);
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: { animations: [{ unit: "line" }] },
+          },
+        ],
+      });
     const editorUpdatedSource = fs.readFileSync(
       path.join(rootPath, sourcePath),
       "utf8",

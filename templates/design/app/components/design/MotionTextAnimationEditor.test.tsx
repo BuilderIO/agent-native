@@ -384,6 +384,19 @@ describe("MotionTextAnimationEditor", () => {
     },
   );
 
+  it.each(["line", "paragraph"] as const)(
+    "hides the ignore-spaces control for %s text",
+    async (unit) => {
+      await render({ animations: [{ ...opacityAnimation, unit }] });
+
+      expect(
+        container.querySelector(
+          '[aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+        ),
+      ).toBeNull();
+    },
+  );
+
   it("resets vertical order when text grouping changes to word", async () => {
     const onChange = vi.fn();
     await render({

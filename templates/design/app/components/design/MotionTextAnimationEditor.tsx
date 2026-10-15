@@ -97,6 +97,8 @@ export function MotionTextAnimationEditor({
   const orderOptions = supportsVerticalOrder
     ? [...TEXT_ORDERS, ...TEXT_VERTICAL_ORDERS]
     : TEXT_ORDERS;
+  const supportsIgnoreSpaces =
+    shared.unit === "character" || shared.unit === "word";
   const availableProperties = TEXT_PROPERTIES.filter(
     (property) => !usedProperties.has(property),
   );
@@ -351,23 +353,27 @@ export function MotionTextAnimationEditor({
           }
         />
 
-        <div className="col-span-2 flex min-h-6 items-center gap-2">
-          <Checkbox
-            id={`${id}-ignore-spaces`}
-            aria-label={t("designEditor.motion.nativeTextStagger.ignoreSpaces")}
-            checked={ignoreSpaces}
-            disabled={disabled}
-            onCheckedChange={(checked) =>
-              updateShared({ ignoreSpaces: checked === true })
-            }
-          />
-          <Label
-            htmlFor={`${id}-ignore-spaces`}
-            className="!text-[10px] text-muted-foreground"
-          >
-            {t("designEditor.motion.nativeTextStagger.ignoreSpaces")}
-          </Label>
-        </div>
+        {supportsIgnoreSpaces ? (
+          <div className="col-span-2 flex min-h-6 items-center gap-2">
+            <Checkbox
+              id={`${id}-ignore-spaces`}
+              aria-label={t(
+                "designEditor.motion.nativeTextStagger.ignoreSpaces",
+              )}
+              checked={ignoreSpaces}
+              disabled={disabled}
+              onCheckedChange={(checked) =>
+                updateShared({ ignoreSpaces: checked === true })
+              }
+            />
+            <Label
+              htmlFor={`${id}-ignore-spaces`}
+              className="!text-[10px] text-muted-foreground"
+            >
+              {t("designEditor.motion.nativeTextStagger.ignoreSpaces")}
+            </Label>
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-1.5">

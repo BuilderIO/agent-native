@@ -305,6 +305,19 @@ export function motionTextDocumentWithNativeStyles(
         `Native Figma TextStagger for target "${animation.targetNodeId}" duplicates an authored Motion Text property. Remove one of the duplicate tracks before previewing.`,
       );
     }
+    if (
+      authoredAnimations.some(
+        (authored) =>
+          authored.targetNodeId === animation.targetNodeId &&
+          textAnimationSettingsKey(authored) !==
+            textAnimationSettingsKey(animation),
+      )
+    ) {
+      throw new MotionNativeStyleRuntimeError(
+        "unsupported-style",
+        "The native Text animation cannot be combined with authored text animations on this element because their grouping or timing settings differ. Match the text unit, direction, order, overlap, and whitespace settings first.",
+      );
+    }
     keys.add(key);
   }
 
@@ -951,6 +964,21 @@ function booleanProp(
 
 function textAnimationKey(animation: MotionTextAnimation): string {
   return JSON.stringify(animation);
+}
+
+function textAnimationSettingsKey(animation: MotionTextAnimation): string {
+  return JSON.stringify({
+    unit: animation.unit,
+    direction: animation.direction,
+    staggerMs:
+      animation.overlapPercent === undefined ? animation.staggerMs : undefined,
+    animationDirection: animation.animationDirection ?? "in",
+    order:
+      animation.order ??
+      (animation.direction === "reverse" ? "right-to-left" : "left-to-right"),
+    overlapPercent: animation.overlapPercent,
+    ignoreSpaces: animation.ignoreSpaces ?? true,
+  });
 }
 
 function unsupportedTextStaggerProp(property: string): never {

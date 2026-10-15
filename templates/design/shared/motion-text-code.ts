@@ -340,7 +340,7 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       );
     }
     const ignoreSpaces =
-      raw.ignoreSpaces === undefined ? sourceVersion === 1 : raw.ignoreSpaces;
+      raw.ignoreSpaces === undefined ? true : raw.ignoreSpaces;
     if (typeof ignoreSpaces !== "boolean") {
       sourceError(
         "invalid-document",

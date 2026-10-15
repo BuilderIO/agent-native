@@ -276,6 +276,24 @@ describe("Motion Text source and runtime", () => {
     ).toEqual({ status: "valid", document: expected });
   });
 
+  it("defaults omitted v2 ignoreSpaces to the editor and runtime default", () => {
+    const { ignoreSpaces: _ignoreSpaces, ...animation } =
+      document.animations[0]!;
+    const decoded = decodeMotionTextDocument(
+      JSON.stringify({ version: 2, animations: [animation] }),
+    );
+
+    expect(decoded).toMatchObject({
+      status: "valid",
+      document: { version: 2, animations: [{ ignoreSpaces: true }] },
+    });
+    if (decoded.status === "valid") {
+      expect(encodeMotionTextDocument(decoded.document)).toContain(
+        '"ignoreSpaces":true',
+      );
+    }
+  });
+
   it("validates and preserves per-unit overlap and text ordering", () => {
     const withControls: MotionTextDocument = {
       ...document,

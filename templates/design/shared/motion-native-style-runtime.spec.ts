@@ -389,6 +389,59 @@ describe("native Figma Motion runtime adapter", () => {
     }
   });
 
+  it("rejects a native text preset when same-target authored timing differs", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const authored: MotionTextDocument = {
+      version: 1,
+      animations: [
+        {
+          targetNodeId: "hero",
+          unit: "character",
+          direction: "forward",
+          staggerMs: 30,
+          property: "opacity",
+          durationMs: 250,
+          keyframes: [
+            { t: 0, value: "0", ease: "ease-out" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+
+    expect(() => motionTextDocumentWithNativeStyles(authored, [style])).toThrow(
+      "The native Text animation cannot be combined with authored text animations on this element because their grouping or timing settings differ.",
+    );
+  });
+
+  it("combines same-target authored and native text tracks with matching settings", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const nativeTrack = motionNativeStylesToTextAnimations([style])[0]!;
+    const authored: MotionTextDocument = {
+      version: 2,
+      animations: [
+        {
+          ...nativeTrack,
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0", ease: "ease-out" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+
+    expect(
+      motionTextDocumentWithNativeStyles(authored, [style])?.animations,
+    ).toHaveLength(2);
+  });
+
   it("keeps center-out and random order in the editable text source", () => {
     const base = createMotionNativeStyleInstance({
       styleKey: "TextStagger",
