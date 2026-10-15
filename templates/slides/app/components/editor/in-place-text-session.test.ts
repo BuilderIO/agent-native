@@ -2353,23 +2353,22 @@ describe("in-place text session: deleting", () => {
     expect(remainingList.style.paddingLeft).toBe("1.25em");
   });
 
-  it("lets Backspace fall through at an empty sole top-level list item", () => {
+  it("turns an empty sole top-level list item into a paragraph on Backspace", () => {
     const el = mount('<ul id="t"><li>\u200b</li></ul>');
     session = startInPlaceTextSession(el);
     const item = el.querySelector("li")!;
     const text = item.firstChild as Text;
     caret(text, text.length);
-    const before = session.element.innerHTML;
-    const modify = vi
-      .spyOn(window.getSelection()!, "modify")
-      .mockImplementation(() => {});
 
-    beforeInput(session.element, "deleteContentBackward");
+    expect(
+      beforeInput(session.element, "deleteContentBackward").defaultPrevented,
+    ).toBe(true);
 
-    expect(modify).toHaveBeenCalledWith("extend", "backward", "character");
-    expect(session.element.innerHTML).toBe(before);
-    expect(session.changed).toBe(false);
-    expect(session.undo()).toBe(false);
+    expect(session.element.tagName).toBe("DIV");
+    expect(session.element.querySelector("li")).toBeNull();
+    expect(session.element.querySelectorAll("p")).toHaveLength(1);
+    expect(session.undo()).toBe(true);
+    expect(session.element.tagName).toBe("UL");
   });
 
   it("preserves the ordinal after lifting the first ordered item", () => {

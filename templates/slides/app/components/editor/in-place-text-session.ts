@@ -541,6 +541,43 @@ function hasLineContent(node: Node): boolean {
   );
 }
 
+/**
+ * A block whose own line is empty: no line content, at most the one `<br>` or
+ * placeholder that keeps it open. Nested lists are lines of their own.
+ */
+function isBlankBlock(block: HTMLElement): boolean {
+  const clone = withoutNestedLists(block);
+  const breaks = clone.querySelectorAll("br");
+  if (breaks.length > 1) return false;
+  breaks.forEach((br) => br.remove());
+  return !hasLineContent(clone);
+}
+
+function withoutNestedLists(line: HTMLElement): HTMLElement {
+  const clone = line.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("ul, ol").forEach((list) => list.remove());
+  return clone;
+}
+
+/** Whether a line holds rendered content of its own, apart from nested lists. */
+function hasOwnRenderedContent(line: HTMLElement): boolean {
+  return hasRenderedContent(withoutNestedLists(line));
+}
+
+/** Removes an emptied run and the inline wrappers that held only it. */
+function removeRun(text: Text, line: HTMLElement) {
+  let run: Node = text;
+  while (
+    run.parentNode !== line &&
+    run.parentNode instanceof HTMLElement &&
+    run.parentNode.childNodes.length === 1 &&
+    !isBlock(run.parentNode)
+  ) {
+    run = run.parentNode;
+  }
+  run.parentNode?.removeChild(run);
+}
+
 /** What follows `node` on its own line: up to the next box that starts a line. */
 function lineRest(node: Node, line: HTMLElement): DocumentFragment {
   const rest = document.createRange();
@@ -875,6 +912,33 @@ function textPoint(
     ];
   }
   return last ? [last, last.length] : [root, root.childNodes.length];
+}
+
+/**
+ * Where the first line of `block` starts: before a leading `<br>` or image,
+ * not past it, which would put the caret on a second line.
+ */
+function blockStartPoint(block: HTMLElement): [Node, number] {
+  const walker = document.createTreeWalker(
+    block,
+    NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+  );
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const parent = node.parentNode!;
+    if (node instanceof Text) {
+      // Whitespace between list items is markup, not a line.
+      if (
+        node.length > 0 &&
+        !(parent instanceof HTMLUListElement) &&
+        !(parent instanceof HTMLOListElement)
+      ) {
+        return [node, 0];
+      }
+    } else if ((node as Element).matches(RENDERED_ELEMENTS)) {
+      return [parent, Array.from(parent.childNodes).indexOf(node as ChildNode)];
+    }
+  }
+  return [block, 0];
 }
 
 /** Whether a boundary point ends the text before it, for `textPoint`'s `before`. */
@@ -1834,8 +1898,8 @@ export function startInPlaceTextSession(
     const placeholder =
       holder instanceof HTMLElement &&
       holder !== el &&
-      !holder.textContent &&
-      !holder.querySelector(RENDERED_ELEMENTS)
+      ((!holder.textContent && !holder.querySelector(RENDERED_ELEMENTS)) ||
+        holder.childNodes[holderOffset] instanceof HTMLBRElement)
         ? document.createTextNode(ZERO_WIDTH_SPACE)
         : null;
     if (placeholder) {
@@ -2310,15 +2374,21 @@ export function startInPlaceTextSession(
 
   /** Keeps the caret in a text node, so typing inherits the styles around it. */
   function settleCaret(node: Node, offset: number) {
+    const block = nearestLineBox(node, el);
+    const own = withoutNestedLists(block);
     if (node instanceof Text && node.length === 0) {
+      // A join can leave the emptied start node in front of the text it took in.
+      if (node.parentNode === block && hasRenderedContent(own)) {
+        placeCaret(node, 0);
+        return;
+      }
       node.data = ZERO_WIDTH_SPACE;
       placeCaret(node, 1);
       return;
     }
-    const block = nearestLineBox(node, el);
     if (
-      !hasRenderedContent(block) &&
-      !block.textContent?.includes(ZERO_WIDTH_SPACE)
+      !hasRenderedContent(own) &&
+      !own.textContent?.includes(ZERO_WIDTH_SPACE)
     ) {
       const placeholder = document.createTextNode(ZERO_WIDTH_SPACE);
       const at = document.createRange();
@@ -2336,12 +2406,25 @@ export function startInPlaceTextSession(
    * the first run, item, or row instead of emptying the element around it.
    */
   function snapToText(range: Range) {
+    const startsMidBlock = !paragraphBefore(
+      range,
+      nearestBlock(range.startContainer, el),
+    );
     const snap = (node: Node, offset: number, before: boolean) => {
       if (node instanceof Text) return null;
-      const point = textPoint(el, textOffset(el, node, offset), before);
-      if (range.comparePoint(...point) !== 0) return null;
+      // A range that began inside a block and reaches the start of the next one
+      // covers the break between them: snapped back, the next block never joins.
+      const edge = document.createRange();
+      edge.setStart(node, offset);
+      const endBlock = nearestBlock(node, el);
+      const reach = before && startsMidBlock && paragraphBefore(edge, endBlock);
+      // An empty block just ends the range: past it would swallow the next one.
+      if (reach && isBlankBlock(endBlock)) return null;
+      const at = textOffset(el, node, offset);
+      const point = textPoint(el, at, before && !reach);
+      if (!reach && range.comparePoint(...point) !== 0) return null;
       const skipped = document.createRange();
-      if (before) {
+      if (before && !reach) {
         skipped.setStart(...point);
         skipped.setEnd(node, offset);
       } else {
@@ -2419,6 +2502,17 @@ export function startInPlaceTextSession(
             startBlock.insertBefore(child, anchor);
           }
         }
+        // A lone `<br>` only held the end block open: after text it would end
+        // a line of its own.
+        const [held] = moved;
+        if (
+          moved.length === 1 &&
+          held instanceof HTMLBRElement &&
+          held.parentNode === startBlock &&
+          renderedBefore(held, startBlock) === "content"
+        ) {
+          held.remove();
+        }
         if (trailingLists.length > 0) {
           if (startBlock.tagName === "LI") {
             startBlock.append(...trailingLists);
@@ -2431,8 +2525,11 @@ export function startInPlaceTextSession(
         while (
           parent &&
           parent !== el &&
-          (parent.tagName === "UL" || parent.tagName === "OL") &&
-          parent.children.length === 0
+          (((parent.tagName === "UL" || parent.tagName === "OL") &&
+            parent.children.length === 0) ||
+            (parent.tagName === "BLOCKQUOTE" &&
+              !parent.contains(startBlock) &&
+              !hasRenderedContent(parent)))
         ) {
           const next: HTMLElement | null = parent.parentElement;
           parent.remove();
@@ -2591,6 +2688,22 @@ export function startInPlaceTextSession(
     placeCaret(...caret);
   }
 
+  /**
+   * An item held open by a `<br>` (what a saved empty bullet is) gives the
+   * caret nothing to stay on while the item moves: the placeholder takes the
+   * `<br>`'s place.
+   */
+  function holdBlankItem(item: HTMLElement) {
+    if (!isBlankBlock(item)) return;
+    const lineBreak = Array.from(item.querySelectorAll("br")).find(
+      (br) => listItemAt(br) === item,
+    );
+    if (!lineBreak) return;
+    const placeholder = document.createTextNode(ZERO_WIDTH_SPACE);
+    lineBreak.replaceWith(placeholder);
+    placeCaret(placeholder, placeholder.length);
+  }
+
   function deleteAtListItemEdge(caret: Range, direction: DeleteDirection) {
     const item = listItemAt(caret.startContainer);
     if (!item) return false;
@@ -2610,10 +2723,10 @@ export function startInPlaceTextSession(
         ? item.previousElementSibling
         : item.nextElementSibling;
     if (direction === "backward") {
-      if (hasRenderedContent(item)) {
-        splitListItemToParagraph(item, false);
-        return true;
-      }
+      holdBlankItem(item);
+      if (keepingSelection(() => outdent(item))) return true;
+      splitListItemToParagraph(item, !hasOwnRenderedContent(item));
+      return true;
     } else if (sibling instanceof HTMLElement && sibling.tagName === "LI") {
       joinListItems(item, sibling);
       return true;
@@ -2768,14 +2881,23 @@ export function startInPlaceTextSession(
     }
     if (el.tagName === "BLOCKQUOTE") blockquote = el;
     const block = nearestBlock(caret.startContainer, el);
-    return blockquote ?? (/^H[1-6]$/.test(block.tagName) ? block : null);
+    const heading = /^H[1-6]$/.test(block.tagName) ? block : null;
+    if (blockquote && heading && !paragraphBefore(caret, blockquote)) {
+      return heading;
+    }
+    return blockquote ?? heading;
   }
 
   function previousTextBlock(block: HTMLElement): HTMLElement | null {
     const previous = block.previousElementSibling;
     if (!(previous instanceof HTMLElement)) return null;
-    if (previous.tagName === "UL" || previous.tagName === "OL") {
-      let item = Array.from(previous.children).at(-1);
+    return lastTextBlock(previous);
+  }
+
+  /** The block a following block's text joins into: the last one inside `container`. */
+  function lastTextBlock(container: HTMLElement): HTMLElement | null {
+    if (container.tagName === "UL" || container.tagName === "OL") {
+      let item = Array.from(container.children).at(-1);
       while (item instanceof HTMLElement && item.tagName === "LI") {
         const nested = Array.from(item.children).find(
           (child) => child.tagName === "UL" || child.tagName === "OL",
@@ -2785,9 +2907,31 @@ export function startInPlaceTextSession(
       }
       return null;
     }
-    const rows = legacyRows(previous);
+    const rows = legacyRows(container);
     if (rows.length) return rows.at(-1) ?? null;
-    return previous;
+    const last = container.lastElementChild;
+    if (
+      (container.tagName === "BLOCKQUOTE" ||
+        (container.tagName === "DIV" && container.closest("blockquote"))) &&
+      last instanceof HTMLElement &&
+      (isBlock(last) || last.tagName === "UL" || last.tagName === "OL")
+    ) {
+      const after = document.createRange();
+      after.setStartAfter(last);
+      after.setEnd(container, container.childNodes.length);
+      // Text trailing the last block means the quote's own line is the last.
+      if (!hasRenderedContent(after.cloneContents())) {
+        return lastTextBlock(last);
+      }
+    }
+    return container;
+  }
+
+  function holdsBlocks(element: HTMLElement) {
+    return Array.from(element.children).some(
+      (child) =>
+        isBlock(child) || child.tagName === "UL" || child.tagName === "OL",
+    );
   }
 
   function appendBlockContents(into: HTMLElement, from: HTMLElement) {
@@ -2808,8 +2952,9 @@ export function startInPlaceTextSession(
     if (sourceHasContent) {
       if (
         from.tagName === "P" &&
-        (["P", "LI"].includes(target.tagName) ||
-          /^H[1-6]$/.test(target.tagName))
+        (["P", "LI", "BLOCKQUOTE"].includes(target.tagName) ||
+          /^H[1-6]$/.test(target.tagName) ||
+          (target.tagName === "DIV" && quoteAt(target) && !holdsBlocks(target)))
       ) {
         target.append(...Array.from(from.childNodes));
       } else {
@@ -2874,32 +3019,88 @@ export function startInPlaceTextSession(
     );
   }
 
-  function plainifyQuote(quote: HTMLElement) {
+  /** Unquotes the block of `quote` that holds `from`; what follows stays quoted. */
+  function plainifyQuote(quote: HTMLElement, from: Node) {
+    const children = Array.from(quote.childNodes);
+    let holder: Node = from === quote ? children[0] : from;
+    while (holder.parentNode && holder.parentNode !== quote) {
+      holder = holder.parentNode;
+    }
+    // A wrapper div is split at the block that holds the caret, not lifted whole.
+    const inner = nearestBlock(from, el);
+    const unit =
+      holder instanceof HTMLElement &&
+      holder.tagName === "DIV" &&
+      holder !== inner &&
+      holder.contains(inner)
+        ? inner
+        : holder;
+    // Bare runs are one line up to the `<br>` that ends it; that break goes
+    // with the line, so the quote does not start on a blank one.
+    const startsLine = (node: Node) =>
+      node instanceof HTMLElement &&
+      (node.tagName === "BR" ||
+        node.tagName === "UL" ||
+        node.tagName === "OL" ||
+        isBlock(node));
+    const bare = !startsLine(unit);
+    let last: Node = unit;
+    while (bare && last.nextSibling && !startsLine(last.nextSibling)) {
+      last = last.nextSibling;
+    }
+    const separator =
+      bare && last.nextSibling instanceof HTMLBRElement
+        ? last.nextSibling
+        : null;
+    const rest = document.createRange();
+    rest.setStartAfter(separator ?? last);
+    rest.setEnd(quote, quote.childNodes.length);
+    const keepQuoted = hasRenderedContent(rest.cloneContents());
+    const head = document.createRange();
+    head.setStart(quote, 0);
+    head.setEndAfter(last);
     if (quote === el) {
+      if (keepQuoted) {
+        const lifted = extractWithoutCopiedIdentity(head);
+        separator?.remove();
+        // The root keeps the object's frame; the quote left behind gets only its look.
+        const trailing = document.createElement("blockquote");
+        trailing.style.margin = "0";
+        applyTextLook(trailing, authoredTextLook(el));
+        trailing.append(...Array.from(quote.childNodes));
+        retagRoot("DIV");
+        el.replaceChildren(lifted, trailing);
+        return;
+      }
       const hasBlocks = Array.from(quote.children).some((child) =>
         isBlock(child),
       );
       retagRoot(hasBlocks ? "DIV" : "P");
       return;
     }
-    const children = Array.from(quote.childNodes);
+    const lifted = keepQuoted
+      ? Array.from(extractWithoutCopiedIdentity(head).childNodes)
+      : children;
+    if (keepQuoted) separator?.remove();
+    let plain: Node[] = lifted;
     if (
-      children.some((child) => child instanceof HTMLElement && isBlock(child))
+      !lifted.some((child) => child instanceof HTMLElement && isBlock(child))
     ) {
-      quote.replaceWith(...children);
-    } else {
       const paragraph = document.createElement("p");
-      paragraph.append(...children);
-      quote.replaceWith(paragraph);
+      paragraph.append(...lifted);
+      plain = [paragraph];
     }
+    if (keepQuoted) quote.before(...plain);
+    else quote.replaceWith(...plain);
   }
 
   function deleteAtBlockEdge(caret: Range, direction: DeleteDirection) {
     if (direction === "forward") {
       const block = nearestBlock(caret.startContainer, el);
+      const paragraph = block.tagName === "P";
       if (
         !caret.collapsed ||
-        block.tagName !== "P" ||
+        !(paragraph || /^H[1-6]$/.test(block.tagName)) ||
         block === el ||
         !paragraphAfter(caret, block)
       ) {
@@ -2907,11 +3108,50 @@ export function startInPlaceTextSession(
       }
       const next = block.nextElementSibling;
       if (!(next instanceof HTMLElement)) return false;
-      if (isBulletRow(next) || next.hasAttribute("data-slide-plain-row")) {
+      const row =
+        isBulletRow(next) || next.hasAttribute("data-slide-plain-row");
+      if (paragraph && row) {
         prependParagraphIntoRow(next, block);
         return true;
       }
-      if (next.tagName !== "P") return false;
+      // Nothing to join: an empty block just goes, whatever follows it.
+      if (!row && isBlankBlock(block)) {
+        const list = next.tagName === "UL" || next.tagName === "OL";
+        const first = list ? next.firstElementChild : null;
+        if (first?.tagName === "LI" && block.parentElement?.tagName === "LI") {
+          // The item's own line is this one: the nested list's first item
+          // takes it over and its sub-items stay nested.
+          const lists = Array.from(first.children).filter(
+            (child) => child.tagName === "UL" || child.tagName === "OL",
+          );
+          const lines = Array.from(first.childNodes).filter(
+            (child) => !lists.includes(child as HTMLElement),
+          );
+          const only = lines.length === 1 ? lines[0] : null;
+          block.replaceChildren(
+            ...(only instanceof HTMLElement &&
+            /^(P|DIV|H[1-6])$/.test(only.tagName)
+              ? Array.from(only.childNodes)
+              : lines),
+          );
+          next.prepend(
+            ...lists.flatMap((nested) => Array.from(nested.children)),
+          );
+          first.remove();
+          if (!next.children.length) next.remove();
+          placeCaret(...blockStartPoint(block));
+          return true;
+        }
+        if (
+          list ||
+          (isBlock(next) && !STRUCTURAL_BLOCK_TAGS.has(next.tagName))
+        ) {
+          block.remove();
+          placeCaret(...blockStartPoint(next));
+          return true;
+        }
+      }
+      if (!paragraph || next.tagName !== "P") return false;
       appendBlockContents(block, next);
       return true;
     }
@@ -2932,10 +3172,22 @@ export function startInPlaceTextSession(
       paragraphBefore(caret, demote) &&
       !hasTextBeforeCaret(caret)
     ) {
-      if (demote.tagName === "BLOCKQUOTE") plainifyQuote(demote);
-      else if (demote === el)
+      const previous = demote.previousElementSibling;
+      if (demote.tagName === "BLOCKQUOTE") {
+        keepingSelection(() => {
+          plainifyQuote(demote, caret.startContainer);
+          return true;
+        });
+      } else if (demote === el)
         retagRoot(initialRootTagName === "DIV" ? "DIV" : "P");
-      else retagBlock(demote, "P");
+      else if (
+        previous instanceof HTMLElement &&
+        /^(P|H[1-6])$/.test(previous.tagName) &&
+        isBlock(previous) &&
+        isBlankBlock(previous)
+      ) {
+        previous.remove();
+      } else retagBlock(demote, "P");
       return true;
     }
     if (
@@ -2962,9 +3214,48 @@ export function startInPlaceTextSession(
     return true;
   }
 
+  /**
+   * A plain space left against another space or the end of its line renders
+   * collapsed, so the next typed character lands past it and eats it. Chrome's
+   * own delete keeps the space as a no-break space, which typing then turns
+   * back into a space.
+   */
+  function keepCaretSpace() {
+    const caret = selectionRange();
+    const node = caret?.collapsed ? caret.startContainer : null;
+    if (!caret || !(node instanceof Text)) return;
+    const offset = caret.startOffset;
+    const line = nearestLineBox(node, el);
+    const after = document.createRange();
+    after.selectNodeContents(line);
+    after.setStart(node, offset);
+    const lineBreak = Array.from(line.querySelectorAll("br")).find((br) =>
+      after.intersectsNode(br),
+    );
+    if (lineBreak) after.setEndBefore(lineBreak);
+    const rest = after.toString().replace(/^\u200b+/, "");
+    if (hasRenderedContent(after.cloneContents()) && !rest.startsWith(" ")) {
+      return;
+    }
+    const at = textOffset(line, node, offset);
+    const [text, position] = textPoint(line, at - 1);
+    if (at === 0 || !(text instanceof Text) || text.data[position] !== " ") {
+      return;
+    }
+    // A `<br>` in between makes it the end of an earlier line, not ours.
+    const between = document.createRange();
+    between.setStart(text, position + 1);
+    between.setEnd(node, offset);
+    if (between.cloneContents().querySelector("br")) return;
+    text.replaceData(position, 1, "\u00a0");
+    // replaceData pulls a boundary inside the replaced span back to its start.
+    placeCaret(node, offset);
+  }
+
   function deleteByInput(type: string, range: Range): boolean {
     if (!range.collapsed) {
       deleteRange(range);
+      keepCaretSpace();
       return true;
     }
     const step = DELETE_STEPS[type];
@@ -2996,6 +3287,7 @@ export function startInPlaceTextSession(
     const extended = selectionRange();
     if (extended && !extended.collapsed) {
       deleteRange(extended);
+      keepCaretSpace();
       return true;
     }
     return false;
@@ -3245,6 +3537,10 @@ export function startInPlaceTextSession(
     }
     parentItem.after(item);
     if (list.children.length === 0) list.remove();
+    // A wrapper item that held only this list has no line left to show.
+    if (!parentItem.children.length && !hasLineContent(parentItem)) {
+      parentItem.remove();
+    }
     return true;
   }
 
@@ -5629,7 +5925,12 @@ export function startInPlaceTextSession(
     if (!range || range.collapsed || !event.clipboardData) return;
     event.preventDefault();
     writeSelection(event.clipboardData, range);
-    if (event.type === "cut") edit("command", () => deleteRange(range));
+    if (event.type === "cut") {
+      edit("command", () => {
+        deleteRange(range);
+        keepCaretSpace();
+      });
+    }
   }
 
   function onDragStart(event: DragEvent) {
@@ -5734,6 +6035,9 @@ export function startInPlaceTextSession(
         text.replaceWith(document.createElement("br"));
       } else {
         text.data = keepZwsp(text.data, author);
+        if (!text.data && hasOwnRenderedContent(block)) {
+          removeRun(text, block);
+        }
       }
     });
   }
@@ -5798,6 +6102,11 @@ export function startInPlaceTextSession(
       if (rest) placeholder.data = rest;
       else if (placeholder.parentNode?.childNodes.length !== 1) {
         placeholder.remove();
+      } else {
+        // The clone has no layout: the line boxes are the live node's.
+        if (hasOwnRenderedContent(nearestLineBox(text, root))) {
+          removeRun(placeholder, copy);
+        }
       }
     });
     return copy;

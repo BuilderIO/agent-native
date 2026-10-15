@@ -164,10 +164,10 @@ describe("Enter on an empty nested list item", () => {
     expect(plain(show(el))).toBe("<ul><li>a</li><li>x|</li></ul>");
   });
 
-  it("joins into the previous item on Backspace after the outdent", () => {
+  it("exits the list on Backspace after the outdent", () => {
     const el = editEmpty("<ul><li>a<ul><li></li></ul></li></ul>", "ul ul li");
     keys(el, ["Enter", "Backspace", "type:x"]);
-    expect(plain(show(el))).toBe("<ul><li>ax|</li></ul>");
+    expect(plain(show(el))).toBe("<ul><li>a</li></ul><p>x|</p>");
   });
 });
 
