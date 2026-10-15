@@ -25,6 +25,7 @@ import { type UseCase, type Article } from "./public-content";
 import {
   CampaignBand,
   CampaignCta,
+  CampaignFrequencyTag,
   CampaignScreenshot,
   CampaignView,
   JsonLd,
@@ -85,28 +86,29 @@ export function UseCasesIndex({ items }: { items: UseCase[] }) {
     trackEvent("index_filter", { role: nextRole, often: nextOften });
   }
   const apps = [...new Set(items.map((item) => item.app))];
-  const [beforeArticles, afterArticles] = t("campaign.browseArticles", {
+  const [beforeArticles, afterArticles] = t("campaign.useCasesIntro", {
     articles: "<articles>",
   }).split("<articles>");
   return (
-    <TemplateLandingShell className="builder-brand-tokens pb-16">
-      <div className="border-x border-[var(--docs-border)] px-6 py-16 sm:px-10">
+    <TemplateLandingShell className="builder-brand-tokens campaign-page pb-16">
+      <div className="campaign-section border-x border-[var(--docs-border)]">
         <SectionHeader
           eyebrow={t("campaign.useCases")}
           as="h1"
           heading={t("campaign.useCasesTitle")}
-          subheading={t("campaign.useCasesIntro")}
+          subheading={
+            <>
+              {beforeArticles}
+              <Link
+                to={sitePathForLocale(ARTICLES_BASE, locale)}
+                className="campaign-inline-link text-[var(--docs-accent)]"
+              >
+                {t("campaign.articlesLink")}
+              </Link>
+              {afterArticles}
+            </>
+          }
         />
-        <p className="mb-0 mt-3 text-[var(--b-text-secondary)]">
-          {beforeArticles}
-          <Link
-            to={sitePathForLocale(ARTICLES_BASE, locale)}
-            className="campaign-inline-link text-[var(--docs-accent)]"
-          >
-            {t("campaign.articlesLink")}
-          </Link>
-          {afterArticles}
-        </p>
         <div className="mt-6 flex min-w-0 flex-wrap gap-6">
           <FormSelect
             label={t("campaign.filterRole")}
@@ -148,7 +150,7 @@ export function UseCasesIndex({ items }: { items: UseCase[] }) {
           hidden={!items.some((item) => item.app === app && matches(item))}
           className="border border-[var(--docs-border)]"
         >
-          <div className="p-6 sm:p-8">
+          <div className="campaign-section">
             <SectionHeader heading={CATEGORY_NAMES[app]} />
           </div>
           <div className="grid gap-px bg-[var(--docs-border)] sm:grid-cols-2 lg:grid-cols-3">
@@ -166,16 +168,12 @@ export function UseCasesIndex({ items }: { items: UseCase[] }) {
                       locale,
                     )}
                     title={item.title}
-                    body={
-                      <>
-                        <p className="m-0">{item.subhead}</p>
-                        {item.how_often_label ? (
-                          <p className="mb-0 mt-3 text-sm">
-                            {item.how_often_label}
-                          </p>
-                        ) : null}
-                      </>
+                    eyebrow={
+                      item.how_often_label ? (
+                        <CampaignFrequencyTag text={item.how_often_label} />
+                      ) : undefined
                     }
+                    body={item.subhead}
                   />
                 </div>
               ))}
@@ -211,7 +209,7 @@ export function UseCasePage({
       ? value
       : format.formatList(value, { type: "conjunction" });
   return (
-    <TemplateLandingShell className="builder-brand-tokens">
+    <TemplateLandingShell className="builder-brand-tokens campaign-page">
       <CampaignView item={item} />
       <JsonLd
         value={{
@@ -228,9 +226,12 @@ export function UseCasePage({
         description={angle?.subhead ?? item.subhead}
         descriptionPlacement="below-title"
         eyebrow={
-          <span className="inline-flex items-center gap-2">
+          <span className="inline-flex flex-wrap items-center gap-2">
             {CATEGORY_NAMES[item.app]}
             <AppStatusBadge appId={item.app === "plans" ? "plan" : item.app} />
+            {item.how_often_label ? (
+              <CampaignFrequencyTag text={item.how_often_label} />
+            ) : null}
           </span>
         }
         headingAction={
@@ -253,28 +254,31 @@ export function UseCasePage({
       />
       <TemplateSplitFeature
         leading={
-          <div className="space-y-6 p-6 sm:p-8">
+          <div className="campaign-section space-y-[var(--spacing-6)]">
             <SectionHeader
               eyebrow={t("campaign.oldWay")}
               heading={item.old_way.heading}
             />
-            <p className="whitespace-pre-line text-lg text-[var(--fg-secondary)]">
+            <p className="campaign-body m-0 whitespace-pre-line">
               {angle?.old_way_body ?? item.old_way.body}
             </p>
             {item.replaces?.length ? (
-              <p className="text-[var(--fg-secondary)]">
+              <p className="campaign-body m-0">
                 {t("campaign.alternative", { names: names(item.replaces) })}
               </p>
             ) : null}
           </div>
         }
         trailing={
-          <div id="how-it-works" className="scroll-mt-24 space-y-6 p-6 sm:p-8">
+          <div
+            id="how-it-works"
+            className="campaign-section scroll-mt-24 space-y-[var(--spacing-6)]"
+          >
             <SectionHeader
               eyebrow={t("campaign.newWay")}
               heading={item.new_way.heading}
             />
-            <ol className="list-decimal space-y-4 ps-6 text-lg text-[var(--fg-secondary)]">
+            <ol className="campaign-body m-0 list-decimal space-y-[var(--spacing-4)] ps-6">
               {item.new_way.steps.map((step, i) => (
                 <li key={i} className="ps-2 whitespace-pre-line">
                   {step}
@@ -282,7 +286,7 @@ export function UseCasePage({
               ))}
             </ol>
             {item.connects_to?.length ? (
-              <p className="text-[var(--fg-secondary)]">
+              <p className="campaign-body m-0">
                 {t("campaign.worksWith")} {item.connects_to.join(", ")}
               </p>
             ) : null}
@@ -290,7 +294,7 @@ export function UseCasePage({
         }
       />
       {item.todays_stack ? (
-        <section className="min-w-0 space-y-6 border-x border-b border-[var(--docs-border)] p-6 py-12 sm:p-10">
+        <section className="campaign-section min-w-0 space-y-[var(--spacing-6)] border-x border-b border-[var(--docs-border)]">
           <SectionHeader
             eyebrow={t("campaign.whatItReplaces")}
             heading={item.todays_stack.heading}
@@ -315,82 +319,81 @@ export function UseCasePage({
               </tbody>
             </table>
           </div>
-          <p className="m-0 text-[var(--fg-secondary)]">
-            {item.todays_stack.in_app}
-          </p>
+          <p className="campaign-body m-0">{item.todays_stack.in_app}</p>
         </section>
       ) : null}
       {item.recipes?.length ? (
-        <section className="min-w-0 space-y-8 border-x border-b border-[var(--docs-border)] p-6 py-12 sm:p-10">
-          <SectionHeader
-            eyebrow={t("campaign.recipes")}
-            heading={t("campaign.waysToUse")}
-          />
-          <div className="space-y-8">
+        <section className="border-x border-b border-[var(--docs-border)]">
+          <div className="campaign-section">
+            <SectionHeader
+              eyebrow={t("campaign.recipes")}
+              heading={t("campaign.waysToUse")}
+            />
+          </div>
+          <div className="campaign-recipes-grid grid gap-px border-t border-[var(--docs-border)] bg-[var(--docs-border)] md:grid-cols-2 lg:grid-cols-3">
             {item.recipes.map((recipe) => (
               <article
                 key={recipe.id}
-                className="min-w-0 space-y-4 break-words"
+                className="flex min-w-0 flex-col bg-[var(--b-bg-page)]"
               >
-                <h3 className="m-0 text-2xl font-semibold">{recipe.title}</h3>
-                <dl className="m-0 space-y-4 text-[var(--fg-secondary)]">
+                <div className="flex flex-1 flex-col gap-[var(--spacing-6)] p-[var(--spacing-8)]">
                   <div>
-                    <dt className="font-semibold">
-                      {t("campaign.recipeWhen")}
-                    </dt>
-                    <dd className="m-0 whitespace-pre-line">{recipe.when}</dd>
+                    <CampaignFrequencyTag text={recipe.how_often} />
                   </div>
-                  <div>
-                    <dt className="font-semibold">{t("campaign.recipeDo")}</dt>
-                    <dd className="m-0 whitespace-pre-line">{recipe.do}</dd>
+                  <div className="space-y-[var(--spacing-2)]">
+                    <h3 className="campaign-card-title">{recipe.title}</h3>
+                    <p className="campaign-body m-0 whitespace-pre-line">
+                      {recipe.when}
+                    </p>
                   </div>
-                </dl>
-                {recipe.prompt ? (
-                  <div className="min-w-0 max-w-full overflow-x-auto">
-                    <CodeBlock
-                      code={recipe.prompt}
-                      lang="text"
-                      onCopySuccess={() =>
-                        trackEvent("recipe_copy", {
-                          slug: item.slug,
-                          job_id: item.job_id,
-                          recipe_id: recipe.id,
-                        })
-                      }
-                    />
-                  </div>
-                ) : null}
-                <dl className="m-0 space-y-4 text-[var(--fg-secondary)]">
-                  <div>
-                    <dt className="font-semibold">
-                      {t("campaign.recipeYouGet")}
-                    </dt>
-                    <dd className="m-0 whitespace-pre-line">
-                      {recipe.you_get}
+                  <dl className="m-0 space-y-[var(--spacing-2)]">
+                    <dt className="campaign-label">{t("campaign.recipeDo")}</dt>
+                    <dd className="campaign-body m-0 whitespace-pre-line">
+                      {recipe.do}
                     </dd>
-                  </div>
-                  {recipe.save ? (
-                    <div>
-                      <dt className="font-semibold">
-                        {t("campaign.recipeSave")}
-                      </dt>
-                      <dd className="m-0 whitespace-pre-line">{recipe.save}</dd>
+                  </dl>
+                  {recipe.prompt ? (
+                    <div className="min-w-0 max-w-full overflow-x-auto">
+                      <CodeBlock
+                        code={recipe.prompt}
+                        lang="text"
+                        className="m-0"
+                        onCopySuccess={() =>
+                          trackEvent("recipe_copy", {
+                            slug: item.slug,
+                            job_id: item.job_id,
+                            recipe_id: recipe.id,
+                          })
+                        }
+                      />
                     </div>
                   ) : null}
-                  <div>
-                    <dt className="font-semibold">{t("campaign.howOften")}</dt>
-                    <dd className="m-0 whitespace-pre-line">
-                      {recipe.how_often}
+                  <dl className="m-0 space-y-[var(--spacing-2)]">
+                    <dt className="campaign-label">
+                      {t("campaign.recipeYouGet")}
+                    </dt>
+                    <dd className="campaign-body m-0 whitespace-pre-line">
+                      {recipe.you_get}
                     </dd>
-                  </div>
-                </dl>
+                  </dl>
+                </div>
+                {recipe.save ? (
+                  <dl className="m-0 space-y-[var(--spacing-2)] border-t border-[var(--docs-border)] bg-[var(--b-bg-raised)] p-[var(--spacing-8)]">
+                    <dt className="campaign-label">
+                      {t("campaign.recipeSave")}
+                    </dt>
+                    <dd className="campaign-body m-0 whitespace-pre-line">
+                      {recipe.save}
+                    </dd>
+                  </dl>
+                ) : null}
               </article>
             ))}
           </div>
         </section>
       ) : null}
       {item.story ? (
-        <figure className="m-0 space-y-6 border-x border-[var(--docs-border)] p-6 py-12 sm:p-10">
+        <figure className="campaign-section m-0 space-y-[var(--spacing-6)] border-x border-[var(--docs-border)]">
           <blockquote className="m-0 whitespace-pre-line text-2xl">
             {item.story.quote}
           </blockquote>
@@ -407,6 +410,7 @@ export function UseCasePage({
       ) : null}
       {item.faqs.length ? (
         <TemplateLandingFaq
+          className="campaign-faq"
           eyebrow={t("campaign.faqs")}
           title={t("campaign.faqTitle")}
           idPrefix="use-case-faq"
@@ -419,8 +423,11 @@ export function UseCasePage({
       ) : null}
       {nextJobs.length ? (
         <section className="border border-[var(--docs-border)]">
-          <div className="p-6 sm:p-8">
-            <SectionHeader heading={t("campaign.nextJobs")} />
+          <div className="campaign-section">
+            <SectionHeader
+              eyebrow={t("campaign.nextEyebrow")}
+              heading={t("campaign.nextJobs")}
+            />
           </div>
           <div className="grid gap-px bg-[var(--docs-border)] sm:grid-cols-2 lg:grid-cols-3">
             {nextJobs.map((next) => (
@@ -445,8 +452,11 @@ export function UseCasePage({
       ) : null}
       {articles.length ? (
         <section className="border border-[var(--docs-border)]">
-          <div className="p-6 sm:p-8">
-            <SectionHeader heading={t("campaign.goDeeper")} />
+          <div className="campaign-section">
+            <SectionHeader
+              eyebrow={t("campaign.articles")}
+              heading={t("campaign.goDeeper")}
+            />
           </div>
           <div className="grid gap-px bg-[var(--docs-border)] sm:grid-cols-2 lg:grid-cols-3">
             {articles.map((article) => (
@@ -457,6 +467,7 @@ export function UseCasePage({
                   locale,
                 )}
                 title={article.title}
+                body={article.meta_description}
               />
             ))}
           </div>

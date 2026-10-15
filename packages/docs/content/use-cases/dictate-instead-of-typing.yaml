@@ -59,7 +59,7 @@ internal:
   verify: "Which operating systems the desktop app and Fn dictation support, and the download link. Do not mention lookback or always-on recording (Nightly only, heading behind Labs)."
 frequency: daily
 how_often_label: "Daily"
-roles: [engineering, everyone]
+roles: [engineering, product]
 next_jobs: [see-what-your-coding-agent-plans, bug-reports-with-console-logs]
 recipes:
   - id: dictate-prompt

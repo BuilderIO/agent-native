@@ -330,6 +330,80 @@ a.campaign-inline-link {
   text-underline-offset: 0.25rem;
 }
 
+.campaign-page {
+  --b-font-sans: var(--font-sans);
+  --b-font-mono: var(--font-mono);
+  font-family: var(--font-sans);
+}
+
+.campaign-page .campaign-section {
+  padding-block: var(--spacing-12);
+  padding-inline: var(--spacing-8);
+}
+
+.campaign-page .campaign-body {
+  font-family: var(--font-sans);
+  font-size: var(--b-t-paragraph-2);
+  line-height: 1.4;
+  color: var(--fg-secondary);
+}
+
+.campaign-page
+  section
+  h2:not(:where(.campaign-article-content .docs-content h2)) {
+  font-family: var(--font-sans);
+  font-size: var(--b-t-heading-4);
+}
+
+.campaign-page .campaign-card-title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--b-t-heading-6);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.campaign-page .campaign-label {
+  font-family: var(--font-mono);
+  font-size: var(--b-t-label-2);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--b-text-muted);
+}
+
+.campaign-page .campaign-frequency-tag {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-2);
+  border: 1px solid var(--docs-border);
+  border-radius: var(--b-radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--b-t-label-2);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--b-text-muted);
+}
+
+.campaign-page .campaign-frequency-tag > svg {
+  flex-shrink: 0;
+}
+
+.campaign-page .docs-content {
+  font-family: var(--font-sans);
+}
+
+.campaign-page .campaign-faq > div > div:first-child {
+  padding-block: var(--spacing-12);
+  padding-inline: var(--spacing-8);
+}
+
 .grid.gap-px[class~="bg-[var(--docs-border)]"] {
   --card-grid-border: var(--docs-border);
 }
@@ -560,11 +634,11 @@ hr {
   min-width: 36rem;
 }
 
-.campaign-article-content .docs-content table :is(th, td),
-.docs-content.campaign-stack-table table :is(th, td) {
+.campaign-page .campaign-article-content .docs-content table :is(th, td),
+.campaign-page .docs-content.campaign-stack-table table :is(th, td) {
   color: var(--fg);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--b-t-paragraph-2);
 }
 
 .docs-kbd {

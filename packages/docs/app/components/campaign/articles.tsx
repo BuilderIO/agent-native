@@ -42,8 +42,8 @@ export function ArticlesList({
   const t = useT();
   const { locale } = useLocale();
   return (
-    <TemplateLandingShell className="builder-brand-tokens pb-16">
-      <div className="border-x border-[var(--docs-border)] px-6 py-16 sm:px-10">
+    <TemplateLandingShell className="builder-brand-tokens campaign-page pb-16">
+      <div className="campaign-section border-x border-[var(--docs-border)]">
         <SectionHeader
           eyebrow={category ? t("campaign.articles") : undefined}
           as="h1"
@@ -57,7 +57,7 @@ export function ArticlesList({
       </div>
       <section className="border border-[var(--docs-border)]">
         {!category ? (
-          <div className="p-6 sm:p-8">
+          <div className="campaign-section">
             <SectionHeader heading={t("campaign.allArticles")} />
           </div>
         ) : null}
@@ -70,10 +70,10 @@ export function ArticlesList({
               to={sitePathForLocale(`${ARTICLES_BASE}/${article.slug}`, locale)}
               className="grid gap-3 p-6 no-underline hover:bg-[var(--b-bg-raised)] sm:grid-cols-[7rem_1fr] sm:p-8"
             >
-              <span className="font-mono text-sm text-[var(--fg-secondary)]">
+              <span className="campaign-label">
                 {CATEGORY_NAMES[article.category]}
               </span>
-              <h2 className="m-0 text-xl font-medium">{article.title}</h2>
+              <h2 className="campaign-card-title">{article.title}</h2>
             </Link>
           </article>
         ))}
@@ -93,7 +93,7 @@ export function ArticlesList({
       ) : null}
       {!category ? (
         <section className="mt-16 border border-[var(--docs-border)]">
-          <div className="p-6 sm:p-8">
+          <div className="campaign-section">
             <SectionHeader heading={t("campaign.allTopics")} />
           </div>
           <div className="grid gap-px bg-[var(--docs-border)] sm:grid-cols-2 lg:grid-cols-3">
@@ -141,7 +141,7 @@ export function ArticlePage({
     ? safeHref(article.author_avatar)
     : undefined;
   return (
-    <TemplateLandingShell className="builder-brand-tokens">
+    <TemplateLandingShell className="builder-brand-tokens campaign-page">
       <CampaignView item={article} />
       <JsonLd
         value={{
@@ -160,7 +160,7 @@ export function ArticlePage({
         }}
       />
       {parsed.faqs.length ? <JsonLd value={faqSchema(parsed.faqs)} /> : null}
-      <div className="border-x border-[var(--docs-border)] px-6 py-12 sm:px-10">
+      <div className="campaign-section border-x border-[var(--docs-border)]">
         <div className="mx-auto max-w-[720px]">
           <nav
             aria-label={t("campaign.breadcrumb")}
@@ -273,7 +273,7 @@ export function ArticlePage({
       </div>
       {more.length ? (
         <section className="border border-[var(--docs-border)]">
-          <div className="p-6 sm:p-8">
+          <div className="campaign-section">
             <SectionHeader
               heading={
                 more.some((item) => item.category !== article.category)
@@ -294,7 +294,7 @@ export function ArticlePage({
                 )}
                 title={
                   <>
-                    <span className="mb-3 block font-mono text-sm font-normal text-[var(--b-text-secondary)]">
+                    <span className="campaign-label mb-3 block">
                       {CATEGORY_NAMES[item.category]}
                     </span>
                     {item.title}
