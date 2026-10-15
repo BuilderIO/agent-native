@@ -28,6 +28,8 @@ const MIN_MAX_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_MAX_BYTES: u64 = 1024 * 1024 * 1024 * 1024;
 const ROTATOR_TICK: Duration = Duration::from_millis(500);
 const EXCLUSION_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const CAPTURE_RECOVERY_RETRY_INITIAL_DELAY: Duration = Duration::from_secs(1);
+const CAPTURE_RECOVERY_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 const EXCLUSION_GATE_TAINTED: u8 = 0b01;
 const CAPTURE_MODE_CHANGE_START_RESERVED: u64 = 0b1;
 const EXCLUSION_MARKERS_IN_FLIGHT_INCREMENT: u64 = 0b10;
@@ -1517,23 +1519,80 @@ fn ensure_running_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
 }
 
 fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
-    std::thread::spawn(move || loop {
-        let config =
-            normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
-        match wait_for_rotation(&app, &stop, &config) {
-            RotationWait::Stop => return,
-            RotationWait::Resumed => continue,
-            RotationWait::Rotate => {}
-        }
-        let config =
-            normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
-        if !config.enabled || config.paused {
-            return;
-        }
-        if let Err(err) = rotate_segment(&app, &config) {
-            record_error(&app, err);
+    std::thread::spawn(move || {
+        let mut recovery_retry_delay = Duration::ZERO;
+        loop {
+            let state = app.state::<ScreenMemoryState>();
+            let capture_missing = state
+                .inner
+                .lock()
+                .map(|runtime| runtime.active.is_none() && !runtime.exclusion_active)
+                .unwrap_or(false);
+            if !capture_missing {
+                recovery_retry_delay = Duration::ZERO;
+            } else if !recovery_retry_delay.is_zero()
+                && !wait_for_capture_recovery_retry(&stop, recovery_retry_delay)
+            {
+                return;
+            }
+
+            let config =
+                normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
+            match wait_for_rotation(&app, &stop, &config) {
+                RotationWait::Stop => return,
+                RotationWait::Resumed => {
+                    recovery_retry_delay = Duration::ZERO;
+                    continue;
+                }
+                RotationWait::Rotate => {}
+            }
+            let config =
+                normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
+            if !config.enabled || config.paused {
+                return;
+            }
+            match rotate_segment(&app, &config) {
+                Ok(()) => recovery_retry_delay = Duration::ZERO,
+                Err(err) => {
+                    record_error(&app, err);
+                    let state = app.state::<ScreenMemoryState>();
+                    let capture_missing = state
+                        .inner
+                        .lock()
+                        .map(|runtime| runtime.active.is_none() && !runtime.exclusion_active)
+                        .unwrap_or(false);
+                    if capture_missing {
+                        recovery_retry_delay =
+                            next_capture_recovery_retry_delay(recovery_retry_delay);
+                    } else {
+                        recovery_retry_delay = Duration::ZERO;
+                    }
+                }
+            }
         }
     });
+}
+
+fn wait_for_capture_recovery_retry(stop: &AtomicBool, delay: Duration) -> bool {
+    let deadline = Instant::now() + delay;
+    while !stop.load(Ordering::Relaxed) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return true;
+        }
+        std::thread::sleep(remaining.min(ROTATOR_TICK));
+    }
+    false
+}
+
+fn next_capture_recovery_retry_delay(previous: Duration) -> Duration {
+    if previous.is_zero() {
+        CAPTURE_RECOVERY_RETRY_INITIAL_DELAY
+    } else {
+        previous
+            .saturating_mul(2)
+            .min(CAPTURE_RECOVERY_RETRY_MAX_DELAY)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1576,6 +1635,15 @@ fn wait_for_rotation(
     stop: &AtomicBool,
     config: &ScreenMemoryConfig,
 ) -> RotationWait {
+    let state = app.state::<ScreenMemoryState>();
+    if state
+        .inner
+        .lock()
+        .map(|runtime| runtime.active.is_none() && !runtime.exclusion_active)
+        .unwrap_or(false)
+    {
+        return RotationWait::Rotate;
+    }
     let deadline = Instant::now() + Duration::from_secs(config.segment_seconds);
     let mut next_sample = Instant::now();
     let mut next_exclusion_poll = Instant::now();
@@ -1900,26 +1968,39 @@ fn discard_excluded_mode_change_artifacts(
     gap_started_at: Instant,
     capture_mode: RewindCaptureMode,
 ) -> Result<(), String> {
-    let active = {
+    let (active, state_result) = {
         let state = app.state::<ScreenMemoryState>();
-        let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
-        begin_exclusion_gap(&mut runtime, gap_started_at, capture_mode);
-        let active = runtime.active.take();
-        if let Some(active) = active.as_ref() {
-            begin_exclusion_gap(&mut runtime, active.started_at, active.capture_mode);
+        match state.inner.lock() {
+            Ok(mut runtime) => {
+                begin_exclusion_gap(&mut runtime, gap_started_at, capture_mode);
+                let active = runtime.active.take();
+                if let Some(active) = active.as_ref() {
+                    begin_exclusion_gap(&mut runtime, active.started_at, active.capture_mode);
+                }
+                (active, Ok(()))
+            }
+            Err(error) => (None, Err(error.to_string())),
         }
-        active
     };
     if let Some(active) = active {
         discard_active_segment(active);
     }
+    let mut cleanup_errors = state_result.err().into_iter().collect::<Vec<_>>();
     for path in paths {
-        remove_file_if_exists(path)?;
+        if let Err(error) = remove_file_if_exists(path) {
+            cleanup_errors.push(error);
+        }
     }
-    discard_segment_artifacts(app, segment_id)?;
+    if let Err(error) = discard_segment_artifacts(app, segment_id) {
+        cleanup_errors.push(error);
+    }
     end_rewind_lease(app);
     let _ = app.emit(SCREEN_MEMORY_EVENT, ());
-    Ok(())
+    if cleanup_errors.is_empty() {
+        Ok(())
+    } else {
+        Err(cleanup_errors.join("; "))
+    }
 }
 
 fn discard_segment_artifacts(app: &AppHandle, segment_id: &str) -> Result<(), String> {
@@ -2235,7 +2316,7 @@ fn rotate_segment_with_capture_mode_change(
         audio_sidecar_path(&active.path, "microphone"),
     ];
     end_rewind_lease(app);
-    let install_result = install_rotated_segment(app, next);
+    let install_result = install_mode_change_segment(app, next, &state, &mut reservation);
     let finalize_result = match finalize_active_segment_at(app, active, ended_at, ended_at_iso) {
         Ok(segment) if reservation.release_if_clear(&state) => {
             persist_finalized_segment(app, segment)
@@ -2288,6 +2369,56 @@ fn install_rotated_segment(app: &AppHandle, next: ActiveScreenMemorySegment) -> 
     if installed {
         let needs_lease = app
             .state::<ScreenMemoryState>()
+            .inner
+            .lock()
+            .ok()
+            .is_some_and(|runtime| runtime.rewind_lease_id.is_none());
+        if needs_lease {
+            start_rewind_lease(app, capture_mode)?;
+        }
+    }
+
+    let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+    Ok(())
+}
+
+fn install_mode_change_segment(
+    app: &AppHandle,
+    next: ActiveScreenMemorySegment,
+    state: &ScreenMemoryState,
+    reservation: &mut CaptureModeChangeStartReservation,
+) -> Result<(), String> {
+    let capture_mode = next.capture_mode;
+    let mut next = Some(next);
+    let installed = match state.inner.lock() {
+        Ok(mut guard) => {
+            let still_running = guard
+                .worker_stop
+                .as_ref()
+                .map(|stop| !stop.load(Ordering::Relaxed))
+                .unwrap_or(false);
+            // A marker that wins after gate release must wait here and taint the installed segment.
+            if still_running && guard.active.is_none() && reservation.release_if_clear(state) {
+                guard.active = next.take();
+                guard.last_error = None;
+                true
+            } else {
+                false
+            }
+        }
+        Err(error) => {
+            if let Some(next) = next.take() {
+                discard_active_segment(next);
+            }
+            return Err(error.to_string());
+        }
+    };
+    if !installed {
+        if let Some(next) = next {
+            discard_active_segment(next);
+        }
+    } else {
+        let needs_lease = state
             .inner
             .lock()
             .ok()
