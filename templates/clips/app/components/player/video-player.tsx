@@ -52,6 +52,11 @@ import {
   lastKeptMs,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
+import {
+  frameTimeMs,
+  stepVideoFrame,
+  VideoFrameClock,
+} from "@/lib/video-frame-stepping";
 
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
@@ -180,6 +185,8 @@ export interface VideoPlayerHandle {
   pause: () => void;
   seek: (ms: number) => void;
   getCurrentOriginalMs: () => number;
+  /** Steps one frame while paused; the first press during playback pauses. */
+  stepFrame: (direction: 1 | -1, repeat?: boolean) => void;
   setSpeed: (rate: number) => void;
   toggleMute: () => void;
   toggleCaptions: () => void;
@@ -1065,6 +1072,66 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       [currentMs, edits, seekToVisibleMs],
     );
 
+    const frameClockRef = useRef<VideoFrameClock | null>(null);
+    useEffect(() => {
+      if (!playbackVideoEl) return;
+      const clock = VideoFrameClock.attach(playbackVideoEl);
+      frameClockRef.current = clock;
+      return () => {
+        clock?.dispose();
+        if (frameClockRef.current === clock) frameClockRef.current = null;
+      };
+    }, [playbackVideoEl]);
+
+    const seekToVisibleMsRef = useRef(seekToVisibleMs);
+    seekToVisibleMsRef.current = seekToVisibleMs;
+    const excludedRangesRef = useRef(excludedRanges);
+    excludedRangesRef.current = excludedRanges;
+    const frameStepRef = useRef({ running: false, pending: 0 });
+    // Embedded players expose no frames to step through.
+    const hasFrameAccess = !embedProvider && !isLoomEmbed;
+
+    const stepFrame = useCallback(
+      (direction: 1 | -1, repeat = false) => {
+        const v = videoRef.current;
+        if (!v || !hasFrameAccess) return;
+        if (!v.paused) {
+          pauseVideo();
+          return;
+        }
+        const queue = frameStepRef.current;
+        if (queue.running) {
+          // A held key repeats faster than seeks settle, so only separate
+          // presses queue up.
+          if (!repeat) queue.pending += direction;
+          return;
+        }
+        queue.running = true;
+        void (async () => {
+          try {
+            let next: number = direction;
+            while (next !== 0 && videoRef.current === v && v.paused) {
+              await stepVideoFrame(
+                {
+                  video: v,
+                  clock: frameClockRef.current,
+                  seekMs: (ms) => seekToVisibleMsRef.current(ms),
+                  excludedRanges: excludedRangesRef.current,
+                },
+                next > 0 ? 1 : -1,
+              );
+              next = Math.sign(queue.pending);
+              queue.pending -= next;
+            }
+          } finally {
+            queue.running = false;
+            queue.pending = 0;
+          }
+        })();
+      },
+      [hasFrameAccess, pauseVideo],
+    );
+
     useImperativeHandle(
       ref,
       () => ({
@@ -1078,6 +1145,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         pause: pauseVideo,
         seek: seekToVisibleMs,
         getCurrentOriginalMs: () => {
+          const presented = frameClockRef.current?.presentedFrameStart();
+          if (presented != null) return frameTimeMs(presented);
           const v = videoRef.current;
           const liveOriginalMs =
             v &&
@@ -1088,6 +1157,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               : currentMsRef.current;
           return liveOriginalMs;
         },
+        stepFrame,
         setSpeed: applySpeed,
         toggleMute: () => {
           if (videoRef.current) {
@@ -1100,7 +1170,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         toggleFullscreen: () => void toggleFullscreenInternal(),
         togglePip: () => togglePipInternal(),
       }),
-      [applySpeed, pauseVideo, requestPlay, seekToVisibleMs],
+      [applySpeed, pauseVideo, requestPlay, seekToVisibleMs, stepFrame],
     );
 
     useEffect(() => {

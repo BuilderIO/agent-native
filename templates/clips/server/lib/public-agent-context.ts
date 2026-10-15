@@ -839,7 +839,7 @@ export function buildPublicAgentContext({
         : frameMode === "video"
           ? [
               "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
-              "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
+              "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task. A comment's videoTimestampMs is the frame its author was looking at; pass it as atMs to see that frame.",
             ]
           : []),
   ];
