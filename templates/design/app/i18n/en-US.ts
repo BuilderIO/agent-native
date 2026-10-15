@@ -1094,6 +1094,8 @@ export default {
         "Motion cannot read this animation without changing its behavior.",
       sourceWriteUnavailable:
         "Motion code can currently be written only to inline HTML designs.",
+      unresolvedStylesheets:
+        "Resolve external stylesheets before editing or adding Motion.",
       sourceConflict:
         "Motion source changed while this timeline had unsaved edits. Reload from code to discard those edits and use the current source.",
       reloadFromSource: "Reload from code",

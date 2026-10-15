@@ -1073,6 +1073,8 @@ export default {
         "Motion ne peut pas lire cette animation sans en modifier le comportement.",
       sourceWriteUnavailable:
         "Pour le moment, le code Motion ne peut être écrit que dans des designs HTML intégrés.",
+      unresolvedStylesheets:
+        "Résolvez les feuilles de style externes avant de modifier ou d’ajouter des animations.",
       sourceConflict:
         "La source Motion a changé alors que cette timeline contenait des modifications non enregistrées. Rechargez le code pour les abandonner et utiliser la source actuelle.",
       reloadFromSource: "Recharger le code",

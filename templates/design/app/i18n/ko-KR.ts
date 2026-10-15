@@ -1053,6 +1053,8 @@ export default {
         "Motion은 동작을 변경하지 않고는 이 애니메이션을 읽을 수 없습니다.",
       sourceWriteUnavailable:
         "현재 Motion 코드는 인라인 HTML 디자인에만 쓸 수 있습니다.",
+      unresolvedStylesheets:
+        "Motion을 편집하거나 추가하기 전에 외부 스타일시트를 해결하세요.",
       sourceConflict:
         "타임라인에 저장되지 않은 변경 사항이 있는 동안 Motion 소스가 변경되었습니다. 코드를 다시 불러오면 해당 변경 사항을 버리고 현재 소스를 사용합니다.",
       reloadFromSource: "코드 다시 불러오기",

@@ -1030,6 +1030,7 @@ export default {
       size: "大小",
       sourceReadUnavailable: "Motion 无法在不改变其行为的情况下读取此动画。",
       sourceWriteUnavailable: "目前，Motion 代码只能写入内嵌 HTML 设计。",
+      unresolvedStylesheets: "请先解决外部样式表，再编辑或添加 Motion。",
       sourceConflict:
         "时间轴有未保存更改时，Motion 源代码发生了变化。重新加载代码会丢弃这些更改并使用当前源代码。",
       reloadFromSource: "从代码重新加载",

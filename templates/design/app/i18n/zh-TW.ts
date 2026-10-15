@@ -1167,6 +1167,7 @@ export default {
       size: "大小",
       sourceReadUnavailable: "Motion 無法在不改變其行為的情況下讀取此動畫。",
       sourceWriteUnavailable: "目前，Motion 程式碼只能寫入內嵌 HTML 設計。",
+      unresolvedStylesheets: "請先解決外部樣式表，再編輯或新增 Motion。",
       sourceConflict:
         "時間軸有未儲存變更時，Motion 原始碼已變更。重新載入程式碼會捨棄這些變更並使用目前的原始碼。",
       reloadFromSource: "從程式碼重新載入",

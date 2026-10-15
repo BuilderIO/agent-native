@@ -489,7 +489,7 @@ describe("HTML Motion source adapter", () => {
 
     expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
       status: "invalid",
-      error: { code: "unsupported-authored-motion" },
+      error: { code: "unresolved-stylesheet" },
     });
   });
 
@@ -502,25 +502,40 @@ describe("HTML Motion source adapter", () => {
 
     expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
       status: "invalid",
-      error: { code: "unsupported-authored-motion" },
+      error: { code: "unresolved-stylesheet" },
     });
-    expect(() => apply(source)).toThrow(
-      "HTML Motion cannot be added while external stylesheets remain unresolved.",
-    );
+    expect(() => apply(source)).toThrow(MotionHtmlSourceError);
   });
 
   it.each([
-    ["linked stylesheet", '<link rel="stylesheet" href="./theme.css">'],
+    [
+      "linked stylesheet",
+      '<link rel="stylesheet" href="./theme.css">',
+      "unresolved-stylesheet",
+    ],
     [
       "Alpine-bound stylesheet",
       '<link rel="stylesheet" x-bind:href="themeUrl">',
+      "unresolved-stylesheet",
     ],
-    ["Alpine-bound relation", '<link href="./theme.css" :rel="themeRel">'],
-    ["CSS import", '<style>@IMPORT url("./theme.css");</style>'],
-    ["escaped CSS import", '<style>@\\69mport url("./theme.css");</style>'],
+    [
+      "Alpine-bound relation",
+      '<link href="./theme.css" :rel="themeRel">',
+      "unresolved-stylesheet",
+    ],
+    [
+      "CSS import",
+      '<style>@IMPORT url("./theme.css");</style>',
+      "unresolved-stylesheet",
+    ],
+    [
+      "escaped CSS import",
+      '<style>@\\69mport url("./theme.css");</style>',
+      "unsupported-authored-motion",
+    ],
   ])(
     "fails closed when a %s can add motion beside a managed timeline",
-    (_sourceKind, externalStylesheet) => {
+    (_sourceKind, externalStylesheet, errorCode) => {
       const managedSource = apply(html).source.replace(
         "</head>",
         `${externalStylesheet}\n</head>`,
@@ -528,7 +543,7 @@ describe("HTML Motion source adapter", () => {
 
       expect(readMotionHtmlSource(managedSource, "index.html")).toMatchObject({
         status: "invalid",
-        error: { code: "unsupported-authored-motion" },
+        error: { code: errorCode },
       });
       expect(() => apply(managedSource)).toThrow(MotionHtmlSourceError);
     },

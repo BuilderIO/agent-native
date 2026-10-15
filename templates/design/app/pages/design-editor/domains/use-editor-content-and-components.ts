@@ -1752,6 +1752,9 @@ export function useEditorContentAndComponents({
         sourceWriteUnavailableMessage:
           motionSourceReadUnavailableReason ??
           t("designEditor.motion.sourceWriteUnavailable"),
+        unresolvedStylesheetsMessage: t(
+          "designEditor.motion.unresolvedStylesheets",
+        ),
         motionSourceConflictMessage: t("designEditor.motion.sourceConflict"),
         motionReloadFromSourceLabel: t("designEditor.motion.reloadFromSource"),
       }),

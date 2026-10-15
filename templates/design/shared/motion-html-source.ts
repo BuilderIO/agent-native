@@ -85,6 +85,7 @@ export type MotionHtmlSourceErrorCode =
   | "ambiguous-managed-style"
   | "invalid-managed-style"
   | "unsupported-authored-motion"
+  | "unresolved-stylesheet"
   | "invalid-motion-text"
   | "invalid-path-trim"
   | "unsupported-motion-document"
@@ -749,8 +750,8 @@ function readAuthoredHtmlMotion(
     }
     if (hasUnresolvedStylesheet(nodes)) {
       sourceError(
-        "unsupported-authored-motion",
-        "Inline CSS animations cannot be imported while external stylesheets remain unresolved.",
+        "unresolved-stylesheet",
+        "Resolve external stylesheets before editing or adding Motion.",
       );
     }
     for (const name of result.definedKeyframeNames) {
@@ -1080,8 +1081,8 @@ function readSource(
   const textDocument = readMotionText(source);
   if ((document || textDocument) && hasUnresolvedStylesheet(nodes)) {
     sourceError(
-      "unsupported-authored-motion",
-      "HTML Motion cannot be edited while external stylesheets remain unresolved.",
+      "unresolved-stylesheet",
+      "Resolve external stylesheets before editing or adding Motion.",
     );
   }
   const targetNodeIds = targetsFromDocuments(document, textDocument);
@@ -1099,8 +1100,8 @@ function readSource(
   if (!document && !textDocument) {
     if (hasUnresolvedStylesheet(nodes)) {
       sourceError(
-        "unsupported-authored-motion",
-        "HTML Motion cannot be added while external stylesheets remain unresolved.",
+        "unresolved-stylesheet",
+        "Resolve external stylesheets before editing or adding Motion.",
       );
     }
     return { status: "absent" };
