@@ -4,7 +4,7 @@ import { fail } from "@agent-native/core/action";
 import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 
 import type { KeyDate, KeyDateSet } from "../../shared/key-dates.js";
-import { isValidPanelEvent } from "../../shared/panel-events.js";
+import { panelEventProblem } from "../../shared/panel-events.js";
 import { getDb, schema } from "../db/index.js";
 import {
   inAnnotationScope,
@@ -239,9 +239,14 @@ export async function saveKeyDate(
     ...(input.time ? { time: input.time } : {}),
     ...(input.timeZone ? { timeZone: input.timeZone } : {}),
   };
-  if (!isValidPanelEvent(event) || label.length > MAX_LABEL_LENGTH) {
+  const problem =
+    panelEventProblem(event) ??
+    (label.length > MAX_LABEL_LENGTH
+      ? `label must be at most ${MAX_LABEL_LENGTH} characters`
+      : null);
+  if (problem) {
     fail(
-      `A key date needs date "YYYY-MM-DD", a label of 1 to ${MAX_LABEL_LENGTH} characters, an optional time "HH:MM", and a time zone (IANA, e.g. "America/New_York") only with a time.`,
+      `Invalid key date: ${problem}. A key date needs date "YYYY-MM-DD", a label of 1 to ${MAX_LABEL_LENGTH} characters, an optional time "HH:MM", and a time zone (IANA, e.g. "America/New_York") only with a time.`,
       { errorCode: "invalid_key_date", statusCode: 400 },
     );
   }

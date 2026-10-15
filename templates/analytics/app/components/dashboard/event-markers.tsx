@@ -1,6 +1,6 @@
 import {
   formatPanelEventDate,
-  formatPanelEventTime,
+  formatPanelEventWhen,
   groupPanelEvents,
   resolvePanelEvents,
   type PanelEventGroup,
@@ -86,11 +86,7 @@ function EventMarkerBadge({
         </div>
         <ul className="space-y-1">
           {group.events.map((event, index) => {
-            const when =
-              formatPanelEventTime(event) ??
-              (event.date === headerDate
-                ? null
-                : formatPanelEventDate(event.date));
+            const when = formatPanelEventWhen(event, headerDate);
             return (
               <li
                 key={`${event.date}-${event.time ?? ""}-${index}`}

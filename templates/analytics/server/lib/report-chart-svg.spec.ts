@@ -840,6 +840,71 @@ describe("renderReportChartSvg events", () => {
     expect(lines[lines.length - 1]).toBe(`+${8 - shown} more`);
   });
 
+  it("never prints a label over another when the rows run out, and counts the days left unlabeled", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: days.map((_, index) => ({
+        index,
+        label: `Release ${index} shipped to every workspace`,
+      })),
+    });
+    const labels = eventLabels(svg);
+    const boxes = labels.map(({ x, y, anchor, text }) => {
+      const width = estimateTextWidth(text, 10);
+      const left = anchor === "end" ? x - width : x;
+      return { text, left, right: left + width, top: y - 10, bottom: y + 3 };
+    });
+    const overlaps = boxes.flatMap((a, index) =>
+      boxes
+        .slice(index + 1)
+        .filter(
+          (b) =>
+            a.left < b.right &&
+            b.left < a.right &&
+            a.top < b.bottom &&
+            b.top < a.bottom,
+        )
+        .map((b) => [a.text, b.text]),
+    );
+    expect(overlaps).toEqual([]);
+
+    const notice = labels.find((label) => label.text.endsWith("not labeled"));
+    const unlabeled = Number(
+      notice?.text.match(/^\+(\d+) dates not labeled$/)?.[1],
+    );
+    expect(unlabeled).toBeGreaterThan(0);
+    const labeledDays = new Set(
+      labels.filter((label) => label !== notice).map((label) => label.x),
+    ).size;
+    expect(labeledDays + unlabeled).toBe(days.length);
+    // Every day keeps its rule and dot, labeled or not.
+    expect(svg.match(/stroke-dasharray="3 3"/g)).toHaveLength(days.length);
+  });
+
+  it("shortens a day to one line when its full labels find no clear rows", () => {
+    const svg = renderReportChartSvg({
+      labels: days,
+      series: [{ label: "People", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      events: [
+        ...[0, 1, 2, 3, 4].map((index) => ({
+          index,
+          label: `Release ${index} shipped to every workspace`,
+        })),
+        ...launches.map((label) => ({ index: 5, label })),
+      ],
+    });
+    const lines = eventLabels(svg).map((line) => line.text);
+    expect(lines[lines.length - 1]).toBe("Product Hunt live +3 more");
+    expect(svg).not.toContain("not labeled");
+  });
+
   it("ends a lone label that is too long for its lines on a whole word", () => {
     const words = Array.from({ length: 40 }, (_, index) => `word${index}`);
     const svg = renderReportChartSvg({
