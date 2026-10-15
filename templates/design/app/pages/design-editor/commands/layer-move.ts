@@ -250,6 +250,24 @@ function isNodeParentFlow(
   return isFlowDisplay(node.layout.parentDisplay);
 }
 
+function authoredReparentedChildPosition(
+  content: string,
+  nodeAttrId: string,
+  newParentAttrId: string,
+): { x: number; y: number } | null {
+  const sourcePosition = getAbsolutePositioningForNodeInHtml(
+    content,
+    nodeAttrId,
+  );
+  const childOrigin = authoredAbsoluteChildOriginForNode(
+    content,
+    newParentAttrId,
+  );
+  return sourcePosition && childOrigin
+    ? computeReparentedChildPosition(sourcePosition, childOrigin)
+    : null;
+}
+
 function tryDuplicateOnPanelDrop(
   intent: LayersPanelMoveIntent,
   targetOwner: CodeLayerOwner,
@@ -898,19 +916,20 @@ export function runLayerMove(
             : (codeLayerOwnerByNodeId.get(newParentId)?.node.dataAttributes[
                 "data-agent-native-node-id"
               ] ?? newParentId);
-        const sourcePosition = getAbsolutePositioningForNodeInHtml(
-          prevContentForRebase,
-          draggedAttrId,
-        );
-        const childOrigin = authoredAbsoluteChildOriginForNode(
-          prevContentForRebase,
-          newParentAttrId,
-        );
-        if (sourcePosition && childOrigin) {
+        const childPosition =
+          liveLayout.status === "resolved" &&
+          liveLayout.sourceAbsoluteOffsetInDestination
+            ? liveLayout.sourceAbsoluteOffsetInDestination
+            : authoredReparentedChildPosition(
+                prevContentForRebase,
+                draggedAttrId,
+                newParentAttrId,
+              );
+        if (childPosition) {
           nextDestContent = setAbsolutePositioningForNodeInHtml(
             nextDestContent,
             movedNodeAttrId,
-            computeReparentedChildPosition(sourcePosition, childOrigin),
+            childPosition,
           );
         }
       }
