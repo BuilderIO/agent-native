@@ -18,14 +18,14 @@ import { listKeyDateSets } from "./key-dates-store.js";
 
 /** The key-date sets and data notes one dashboard draws, read from the scope it draws them from. */
 export async function loadDashboardAnnotationSummary(
-  { scope, editable }: DashboardAnnotationScope,
+  drawn: DashboardAnnotationScope,
   dashboardId: string,
   config: Record<string, unknown>,
 ): Promise<DashboardAnnotationSummary | DashboardAnnotationsUnreadable> {
   try {
     const [sets, notes] = await Promise.all([
-      listKeyDateSets(scope),
-      listDataNotes(scope),
+      listKeyDateSets(drawn.scope),
+      listDataNotes(drawn.scope),
     ]);
     const summary = summarizeDashboardAnnotations(
       dashboardId,
@@ -33,7 +33,15 @@ export async function loadDashboardAnnotationSummary(
       sets,
       notes,
     );
-    return editable ? summary : { ...summary, editable: false };
+    if (drawn.editable) return summary;
+    // As list-key-dates and list-data-notes: what the dashboard hides only
+    // for a reader who can show it again.
+    if (drawn.dashboard.canEdit) return { ...summary, editable: false };
+    return {
+      keyDateSets: summary.keyDateSets.filter((set) => set.shown),
+      dataNotes: summary.dataNotes.filter((note) => note.panelIds.length > 0),
+      editable: false,
+    };
   } catch (error) {
     return {
       annotationsError: `Key dates and data notes could not be read: ${error instanceof Error ? error.message : String(error)}`,

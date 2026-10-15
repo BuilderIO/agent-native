@@ -19,6 +19,7 @@ type ReportDashboardRecord = {
   id: string;
   title: string;
   config: Record<string, unknown>;
+  annotationScope: AccessCtx;
 };
 
 type PanelDataMap = Map<string, ReportPanelData>;
@@ -176,6 +177,7 @@ function dashboardWith(
       filters,
       panels,
     },
+    annotationScope: { email: "steve@builder.io", orgId: "org_1" },
   };
 }
 
@@ -728,6 +730,24 @@ describe("dashboard report email", () => {
       orgId: "org_1",
     });
     expect(snapshot.dataNotesByPanel).toEqual({ p1: [SETUP_INCIDENT] });
+  });
+
+  it("draws a shared dashboard's key dates and data notes from its owner's organization, as its page does", async () => {
+    mocks.getReportDashboard.mockResolvedValue({
+      ...dashboardWith([panel("p1")]),
+      annotationScope: { email: "owner@example.test", orgId: "org_owner" },
+    });
+
+    await collectReportSnapshot(subscription());
+
+    expect(mocks.listKeyDateSets).toHaveBeenCalledWith({
+      email: "owner@example.test",
+      orgId: "org_owner",
+    });
+    expect(mocks.listDataNotes).toHaveBeenCalledWith({
+      email: "owner@example.test",
+      orgId: "org_owner",
+    });
   });
 
   it("fails loudly when the dashboard is not readable", async () => {

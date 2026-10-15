@@ -613,6 +613,7 @@ describe("get-sql-dashboard agent reads", () => {
       {
         scope: { email: "carol@example.com", orgId: "org-b" },
         editable: false,
+        dashboard: expect.objectContaining({ ownerEmail: "carol@example.com" }),
       },
       "weekly",
       expect.anything(),

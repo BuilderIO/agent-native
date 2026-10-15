@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SETUP_INCIDENT } from "../shared/annotation-fixtures";
+import {
+  CONNECT_UNDERCOUNT,
+  SETUP_INCIDENT,
+  SKIPS_UNTRACKED,
+} from "../shared/annotation-fixtures";
 
 const scope = { email: "alice@example.test", orgId: "org-1" };
 const mocks = vi.hoisted(() => ({
@@ -118,21 +122,66 @@ describe("data-note actions", () => {
     expect(mocks.saveDataNote).not.toHaveBeenCalled();
   });
 
-  it("lists the notes a dashboard draws, and says when they aren't the caller's", async () => {
+  describe("for a dashboard from another organization", () => {
     const owner = { email: "owner@example.test", orgId: "org-2" };
-    mocks.dashboardAnnotationScope.mockResolvedValue({
-      scope: owner,
-      editable: false,
+    const counts = (event: string) =>
+      `SELECT day, count(*) FROM events WHERE event_name = '${event}' GROUP BY 1`;
+    const shared = (canEdit: boolean) => {
+      mocks.dashboardAnnotationScope.mockResolvedValue({
+        scope: owner,
+        editable: false,
+        dashboard: {
+          id: "shared-dashboard",
+          canEdit,
+          config: {
+            panels: [
+              { id: "failures", sql: counts("builder_connect_failed") },
+              { id: "clicks", sql: counts("builder connect clicked") },
+            ],
+            annotations: {
+              hiddenDataNotes: [
+                { noteId: CONNECT_UNDERCOUNT.id, panelId: "clicks" },
+              ],
+            },
+          },
+        },
+      });
+      mocks.listDataNotes.mockResolvedValue([
+        SETUP_INCIDENT,
+        CONNECT_UNDERCOUNT,
+        SKIPS_UNTRACKED,
+      ] as never);
+    };
+
+    it("lists only the notes its charts draw, without who added them", async () => {
+      shared(false);
+
+      const result = await actions.list.run({
+        dashboardId: "shared-dashboard",
+      });
+
+      expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
+        "shared-dashboard",
+        scope,
+      );
+      expect(mocks.listDataNotes).toHaveBeenCalledWith(owner);
+      const { addedBy: _, ...incident } = SETUP_INCIDENT;
+      expect(result).toEqual({ notes: [incident], editable: false });
     });
 
-    await expect(
-      actions.list.run({ dashboardId: "shared-dashboard" }),
-    ).resolves.toEqual({ notes: [], editable: false });
-    expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
-      "shared-dashboard",
-      scope,
-    );
-    expect(mocks.listDataNotes).toHaveBeenCalledWith(owner);
+    it("keeps the notes it hides for a reader who can show them again", async () => {
+      shared(true);
+
+      const result = await actions.list.run({
+        dashboardId: "shared-dashboard",
+      });
+
+      expect(result.notes.map((note: { id: string }) => note.id)).toEqual([
+        SETUP_INCIDENT.id,
+        CONNECT_UNDERCOUNT.id,
+      ]);
+      expect(JSON.stringify(result)).not.toContain("@example.test");
+    });
   });
 
   it("marks only the list as read-only", () => {

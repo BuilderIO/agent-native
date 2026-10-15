@@ -116,21 +116,86 @@ describe("key-date actions", () => {
     });
   });
 
-  it("lists the sets a dashboard draws, and says when they aren't the caller's", async () => {
+  describe("for a dashboard from another organization", () => {
     const owner = { email: "owner@example.test", orgId: "org-2" };
-    mocks.dashboardAnnotationScope.mockResolvedValue({
-      scope: owner,
-      editable: false,
+    const set = (id: string) => ({
+      id,
+      name: id,
+      createdBy: "owner@example.test",
+      updatedAt: "2026-10-14T00:00:00.000Z",
+      dates: [
+        {
+          id: `${id}-1`,
+          setId: id,
+          date: "2026-10-14",
+          label: "Launch",
+          addedBy: "teammate@example.test",
+          updatedAt: "2026-10-14T00:00:00.000Z",
+        },
+      ],
+    });
+    const shared = (canEdit: boolean) => {
+      mocks.dashboardAnnotationScope.mockResolvedValue({
+        scope: owner,
+        editable: false,
+        dashboard: {
+          canEdit,
+          config: { annotations: { hiddenKeyDateSets: ["changes"] } },
+        },
+      });
+      mocks.listKeyDateSets.mockResolvedValue([
+        set("launches"),
+        set("changes"),
+      ] as never);
+    };
+
+    it("lists only the sets it shows, without who added them", async () => {
+      shared(false);
+
+      const result = await actions.list.run({
+        dashboardId: "shared-dashboard",
+      });
+
+      expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
+        "shared-dashboard",
+        scope,
+      );
+      expect(mocks.listKeyDateSets).toHaveBeenCalledWith(owner);
+      expect(result).toEqual({
+        sets: [
+          {
+            id: "launches",
+            name: "launches",
+            updatedAt: "2026-10-14T00:00:00.000Z",
+            dates: [
+              {
+                id: "launches-1",
+                setId: "launches",
+                date: "2026-10-14",
+                label: "Launch",
+                updatedAt: "2026-10-14T00:00:00.000Z",
+              },
+            ],
+          },
+        ],
+        editable: false,
+      });
+      expect(JSON.stringify(result)).not.toContain("@example.test");
     });
 
-    await expect(
-      actions.list.run({ dashboardId: "shared-dashboard" }),
-    ).resolves.toEqual({ sets: [], editable: false });
-    expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
-      "shared-dashboard",
-      scope,
-    );
-    expect(mocks.listKeyDateSets).toHaveBeenCalledWith(owner);
+    it("keeps the sets it hides for a reader who can show them again", async () => {
+      shared(true);
+
+      const result = await actions.list.run({
+        dashboardId: "shared-dashboard",
+      });
+
+      expect(result.sets.map((s: { id: string }) => s.id)).toEqual([
+        "launches",
+        "changes",
+      ]);
+      expect(JSON.stringify(result)).not.toContain("@example.test");
+    });
   });
 
   it("marks only the list as read-only", () => {

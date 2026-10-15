@@ -2,12 +2,15 @@ import { fail } from "@agent-native/core/action";
 
 import type { AnnotationScope } from "./annotation-scope.js";
 import { loadDashboardSeed } from "./dashboard-seeds.js";
-import { getDashboard } from "./dashboards-store.js";
+import { getDashboard, type DashboardRecord } from "./dashboards-store.js";
 
-export type DashboardAnnotationScope = {
-  scope: AnnotationScope;
-  editable: boolean;
-};
+/**
+ * Whose annotations a dashboard draws. A reader whose own writes would land
+ * in another scope gets the dashboard too, to see no more than it draws.
+ */
+export type DashboardAnnotationScope =
+  | { scope: AnnotationScope; editable: true }
+  | { scope: AnnotationScope; editable: false; dashboard: DashboardRecord };
 
 function sameScope(a: AnnotationScope, b: AnnotationScope): boolean {
   return a.orgId || b.orgId
@@ -16,17 +19,18 @@ function sameScope(a: AnnotationScope, b: AnnotationScope): boolean {
 }
 
 /**
- * Whose annotations a stored dashboard draws: its owner's organization's, so
- * one shared from another organization shows that organization's, as its
- * report emails do. `editable` is false when the caller's own writes would
- * land in another scope.
+ * A stored dashboard draws its owner's organization's annotations, so one
+ * shared from another organization shows that organization's, in its report
+ * emails too.
  */
 export function storedDashboardAnnotationScope(
-  dashboard: { ownerEmail: string; orgId: string | null },
+  dashboard: DashboardRecord,
   caller: AnnotationScope,
 ): DashboardAnnotationScope {
   const scope = { email: dashboard.ownerEmail, orgId: dashboard.orgId };
-  return { scope, editable: sameScope(scope, caller) };
+  return sameScope(scope, caller)
+    ? { scope, editable: true }
+    : { scope, editable: false, dashboard };
 }
 
 /** As `storedDashboardAnnotationScope`; a seed dashboard has no owner and draws the caller's. */

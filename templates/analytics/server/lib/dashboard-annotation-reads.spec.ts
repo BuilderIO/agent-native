@@ -32,6 +32,7 @@ import {
   loadDashboardAnnotationSummary,
   readDashboardForPlacement,
 } from "./dashboard-annotation-reads.js";
+import type { DashboardRecord } from "./dashboards-store.js";
 import { DATA_NOTES_MIGRATION_SQL } from "./data-notes-migration.js";
 import { saveDataNote } from "./data-notes-store.js";
 import { KEY_DATES_MIGRATION_SQL } from "./key-dates-migration.js";
@@ -147,18 +148,60 @@ describe("dashboard annotation reads", () => {
     });
   });
 
-  it("marks another organization's annotations as not the caller's", async () => {
-    await saveDataNote(carol, noteInput(SETUP_INCIDENT));
+  describe("for another organization's dashboard", () => {
+    const readFor = async (canEdit: boolean) => {
+      await saveKeyDate(carol, {
+        setName: "Launches",
+        date: "2026-10-14",
+        label: "Product Hunt live",
+      });
+      const changes = await saveKeyDate(carol, {
+        setName: "Product changes",
+        date: "2026-09-22",
+        label: "New onboarding flow",
+      });
+      const incident = await saveDataNote(carol, noteInput(SETUP_INCIDENT));
+      const hiding = {
+        ...config,
+        annotations: {
+          hiddenKeyDateSets: [changes.setId],
+          hiddenDataNotes: [{ noteId: incident.id, panelId: "failures" }],
+        },
+      };
+      return loadDashboardAnnotationSummary(
+        {
+          scope: carol,
+          editable: false,
+          dashboard: { canEdit } as DashboardRecord,
+        },
+        "dash",
+        hiding,
+      );
+    };
 
-    const summary = await loadDashboardAnnotationSummary(
-      { scope: carol, editable: false },
-      "dash",
-      config,
-    );
+    it("shows a reader only what it draws, and that it isn't theirs to change", async () => {
+      expect(await readFor(false)).toEqual({
+        keyDateSets: [
+          expect.objectContaining({ name: "Launches", shown: true }),
+        ],
+        dataNotes: [],
+        editable: false,
+      });
+    });
 
-    expect(summary).toMatchObject({
-      dataNotes: [{ title: "Builder.io account setup failures" }],
-      editable: false,
+    it("keeps what it hides for a reader who can show it again", async () => {
+      const summary = await readFor(true);
+      expect(summary).toMatchObject({ editable: false });
+      expect(
+        "keyDateSets" in summary && summary.keyDateSets.map(({ name }) => name),
+      ).toEqual(["Launches", "Product changes"]);
+      expect("dataNotes" in summary && summary.dataNotes).toEqual([
+        expect.objectContaining({
+          title: "Builder.io account setup failures",
+          panelIds: [],
+          hiddenOnPanelIds: ["failures"],
+        }),
+      ]);
     });
   });
 

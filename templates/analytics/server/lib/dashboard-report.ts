@@ -168,7 +168,7 @@ export async function collectReportSnapshot(
   };
   // Links keep a cleared multi-select's marker, because a link without it reopens with the default selected. The query and filter line read the normalized map.
   const filters = normalizeReportFilters(config.filters, linkFilters);
-  const scope = { email: sub.ownerEmail, orgId: sub.orgId };
+  const scope = dashboard.annotationScope;
   const dataNotes = await listDataNotes(scope);
 
   return {

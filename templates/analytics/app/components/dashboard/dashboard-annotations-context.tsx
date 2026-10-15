@@ -97,7 +97,8 @@ export function DashboardAnnotationsProvider({
   }, [dataNotesFailed, t]);
   // A shared dashboard's notes are its organization's: the viewer may hide
   // one here, but their own edits would save into their own organization.
-  const notesEditable = dataNoteData?.editable !== false;
+  // Until the list says whose they are, edits wait.
+  const notesEditable = dataNoteData?.editable === true;
   const noteActions = useMemo<DataNoteActions | undefined>(() => {
     if (notesEditable || !dataNoteActions) return dataNoteActions;
     return dataNoteActions.hide ? { hide: dataNoteActions.hide } : undefined;

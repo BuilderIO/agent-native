@@ -262,10 +262,12 @@ Annotations menu, which also adds and edits key dates and sets.
   badge, and label text, including on combo charts. Labels sit in rows above the
   plot: same-day labels join, a long one wraps at words, and days that find no
   room are counted, not cut.
-- A dashboard draws the key dates of its owner's organization, minus the sets
-  it hides, even for a viewer or reviewer in another organization. There
-  `list-key-dates` returns `editable: false`: a date you save lands in your
-  own organization's sets, not on that dashboard. Human Review previews get
+- A dashboard and its report emails draw the key dates of its owner's
+  organization, minus the sets it hides, even for a viewer or reviewer in
+  another organization. There `list-key-dates` returns `editable: false`,
+  without member emails or, unless you can edit the dashboard, the hidden sets:
+  a date you save lands in your own organization's sets, not on that
+  dashboard. Human Review previews get
   them from `get-sql-dashboard` with `reviewPreview` as `keyDates`.
 
 ## Data Notes
@@ -298,7 +300,8 @@ its owner organization's. Read them with `list-data-notes`, passing
   date shade each run of the note's rows, never a row between them, under one
   title. Incidents are red; open data problems amber; fixed data problems grey.
   Other charts flag the note by the title and write it under the chart while it
-  is ongoing or ended in the last 30 days.
+  is ongoing or ended in the last 30 days, as does a time chart whose x values
+  aren't dates.
 - A dashboard hides a note on one chart with
   `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
   keeping `hiddenKeyDateSets` and the notes already hidden in the same object.

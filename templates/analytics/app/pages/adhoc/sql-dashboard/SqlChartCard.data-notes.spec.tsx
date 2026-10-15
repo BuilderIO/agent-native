@@ -4,11 +4,18 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ dataNotes: [] as unknown[] }));
+const mocks = vi.hoisted(() => ({
+  dataNotes: [] as unknown[],
+  dataNotesLoaded: true,
+  chart: null as null | ((props: { panel: unknown }) => null),
+}));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => ({
-    data: name === "list-data-notes" ? { notes: mocks.dataNotes } : undefined,
+    data:
+      name === "list-data-notes" && mocks.dataNotesLoaded
+        ? { notes: mocks.dataNotes, editable: true }
+        : undefined,
   }),
   useActionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -22,7 +29,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@/components/dashboard/SqlChart", () => ({
-  SqlChart: () => null,
+  SqlChart: (props: { panel: unknown }) => mocks.chart?.(props) ?? null,
   ChartFillHeight: ({ children }: { children: unknown }) => children,
 }));
 
@@ -31,7 +38,9 @@ import { CONNECT_UNDERCOUNT } from "@shared/annotation-fixtures";
 import {
   DashboardAnnotationsProvider,
   type DataNoteActions,
+  usePanelDataNotes,
 } from "@/components/dashboard/dashboard-annotations-context";
+import { useDataNoteLayout } from "@/components/dashboard/data-note-bands";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { SqlChartCard } from "./SqlChartCard";
@@ -61,6 +70,8 @@ describe("SqlChartCard data-note flag", () => {
       },
     );
     mocks.dataNotes = [CONNECT_UNDERCOUNT];
+    mocks.chart = null;
+    mocks.dataNotesLoaded = true;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -135,6 +146,18 @@ describe("SqlChartCard data-note flag", () => {
     expect(menuItem("annotations.hideNoteHere")).toBeUndefined();
   });
 
+  it.each([true, false])(
+    "offers adding a note only once the list says the notes are the viewer's (loaded: %s)",
+    async (loaded) => {
+      mocks.dataNotesLoaded = loaded;
+      await renderCard(clicksByStep, { add: vi.fn(), hide: vi.fn() });
+      await pressEnter(
+        container.querySelector('[aria-label="sqlDashboard.panelOptions"]')!,
+      );
+      expect(menuItem("annotations.addDataNote") !== undefined).toBe(loaded);
+    },
+  );
+
   it.each(["stacked-bar", "stacked-area"])(
     "leaves a legacy %s chart's notes to the chart, which draws them on its dates",
     async (chartType) => {
@@ -147,4 +170,34 @@ describe("SqlChartCard data-note flag", () => {
       expect(container.querySelector("[data-data-note-lines]")).toBeNull();
     },
   );
+
+  describe("on a time chart", () => {
+    const clicksOverTime: SqlPanel = { ...clicksByStep, chartType: "line" };
+    const plotting = (rows: Record<string, unknown>[], xKey: string) => {
+      mocks.chart = ({ panel }) => {
+        useDataNoteLayout(usePanelDataNotes(panel as SqlPanel), rows, xKey);
+        return null;
+      };
+    };
+
+    it("flags the notes it lists under a plot whose x values aren't dates", async () => {
+      plotting([{ step: "Connect" }, { step: "Publish" }], "step");
+      await renderCard(clicksOverTime);
+      expect(
+        container
+          .querySelector("[data-data-note-flag]")
+          ?.getAttribute("aria-label"),
+      ).toBe("dataNotes.flagLabel");
+      expect(container.querySelector("[data-data-note-lines]")).toBeNull();
+    });
+
+    it("leaves the flag off when every note shades its dates", async () => {
+      plotting(
+        [{ day: "2026-10-01" }, { day: "2026-10-02" }, { day: "2026-10-03" }],
+        "day",
+      );
+      await renderCard(clicksOverTime);
+      expect(container.querySelector("[data-data-note-flag]")).toBeNull();
+    });
+  });
 });
