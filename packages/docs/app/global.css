@@ -448,35 +448,6 @@ a.campaign-inline-link {
   padding-block-start: 20px;
 }
 
-@media (min-width: 768px) {
-  .campaign-page .campaign-recipe-card {
-    grid-row: span 7;
-    grid-template-rows: subgrid;
-  }
-
-  .campaign-page .campaign-recipe-tag {
-    grid-row: 1;
-  }
-  .campaign-page .campaign-recipe-title {
-    grid-row: 2;
-  }
-  .campaign-page .campaign-recipe-when {
-    grid-row: 3;
-  }
-  .campaign-page .campaign-recipe-do {
-    grid-row: 4;
-  }
-  .campaign-page .campaign-recipe-prompt {
-    grid-row: 5;
-  }
-  .campaign-page .campaign-recipe-result {
-    grid-row: 6;
-  }
-  .campaign-page .campaign-recipe-footer {
-    grid-row: 7;
-  }
-}
-
 .campaign-page .campaign-faq > div > div:first-child {
   padding-block: var(--spacing-12);
   padding-inline: var(--spacing-8);
