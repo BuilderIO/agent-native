@@ -213,8 +213,14 @@ export function authoredAbsoluteChildOriginForNode(
     ancestor && ancestor !== doc.documentElement;
     ancestor = ancestor.parentElement
   ) {
-    if (isAuthoredPositioned(ancestor))
-      return authoredElementPosition(ancestor);
+    if (isAuthoredPositioned(ancestor)) {
+      const position = authoredElementPosition(ancestor);
+      const style = (ancestor as HTMLElement).style;
+      return {
+        x: position.x + (parseInlinePx(style.borderLeftWidth) ?? 0),
+        y: position.y + (parseInlinePx(style.borderTopWidth) ?? 0),
+      };
+    }
   }
   return { x: 0, y: 0 };
 }

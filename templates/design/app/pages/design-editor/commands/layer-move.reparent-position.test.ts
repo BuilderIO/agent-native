@@ -315,6 +315,33 @@ describe("runLayerMove: positioning when layers change parents", () => {
     });
   });
 
+  it("rebases inside a positioned parent's border when no live preview is mounted", () => {
+    const fixture = `<body style="margin:0">
+  <div data-agent-native-node-id="panel" style="position:absolute;left:200px;top:100px;width:300px;height:200px;border:4px solid #000"><div data-agent-native-node-id="pin" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></div></div>
+  <div data-agent-native-node-id="sticker" style="position:absolute;left:250px;top:150px;width:60px;height:40px"></div>
+</body>`;
+    const { args, targetId, draggedId } = buildArgs(fixture);
+
+    runLayerMove({ ...args, canMoveLayer: () => true } as LayerMoveArgs, {
+      draggedIds: [draggedId],
+      targetId,
+      placement: "inside",
+    });
+
+    const updatedContent = (args as any).__getUpdatedContent() as string | null;
+    const sticker = buildCodeLayerProjection(updatedContent!, {
+      source: { kind: "design-file", fileId: "index.html" },
+    }).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "sticker",
+    );
+    expect(sticker?.parentId).toBe(targetId);
+    expect(sticker?.style).toMatchObject({
+      position: "absolute",
+      left: "46px",
+      top: "46px",
+    });
+  });
+
   it("keeps a Layers-moved normal-flow child eligible for Fill in auto layout", () => {
     const { args, targetId, draggedId } = buildArgs(
       FLOW_FIXTURE,
