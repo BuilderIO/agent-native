@@ -1118,6 +1118,19 @@ export default {
     operationalPain: "Douleur opérationnelle",
     untitledTheme: "Thème sans titre",
   },
+  dashboardSaveStatus: {
+    saved: "Enregistré",
+    savedShared: "Enregistré pour tout le monde",
+    saving: "Enregistrement…",
+    savingShared: "Enregistrement pour tout le monde…",
+    failed: "Échec de l'enregistrement",
+    you: "vous",
+    sharedHint: "Toutes les personnes ayant accès voient cette version",
+    privateHint:
+      "Seuls vous et les personnes avec qui vous le partagez voyez cette version",
+    oneOtherViewer: "1 autre personne l'a ouvert",
+    otherViewers: "{{count}} autres personnes l'ont ouvert",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "Historique du tableau de bord",

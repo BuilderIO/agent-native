@@ -1112,6 +1112,19 @@ export default {
     operationalPain: "Dolor operacional",
     untitledTheme: "Tema sin título",
   },
+  dashboardSaveStatus: {
+    saved: "Guardado",
+    savedShared: "Guardado para todos",
+    saving: "Guardando…",
+    savingShared: "Guardando para todos…",
+    failed: "No se pudo guardar",
+    you: "usted",
+    sharedHint: "Todas las personas con acceso ven esta versión",
+    privateHint:
+      "Solo usted y las personas con quienes lo comparta ven esta versión",
+    oneOtherViewer: "1 persona más lo tiene abierto",
+    otherViewers: "{{count}} personas más lo tienen abierto",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "Historial del panel",

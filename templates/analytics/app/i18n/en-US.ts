@@ -181,6 +181,18 @@ export default {
     updated: "Updated {{date}}",
     created: "Created {{date}}",
   },
+  dashboardSaveStatus: {
+    saved: "Saved",
+    savedShared: "Saved for everyone",
+    saving: "Saving…",
+    savingShared: "Saving for everyone…",
+    failed: "Couldn't save",
+    you: "you",
+    sharedHint: "Everyone with access sees this version",
+    privateHint: "Only you and people you share it with see this version",
+    oneOtherViewer: "1 other person has it open",
+    otherViewers: "{{count}} others have it open",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "Dashboard history",

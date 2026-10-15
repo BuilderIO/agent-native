@@ -1073,6 +1073,18 @@ export default {
     operationalPain: "운영상 어려움",
     untitledTheme: "제목 없는 테마",
   },
+  dashboardSaveStatus: {
+    saved: "저장됨",
+    savedShared: "모두에게 저장됨",
+    saving: "저장 중…",
+    savingShared: "모두에게 저장 중…",
+    failed: "저장하지 못했습니다",
+    you: "나",
+    sharedHint: "접근 권한이 있는 모든 사람이 이 버전을 봅니다",
+    privateHint: "나와 공유받은 사람만 이 버전을 봅니다",
+    oneOtherViewer: "다른 1명이 열어 두었습니다",
+    otherViewers: "다른 {{count}}명이 열어 두었습니다",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "대시보드 기록",
