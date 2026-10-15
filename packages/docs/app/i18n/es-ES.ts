@@ -42,7 +42,10 @@ const esES = {
     useCasesDescription: "Páginas para tareas recurrentes, por app",
     useCasesTitle:
       "Trabajo recurrente, realizado con una app Agent-Native y tu agente de IA",
-    useCasesIntro: "Elige el trabajo que haces una y otra vez.",
+    useCasesIntro:
+      "Elige el trabajo que haces una y otra vez, o explora los {{articles}} para encontrar plantillas y guías prácticas.",
+    nextEyebrow: "A continuación",
+    frequencyLabel: "Con qué frecuencia: {{text}}",
     articles: "Artículos",
     articlesIntro:
       "Respuestas prácticas sobre cómo realizar trabajo recurrente con apps Agent-Native y tu agente de IA.",

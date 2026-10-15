@@ -41,7 +41,10 @@ const jaJP = {
     useCasesDescription: "繰り返しの仕事のためのページをアプリ別に紹介",
     useCasesTitle:
       "Agent-Native アプリと AI エージェントで繰り返しの仕事をこなす",
-    useCasesIntro: "何度も繰り返す仕事を選んでください。",
+    useCasesIntro:
+      "何度も繰り返す仕事を選ぶか、{{articles}}でテンプレートや使い方を探してください。",
+    nextEyebrow: "次へ",
+    frequencyLabel: "頻度：{{text}}",
     articles: "記事",
     articlesIntro:
       "Agent-Native アプリと AI エージェントで繰り返しの仕事をこなすための実践的な回答。",

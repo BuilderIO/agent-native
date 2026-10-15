@@ -41,7 +41,10 @@ const hiIN = {
     useCasesDescription: "बार-बार होने वाले कामों के पेज, ऐप के अनुसार",
     useCasesTitle:
       "Agent-Native ऐप और अपने AI एजेंट से बार-बार होने वाला काम पूरा करें",
-    useCasesIntro: "वह काम चुनें जो आप बार-बार करते हैं।",
+    useCasesIntro:
+      "वह काम चुनें जो आप बार-बार करते हैं, या टेम्पलेट और उपयोग संबंधी गाइड के लिए {{articles}} देखें।",
+    nextEyebrow: "आगे",
+    frequencyLabel: "कितनी बार: {{text}}",
     articles: "लेख",
     articlesIntro:
       "Agent-Native ऐप और अपने AI एजेंट से बार-बार होने वाला काम पूरा करने के व्यावहारिक जवाब।",

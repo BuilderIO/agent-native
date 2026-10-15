@@ -42,7 +42,10 @@ const ptBR = {
     useCasesDescription: "Páginas para tarefas recorrentes, por app",
     useCasesTitle:
       "Trabalho recorrente, feito com um app Agent-Native e seu agente de IA",
-    useCasesIntro: "Escolha o trabalho que você faz repetidamente.",
+    useCasesIntro:
+      "Escolha o trabalho que você faz repetidamente, ou explore os {{articles}} para encontrar modelos e tutoriais.",
+    nextEyebrow: "A seguir",
+    frequencyLabel: "Com que frequência: {{text}}",
     articles: "Artigos",
     articlesIntro:
       "Respostas práticas sobre como realizar trabalho recorrente com apps Agent-Native e seu agente de IA.",

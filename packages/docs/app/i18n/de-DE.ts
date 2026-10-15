@@ -42,7 +42,10 @@ const deDE = {
     useCasesDescription: "Seiten für wiederkehrende Aufgaben, nach App",
     useCasesTitle:
       "Wiederkehrende Arbeit, erledigt mit einer Agent-Native-App und deinem KI-Agenten",
-    useCasesIntro: "Wähle die Arbeit, die du immer wieder erledigst.",
+    useCasesIntro:
+      "Wähle die Arbeit, die du immer wieder erledigst, oder stöbere in den {{articles}} nach Vorlagen und Anleitungen.",
+    nextEyebrow: "Als Nächstes",
+    frequencyLabel: "Wie oft: {{text}}",
     articles: "Artikel",
     articlesIntro:
       "Praktische Antworten zur Erledigung wiederkehrender Arbeit mit Agent-Native-Apps und deinem KI-Agenten.",

@@ -38,7 +38,10 @@ const messages = {
     useCases: "使用情境",
     useCasesDescription: "依應用程式分類的重複工作頁面",
     useCasesTitle: "使用 Agent-Native 應用程式和你的 AI 代理完成日常重複工作",
-    useCasesIntro: "選擇你反覆執行的工作。",
+    useCasesIntro:
+      "選擇你反覆執行的工作，或瀏覽{{articles}}，尋找範本和操作指南。",
+    nextEyebrow: "下一步",
+    frequencyLabel: "使用頻率：{{text}}",
     articles: "文章",
     articlesIntro:
       "關於使用 Agent-Native 應用程式和 AI 代理完成重複工作的實用解答。",

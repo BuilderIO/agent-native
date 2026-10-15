@@ -40,7 +40,10 @@ const zhCN = {
     useCases: "使用场景",
     useCasesDescription: "按应用分类的重复工作页面",
     useCasesTitle: "用 Agent-Native 应用和你的 AI 智能体完成日常重复工作",
-    useCasesIntro: "选择你反复执行的工作。",
+    useCasesIntro:
+      "选择你反复执行的工作，或浏览{{articles}}，查找模板和操作指南。",
+    nextEyebrow: "下一步",
+    frequencyLabel: "使用频率：{{text}}",
     articles: "文章",
     articlesIntro:
       "关于使用 Agent-Native 应用和 AI 智能体完成重复工作的实用解答。",

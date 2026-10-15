@@ -39,7 +39,10 @@ const enUS = {
     useCasesDescription: "Pages for recurring jobs, by app",
     useCasesTitle:
       "Recurring work, done with an Agent-Native app and your AI agent",
-    useCasesIntro: "Pick the job you do again and again.",
+    useCasesIntro:
+      "Pick the job you do again and again, or browse the {{articles}} for templates and how-tos.",
+    nextEyebrow: "Next",
+    frequencyLabel: "How often: {{text}}",
     articles: "Articles",
     articlesIntro:
       "Practical answers about getting recurring work done with Agent-Native apps and your AI agent.",

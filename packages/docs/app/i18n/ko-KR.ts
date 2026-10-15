@@ -40,7 +40,10 @@ const koKR = {
     useCases: "사용 사례",
     useCasesDescription: "앱별 반복 업무 페이지",
     useCasesTitle: "Agent-Native 앱과 AI 에이전트로 반복 업무 처리하기",
-    useCasesIntro: "반복해서 하는 업무를 선택하세요.",
+    useCasesIntro:
+      "반복해서 하는 업무를 선택하거나 {{articles}}에서 템플릿과 사용 방법을 찾아보세요.",
+    nextEyebrow: "다음",
+    frequencyLabel: "빈도: {{text}}",
     articles: "글",
     articlesIntro:
       "Agent-Native 앱과 AI 에이전트로 반복 업무를 처리하는 방법에 대한 실용적인 답변입니다.",

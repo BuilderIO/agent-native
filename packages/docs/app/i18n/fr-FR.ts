@@ -42,7 +42,10 @@ const frFR = {
     useCasesDescription: "Pages pour les tâches récurrentes, par app",
     useCasesTitle:
       "Le travail récurrent, réalisé avec une app Agent-Native et votre agent IA",
-    useCasesIntro: "Choisissez le travail que vous faites encore et encore.",
+    useCasesIntro:
+      "Choisissez le travail que vous faites encore et encore, ou parcourez les {{articles}} pour trouver des modèles et des tutoriels.",
+    nextEyebrow: "Ensuite",
+    frequencyLabel: "À quelle fréquence : {{text}}",
     articles: "Articles",
     articlesIntro:
       "Des réponses pratiques pour réaliser le travail récurrent avec les apps Agent-Native et votre agent IA.",
