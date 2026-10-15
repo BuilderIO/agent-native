@@ -797,3 +797,49 @@ describe("renderReportChartSvg combo", () => {
     expect(svg).toContain("Launch");
   });
 });
+
+describe("renderReportChartSvg data-note bands", () => {
+  const days = Array.from(
+    { length: 10 },
+    (_, index) => `2026-10-${String(index + 5).padStart(2, "0")}`,
+  );
+  const render = (bands: Parameters<typeof renderReportChartSvg>[0]["bands"]) =>
+    renderReportChartSvg({
+      labels: days,
+      series: [{ label: "Failures", data: days.map((_, index) => index) }],
+      type: "line",
+      width: 720,
+      height: 320,
+      bands,
+    });
+  const band = {
+    startIndex: 4,
+    endIndex: 8,
+    label: "Builder.io account setup failures",
+    color: "#dc2626",
+    startEdge: true,
+    endEdge: true,
+  };
+
+  it("shades the note's run of days behind the series and titles it", () => {
+    const svg = render([band]);
+    expect(svg).toMatch(/<rect [^>]*fill="#dc2626" fill-opacity="0\.1"\/>/);
+    expect(svg.match(/stroke="#dc2626" stroke-opacity="0\.55"/g)).toHaveLength(
+      2,
+    );
+    expect(svg).toContain(">Builder.io account setup failures</text>");
+    expect(svg.indexOf('fill-opacity="0.1"')).toBeLessThan(
+      svg.indexOf("<path"),
+    );
+  });
+
+  it("draws no edge where the note runs past the chart or is ongoing", () => {
+    const svg = render([{ ...band, startEdge: false, endEdge: false }]);
+    expect(svg).not.toContain('stroke-opacity="0.55"');
+  });
+
+  it("skips a band outside the labels", () => {
+    const svg = render([{ ...band, startIndex: 8, endIndex: 12 }]);
+    expect(svg).not.toContain("Builder.io account setup failures");
+  });
+});

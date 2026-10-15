@@ -2105,4 +2105,15 @@ export default {
     dbtChecking: "Wird geprüft",
     dbtSaveFailed: "Die dbt-Verbindung konnte nicht gespeichert werden.",
   },
+  dataNotes: {
+    since: "Seit {{date}}",
+    until: "Bis {{date}}",
+    fix: "Behebung: {{fix}}",
+    incident: "Vorfall",
+    dataProblem: "Datenproblem",
+    fixed: "Behoben",
+    addedBy: "Hinzugefügt von {{email}}",
+    more: "+{{count}} weitere",
+    flagLabel: "Datenhinweise",
+  },
 };

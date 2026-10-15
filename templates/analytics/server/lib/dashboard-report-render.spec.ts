@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
 import {
+  SETUP_INCIDENT,
+  SKIPS_UNTRACKED,
+} from "../../shared/annotation-fixtures";
+import {
   APP_SERIES_COLORS,
   UNKNOWN_APP_COLOR,
 } from "../../shared/tokens/app-series-colors";
@@ -1055,5 +1059,70 @@ describe("renderReportEmail key dates", () => {
 
   it("leaves key dates off charts that do not draw events", async () => {
     expect(await chartEvents("pie")).toEqual([]);
+  });
+});
+
+describe("renderReportEmail data notes", () => {
+  const rows = [
+    { date: "2026-10-08", failures: 3 },
+    { date: "2026-10-09", failures: 20 },
+    { date: "2026-10-13", failures: 40 },
+    { date: "2026-10-14", failures: 4 },
+  ];
+
+  async function render(
+    chartType: SqlPanel["chartType"],
+    notes = [SETUP_INCIDENT],
+  ) {
+    return renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "failures",
+            chartType,
+            config: { xKey: "date", yKeys: ["failures"] },
+          }),
+        ]),
+        generatedAt: "2026-10-30T00:00:00.000Z",
+        dataNotesByPanel: { failures: notes },
+      },
+      panelData: new Map([
+        ["failures", { status: "rows" as const, rows, schema: [] }],
+      ]),
+    });
+  }
+
+  it("shades a time chart over the note's days and spells the note out under it", async () => {
+    const email = await render("line");
+    expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({
+      bands: [
+        {
+          startIndex: 1,
+          endIndex: 2,
+          label: "Builder.io account setup failures",
+          startEdge: true,
+          endEdge: true,
+        },
+      ],
+    });
+    expect(email.html).toContain(
+      "<strong>Builder.io account setup failures</strong>",
+    );
+    expect(email.html).toContain("a deploy on Oct 13 fixed it.");
+    expect(email.text).toContain("! Builder.io account setup failures (Oct 9");
+  });
+
+  it("leaves off a note whose dates are outside the chart", async () => {
+    const email = await render("line", [SKIPS_UNTRACKED]);
+    expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({
+      bands: [],
+    });
+    expect(email.html).not.toContain("Onboarding step skips not tracked");
+  });
+
+  it("lists recent notes under charts without a date axis", async () => {
+    const email = await render("metric", [SETUP_INCIDENT, SKIPS_UNTRACKED]);
+    expect(email.html).toContain("Builder.io account setup failures");
+    expect(email.html).not.toContain("Onboarding step skips not tracked");
   });
 });

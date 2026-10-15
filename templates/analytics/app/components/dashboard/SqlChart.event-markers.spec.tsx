@@ -7,11 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
   keyDateSets: [] as unknown[],
+  dataNotes: [] as unknown[],
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => ({
-    data: name === "list-key-dates" ? { sets: mocks.keyDateSets } : undefined,
+    data:
+      name === "list-key-dates"
+        ? { sets: mocks.keyDateSets }
+        : name === "list-data-notes"
+          ? { notes: mocks.dataNotes }
+          : undefined,
   }),
   useDemoModeStatus: () => ({
     enabled: false,
@@ -43,9 +49,11 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 
+import { SETUP_INCIDENT } from "@shared/annotation-fixtures";
+
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
-import { DashboardKeyDatesProvider } from "./key-dates-context";
+import { DashboardAnnotationsProvider } from "./dashboard-annotations-context";
 import { SqlChart } from "./SqlChart";
 
 const CHART_SIZE = { width: 640, height: 320 };
@@ -113,6 +121,7 @@ describe("SqlChart key-date markers", () => {
 
   afterEach(() => {
     mocks.keyDateSets = [];
+    mocks.dataNotes = [];
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
@@ -194,9 +203,9 @@ describe("SqlChart key-date markers", () => {
     it("marks a chart that lists no events of its own", async () => {
       await act(async () => {
         root.render(
-          <DashboardKeyDatesProvider>
+          <DashboardAnnotationsProvider>
             <SqlChart panel={unmarked("bar")} />
-          </DashboardKeyDatesProvider>,
+          </DashboardAnnotationsProvider>,
         );
       });
       expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(2);
@@ -205,15 +214,75 @@ describe("SqlChart key-date markers", () => {
     it("leaves off the sets the dashboard hides", async () => {
       await act(async () => {
         root.render(
-          <DashboardKeyDatesProvider
+          <DashboardAnnotationsProvider
             annotations={{ hiddenKeyDateSets: ["launches"] }}
           >
             <SqlChart panel={panel("line")} />
-          </DashboardKeyDatesProvider>,
+          </DashboardAnnotationsProvider>,
         );
       });
       // The panel's Oct 12 and Oct 14 markers, plus the Oct 11 product change.
       expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(3);
+    });
+  });
+
+  describe("with the owner's data notes", () => {
+    const failures = (chartType: SqlPanel["chartType"]): SqlPanel => ({
+      ...panel(chartType),
+      sql: "SELECT day, count(*) AS people FROM events WHERE event = 'builder_connect_failed'",
+      config: { xKey: "day", yKeys: ["people"] },
+    });
+
+    beforeEach(() => {
+      mocks.dataNotes = [SETUP_INCIDENT];
+    });
+
+    const renderInDashboard = async (chart: SqlPanel, annotations = {}) => {
+      await act(async () => {
+        root.render(
+          <DashboardAnnotationsProvider
+            dashboardId="dash"
+            annotations={annotations}
+          >
+            <SqlChart panel={chart} />
+          </DashboardAnnotationsProvider>,
+        );
+      });
+    };
+
+    it.each(["line", "area", "bar", "combo"] as const)(
+      "shades the note's days on a %s chart that counts its event",
+      async (chartType) => {
+        await renderInDashboard(failures(chartType));
+        expect(
+          container.querySelectorAll("[data-data-note-band]"),
+        ).toHaveLength(1);
+        expect(
+          container.querySelector("[data-data-note-label]")?.textContent,
+        ).toContain(SETUP_INCIDENT.title);
+      },
+    );
+
+    it("leaves charts alone that do not count the event, or that hide the note", async () => {
+      await renderInDashboard(panel("line"));
+      expect(container.querySelector("[data-data-note-band]")).toBeNull();
+
+      await renderInDashboard(failures("line"), {
+        hiddenDataNotes: [{ noteId: SETUP_INCIDENT.id, panelId: "people" }],
+      });
+      expect(container.querySelector("[data-data-note-band]")).toBeNull();
+    });
+
+    it("writes the note under a chart whose x-axis is not dates", async () => {
+      mocks.rows = [
+        { day: "Signup", people: 120 },
+        { day: "Connect", people: 80 },
+      ];
+      await renderInDashboard(failures("bar"));
+      expect(container.querySelector("[data-data-note-band]")).toBeNull();
+      expect(
+        container.querySelector("[data-data-note-lines]")?.textContent,
+      ).toContain(SETUP_INCIDENT.title);
     });
   });
 });

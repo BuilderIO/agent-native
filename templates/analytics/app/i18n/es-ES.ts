@@ -2085,4 +2085,15 @@ export default {
     dbtChecking: "Comprobando",
     dbtSaveFailed: "No se pudo guardar la conexión con dbt.",
   },
+  dataNotes: {
+    since: "Desde el {{date}}",
+    until: "Hasta el {{date}}",
+    fix: "Solución: {{fix}}",
+    incident: "Incidente",
+    dataProblem: "Problema de datos",
+    fixed: "Solucionado",
+    addedBy: "Añadido por {{email}}",
+    more: "+{{count}} más",
+    flagLabel: "Notas de datos",
+  },
 };

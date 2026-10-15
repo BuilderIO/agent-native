@@ -2018,4 +2018,15 @@ export default {
     dbtChecking: "확인 중",
     dbtSaveFailed: "dbt 연결을 저장할 수 없습니다.",
   },
+  dataNotes: {
+    since: "{{date}}부터",
+    until: "{{date}}까지",
+    fix: "수정: {{fix}}",
+    incident: "인시던트",
+    dataProblem: "데이터 문제",
+    fixed: "수정됨",
+    addedBy: "추가한 사람: {{email}}",
+    more: "+{{count}}개 더",
+    flagLabel: "데이터 노트",
+  },
 };

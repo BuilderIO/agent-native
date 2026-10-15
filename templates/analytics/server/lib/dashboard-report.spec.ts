@@ -4,6 +4,7 @@ import type {
   DashboardFilter,
   SqlPanel,
 } from "../../app/pages/adhoc/sql-dashboard/types";
+import { SETUP_INCIDENT } from "../../shared/annotation-fixtures";
 import type {
   RenderedReportEmail,
   ReportPanelData,
@@ -49,6 +50,7 @@ const mocks = vi.hoisted(() => ({
   })),
   getAppProductionUrl: vi.fn(() => "https://analytics.example.test"),
   listKeyDateSets: vi.fn(async (_scope: AccessCtx): Promise<unknown[]> => []),
+  listDataNotes: vi.fn(async (_scope: AccessCtx): Promise<unknown[]> => []),
   getReportDashboard: vi.fn(
     async (
       _dashboardId: string,
@@ -81,6 +83,9 @@ vi.mock("./dashboard-report-render", () => ({
 }));
 vi.mock("./key-dates-store", () => ({
   listKeyDateSets: mocks.listKeyDateSets,
+}));
+vi.mock("./data-notes-store", () => ({
+  listDataNotes: mocks.listDataNotes,
 }));
 vi.mock("./dashboard-report-subscriptions", () => ({
   getReportDashboard: mocks.getReportDashboard,
@@ -696,6 +701,33 @@ describe("dashboard report email", () => {
     expect(snapshot.keyDates).toEqual([
       { date: "2026-10-14", label: "Product Hunt live" },
     ]);
+  });
+
+  it("adds the owner's data notes to the charts they apply to, minus the ones a chart hides", async () => {
+    mocks.listDataNotes.mockResolvedValueOnce([SETUP_INCIDENT]);
+    const counts = "where event = 'builder_connect_failed'";
+    const dashboard = dashboardWith([
+      panel("p1", { sql: counts }),
+      panel("p2", { sql: counts }),
+      panel("p3"),
+    ]);
+    mocks.getReportDashboard.mockResolvedValue({
+      ...dashboard,
+      config: {
+        ...dashboard.config,
+        annotations: {
+          hiddenDataNotes: [{ noteId: SETUP_INCIDENT.id, panelId: "p2" }],
+        },
+      },
+    });
+
+    const snapshot = await collectReportSnapshot(subscription());
+
+    expect(mocks.listDataNotes).toHaveBeenCalledWith({
+      email: "steve@builder.io",
+      orgId: "org_1",
+    });
+    expect(snapshot.dataNotesByPanel).toEqual({ p1: [SETUP_INCIDENT] });
   });
 
   it("fails loudly when the dashboard is not readable", async () => {

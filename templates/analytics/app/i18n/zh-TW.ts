@@ -1932,4 +1932,15 @@ export default {
     dbtChecking: "檢查中",
     dbtSaveFailed: "無法儲存 dbt 連線。",
   },
+  dataNotes: {
+    since: "自 {{date}} 起",
+    until: "截至 {{date}}",
+    fix: "修復：{{fix}}",
+    incident: "事故",
+    dataProblem: "資料問題",
+    fixed: "已修復",
+    addedBy: "新增者：{{email}}",
+    more: "另外 {{count}} 則",
+    flagLabel: "資料備註",
+  },
 };

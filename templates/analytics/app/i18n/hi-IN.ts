@@ -1997,4 +1997,15 @@ export default {
     dbtChecking: "जाँच हो रही है",
     dbtSaveFailed: "dbt कनेक्शन सहेजा नहीं जा सका।",
   },
+  dataNotes: {
+    since: "{{date}} से",
+    until: "{{date}} तक",
+    fix: "समाधान: {{fix}}",
+    incident: "घटना",
+    dataProblem: "डेटा समस्या",
+    fixed: "ठीक किया गया",
+    addedBy: "{{email}} ने जोड़ा",
+    more: "+{{count}} और",
+    flagLabel: "डेटा नोट्स",
+  },
 };

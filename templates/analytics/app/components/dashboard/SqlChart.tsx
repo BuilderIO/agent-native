@@ -122,9 +122,17 @@ import type {
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
 
+import {
+  usePanelDataNotes,
+  usePanelEvents,
+} from "./dashboard-annotations-context";
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
+import {
+  DataNoteLines,
+  renderDataNoteBands,
+  useDataNoteLayout,
+} from "./data-note-bands";
 import { renderEventMarkers } from "./event-markers";
-import { usePanelEvents } from "./key-dates-context";
 
 export { limitChartRows };
 
@@ -914,6 +922,7 @@ function ChartFrame({
   onToggleLegendKey,
   onFilterLegendKey,
   showCustomLegend = false,
+  footer,
   children,
 }: {
   panel: SqlPanel;
@@ -923,6 +932,7 @@ function ChartFrame({
   onToggleLegendKey?: (key: string) => void;
   onFilterLegendKey?: (key: string) => void;
   showCustomLegend?: boolean;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   const fill = useContext(ChartFillHeightContext);
@@ -932,7 +942,12 @@ function ChartFrame({
 
   if (!renderLegend) {
     return (
-      <div className={`${chartHeight} w-full overflow-visible`}>{children}</div>
+      <>
+        <div className={`${chartHeight} w-full overflow-visible`}>
+          {children}
+        </div>
+        {footer}
+      </>
     );
   }
 
@@ -953,6 +968,7 @@ function ChartFrame({
         onToggleKey={onToggleLegendKey}
         onFilterKey={onFilterLegendKey}
       />
+      {footer}
     </div>
   );
 }
@@ -2713,6 +2729,11 @@ function BarRenderer({
     formatSeriesLabelForPanel(panel, name);
   const [eventHovered, setEventHovered] = useState(false);
   const panelEvents = usePanelEvents(panel);
+  const dataNoteLayout = useDataNoteLayout(
+    usePanelDataNotes(panel),
+    rows,
+    xKey,
+  );
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2731,6 +2752,7 @@ function BarRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
     >
       <ChartResponsiveContainer>
         <BarChart key={JSON.stringify(yKeys)} data={rows}>
@@ -2756,6 +2778,13 @@ function BarRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
+          {renderDataNoteBands(
+            dataNoteLayout.bands,
+            rows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
           <Tooltip
             active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
@@ -2828,6 +2857,11 @@ function ComboRenderer({
     formatSeriesLabelForPanel(panel, name);
   const [eventHovered, setEventHovered] = useState(false);
   const panelEvents = usePanelEvents(panel);
+  const dataNoteLayout = useDataNoteLayout(
+    usePanelDataNotes(panel),
+    rows,
+    xKey,
+  );
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2847,6 +2881,7 @@ function ComboRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
     >
       <ChartResponsiveContainer>
         <ComposedChart data={rows}>
@@ -2872,6 +2907,13 @@ function ComboRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
+          {renderDataNoteBands(
+            dataNoteLayout.bands,
+            rows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
           <Tooltip
             active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
@@ -2953,6 +2995,7 @@ function TimeSeriesRenderer({
     formatSeriesLabelForPanel(panel, name);
   const [eventHovered, setEventHovered] = useState(false);
   const panelEvents = usePanelEvents(panel);
+  const dataNotes = usePanelDataNotes(panel);
   const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
     useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
@@ -2977,6 +3020,7 @@ function TimeSeriesRenderer({
           },
     [rows, xKey, yKeys, splitPartialDay],
   );
+  const dataNoteLayout = useDataNoteLayout(dataNotes, chartRows, xKey);
 
   if (chartType === "line") {
     return (
@@ -2988,6 +3032,7 @@ function TimeSeriesRenderer({
         onToggleLegendKey={toggleSeries}
         onFilterLegendKey={filterSeries}
         showCustomLegend
+        footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
       >
         <ChartResponsiveContainer>
           <LineChart data={chartRows}>
@@ -3005,6 +3050,13 @@ function TimeSeriesRenderer({
               stroke="hsl(var(--border))"
               vertical={false}
             />
+            {renderDataNoteBands(
+              dataNoteLayout.bands,
+              chartRows,
+              xKey,
+              dualAxis.enabled ? "left" : undefined,
+              setEventHovered,
+            )}
             <Tooltip
               active={eventHovered ? false : undefined}
               {...CHART_TOOLTIP_PROPS}
@@ -3074,6 +3126,7 @@ function TimeSeriesRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
     >
       <ChartResponsiveContainer>
         <AreaChart key={JSON.stringify(yKeys)} data={chartRows}>
@@ -3116,6 +3169,13 @@ function TimeSeriesRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
+          {renderDataNoteBands(
+            dataNoteLayout.bands,
+            chartRows,
+            xKey,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
           <Tooltip
             active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}

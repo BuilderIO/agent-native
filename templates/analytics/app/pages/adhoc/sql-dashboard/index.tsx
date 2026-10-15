@@ -70,9 +70,9 @@ import {
 import { useSearchParams, useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { DashboardAnnotationsProvider } from "@/components/dashboard/dashboard-annotations-context";
 import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
 import { DashboardMetadata } from "@/components/dashboard/DashboardMetadata";
-import { DashboardKeyDatesProvider } from "@/components/dashboard/key-dates-context";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -2793,8 +2793,11 @@ function SqlDashboardPageContent({
     </DashboardReportCaptureSurface>
   );
   return (
-    <DashboardKeyDatesProvider annotations={dashboard.annotations}>
+    <DashboardAnnotationsProvider
+      dashboardId={dashboardId}
+      annotations={dashboard.annotations}
+    >
       {content}
-    </DashboardKeyDatesProvider>
+    </DashboardAnnotationsProvider>
   );
 }

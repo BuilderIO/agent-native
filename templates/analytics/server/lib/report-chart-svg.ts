@@ -21,6 +21,16 @@ export type ReportChartType =
 
 export type ReportChartEvent = { index: number; label: string; color?: string };
 
+/** A data note's shaded run of x values; an edge is drawn only where the note starts or ends on the chart. */
+export type ReportChartBand = {
+  startIndex: number;
+  endIndex: number;
+  label: string;
+  color: string;
+  startEdge: boolean;
+  endEdge: boolean;
+};
+
 export type ReportChartAxis = "left" | "right";
 
 export type ReportChartValueFormatter = "number" | "currency" | "percent";
@@ -439,12 +449,14 @@ function renderCartesianChartSvg({
   stacked,
   fit,
   events,
+  bands,
 }: {
   title: string;
   subtitle: string;
   labels: string[];
   series: ResolvedSeries[];
   events?: ReportChartEvent[];
+  bands?: ReportChartBand[];
   type: "bar" | "line" | "area" | "combo";
   width: number;
   height: number;
@@ -723,6 +735,40 @@ function renderCartesianChartSvg({
       : ""
   }`;
 
+  const placedBands = (bands ?? []).filter(
+    (band) =>
+      band.startIndex >= 0 &&
+      band.endIndex < labels.length &&
+      band.startIndex <= band.endIndex,
+  );
+  const bandFills = placedBands
+    .map((band) => {
+      const color = safeColor(band.color, theme.tickColor);
+      const left = chartLeft + slot * band.startIndex;
+      const right = chartLeft + slot * (band.endIndex + 1);
+      const edge = (x: number) =>
+        `<line x1="${formatCoord(x)}" x2="${formatCoord(x)}" y1="${chartTop}" y2="${chartBottom}" stroke="${color}" stroke-opacity="0.55" stroke-width="1"/>`;
+      return `<rect x="${formatCoord(left)}" y="${chartTop}" width="${formatCoord(right - left)}" height="${formatCoord(plotHeight)}" fill="${color}" fill-opacity="0.1"/>${band.startEdge ? edge(left) : ""}${band.endEdge ? edge(right) : ""}`;
+    })
+    .join("");
+  // Band titles sit at the bottom of the plot, clear of the event labels along the top.
+  const bandLabels = placedBands
+    .map((band, index) => {
+      const color = safeColor(band.color, theme.tickColor);
+      const left = chartLeft + slot * band.startIndex;
+      const right = chartLeft + slot * (band.endIndex + 1);
+      const label = trimToWidth(
+        band.label,
+        EVENT_LABEL_FONT_SIZE,
+        Math.max(right - left - 8, 96),
+      );
+      const width = estimateTextWidth(label, EVENT_LABEL_FONT_SIZE);
+      const x = Math.max(chartLeft, Math.min(left + 4, chartRight - width));
+      const y = chartBottom - 6 - index * EVENT_LABEL_ROW_HEIGHT;
+      return `<text x="${formatCoord(x)}" y="${formatCoord(y)}" font-size="${EVENT_LABEL_FONT_SIZE}" fill="${color}" stroke="${theme.background}" stroke-width="3" paint-order="stroke">${escapeXml(label)}</text>`;
+    })
+    .join("");
+
   const eventMarkup = layoutEventLabels(
     groupEventsByIndex(events ?? [], labels.length),
     centerFor,
@@ -770,9 +816,11 @@ function renderCartesianChartSvg({
   ${legend}
   <g font-family="${fontFamily}">
     ${grid}
+    ${bandFills}
     ${axis}
     ${marks}
     ${xLabels}
+    ${bandLabels}
     ${eventMarkup}
   </g>
 </svg>`;
@@ -1034,8 +1082,10 @@ export function renderReportChartSvg({
   height,
   stacked,
   events,
+  bands,
 }: {
   events?: ReportChartEvent[];
+  bands?: ReportChartBand[];
   title?: string;
   subtitle?: string;
   labels: string[];
@@ -1085,5 +1135,6 @@ export function renderReportChartSvg({
     stacked: stacked ?? false,
     fit: true,
     events,
+    bands,
   });
 }

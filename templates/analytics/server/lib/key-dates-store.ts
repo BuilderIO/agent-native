@@ -1,47 +1,29 @@
 import { randomUUID } from "node:crypto";
 
 import { fail } from "@agent-native/core/action";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server";
-import { and, asc, count, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 
 import type { KeyDate, KeyDateSet } from "../../shared/key-dates.js";
 import { isValidPanelEvent } from "../../shared/panel-events.js";
 import { getDb, schema } from "../db/index.js";
+import {
+  inAnnotationScope,
+  requireAnnotationScope,
+  type AnnotationScope,
+} from "./annotation-scope.js";
 
 export const MAX_KEY_DATE_SETS = 50;
 export const MAX_KEY_DATES = 1000;
 const MAX_SET_NAME_LENGTH = 80;
 const MAX_LABEL_LENGTH = 120;
 
-export type KeyDateScope = { email: string; orgId: string | null };
+export type KeyDateScope = AnnotationScope;
 
 const sets = schema.analyticsKeyDateSets;
 const dates = schema.analyticsKeyDates;
 
-export function requireKeyDateScope(): KeyDateScope {
-  const email = getRequestUserEmail()?.trim();
-  if (!email) {
-    fail("Sign in to manage key dates.", {
-      errorCode: "unauthenticated",
-      statusCode: 401,
-    });
-  }
-  const orgId = getRequestOrgId()?.trim();
-  return { email, orgId: orgId ? orgId : null };
-}
-
-/** An organization's key dates belong to all its members; without one they are the user's own. */
-function inScope(table: typeof sets | typeof dates, scope: KeyDateScope) {
-  return scope.orgId
-    ? eq(table.orgId, scope.orgId)
-    : and(
-        isNull(table.orgId),
-        sql`lower(${table.ownerEmail}) = ${scope.email.toLowerCase()}`,
-      );
-}
+export const requireKeyDateScope = requireAnnotationScope;
+const inScope = inAnnotationScope;
 
 function toKeyDate(row: typeof dates.$inferSelect): KeyDate {
   return {

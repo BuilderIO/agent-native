@@ -3,6 +3,7 @@ import type {
   PanelEvent,
   SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import { hiddenDataNotesIssue } from "./data-notes";
 
 export interface KeyDate {
   id: string;
@@ -84,12 +85,15 @@ export function panelEventsWithKeyDates(
 export function dashboardAnnotationsIssue(value: unknown): string | null {
   if (value === undefined) return null;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return "config.annotations must be an object like { hiddenKeyDateSets: [setId, ...] }";
+    return "config.annotations must be an object like { hiddenKeyDateSets: [setId, ...], hiddenDataNotes: [{ noteId, panelId }, ...] }";
   }
-  const { hiddenKeyDateSets, ...rest } = value as Record<string, unknown>;
+  const { hiddenKeyDateSets, hiddenDataNotes, ...rest } = value as Record<
+    string,
+    unknown
+  >;
   const unknownKeys = Object.keys(rest);
   if (unknownKeys.length > 0) {
-    return `config.annotations has unknown keys: ${unknownKeys.join(", ")}. Supported: hiddenKeyDateSets`;
+    return `config.annotations has unknown keys: ${unknownKeys.join(", ")}. Supported: hiddenKeyDateSets, hiddenDataNotes`;
   }
   if (
     hiddenKeyDateSets !== undefined &&
@@ -101,5 +105,5 @@ export function dashboardAnnotationsIssue(value: unknown): string | null {
   ) {
     return `config.annotations.hiddenKeyDateSets must be an array of up to ${MAX_HIDDEN_SETS} key-date set ids from list-key-dates`;
   }
-  return null;
+  return hiddenDataNotesIssue(hiddenDataNotes);
 }

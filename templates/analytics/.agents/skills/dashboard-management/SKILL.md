@@ -236,7 +236,8 @@ for this. They live in two places:
 
 A dashboard leaves sets off its charts with `config.annotations`, set through
 `mutate-dashboard`'s `setDashboard({ annotations: { hiddenKeyDateSets: [setId, ...] } })`.
-The patch replaces the whole list, so include the sets already hidden.
+The patch replaces the whole `annotations` object, so include the sets and
+data notes already hidden.
 
 - Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
   multiple are allowed. `date` is the calendar date in the event's own zone.
@@ -255,6 +256,33 @@ The patch replaces the whole list, so include the sets already hidden.
 - Scheduled email reports draw key dates and panel events: the guide line,
   badge, and label text, including on combo charts. Same-day labels join into
   one; labels that would overlap move to a second row.
+
+## Data Notes
+
+A data note says the numbers on a chart are wrong or unusual for a stretch of
+time: an incident (`kind: "incident"`) or a tracking problem (`kind: "data"`).
+Use one instead of a key date whenever the point is "don't trust this range".
+Notes belong to the organization, like key-date sets. Read them with
+`list-data-notes`; add or change one with `save-data-note` (pass `id` to change
+only the fields given); remove with `delete-data-note`.
+
+- `matchEvents` lists the event names the problem affects. A note shows on every
+  chart whose SQL names one of them as a quoted string; `unlessEvents` skips
+  charts that also count the corrected event. Pin a note to specific charts with
+  `panels: [{ dashboardId, panelId }]` when no event name identifies them.
+- `startDate` and `endDate` are `YYYY-MM-DD`. Leave out `endDate` while the
+  problem is ongoing, and `startDate` when it has been wrong since before
+  tracking began. Marking a note `status: "fixed"` needs an `endDate`; say what
+  fixed it in `fix`. Pass `null` to clear a date or the fix.
+- Time charts shade the note's range, with an edge only where it starts or ends
+  inside the chart, and a hoverable title. Incidents are red; open data problems
+  amber; fixed data problems grey. Other charts flag the note by the title and
+  write it under the chart while it is ongoing or ended in the last 30 days.
+- A dashboard hides a note on one chart with
+  `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
+  keeping `hiddenKeyDateSets` and the notes already hidden in the same object.
+- Scheduled email reports shade the same ranges and write each note's text under
+  the chart.
 
 ## Reusable Native Dashboard Patterns
 

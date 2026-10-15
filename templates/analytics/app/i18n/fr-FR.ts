@@ -2101,4 +2101,15 @@ export default {
     dbtChecking: "Vérification",
     dbtSaveFailed: "La connexion dbt n’a pas pu être enregistrée.",
   },
+  dataNotes: {
+    since: "Depuis le {{date}}",
+    until: "Jusqu'au {{date}}",
+    fix: "Correctif : {{fix}}",
+    incident: "Panne",
+    dataProblem: "Problème de données",
+    fixed: "Corrigé",
+    addedBy: "Ajouté par {{email}}",
+    more: "+{{count}} de plus",
+    flagLabel: "Notes sur les données",
+  },
 };

@@ -90,7 +90,7 @@ export function panelEventInstant(
   return wall - zoneOffsetMs(first, event.timeZone);
 }
 
-function xInstant(value: unknown): number | null {
+export function xInstant(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string") return null;
   const text = value.trim();

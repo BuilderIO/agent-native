@@ -2,6 +2,8 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
+import { dataNoteIsRecent } from "@shared/data-notes";
+import { KEY_DATE_CHART_TYPES } from "@shared/key-dates";
 import {
   IconGripVertical,
   IconDotsVertical,
@@ -17,9 +19,14 @@ import {
   IconArrowUpRight,
   IconLink,
 } from "@tabler/icons-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { usePanelDataNotes } from "@/components/dashboard/dashboard-annotations-context";
+import {
+  DataNoteFlag,
+  DataNoteLines,
+} from "@/components/dashboard/data-note-bands";
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import {
   AlertDialog,
@@ -157,6 +164,15 @@ export function SqlChartCard({
   onTimeRangeOverrideChange,
 }: SqlChartCardProps) {
   const t = useT();
+  const panelDataNotes = usePanelDataNotes(panel);
+  // Time charts draw notes as bands over their dates; other charts flag the recent ones.
+  const flaggedDataNotes = useMemo(
+    () =>
+      KEY_DATE_CHART_TYPES.has(panel.chartType)
+        ? []
+        : panelDataNotes.filter((note) => dataNoteIsRecent(note)),
+    [panel.chartType, panelDataNotes],
+  );
   const timeRange = timeRangeDays(filters?.timeRange);
   const timeRangeOverrideLabel = timeRangeFilter?.options?.find(
     (option) => option.value === timeRangeOverride,
@@ -636,6 +652,7 @@ export function SqlChartCard({
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
+          <DataNoteFlag notes={flaggedDataNotes} />
           {timeRangeOverrideLabel ? (
             <Badge
               variant="secondary"
@@ -814,6 +831,7 @@ export function SqlChartCard({
             onSaveColumns={onSaveColumns}
             extensionContext={extensionContext}
           />
+          <DataNoteLines notes={flaggedDataNotes} />
         </CardContent>
       </Card>
 

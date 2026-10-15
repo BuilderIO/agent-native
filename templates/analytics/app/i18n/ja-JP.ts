@@ -2069,4 +2069,15 @@ export default {
     dbtChecking: "確認中",
     dbtSaveFailed: "dbt 接続を保存できませんでした。",
   },
+  dataNotes: {
+    since: "{{date}} から",
+    until: "{{date}} まで",
+    fix: "修正: {{fix}}",
+    incident: "インシデント",
+    dataProblem: "データの問題",
+    fixed: "修正済み",
+    addedBy: "追加者: {{email}}",
+    more: "他 {{count}} 件",
+    flagLabel: "データノート",
+  },
 };

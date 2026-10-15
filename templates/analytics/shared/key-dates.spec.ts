@@ -77,10 +77,13 @@ describe("panelEventsWithKeyDates", () => {
 });
 
 describe("dashboardAnnotationsIssue", () => {
-  it("accepts absent annotations and a list of hidden set ids", () => {
+  it("accepts absent annotations, hidden set ids and hidden data notes", () => {
     expect(dashboardAnnotationsIssue(undefined)).toBeNull();
     expect(
-      dashboardAnnotationsIssue({ hiddenKeyDateSets: ["launches"] }),
+      dashboardAnnotationsIssue({
+        hiddenKeyDateSets: ["launches"],
+        hiddenDataNotes: [{ noteId: "note-1", panelId: "p1" }],
+      }),
     ).toBeNull();
   });
 

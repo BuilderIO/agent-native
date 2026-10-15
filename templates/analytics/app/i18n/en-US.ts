@@ -2020,4 +2020,15 @@ export default {
     dbtChecking: "Checking",
     dbtSaveFailed: "The dbt connection could not be saved.",
   },
+  dataNotes: {
+    since: "Since {{date}}",
+    until: "Until {{date}}",
+    fix: "Fix: {{fix}}",
+    incident: "Incident",
+    dataProblem: "Data problem",
+    fixed: "Fixed",
+    addedBy: "Added by {{email}}",
+    more: "+{{count}} more",
+    flagLabel: "Data notes",
+  },
 };

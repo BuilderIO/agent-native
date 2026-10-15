@@ -1938,4 +1938,15 @@ export default {
     dbtChecking: "检查中",
     dbtSaveFailed: "无法保存 dbt 连接。",
   },
+  dataNotes: {
+    since: "自 {{date}} 起",
+    until: "截至 {{date}}",
+    fix: "修复：{{fix}}",
+    incident: "事故",
+    dataProblem: "数据问题",
+    fixed: "已修复",
+    addedBy: "添加者：{{email}}",
+    more: "另外 {{count}} 条",
+    flagLabel: "数据备注",
+  },
 };

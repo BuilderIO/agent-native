@@ -2013,4 +2013,15 @@ export default {
     dbtChecking: "جارٍ التحقق",
     dbtSaveFailed: "تعذّر حفظ اتصال dbt.",
   },
+  dataNotes: {
+    since: "منذ {{date}}",
+    until: "حتى {{date}}",
+    fix: "الإصلاح: {{fix}}",
+    incident: "حادثة",
+    dataProblem: "مشكلة في البيانات",
+    fixed: "تم الإصلاح",
+    addedBy: "أضافها {{email}}",
+    more: "+{{count}} أخرى",
+    flagLabel: "ملاحظات البيانات",
+  },
 };
