@@ -1218,8 +1218,7 @@ function SqlChartFreshnessText({
     parts.push(t("sqlDashboard.cacheProvider"));
   else if (cache === "restored") parts.push(t("sqlDashboard.cacheRestored"));
   else if (cache === "unknown") parts.push(t("sqlDashboard.cacheUnknown"));
-  // The overlay wrapper ignores pointer events so it never blocks the chart;
-  // the chip re-enables them so its full-timestamp title can show on hover.
+  // The notice row reserves space above the chart; the chip stays hoverable.
   return (
     <span
       data-dashboard-report-freshness={cache}
@@ -1231,7 +1230,7 @@ function SqlChartFreshnessText({
             })
           : undefined
       }
-      className="pointer-events-auto absolute right-0 top-0 z-10 inline-flex items-center rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
+      className="pointer-events-auto inline-flex items-center rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
     >
       {fetchedAt ? (
         <time dateTime={fetchedAt}>{parts.join(" · ")}</time>
@@ -1507,13 +1506,13 @@ export function SqlChart({
 
   const missingConfigKeys = plan.missingKeys;
   const updatingNotice = isUpdating ? (
-    <div className="pointer-events-none relative h-0">
+    <div className="pointer-events-none flex shrink-0 justify-end pb-1">
       <span
         role="status"
         data-dashboard-report-updating={
           isShowingPreviousFilters ? "previous-filters" : "refresh"
         }
-        className="absolute right-0 top-0 z-10 inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
+        className="inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
       >
         <Spinner className="size-3" />
         {t(
@@ -1524,16 +1523,16 @@ export function SqlChart({
       </span>
     </div>
   ) : isPausedOnPreviousFilters ? (
-    <div className="pointer-events-none relative h-0">
+    <div className="pointer-events-none flex shrink-0 justify-end pb-1">
       <span
         data-dashboard-report-paused="previous-filters"
-        className="absolute right-0 top-0 z-10 inline-flex items-center rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
+        className="inline-flex items-center rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
       >
         {t("sqlDashboard.previousFilters")}
       </span>
     </div>
   ) : queryFreshness ? (
-    <div className="pointer-events-none relative h-0">
+    <div className="pointer-events-none flex shrink-0 justify-end pb-1">
       <SqlChartFreshnessText freshness={queryFreshness} />
     </div>
   ) : null;
@@ -1581,12 +1580,17 @@ export function SqlChart({
     );
   };
 
-  const withConfigWarning = (node: ReactNode) => (
-    <>
-      {updatingNotice}
-      {withConfigBanners(node)}
-    </>
-  );
+  const withNotice = (node: ReactNode) =>
+    updatingNotice ? (
+      <div className="flex h-full min-h-0 flex-col">
+        {updatingNotice}
+        <div className="min-h-0 flex-1">{node}</div>
+      </div>
+    ) : (
+      node
+    );
+  const withConfigWarning = (node: ReactNode) =>
+    withNotice(withConfigBanners(node));
 
   const pointLimit = plan.pointLimit;
   const withPointLimit = (node: ReactNode) =>
@@ -1612,14 +1616,9 @@ export function SqlChart({
     // A funnel or heatmap with rows that draws nothing keeps the warning and
     // refresh banner that say why; a result with no rows to plot is a bare
     // "No data".
-    return plan.rows.length === 0 ? (
-      <>
-        {updatingNotice}
-        {noData}
-      </>
-    ) : (
-      withConfigWarning(noData)
-    );
+    return plan.rows.length === 0
+      ? withNotice(noData)
+      : withConfigWarning(noData);
   }
 
   if (chartType === "metric") {
