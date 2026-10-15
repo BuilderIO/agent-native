@@ -316,10 +316,9 @@ pub async fn screen_memory_start(app: AppHandle) -> Result<ScreenMemoryStatus, S
     feature_config.screen_memory = normalize_screen_memory_config(feature_config.screen_memory);
     crate::config::set_feature_config(app.clone(), feature_config).await?;
     let status = build_status(&app)?;
-    if let Some(error) = screen_memory_start_error(
-        &status,
-        crate::rewind_capture_suspension::is_active(&app),
-    ) {
+    if let Some(error) =
+        screen_memory_start_error(&status, crate::rewind_capture_suspension::is_active(&app))
+    {
         let mut current_config = crate::config::feature_config(&app);
         restore_screen_memory_start_config(
             &mut current_config.screen_memory,
