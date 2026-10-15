@@ -63,7 +63,12 @@ import {
   type Article,
   type UseCase,
 } from "./public-content";
-import { CampaignCta, CampaignScreenshot, CampaignView } from "./shared";
+import {
+  CampaignCta,
+  CampaignScreenshot,
+  CampaignView,
+  CopyControl,
+} from "./shared";
 import { UseCasePage, UseCasesIndex } from "./use-cases";
 
 const currentLocale = vi.hoisted(() => ({ locale: "en-US" }));
@@ -425,6 +430,57 @@ describe("public campaign frontend", () => {
       );
       expect(schema.datePublished).toBe(article.published);
       expect(schema.dateModified).toBe(date);
+    },
+  );
+
+  it("omits article page copying while preserving the byline and working heading copy controls", async () => {
+    const item = {
+      ...article,
+      author_avatar: "https://example.com/avatar.png",
+      author_role: "Test editor",
+      updated: "2026-02-03",
+      body: `## Test heading\n\n${Array.from({ length: 201 }, () => "word").join(" ")}`,
+    };
+    window.history.replaceState(null, "", "/articles/test-article/");
+    vi.mocked(copyText).mockResolvedValue(true);
+    const view = renderCampaign(
+      <ArticlePage article={item} useCase={null} more={[]} />,
+    );
+    expect(view.queryByRole("button", { name: "Copy page" })).toBeNull();
+    expect(view.getByText(item.author).textContent).toBe(item.author);
+    expect(view.getByText(item.author_role).textContent).toBe(item.author_role);
+    const avatar = view.getByRole("img", { name: item.author });
+    expect(avatar.getAttribute("src")).toBe(item.author_avatar);
+    expect(avatar.classList.contains("rounded-full")).toBe(true);
+    const time = view.container.querySelector("time")!;
+    expect(time.getAttribute("dateTime")).toBe(item.updated);
+    expect(time.textContent).toBe("Updated February 3, 2026");
+    expect(view.getByText("2 min read")).toBeDefined();
+    const heading = view.getByRole("heading", { name: "Test heading" });
+    expect(heading.id).toBe("test-heading");
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Copy link" }));
+    });
+    expect(copyText).toHaveBeenCalledExactlyOnceWith(
+      `${window.location.origin}/articles/test-article/#test-heading`,
+    );
+    expect(view.getByText(enUS.campaign.copied)).toBeDefined();
+  });
+
+  it.each([true, false])(
+    "keeps standalone page CopyControl feedback for copy success %s",
+    async (success) => {
+      vi.mocked(copyText).mockResolvedValue(success);
+      const view = renderCampaign(<CopyControl text="Test page markdown" />);
+      await act(async () => {
+        fireEvent.click(view.getByRole("button", { name: "Copy page" }));
+      });
+      expect(copyText).toHaveBeenCalledExactlyOnceWith("Test page markdown");
+      expect(
+        view.getByText(
+          success ? enUS.campaign.copied : enUS.campaign.copyFailed,
+        ),
+      ).toBeDefined();
     },
   );
 
@@ -809,6 +865,12 @@ describe("public campaign frontend", () => {
       JSON.stringify(useCaseLoader(args({ slug: useCase.slug }))),
     ).not.toContain("PRIVATE");
     const metadata = articleMeta({ loaderData: data });
+    expect(metadata).toContainEqual({
+      tagName: "link",
+      rel: "alternate",
+      type: "text/markdown",
+      href: "/articles/test-article.md",
+    });
     expect(metadata).toContainEqual({
       tagName: "link",
       rel: "canonical",
@@ -1436,6 +1498,16 @@ describe("public campaign frontend", () => {
         property: "og:url",
         content: canonical,
       });
+      expect(
+        metadata.filter((entry) => "rel" in entry && entry.rel === "alternate"),
+      ).toEqual([
+        {
+          tagName: "link",
+          rel: "alternate",
+          type: "text/markdown",
+          href: `${sitePathForLocale(ARTICLES_BASE, locale)}${article.slug}.md`,
+        },
+      ]);
     },
   );
 
@@ -2167,6 +2239,64 @@ describe("public campaign frontend", () => {
     },
   );
 
+  it.each([
+    {
+      useCaseSlug: "ai-meeting-notes",
+      slug: "how-to-use-ai-to-take-meeting-notes",
+      oldSlug: "what-should-meeting-notes-include",
+      title: "How do you use AI to take meeting notes?",
+    },
+    {
+      useCaseSlug: "design-brief-to-prototype",
+      slug: "how-to-turn-a-design-brief-into-a-prototype-with-ai",
+      oldSlug: "what-goes-in-a-design-brief",
+      title: "How do you turn a design brief into a prototype with AI?",
+    },
+    {
+      useCaseSlug: "startup-pitch-deck",
+      slug: "how-to-make-a-pitch-deck-with-ai",
+      oldSlug: "what-should-a-startup-pitch-deck-include",
+      title: "How do you make a pitch deck with AI?",
+    },
+  ])(
+    "links $useCaseSlug Go deeper to $slug and rejects the deleted article route",
+    async ({ useCaseSlug, slug, oldSlug, title }) => {
+      const actual = await vi.importActual<
+        typeof import("../../../lib/campaign-content.server")
+      >("../../../lib/campaign-content.server");
+      vi.mocked(loadCampaignContent).mockReturnValue(
+        actual.loadCampaignContent(),
+      );
+      for (const locale of DOCS_LOCALES) {
+        currentLocale.locale = locale;
+        const params = { locale: locale.toLowerCase() };
+        for (const loader of [articleLoader, localizedCampaignRoute3.loader]) {
+          expect(() => loader(args({ ...params, slug: oldSlug }))).toThrow(
+            expect.objectContaining({ status: 404 }),
+          );
+          const data = loader(args({ ...params, slug }));
+          expect(data.article.title).toBe(title);
+          expect(data.useCase?.slug).toBe(useCaseSlug);
+        }
+        const data = useCaseLoader(args({ ...params, slug: useCaseSlug }));
+        expect(data.articles.map((item) => item.slug)).toEqual([slug]);
+        const document = dom(markup(<UseCasePage {...data} />));
+        const section = [...document.querySelectorAll("section")].find(
+          (node) => node.querySelector("h2")?.textContent === "Go deeper",
+        )!;
+        expect(
+          [...section.querySelectorAll("a")].map((link) => [
+            link.getAttribute("href"),
+            link.querySelector("h3")?.textContent,
+          ]),
+        ).toEqual([
+          [sitePathForLocale(`${ARTICLES_BASE}/${slug}`, locale), title],
+        ]);
+        expect(document.querySelector(`a[href*="${oldSlug}"]`)).toBeNull();
+      }
+    },
+  );
+
   it("loads both real meeting next jobs and SSR renders their cards in declared order", async () => {
     const actual = await vi.importActual<
       typeof import("../../../lib/campaign-content.server")
@@ -2380,14 +2510,14 @@ describe("public campaign frontend", () => {
       const expectedApps = [
         null,
         "plan",
+        "slides",
+        "design",
+        "clips",
         null,
         "design",
         "clips",
-        "design",
         "plan",
         "analytics",
-        "slides",
-        "clips",
         "clips",
       ] as const;
       expect(articles).toHaveLength(expectedApps.length);

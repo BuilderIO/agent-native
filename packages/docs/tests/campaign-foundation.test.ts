@@ -694,6 +694,21 @@ describe("campaign content", () => {
         apps: ["plans"],
       },
       {
+        slug: "how-to-make-a-pitch-deck-with-ai",
+        topic: "presentations",
+        apps: ["slides"],
+      },
+      {
+        slug: "how-to-turn-a-design-brief-into-a-prototype-with-ai",
+        topic: "prototyping",
+        apps: ["design"],
+      },
+      {
+        slug: "how-to-use-ai-to-take-meeting-notes",
+        topic: "meetings-and-notes",
+        apps: ["clips"],
+      },
+      {
         slug: "what-is-an-agent-native-app",
         topic: "agentic-apps",
         apps: [],
@@ -709,11 +724,6 @@ describe("campaign content", () => {
         apps: ["clips"],
       },
       {
-        slug: "what-goes-in-a-design-brief",
-        topic: "prototyping",
-        apps: ["design"],
-      },
-      {
         slug: "what-goes-in-a-technical-design-document",
         topic: "coding-agents",
         apps: ["plans"],
@@ -722,16 +732,6 @@ describe("campaign content", () => {
         slug: "what-should-a-saas-metrics-dashboard-include",
         topic: "metrics",
         apps: ["analytics"],
-      },
-      {
-        slug: "what-should-a-startup-pitch-deck-include",
-        topic: "presentations",
-        apps: ["slides"],
-      },
-      {
-        slug: "what-should-meeting-notes-include",
-        topic: "meetings-and-notes",
-        apps: ["clips"],
       },
       {
         slug: "what-should-you-look-for-in-dictation-software",
