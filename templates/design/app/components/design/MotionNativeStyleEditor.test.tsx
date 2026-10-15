@@ -205,6 +205,9 @@ describe("MotionNativeStyleEditor", () => {
     );
     if (!trigger) throw new Error("Missing easing picker trigger");
     await act(async () => trigger.click());
+    await vi.waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    });
   }
 
   it("orders easing presets like Figma, with Hold first", async () => {
@@ -746,7 +749,9 @@ describe("MotionNativeStyleEditor", () => {
       'button[aria-label="designEditor.motion.animationStyles.easingPresets.easeOut"]',
     )!;
     await act(async () => easingSelect.click());
-    expect(easingSelect.getAttribute("aria-expanded")).toBe("true");
+    await vi.waitFor(() => {
+      expect(easingSelect.getAttribute("aria-expanded")).toBe("true");
+    });
     await clickButtonWithLabel(
       "designEditor.motion.animationStyles.easingPresets.easeIn",
     );
