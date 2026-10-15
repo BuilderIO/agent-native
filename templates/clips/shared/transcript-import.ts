@@ -128,6 +128,9 @@ function parseCues(lines: string[], format: "vtt" | "srt"): ParsedLines {
     }
     const startMs = parseTimestamp(match[1]);
     const endMs = parseTimestamp(match[2]);
+    if (startMs === null || endMs === null) {
+      return { error: { code: "bad-timing", line: timingLine.number } };
+    }
     if (endMs <= startMs) {
       return { error: { code: "bad-range", line: timingLine.number } };
     }
@@ -164,6 +167,9 @@ function parseTimestampedText(
     const match = TIMESTAMP_LINE.exec(line);
     if (match) {
       const startMs = parseTimestamp(match[1]);
+      if (startMs === null) {
+        return { error: { code: "missing-timestamp", line: lineNumber } };
+      }
       const previous = entries[entries.length - 1];
       if (previous && startMs < previous.startMs) {
         return { error: { code: "out-of-order", line: lineNumber } };
@@ -253,9 +259,11 @@ function formatSrtTime(ms: number): string {
   return `${h}:${m}:${s},${millis}`;
 }
 
-function parseTimestamp(value: string): number {
+/** Milliseconds, or null when a minute or second field is 60 or more. */
+function parseTimestamp(value: string): number | null {
   const [clock, fraction = ""] = value.split(/[.,]/);
   const parts = clock.split(":").map(Number);
+  if (parts.slice(1).some((part) => part >= 60)) return null;
   const seconds = parts.reduce((total, part) => total * 60 + part, 0);
   const millis = fraction ? Number(fraction.padEnd(3, "0")) : 0;
   return seconds * 1000 + millis;
@@ -294,7 +302,7 @@ function decodeEntities(text: string): string {
           body[1].toLowerCase() === "x"
             ? Number.parseInt(body.slice(2), 16)
             : Number.parseInt(body.slice(1), 10);
-        return Number.isFinite(code) ? String.fromCodePoint(code) : entity;
+        return code <= 0x10ffff ? String.fromCodePoint(code) : entity;
       }
       return NAMED_ENTITIES[body.toLowerCase()] ?? entity;
     },

@@ -149,6 +149,18 @@ describe("parseTranscriptImport", () => {
       1,
     ],
     [
+      "a cue timing with 99 minutes past the hour",
+      "WEBVTT\n\n00:00:01.000 --> 00:99:00.000\nhello",
+      "bad-timing",
+      3,
+    ],
+    [
+      "a start time with 90 seconds",
+      "0:00 hello\n0:90 world",
+      "missing-timestamp",
+      2,
+    ],
+    [
       "start times that go backwards",
       "0:10 hello\n0:05 world",
       "out-of-order",
@@ -171,6 +183,16 @@ describe("parseTranscriptImport", () => {
     expect(describeTranscriptImportError(result.error)).toBe(
       "Line 3: this time is after the end of the video.",
     );
+  });
+
+  it("keeps a numeric character reference that is not a Unicode character", () => {
+    const result = parseTranscriptImport(
+      "WEBVTT\n\n00:00.000 --> 00:01.000\nCaf&#xe9; &#x110000;",
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      segments: [{ text: "Café &#x110000;" }],
+    });
   });
 
   it("rejects a file with no transcript text", () => {

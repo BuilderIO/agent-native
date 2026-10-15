@@ -1049,6 +1049,46 @@ describe("requestTranscript regeneration", () => {
       expect(cloudTextWrites()).toHaveLength(0);
     });
 
+    it("lets a regenerate replace only the import it started from", async () => {
+      const startedFrom = {
+        ...importedRow,
+        updatedAt: "2026-07-09T00:00:00.000Z",
+      };
+      mockSelectRows.queue = [
+        [startedFrom],
+        [recordingRow],
+        [{ recordingId: "rec_imported" }],
+        [{ ...importedRow, updatedAt: "2026-07-09T00:05:00.000Z" }],
+        [titleRow],
+      ];
+      mockUpdateReturning.mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+        regenerate: true,
+      });
+
+      const [cloudWrite] = cloudTextWrites();
+      expect(cloudWrite[0]).toMatchObject({ source: null });
+      const cloudWriteIndex = mockUpdateSet.mock.calls.indexOf(cloudWrite);
+      expect(mockUpdateWhere.mock.calls[cloudWriteIndex][0]).toContainEqual({
+        or: [
+          {
+            or: [
+              { isNull: "recordingTranscripts.source" },
+              { ne: ["recordingTranscripts.source", "imported"] },
+            ],
+          },
+          {
+            column: "recordingTranscripts.updatedAt",
+            value: startedFrom.updatedAt,
+          },
+        ],
+      });
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+    });
+
     it("never writes the cloud result over an import that lands just before the write", async () => {
       mockSelectRows.queue = [
         [pendingRow],

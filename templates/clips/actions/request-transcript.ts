@@ -5,7 +5,7 @@ import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -1257,7 +1257,9 @@ const requestTranscriptAction = defineAction({
             segmentsJson: JSON.stringify(normalizedTranscript.segments),
             fullText,
             now,
-            replaceImported: regeneratingReadyTranscript,
+            replaceTranscriptUpdatedAt: regeneratingReadyTranscript
+              ? existingNativeTranscript?.updatedAt
+              : undefined,
           });
           if (!written) {
             const preserved = await preserveReadyTranscriptIfAvailable({
@@ -1429,8 +1431,12 @@ async function upsertTranscriptRow(
     fullText?: string;
     now: string;
     retryCount?: number;
-    /** Only an explicit regenerate may write over an imported transcript. */
-    replaceImported?: boolean;
+    /**
+     * Set only by an explicit regenerate: the updatedAt of the transcript it
+     * started from. It may replace that transcript even if imported, but not
+     * an import that lands while it runs.
+     */
+    replaceTranscriptUpdatedAt?: string;
   },
 ): Promise<boolean> {
   const [existing] = await db
@@ -1455,13 +1461,19 @@ async function upsertTranscriptRow(
         ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
         ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
         ...(retryCount !== undefined ? { retryCount } : {}),
-        ...(row.replaceImported ? { source: null } : {}),
+        ...(row.replaceTranscriptUpdatedAt ? { source: null } : {}),
         updatedAt,
       })
       .where(
-        row.replaceImported
-          ? eq(t.recordingId, row.recordingId)
-          : and(eq(t.recordingId, row.recordingId), notImportedTranscript()),
+        and(
+          eq(t.recordingId, row.recordingId),
+          row.replaceTranscriptUpdatedAt
+            ? or(
+                notImportedTranscript(),
+                eq(t.updatedAt, row.replaceTranscriptUpdatedAt),
+              )
+            : notImportedTranscript(),
+        ),
       )
       .returning({ recordingId: t.recordingId });
     return updated.length > 0;
