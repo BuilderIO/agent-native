@@ -7,8 +7,9 @@ import {
   IconPencil,
   IconPlus,
 } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 
+import { isPendingAnnotation } from "@/components/dashboard/annotation-mutations";
 import { dataNoteColor } from "@/components/dashboard/data-note-bands";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,6 +56,8 @@ export function AnnotationsMenu({
   const { data: dataNoteData } = useActionQuery("list-data-notes", undefined, {
     staleTime: 60_000,
   });
+  const returningFocus = useRef(false);
+  const [tooltipOpen, setTooltipOpen] = useState(false);
   const sets = keyDateData?.sets ?? [];
   const hiddenSets = new Set(annotations?.hiddenKeyDateSets);
   const notesHere = useMemo(
@@ -78,7 +81,10 @@ export function AnnotationsMenu({
 
   return (
     <DropdownMenu>
-      <Tooltip>
+      <Tooltip
+        open={tooltipOpen}
+        onOpenChange={(open) => setTooltipOpen(open && !returningFocus.current)}
+      >
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="gap-1.5 text-xs">
@@ -90,7 +96,18 @@ export function AnnotationsMenu({
         </TooltipTrigger>
         <TooltipContent>{t("annotations.menuTooltip")}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent
+        align="end"
+        className="w-64"
+        // Radix moves focus back to the trigger right after this. That focus
+        // is the menu closing, not a visit that should show its tooltip.
+        onCloseAutoFocus={() => {
+          returningFocus.current = true;
+          queueMicrotask(() => {
+            returningFocus.current = false;
+          });
+        }}
+      >
         <DropdownMenuLabel className="text-xs text-muted-foreground">
           {t("annotations.keyDates")}
         </DropdownMenuLabel>
@@ -98,7 +115,7 @@ export function AnnotationsMenu({
           <DropdownMenuCheckboxItem
             key={set.id}
             checked={!hiddenSets.has(set.id)}
-            disabled={!onAnnotationsChange}
+            disabled={!onAnnotationsChange || isPendingAnnotation(set.id)}
             onSelect={(event) => event.preventDefault()}
             onCheckedChange={(checked) => toggleSet(set.id, checked === true)}
           >
@@ -123,7 +140,11 @@ export function AnnotationsMenu({
           {t("annotations.dataNotes")}
         </DropdownMenuLabel>
         {notesHere.map((note) => (
-          <DropdownMenuItem key={note.id} onSelect={() => onEditDataNote(note)}>
+          <DropdownMenuItem
+            key={note.id}
+            disabled={isPendingAnnotation(note.id)}
+            onSelect={() => onEditDataNote(note)}
+          >
             <span
               className="mr-2 size-2 shrink-0 rounded-full"
               style={{ background: dataNoteColor(note) }}

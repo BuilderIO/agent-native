@@ -56,6 +56,7 @@ vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 
 import { i18nCatalog } from "../../i18n";
 import {
+  isPendingAnnotation,
   useDeleteDataNote,
   useDeleteKeyDate,
   useDeleteKeyDateSet,
@@ -308,6 +309,43 @@ describe("annotation writes", () => {
 
     await add.fail();
     expect(sets()).toEqual([{ ...LAUNCHES, name: "Releases" }, CHANGES]);
+  });
+
+  it("marks what it adds as pending until the server's ids arrive", async () => {
+    await owner(useSaveDataNote, {
+      kind: "incident",
+      title: "Signup form outage",
+      note: "The signup form failed to load.",
+      panels: [{ dashboardId: "dash", panelId: "signups" }],
+    });
+    await owner(useSaveKeyDate, {
+      setName: "Incidents",
+      date: "2026-10-09",
+      label: "Setup outage",
+    });
+    await owner(useSaveKeyDate, {
+      id: PRICING.id,
+      setName: "Pricing",
+      date: PRICING.date,
+      label: PRICING.label,
+    });
+
+    const [added] = notes() ?? [];
+    const [launches, changes, incidents, pricing] = sets() ?? [];
+    expect(added?.title).toBe("Signup form outage");
+    expect(isPendingAnnotation(added!.id)).toBe(true);
+    expect(isPendingAnnotation(incidents!.id)).toBe(true);
+    expect(isPendingAnnotation(incidents!.dates[0]!.id)).toBe(true);
+    // A date moved into a new set keeps its own id; only its set is new.
+    expect(pricing!.dates).toEqual([
+      expect.objectContaining({ id: PRICING.id }),
+    ]);
+    expect(isPendingAnnotation(pricing!.id)).toBe(true);
+    expect(
+      [SETUP_INCIDENT.id, launches!.id, changes!.id, LAUNCH.id].some(
+        isPendingAnnotation,
+      ),
+    ).toBe(false);
   });
 
   it("refetches the list after a failed write, so the server's version wins", async () => {

@@ -2,37 +2,41 @@
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { KeyDate, KeyDateSet } from "@shared/key-dates";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   save: vi.fn(),
   remove: vi.fn(),
-  sets: [
-    {
-      id: "launches",
-      name: "Launches",
-      createdBy: "alice@example.test",
-      updatedAt: "2026-10-14T12:00:00.000Z",
-      dates: [],
-    },
-  ] satisfies KeyDateSet[],
+  sets: [] as KeyDateSet[],
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: () => ({ data: { sets: mocks.sets } }),
 }));
 
-vi.mock("@/components/dashboard/annotation-mutations", () => ({
+vi.mock("@/components/dashboard/annotation-mutations", async (actual) => ({
+  ...(await actual<
+    typeof import("@/components/dashboard/annotation-mutations")
+  >()),
   useSaveKeyDate: () => ({ mutate: mocks.save }),
   useDeleteKeyDate: () => ({ mutate: mocks.remove }),
 }));
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { i18nCatalog } from "../../../i18n";
+import { AnnotationsMenu } from "./AnnotationsMenu";
 import { KeyDateDialog, type KeyDateDraft } from "./KeyDateDialog";
 
-const [LAUNCHES] = mocks.sets;
+const LAUNCHES: KeyDateSet = {
+  id: "launches",
+  name: "Launches",
+  createdBy: "alice@example.test",
+  updatedAt: "2026-10-14T12:00:00.000Z",
+  dates: [],
+};
 
 const keyDate = (fields: Partial<KeyDate>): KeyDate => ({
   id: "launch",
@@ -50,6 +54,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 function render(draft: KeyDateDraft) {
+  const onClose = vi.fn();
   act(() => {
     root.render(
       <AgentNativeI18nProvider
@@ -57,10 +62,29 @@ function render(draft: KeyDateDraft) {
         initialLocale="en-US"
         persistPreference={false}
       >
-        <KeyDateDialog draft={draft} onClose={vi.fn()} />
+        <KeyDateDialog draft={draft} onClose={onClose} />
       </AgentNativeI18nProvider>,
     );
   });
+  return { onClose };
+}
+
+/** The dashboard's Annotations menu, which opens the dialog. */
+function MenuWithDialog() {
+  const [draft, setDraft] = useState<KeyDateDraft | null>(null);
+  return (
+    <TooltipProvider>
+      <AnnotationsMenu
+        dashboardId="dash"
+        panels={[]}
+        onAddKeyDate={() => setDraft({})}
+        onEditKeyDates={vi.fn()}
+        onAddDataNote={vi.fn()}
+        onEditDataNote={vi.fn()}
+      />
+      <KeyDateDialog draft={draft} onClose={() => setDraft(null)} />
+    </TooltipProvider>
+  );
 }
 
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')!;
@@ -89,6 +113,29 @@ function typeTime(value: string) {
   });
 }
 
+const settle = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+
+/** A click on the overlay, beside the dialog. */
+async function clickOverlay() {
+  const overlay = dialog().previousElementSibling!;
+  await act(async () => {
+    // The dialog starts listening for outside clicks a tick after it opens.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    overlay.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        pointerType: "mouse",
+      }),
+    );
+    overlay.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+}
+
 function save() {
   const button = [...dialog().querySelectorAll("button")].find(
     (el) => el.textContent?.trim() === "Save",
@@ -99,6 +146,7 @@ function save() {
 describe("KeyDateDialog", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mocks.sets = [LAUNCHES];
     const resolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
     vi.spyOn(
       Intl.DateTimeFormat.prototype,
@@ -158,5 +206,77 @@ describe("KeyDateDialog", () => {
     render({ setId: LAUNCHES.id });
     typeTime("00:01");
     expect(zoneShown()).toBe(VIEWER_ZONE);
+  });
+
+  it("won't put a new date in a set the server hasn't confirmed yet", () => {
+    mocks.sets = [
+      { ...LAUNCHES, id: "pending-1", name: "Incidents" },
+      LAUNCHES,
+    ];
+    render({});
+    const setSelect = dialog().querySelector<HTMLElement>('[role="combobox"]')!;
+    expect(setSelect.textContent).toBe("Launches");
+
+    act(() => {
+      setSelect.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    const option = (name: string) =>
+      [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (el) => el.textContent === name,
+      )!;
+    expect(option("Incidents").getAttribute("aria-disabled")).toBe("true");
+    expect(option("Launches").getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("starts in Label when opened from the Annotations menu", async () => {
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={i18nCatalog}
+          initialLocale="en-US"
+          persistPreference={false}
+        >
+          <MenuWithDialog />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    act(() => {
+      container.querySelector("button")!.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+    });
+    const addKeyDate = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((el) => el.textContent?.includes("Add key date"))!;
+    act(() => addKeyDate.click());
+    await settle();
+
+    const label = [...dialog().querySelectorAll("label")].find(
+      (el) => el.textContent === "Label",
+    )!;
+    expect(document.activeElement?.id).toBe(label.getAttribute("for"));
+  });
+
+  it("stays open for a click beside it once edited; Escape still discards", async () => {
+    const { onClose } = render({ setId: LAUNCHES.id });
+    await clickOverlay();
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    typeTime("09:30");
+    await clickOverlay();
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 });

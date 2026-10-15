@@ -106,6 +106,24 @@ function type(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
 
 const today = () => new Date().toLocaleDateString("en-CA");
 
+/** A click on the overlay, beside the dialog. */
+async function clickOverlay() {
+  const overlay = dialog().previousElementSibling!;
+  await act(async () => {
+    // The dialog starts listening for outside clicks a tick after it opens.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    overlay.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        pointerType: "mouse",
+      }),
+    );
+    overlay.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+}
+
 describe("DataNoteDialog", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -129,6 +147,7 @@ describe("DataNoteDialog", () => {
     expect(dialog().textContent).toContain("Signups per day");
     expect(dialog().textContent).toContain("Shows on 1 of 2 charts here");
     expect(button("Save").disabled).toBe(true);
+    expect(document.activeElement).toBe(field("Title"));
 
     type(field("Title"), "Signup form outage");
     type(field("Note"), "The signup form failed to load for most visitors.");
@@ -164,13 +183,12 @@ describe("DataNoteDialog", () => {
     render({ note: CONNECT_UNDERCOUNT, markFixed: true });
     const fixed = dialog().querySelector<HTMLElement>('[role="checkbox"]')!;
     expect(fixed.getAttribute("aria-checked")).toBe("true");
+    const fix = dialog().querySelector<HTMLInputElement>(
+      'input[placeholder="What fixed it"]',
+    )!;
+    expect(document.activeElement).toBe(fix);
 
-    type(
-      dialog().querySelector<HTMLInputElement>(
-        'input[placeholder="What fixed it"]',
-      )!,
-      "Both event names are counted from Oct 15.",
-    );
+    type(fix, "Both event names are counted from Oct 15.");
     act(() => button("Save").click());
 
     expect(mocks.save).toHaveBeenCalledWith(
@@ -185,6 +203,24 @@ describe("DataNoteDialog", () => {
         unlessEvents: CONNECT_UNDERCOUNT.unlessEvents,
       }),
     );
+  });
+
+  it("stays open for a click beside an edited note; Escape still discards it", async () => {
+    const { onClose } = render({ note: SETUP_INCIDENT });
+    await clickOverlay();
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    type(field("Note"), "Setup failed for every workspace on SSO.");
+    await clickOverlay();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(mocks.save).not.toHaveBeenCalled();
+
+    act(() => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it("shows where a note is hidden and brings it back on those charts", () => {

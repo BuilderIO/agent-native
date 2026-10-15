@@ -27,9 +27,18 @@ const KEY_DATE_SETS: AnnotationList<{ sets: KeyDateSet[] }, KeyDateSet> = {
 /** An optimistic edit, and how to take back only that edit. */
 type Change<T> = { next: T; revert: (current: T) => T };
 
+const PENDING_PREFIX = "pending-";
 let pendingCount = 0;
 /** Unique, so a failed add takes back its own placeholder and no other. */
-const pendingId = () => `pending-${++pendingCount}`;
+const pendingId = () => `${PENDING_PREFIX}${++pendingCount}`;
+
+/**
+ * Whether an annotation is still the placeholder shown before the server
+ * confirms it. The server knows no such id, so nothing may act on one or save
+ * it until the refetch brings the real id.
+ */
+export const isPendingAnnotation = (id: string) =>
+  id.startsWith(PENDING_PREFIX);
 
 function insertAt<T>(items: readonly T[], index: number, item: T): T[] {
   return [...items.slice(0, index), item, ...items.slice(index)];

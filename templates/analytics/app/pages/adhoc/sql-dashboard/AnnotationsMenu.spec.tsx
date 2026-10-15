@@ -164,6 +164,56 @@ describe("AnnotationsMenu", () => {
     ).toBe("true");
   });
 
+  it("shows a just-added set and note but holds their controls until the server confirms them", () => {
+    mocks.sets = [...mocks.sets, set("pending-1", "Incidents")];
+    mocks.notes = [
+      ...mocks.notes,
+      { ...SETUP_INCIDENT, id: "pending-2", title: "Signup form outage" },
+    ];
+    const { onAnnotationsChange, onEditDataNote } = render();
+    openMenu();
+
+    const incidents = item("menuitemcheckbox", "Incidents");
+    const outage = item("menuitem", "Signup form outage");
+    expect(incidents.getAttribute("aria-disabled")).toBe("true");
+    expect(outage.getAttribute("aria-disabled")).toBe("true");
+    act(() => incidents.click());
+    act(() => outage.click());
+    expect(onAnnotationsChange).not.toHaveBeenCalled();
+    expect(onEditDataNote).not.toHaveBeenCalled();
+
+    expect(
+      item("menuitemcheckbox", "Launches").getAttribute("aria-disabled"),
+    ).toBeNull();
+    expect(
+      item("menuitem", SETUP_INCIDENT.title).getAttribute("aria-disabled"),
+    ).toBeNull();
+  });
+
+  it("returns focus to its button on Escape without popping the button's tooltip", async () => {
+    render();
+    const trigger = container.querySelector("button")!;
+    openMenu();
+    // The rest of a click: until the pointer is up, the tooltip ignores focus.
+    act(() => {
+      trigger.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, pointerType: "mouse" }),
+      );
+    });
+    expect(item("menuitem", "Add key date")).toBeDefined();
+
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
   it("lists the data notes on this dashboard's charts and opens one to edit", () => {
     const { onEditDataNote, onAddDataNote } = render();
     openMenu();
