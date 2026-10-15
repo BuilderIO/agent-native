@@ -1089,6 +1089,8 @@ export default {
     historyRestoreQuestion: "이 대시보드 버전을 복원할까요?",
     historyRestoreWarning:
       "현재 대시보드 레이아웃을 대체하고 현재 상태를 기록에 저장합니다.",
+    historyRestoreUndoesChange:
+      "이 변경 이전 상태로 돌아가므로 이후의 모든 변경도 취소됩니다. 현재 상태는 먼저 기록에 저장됩니다.",
     undo: "실행 취소",
     undoSuccess: "대시보드 변경을 실행 취소했습니다",
     undoFailed: "대시보드 변경을 실행 취소할 수 없습니다",

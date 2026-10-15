@@ -1124,6 +1124,8 @@ export default {
     historyRestoreQuestion: "Restaurar esta versão do painel?",
     historyRestoreWarning:
       "Isso substitui o layout atual do painel e salva o estado atual no histórico.",
+    historyRestoreUndoesChange:
+      "Isso volta ao estado anterior a esta alteração, então todas as alterações posteriores também são desfeitas. Antes, o estado atual é salvo no histórico.",
     undo: "Desfazer",
     undoSuccess: "Alteração do painel desfeita",
     undoFailed: "Não foi possível desfazer a alteração do painel",

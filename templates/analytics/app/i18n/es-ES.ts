@@ -1129,6 +1129,8 @@ export default {
     historyRestoreQuestion: "¿Restaurar esta versión del panel?",
     historyRestoreWarning:
       "Esto reemplaza el diseño actual del panel y guarda el estado actual en el historial.",
+    historyRestoreUndoesChange:
+      "Esto vuelve al estado anterior a este cambio, así que también se deshacen todos los cambios posteriores. Antes se guarda el estado actual en el historial.",
     undo: "Deshacer",
     undoSuccess: "Cambio del panel deshecho",
     undoFailed: "No se pudo deshacer el cambio del panel",

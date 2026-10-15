@@ -1135,6 +1135,8 @@ export default {
     historyRestoreQuestion: "Restaurer cette version du tableau de bord ?",
     historyRestoreWarning:
       "Cela remplace la mise en page actuelle du tableau de bord et enregistre l'état actuel dans l'historique.",
+    historyRestoreUndoesChange:
+      "Cela revient à l'état d'avant cette modification, donc toutes les modifications ultérieures sont aussi annulées. L'état actuel est d'abord enregistré dans l'historique.",
     undo: "Annuler",
     undoSuccess: "Modification du tableau de bord annulée",
     undoFailed: "Impossible d'annuler la modification du tableau de bord",

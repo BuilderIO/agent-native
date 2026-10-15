@@ -1045,6 +1045,8 @@ export default {
     historyRestoreQuestion: "要还原此仪表板版本吗？",
     historyRestoreWarning:
       "这会替换当前仪表板布局，并把当前状态保存到历史记录。",
+    historyRestoreUndoesChange:
+      "这会回到此更改之前的状态，因此之后的所有更改也会被撤销。当前状态会先保存到历史记录。",
     undo: "撤销",
     undoSuccess: "已撤销仪表板更改",
     undoFailed: "无法撤销仪表板更改",

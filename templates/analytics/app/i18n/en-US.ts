@@ -226,6 +226,8 @@ export default {
     historyRestoreQuestion: "Restore this dashboard version?",
     historyRestoreWarning:
       "This replaces the current dashboard layout and saves the current state in history.",
+    historyRestoreUndoesChange:
+      "This goes back to before this change, so every later change is undone too. The current state is saved in history first.",
     undo: "Undo",
     undoSuccess: "Dashboard change undone",
     undoFailed: "Couldn't undo dashboard change",

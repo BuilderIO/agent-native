@@ -124,6 +124,8 @@ export function DashboardHistoryPanel({
   const restoreRevision = useRestoreDashboardRevision(dashboardId);
   const [pendingRestore, setPendingRestore] =
     useState<DashboardRevision | null>(null);
+  // Kept after the dialog closes so its text doesn't change while it fades out.
+  const [restoreUndoesChange, setRestoreUndoesChange] = useState(false);
 
   const doRestore = async (revision: DashboardRevision) => {
     try {
@@ -198,7 +200,12 @@ export function DashboardHistoryPanel({
                           size="sm"
                           variant="outline"
                           className="h-7 shrink-0 px-2 text-[11px]"
-                          onClick={() => setPendingRestore(revision)}
+                          onClick={() => {
+                            setRestoreUndoesChange(
+                              revision.changesStatus === "valid",
+                            );
+                            setPendingRestore(revision);
+                          }}
                           disabled={restoreRevision.isPending}
                         >
                           {restoreRevision.isPending ? (
@@ -232,7 +239,9 @@ export function DashboardHistoryPanel({
               {t("dashboard.historyRestoreQuestion")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("dashboard.historyRestoreWarning")}
+              {restoreUndoesChange
+                ? t("dashboard.historyRestoreUndoesChange")
+                : t("dashboard.historyRestoreWarning")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

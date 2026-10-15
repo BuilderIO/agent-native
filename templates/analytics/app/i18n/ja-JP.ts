@@ -1109,6 +1109,8 @@ export default {
     historyRestoreQuestion: "このダッシュボード版を復元しますか？",
     historyRestoreWarning:
       "現在のダッシュボードレイアウトを置き換え、現在の状態を履歴に保存します。",
+    historyRestoreUndoesChange:
+      "この変更の前の状態に戻るため、それ以降の変更もすべて取り消されます。現在の状態は先に履歴に保存されます。",
     undo: "元に戻す",
     undoSuccess: "ダッシュボードの変更を元に戻しました",
     undoFailed: "ダッシュボードの変更を元に戻せませんでした",

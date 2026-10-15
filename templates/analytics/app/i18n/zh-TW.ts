@@ -1040,6 +1040,8 @@ export default {
     historyRestoreQuestion: "要還原此儀表板版本嗎？",
     historyRestoreWarning:
       "這會取代目前的儀表板版面，並將目前狀態保存到歷史記錄。",
+    historyRestoreUndoesChange:
+      "這會回到此變更之前的狀態，因此之後的所有變更也會被復原。目前狀態會先保存到歷史記錄。",
     undo: "復原",
     undoSuccess: "已復原儀表板變更",
     undoFailed: "無法復原儀表板變更",

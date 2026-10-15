@@ -1139,6 +1139,8 @@ export default {
     historyRestoreQuestion: "Diese Dashboard-Version wiederherstellen?",
     historyRestoreWarning:
       "Dies ersetzt das aktuelle Dashboard-Layout und speichert den aktuellen Stand im Verlauf.",
+    historyRestoreUndoesChange:
+      "Damit kehrst du zum Stand vor dieser Änderung zurück, sodass auch alle späteren Änderungen rückgängig gemacht werden. Der aktuelle Stand wird vorher im Verlauf gespeichert.",
     undo: "Rückgängig",
     undoSuccess: "Dashboard-Änderung rückgängig gemacht",
     undoFailed: "Dashboard-Änderung konnte nicht rückgängig gemacht werden",

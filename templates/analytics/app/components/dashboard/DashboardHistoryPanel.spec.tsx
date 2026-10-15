@@ -138,4 +138,31 @@ describe("DashboardHistoryPanel", () => {
       "Changed the query in “WAU”Rearranged the panels",
     );
   });
+
+  it("says a restore goes back to before the entry's change", () => {
+    renderPanel([
+      revision("added", {
+        changesStatus: "valid",
+        changes: [{ kind: "panel-added", title: "DAU by Template" }],
+        omittedChanges: 0,
+      }),
+      revision("legacy", { changesStatus: "absent" }),
+    ]);
+    const restoreButtons = () =>
+      [...document.body.querySelectorAll("button")].filter(
+        (button) => button.textContent === "Restore",
+      );
+    const dialogText = () =>
+      document.body.querySelector('[role="alertdialog"]')?.textContent ?? "";
+
+    act(() => restoreButtons()[0].click());
+    expect(dialogText()).toContain(
+      "This goes back to before this change, so every later change is undone too.",
+    );
+
+    act(() => restoreButtons()[1].click());
+    expect(dialogText()).toContain(
+      "This replaces the current dashboard layout",
+    );
+  });
 });
