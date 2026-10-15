@@ -5651,14 +5651,10 @@ async function runAuthoringFuzzQa(
             requestUrl.pathname,
           )?.[1];
         if (heartbeatId) {
-          try {
-            return {
-              kind: "heartbeat",
-              sessionId: decodeURIComponent(heartbeatId),
-            };
-          } catch {
-            return null;
-          }
+          return {
+            kind: "heartbeat",
+            sessionId: decodeURIComponent(heartbeatId),
+          };
         }
       }
       return null;
