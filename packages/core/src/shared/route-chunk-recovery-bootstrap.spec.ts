@@ -10,6 +10,8 @@ import {
   EXTERNAL_EMBED_WINDOW_KEY,
   ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
+  STALE_CHUNK_EXHAUSTED_KEY,
+  STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
   STALE_CHUNK_RELOAD_AT_KEY,
 } from "./route-chunk-recovery-bootstrap.js";
 
@@ -33,7 +35,8 @@ function installBootstrap(
 ) {
   let onError: ((event: BootstrapResourceError) => void) | undefined;
   const sessionValues = new Map<string, string>();
-  const windowState: Record<string, unknown> = {};
+  const dispatchEvent = vi.fn();
+  const windowState: Record<string, unknown> = { dispatchEvent };
   const assign = vi.fn();
   const location = {
     assign,
@@ -42,6 +45,7 @@ function installBootstrap(
   };
 
   runInNewContext(ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT, {
+    CustomEvent,
     Date: { now: () => 2_000_000 },
     URL,
     URLSearchParams,
@@ -70,7 +74,14 @@ function installBootstrap(
   if (!onError)
     throw new Error("Recovery bootstrap did not install its listener");
 
-  return { assign, location, onError, sessionValues, windowState };
+  return {
+    assign,
+    dispatchEvent,
+    location,
+    onError,
+    sessionValues,
+    windowState,
+  };
 }
 
 describe("route chunk recovery bootstrap", () => {
@@ -217,8 +228,8 @@ describe("route chunk recovery bootstrap", () => {
     expect(local.assign).not.toHaveBeenCalled();
   });
 
-  it("does not navigate a transplanted MCP App embed to the host origin", () => {
-    const { assign, onError, windowState } = installBootstrap(
+  it("reports instead of navigating a transplanted MCP App embed to the host origin", () => {
+    const { assign, dispatchEvent, onError, windowState } = installBootstrap(
       "https://abc123.claudemcpcontent.com/crm/records/1?embedded=1",
     );
     windowState[EXTERNAL_EMBED_WINDOW_KEY] = {
@@ -226,17 +237,30 @@ describe("route chunk recovery bootstrap", () => {
     };
     const stopImmediatePropagation = vi.fn();
 
-    onError({
+    const failedPreload = {
       target: {
-        getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+        getAttribute: (name: string) =>
+          name === "rel" ? "modulepreload" : null,
         hasAttribute: () => false,
         rel: "modulepreload",
         tagName: "LINK",
       },
       stopImmediatePropagation,
-    });
+    };
+
+    onError(failedPreload);
+    onError(failedPreload);
 
     expect(assign).not.toHaveBeenCalled();
     expect(stopImmediatePropagation).not.toHaveBeenCalled();
+    // Recorded on the window for error capture to read once the client bundle
+    // installs, and dispatched once for anything already listening.
+    expect(windowState[STALE_CHUNK_EXHAUSTED_KEY]).toEqual({
+      reason: "external-embed",
+    });
+    expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    const [event] = dispatchEvent.mock.calls[0];
+    expect(event.type).toBe(STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT);
+    expect(event.detail).toEqual({ reason: "external-embed" });
   });
 });

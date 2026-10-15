@@ -6,6 +6,8 @@ import {
   CHUNK_RECOVERY_QUERY_VALUE,
   EXTERNAL_EMBED_WINDOW_KEY,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
+  STALE_CHUNK_EXHAUSTED_KEY,
+  STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
   STALE_CHUNK_RELOAD_AT_KEY,
   STALE_CHUNK_RELOAD_COOLDOWN_MS,
 } from "../shared/route-chunk-recovery-bootstrap.js";
@@ -13,17 +15,9 @@ import { recordNav } from "./recorder.js";
 
 const INSTALL_KEY = "__agentNativeRouteChunkRecoveryInstalled";
 const INTENDED_NAV_MAX_AGE_MS = 15_000;
-const STALE_CHUNK_EXHAUSTED_KEY = "__agentNativeStaleChunkRecoveryExhausted";
 const recoveryStates = new WeakMap<Window, RouteChunkRecoveryState>();
 
-/**
- * Fired on `window` the first time a stale chunk could not be recovered by a
- * reload. The shared noise rules drop the raw dynamic-import failure because
- * recovery handles it; this is the one signal that it did not, so a deploy whose
- * chunks are gone for everyone stays visible.
- */
-export const STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT =
-  "agent-native:stale-chunk-recovery-exhausted";
+export { STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT };
 
 export type StaleChunkRecoveryExhaustedReason =
   | "cooldown"
