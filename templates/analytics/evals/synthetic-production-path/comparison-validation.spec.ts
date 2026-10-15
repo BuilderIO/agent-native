@@ -141,9 +141,9 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         failedRuns: 0,
         abortedRuns: 0,
         staleIndexMarked: 4,
-        revision: "9053f1751fd69bf19f757cc793c5d89b0af02cb2",
+        revision: "cf46270ac7ee6b6f5fdbe30910aeb5dab11e5bc3",
         codeRevision:
-          "sha256:9166a100c8e888383a96c9612d585f2a32ba2e921f6ca49e3b55fb0e8ce26a40",
+          "sha256:090fa4775bcd5cae7bc3896d27bd58be65a68672356eefc4d90f92217e0b794e",
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
     });

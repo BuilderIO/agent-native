@@ -24,7 +24,57 @@ runs in each phase to complete the production path. Keep this CSV only as a
 record of the harness failure; use a comparison whose baseline and candidate
 both meet that completion threshold.
 
-## Latest measured v23 comparison
+## Latest measured v24 comparison
+
+The v24 artifact compares baseline commit
+`757e1dd35809cce59999f5e54762151c00750a6b` with candidate commit
+`cf46270ac7ee6b6f5fdbe30910aeb5dab11e5bc3`. It runs the same 25 synthetic
+retrieval cases twice in each phase, including the aggregate-only abstention
+case, using identical harness bytes.
+
+Top-1 retrieval rose from 46/48 (95.8%) to 48/48 (100%). Correct abstentions
+rose from 0/2 to 2/2, and total contract accuracy rose from 46/50 (92%) to
+50/50 (100%). All 100 runs completed without aborts; each made one `find-data`
+call and no other or failed action. Mean local harness latency rose from 35.0
+ms to 59.1 ms. This deterministic synthetic timing does not predict hosted
+model or production latency.
+
+The evaluated code hashes are
+`sha256:be8c3426f227f48c193b4cedd7395c1a13b9b50f38f60a3e92940e55c232eafb`
+and
+`sha256:090fa4775bcd5cae7bc3896d27bd58be65a68672356eefc4d90f92217e0b794e`.
+Both phases use the same candidate harness bytes,
+`sha256:c75aaf0790f81dc25897143367bb374b5669baf03e9ef5231635be12421bd9bc`.
+The validator pins revisions, hashes, case IDs, paired runs, privacy-safe CSV
+fields, completion, and stale-index markers. The artifact is
+[`SYNTHETIC-analytics-production-path-v24-before-after.csv`](./SYNTHETIC-analytics-production-path-v24-before-after.csv).
+
+To reproduce the before phase, check out the pinned baseline, copy the
+candidate `production-path.spec.ts` to the same relative path, install
+dependencies, build the Analytics dependencies, and run:
+
+```sh
+ANALYTICS_EVAL_PHASE=before \
+ANALYTICS_EVAL_GIT_REVISION=757e1dd35809cce59999f5e54762151c00750a6b \
+ANALYTICS_EVAL_HARNESS_REVISION=cf46270ac7ee6b6f5fdbe30910aeb5dab11e5bc3 \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+Run the after phase from a clean checkout at the candidate commit:
+
+```sh
+ANALYTICS_EVAL_PHASE=after \
+ANALYTICS_EVAL_GIT_REVISION=cf46270ac7ee6b6f5fdbe30910aeb5dab11e5bc3 \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+This fixture-backed production-path evaluation is not a hosted-model,
+BigQuery-connection, or production-data test, and it does not replay historical
+user chats. The CSV contains no prompts, SQL, identities, or source values.
+
+## Historical measured v23 comparison (superseded by v24)
 
 The v23 artifact compares baseline commit
 `1da583a5059d855ef7f61dc1e017607416e123d9` with candidate commit
@@ -33,8 +83,7 @@ retrieval cases twice in each phase, including the aggregate-only abstention
 case.
 
 These scores apply only to the pinned candidate and harness revisions above.
-Later PR changes add per-source freshness checks; the v23 score deltas do not
-measure those changes.
+The v23 score deltas do not measure the later changes included in v24.
 
 Top-1 retrieval rises from 46/48 (95.8%) to 48/48 (100%). Correct abstentions
 rise from 0/2 to 2/2, and total contract accuracy rises from 46/50 (92%) to

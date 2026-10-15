@@ -47,9 +47,13 @@ accuracy gain. No production index or data rows were written for this eval.
 
 [`SYNTHETIC-analytics-production-path-v24-before-after.csv`](./synthetic-production-path/SYNTHETIC-analytics-production-path-v24-before-after.csv)
 records two runs each for 25 synthetic cases on baseline `757e1dd35809` and
-candidate `9053f1751fd6`, using identical pinned harness bytes. It measures the
-current per-source freshness contract and includes a case where the only
-membership reference is a monthly aggregate.
+candidate `cf46270ac7ee`, using identical pinned harness bytes. This rerun
+includes the dashboard join, BigQuery comment, and row-grain cadence fixes at
+the reviewed PR head. The measured candidate code hash is
+`sha256:090fa4775bcd5cae7bc3896d27bd58be65a68672356eefc4d90f92217e0b794e`;
+the shared harness hash is
+`sha256:c75aaf0790f81dc25897143367bb374b5669baf03e9ef5231635be12421bd9bc`.
+It includes a case where the only membership reference is a monthly aggregate.
 
 - Case-contract accuracy rose from 46/50 runs (92%) to 50/50 (100%).
 - Positive-source top-1 retrieval rose from 46/48 (95.8%) to 48/48 (100%).
@@ -57,11 +61,10 @@ membership reference is a monthly aggregate.
   from 2/2 to 0/2.
 - All 100 runs completed through the production agent loop and called only the
   metadata-only `find-data` action once; there were no aborts or failed actions.
-- Mean harness latency rose from 31.5 ms to 45.6 ms. This is local synthetic
+- Mean harness latency rose from 35.0 ms to 59.1 ms. This is local synthetic
   timing, not a production latency measurement.
 
-The v23 CSV remains available as historical evidence, but its candidate
-predates the current per-source freshness contract. V24 is the current
+The v23 CSV remains available as historical evidence. V24 is the current
 source-pinned measurement. This deterministic harness uses a synthetic model
 and in-memory source index; it is not a hosted-model, BigQuery-connection, or
 production-data test, and it does not replay Brent's historical chat. The CSV
