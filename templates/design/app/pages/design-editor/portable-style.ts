@@ -91,11 +91,16 @@ export function applyPortableStyles(
       return;
     }
     // The layer's own declarations travel with it (unless they read a var() the
-    // destination may lack); a partly authored shorthand still carries what it inherited.
+    // destination may lack). A partly authored font still carries the inherited
+    // family and size, which only its shorthand captured.
+    const longhands = longhandsOf(
+      host.ownerDocument,
+      cssPropertyName(property),
+    );
     if (
-      longhandsOf(host.ownerDocument, cssPropertyName(property)).every(
-        authoredWithoutVar,
-      )
+      property === "font"
+        ? longhands.every(authoredWithoutVar)
+        : longhands.some(authoredWithoutVar)
     ) {
       return;
     }

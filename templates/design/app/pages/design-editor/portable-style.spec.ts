@@ -450,6 +450,37 @@ describe("portable-style source capture and rendered Chromium behavior", () => {
     });
   });
 
+  it("carries a partly authored font's inherited family and size, but no other partly authored shorthand", async () => {
+    const destHtml = `<!doctype html><html><body><div data-agent-native-node-id="dropped" style="position:absolute;display:flex;align-items:center;font-weight:700"></div></body></html>`;
+    const applied = await apply(destHtml, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        {
+          sourceId: "dropped",
+          path: [],
+          styles: {
+            placeItems: "center normal",
+            font: "700 16px system-ui, sans-serif",
+          },
+        },
+      ],
+    });
+    await page.setContent(applied);
+    const style = await page
+      .locator('[data-agent-native-node-id="dropped"]')
+      .evaluate((el: HTMLElement) => ({
+        alignItems: el.style.alignItems,
+        justifyItems: el.style.justifyItems,
+        font: el.style.font,
+      }));
+    expect(style).toEqual({
+      alignItems: "center",
+      justifyItems: "",
+      font: "700 16px system-ui, sans-serif",
+    });
+  });
+
   it("keeps auto, percent, and calc responsive to a breakpoint-driven containing block; rem is canonical px", async () => {
     const html = `<!doctype html><html><head><style>
       html { font-size: 16px; }
