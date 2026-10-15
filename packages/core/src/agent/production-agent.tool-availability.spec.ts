@@ -165,6 +165,31 @@ describe("tools that are gone since earlier in the conversation", () => {
     expect(JSON.stringify(note)).not.toContain("task-run");
   });
 
+  it("adds the note once when a continuation reruns the loop on the same messages", async () => {
+    const actions = attachToolSearch({ "task-run": tool("Run a task") });
+    const tools = actionsToEngineTools(actions);
+    const messages = structuredClone(history);
+    const seen: EngineMessage[][] = [];
+    for (let pass = 0; pass < 2; pass++) {
+      await runAgentLoop({
+        engine: engineWith([], seen),
+        model: "test-model",
+        systemPrompt: "system",
+        tools,
+        availableTools: tools,
+        messages,
+        actions,
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+      messages.push(userText("Continue."));
+    }
+
+    const notes =
+      JSON.stringify(seen[1]).split("no longer available").length - 1;
+    expect(notes).toBe(1);
+  });
+
   it("adds no note when every loaded tool still resolves", async () => {
     const { seen } = await run({
       registry: {

@@ -6409,10 +6409,19 @@ export async function runAgentLoop(opts: {
       (!availableToolMap.has(name) || isUnavailableActionEntry(actions[name])),
   );
   if (droppedToolNames.length > 0) {
-    appendUserContextNote(
-      messages,
-      formatDroppedToolsNote(droppedToolNames, MAX_DROPPED_TOOL_NOTE_NAMES),
+    // In-process continuations rerun this loop on the same messages.
+    const note = formatDroppedToolsNote(
+      droppedToolNames,
+      MAX_DROPPED_TOOL_NOTE_NAMES,
     );
+    const alreadyNoted = messages.some(
+      (message) =>
+        message.role === "user" &&
+        message.content.some(
+          (part) => part.type === "text" && part.text === note,
+        ),
+    );
+    if (!alreadyNoted) appendUserContextNote(messages, note);
   }
 
   const processorChain =
