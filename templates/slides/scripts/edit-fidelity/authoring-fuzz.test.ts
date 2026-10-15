@@ -85,6 +85,11 @@ const isExpectedSameOriginSaveReloadAbort = (
   requestAgeMs = Number.POSITIVE_INFINITY,
   requestStartedDuringNavigation = false,
   competingClaimStartedAfterNavigation = false,
+  sessionCorrelation?: {
+    requestSessionId: string | null;
+    retiredSessionId: string | null;
+    competingSameTypeRequest: boolean;
+  },
 ) =>
   isExpectedSaveReloadAbort(
     pathname,
@@ -96,6 +101,7 @@ const isExpectedSameOriginSaveReloadAbort = (
     requestStartedDuringNavigation,
     competingClaimStartedAfterNavigation,
     true,
+    sessionCorrelation,
   );
 
 it("keeps authoring page setup errors out of seed regression results", async () => {
@@ -1413,6 +1419,87 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       100,
     ),
   ).toBe(true);
+  const heartbeatPath = "/_agent-native/browser-sessions/session-id/heartbeat";
+  const matchingSession = {
+    requestSessionId: "session-id",
+    retiredSessionId: "session-id",
+    competingSameTypeRequest: false,
+  };
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      heartbeatPath,
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      100,
+      false,
+      false,
+      matchingSession,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      heartbeatPath,
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      100,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      heartbeatPath,
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      100,
+      false,
+      false,
+      { ...matchingSession, retiredSessionId: "another-session" },
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      heartbeatPath,
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      100,
+      false,
+      false,
+      { ...matchingSession, competingSameTypeRequest: true },
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      heartbeatPath,
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      9_000,
+      false,
+      false,
+      matchingSession,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/browser-sessions/%E0%A4%A/heartbeat",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      100,
+      false,
+      false,
+      matchingSession,
+    ),
+  ).toBe(false);
   expect(
     isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim",
@@ -1568,6 +1655,47 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
         settledAgeMs: 1_000,
       },
     ]),
+  ).toBe(false);
+  const heartbeatUrl =
+    "http://localhost:45715/_agent-native/browser-sessions/session-id/heartbeat";
+  const heartbeatCandidate = {
+    url: heartbeatUrl,
+    pathname: "/_agent-native/browser-sessions/session-id/heartbeat",
+    method: "POST",
+    ageMs: 100,
+    sameOrigin: true,
+    requestWasPendingAtReloadNavigation: true,
+    requestSessionId: "session-id",
+    retiredSessionId: "session-id",
+    competingSameTypeRequest: false,
+  };
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${heartbeatUrl} due to access control checks.`,
+      "save/reload",
+      [heartbeatCandidate],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${heartbeatUrl} due to access control checks.`,
+      "save/reload",
+      [{ ...heartbeatCandidate, retiredSessionId: "another-session" }],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${heartbeatUrl} due to access control checks.`,
+      "save/reload",
+      [{ ...heartbeatCandidate, competingSameTypeRequest: true }],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${heartbeatUrl} due to access control checks.`,
+      "save/reload",
+      [{ ...heartbeatCandidate, method: "GET" }],
+    ),
   ).toBe(false);
   expect(
     isExpectedSaveReloadWatchedRequestCorsConsoleError(
@@ -1867,9 +1995,19 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
   ).toBe(false);
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError(warning, [
-      { ...candidate, ageMs: 9_000 },
+      { ...candidate, ageMs: 9_500 },
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      { ...candidate, ageMs: 11_000 },
     ]),
   ).toBe(false);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      { ...candidate, ageMs: 9_000 },
+    ]),
+  ).toBe(true);
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError(warning, [
       candidate,
@@ -2269,7 +2407,7 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
       "/_agent-native/browser-sessions/%E0%A4%A/heartbeat",
       null,
     ),
-  ).toBeNull();
+  ).toEqual({ status: "invalid", reason: "malformed-heartbeat" });
 
   const heartbeatAbort = {
     ...claimAbort,
@@ -2285,6 +2423,24 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
       errorText: "Load request cancelled",
     }),
   ).toBe(true);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...heartbeatAbort,
+      pathname: "/_agent-native/browser-sessions/retired-session-id/heartbeat",
+    }),
+  ).toBe(true);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...heartbeatAbort,
+      pathname: "/_agent-native/browser-sessions/other-session/heartbeat",
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...heartbeatAbort,
+      pathname: "/_agent-native/browser-sessions/%E0%A4%A/heartbeat",
+    }),
+  ).toBe(false);
 
   const heartbeatLoadWarning =
     "[Agent-Native browser session] heartbeat failed: TypeError: Load failed";
@@ -3411,7 +3567,14 @@ it("accepts cleanup request cancellations while navigation errors are delivered"
   expect(
     isExpectedCleanupNavigationError(
       message,
-      [{ ...candidate, ageMs: 9_000 }],
+      [{ ...candidate, ageMs: 9_500 }],
+      true,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupNavigationError(
+      message,
+      [{ ...candidate, ageMs: 11_000 }],
       true,
     ),
   ).toBe(false);

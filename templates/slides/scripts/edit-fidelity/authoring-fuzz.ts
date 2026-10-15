@@ -281,7 +281,14 @@ function browserSessionClaimId(pathname: string) {
   )?.[1];
 }
 
-function browserSessionHeartbeatId(method: string, pathname: string) {
+type BrowserSessionHeartbeatIdentity =
+  | { status: "identified"; sessionId: string }
+  | { status: "invalid"; reason: "malformed-heartbeat" };
+
+function browserSessionHeartbeatIdentity(
+  method: string,
+  pathname: string,
+): BrowserSessionHeartbeatIdentity | null {
   if (method !== "POST") return null;
   const encodedId =
     /^\/_agent-native\/browser-sessions\/([^/]+)\/heartbeat$/.exec(
@@ -289,10 +296,29 @@ function browserSessionHeartbeatId(method: string, pathname: string) {
     )?.[1];
   if (!encodedId) return null;
   try {
-    return decodeURIComponent(encodedId);
-  } catch {
-    return null;
+    return { status: "identified", sessionId: decodeURIComponent(encodedId) };
+  } catch (error) {
+    if (error instanceof URIError) {
+      return { status: "invalid", reason: "malformed-heartbeat" };
+    }
+    throw error;
   }
+}
+
+function matchesRetiredSessionHeartbeat(
+  method: string,
+  pathname: string,
+  requestSessionId: string | null | undefined,
+  retiredSessionId: string | null | undefined,
+  competingSameTypeRequest = false,
+) {
+  const heartbeat = browserSessionHeartbeatIdentity(method, pathname);
+  return (
+    heartbeat?.status === "identified" &&
+    requestSessionId === heartbeat.sessionId &&
+    retiredSessionId === heartbeat.sessionId &&
+    !competingSameTypeRequest
+  );
 }
 
 export function uniquePendingBrowserSessionId(
@@ -374,6 +400,10 @@ const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
 // Browser-session requests abort after at least ten seconds; leave timer slack.
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
 const reloadNavigationConsoleGraceMs = 1_000;
+// The default client abort timer is ten seconds; allow delivery slack for a
+// claim that was still pending when cleanup navigation began.
+const cleanupNavigationClaimMaxRequestAgeMs =
+  10_000 + reloadNavigationConsoleGraceMs;
 const retiredBrowserSessionPollConsoleGraceMs = 250;
 const reloadNavigationSuccessfulClaimGraceMs = 250;
 const outgoingBrowserSessionAbortWindowMs = 1_000;
@@ -408,6 +438,12 @@ const browserSessionClaimRequestRule: SaveReloadRequestAbortRule = {
   errorTexts: ["Load request cancelled", "cancelled", ...navigationAbortErrors],
 };
 
+const browserSessionHeartbeatRequestRule: SaveReloadRequestAbortRule = {
+  path: /^\/_agent-native\/browser-sessions\/[^/]+\/heartbeat$/,
+  method: "POST",
+  errorTexts: ["Load request cancelled", "cancelled", ...navigationAbortErrors],
+};
+
 const cleanupPollRequestRule: SaveReloadRequestAbortRule = {
   path: "/_agent-native/poll",
   method: "GET",
@@ -425,6 +461,7 @@ const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
   },
   browserSessionRegistrationRequestRule,
   browserSessionClaimRequestRule,
+  browserSessionHeartbeatRequestRule,
 ];
 
 export function isExpectedSaveReloadWatchedRequestAbort(
@@ -437,6 +474,11 @@ export function isExpectedSaveReloadWatchedRequestAbort(
   requestStartedDuringNavigation = false,
   competingClaimStartedAfterNavigation = false,
   requestSameOrigin = false,
+  sessionCorrelation?: {
+    requestSessionId: string | null;
+    retiredSessionId: string | null;
+    competingSameTypeRequest: boolean;
+  },
 ) {
   return (
     activePhase === "save/reload" &&
@@ -454,7 +496,15 @@ export function isExpectedSaveReloadWatchedRequestAbort(
       return (
         matchesPath &&
         (!rule.method || rule.method === method) &&
-        rule.errorTexts.includes(errorText)
+        rule.errorTexts.includes(errorText) &&
+        (rule !== browserSessionHeartbeatRequestRule ||
+          matchesRetiredSessionHeartbeat(
+            method ?? "",
+            pathname,
+            sessionCorrelation?.requestSessionId,
+            sessionCorrelation?.retiredSessionId,
+            sessionCorrelation?.competingSameTypeRequest,
+          ))
       );
     })
   );
@@ -462,10 +512,10 @@ export function isExpectedSaveReloadWatchedRequestAbort(
 
 function browserSessionNavigationRequestKind(method: string, pathname: string) {
   if (isBrowserSessionClaimRequest(method, pathname)) return "poll" as const;
+  const heartbeat = browserSessionHeartbeatIdentity(method, pathname);
   if (
     method === "POST" &&
-    (pathname === "/_agent-native/browser-sessions" ||
-      browserSessionHeartbeatId(method, pathname) !== null)
+    (pathname === "/_agent-native/browser-sessions" || heartbeat !== null)
   ) {
     return "heartbeat" as const;
   }
@@ -478,13 +528,17 @@ type BrowserSessionNavigationRequestIdentity =
       kind: "poll" | "heartbeat";
       sessionId: string;
     }
-  | { status: "invalid"; reason: "malformed-registration" };
+  | {
+      status: "invalid";
+      reason: "malformed-registration" | "malformed-heartbeat";
+    };
 
 export function browserSessionNavigationRequestIdentity(
   method: string,
   pathname: string,
   postData: string | null,
 ): BrowserSessionNavigationRequestIdentity | null {
+  const heartbeat = browserSessionHeartbeatIdentity(method, pathname);
   const kind = browserSessionNavigationRequestKind(method, pathname);
   if (!kind) return null;
   const claimSessionId = browserSessionClaimId(pathname);
@@ -492,9 +546,9 @@ export function browserSessionNavigationRequestIdentity(
     return claimSessionId
       ? { status: "identified", kind, sessionId: claimSessionId }
       : null;
-  const heartbeatSessionId = browserSessionHeartbeatId(method, pathname);
-  if (heartbeatSessionId !== null) {
-    return { status: "identified", kind, sessionId: heartbeatSessionId };
+  if (heartbeat?.status === "invalid") return heartbeat;
+  if (heartbeat?.status === "identified") {
+    return { status: "identified", kind, sessionId: heartbeat.sessionId };
   }
   if (pathname !== "/_agent-native/browser-sessions") return null;
   if (postData === null) {
@@ -650,7 +704,13 @@ export function isExpectedOutgoingBrowserSessionNavigationAbort(
       browserSessionClaimId(candidate.pathname) ===
         candidate.requestSessionId) ||
     (candidate.requestKind === "heartbeat" &&
-      candidate.pathname === "/_agent-native/browser-sessions");
+      (candidate.pathname === "/_agent-native/browser-sessions" ||
+        matchesRetiredSessionHeartbeat(
+          candidate.method,
+          candidate.pathname,
+          candidate.requestSessionId,
+          candidate.retiredSessionId,
+        )));
   const navigationOffsetMs =
     candidate.mainFrameNavigationStartedAt === null
       ? Number.POSITIVE_INFINITY
@@ -718,6 +778,7 @@ function isExpectedWatchedRequestNavigationAbort(
   rules: readonly SaveReloadRequestAbortRule[],
   allowFinishedRequestGrace = false,
   rejectCompetingClaim = false,
+  maxRequestAgeMs = reloadNavigationAbortMaxRequestAgeMs,
 ) {
   return (
     candidate.requestWasPendingAtNavigation === true &&
@@ -737,7 +798,7 @@ function isExpectedWatchedRequestNavigationAbort(
         candidate.settledAgeMs >= 0 &&
         candidate.settledAgeMs < reloadNavigationConsoleGraceMs)) &&
     candidate.ageMs >= 0 &&
-    candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
+    candidate.ageMs < maxRequestAgeMs &&
     (candidate.settledAgeMs === undefined ||
       (candidate.settledAgeMs >= 0 &&
         candidate.settledAgeMs < reloadNavigationConsoleGraceMs)) &&
@@ -746,7 +807,18 @@ function isExpectedWatchedRequestNavigationAbort(
         typeof rule.path === "string"
           ? rule.path === candidate.pathname
           : rule.path.test(candidate.pathname);
-      return matchesPath && (!rule.method || rule.method === candidate.method);
+      return (
+        matchesPath &&
+        (!rule.method || rule.method === candidate.method) &&
+        (rule !== browserSessionHeartbeatRequestRule ||
+          matchesRetiredSessionHeartbeat(
+            candidate.method,
+            candidate.pathname,
+            candidate.requestSessionId,
+            candidate.retiredSessionId,
+            candidate.competingSameTypeRequest,
+          ))
+      );
     })
   );
 }
@@ -774,8 +846,11 @@ export function isExpectedWatchedRequestCorsError(
   if (!match) return false;
 
   return (
-    candidates.filter(
-      (candidate) =>
+    candidates.filter((candidate) => {
+      const isCleanupClaim =
+        activePhase === "cleanup/navigation" &&
+        isBrowserSessionClaimRequest(candidate.method, candidate.pathname);
+      return (
         candidate.url === match[1] &&
         (candidate.pathname !== "/_agent-native/poll" ||
           (candidate.method === "GET" &&
@@ -788,8 +863,12 @@ export function isExpectedWatchedRequestCorsError(
           rules,
           activePhase === "save/reload",
           true,
-        ),
-    ).length === 1
+          isCleanupClaim
+            ? cleanupNavigationClaimMaxRequestAgeMs
+            : reloadNavigationAbortMaxRequestAgeMs,
+        )
+      );
+    }).length === 1
   );
 }
 
@@ -798,6 +877,7 @@ function hasExactlyOneExpectedBrowserSessionAbort(
   rules: readonly SaveReloadRequestAbortRule[],
   allowFinishedRequestGrace = false,
   rejectCompetingClaim = false,
+  maxRequestAgeMs = reloadNavigationAbortMaxRequestAgeMs,
 ) {
   return (
     candidates.filter((candidate) =>
@@ -806,6 +886,7 @@ function hasExactlyOneExpectedBrowserSessionAbort(
         rules,
         allowFinishedRequestGrace,
         rejectCompetingClaim,
+        maxRequestAgeMs,
       ),
     ).length === 1
   );
@@ -1307,6 +1388,7 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
       [browserSessionClaimRequestRule],
       false,
       true,
+      cleanupNavigationClaimMaxRequestAgeMs,
     )
   );
 }
@@ -1407,6 +1489,9 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
     requestFinishedSuccessfully?: boolean;
     competingRequestStartedAfterNavigation?: boolean;
     competingClaimStartedAfterNavigation?: boolean;
+    requestSessionId?: string | null;
+    retiredSessionId?: string | null;
+    competingSameTypeRequest?: boolean;
   }>,
 ) {
   if (activePhase !== "save/reload") return false;
@@ -2592,6 +2677,14 @@ export async function runAuthoringFuzz(
         navigationCandidate?.requestStartedDuringNavigation === true,
         competingClaimStartedAfterNavigation,
         requestUrl.origin === authoringPageOrigin,
+        navigationCandidate
+          ? {
+              requestSessionId: navigationCandidate.requestSessionId,
+              retiredSessionId: navigationCandidate.retiredSessionId,
+              competingSameTypeRequest:
+                hasCompetingOutgoingSessionRequest(request),
+            }
+          : undefined,
       )
     ) {
       const candidate = navigationCandidate;
