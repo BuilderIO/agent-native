@@ -22,6 +22,15 @@ const messages = {
     turnOffRewindFailed:
       "Impossible de désactiver Rewind. Arrêtez l'enregistrement et réessayez.",
     turnOnRewindFailed: "Impossible d’activer Rewind. Réessayez.",
+    turnOnRewindPermissionFailed:
+      "Autorisez l’enregistrement de l’écran pour Clips dans Réglages Système > Confidentialité et sécurité > Enregistrement de l’écran et de l’audio système, puis redémarrez Clips et réessayez.",
+    turnOnRewindUnsupported:
+      "La capture d’écran de Rewind est disponible uniquement sur macOS.",
+    turnOnRewindNoSpace:
+      "L’espace disque disponible ne suffit pas pour démarrer Rewind. Libérez de l’espace et réessayez.",
+    turnOnRewindStopClip: "Arrêtez le Clip en cours avant d’activer Rewind.",
+    turnOnRewindStorageFailed:
+      "Impossible d’accéder au stockage de Rewind. Vérifiez l’espace disque et les autorisations du dossier, puis réessayez.",
     rewindConsentTitle: "Activer Rewind ?",
     rewindConsentBody:
       "Clips enregistre continuellement votre écran et le conserve sur cet appareil. Les agents reçoivent des extraits de texte, et la vidéo n’est partagée qu’après votre accord.",
