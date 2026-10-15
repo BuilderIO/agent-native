@@ -94,4 +94,66 @@ describe("assistant root projection", () => {
       true,
     );
   });
+
+  it("does not deduplicate a tool-only durable root with empty text", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "server-run-one",
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-empty",
+          role: "assistant",
+          parts: [{ type: "text", text: "" }],
+          metadata: { runId: "run-one" },
+        },
+      ],
+    });
+    expect(result.representedRootMessageIds.has("server-run-one")).toBe(false);
+  });
+
+  it("keeps tool parts when snapshot text matches but omits them", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "server-run-one",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "Answer complete" },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-text",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete" }],
+          metadata: { runId: "run-one" },
+        },
+      ],
+    });
+    expect(result.representedRootMessageIds.has("server-run-one")).toBe(false);
+    expect(result.snapshotMessageIdsByRootMessageId.has("server-run-one")).toBe(
+      false,
+    );
+  });
 });

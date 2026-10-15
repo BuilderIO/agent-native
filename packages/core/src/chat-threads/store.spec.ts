@@ -1924,7 +1924,7 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
-  it("counts a mirrored tool-call reply once when tool calls were not saved", async () => {
+  it("keeps a tool-call root when a text snapshot omits the unsaved tool call", async () => {
     const repository = {
       messages: [
         {
@@ -1976,7 +1976,7 @@ describe("chat thread store", () => {
       3,
     );
 
-    expect(row!.message_count).toBe(2);
+    expect(row!.message_count).toBe(3);
   });
 
   it("counts many root assistant mirrors once each", async () => {
