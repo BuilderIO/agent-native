@@ -161,6 +161,7 @@ describe("buildSigmaSourceIndex", () => {
     expect(index.source).toMatchObject({
       id: "sigma",
       contentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+      generatedAt: "2026-10-08T00:00:00.000Z",
     });
     expect(index.entries).toHaveLength(1);
     expect(index.entries[0]).toMatchObject({
@@ -175,6 +176,74 @@ describe("buildSigmaSourceIndex", () => {
     expect(serialized).not.toContain("hidden.fake_table");
     expect(serialized).not.toContain("fake-access-token");
     expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("uses the oldest reviewed workbook update and leaves incomplete freshness unknown", async () => {
+    const root = await temporaryDirectory();
+    const manifestPath = path.join(root, "review.json");
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        items: [
+          { workbookId: "workbook-1", elementIds: ["element-1"] },
+          { workbookId: "workbook-2", elementIds: ["element-2"] },
+        ],
+      }),
+    );
+    const workbooks: Array<Record<string, string>> = [
+      {
+        workbookId: "workbook-1",
+        name: "Older reviewed workbook",
+        updatedAt: "2026-10-08T00:00:00.000Z",
+      },
+      {
+        workbookId: "workbook-2",
+        name: "Newer reviewed workbook",
+        updatedAt: "2026-10-09T00:00:00.000Z",
+      },
+    ];
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v2/auth/token") {
+        return jsonResponse({ access_token: "fake-access-token" });
+      }
+      if (url.pathname === "/v2/workbooks") {
+        return jsonResponse({ entries: workbooks, nextPage: null });
+      }
+      if (url.pathname.endsWith("/elements")) {
+        const workbookId = url.pathname.split("/")[3];
+        return jsonResponse({
+          entries: [
+            {
+              elementId:
+                workbookId === "workbook-1" ? "element-1" : "element-2",
+              name: "Reviewed element",
+              type: "table",
+            },
+          ],
+          nextPage: null,
+        });
+      }
+      return jsonResponse({ entries: [], nextPage: null });
+    }) as unknown as typeof fetch;
+    const args = {
+      manifestPath,
+      baseUrl: "https://aws-api.sigmacomputing.com",
+      clientId: "fake-client-id",
+      clientSecret: "fake-client-secret",
+      fetcher,
+    };
+
+    const completeIndex = await buildSigmaSourceIndex(args);
+    expect(completeIndex.source.generatedAt).toBe("2026-10-08T00:00:00.000Z");
+
+    workbooks[1] = {
+      workbookId: "workbook-2",
+      name: "Newer reviewed workbook",
+    };
+    const incompleteIndex = await buildSigmaSourceIndex(args);
+    expect(incompleteIndex.source).not.toHaveProperty("generatedAt");
   });
 
   it("keeps Sigma metric labels within the source-index limit", async () => {

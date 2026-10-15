@@ -76,8 +76,10 @@ import { runSeedCollabContent } from "../effects/seed-collab-content";
 import { useSyncLatestActiveContent } from "../effects/sync-latest-active-content";
 import { forwardYjsUndoStackItemMeta, MAX_DESIGN_UNDO_STACK } from "../history";
 import {
+  captureMotionSourceVersionBaseline,
   hasMotionTimelineContent,
   hydrateMotionDockTracks,
+  motionSourcePreviewProofForTargets,
   motionTimelineFingerprint,
 } from "../motion-state";
 import {
@@ -259,11 +261,28 @@ export function useEditorLiveEditsAndPresence({
   const [motionHydrationFingerprint, setMotionHydrationFingerprint] = useState<
     string | null
   >(null);
+  const motionSourceVersionHashRef = useRef<string | null>(null);
+  const motionSourceVersionCapturedRef = useRef(false);
+  const captureMotionSourceVersion = useCallback(
+    (previewHash: string | null | undefined) => {
+      const baseline = captureMotionSourceVersionBaseline(
+        {
+          captured: motionSourceVersionCapturedRef.current,
+          versionHash: motionSourceVersionHashRef.current,
+        },
+        previewHash,
+      );
+      motionSourceVersionHashRef.current = baseline.versionHash;
+      motionSourceVersionCapturedRef.current = baseline.captured;
+    },
+    [],
+  );
   const motionAutosaveRevisionRef = useRef(0);
   const motionAutosaveFailedRevisionRef = useRef<number | null>(null);
   const lastScheduledMotionAutosaveFileVersionRef = useRef<string | null>(null);
   const lastScheduledMotionAutosaveRevisionRef = useRef(0);
   const previousMotionFileIdRef = useRef<string | null>(null);
+  const motionFileActivationEpochRef = useRef(0);
 
   const [selectedStateId, setSelectedStateId] = useState<string | null>(null);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
@@ -957,6 +976,7 @@ export function useEditorLiveEditsAndPresence({
   useEffect(() => {
     const fileId = activeFile?.id ?? null;
     if (previousMotionFileIdRef.current === fileId) return;
+    motionFileActivationEpochRef.current += 1;
     previousMotionFileIdRef.current = fileId;
     const flushPendingMotionAutosave = motionAutosaveFlushRef.current;
     motionAutosaveFlushRef.current = null;
@@ -981,6 +1001,8 @@ export function useEditorLiveEditsAndPresence({
     setMotionTracksDirty(false);
     setMotionAutosaveRevision(0);
     setMotionHydrationFingerprint(null);
+    motionSourceVersionHashRef.current = null;
+    motionSourceVersionCapturedRef.current = false;
   }, [activeFile?.id, clearMotionAutosaveTimer]);
 
   useEffect(() => {
@@ -1008,6 +1030,9 @@ export function useEditorLiveEditsAndPresence({
     setMotionPlaybackMode(activeMotionTimeline?.playbackMode ?? "once");
     setMotionDefaultEase(activeMotionTimeline?.defaultEase ?? "ease");
     setMotionHydrationFingerprint(activeMotionHydrationFingerprint);
+    const sourceVersionHash = activeMotionTimeline?.sourceVersionHash ?? null;
+    motionSourceVersionHashRef.current = sourceVersionHash;
+    motionSourceVersionCapturedRef.current = Boolean(sourceVersionHash);
   }, [
     activeCodeLayerProjection,
     activeFile?.id,
@@ -1319,6 +1344,22 @@ export function useEditorLiveEditsAndPresence({
     (nodeIdMap: Map<string, string>, targetFileId: string) => {
       if (nodeIdMap.size === 0) return;
       if (previousMotionFileIdRef.current !== targetFileId) return;
+      const clonedTracks = motionTracks.filter((track) =>
+        nodeIdMap.has(track.targetNodeId),
+      );
+      const clonedTextAnimations = (
+        motionTextDocument?.animations ?? []
+      ).filter((animation) => nodeIdMap.has(animation.targetNodeId));
+      if (clonedTracks.length === 0 && clonedTextAnimations.length === 0)
+        return;
+      const sourceProof = motionSourcePreviewProofForTargets(
+        activeRuntimeCodeLayerProjection ?? activeCodeLayerProjection,
+        [
+          ...clonedTracks.map((track) => track.targetNodeId),
+          ...clonedTextAnimations.map((animation) => animation.targetNodeId),
+        ],
+      );
+      captureMotionSourceVersion(sourceProof?.moduleVersionHash);
       setMotionTracks((current) => {
         const cloned = current
           .filter((track) => nodeIdMap.has(track.targetNodeId))
@@ -1329,21 +1370,29 @@ export function useEditorLiveEditsAndPresence({
         if (cloned.length === 0) return current;
         return [...current, ...cloned];
       });
-      const clonedTextAnimations = (motionTextDocument?.animations ?? [])
-        .filter((animation) => nodeIdMap.has(animation.targetNodeId))
-        .map((animation) => ({
-          ...animation,
-          targetNodeId: nodeIdMap.get(animation.targetNodeId)!,
-        }));
-      if (clonedTextAnimations.length > 0) {
+      const remappedTextAnimations = clonedTextAnimations.map((animation) => ({
+        ...animation,
+        targetNodeId: nodeIdMap.get(animation.targetNodeId)!,
+      }));
+      if (remappedTextAnimations.length > 0) {
         setMotionTextDocument((current) => ({
           version: 1,
-          animations: [...(current?.animations ?? []), ...clonedTextAnimations],
+          animations: [
+            ...(current?.animations ?? []),
+            ...remappedTextAnimations,
+          ],
         }));
       }
       setMotionTracksDirty(true);
     },
-    [motionTextDocument, setMotionTextDocument],
+    [
+      activeCodeLayerProjection,
+      activeRuntimeCodeLayerProjection,
+      captureMotionSourceVersion,
+      motionTextDocument,
+      motionTracks,
+      setMotionTextDocument,
+    ],
   );
 
   const resolveAssetScreenPoint = useCallback(
@@ -1456,9 +1505,13 @@ export function useEditorLiveEditsAndPresence({
     setMotionAutosaveRevision,
     setMotionHydrationFingerprint,
     motionAutosaveRevisionRef,
+    motionSourceVersionHashRef,
+    motionSourceVersionCapturedRef,
+    captureMotionSourceVersion,
     motionAutosaveFailedRevisionRef,
     lastScheduledMotionAutosaveFileVersionRef,
     lastScheduledMotionAutosaveRevisionRef,
+    motionFileActivationEpochRef,
     previousMotionFileIdRef,
     selectedStateId,
     saveTemplateOpen,

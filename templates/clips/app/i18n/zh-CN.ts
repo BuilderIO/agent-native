@@ -4,6 +4,7 @@ const messages = {
     includeLast: "包含最近",
     whatIsThis: "这是什么？",
     off: "关",
+    none: "无",
     custom: "自定义…",
     customLabel: "自定义时长",
     customAmount: "时长",
@@ -15,6 +16,8 @@ const messages = {
     customErrorInvalid: "请输入整数秒数或分钟数。",
     customErrorTooLong: "请不超过 5 分钟。",
     turnOnRewind: "开启 Rewind",
+    turnOffRewind: "关闭",
+    turnOffRewindFailed: "无法关闭 Rewind。请先停止录制，然后重试。",
     rewindOffTitle: "开启 Rewind",
     rewindOffBody:
       "默认关闭。屏幕历史记录会保留在此设备上，直到你将其加入录制内容或批准共享请求。",
@@ -1787,6 +1790,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (已本地化)",
     recordingDownloadStarted: "Recording download started (已本地化)",
+    partialLocalCopyDownloadStarted:
+      "本地副本可能不完整。正在下载当前可用的录制数据。",
     backToLibrary: "Back to library (已本地化)",
     clipsRecorder: "Clips recorder (已本地化)",
     preparingSources: "Preparing sources… (已本地化)",
@@ -1938,6 +1943,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (已本地化)",
     cleanupComplete: "听写已清理",
     cleanupFailed: "无法清理听写",
+    undoCleanup: "撤销",
+    restoreOriginal: "恢复原文",
+    cleanupRestored: "已恢复原始听写",
+    cleanupRestoreFailed: "无法恢复原始听写",
     startFirst: "把想法变成文字",
     recordOnDesktop: "在桌面端录制",
     emptyDesktopDescription:

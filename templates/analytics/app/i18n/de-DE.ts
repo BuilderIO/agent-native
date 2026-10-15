@@ -51,6 +51,112 @@ export default {
     moveDashboard: "Dashboard verschieben",
     folderCreateFailed: "Ordner konnte nicht erstellt werden",
     moveFailed: "Dashboard konnte nicht verschoben werden",
+    importFromSigma: "Aus Sigma importieren",
+    sigmaConnection: "Sigma-Verbindung",
+    sigmaConnectedTo: "Verbunden mit {{name}}",
+    sigmaChooseConnection: "Sigma-Verbindung",
+    sigmaChooseConnectionPlaceholder: "Verbindung auswählen",
+    sigmaChooseConnectionDescription:
+      "Wähle den Sigma-Arbeitsbereich aus, dessen Arbeitsmappen du anzeigen möchtest.",
+    sigmaNoConnection: "Sigma ist nicht verbunden",
+    sigmaClientId: "Client-ID",
+    sigmaClientSecret: "Client-Secret",
+    sigmaBaseUrl: "API-Basis-URL (optional)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Sigma verbinden",
+    sigmaConnecting: "Verbindung zu Sigma wird hergestellt…",
+    sigmaConnectFailed:
+      "Diese Sigma-Verbindung konnte nicht überprüft werden. Prüfe die Anmeldedaten und die API-Region und versuche es erneut.",
+    sigmaCredentialStageFailed:
+      "Die temporären Sigma-Zugangsdaten konnten nicht gespeichert werden. Prüfe den Vault-Zugriff und versuche es erneut.",
+    sigmaCredentialsRequired:
+      "Speichere zuerst die Sigma-Client-ID und das Client-Secret.",
+    sigmaBaseUrlInvalid:
+      "Verwende eine HTTPS-URL der Sigma-API unter einer sigmacomputing.com-Domain.",
+    sigmaPersistenceUnavailable:
+      "Analytics kann die Sigma-Verbindung derzeit nicht sicher speichern. Versuche es erneut.",
+    sigmaPolicyInvalid:
+      "Die vorhandene Analytics-Sigma-Verbindung hat eine unerwartete Zugriffsrichtlinie. Verbinde sie vor einem erneuten Versuch in Dispatch neu.",
+    sigmaSaveFailed:
+      "Die Sigma-Zugangsdaten wurden überprüft, aber Analytics konnte sie nicht speichern. Die vorherige Verbindung ist unverändert. Versuche es erneut.",
+    sigmaCleanupPending:
+      "Temporäre Sigma-Einrichtungsdaten bleiben bestehen, bis die Bereinigung erfolgreich ist.",
+    sigmaCleanupFailed:
+      "Die temporären Sigma-Zugangsdaten konnten nicht gelöscht werden. Versuche die Bereinigung erneut.",
+    sigmaRetryCleanup: "Bereinigung erneut versuchen",
+    sigmaDirectCredentialsUnavailable:
+      "Die gespeicherten Analytics-Sigma-Zugangsdaten konnten nicht gelesen werden. Ein Organisationsadmin kann Sigma in Dispatch erneut verbinden oder die Zugangsdaten in Analytics neu eingeben.",
+    sigmaNoConnectionDescription:
+      "Gib hier Zugangsdaten ein, um eine nur für Analytics verfügbare Verbindung zu erstellen. In Dispatch für Analytics freigegebene Sigma-Verbindungen erscheinen hier automatisch; nur Organisationsadmins können Zugangsdaten direkt speichern.",
+    sigmaOpenDispatch: "In Dispatch verbinden",
+    sigmaOpenVault: "Vault öffnen",
+    sigmaWorkbooksLoadFailed:
+      "Sigma-Arbeitsmappen konnten nicht geladen werden",
+    sigmaRetryConnection: "Überprüfe die Verbindung und versuche es erneut.",
+    sigmaRetry: "Erneut versuchen",
+    sigmaNoWorkbooks: "Keine Sigma-Arbeitsmappen verfügbar.",
+    sigmaWorkbook: "Arbeitsmappe",
+    sigmaChooseWorkbook: "Arbeitsmappe auswählen",
+    sigmaStatusNotImported: "Nicht importiert",
+    sigmaStatusImporting: "Wird importiert",
+    sigmaStatusImported: "Importiert",
+    sigmaStatusFailed: "Import fehlgeschlagen",
+    sigmaArchived: "Archiviert",
+    sigmaPreviewTitle: "Inhalte der Arbeitsmappe",
+    sigmaPreviewFailed: "Diese Arbeitsmappe konnte nicht angezeigt werden",
+    sigmaRetryPreview: "Lade die Arbeitsmappenvorschau erneut.",
+    sigmaImportableCount: "{{count}} importierbar",
+    sigmaUnsupportedCount: "{{count}} nicht unterstützt",
+    sigmaImportable: "Importierbar",
+    sigmaUnsupported: "Nicht unterstützt",
+    sigmaNoElements: "In dieser Arbeitsmappe wurden keine Elemente gefunden.",
+    sigmaPreviewOnly:
+      "Vorerst nur Vorschau: Sigma stellt keine BigQuery-Projektzuordnung bereit, die Analytics überprüfen kann. Der Import bleibt deaktiviert, bis diese Zuordnung verfügbar ist.",
+    sigmaPreviewTruncated:
+      "{{shown}} von {{total}} Elementen werden angezeigt.",
+    sigmaImportWorkbook: "Arbeitsmappe importieren",
+    sigmaImporting: "Arbeitsmappe wird importiert…",
+    sigmaImportInProgress: "Der Import dieser Arbeitsmappe läuft bereits.",
+    sigmaMigrationFailed:
+      "Diese Arbeitsmappe konnte nicht importiert werden. Versuche es erneut.",
+    sigmaMigrationResultInvalid:
+      "Die Importantwort war unvollständig. Lade die Arbeitsmappenliste neu, um den Status zu prüfen.",
+    sigmaImportComplete: "Dashboard erstellt",
+    sigmaImportSummary:
+      "{{imported}} Elemente importiert; {{unsupported}} nicht unterstützte Elemente als Prüfhinweise beibehalten.",
+    sigmaAlreadyImported: "Diese Arbeitsmappe wurde bereits importiert.",
+    sigmaImportedNoDashboard:
+      "Das importierte Dashboard kann von diesem Konto aus nicht geöffnet werden.",
+    sigmaReviewRequiredCount: "{{count}} zur Überprüfung",
+    sigmaBetaRepresentationWarning:
+      "Dieser Beta-Import kann einige Visualisierungen anders als Sigma darstellen.",
+    sigmaReasonUnsupportedElement:
+      "Dieser Elementtyp wird beim Import nicht unterstützt.",
+    sigmaReasonUnsupportedSource:
+      "Dieses Element verwendet eine nicht unterstützte Quelle.",
+    sigmaReasonSourceMappingRequired:
+      "Sigma stellt keine BigQuery-Projektzuordnung bereit, die Analytics prüfen kann. Daher kann dieses SQL noch nicht importiert werden.",
+    sigmaReasonSourceUnavailable:
+      "Sigma hat den Zugriff auf diese Quellverbindung verweigert. Prüfe ihre Berechtigungen.",
+    sigmaReasonQueryUnavailable:
+      "Sigma hat für dieses Element keine importierbare Abfrage zurückgegeben.",
+    sigmaReasonUnsafeSql:
+      "Dieses Abfragemuster kann nicht sicher importiert werden.",
+    sigmaReasonVisualizationReview:
+      "Die Daten können importiert werden. Überprüfe die Visualisierung danach.",
+    sigmaRetryOwnerOnly:
+      "Nur die Person, die diesen Import gestartet hat, kann ihn erneut versuchen.",
+    sigmaImportedByTeammate: "Von einem Teammitglied importiert",
+    sigmaFlaggedCount: "{{count}} zur Überprüfung markiert",
+    sigmaMoreWorkbooksFailed:
+      "Weitere Arbeitsmappen konnten nicht geladen werden",
+    sigmaLoadingMore: "Arbeitsmappen werden geladen…",
+    sigmaLoadMore: "Weitere Arbeitsmappen laden",
+    sigmaOpenDashboard: "Dashboard öffnen",
+    sigmaReviewWithAgent: "Mit Agent überprüfen",
+    sigmaReviewContext: "Importiertes Sigma-Dashboard",
+    sigmaReviewPrompt:
+      "Überprüfe das importierte Sigma-Dashboard {{name}}. Kontrolliere die importierten Panels und nicht unterstützten Elemente und schlage Korrekturen vor.",
   },
   sidebar: {
     collapseSidebar: "Seitenleiste einklappen",
@@ -1208,6 +1314,7 @@ export default {
     saveViewFailedWithMessage:
       "Ansicht konnte nicht gespeichert werden: {{message}}",
     clearAll: "Alles löschen",
+    resetFilters: "Filter zurücksetzen",
     collapseFilters: "Filter ausblenden",
     expandFilters: "Filter erweitern",
     filterSeries: "Filter",

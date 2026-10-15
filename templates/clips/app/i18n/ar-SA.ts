@@ -6,6 +6,7 @@ const messages = {
     includeLast: "تضمين آخر",
     whatIsThis: "ما هذا؟",
     off: "إيقاف",
+    none: "لا شيء",
     custom: "مخصص…",
     customLabel: "مدة مخصصة",
     customAmount: "المدة",
@@ -17,6 +18,8 @@ const messages = {
     customErrorInvalid: "أدخل عددًا صحيحًا من الثواني أو الدقائق.",
     customErrorTooLong: "اجعلها 5 دقائق أو أقل.",
     turnOnRewind: "تفعيل Rewind",
+    turnOffRewind: "إيقاف",
+    turnOffRewindFailed: "تعذّر إيقاف Rewind. أوقف التسجيل ثم حاول مرة أخرى.",
     rewindOffTitle: "تفعيل Rewind",
     rewindOffBody:
       "متوقف افتراضيًا. يبقى سجل الشاشة على هذا الجهاز حتى تضيفه إلى تسجيل أو توافق على طلب لمشاركته.",
@@ -1862,6 +1865,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (مترجم)",
     recordingDownloadStarted: "Recording download started (مترجم)",
+    partialLocalCopyDownloadStarted:
+      "قد تكون النسخة المحلية غير مكتملة. يتم تنزيل بيانات التسجيل المتاحة.",
     backToLibrary: "Back to library (مترجم)",
     clipsRecorder: "Clips recorder (مترجم)",
     preparingSources: "Preparing sources… (مترجم)",
@@ -2020,6 +2025,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (مترجم)",
     cleanupComplete: "تم تنظيف الإملاء",
     cleanupFailed: "تعذر تنظيف الإملاء",
+    undoCleanup: "تراجع",
+    restoreOriginal: "استعادة الأصل",
+    cleanupRestored: "تمت استعادة الإملاء الأصلي",
+    cleanupRestoreFailed: "تعذّرت استعادة الإملاء الأصلي",
     startFirst: "حوّل أفكارك إلى نص",
     recordOnDesktop: "التسجيل على سطح المكتب",
     emptyDesktopDescription:

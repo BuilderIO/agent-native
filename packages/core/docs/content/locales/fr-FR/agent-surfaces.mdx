@@ -206,6 +206,78 @@ de la même surface. Les outils shell de confiance sont automatiquement ramenés
 au bac à sable filtré par requête, car un shell sans restriction ne peut pas
 appliquer une frontière d’actions stricte.
 
+### Actions supplémentaires limitées à la requête
+
+Utilisez `resolveAdditionalActions` lorsque les actions qu’un appelant peut
+utiliser ne sont connues qu’au moment de la requête, par exemple des outils
+qu’un utilisateur enregistre pendant que le serveur tourne. Le callback
+s’exécute une fois par exécution de chat interactive authentifiée (production et
+développement), avant `tool-search` et `resolveActionSurface`, de sorte que les
+deux voient les entrées renvoyées. Elles rejoignent le registre de cet appelant
+pour cette exécution uniquement. Les tâches A2A et les appels MCP `ask_app` ne
+les reçoivent que si vous listez ces surfaces dans `additionalActionSurfaces` ;
+`surface` indique au callback laquelle fait la demande.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+Traitez les entrées renvoyées comme une entrée non fiable. Le framework ignore
+une entrée, et consigne un avertissement une seule fois, lorsque son nom n’est
+pas composé de 1 à 64 lettres, chiffres, `_` ou `-` ; lorsque le nom appartient
+à une action de modèle, de framework, de développement ou MCP, y compris les
+actions masquées à l’agent ; lorsqu’il s’agit d’un nom `mcp__` que l’appelant ne
+peut pas voir ; ou lorsque la définition de son outil est inutilisable. Les
+descriptions perdent leurs caractères de contrôle cachés et sont plafonnées.
+`parameters` doit être un schéma borné de données JSON simples dont la racine
+est de type `object` et qui n’utilise que des mots-clés courants de validation et
+d’annotation. Les mots-clés inconnus, `pattern`, `patternProperties`,
+`uniqueItems`, `$async`, `$id`, les ancres et tout `$ref` récursif ou pointant
+hors du schéma sont refusés. Le modèle voit la copie vérifiée du schéma, et un
+appel dont les arguments sont trop volumineux pour être validés par rapport à
+celui-ci est refusé. Les indicateurs comme `readOnly` et
+`access` sont les propres déclarations de votre application, auxquelles le
+framework fait confiance comme il fait confiance à `run` : définissez-les
+d’après ce que fait votre code, jamais à partir de métadonnées enregistrées par
+un utilisateur.
+
+Chaque entrée est liée à l’appelant pour lequel elle a été résolue. Chaque
+appel, quel que soit le dispatcher qui l’effectue, refuse de s’exécuter pour un
+autre utilisateur ou une autre organisation, applique la politique `access` de
+l’entrée et valide les arguments par rapport à son schéma sans coercition de
+type.
+
+Les noms ne sont figés que lorsqu’un tour de chat hébergé se poursuit sous forme
+d’exécution durable en arrière-plan. Le callback s’exécute de nouveau, et le
+tour conserve ses noms d’origine pour ces entrées comme pour les outils MCP de
+l’appelant : les nouvelles entrées restent à l’écart, un nom qui a disparu
+renvoie une erreur lorsqu’il est appelé, et un nom qui subsiste exécute sa
+définition actuelle. Toute autre requête est résolue à nouveau, y compris chaque
+poursuite sur un sidecar local, et un stream interrompu qui se rattache à son
+exécution ne résout rien.
+
+Placez l’identité de la liaison dans le nom, par exemple un id de fenêtre ou une
+portée (`notes_window_42_insert`), afin qu’une nouvelle liaison se lise comme un
+outil qui disparaît et un autre qui apparaît. Les approbations « Toujours
+autoriser » suivent le nom de l’outil : elles sont donc conservées lorsque ce
+même nom désigne plus tard autre chose.
+
+Ces entrées sont des outils natifs réservés à la boucle de l’agent. Comme les
+outils MCP de l’appelant, elles ne sont pas accessibles depuis `run-code` ou
+`tool-orchestration`.
+
+`event` est défini pour `chat` et `a2a` ; les appels `ask_app` n’en ont pas. Le
+callback n’est pas appelé pour les requêtes anonymes, les tâches planifiées, les
+automatisations ou les sous-agents d’équipes d’agents. Une erreur levée par le
+callback fait échouer la requête.
+
 ## Interface utilisateur native intégrée {#native-inline-ui}
 
 Utilisez cette surface lorsque vos actions renvoient des données structurées — une liste d'enregistrements, un jeu de données de graphique, un résumé d'état — qui doivent s'afficher en tant que vrai composant d'interface dans le fil de chat plutôt qu'une simple description textuelle. Vous définissez un renderer `chatUI` sur l'action, et Agent-Native l'affiche en tant que composant React de premier niveau : pas d'iframe, pas de chemin de rendu séparé.

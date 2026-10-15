@@ -52,6 +52,108 @@ export default {
     moveDashboard: "Déplacer le tableau de bord",
     folderCreateFailed: "Impossible de créer le dossier",
     moveFailed: "Impossible de déplacer le tableau de bord",
+    importFromSigma: "Importer depuis Sigma",
+    sigmaConnection: "Connexion Sigma",
+    sigmaConnectedTo: "Connecté à {{name}}",
+    sigmaChooseConnection: "Connexion Sigma",
+    sigmaChooseConnectionPlaceholder: "Choisir une connexion",
+    sigmaChooseConnectionDescription:
+      "Choisissez l’espace de travail Sigma dont vous voulez parcourir les classeurs.",
+    sigmaNoConnection: "Sigma n’est pas connecté",
+    sigmaClientId: "ID client",
+    sigmaClientSecret: "Secret client",
+    sigmaBaseUrl: "URL de base de l’API (facultatif)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Connecter Sigma",
+    sigmaConnecting: "Connexion à Sigma…",
+    sigmaConnectFailed:
+      "Impossible de vérifier cette connexion Sigma. Vérifiez les identifiants et la région de l’API, puis réessayez.",
+    sigmaCredentialStageFailed:
+      "Impossible de stocker temporairement les identifiants Sigma. Vérifiez l’accès au Vault, puis réessayez.",
+    sigmaCredentialsRequired:
+      "Enregistrez d’abord l’ID client et le secret client Sigma.",
+    sigmaBaseUrlInvalid:
+      "Utilisez une URL HTTPS de l’API Sigma sur un domaine sigmacomputing.com.",
+    sigmaPersistenceUnavailable:
+      "Analytics ne peut pas enregistrer la connexion Sigma de manière sécurisée pour le moment. Réessayez.",
+    sigmaPolicyInvalid:
+      "La connexion Sigma existante d’Analytics a une règle d’accès inattendue. Reconnectez-la dans Dispatch avant de réessayer.",
+    sigmaSaveFailed:
+      "Les identifiants Sigma ont été vérifiés, mais Analytics n’a pas pu les enregistrer. La connexion précédente est inchangée. Réessayez.",
+    sigmaCleanupPending:
+      "Les identifiants temporaires de configuration Sigma restent présents jusqu’à la réussite du nettoyage.",
+    sigmaCleanupFailed:
+      "Impossible d’effacer les identifiants Sigma temporaires. Réessayez le nettoyage.",
+    sigmaRetryCleanup: "Réessayer le nettoyage",
+    sigmaDirectCredentialsUnavailable:
+      "Impossible de lire les identifiants Sigma enregistrés pour Analytics. Un administrateur de l’organisation peut reconnecter Sigma dans Dispatch ou saisir à nouveau les identifiants dans Analytics.",
+    sigmaNoConnectionDescription:
+      "Saisissez ici les identifiants pour créer une connexion réservée à Analytics. Les connexions Sigma autorisées pour Analytics dans Dispatch s’affichent automatiquement ici ; seuls les administrateurs de l’organisation peuvent enregistrer directement des identifiants.",
+    sigmaOpenDispatch: "Connecter dans Dispatch",
+    sigmaOpenVault: "Ouvrir Vault",
+    sigmaWorkbooksLoadFailed: "Impossible de charger les classeurs Sigma",
+    sigmaRetryConnection: "Vérifiez la connexion, puis réessayez.",
+    sigmaRetry: "Réessayer",
+    sigmaNoWorkbooks: "Aucun classeur Sigma n’est disponible.",
+    sigmaWorkbook: "Classeur",
+    sigmaChooseWorkbook: "Choisir un classeur",
+    sigmaStatusNotImported: "Non importé",
+    sigmaStatusImporting: "Importation en cours",
+    sigmaStatusImported: "Importé",
+    sigmaStatusFailed: "Échec de l’importation",
+    sigmaArchived: "Archivé",
+    sigmaPreviewTitle: "Contenu du classeur",
+    sigmaPreviewFailed: "Impossible de prévisualiser ce classeur",
+    sigmaRetryPreview: "Réessayez de charger l’aperçu du classeur.",
+    sigmaImportableCount: "{{count}} importables",
+    sigmaUnsupportedCount: "{{count}} non pris en charge",
+    sigmaImportable: "Importable",
+    sigmaUnsupported: "Non pris en charge",
+    sigmaNoElements: "Aucun élément n’a été trouvé dans ce classeur.",
+    sigmaPreviewOnly:
+      "Aperçu uniquement pour le moment : Sigma ne fournit pas de correspondance de projet BigQuery qu’Analytics puisse vérifier. L’importation restera désactivée jusqu’à ce que cette correspondance soit disponible.",
+    sigmaPreviewTruncated: "{{shown}} éléments sur {{total}} affichés.",
+    sigmaImportWorkbook: "Importer le classeur",
+    sigmaImporting: "Importation du classeur…",
+    sigmaImportInProgress: "L’importation de ce classeur est déjà en cours.",
+    sigmaMigrationFailed: "Impossible d’importer ce classeur. Réessayez.",
+    sigmaMigrationResultInvalid:
+      "La réponse d’importation était incomplète. Rechargez la liste des classeurs pour vérifier son état.",
+    sigmaImportComplete: "Tableau de bord créé",
+    sigmaImportSummary:
+      "{{imported}} éléments importés ; les {{unsupported}} éléments non pris en charge sont conservés comme alertes à vérifier.",
+    sigmaAlreadyImported: "Ce classeur a déjà été importé.",
+    sigmaImportedNoDashboard:
+      "Le tableau de bord a été importé, mais ce compte ne peut pas l’ouvrir.",
+    sigmaReviewRequiredCount: "{{count}} à vérifier",
+    sigmaBetaRepresentationWarning:
+      "Cette importation bêta peut représenter certaines visualisations différemment de Sigma.",
+    sigmaReasonUnsupportedElement:
+      "Ce type d’élément n’est pas pris en charge pour l’importation.",
+    sigmaReasonUnsupportedSource:
+      "Cet élément utilise une source qui n’est pas prise en charge.",
+    sigmaReasonSourceMappingRequired:
+      "Sigma ne fournit pas de correspondance avec un projet BigQuery qu’Analytics puisse vérifier. Ce SQL ne peut donc pas encore être importé.",
+    sigmaReasonSourceUnavailable:
+      "Sigma n’a pas autorisé l’accès à cette connexion source. Vérifiez ses autorisations.",
+    sigmaReasonQueryUnavailable:
+      "Sigma n’a pas fourni de requête importable pour cet élément.",
+    sigmaReasonUnsafeSql:
+      "Ce type de requête ne peut pas être importé en toute sécurité.",
+    sigmaReasonVisualizationReview:
+      "Les données peuvent être importées, mais vérifiez la visualisation après l’importation.",
+    sigmaRetryOwnerOnly:
+      "Seule la personne qui a lancé cet import peut réessayer.",
+    sigmaImportedByTeammate: "Importé par un membre de l’équipe",
+    sigmaFlaggedCount: "{{count}} à vérifier",
+    sigmaMoreWorkbooksFailed: "Impossible de charger d’autres classeurs",
+    sigmaLoadingMore: "Chargement des classeurs…",
+    sigmaLoadMore: "Charger d’autres classeurs",
+    sigmaOpenDashboard: "Ouvrir le tableau de bord",
+    sigmaReviewWithAgent: "Examiner avec l’agent",
+    sigmaReviewContext: "Tableau de bord Sigma importé",
+    sigmaReviewPrompt:
+      "Examinez le tableau de bord Sigma importé {{name}}. Vérifiez les panneaux importés et les éléments non pris en charge, puis proposez des corrections.",
   },
   sidebar: {
     collapseSidebar: "Réduire la barre latérale",
@@ -1206,6 +1308,7 @@ export default {
     saveViewFailed: "Impossible d’enregistrer la vue",
     saveViewFailedWithMessage: "Impossible d’enregistrer la vue : {{message}}",
     clearAll: "Tout effacer",
+    resetFilters: "Réinitialiser les filtres",
     collapseFilters: "Réduire les filtres",
     expandFilters: "Développer les filtres",
     filterSeries: "Filter",

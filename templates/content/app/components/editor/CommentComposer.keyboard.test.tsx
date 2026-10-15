@@ -10,8 +10,21 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { typeRichEditorText } from "./comment-composer-test-utils";
+import type { MentionEntry } from "./comment-drafts";
 import { CommentComposer, type CommentAiDraft } from "./CommentComposer";
 
+const mentionMembers = vi.hoisted(() => ({
+  current: {
+    data: [{ name: "Alice", email: "alice@example.test" }] as
+      | { name: string; email: string }[]
+      | undefined,
+    isError: false,
+    refetch: vi.fn(),
+  },
+}));
+vi.mock("@/hooks/use-mention-members", () => ({
+  useMentionMembers: () => mentionMembers.current,
+}));
 const onModelChange = vi.fn();
 const onAiDraftChange = vi.fn();
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
@@ -68,9 +81,11 @@ describe("CommentComposer rich recipient", () => {
   function Owner({
     initialAi = null,
     initialValue = "Review this",
+    mentions = [],
   }: {
     initialAi?: CommentAiDraft | null;
     initialValue?: string;
+    mentions?: MentionEntry[];
   }) {
     const [value, setValue] = useState(initialValue);
     const [aiDraft, setAiDraft] = useState<CommentAiDraft | null>(initialAi);
@@ -86,7 +101,8 @@ describe("CommentComposer rich recipient", () => {
         onChange={setValue}
         onSubmit={submit}
         onEscape={escape}
-        onMentionAdd={vi.fn()}
+        mentions={mentions}
+        onMentionsChange={vi.fn()}
         onAiSubmit={aiSubmit}
         aiDraft={aiDraft}
         onAiDraftChange={(next) => {
@@ -94,7 +110,6 @@ describe("CommentComposer rich recipient", () => {
           setAiDraft(next);
         }}
         aiModelStorageKey="comment-ai:test"
-        members={[{ name: "Alice", email: "alice@example.test" }]}
       />
     );
   }
@@ -216,6 +231,70 @@ describe("CommentComposer rich recipient", () => {
     expect(onModelChange).toHaveBeenCalledWith("gpt-5-6-luna", "builder");
   });
 
+  it("says when people could not load and retries from the mention menu", async () => {
+    const people = mentionMembers.current;
+    const refetch = vi.fn();
+    mentionMembers.current = { data: undefined, isError: true, refetch };
+    try {
+      await act(async () =>
+        root.render(<Owner key="members-failed" initialValue="" />),
+      );
+      await typeRichEditorText(editor(), "@");
+
+      const popover = document.querySelector(
+        '[data-agent-native-composer-popover="true"]',
+      );
+      const alert = popover?.querySelector('[role="alert"]');
+      expect(alert).not.toBeNull();
+      expect(popover?.textContent).toContain("Claude Sonnet 5");
+      expect(popover?.textContent).not.toContain("alice@example.test");
+
+      await act(async () => alert?.querySelector("button")?.click());
+      expect(refetch).toHaveBeenCalledTimes(1);
+    } finally {
+      mentionMembers.current = people;
+    }
+  });
+
+  it("reaches Retry from the keyboard when people could not load", async () => {
+    const people = mentionMembers.current;
+    const refetch = vi.fn();
+    mentionMembers.current = { data: undefined, isError: true, refetch };
+    try {
+      await act(async () =>
+        root.render(<Owner key="members-failed-keyboard" initialValue="" />),
+      );
+      await typeRichEditorText(editor(), "@");
+      const press = (key: string) =>
+        act(async () => {
+          editor().dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        });
+
+      await press("ArrowUp");
+      const retry = document.querySelector(
+        '[data-agent-native-composer-popover="true"] [role="alert"] button',
+      );
+      expect(retry?.getAttribute("data-mention-index")).toBe("-1");
+      expect(retry?.className).toContain("bg-muted");
+
+      await press("Enter");
+      expect(refetch).toHaveBeenCalledTimes(1);
+      expect(submit).not.toHaveBeenCalled();
+      expect(aiSubmit).not.toHaveBeenCalled();
+      expect(
+        document.querySelector('[data-agent-native-composer-popover="true"]'),
+      ).not.toBeNull();
+    } finally {
+      mentionMembers.current = people;
+    }
+  });
+
   it("keeps the composer settled after clicking the AI mention", async () => {
     const consoleError = vi
       .spyOn(console, "error")
@@ -287,12 +366,12 @@ describe("CommentComposer rich recipient", () => {
           onChange={vi.fn()}
           onSubmit={submit}
           onEscape={escape}
-          onMentionAdd={vi.fn()}
+          mentions={[]}
+          onMentionsChange={vi.fn()}
           onAiSubmit={aiSubmit}
           aiDraft={aiDraft}
           onAiDraftChange={setAiDraft}
           aiModelStorageKey="comment-ai:controlled"
-          members={[]}
         />
       );
     }
@@ -312,6 +391,156 @@ describe("CommentComposer rich recipient", () => {
     expect(
       container.querySelector("[data-comment-ai-send-control]"),
     ).not.toBeNull();
+  });
+
+  it("restores a saved AI draft with one recipient chip", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="restored"
+          initialValue="Ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    expect(editor().textContent?.match(/GPT-5.6 Luna/g)).toHaveLength(1);
+    expect(
+      editor().querySelectorAll(
+        '[data-mention-ref-type="content-comment-ai-recipient"]',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("restores a saved AI draft's chip past an @model in inline code", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="restored-code"
+          initialValue="See `@GPT-5.6 Luna`, then ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const chips = editor().querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(chips).toHaveLength(1);
+    const before = document.createRange();
+    before.setStart(editor(), 0);
+    before.setEndBefore(chips[0]!);
+    expect(before.toString()).toBe("See `@GPT-5.6 Luna`, then ask ");
+  });
+
+  it("restores a saved AI draft's chip at its whole name, after a longer name", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="restored-prefix"
+          initialValue="Compare @GPT-5.6 Lunar, then ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const chips = editor().querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(chips).toHaveLength(1);
+    const before = document.createRange();
+    before.setStart(editor(), 0);
+    before.setEndBefore(chips[0]!);
+    expect(before.toString()).toBe("Compare @GPT-5.6 Lunar, then ask ");
+  });
+
+  it("restores a saved AI draft's chip only where a mention can start", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="restored-leading"
+          initialValue="Write to bob@GPT-5.6 Luna today, then ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const chips = editor().querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(chips).toHaveLength(1);
+    const before = document.createRange();
+    before.setStart(editor(), 0);
+    before.setEndBefore(chips[0]!);
+    expect(before.toString()).toBe(
+      "Write to bob@GPT-5.6 Luna today, then ask ",
+    );
+  });
+
+  it("restores a saved AI draft's chip after a person chip with the same name", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="restored-shared-name"
+          initialValue="Ask @GPT-5.6 Luna to check this@GPT-5.6 Luna"
+          mentions={[{ email: "luna@example.test", name: "GPT-5.6 Luna" }]}
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const person = editor().querySelectorAll(
+      '[data-mention-ref-type="content-comment-member"]',
+    );
+    const ai = editor().querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(person).toHaveLength(1);
+    expect(ai).toHaveLength(1);
+    const between = document.createRange();
+    between.setStartAfter(person[0]!);
+    between.setEndBefore(ai[0]!);
+    expect(between.toString()).toBe(" to check this");
   });
 
   it("replaces an existing AI recipient when another model is selected", async () => {

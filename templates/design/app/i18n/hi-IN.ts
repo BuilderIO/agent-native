@@ -957,6 +957,14 @@ export default {
         toTopRight: "ऊपर दाईं ओर",
         toBottomLeft: "नीचे बाईं ओर",
         toBottomRight: "नीचे दाईं ओर",
+        fromLeft: "बाईं ओर से",
+        fromRight: "दाईं ओर से",
+        fromTop: "ऊपर से",
+        fromBottom: "नीचे से",
+        fromTopLeft: "ऊपर बाईं ओर से",
+        fromTopRight: "ऊपर दाईं ओर से",
+        fromBottomLeft: "नीचे बाईं ओर से",
+        fromBottomRight: "नीचे दाईं ओर से",
         clockwise: "घड़ी की दिशा में",
         counterclockwise: "घड़ी की विपरीत दिशा में",
         easingPresets: {
@@ -1006,6 +1014,8 @@ export default {
         save: "शैली सहेजें",
         createDescription:
           "चुने गए लक्ष्य के मोशन ट्रैक्स को पुन: उपयोग योग्य शैली के रूप में सहेजें।",
+        unsupportedSequence:
+          "यह शैली लागू नहीं हो सकती क्योंकि एक ही गुण के खंड ओवरलैप करते हैं या जुड़ते नहीं हैं।",
         tooMany: "एक शैली में अधिकतम 24 एनिमेशन हो सकते हैं।",
         limit: "इस डिज़ाइन में 64 एनिमेशन शैलियों की सीमा पूरी हो गई है।",
       },
@@ -1042,6 +1052,9 @@ export default {
         "Motion इस ऐनिमेशन के व्यवहार को बदले बिना इसे पढ़ नहीं सकता।",
       sourceWriteUnavailable:
         "अभी Motion कोड केवल इनलाइन HTML डिज़ाइन में लिखा जा सकता है।",
+      sourceConflict:
+        "इस टाइमलाइन में बिना सहेजे बदलाव होने के दौरान Motion स्रोत बदल गया। उन बदलावों को छोड़कर मौजूदा स्रोत इस्तेमाल करने के लिए कोड फिर से लोड करें।",
+      reloadFromSource: "कोड फिर से लोड करें",
       dockLabel: "मोशन डॉक",
       collapseDock: "मोशन डॉक संक्षिप्त करें",
       expandAllTracks: "सभी ट्रैक फैलाएँ",
@@ -1174,17 +1187,15 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "टोकन इम्पोर्ट करें",
-      importTitle: "टोकन इम्पोर्ट करें",
-      importHint:
-        "हाथ से जोड़ने से पहले design.md, CSS, theme files या current design इस्तेमाल करें।",
-      files: "फाइलें",
-      folder: "फोल्डर",
-      current: "मौजूदा",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
+      importDtcg: "DTCG फ़ाइल…",
+      importCssOrTailwind: "CSS या Tailwind फ़ाइल…",
+      importClipboard: "क्लिपबोर्ड से पेस्ट करें",
+      importFromDesign: "डिज़ाइन से जनरेट करें",
+      importFailed: "टोकन इंपोर्ट नहीं किए जा सके: {{message}}",
+      clipboardBlocked:
+        "क्लिपबोर्ड नहीं पढ़ा जा सका। एक्सेस की अनुमति दें और फिर से कोशिश करें।",
+      clipboardEmpty: "क्लिपबोर्ड खाली है",
       importedCount: "{{count}} टोकन इम्पोर्ट हुए",
       importing: "टोकन इम्पोर्ट हो रहे हैं…",
       importedWithSkipped:
@@ -1202,6 +1213,21 @@ export default {
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "टोकन नहीं जोड़ा जा सका: {{message}}",
+      types: {
+        color: "रंग",
+        fontFamily: "फ़ॉन्ट फ़ैमिली",
+        fontWeight: "फ़ॉन्ट वज़न",
+        fontSize: "फ़ॉन्ट आकार",
+        lineHeight: "लाइन ऊँचाई",
+        letterSpacing: "अक्षर अंतराल",
+        spacing: "स्पेसिंग",
+        container: "कंटेनर",
+        breakpoint: "ब्रेकपॉइंट",
+        radius: "रेडियस",
+        shadow: "छाया",
+        opacity: "अपारदर्शिता",
+      },
       editColor: "{{name}} का रंग संपादित करें",
     },
     import: {

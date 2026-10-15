@@ -10,6 +10,7 @@ export type DesignServerExportFormat =
   | "zip"
   | "png"
   | "svg"
+  | "figma_svg"
   | "coding_handoff";
 
 export interface DesignExportFacts {

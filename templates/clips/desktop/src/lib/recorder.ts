@@ -38,7 +38,10 @@ import {
   stageRecordFirstFile,
   type RecordFirstFile,
 } from "./record-first";
-import { RECORDER_DISCARD_EVENT } from "./recorder-events";
+import {
+  RECORDER_DISCARD_EVENT,
+  recorderStopTargetsRecording,
+} from "./recorder-events";
 import {
   buildCreateRecordingRequestHeaders,
   buildCreateRecordingRequestBody,
@@ -240,7 +243,11 @@ export interface StartParams {
   preAcquiredAudioStream?: MediaStream | null;
   preAcquiredCaptureSuspension?: RewindCaptureSuspensionLease | null;
   pendingTranscriptionTeardown?: Promise<void> | null;
-  onCaptureStartRequested?: (recordingId: string | null) => void;
+  onCaptureIdentityAvailable?: (captureIdentity: string) => void;
+  onCaptureStartRequested?: (
+    recordingId: string | null,
+    captureIdentity?: string | null,
+  ) => void;
 }
 
 const REWIND_CLIP_ORIGINS_KEY = "clips.rewindClipOrigins.v1";
@@ -3387,7 +3394,8 @@ async function tryStartRewindFullscreenRecording(
         !(pauseQueue?.getDesiredPaused() ?? pausedAt !== null),
       ),
     ),
-    listen("clips:recorder-stop", () => {
+    listen("clips:recorder-stop", (event) => {
+      if (!recorderStopTargetsRecording(event.payload, id)) return;
       void handle.stop().catch((error) => {
         console.error("[clips-recorder] Rewind handle.stop() threw:", error);
       });
@@ -3432,6 +3440,7 @@ async function startNativeFullscreenRecording(
   console.log("[clips-recorder] using native macOS capture");
   const localRecordingMode = params.localRecordingMode ?? "off";
   const localOnly = localRecordingMode !== "off";
+  const includeCameraOverlay = wantsCamera && localRecordingMode !== "separate";
   const localFolderName = localOnly ? createLocalRecordingFolderName() : "";
   const streamCleanups: Array<() => void> = [() => audioCue.cleanup()];
   let id = "";
@@ -3550,21 +3559,23 @@ async function startNativeFullscreenRecording(
         ? "[clips-recorder] preparing native local recording"
         : "[clips-recorder] preparing native recording",
     );
-    const captureAudioParams = {
+    const captureParams = {
       includeAudio: wantsAudio,
       captureSystemAudio: wantsSystemAudio,
+      includeCameraOverlay,
       micDeviceId: params.micId || null,
       micDeviceLabel,
       captureRegion,
     };
     const warmMic = async (recordingId: string) => {
       assertStartupActive();
+      params.onCaptureIdentityAvailable?.(recordingId);
       // An IPC timeout does not stop native work. Fail the startup on timeout;
       // never let begin race a warm invoke that is still creating its stream.
       await guardRecordingStart(
         invoke("native_fullscreen_recording_warm", {
           recordingId,
-          ...captureAudioParams,
+          ...captureParams,
         }),
         { signal: params.signal },
       );
@@ -3659,11 +3670,11 @@ async function startNativeFullscreenRecording(
     const beginStartedAt = Date.now();
     const beginPromise = invoke("native_fullscreen_recording_begin", {
       recordingId: id,
-      ...captureAudioParams,
+      ...captureParams,
       localOnly,
       hasCamera: wantsCamera,
     });
-    params.onCaptureStartRequested?.(localOnly ? null : id || null);
+    params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     await guardRecordingStart(beginPromise, { signal: params.signal });
     assertStartupActive();
     console.log(
@@ -4138,7 +4149,8 @@ async function startNativeFullscreenRecording(
         !(pauseQueue?.getDesiredPaused() ?? pausedAt !== null),
       );
     }),
-    listen("clips:recorder-stop", () => {
+    listen("clips:recorder-stop", (event) => {
+      if (!recorderStopTargetsRecording(event.payload, id)) return;
       console.log("[clips-recorder] native stop event received");
       handle.stop().catch((err) => {
         console.error("[clips-recorder] native handle.stop() threw:", err);
@@ -4799,7 +4811,8 @@ async function startRecordingInner(
             emitState(true);
           }
         }),
-        listen("clips:recorder-stop", () => {
+        listen("clips:recorder-stop", (event) => {
+          if (!recorderStopTargetsRecording(event.payload, id)) return;
           console.log("[clips-recorder] local stop event received");
           if (startedAt === 0) {
             cancelRequestedDuringStartup = true;
@@ -5239,7 +5252,8 @@ async function startRecordingInner(
           }
         }
       }),
-      listen("clips:recorder-stop", () => {
+      listen("clips:recorder-stop", (event) => {
+        if (!recorderStopTargetsRecording(event.payload, id)) return;
         console.log("[clips-recorder] stop event received");
         if (!handle) {
           cancelRequestedDuringStartup = true;

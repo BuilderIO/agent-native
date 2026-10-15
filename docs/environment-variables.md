@@ -359,6 +359,14 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | `BETA_E2E_GLOBAL_TIMEOUT_MINUTES` | Whole minutes for Playwright's `globalTimeout`, setup included. The workflow sets it a few minutes under each job's `timeout-minutes` so a hung run ends with a report instead of a cancelled job. Defaults to 20 in CI; ignored locally. |
 | `SHARD_SELECTED`                  | Set per authenticated shard by the workflow: whether the shard's app is in the run's app selection. Workflow-internal; gates the shard's steps.                                                                                           |
 
+#### Scheduled Signup E2E isolation gate
+
+| Repository variable       | Purpose                                                                                                                                                                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETA_DATABASES_ISOLATED` | Controls only the unattended all-app Signup E2E run. Set to `true` after every Beta runtime and migration database it exercises is verified isolated from production; it does not enable the manual-only Signup agent review. |
+
+### Scheduled workflow reporters
+
 The scheduled `Beta E2E (scheduled)` workflow reports through
 `scripts/beta-e2e-digest.ts`. The Beta, production-health, and signup reporters
 publish one consolidated finding report per workflow run to `#qa-agent-native`.

@@ -1640,7 +1640,7 @@ describe("scheduled workflow state recovery", () => {
       path.join(root, ".agents/skills/ship-and-monitor/SKILL.md"),
       "utf8",
     );
-    assert.match(scheduled, /update_baseline: true/);
+    assert.match(scheduled, /update_baseline: false/);
     assert.match(
       direct,
       /update_baseline: \$\{\{ inputs\.apps == 'all' && inputs\.lane == 'public\+authed' && inputs\.grep == '' \}\}/,

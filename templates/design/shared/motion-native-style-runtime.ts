@@ -162,7 +162,7 @@ export function createMotionNativeStyleInstance(args: {
     type: "FIGMA",
     styleKey: args.styleKey,
     nameKey: `motion.preset_name.${args.styleKey.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`).replace(/^_/, "")}`,
-    duration: args.styleKey === "TextStagger" ? 0.5 : 1,
+    duration: args.styleKey === "Path" ? 1 : 0.5,
     timelineOffset: 0,
     targetNodeId: args.targetNodeId,
     enabled: true,

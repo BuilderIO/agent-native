@@ -91,8 +91,12 @@ export default defineAction({
     );
 
     if (result.ok !== true) {
+      // The screenshot only reports an unavailable renderer after it found the
+      // file through the caller's access filter. That lookup goes by fileId
+      // when one is given, so a design id is verified only without one.
       trackDesignExported(
         {
+          ...(designId && !fileId ? { designId } : {}),
           exportFormat: "png",
           status: "failed",
           errorType: "chromium_unavailable",

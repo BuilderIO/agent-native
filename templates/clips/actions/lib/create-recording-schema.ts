@@ -32,6 +32,21 @@ export const createRecordingSchema = z.object({
     .pipe(z.enum(["web", "desktop", "extension", "mobile"]))
     .optional()
     .describe("Recorder platform"),
+  recordingSource: z
+    .enum(["recorder", "file_upload", "local_copy_upload"])
+    .optional()
+    .describe(
+      "How the clip reached Clips: a live recording, an uploaded file, or a local copy recorded without storage. Analytics only.",
+    ),
+  recordingAttemptId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      "The take this row belongs to, when it differs from the row id (a local copy's upload retries). Analytics only.",
+    ),
   sourceWindowTitle: z
     .string()
     .trim()

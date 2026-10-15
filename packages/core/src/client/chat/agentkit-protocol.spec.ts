@@ -2382,6 +2382,46 @@ describe("createAgentKitProtocolAdapter", () => {
     });
   });
 
+  it("preserves message status when adapting protocol history", async () => {
+    let receivedInput: unknown;
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async (input) => {
+        receivedInput = input;
+        return {
+          id: "turn-1",
+          sessionId: "thread-1",
+          events: events(),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          ...userMessage("The first request did not start."),
+          id: "failed-user",
+          status: "error",
+        },
+        { ...userMessage("Start this request."), id: "current-user" },
+      ],
+    });
+
+    expect(receivedInput).toMatchObject({
+      messages: [
+        expect.objectContaining({ id: "failed-user", status: "error" }),
+        expect.objectContaining({ id: "current-user" }),
+      ],
+    });
+  });
+
   it("protects host metadata when creating a thread", async () => {
     let receivedMetadata: unknown;
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {

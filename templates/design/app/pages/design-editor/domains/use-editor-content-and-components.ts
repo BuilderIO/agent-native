@@ -272,6 +272,9 @@ export function useEditorContentAndComponents({
     motionAutoKeyframeEnabled,
     motionTracksDirty,
     setMotionTracksDirty,
+    motionSourceVersionHashRef,
+    motionSourceVersionCapturedRef,
+    captureMotionSourceVersion,
     motionAutosaveRevision,
     setMotionAutosaveRevision,
     setMotionHydrationFingerprint,
@@ -279,6 +282,7 @@ export function useEditorContentAndComponents({
     motionAutosaveFailedRevisionRef,
     lastScheduledMotionAutosaveFileVersionRef,
     lastScheduledMotionAutosaveRevisionRef,
+    motionFileActivationEpochRef,
     previousMotionFileIdRef,
     collabContentRef,
     collabContentFileIdRef,
@@ -317,6 +321,13 @@ export function useEditorContentAndComponents({
           motionProofTargetNodeIds,
         )
       : null;
+  const motionPreviewScreenId = activeFile?.id;
+  const motionPreviewModulePath = localhostMotionProof?.modulePath;
+  const motionPreviewVersionHash = localhostMotionProof?.moduleVersionHash;
+  const motionSourceConflictRef = useRef(false);
+  useEffect(() => {
+    motionSourceConflictRef.current = false;
+  }, [activeFile?.id]);
   const { data: motionSourceCapabilityResult } = useActionQuery<{
     sourceWriteCapability?: MotionSourceWriteCapabilitySnapshot | null;
     sourceReadCapability?: MotionSourceReadCapability | null;
@@ -347,6 +358,38 @@ export function useEditorContentAndComponents({
       refetchOnMount: "always",
     },
   );
+  const observedMotionSourceProofRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!motionPreviewModulePath || !motionPreviewVersionHash) {
+      observedMotionSourceProofRef.current = null;
+      return;
+    }
+    const proofKey = `${motionPreviewModulePath}\u0000${motionPreviewVersionHash}`;
+    if (observedMotionSourceProofRef.current === proofKey) return;
+    observedMotionSourceProofRef.current = proofKey;
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "get-motion-timeline"],
+    });
+  }, [motionPreviewModulePath, motionPreviewVersionHash, queryClient]);
+  useEffect(() => {
+    if (!motionPreviewScreenId || activeCanvasSourceType !== "localhost") {
+      return;
+    }
+    const onPreviewFrameLoad = (event: Event) => {
+      const frame = event.target;
+      if (
+        !(frame instanceof HTMLIFrameElement) ||
+        frame.dataset.screenIframeId !== motionPreviewScreenId
+      ) {
+        return;
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-motion-timeline"],
+      });
+    };
+    document.addEventListener("load", onPreviewFrameLoad, true);
+    return () => document.removeEventListener("load", onPreviewFrameLoad, true);
+  }, [activeCanvasSourceType, motionPreviewScreenId, queryClient]);
   const motionSourceTargetsWritable =
     activeCanvasSourceType !== "localhost" ||
     motionSourceWriteCapabilityAllowsTargets(
@@ -576,6 +619,7 @@ export function useEditorContentAndComponents({
   ]);
 
   const markMotionTracksDirty = useCallback(() => {
+    captureMotionSourceVersion(localhostMotionProof?.moduleVersionHash);
     setMotionTracksDirty(true);
     setMotionAutosaveRevision((revision) => {
       const next = revision + 1;
@@ -583,7 +627,7 @@ export function useEditorContentAndComponents({
       motionAutosaveFailedRevisionRef.current = null;
       return next;
     });
-  }, []);
+  }, [captureMotionSourceVersion, localhostMotionProof?.moduleVersionHash]);
 
   const pruneMotionTracksByNodeId = useCallback(
     (nodeIdsToRemove: Set<string>) => {
@@ -1504,6 +1548,10 @@ export function useEditorContentAndComponents({
         motionProofTargetNodeIds,
         motionTextDocument,
         motionTracksDirty,
+        motionSourceVersionHashRef,
+        motionSourceVersionCapturedRef,
+        motionSourceConflictRef,
+        motionFileActivationEpochRef,
         previousMotionFileIdRef,
         queryClient,
         removeMotionTimeline,
@@ -1517,6 +1565,8 @@ export function useEditorContentAndComponents({
         sourceWriteUnavailableMessage:
           motionSourceReadUnavailableReason ??
           t("designEditor.motion.sourceWriteUnavailable"),
+        motionSourceConflictMessage: t("designEditor.motion.sourceConflict"),
+        motionReloadFromSourceLabel: t("designEditor.motion.reloadFromSource"),
       }),
     [
       activeFile?.id,
@@ -1545,6 +1595,9 @@ export function useEditorContentAndComponents({
       motionTextDocument,
       motionTracksDirty,
       motionSourceReadUnavailableReason,
+      motionSourceVersionHashRef,
+      motionSourceVersionCapturedRef,
+      motionSourceConflictRef,
       writeMotionAvailable,
       queryClient,
       t,

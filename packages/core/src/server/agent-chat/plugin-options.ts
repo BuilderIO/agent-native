@@ -10,6 +10,10 @@ import type { McpActionEntryOptions } from "../../mcp-client/index.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import type { PromptExamples } from "../prompts/index.js";
+import type {
+  AgentChatAdditionalActionsExternalSurface,
+  ResolveAgentChatAdditionalActions,
+} from "./additional-actions.js";
 import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
@@ -132,6 +136,26 @@ export interface AgentChatPluginOptions {
   finalResponseGuard?: AgentLoopFinalResponseGuard;
   prepareRequest?: ProductionAgentOptions["prepareRequest"];
   resolveActionSurface?: ProductionAgentOptions["resolveActionSurface"];
+  /**
+   * Adds actions for the signed-in caller on each request, such as tools whose
+   * names are only known at runtime. Called once per run, before `tool-search`
+   * and `resolveActionSurface`, so both see the entries; `surface` says which
+   * loop is asking. Interactive chat always calls it; A2A and MCP `ask_app`
+   * call it only when listed in `additionalActionSurfaces`.
+   *
+   * Entries are treated as untrusted. One whose name is malformed, reserved by
+   * a framework, template, dev, or MCP action (even one hidden from the
+   * agent), or an `mcp__` name this caller cannot see is ignored with a
+   * warning. Descriptions are cleaned and capped, and schemas must be bounded
+   * object schemas. Every call rechecks that it runs for the caller the entry
+   * was resolved for, enforces the entry's `access` policy, and validates its
+   * arguments without type coercion. A durable background continuation keeps
+   * the turn's original names. Not called for anonymous requests, scheduled
+   * jobs, automations, or agent-team sub-agents.
+   */
+  resolveAdditionalActions?: ResolveAgentChatAdditionalActions;
+  /** Surfaces besides interactive chat that receive `resolveAdditionalActions` entries. */
+  additionalActionSurfaces?: readonly AgentChatAdditionalActionsExternalSurface[];
   leanPrompt?: boolean;
   skipFilesContext?: boolean;
   initialToolNames?: string[];

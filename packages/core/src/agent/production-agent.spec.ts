@@ -70,6 +70,7 @@ import {
   buildUserContentWithAttachments,
   isAgentModelVisionCapable,
   DurableAttachmentReferenceRequiredError,
+  pinAdditionalActionsToTurn,
   serializeDurableDispatchPayload,
   callConnectedAgentReference,
   claimBackgroundWorkerRunEarly,
@@ -4790,8 +4791,95 @@ describe("createProductionAgentHandler", () => {
       expect(onEngineResolved).toHaveBeenCalledWith(
         selectedEngine,
         "queued-model",
+        undefined,
       );
       expect(selectedEngine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      unregisterAgentEngine(selectedEngineName);
+    }
+  });
+
+  it("reports the run's resolved thinking effort with its engine", async () => {
+    const { registerAgentEngine, unregisterAgentEngine } =
+      await import("./engine/registry.js");
+    const selectedEngineName = "effort-report-test-engine";
+    const selectedEngine = {
+      ...engineWithUncalledStream(),
+      name: selectedEngineName,
+      label: "Effort report test",
+      defaultModel: "claude-sonnet-4-6",
+      supportedModels: ["claude-sonnet-4-6"],
+    };
+    registerAgentEngine({
+      name: selectedEngineName,
+      label: selectedEngine.label,
+      description: "Effort report test engine",
+      capabilities: selectedEngine.capabilities,
+      defaultModel: selectedEngine.defaultModel,
+      supportedModels: selectedEngine.supportedModels,
+      requiredEnvVars: [],
+      create: () => selectedEngine,
+    });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-effort-report",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-effort-message",
+              text: "Think it through",
+              metadata: { engine: selectedEngineName },
+              options: {
+                model: "claude-sonnet-4-6",
+                reasoningEffort: "medium",
+                metadata: { engine: selectedEngineName },
+              },
+              promotionClaim: {
+                id: "queue-effort-claim",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const stopAfterEngineResolution = new Error("stop after engine resolution");
+    const onEngineResolved = vi.fn(() => {
+      throw stopAfterEngineResolution;
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+      onEngineResolved,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Think it through",
+          threadId: "thread-effort-report",
+          queuedMessageId: "queued-effort-message",
+          queuedMessageClaimId: "queue-effort-claim",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(stopAfterEngineResolution);
+
+      expect(onEngineResolved).toHaveBeenCalledWith(
+        selectedEngine,
+        "claude-sonnet-4-6",
+        "medium",
+      );
     } finally {
       resolveThreadAccess.mockRestore();
       unregisterAgentEngine(selectedEngineName);
@@ -6776,6 +6864,100 @@ describe("createProductionAgentHandler", () => {
     );
   });
 
+  describe("request-scoped additional actions across a turn", () => {
+    async function runWithAdditionalActions(request: {
+      body: Record<string, unknown>;
+      additional: Record<string, ActionEntry>;
+    }) {
+      const seenAvailable: string[][] = [];
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const resolveAdditionalActions = vi.fn(async () => request.additional);
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: { builtin: actionEntry({}) },
+        resolveAdditionalActions,
+        resolveActionSurface: async (details) => {
+          seenAvailable.push([...details.availableActionNames].sort());
+          return { allowedActionNames: details.availableActionNames };
+        },
+      });
+      const body = { message: "Run", ...request.body };
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+      const response = await runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      return { seenAvailable, resolveAdditionalActions };
+    }
+
+    it("resolves the caller's actions once and ignores client-forged turn names", async () => {
+      const { seenAvailable, resolveAdditionalActions } =
+        await runWithAdditionalActions({
+          body: { __resolvedAdditionalActionNames: ["forged-tool"] },
+          additional: { "app-tool": actionEntry({}) },
+        });
+
+      expect(resolveAdditionalActions).toHaveBeenCalledTimes(1);
+      expect(seenAvailable).toEqual([
+        expect.arrayContaining(["app-tool", "builtin"]),
+      ]);
+      expect(seenAvailable[0]).not.toContain("forged-tool");
+    });
+
+    it("turns a vanished name into an entry that fails loudly", async () => {
+      const kept = actionEntry({});
+      const pinned = pinAdditionalActionsToTurn(
+        { "kept-tool": kept, "new-tool": actionEntry({}) },
+        ["kept-tool", "gone-tool"],
+        {},
+      );
+
+      expect(Object.keys(pinned)).toEqual(["kept-tool", "gone-tool"]);
+      expect(pinned["kept-tool"]).toBe(kept);
+      expect(() => pinned["gone-tool"]!.run({})).toThrow(
+        /gone-tool is no longer available/,
+      );
+    });
+
+    it("leaves a vanished name that is now a registered action to that action", () => {
+      const pinned = pinAdditionalActionsToTurn({}, ["now-registered"], {
+        "now-registered": actionEntry({}),
+      });
+
+      expect(pinned).toEqual({});
+    });
+  });
+
   it("passes queued message identity to onRunPrepared", async () => {
     const onRunPrepared = vi.fn();
     const engine: AgentEngine = {
@@ -8425,7 +8607,11 @@ describe("runAgentLoop", () => {
 
     expect(modelStreamBracket(events)).toEqual([
       { type: "model_stream", status: "start" },
-      { type: "model_stream", status: "end" },
+      {
+        type: "model_stream",
+        status: "end",
+        errorCode: "provider_network_error",
+      },
     ]);
   });
 
@@ -13676,7 +13862,7 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",
-        error: expect.stringContaining("interrupted 2 time(s)"),
+        error: expect.stringContaining("2 earlier attempts"),
       }),
     );
   });
@@ -16885,6 +17071,215 @@ describe("runAgentLoop", () => {
     expect(errorEvents[0].error).toMatch(/empty response/i);
   });
 
+  it("reports the effort each call runs at through onEngineResolved, so a write after an empty-response retry records the lower effort", async () => {
+    let call = 0;
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      async *stream(): AsyncIterable<EngineEvent> {
+        call += 1;
+        yield {
+          type: "assistant-content",
+          parts:
+            call === 1
+              ? [{ type: "thinking" as const, text: "..." }]
+              : call === 2
+                ? [{ type: "tool-call", id: "c1", name: "record", input: {} }]
+                : [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: call === 2 ? "tool_use" : "end_turn" };
+      },
+    };
+    const seen: unknown[] = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        record: {
+          ...actionEntry({ readOnly: true }),
+          run: async () => {
+            seen.push(getRequestRunContext()?.reasoningEffort);
+            return "ok";
+          },
+        },
+      },
+      // What agent-chat-plugin does with it.
+      onEngineResolved: (_engine, _model, reasoningEffort) => {
+        getRequestRunContext()!.reasoningEffort = reasoningEffort;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "go", threadId: "thread-effort" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    await vi.waitFor(() => expect(seen).toEqual(["medium"]));
+  });
+
+  it("runs each custom agent profile in its own run context, so a write there records that profile's model and effort, starts with nothing read, and leaves the run's alone", async () => {
+    const agents = await import("../resources/agents.js");
+    const findProfile = vi
+      .spyOn(agents, "findAccessibleCustomAgent")
+      .mockImplementation(async (_owner, identifier) => ({
+        id: identifier,
+        path: `agents/${identifier}.md`,
+        name: identifier,
+        instructions: "Help out.",
+        model: `${identifier}-model`,
+      }));
+    // Neither profile writes until both have settled their model, so a
+    // shared run context would hand one profile's model to the other.
+    let profilesWaiting = 0;
+    let releaseProfiles!: () => void;
+    const bothProfilesReady = new Promise<void>((resolve) => {
+      releaseProfiles = resolve;
+    });
+    const calls = new Map<string, number>();
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5", "reviewer-model", "editor-model"],
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        const call = (calls.get(opts.model) ?? 0) + 1;
+        calls.set(opts.model, call);
+        // The reviewer's first answer is empty, so it retries at lower effort.
+        const toolCall = opts.model === "reviewer-model" ? 2 : 1;
+        if (call < toolCall) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "thinking", text: "..." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        if (call === toolCall && opts.model !== "claude-sonnet-5") {
+          if (++profilesWaiting === 2) releaseProfiles();
+          await bothProfilesReady;
+        }
+        yield {
+          type: "assistant-content",
+          parts:
+            call === toolCall
+              ? [
+                  {
+                    type: "tool-call",
+                    id: `record-${opts.model}`,
+                    name: "record",
+                    input: { loop: opts.model },
+                  },
+                ]
+              : [{ type: "text", text: "Done." }],
+        };
+        yield {
+          type: "stop",
+          reason: call === toolCall ? "tool_use" : "end_turn",
+        };
+      },
+    };
+    let run: ReturnType<typeof getRequestRunContext>;
+    const seen = new Map<unknown, unknown>();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        record: {
+          ...actionEntry({ readOnly: true }),
+          run: async (args) => {
+            seen.set(args.loop, {
+              model: getRequestRunContext()?.model,
+              effort: getRequestRunContext()?.reasoningEffort,
+              run: { model: run?.model, effort: run?.reasoningEffort },
+              reads: Object.keys(getRequestRunContext()?.toolSearchReads ?? {}),
+            });
+            return "ok";
+          },
+        },
+      },
+      // What agent-chat-plugin does with it.
+      onEngineResolved: (_engine, model, reasoningEffort) => {
+        run ??= getRequestRunContext();
+        run!.model = model;
+        run!.reasoningEffort = reasoningEffort;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "go",
+          threadId: "thread-profile-models",
+          references: [
+            { type: "custom-agent", name: "Reviewer", refId: "reviewer" },
+            { type: "custom-agent", name: "Editor", refId: "editor" },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "owner@example.com",
+          // Only the run's model saw this search, so a profile must not
+          // be told it already ran.
+          run: {
+            toolSearchReads: {
+              "earlier search": { totalTools: 1, resultNames: ["record"] },
+            },
+          },
+        },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+
+      const runAt = { model: "claude-sonnet-5", effort: "high" };
+      await vi.waitFor(() =>
+        expect(Object.fromEntries(seen)).toEqual({
+          "reviewer-model": {
+            model: "reviewer-model",
+            effort: "medium",
+            run: runAt,
+            reads: [],
+          },
+          "editor-model": {
+            model: "editor-model",
+            effort: "high",
+            run: runAt,
+            reads: [],
+          },
+          "claude-sonnet-5": {
+            ...runAt,
+            run: runAt,
+            reads: ["earlier search"],
+          },
+        }),
+      );
+      expect(run).toMatchObject({
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
+      });
+    } finally {
+      findProfile.mockRestore();
+    }
+  });
+
   it("does not surface the empty-response fallback when text was streamed", async () => {
     const engine: AgentEngine = {
       name: "test",
@@ -18091,21 +18486,22 @@ describe("runAgentLoop model fallback", () => {
         "claude-sonnet-5",
       ]);
       expect(usage.model).toBe("claude-sonnet-5");
-      expect(
-        events.some(
-          (event) =>
-            event.type === "activity" &&
-            event.label.includes("claude-haiku-4-5") &&
-            event.label.includes("claude-sonnet-5"),
-        ),
-      ).toBe(true);
+      const switchLabels = events.flatMap((event) =>
+        event.type === "activity" && event.label.includes("switching to")
+          ? [event.label]
+          : [],
+      );
+      expect(switchLabels).toEqual([
+        "Model is rate limited — switching to a backup model",
+      ]);
+      expect(JSON.stringify(events)).not.toContain("claude-");
       expect(JSON.stringify(events)).toContain("recovered");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("falls through to the terminal error when the fallback model is ALSO rate limited", async () => {
+  it("gives the fallback model exactly one attempt and then surfaces the error when it is ALSO rate limited", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;
     const modelsUsed: string[] = [];
@@ -18146,8 +18542,84 @@ describe("runAgentLoop model fallback", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
 
-      expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(4);
+      expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(1);
       expect(modelsUsed.filter((m) => m === "claude-haiku-4-5").length).toBe(4);
+      expect(modelsUsed.at(-1)).toBe("claude-sonnet-5");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a rate-limit fallback model before the call that uses it, so a write records the model that answered", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let fallbackCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-haiku-4-5",
+      supportedModels: ["claude-haiku-4-5", "claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        if (opts.model === "claude-haiku-4-5") {
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+          });
+        }
+        fallbackCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts:
+            fallbackCalls === 1
+              ? [{ type: "tool-call", id: "c1", name: "record", input: {} }]
+              : [{ type: "text", text: "Done." }],
+        };
+        yield {
+          type: "stop",
+          reason: fallbackCalls === 1 ? "tool_use" : "end_turn",
+        };
+      },
+    };
+    const seen: unknown[] = [];
+
+    try {
+      const run = runWithRequestContext(
+        { userEmail: "owner@example.com", run: { model: "claude-haiku-4-5" } },
+        () =>
+          runAgentLoop({
+            engine,
+            model: "claude-haiku-4-5",
+            systemPrompt: "system",
+            tools: [],
+            messages: [
+              { role: "user", content: [{ type: "text", text: "go" }] },
+            ],
+            actions: {
+              record: {
+                ...actionEntry({}),
+                run: async () => {
+                  seen.push(getRequestRunContext()?.model);
+                  return "ok";
+                },
+              },
+            },
+            onModelSettings: (model) => {
+              getRequestRunContext()!.model = model;
+            },
+            send: () => {},
+            signal: new AbortController().signal,
+          }),
+      );
+      await vi.advanceTimersByTimeAsync(60_000);
+      await run;
+
+      expect(seen).toEqual(["claude-sonnet-5"]);
     } finally {
       vi.useRealTimers();
     }

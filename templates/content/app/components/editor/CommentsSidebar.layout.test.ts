@@ -9,7 +9,7 @@ import type { CommentThread } from "@/hooks/use-comments";
 
 import {
   estimateThreadCardHeight,
-  findPendingCommentOffset,
+  findPendingCommentPosition,
   findThreadPosition,
   getAiCommentSource,
   layoutCommentThreads,
@@ -214,7 +214,10 @@ describe("comments sidebar layout", () => {
     scroll.getBoundingClientRect = () => rect(80) as DOMRect;
     pending.getBoundingClientRect = () => rect(125) as DOMRect;
 
-    expect(findPendingCommentOffset(scroll)).toBe(45);
+    expect(findPendingCommentPosition(scroll, scroll)).toEqual({
+      documentTop: 45,
+      layoutTop: 45,
+    });
   });
 
   it("gives the selected thread first claim near its anchor without overlap", () => {
