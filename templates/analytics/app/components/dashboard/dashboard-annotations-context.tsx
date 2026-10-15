@@ -62,7 +62,8 @@ export function DashboardAnnotationsProvider({
   });
   const keyDateData = keyDateQuery.data;
   const dataNoteData = dataNoteQuery.data;
-  const keyDatesFailed = keyDateQuery.isError && !keyDateData;
+  // A failed refresh keeps the last list in `data`; it still has to say so.
+  const keyDatesFailed = keyDateQuery.isError;
   const dataNotesFailed = dataNoteQuery.isError;
   useEffect(() => {
     if (keyDatesFailed) {

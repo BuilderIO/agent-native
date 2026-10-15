@@ -79,4 +79,15 @@ describe("key-date actions", () => {
       actions.save.schema.safeParse({ date: "2026-09-22", label: "" }).success,
     ).toBe(false);
   });
+
+  it("takes null to clear a time and leaves an empty one for the store to refuse", () => {
+    const edit = { id: "date-1", date: "2026-10-14", label: "Product Hunt" };
+    expect(
+      actions.save.schema.safeParse({ ...edit, time: null, timeZone: null })
+        .success,
+    ).toBe(true);
+    expect(
+      actions.save.schema.parse({ ...edit, time: "10:00", timeZone: "" }),
+    ).toMatchObject({ timeZone: "" });
+  });
 });

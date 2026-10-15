@@ -248,14 +248,18 @@ data notes already hidden.
   event's own zone ("12:01 AM PT"). It adds no legend entry and does not change
   the series tooltip.
 - Events on the same day share one badge; on an hourly axis each timed event
-  sits in its own hour.
-- A date missing from the data snaps to the nearest x value; a date outside the
-  visible range is hidden; a non-date x-axis shows nothing.
+  sits in its own hour, and an event without a time sits on the first hour
+  shown for its date.
+- On a daily or coarser axis, a date missing from the data snaps to the nearest
+  x value. On an hourly axis, an event without a time whose date has no hours
+  shown is hidden. A date outside the visible range is hidden; a non-date
+  x-axis shows nothing.
 - A set's date that a panel also lists in `config.events` draws once.
 - `mutate-dashboard` rejects malformed events and other chart types.
 - Scheduled email reports draw key dates and panel events: the guide line,
-  badge, and label text, including on combo charts. Same-day labels join into
-  one; labels that would overlap move to a second row.
+  badge, and label text, including on combo charts. Labels sit in rows above the
+  plot: same-day labels join, a long one wraps at words, and days that find no
+  room are counted, not cut.
 
 ## Data Notes
 
