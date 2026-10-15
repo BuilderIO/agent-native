@@ -361,9 +361,9 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 
 #### Scheduled Signup E2E isolation gate
 
-| Repository variable       | Purpose                                                                                                                                                                              |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `BETA_DATABASES_ISOLATED` | Gates only scheduled Signup E2E. Set to `true` after its Beta runtime and migration databases are isolated from production; it does not control the manual-only Signup agent review. |
+| Repository variable       | Purpose                                                                                                                                                                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETA_DATABASES_ISOLATED` | Controls only the unattended all-app Signup E2E run. Set to `true` after every Beta runtime and migration database it exercises is verified isolated from production; it does not enable the manual-only Signup agent review. |
 
 ### Scheduled workflow reporters
 

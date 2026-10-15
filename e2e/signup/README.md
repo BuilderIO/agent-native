@@ -42,10 +42,11 @@ through that manual dispatch. A failed run opens or updates one GitHub issue.
 If PagerDuty is configured, it also triggers the existing signup canary
 incident and resolves it after a successful recovery run.
 
-The exploratory Signup agent review has no scheduled trigger while Beta
-databases are shared with production. It remains available through manual
-dispatch; those runs also create durable accounts. Beta apps may write to
-production-shared data until each database is verified isolated.
+The exploratory Signup agent review is manual-only. `BETA_DATABASES_ISOLATED`
+does not control it; restoring a schedule requires an explicit workflow
+change. Manual Beta dispatches also create durable accounts and may write to
+production-shared data until each database used by the run is verified
+isolated.
 
 ## Local run
 
