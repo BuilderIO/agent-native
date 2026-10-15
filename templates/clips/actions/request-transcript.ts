@@ -70,6 +70,12 @@ type RecordingMediaRow = {
   durationMs?: number | null;
 };
 
+type StartedFromTranscript = {
+  updatedAt: string;
+  fullText: string;
+  segmentsJson: string;
+};
+
 function recordingTrackingSource(
   ownerEmail: string,
   context?: ActionRunContext,
@@ -567,7 +573,7 @@ export async function importLoomTranscriptForRecording({
   recording,
   now,
   context,
-  replaceTranscriptUpdatedAt,
+  replaceTranscript,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
@@ -576,7 +582,7 @@ export async function importLoomTranscriptForRecording({
   now: string;
   context?: ActionRunContext;
   /** See upsertTranscriptRow: set only by an explicit regenerate. */
-  replaceTranscriptUpdatedAt?: string;
+  replaceTranscript?: StartedFromTranscript;
 }) {
   const shareUrl = resolveLoomTranscriptShareUrl(recording);
   let reason = shareUrl
@@ -599,7 +605,7 @@ export async function importLoomTranscriptForRecording({
           segmentsJson: JSON.stringify(transcript.segments),
           fullText: transcript.fullText,
           now,
-          replaceTranscriptUpdatedAt,
+          replaceTranscript,
         });
         if (kept) return kept;
         await writeAppState("refresh-signal", { ts: Date.now() });
@@ -1175,8 +1181,8 @@ const requestTranscriptAction = defineAction({
           recording: rec,
           now,
           context,
-          replaceTranscriptUpdatedAt: regeneratingReadyTranscript
-            ? existingNativeTranscript?.updatedAt
+          replaceTranscript: regeneratingReadyTranscript
+            ? existingNativeTranscript
             : undefined,
         });
       }
@@ -1269,8 +1275,8 @@ const requestTranscriptAction = defineAction({
             segmentsJson: JSON.stringify(normalizedTranscript.segments),
             fullText,
             now,
-            replaceTranscriptUpdatedAt: regeneratingReadyTranscript
-              ? existingNativeTranscript?.updatedAt
+            replaceTranscript: regeneratingReadyTranscript
+              ? existingNativeTranscript
               : undefined,
           });
           if (kept) return kept;
@@ -1464,11 +1470,11 @@ async function upsertTranscriptRow(
     now: string;
     retryCount?: number;
     /**
-     * Set only by an explicit regenerate: the updatedAt of the transcript it
-     * started from. It may replace that transcript even if imported, but not
-     * an import that lands while it runs.
+     * Set only by an explicit regenerate: the transcript it started from. It
+     * may replace that transcript even if imported, but not an import that
+     * lands while it runs.
      */
-    replaceTranscriptUpdatedAt?: string;
+    replaceTranscript?: StartedFromTranscript;
   },
 ): Promise<boolean> {
   const [existing] = await db
@@ -1489,13 +1495,20 @@ async function upsertTranscriptRow(
     ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
     ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
     ...(retryCount !== undefined ? { retryCount } : {}),
-    ...(row.replaceTranscriptUpdatedAt ? { source: null } : {}),
+    ...(row.replaceTranscript ? { source: null } : {}),
     updatedAt,
   };
-  const replaceable = row.replaceTranscriptUpdatedAt
+  // updatedAt alone can repeat (two writes in one millisecond, or servers
+  // whose clocks disagree), so the started-from transcript is matched on its
+  // content too; a replacement that matches all three is that transcript.
+  const replaceable = row.replaceTranscript
     ? or(
         notImportedTranscript(),
-        eq(t.updatedAt, row.replaceTranscriptUpdatedAt),
+        and(
+          eq(t.updatedAt, row.replaceTranscript.updatedAt),
+          eq(t.fullText, row.replaceTranscript.fullText),
+          eq(t.segmentsJson, row.replaceTranscript.segmentsJson),
+        ),
       )
     : notImportedTranscript();
 

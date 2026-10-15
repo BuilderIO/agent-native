@@ -1101,10 +1101,20 @@ describe("requestTranscript regeneration", () => {
               { ne: ["recordingTranscripts.source", "imported"] },
             ],
           },
-          {
-            column: "recordingTranscripts.updatedAt",
-            value: startedFrom.updatedAt,
-          },
+          [
+            {
+              column: "recordingTranscripts.updatedAt",
+              value: startedFrom.updatedAt,
+            },
+            {
+              column: "recordingTranscripts.fullText",
+              value: startedFrom.fullText,
+            },
+            {
+              column: "recordingTranscripts.segmentsJson",
+              value: startedFrom.segmentsJson,
+            },
+          ],
         ],
       });
       expect(result).toMatchObject({ status: "ready", provider: "loom" });
@@ -1141,10 +1151,20 @@ describe("requestTranscript regeneration", () => {
               { ne: ["recordingTranscripts.source", "imported"] },
             ],
           },
-          {
-            column: "recordingTranscripts.updatedAt",
-            value: startedFrom.updatedAt,
-          },
+          [
+            {
+              column: "recordingTranscripts.updatedAt",
+              value: startedFrom.updatedAt,
+            },
+            {
+              column: "recordingTranscripts.fullText",
+              value: startedFrom.fullText,
+            },
+            {
+              column: "recordingTranscripts.segmentsJson",
+              value: startedFrom.segmentsJson,
+            },
+          ],
         ],
       });
       expect(result).toMatchObject({ status: "ready", preserved: true });

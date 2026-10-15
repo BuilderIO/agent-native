@@ -156,15 +156,19 @@ function splitTimedSegmentIntoCaptions(
   segment: TranscriptSegment,
 ): TranscriptSegment[] {
   const chunks = splitIntoCaptionChunks(segment.text);
-  if (chunks.length <= 1) return [segment];
+  // Every caption needs a positive span inside the cue: one that ends at its
+  // start is dropped on the next parse, and its words with it.
+  const spanMs = segment.endMs - segment.startMs;
+  if (chunks.length <= 1 || spanMs < chunks.length) return [segment];
 
   const totalWords =
     chunks.reduce((sum, chunk) => sum + countWords(chunk), 0) || 1;
-  const durationMs = Math.max(MIN_CAPTION_MS, segment.endMs - segment.startMs);
+  const durationMs = Math.max(MIN_CAPTION_MS, spanMs);
+  const reserveMs = Math.min(250, Math.floor(spanMs / chunks.length));
   const minChunkMs =
     durationMs >= chunks.length * MIN_CAPTION_MS
       ? MIN_CAPTION_MS
-      : Math.max(250, Math.floor(durationMs / chunks.length));
+      : Math.max(reserveMs, Math.floor(durationMs / chunks.length));
   let cursorMs = segment.startMs;
 
   return chunks.map((chunk, index) => {
@@ -173,7 +177,7 @@ function splitTimedSegmentIntoCaptions(
       (durationMs * countWords(chunk)) / totalWords,
     );
     const remainingChunks = chunks.length - index - 1;
-    const latestEndMs = segment.endMs - remainingChunks * 250;
+    const latestEndMs = segment.endMs - remainingChunks * reserveMs;
     const endMs = isLast
       ? segment.endMs
       : Math.min(

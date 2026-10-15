@@ -122,6 +122,30 @@ describe("normalizeTranscriptSegments", () => {
     expect(result[0].startMs).toBe(0);
     expect(result[result.length - 1].endMs).toBe(20_000);
   });
+
+  const thirtyWords = Array.from({ length: 30 }, (_, i) => `word${i}`).join(
+    " ",
+  );
+
+  it("gives every caption of a long, short cue a span of its own", () => {
+    const result = normalizeTranscriptSegments({
+      segments: [{ startMs: 5000, endMs: 6000, text: thirtyWords }],
+    });
+
+    expect(result.length).toBeGreaterThan(1);
+    expect(result[0].startMs).toBe(5000);
+    expect(result[result.length - 1].endMs).toBe(6000);
+    result.forEach((segment, index) => {
+      expect(segment.endMs).toBeGreaterThan(segment.startMs);
+      if (index > 0) expect(segment.startMs).toBe(result[index - 1].endMs);
+    });
+    expect(result.map((segment) => segment.text).join(" ")).toBe(thirtyWords);
+  });
+
+  it("keeps a cue whole when it is too short to split", () => {
+    const cue = { startMs: 5000, endMs: 5003, text: thirtyWords };
+    expect(normalizeTranscriptSegments({ segments: [cue] })).toEqual([cue]);
+  });
 });
 
 describe("buildCaptionSegmentsFromText", () => {
