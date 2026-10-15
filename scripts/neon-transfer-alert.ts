@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const API_BASE = "https://console.neon.tech/api/v2";
-const ORG_ID = process.env.NEON_ORG_ID?.trim() || "org-empty-silence-22065240";
+const ORG_ID = process.env.NEON_ORG_ID?.trim() ?? "";
 const API_KEY = process.env.NEON_API_KEY?.trim();
 const SLACK_WEBHOOK = process.env.SLACK_NEON_TRANSFER_WEBHOOK_URL?.trim();
 const GIGABYTE = 1_000_000_000;

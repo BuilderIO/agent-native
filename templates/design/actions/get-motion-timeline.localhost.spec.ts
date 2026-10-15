@@ -76,6 +76,26 @@ const mocks = vi.hoisted(() => {
         localhostScreens: {},
       });
     },
+    setAmbiguousDesignSourceFile: () => {
+      designData = JSON.stringify({
+        sourceType: "localhost",
+        connectionId: "connection-1",
+        screenMetadata: {
+          "screen-1": {
+            sourceType: "localhost",
+            connectionId: "connection-1",
+            sourceFile: "app/routes/home.tsx",
+          },
+        },
+        localhostScreens: {
+          "screen-1": {
+            sourceType: "localhost",
+            connectionId: "connection-1",
+            sourceFile: "app/routes/legacy-home.tsx",
+          },
+        },
+      });
+    },
   };
 });
 
@@ -279,6 +299,40 @@ describe("get-motion-timeline localhost React source", () => {
     mocks.readLocal.mockResolvedValue({
       content: managedSource,
       versionHash: bridgeVersionHash,
+    });
+  });
+
+  it("returns an explicit unsupported capability for ambiguous passive hydration", async () => {
+    mocks.setAmbiguousDesignSourceFile();
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "screen-1",
+      passiveRead: true,
+    });
+
+    expect(result).toMatchObject({
+      count: 0,
+      timelines: [],
+      sourceReadCapability: {
+        status: "unsupported",
+        sourceRef: "screen-1",
+        errorCode: "motion_local_source_ambiguous_source_file",
+        reason:
+          "The selected localhost screen does not map to one saved source file.",
+      },
+    });
+    expect(mocks.readLocal).not.toHaveBeenCalled();
+  });
+
+  it("keeps ambiguous source metadata as a validation error for explicit reads", async () => {
+    mocks.setAmbiguousDesignSourceFile();
+
+    await expect(
+      action.run({ designId: "design-1", sourceRef: "screen-1" }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_local_source_ambiguous_source_file",
+      statusCode: 422,
     });
   });
 

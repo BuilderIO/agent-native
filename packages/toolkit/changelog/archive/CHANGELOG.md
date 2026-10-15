@@ -1,3 +1,9 @@
+## 0.10.12
+
+### Patch Changes
+
+- 279e855: Default MCP connections to personal OAuth, keep personal MCP setup available to organization members, hide unusable organization controls, and honor app preset filters in ejected UIs.
+
 ## 0.10.11
 
 ### Patch Changes

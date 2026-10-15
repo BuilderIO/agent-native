@@ -7,6 +7,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Comment mentions of people and agents now stay as avatar and logo chips after sending, hovering a mention or author shows who it is, including an AI author's model, effort, and run, and someone newly mentioned in an edit gets an email
 - AI comments use the dedicated agent icon for the author fallback and send control.
 
 ### Fixed

@@ -604,6 +604,27 @@ Observe Slack.`),
     });
   });
 
+  it("marks a verified personal owner so background execution can preserve personal scope", async () => {
+    const result = await resolveAutomationExecutionIdentity(
+      "alice@example.com",
+      {
+        schedule: "",
+        enabled: true,
+        triggerType: "event",
+        createdBy: "alice@example.com",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      identity: {
+        userEmail: "alice@example.com",
+        orgScope: "personal",
+        eventOwner: "alice@example.com",
+      },
+    });
+  });
+
   it("rejects organization execution that is not explicitly creator-run", async () => {
     await expect(
       resolveAutomationExecutionIdentity(orgOwner, {

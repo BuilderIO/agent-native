@@ -3233,6 +3233,19 @@ const FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES = [
   [false, "I asked which Figma file link to use."],
 ];
 
+const FEEDBACK_CHANNEL_COVERAGE_RE =
+  /\b(?:also|add|include|check|scan|review)\b[^.!?\n]{0,120}\b(?:the\s+)?#?[\w-]*feedback(?:[-\s]+channel)?\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,100}\b#?[\w-]*feedback\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,140}\b(?:reports?|parent(?:\s+messages?)?|messages?)\b[^.!?\n]{0,100}\b(?:in|from|within)\s+(?:the\s+)?#?[\w-]+/i;
+const FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES = [
+  [true, "you missed TONS of reports in #qa-agent-native"],
+  [
+    true,
+    "The scan skipped parent messages within #product-agent-native-feedback.",
+  ],
+  [true, "Please also include #dev-agent-native-feedback."],
+  [false, "The report artifact lists seven failed CI shards."],
+  [false, "All channel pages were exhausted and every parent was inventoried."],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
@@ -3253,6 +3266,12 @@ if (process.argv.includes("--self-test")) {
     ...FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.filter(
       ([expected, message]) =>
         FEEDBACK_OPEN_WITHOUT_QUESTION_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_CHANNEL_COVERAGE_RE.test(message) !== expected,
     ),
   );
   const stressMessage = "reply and but ".repeat(7_000);
@@ -3544,7 +3563,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -3858,10 +3877,10 @@ const PATTERNS = [
   },
   {
     key: "feedback-channel-coverage",
-    label: "Had to ask for another feedback channel to be scanned",
+    label: "Had to ask for feedback-channel or parent-report coverage",
     fixedBy:
-      ".agents/skills/review-latest-feedback (default channel coverage, 2026-10-05)",
-    re: /\b(?:also|add|include|check|scan|review)\b[^.!?\n]{0,120}\b(?:the\s+)?#?[\w-]*feedback(?:[-\s]+channel)?\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,100}\b#?[\w-]*feedback\b/i,
+      "feedback:inventory-check + review-latest-feedback per-parent pagination ledger (2026-10-15)",
+    re: FEEDBACK_CHANNEL_COVERAGE_RE,
   },
   {
     key: "feedback-release-coverage",

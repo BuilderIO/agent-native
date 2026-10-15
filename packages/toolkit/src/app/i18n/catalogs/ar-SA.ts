@@ -3243,6 +3243,26 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "إغلاق",
   "observability.insights.rawTrace":
     "التتبع الخام (كل الخطوات مع المدخلات والمخرجات)",
+  "reportProblem.menuItem": "الإبلاغ عن مشكلة",
+  "reportProblem.title_zero":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثانية؟",
+  "reportProblem.title_one":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثانية؟",
+  "reportProblem.title_two":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثانيتين؟",
+  "reportProblem.title_few":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثوانٍ؟",
+  "reportProblem.title_many":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثانيةً؟",
+  "reportProblem.title_other":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثانية؟",
+  "reportProblem.noEvents": "لم يُسجَّل شيء بعد.",
+  "reportProblem.send": "إرسال إلى الوكيل",
+  "reportProblem.copy": "نسخ تقرير المشكلة",
+  "reportProblem.attaching": "جارٍ الإرفاق…",
+  "reportProblem.notAttached": "لم يتم إرفاق التقرير.",
+  "reportProblem.agentMessage":
+    "حدث خطأ ما في التطبيق. استخدم تقرير المشكلة المرفق لشرح ما حدث.",
 };
 
 export default messages;

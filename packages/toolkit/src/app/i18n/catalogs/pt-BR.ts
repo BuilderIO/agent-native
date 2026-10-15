@@ -3275,6 +3275,20 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Fechar",
   "observability.insights.rawTrace":
     "Trace bruto (todos os spans, com entradas e saídas)",
+  "reportProblem.menuItem": "Relatar um problema",
+  "reportProblem.title_one":
+    "Anexar o que o app fez no último {{count}} segundo?",
+  "reportProblem.title_many":
+    "Anexar o que o app fez nos últimos {{count}} segundos?",
+  "reportProblem.title_other":
+    "Anexar o que o app fez nos últimos {{count}} segundos?",
+  "reportProblem.noEvents": "Nada registrado ainda.",
+  "reportProblem.send": "Enviar ao agente",
+  "reportProblem.copy": "Copiar relatório do problema",
+  "reportProblem.attaching": "Anexando…",
+  "reportProblem.notAttached": "O relatório não foi anexado.",
+  "reportProblem.agentMessage":
+    "Algo deu errado no app. Use o relatório do problema anexado para explicar o que aconteceu.",
 };
 
 export default messages;
