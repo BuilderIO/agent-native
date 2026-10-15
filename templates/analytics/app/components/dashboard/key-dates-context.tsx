@@ -18,7 +18,7 @@ import type {
 
 interface DashboardKeyDatesValue {
   keyDates: readonly PanelEvent[];
-  /** The list failed to load, so a chart without markers may still have key dates. */
+  /** The latest load failed, so the markers drawn may be missing or out of date. */
   keyDatesFailed: boolean;
 }
 
@@ -40,7 +40,8 @@ export function DashboardKeyDatesProvider({
   const { data, isError } = useActionQuery("list-key-dates", undefined, {
     staleTime: 60_000,
   });
-  const keyDatesFailed = isError && !data;
+  // A failed refresh keeps the last list in `data`; it still has to say so.
+  const keyDatesFailed = isError;
   useEffect(() => {
     if (keyDatesFailed) {
       toast.error(t("dashboard.keyDatesUnavailable"), {

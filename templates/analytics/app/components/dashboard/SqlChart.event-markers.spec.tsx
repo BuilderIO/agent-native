@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
-  keyDateSets: [] as unknown[],
+  /** Undefined until a load succeeds; a failed refresh keeps the last list. */
+  keyDateSets: [] as unknown[] | undefined,
   keyDatesFailed: false,
   t: (key: string) => key,
   toastError: vi.fn(),
@@ -16,9 +17,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) =>
     name !== "list-key-dates"
       ? { data: undefined, isError: false }
-      : mocks.keyDatesFailed
-        ? { data: undefined, isError: true }
-        : { data: { sets: mocks.keyDateSets }, isError: false },
+      : {
+          data: mocks.keyDateSets && { sets: mocks.keyDateSets },
+          isError: mocks.keyDatesFailed,
+        },
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
@@ -246,6 +248,7 @@ describe("SqlChart key-date markers", () => {
     });
 
     it("says once that key dates failed to load, and keeps each chart's own markers", async () => {
+      mocks.keyDateSets = undefined;
       mocks.keyDatesFailed = true;
       await act(async () => {
         root.render(
@@ -260,6 +263,24 @@ describe("SqlChart key-date markers", () => {
         "dashboard.keyDatesUnavailable",
         { id: "key-dates-unavailable" },
       );
+      expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(4);
+    });
+
+    it("says a refresh failed, and keeps the key dates it already drew", async () => {
+      mocks.keyDatesFailed = true;
+      await act(async () => {
+        root.render(
+          <DashboardKeyDatesProvider>
+            <SqlChart panel={panel("line")} />
+          </DashboardKeyDatesProvider>,
+        );
+      });
+      expect(mocks.toastError).toHaveBeenCalledTimes(1);
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "dashboard.keyDatesUnavailable",
+        { id: "key-dates-unavailable" },
+      );
+      // The panel's Oct 12 and Oct 14 markers, plus the cached Oct 11 and Oct 13 key dates.
       expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(4);
     });
 
