@@ -1,13 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 
+import { table, text } from "@agent-native/core/db/schema";
 import { registerIdentityColumns } from "@agent-native/core/org";
-import { and, eq, gte, inArray, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, gte, ilike, inArray, lt, ne, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
 const allowanceTable = schema.hostedClipAllowances;
+const applicationState = table("application_state", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
 const ALLOWANCE_LOCK_KEY = "clips-hosted-clip-allowances";
+
+function escapeLikeWildcards(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
 
 registerIdentityColumns([
   {
@@ -101,11 +110,13 @@ export async function writeHostedCleanupConfirmedMarker(input: {
     cleanupId: randomUUID(),
   });
   await withAllowanceLock(async (tx) => {
-    await tx.execute(sql`
-      INSERT INTO application_state (key, value)
-      VALUES (${hostedCleanupConfirmedKey(input.recordingId)}, ${value})
-      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-    `);
+    await tx
+      .insert(applicationState)
+      .values({ key: hostedCleanupConfirmedKey(input.recordingId), value })
+      .onConflictDoUpdate({
+        target: applicationState.key,
+        set: { value },
+      });
   });
   return value;
 }
@@ -588,25 +599,25 @@ export async function reacquireHostedClipAllowanceForRetry(input: {
   if (!ownerEmail) return { ok: false, reason: "invalid_transition" };
 
   return withAllowanceLock(async (tx) => {
-    const recordingResult = await tx.execute(sql`
-      SELECT status, storage_mode, failure_code
-      FROM recordings
-      WHERE id = ${input.recordingId}
-        AND lower(owner_email) = lower(${ownerEmail})
-      FOR UPDATE
-    `);
-    const recordingRows = recordingResult as {
-      rows: Array<{
-        status?: unknown;
-        storage_mode?: unknown;
-        failure_code?: unknown;
-      }>;
-    };
-    const recording = recordingRows.rows[0];
+    const [recording] = await tx
+      .select({
+        status: schema.recordings.status,
+        storageMode: schema.recordings.storageMode,
+        failureCode: schema.recordings.failureCode,
+      })
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, input.recordingId),
+          ilike(schema.recordings.ownerEmail, escapeLikeWildcards(ownerEmail)),
+        ),
+      )
+      .for("update")
+      .limit(1);
     if (
-      recording?.storage_mode !== "hosted" ||
+      recording?.storageMode !== "hosted" ||
       (recording.status !== "failed" && recording.status !== "uploading") ||
-      recording.failure_code === "taken_down"
+      recording.failureCode === "taken_down"
     ) {
       return { ok: false, reason: "invalid_transition" };
     }
@@ -620,9 +631,14 @@ export async function reacquireHostedClipAllowanceForRetry(input: {
       return { ok: false, reason: "invalid_transition" };
     }
     if (current.status === "reserved") {
-      await tx.execute(
-        sql`DELETE FROM application_state WHERE key = ${hostedCleanupConfirmedKey(input.recordingId)}`,
-      );
+      await tx
+        .delete(applicationState)
+        .where(
+          eq(
+            applicationState.key,
+            hostedCleanupConfirmedKey(input.recordingId),
+          ),
+        );
       return { ok: true, allowance: current, alreadyReserved: true };
     }
 
@@ -671,9 +687,11 @@ export async function reacquireHostedClipAllowanceForRetry(input: {
         "Hosted recording allowance changed during retry reservation.",
       );
     }
-    await tx.execute(
-      sql`DELETE FROM application_state WHERE key = ${hostedCleanupConfirmedKey(input.recordingId)}`,
-    );
+    await tx
+      .delete(applicationState)
+      .where(
+        eq(applicationState.key, hostedCleanupConfirmedKey(input.recordingId)),
+      );
     return { ok: true, allowance, alreadyReserved: false };
   });
 }
@@ -951,42 +969,46 @@ export async function releaseHostedClipAllowanceAfterCleanup(input: {
   if (!ownerEmail) return false;
 
   return withAllowanceLock(async (tx) => {
-    const rows = await tx.execute(sql`
-      SELECT r.status, r.storage_mode, r.failure_code,
-             a.status AS allowance_status, a.updated_at AS allowance_updated_at
-      FROM recordings r
-      JOIN clips_hosted_clip_allowances a ON a.recording_id = r.id
-      WHERE r.id = ${input.recordingId}
-        AND lower(r.owner_email) = lower(${ownerEmail})
-      FOR UPDATE OF r, a
-    `);
-    const typedRows = rows as {
-      rows: Array<{
-        status?: unknown;
-        storage_mode?: unknown;
-        failure_code?: unknown;
-        allowance_status?: unknown;
-        allowance_updated_at?: unknown;
-      }>;
-    };
-    const row = typedRows.rows[0];
+    const [row] = await tx
+      .select({
+        status: schema.recordings.status,
+        storageMode: schema.recordings.storageMode,
+        failureCode: schema.recordings.failureCode,
+        allowanceStatus: allowanceTable.status,
+        allowanceUpdatedAt: allowanceTable.updatedAt,
+      })
+      .from(schema.recordings)
+      .innerJoin(
+        allowanceTable,
+        eq(allowanceTable.recordingId, schema.recordings.id),
+      )
+      .where(
+        and(
+          eq(schema.recordings.id, input.recordingId),
+          ilike(schema.recordings.ownerEmail, escapeLikeWildcards(ownerEmail)),
+        ),
+      )
+      .for("update", { of: [schema.recordings, allowanceTable] })
+      .limit(1);
     if (
       row?.status !== "failed" ||
-      row.storage_mode !== "hosted" ||
-      row.failure_code === "taken_down" ||
-      row.allowance_status !== "reserved" ||
-      String(row.allowance_updated_at) !== input.expectedUpdatedAt
+      row.storageMode !== "hosted" ||
+      row.failureCode === "taken_down" ||
+      row.allowanceStatus !== "reserved" ||
+      row.allowanceUpdatedAt !== input.expectedUpdatedAt
     ) {
       return false;
     }
 
-    const markerResult = await tx.execute(sql`
-      SELECT value FROM application_state
-      WHERE key = ${hostedCleanupConfirmedKey(input.recordingId)}
-      FOR UPDATE
-    `);
-    const markerRows = markerResult as { rows: Array<{ value: string }> };
-    if (markerRows.rows[0]?.value !== input.cleanupMarkerValue) return false;
+    const [marker] = await tx
+      .select({ value: applicationState.value })
+      .from(applicationState)
+      .where(
+        eq(applicationState.key, hostedCleanupConfirmedKey(input.recordingId)),
+      )
+      .for("update")
+      .limit(1);
+    if (marker?.value !== input.cleanupMarkerValue) return false;
 
     const [allowance] = await tx
       .update(allowanceTable)
@@ -1006,15 +1028,21 @@ export async function releaseHostedClipAllowanceAfterCleanup(input: {
       .returning({ recordingId: allowanceTable.recordingId });
     if (!allowance) return false;
 
-    await tx.execute(sql`
-      DELETE FROM application_state
-      WHERE key = ${hostedCleanupConfirmedKey(input.recordingId)}
-        AND value = ${input.cleanupMarkerValue}
-    `);
+    await tx
+      .delete(applicationState)
+      .where(
+        and(
+          eq(
+            applicationState.key,
+            hostedCleanupConfirmedKey(input.recordingId),
+          ),
+          eq(applicationState.value, input.cleanupMarkerValue),
+        ),
+      );
     if (input.sessionKey) {
-      await tx.execute(sql`
-        DELETE FROM application_state WHERE key = ${input.sessionKey}
-      `);
+      await tx
+        .delete(applicationState)
+        .where(eq(applicationState.key, input.sessionKey));
     }
     return true;
   });

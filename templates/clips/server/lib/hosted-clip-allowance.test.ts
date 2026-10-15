@@ -347,7 +347,7 @@ describe("hosted clip allowance", () => {
     const result = await allowance.reacquireHostedClipAllowanceForRetry({
       recordingId: "hosted-retry",
       userId: "user-1",
-      ownerEmail: "owner@example.com",
+      ownerEmail: "OWNER@example.com",
       reservationBytes: 100,
       perIdentityClipLimit: 1,
       globalRetainedByteCap: 1_000,
@@ -430,7 +430,7 @@ describe("hosted clip allowance", () => {
     await expect(
       allowance.releaseHostedClipAllowanceAfterCleanup({
         recordingId: "hosted-cleanup",
-        ownerEmail: "owner@example.com",
+        ownerEmail: "OWNER@example.com",
         expectedUpdatedAt: NOW.toISOString(),
         cleanupMarkerValue: "marker-v1",
         now: NOW,

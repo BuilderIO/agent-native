@@ -554,9 +554,6 @@ async function signedS3Request(
       headers: {
         ...headers,
         Authorization: authorization,
-        ...(options.body
-          ? { "Content-Length": String(options.body.byteLength) }
-          : {}),
       },
       ...(options.body
         ? {

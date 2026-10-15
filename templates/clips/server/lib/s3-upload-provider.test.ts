@@ -1095,13 +1095,9 @@ describe("s3FileUploadProvider", () => {
     expect(partCall?.[1]).toEqual(
       expect.objectContaining({
         method: "PUT",
-        headers: expect.objectContaining({
-          "Content-Length": String(
-            firstChunk.byteLength + secondChunk.byteLength,
-          ),
-        }),
       }),
     );
+    expect(partCall?.[1]?.headers).not.toHaveProperty("Content-Length");
     const completeCall = fetchMock.mock.calls.find(([url]) =>
       String(url).endsWith("?uploadId=upload-example"),
     );
