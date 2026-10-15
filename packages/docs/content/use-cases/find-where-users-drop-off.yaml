@@ -22,12 +22,12 @@ new_way:
     - "Ask where new users stop, in plain English. The agent turns your question into SQL."
     - "Open session replays to see what people did. Each replay captures the page, masked interactions, console output, and network activity."
 todays_stack:
-  heading: "Three tools for one drop-off question"
+  heading: "What changes for a drop-off question"
   items:
     - text: "**A product analytics tool, like Amplitude or Mixpanel,** has the events, but only a few people on the team know how to query it."
-    - text: "**A session replay tool** shows what people did, in a separate place from your numbers."
-    - text: "**A spreadsheet or doc** is how findings get shared, and the screenshot is stale by the next standup."
-  in_app: "In Analytics, plain-English questions, dashboards, and session replays are in one app."
+    - text: "**A separate session replay tool** shows what people did, in a different place from your numbers."
+    - text: "**Sharing findings as screenshots** means they're stale by the next standup."
+  in_app: "Analytics connects to the product data you already collect, like PostHog, Amplitude, Mixpanel, or GA4. Plain-English questions, dashboards, and session replays are in one app."
 frequency: weekly
 how_often_label: "Weekly"
 roles: [product, engineering, founders]

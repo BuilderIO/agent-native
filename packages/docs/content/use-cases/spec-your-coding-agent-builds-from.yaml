@@ -22,12 +22,12 @@ new_way:
     - "Connect your coding agent to Content through MCP. Claude Code, Codex, and Cursor are supported."
     - "Point your agent at the page, and add page instructions that tell it how to work with the spec."
 todays_stack:
-  heading: "Where a spec lives today"
+  heading: "What changes for your specs"
   items:
-    - text: "**A doc tool** holds the spec, but your coding agent can't open it."
-    - text: "**Your agent's prompt** gets chunks of the spec pasted in, and that copy goes stale the moment the doc changes."
-    - text: "**Chat threads** are where decisions get made, and the spec never hears about them."
-  in_app: "In Content, the spec, the decisions, and the tasks live in pages and databases your coding agent can reach through MCP."
+    - text: "**A doc tool your coding agent can't open** holds the spec."
+    - text: "**Pasting chunks of the spec into prompts** goes stale the moment the doc changes."
+    - text: "**Decisions made in chat threads** never make it back into the spec."
+  in_app: "Your coding agent still does the building. In Content, the spec lives in pages your agent can reach through MCP."
 frequency: per-project
 how_often_label: "Every feature"
 roles: [engineering, product]

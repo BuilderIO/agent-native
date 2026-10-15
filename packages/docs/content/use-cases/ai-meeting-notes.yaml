@@ -21,13 +21,12 @@ new_way:
     - "Hit record on the meeting."
     - "Afterward you get a transcript, an AI summary, notes, and action items. Search across every meeting later, or ask the agent to find the one where you discussed something."
 todays_stack:
-  heading: "Four places one meeting ends up"
+  heading: "What changes for every meeting"
   items:
-    - text: "**Your video call app** holds the meeting, but the notes are whatever someone typed while half-listening."
-    - text: "**A note-taker, like Granola,** transcribes and summarizes, but meeting notes live apart from your screen recordings and dictations."
-    - text: "**A shared doc** keeps the notes and decisions, until nobody opens it again and the owners and dates get lost."
-    - text: "**Email** carries the recap, which someone rewrites from memory."
-  in_app: "In Clips, meetings from your Google Calendar get a transcript, a summary, notes, and action items, in the same searchable library as your recordings."
+    - text: "**Typing notes while half-listening** leaves gaps, and whoever takes them misses part of the conversation."
+    - text: "**A separate note-taker, like Granola,** transcribes and summarizes, but its notes live apart from your screen recordings and dictations."
+    - text: "**A shared doc nobody opens again** is where decisions, owners, and dates usually get lost."
+  in_app: "Clips doesn't replace your calendar or your video call app. Meetings from your Google Calendar get a transcript, a summary, notes, and action items, in the same searchable library as your recordings."
 story: null
 faqs:
   - q: "Which calendar does it work with?"

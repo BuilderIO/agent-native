@@ -19,13 +19,12 @@ new_way:
     - "Ask a question in plain English. The agent turns your question into SQL."
     - "Save the answers as a dashboard and share it before your pipeline review."
 todays_stack:
-  heading: "Four tools for one pipeline review"
+  heading: "What changes for pipeline review"
   items:
-    - text: "**Your CRM's reports** cover the standard pipeline views, but the view you need usually isn't one of them."
-    - text: "**A spreadsheet export** handles the custom analysis, and it's rebuilt every week."
-    - text: "**A call recorder** captures what was said, but it sits apart from the deal data."
-    - text: "**Slides** carry the pipeline review, with charts pasted in by hand."
-  in_app: "In Analytics, your CRM data and the other GTM sources you connect answer plain-English questions, and the answers live in dashboards the team can share."
+    - text: "**Rebuilding a CRM report** when the view you need isn't one of the standard ones."
+    - text: "**A weekly spreadsheet export** for custom analysis, which goes stale in between."
+    - text: "**Pasting charts into the review deck** by hand every week."
+  in_app: "HubSpot stays your CRM, and Gong stays your call recorder. Analytics connects to both, answers plain-English questions about their data, and keeps the answers in dashboards your team can share."
 frequency: weekly
 how_often_label: "Weekly"
 roles: [revops, sales]

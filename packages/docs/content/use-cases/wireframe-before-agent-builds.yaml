@@ -19,12 +19,12 @@ new_way:
     - "Ask your agent for a visual plan of the screen. The plan includes wireframes and annotated code."
     - "Pin comments to the wireframes, then ask the agent to read them and revise the plan before it builds."
 todays_stack:
-  heading: "How a screen gets described today"
+  heading: "What a wireframe replaces"
   items:
-    - text: "**A prompt** is where you describe the layout, so the agent guesses at what you meant."
-    - text: "**A sketch on paper or a whiteboard** shows the layout, but the agent can't see it."
-    - text: "**A design tool** gives you detailed mockups, which is more than you need before the agent builds a first version."
-  in_app: "In Plans, the wireframes are part of the agent's plan, so your comments go straight back to the agent that will build the screen."
+    - text: "**Describing layout in a prompt** leaves your agent guessing at what you meant."
+    - text: "**A sketch on paper or a whiteboard** shows the layout, but your agent can't see it."
+    - text: "**A detailed mockup in a design tool** is more than you need before your agent builds a first version."
+  in_app: "Your coding agent still builds the screen. In Plans, the wireframes are part of its plan, so your comments go straight back to the agent that will build it."
 frequency: per-project
 how_often_label: "Every new screen"
 roles: [engineering, product]

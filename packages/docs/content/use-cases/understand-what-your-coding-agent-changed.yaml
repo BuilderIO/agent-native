@@ -19,12 +19,12 @@ new_way:
     - "Run the visual recap command on a pull request, commit, branch, or diff."
     - "Read the walkthrough: the behavior that changed, the files it touched, and annotated code. Leave comments, or share it for teammates to review."
 todays_stack:
-  heading: "How a change gets reviewed today"
+  heading: "What a recap adds to your review"
   items:
-    - text: "**The diff** is the review, line by line, and the important part is easy to miss."
-    - text: "**The pull request description** explains what changed, but rarely how the change behaves."
-    - text: "**A call with whoever made the change** answers questions, but it takes both people's time, and nothing is written down afterward."
-  in_app: "In Plans, a visual recap shows the behavior that changed, the files it touched, and annotated code, so you know where to look first."
+    - text: "**Starting cold on a large diff** makes the most important change easy to miss."
+    - text: "**A pull request description** says what changed, but rarely how the change behaves."
+    - text: "**A call with whoever made the change** answers questions, but nothing is written down afterward."
+  in_app: "A recap guides your review. It doesn't replace it: you still read the actual code and check the tests."
 story: null
 faqs:
   - q: "Can I use Plans to review code that is already written?"

@@ -19,13 +19,12 @@ new_way:
     - "Stop. Clips transcribes the recording. With the Chrome extension, it also saves console messages and basic per-request info from the tab you recorded, while you record."
     - "Share the link. People watch the video. Your agent gets the transcript and timestamped images, and you can open the clip in Claude, Claude Code, or Codex from the clip page."
 todays_stack:
-  heading: "Four tools for one bug"
+  heading: "What one recording replaces"
   items:
-    - text: "**A screen recorder, like Loom,** shows what happened on screen, but not the console errors or the failed request behind it."
-    - text: "**Browser DevTools** has those errors, but you have to copy them out by hand, and it's easy to grab the wrong one."
-    - text: "**A ticket tracker** holds the write-up, so the video, the logs, and the steps end up in three different places."
-    - text: "**Your coding agent** only sees what you paste into its chat. It never sees the moment things broke."
-  in_app: "In Clips, the recording, the transcript, and, with the Chrome extension, the console messages and request details sit behind one link that people and agents can both use."
+    - text: "**A screen recorder, like Loom,** shows what happened on screen, but not the console messages behind it."
+    - text: "**Copying errors out of DevTools by hand** is slow, and it's easy to grab the wrong one."
+    - text: "**Pasting logs into your coding agent's chat** gives it only what you copied, never the moment things broke."
+  in_app: "Clips works with the coding agent you already use. The recording, the transcript, and, with the Chrome extension, the console messages and request details sit behind one link you can hand to Claude, Claude Code, or Codex."
 story: null
 faqs:
   - q: "Do I need the Chrome extension to record a bug?"

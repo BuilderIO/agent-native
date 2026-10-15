@@ -21,12 +21,12 @@ new_way:
     - "Ask a question in plain English. The agent turns your question into SQL against your tables."
     - "Save the answers as a dashboard. Dashboards are private by default, and you can share one with a teammate or your whole organization."
 todays_stack:
-  heading: "Where data questions go today"
+  heading: "What changes for data questions"
   items:
-    - text: "**A SQL client** can answer anything, but only for the people who write SQL."
+    - text: "**Routing every question to whoever writes SQL,** then waiting for the answer."
     - text: "**A BI tool, like Looker,** covers the questions someone planned for, and new ones wait for a data request."
     - text: "**A chat assistant with a CSV export** can answer a question, but every answer starts with exporting the data again."
-  in_app: "In Analytics, your database answers plain-English questions, and the answers stay in dashboards your team can open."
+  in_app: "Your database stays where it is. Analytics connects to PostgreSQL, answers plain-English questions about your tables, and keeps the answers in dashboards your team can open."
 frequency: weekly
 how_often_label: "Weekly"
 roles: [engineering, product, founders]

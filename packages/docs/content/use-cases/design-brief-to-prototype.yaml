@@ -19,12 +19,12 @@ new_way:
     - "Ask for a few directions. Design shows them side by side on the canvas."
     - "Refine the one you like with visual controls or by asking the agent. Pin comments to elements, then export HTML or a ZIP of the files."
 todays_stack:
-  heading: "From brief to something clickable, today"
+  heading: "What a prototype replaces"
   items:
-    - text: "**A doc** holds the brief. People agree with it, but they only react once they see something."
-    - text: "**A design tool** turns the brief into screens, but someone has to draw every screen and state before anyone can click anything."
-    - text: "**Chat and comment threads** collect the feedback, which lands on screenshots instead of the design itself."
-  in_app: "In Design, the brief becomes an interactive prototype, directions sit side by side, and comments pin to the elements they're about."
+    - text: "**Reacting to a brief on paper** means people agree with a document and only react once they see something."
+    - text: "**Drawing every screen and state by hand** before anyone can click anything takes the longest."
+    - text: "**Feedback on screenshots in chat** lands away from the design itself."
+  in_app: "You still write the brief. In Design, it becomes an interactive prototype, directions sit side by side, and comments pin to the elements they're about."
 story: null
 faqs:
   - q: "What is a design brief?"

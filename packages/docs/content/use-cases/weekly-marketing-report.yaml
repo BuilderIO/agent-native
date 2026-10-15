@@ -19,13 +19,12 @@ new_way:
     - "Ask how the week went in plain English. The agent turns your question into SQL."
     - "Save the answers as a dashboard and share it with the team."
 todays_stack:
-  heading: "Four tools for one weekly report"
+  heading: "What changes for the weekly report"
   items:
-    - text: "**Google Analytics** has traffic and conversions, but its reports rarely match the question you were asked."
-    - text: "**Your CRM** has leads and pipeline, separate from the traffic numbers."
-    - text: "**A spreadsheet** is where it all gets combined, and it's rebuilt every week."
-    - text: "**A doc or slides** is how the report gets shared, and the screenshots go stale."
-  in_app: "In Analytics, traffic and pipeline data answer the same plain-English questions, and the report lives in a dashboard instead of a screenshot."
+    - text: "**Pulling numbers from Google Analytics and your CRM** into a spreadsheet every Monday."
+    - text: "**Rebuilding the same report** every week."
+    - text: "**Sharing screenshots** that are out of date by Wednesday."
+  in_app: "Google Analytics and HubSpot stay where they are. Analytics connects to them, answers plain-English questions about the week, and keeps the report in a dashboard instead of a screenshot."
 frequency: weekly
 how_often_label: "Weekly"
 roles: [marketing]

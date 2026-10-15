@@ -19,12 +19,12 @@ new_way:
     - "Ask for a few versions. Design shows them side by side on the canvas. Pin comments to specific elements and send them to the agent."
     - "Edit text and styling yourself, then export HTML or a ZIP of the files."
 todays_stack:
-  heading: "How a launch page usually gets made"
+  heading: "What changes before launch"
   items:
-    - text: "**Last launch's page** is the usual starting point, so you inherit its structure even when the offer is different."
-    - text: "**A page builder** is good for building and publishing, but harder to use for comparing directions before you commit."
-    - text: "**Screenshots in chat** are how review happens, so feedback arrives as a list of comments about spacing."
-  in_app: "In Design, you compare versions side by side, pin comments to elements, and export the HTML. Publishing is still a separate step."
+    - text: "**Starting from last launch's page** means inheriting its structure, even when the offer is different."
+    - text: "**Describing the page in words** to whoever builds it means finding out what they pictured only when it's done."
+    - text: "**Reviewing screenshots in chat** turns feedback into a list of comments about spacing."
+  in_app: "Design doesn't publish pages, so you still deploy with the tools you use today. Design covers the part before that: comparing versions side by side, pinning comments to elements, and exporting the HTML."
 story: null
 faqs:
   - q: "Does Design publish the page?"

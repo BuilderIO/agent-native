@@ -19,12 +19,12 @@ new_way:
     - "Ask your agent for a visual plan. Review the diagrams, wireframes, and annotated code."
     - "Comment on the text or pin feedback to a visual, then ask the agent to read the comments and revise the plan."
 todays_stack:
-  heading: "Where an agent's plan lives today"
+  heading: "What a visual plan replaces"
   items:
-    - text: "**The terminal** is where the agent's plan shows up, as long text that's easy to skim and approve."
-    - text: "**A design doc** captures the approach before building, but it's separate from the plan the agent actually follows."
-    - text: "**A whiteboard or diagram tool** works for sketching the architecture and screens, but the diagram lives somewhere the agent doesn't."
-  in_app: "In Plans, the agent's plan comes with diagrams, wireframes, and annotated code, and the agent can read your comments and revise it."
+    - text: "**Skimming a long text plan** makes it easy to approve something you didn't read closely."
+    - text: "**A separate design doc** captures the approach, but it isn't the plan your agent follows."
+    - text: "**A whiteboard sketch** works for you, but your agent can't see it."
+  in_app: "Plans works inside your coding agent, like Claude Code or Codex, and your agent still writes the code. Plans adds diagrams, wireframes, and annotated code to its plan, and your agent can read your comments and revise it."
 story: null
 faqs:
   - q: "What is Agent-Native Plans?"

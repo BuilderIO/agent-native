@@ -21,12 +21,12 @@ new_way:
     - "Click into any text field, like your agent's prompt box, a ticket, or a message. Hold Fn and speak."
     - "Release. Clips keeps the transcript and a cleaned-up version in your dictation history, which you can search later."
 todays_stack:
-  heading: "Where your words go today"
+  heading: "What dictation replaces"
   items:
-    - text: "**Typing** is the default, so long prompts get shortened, and the detail is what gets cut."
+    - text: "**Typing long prompts** means shortening them, and the detail is what gets cut."
     - text: "**Your operating system's built-in dictation** handles quick notes, but it may stumble on product and library names, and there's usually no history to search later."
-    - text: "**A dictation app, like Wispr Flow,** lets you speak instead of type, but your dictations live in a separate app from your recordings and meeting notes."
-  in_app: "In Clips, dictations, screen recordings, and meetings share one searchable library, and a personal vocabulary helps with your own terms."
+    - text: "**A separate dictation app, like Wispr Flow,** lets you speak instead of type, but your dictations live apart from your recordings and meeting notes."
+  in_app: "Your words still go into the apps you already use, like your coding agent's prompt box. In Clips, dictations, screen recordings, and meetings share one searchable library."
 story: null
 faqs:
   - q: "What do I need to start dictating?"

@@ -23,13 +23,13 @@ new_way:
     - "Ask a question in plain English, like how many signups you got last week. The agent turns your question into SQL."
     - "Save it as a dashboard with filters and saved views, and share it with specific people or your whole organization."
 todays_stack:
-  heading: "Four tools for one set of numbers"
+  heading: "What changes for your numbers"
   items:
-    - text: "**Your billing system's export** has the revenue numbers, but someone has to export and paste them every month."
-    - text: "**A spreadsheet** calculates MRR, churn, and growth, but it's rebuilt by hand and goes stale between updates."
+    - text: "**Exporting from your billing system by hand** every month, then pasting the numbers into a spreadsheet."
+    - text: "**Rebuilding the spreadsheet** for MRR, churn, and growth, which goes stale between updates."
     - text: "**A product analytics tool, like Amplitude or Mixpanel,** covers usage and retention, but only a few people know how to query it."
     - text: "**ChatGPT with a CSV** can answer questions about the numbers, but every answer starts with uploading the data again."
-  in_app: "In Analytics, you connect your sources, ask in plain English, and keep the answers as dashboards. The agent writes the SQL."
+  in_app: "Stripe stays your billing system. Analytics connects to it and your other sources, answers plain-English questions, and keeps the answers in dashboards."
 story: null
 faqs:
   - q: "What is Agent-Native Analytics?"
