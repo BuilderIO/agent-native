@@ -264,8 +264,15 @@ export function resolveFilterVars(
           ? resolveDateValue(getParam(filter.id), ALL_TIME_START)
           : getParam(filter.id);
     } else if (isDateRangePresetFilter(filter)) {
+      const requested = getParam(filter.id);
+      // A customRange select only takes a value it offers ("custom" always
+      // is), so a URL can't pick a period or range the dashboard doesn't have.
+      const offered =
+        filter.customRange !== true ||
+        requested === "custom" ||
+        !!filter.options?.some((option) => option.value === requested);
       const value =
-        getParam(filter.id) || resolveDefault(filter.default, filter.type);
+        (offered && requested) || resolveDefault(filter.default, filter.type);
       const startKey = filter.id + "Start";
       const endKey = filter.id + "End";
       const defaultRange = value === "custom" ? filter.default || "30d" : value;

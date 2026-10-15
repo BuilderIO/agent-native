@@ -350,7 +350,7 @@ describe("resolveFilterVars", () => {
     expect(preset.windowStart).toBe(daysAgo(30));
     expect(preset.windowEnd).toBe(daysAgo(0));
 
-    // A customRange select leaves the range to the SQL, as for "this".
+    // A customRange select doesn't offer it, so it falls back to its default.
     const period = resolveFilterVars(
       [
         {
@@ -364,8 +364,8 @@ describe("resolveFilterVars", () => {
       ],
       huge("window"),
     );
-    expect(period.windowStart).toBe("");
-    expect(period.windowEnd).toBe("");
+    expect(period.window).toBe("30d");
+    expect(period.windowStart).toBe(daysAgo(30));
 
     // A date filter treats it as an invalid date.
     const date = resolveFilterVars(
@@ -389,6 +389,36 @@ describe("resolveFilterVars", () => {
         (key) => (key === "window" ? "36500d" : ""),
       ).windowStart,
     ).toBe(daysAgo(36500));
+  });
+
+  it("only accepts values a customRange select offers", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        default: "this",
+        customRange: true,
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "last", label: "Last quarter" },
+        ],
+      },
+    ];
+    const resolve = (quarter: string) =>
+      resolveFilterVars(filters, (key) => (key === "quarter" ? quarter : ""));
+
+    // Values the select doesn't offer fall back to its default.
+    for (const unoffered of ["all", "90d", "next"]) {
+      expect(resolve(unoffered)).toEqual({
+        quarter: "this",
+        quarterStart: "",
+        quarterEnd: "",
+      });
+    }
+    // "custom" is always offered, and configured options pass through.
+    expect(resolve("custom").quarter).toBe("custom");
+    expect(resolve("last").quarter).toBe("last");
   });
 
   it("leaves quarter-style selects without customRange as plain selects", () => {
