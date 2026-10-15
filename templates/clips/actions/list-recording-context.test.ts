@@ -164,6 +164,41 @@ describe("list-recording-context", () => {
     expect(items[0]).not.toHaveProperty("pendingMediaRecordingId");
   });
 
+  it("marks only fresh processing claims as pollable to viewers", async () => {
+    await seedRecording(client, { id: "rec_2" });
+    mocks.roles = { rec_1: "viewer", rec_2: "viewer" };
+    await seedContextItem(client, { id: "fresh", status: "processing" });
+    await seedContextItem(client, {
+      id: "stale",
+      recordingId: "rec_2",
+      status: "processing",
+    });
+    await client.query(
+      "UPDATE recording_context_items SET updated_at = $2 WHERE id = $1",
+      ["fresh", new Date(Date.now() - 60_000).toISOString()],
+    );
+    await client.query(
+      "UPDATE recording_context_items SET updated_at = $2 WHERE id = $1",
+      ["stale", new Date(Date.now() - 11 * 60_000).toISOString()],
+    );
+
+    const fresh = await action.run({ recordingId: "rec_1" });
+    const stale = await action.run({ recordingId: "rec_2" });
+
+    expect(fresh.items[0]).toMatchObject({
+      id: "fresh",
+      status: "processing",
+      processingClaimFresh: true,
+    });
+    expect(stale.items[0]).toMatchObject({
+      id: "stale",
+      status: "processing",
+      processingClaimFresh: false,
+    });
+    expect(fresh.items[0]).not.toHaveProperty("updatedAt");
+    expect(stale.items[0]).not.toHaveProperty("updatedAt");
+  });
+
   it("returns an empty list when the Clip has no context", async () => {
     await expect(action.run({ recordingId: "rec_1" })).resolves.toEqual({
       items: [],
