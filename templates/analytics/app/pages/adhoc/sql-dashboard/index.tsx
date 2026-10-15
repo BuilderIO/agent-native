@@ -2124,7 +2124,9 @@ function SqlDashboardPageContent({
             aria-label={t("dashboardMode.label")}
             className="h-8 gap-0.5 rounded-md border p-0.5"
           >
-            <Tooltip>
+            {/* The hints are wider than their buttons, so a hoverable hint
+                would stay open over the neighbouring button and block its hint. */}
+            <Tooltip disableHoverableContent>
               <TooltipTrigger asChild>
                 <ToggleGroupItem
                   value="view"
@@ -2136,7 +2138,7 @@ function SqlDashboardPageContent({
               </TooltipTrigger>
               <TooltipContent>{t("dashboardMode.viewHint")}</TooltipContent>
             </Tooltip>
-            <Tooltip>
+            <Tooltip disableHoverableContent>
               <TooltipTrigger asChild>
                 <ToggleGroupItem
                   value="edit"
