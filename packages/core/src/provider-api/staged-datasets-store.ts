@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 
 import { getDbExec, type DbExec } from "../db/client.js";
-import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureTableExists,
+  ensureIndexExists,
+} from "../db/ddl-guard.js";
 import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 export const MAX_ROWS_PER_APP = 200_000;
@@ -26,6 +30,7 @@ export async function ensureTables(): Promise<void> {
           columns TEXT NOT NULL,
           row_count ${integerType} NOT NULL DEFAULT 0,
           byte_size ${integerType} NOT NULL DEFAULT 0,
+          byte_size_utf8_updated_at ${integerType},
           created_at ${integerType} NOT NULL,
           updated_at ${integerType} NOT NULL,
           PRIMARY KEY (id)
@@ -41,6 +46,11 @@ export async function ensureTables(): Promise<void> {
       `;
       await ensureTableExists("staged_datasets", createDatasetsSql);
       await ensureTableExists("staged_dataset_rows", createRowsSql);
+      await ensureColumnExists(
+        "staged_datasets",
+        "byte_size_utf8_updated_at",
+        `ALTER TABLE staged_datasets ADD COLUMN IF NOT EXISTS byte_size_utf8_updated_at ${integerType}`,
+      );
       await widenPostgresIntegerColumns(db);
       await ensureIndexExists(
         "staged_datasets_scope_idx",
@@ -161,6 +171,16 @@ async function lockStagedDatasetApp(tx: DbExec, appId: string): Promise<void> {
   });
 }
 
+async function backfillLegacyByteSizes(
+  tx: DbExec,
+  appId: string,
+): Promise<void> {
+  await tx.execute({
+    sql: `UPDATE staged_datasets AS dataset SET byte_size = legacy.byte_size, byte_size_utf8_updated_at = dataset.updated_at FROM (SELECT previous.id, COALESCE(SUM(OCTET_LENGTH(staged_row.row_data)), 0)::BIGINT AS byte_size FROM staged_datasets AS previous LEFT JOIN staged_dataset_rows AS staged_row ON staged_row.dataset_id = previous.id WHERE previous.app_id = ? AND previous.byte_size_utf8_updated_at IS DISTINCT FROM previous.updated_at GROUP BY previous.id) AS legacy WHERE dataset.id = legacy.id`,
+    args: [appId],
+  });
+}
+
 export function deriveColumns(rows: Record<string, unknown>[]): string[] {
   const seen = new Set<string>();
   for (const row of rows.slice(0, 20)) {
@@ -226,7 +246,10 @@ function prepareDatasetRows(
   return {
     rows,
     serialized,
-    byteSize: serialized.reduce((sum, s) => sum + s.length, 0),
+    byteSize: serialized.reduce(
+      (sum, value) => sum + Buffer.byteLength(value, "utf8"),
+      0,
+    ),
     columns: columns.length ? columns : deriveColumns(rows),
   };
 }
@@ -246,7 +269,7 @@ export async function upsertStagedDataset(
     ? null
     : prepareDatasetRows(options.rows, options.columns);
 
-  const { updatedAt, prepared } = await withDbTransaction(db, async (tx) => {
+  const outcome = await withDbTransaction(db, async (tx) => {
     // Totals, eviction and the write all happen under this lock in this
     // transaction: nothing is planned against a stale snapshot, and a failure
     // rolls the evictions back with the write.
@@ -292,6 +315,7 @@ export async function upsertStagedDataset(
     const writtenAt = Math.max(now, Number(idOwner[0]?.updated_at ?? 0) + 1);
     // Matched on owner and name so a legacy id that truncation shared with
     // another dataset is never removed on this writer's behalf.
+    let supersededId: string | undefined;
     if (options.supersedes && options.supersedes !== id) {
       const { rows: legacy } = await tx.execute({
         sql: `SELECT id FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ? AND name = ?`,
@@ -303,32 +327,34 @@ export async function upsertStagedDataset(
         ],
       });
       if (legacy.length > 0) {
-        await tx.execute({
-          sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
-          args: [options.supersedes],
-        });
-        await tx.execute({
-          sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ?`,
-          args: [options.supersedes, options.appId],
-        });
+        supersededId = options.supersedes;
       }
     }
+    // The timestamp marker lets older writers be corrected without rescanning
+    // stored payloads on every write. Returning a quota failure commits this
+    // one-time normalization while leaving all datasets intact.
+    await backfillLegacyByteSizes(tx, options.appId);
     const { rows: others } = await tx.execute({
-      sql: `SELECT COALESCE(SUM(row_count), 0) AS total_rows, COALESCE(SUM(byte_size), 0) AS total_bytes FROM staged_datasets WHERE app_id = ? AND id <> ?`,
-      args: [options.appId, id],
+      sql: `SELECT COALESCE(SUM(row_count), 0) AS total_rows, COALESCE(SUM(byte_size), 0) AS total_bytes FROM staged_datasets WHERE app_id = ? AND id <> ?${supersededId ? " AND id <> ?" : ""}`,
+      args: supersededId
+        ? [options.appId, id, supersededId]
+        : [options.appId, id],
     });
     const projectedRows = Number(others[0]?.total_rows ?? 0) + allRows.length;
     const projectedBytes = Number(others[0]?.total_bytes ?? 0) + byteSize;
+    let evictIds: string[] = [];
 
     if (
       projectedRows > MAX_ROWS_PER_APP ||
       projectedBytes > MAX_BYTES_PER_APP
     ) {
       const { rows: peers } = await tx.execute({
-        sql: `SELECT id, owner_email, byte_size, row_count, updated_at FROM staged_datasets WHERE app_id = ? AND id <> ?`,
-        args: [options.appId, id],
+        sql: `SELECT id, owner_email, byte_size, row_count, updated_at FROM staged_datasets WHERE app_id = ? AND id <> ?${supersededId ? " AND id <> ?" : ""}`,
+        args: supersededId
+          ? [options.appId, id, supersededId]
+          : [options.appId, id],
       });
-      const { evictIds, fits } = selectStagedDatasetsToEvict({
+      const eviction = selectStagedDatasetsToEvict({
         candidates: peers.map((r) => ({
           id: r.id as string,
           owner_email: r.owner_email as string,
@@ -341,27 +367,40 @@ export async function upsertStagedDataset(
         projectedRows,
         staleBefore: now - STAGED_DATASET_MAX_AGE_MS,
       });
-      if (!fits) {
-        throw new Error(
-          allRows.length > MAX_ROWS_PER_APP
-            ? `Staged dataset cap exceeded: this dataset alone has ${allRows.length} rows ` +
+      if (!eviction.fits) {
+        return {
+          error:
+            allRows.length > MAX_ROWS_PER_APP
+              ? `Staged dataset cap exceeded: this dataset alone has ${allRows.length} rows ` +
                 `(limit ${MAX_ROWS_PER_APP} per app, shared by all datasets). Stage fewer rows.`
-            : `Staged dataset byte cap exceeded: this dataset alone is ` +
+              : `Staged dataset byte cap exceeded: this dataset alone is ` +
                 `${(byteSize / 1024 / 1024).toFixed(1)} MB ` +
                 `(limit ${MAX_BYTES_PER_APP / 1024 / 1024} MB per app, shared by all datasets). ` +
                 `Stage fewer rows or columns.`,
-        );
+        };
       }
-      for (const victimId of evictIds) {
-        await tx.execute({
-          sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
-          args: [victimId],
-        });
-        await tx.execute({
-          sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ?`,
-          args: [victimId, options.appId],
-        });
-      }
+      evictIds = eviction.evictIds;
+    }
+
+    if (supersededId) {
+      await tx.execute({
+        sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
+        args: [supersededId],
+      });
+      await tx.execute({
+        sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ?`,
+        args: [supersededId, options.appId],
+      });
+    }
+    for (const victimId of evictIds) {
+      await tx.execute({
+        sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
+        args: [victimId],
+      });
+      await tx.execute({
+        sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ?`,
+        args: [victimId, options.appId],
+      });
     }
 
     await tx.execute({
@@ -378,9 +417,11 @@ export async function upsertStagedDataset(
       while (
         end < serialized.length &&
         end - start < INSERT_BATCH_ROWS &&
-        (end === start || bytes + serialized[end]!.length <= INSERT_BATCH_BYTES)
+        (end === start ||
+          bytes + Buffer.byteLength(serialized[end]!, "utf8") <=
+            INSERT_BATCH_BYTES)
       ) {
-        bytes += serialized[end]!.length;
+        bytes += Buffer.byteLength(serialized[end]!, "utf8");
         end += 1;
       }
       const slice = serialized.slice(start, end);
@@ -393,8 +434,8 @@ export async function upsertStagedDataset(
       start = end;
     }
 
-    await tx.execute({
-      sql: `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, updated_at=EXCLUDED.updated_at`,
+    const result = await tx.execute({
+      sql: `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, byte_size_utf8_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, byte_size_utf8_updated_at=EXCLUDED.byte_size_utf8_updated_at, updated_at=EXCLUDED.updated_at WHERE staged_datasets.app_id = EXCLUDED.app_id AND staged_datasets.owner_email = EXCLUDED.owner_email`,
       args: [
         id,
         options.appId,
@@ -403,12 +444,19 @@ export async function upsertStagedDataset(
         JSON.stringify(prepared.columns),
         allRows.length,
         byteSize,
+        writtenAt,
         now,
         writtenAt,
       ],
     });
+    if (result.rowsAffected === 0) {
+      throw new Error("A staged dataset with this ID already exists.");
+    }
     return { updatedAt: writtenAt, prepared };
   });
+
+  if ("error" in outcome) throw new Error(outcome.error);
+  const { updatedAt, prepared } = outcome;
 
   return {
     id,

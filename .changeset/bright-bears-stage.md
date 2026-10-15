@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Scope staged-dataset quotas to the owning user and credit existing data when replacing a dataset.
+Count staged-dataset payloads by UTF-8 byte size when enforcing the shared per-app quota.
