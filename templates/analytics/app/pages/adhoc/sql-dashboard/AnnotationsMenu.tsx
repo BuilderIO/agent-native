@@ -1,6 +1,10 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { dataNoteAppliesTo, type DataNote } from "@shared/data-notes";
+import {
+  dataNoteAppliesTo,
+  panelDrawsDataNotes,
+  type DataNote,
+} from "@shared/data-notes";
 import {
   IconChevronDown,
   IconFlag,
@@ -75,7 +79,11 @@ export function AnnotationsMenu({
   const notesHere = useMemo(
     () =>
       (dataNoteData?.notes ?? []).filter((note) =>
-        panels.some((panel) => dataNoteAppliesTo(note, dashboardId, panel)),
+        panels.some(
+          (panel) =>
+            panelDrawsDataNotes(panel) &&
+            dataNoteAppliesTo(note, dashboardId, panel),
+        ),
       ),
     [dashboardId, dataNoteData, panels],
   );

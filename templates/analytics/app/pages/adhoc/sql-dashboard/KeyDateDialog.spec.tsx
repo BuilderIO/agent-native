@@ -9,11 +9,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   save: vi.fn(),
   remove: vi.fn(),
-  sets: [] as KeyDateSet[],
+  /** Undefined while the list loads. */
+  sets: [] as KeyDateSet[] | undefined,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: () => ({ data: { sets: mocks.sets, editable: true } }),
+  useActionQuery: () => ({
+    data: mocks.sets && { sets: mocks.sets, editable: true },
+  }),
 }));
 
 vi.mock("@/components/dashboard/annotation-mutations", async (actual) => ({
@@ -88,6 +91,12 @@ function MenuWithDialog() {
 }
 
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')!;
+
+/** The Set label's field: its select, and the name input of a new set. */
+const setField = () =>
+  [...dialog().querySelectorAll("label")].find(
+    (el) => el.textContent === "Set",
+  )!.parentElement!;
 
 const zoneShown = () => {
   const selects = dialog().querySelectorAll('[role="combobox"]');
@@ -237,6 +246,24 @@ describe("KeyDateDialog", () => {
       )!;
     expect(option("Incidents").getAttribute("aria-disabled")).toBe("true");
     expect(option("Launches").getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("waits for a set list that loads after it opens, then starts in its first confirmed set", () => {
+    mocks.sets = undefined;
+    const draft: KeyDateDraft = {};
+    render(draft);
+    expect(setField().querySelector('[role="combobox"]')).toBeNull();
+    expect(setField().querySelector("input")).toBeNull();
+
+    mocks.sets = [
+      { ...LAUNCHES, id: "pending-1", name: "Incidents" },
+      LAUNCHES,
+    ];
+    render(draft);
+    expect(setField().querySelector('[role="combobox"]')?.textContent).toBe(
+      "Launches",
+    );
+    expect(setField().querySelector("input")).toBeNull();
   });
 
   it("starts in Label when opened from the Annotations menu", async () => {

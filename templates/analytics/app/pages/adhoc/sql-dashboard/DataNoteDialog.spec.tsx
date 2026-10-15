@@ -44,12 +44,23 @@ const panels: SqlPanel[] = [
   },
 ];
 
+const CUSTOM_BLOCK: SqlPanel = {
+  id: "custom",
+  title: "Pipeline widget",
+  sql: "",
+  source: "first-party",
+  chartType: "extension",
+  width: 1,
+  config: { extensionId: "extension-123" },
+};
+
 let container: HTMLDivElement;
 let root: Root;
 
 function render(
   draft: DataNoteDraft,
   props: {
+    panels?: SqlPanel[];
     annotations?: DashboardAnnotations;
     onAnnotationsChange?: (next: DashboardAnnotations) => void;
   } = {},
@@ -105,6 +116,20 @@ function type(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
 }
 
 const today = () => new Date().toLocaleDateString("en-CA");
+
+/** The charts the "Pin a chart" select offers. */
+function pinOptions() {
+  act(() => {
+    dialog()
+      .querySelector('[role="combobox"]')!
+      .dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+  });
+  return [...document.querySelectorAll('[role="option"]')].map(
+    (el) => el.textContent,
+  );
+}
 
 /** A click on the overlay, beside the dialog. */
 async function clickOverlay() {
@@ -177,6 +202,28 @@ describe("DataNoteDialog", () => {
     expect(dialog().textContent).toContain("Shows on 1 of 2 charts here");
     type(field("Events it affects"), "");
     expect(button("Save").disabled).toBe(true);
+  });
+
+  it("leaves extension cards, which draw no notes, out of the charts it pins and counts", () => {
+    render({}, { panels: [...panels, CUSTOM_BLOCK] });
+    expect(dialog().textContent).toContain("Shows on 0 of 2 charts here");
+    expect(pinOptions()).toEqual(["Setup failures per day", "Signups per day"]);
+  });
+
+  it("names an extension card a note was already pinned to, without counting it", () => {
+    render(
+      {
+        note: {
+          ...SETUP_INCIDENT,
+          panels: [{ dashboardId: "dash", panelId: "custom" }],
+        },
+      },
+      { panels: [...panels, CUSTOM_BLOCK] },
+    );
+    expect(
+      dialog().querySelector('[aria-label="Unpin Pipeline widget"]'),
+    ).not.toBeNull();
+    expect(dialog().textContent).toContain("Shows on 1 of 2 charts here");
   });
 
   const events = (count: number) =>
