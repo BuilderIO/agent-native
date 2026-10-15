@@ -552,6 +552,57 @@ describe("RecordingContextSection", () => {
     });
   });
 
+  it("rotates the pinned access token after expiry or a share-scope change", () => {
+    const now = Date.now();
+    const nowSeconds = Math.floor(now / 1000);
+    const makeToken = (resourceId: string, exp: number) =>
+      `${btoa(JSON.stringify({ resourceId, exp }))}.signature`;
+    const firstToken = makeToken("rec_1:access:old", nowSeconds + 120);
+    const renewedToken = makeToken("rec_1:access:old", nowSeconds + 3600);
+    const changedScopeToken = makeToken("rec_1:access:new", nowSeconds + 3600);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [item({})] },
+    });
+    const renderWith = (token: string) =>
+      act(() =>
+        root.render(
+          <MemoryRouter initialEntries={["/share/s"]}>
+            <QueryClientProvider client={queryClient}>
+              <RecordingContextSection
+                recordingId="rec_1"
+                canManage={false}
+                accessToken={token}
+              />
+            </QueryClientProvider>
+          </MemoryRouter>,
+        ),
+      );
+
+    renderWith(firstToken);
+    renderWith(renewedToken);
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: firstToken,
+    });
+
+    clock.mockReturnValue(now + 60_000);
+    renderWith(renewedToken);
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: renewedToken,
+    });
+
+    renderWith(changedScopeToken);
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: changedScopeToken,
+    });
+    clock.mockRestore();
+  });
+
   it("refreshes only this clip's context when the desktop changes it", () => {
     setQuery({
       isSuccess: true,

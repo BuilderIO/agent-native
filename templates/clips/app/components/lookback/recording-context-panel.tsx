@@ -45,6 +45,7 @@ import {
 } from "./recording-context-model";
 
 const CONTEXT_POLL_MS = 3000;
+const ACCESS_TOKEN_REFRESH_SKEW_MS = 60_000;
 const CONTEXT_SYNC_ACTIONS = new Set([
   "request-recording-context",
   "update-recording-context",
@@ -68,19 +69,54 @@ export function contextVideoSrc(
   return accessToken ? `${src}?t=${encodeURIComponent(accessToken)}` : src;
 }
 
+function mediaAccessTokenClaims(
+  token: string | undefined,
+): { resourceId: string; exp: number } | null {
+  const payload = token?.split(".", 1)[0];
+  if (!payload) return null;
+  try {
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = atob(base64 + "=".repeat((4 - (base64.length % 4)) % 4));
+    const claims = JSON.parse(decoded) as Record<string, unknown>;
+    return typeof claims.resourceId === "string" &&
+      typeof claims.exp === "number"
+      ? { resourceId: claims.resourceId, exp: claims.exp }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function shouldReplacePinnedAccessToken(
+  currentToken: string | undefined,
+  incomingToken: string | undefined,
+): boolean {
+  if (!incomingToken || currentToken === incomingToken) return false;
+  if (!currentToken) return true;
+  const current = mediaAccessTokenClaims(currentToken);
+  const incoming = mediaAccessTokenClaims(incomingToken);
+  if (!incoming) return false;
+  if (!current) return true;
+  return (
+    current.resourceId !== incoming.resourceId ||
+    current.exp * 1000 <= Date.now() + ACCESS_TOKEN_REFRESH_SKEW_MS
+  );
+}
+
 export function useRecordingContextItems(
   recordingId: string | undefined,
   enabled: boolean,
   accessToken?: string,
   canPollUnclaimedPending = false,
 ) {
-  // Player-data refetches mint a fresh token each time. The token is part of
-  // the query key, so keep the first one per clip: a new one would blank the
-  // panel and refetch the list.
+  // Keep the query key stable across player-data refetches, but adopt a new
+  // grant when its resource scope changes or the pinned grant is expiring.
   const pinned = useRef<{ recordingId?: string; token?: string }>({});
   if (pinned.current.recordingId !== recordingId) {
     pinned.current = { recordingId, token: accessToken };
-  } else if (!pinned.current.token && accessToken) {
+  } else if (
+    shouldReplacePinnedAccessToken(pinned.current.token, accessToken)
+  ) {
     pinned.current.token = accessToken;
   }
   const stableToken = pinned.current.token;
