@@ -69,16 +69,20 @@ describe("SqlChartCard data-note flag", () => {
     vi.unstubAllGlobals();
   });
 
-  it("sits beside the panel title, apart from the panel's toolbar", async () => {
+  const renderCard = async (panel: SqlPanel) => {
     await act(async () => {
       root.render(
         <TooltipProvider>
           <DashboardAnnotationsProvider dashboardId="dash" annotations={{}}>
-            <SqlChartCard panel={clicksByStep} onRemove={() => {}} />
+            <SqlChartCard panel={panel} onRemove={() => {}} />
           </DashboardAnnotationsProvider>
         </TooltipProvider>,
       );
     });
+  };
+
+  it("sits beside the panel title, apart from the panel's toolbar", async () => {
+    await renderCard(clicksByStep);
     const flag = container.querySelector("[data-data-note-flag]");
     const title = container.querySelector("h3");
     expect(flag?.getAttribute("aria-label")).toBe("dataNotes.flagLabel");
@@ -90,4 +94,17 @@ describe("SqlChartCard data-note flag", () => {
       ),
     ).toBeNull();
   });
+
+  it.each(["stacked-bar", "stacked-area"])(
+    "leaves a legacy %s chart's notes to the chart, which draws them on its dates",
+    async (chartType) => {
+      await renderCard({
+        ...clicksByStep,
+        sql: "SELECT day, count(*) FROM events WHERE event = 'builder connect clicked' GROUP BY day",
+        chartType: chartType as SqlPanel["chartType"],
+      });
+      expect(container.querySelector("[data-data-note-flag]")).toBeNull();
+      expect(container.querySelector("[data-data-note-lines]")).toBeNull();
+    },
+  );
 });

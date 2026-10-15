@@ -3,7 +3,7 @@ import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
 import { dataNoteIsRecent } from "@shared/data-notes";
-import { KEY_DATE_CHART_TYPES } from "@shared/key-dates";
+import { isKeyDateChartType } from "@shared/key-dates";
 import {
   IconGripVertical,
   IconDotsVertical,
@@ -168,7 +168,7 @@ export function SqlChartCard({
   // Time charts draw notes as bands over their dates; other charts flag the recent ones.
   const flaggedDataNotes = useMemo(
     () =>
-      KEY_DATE_CHART_TYPES.has(panel.chartType)
+      isKeyDateChartType(panel.chartType)
         ? []
         : panelDataNotes.filter((note) => dataNoteIsRecent(note)),
     [panel.chartType, panelDataNotes],

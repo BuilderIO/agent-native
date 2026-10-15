@@ -63,7 +63,7 @@ export function DashboardAnnotationsProvider({
   const keyDateData = keyDateQuery.data;
   const dataNoteData = dataNoteQuery.data;
   const keyDatesFailed = keyDateQuery.isError && !keyDateData;
-  const dataNotesFailed = dataNoteQuery.isError && !dataNoteData;
+  const dataNotesFailed = dataNoteQuery.isError;
   useEffect(() => {
     if (keyDatesFailed) {
       toast.error(t("dashboard.keyDatesUnavailable"), {

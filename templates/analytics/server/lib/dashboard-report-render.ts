@@ -20,10 +20,9 @@ import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import {
   dataNoteIsRecent,
+  dataNotesOnChart,
   dataNoteTone,
   formatDataNoteDates,
-  resolveDataNoteBand,
-  xValuesAreDates,
   type DataNote,
   type DataNoteTone,
 } from "../../shared/data-notes";
@@ -477,7 +476,7 @@ function pivotPanelRows(
 type ChartInput = {
   events: ReportChartEvent[];
   bands: ReportChartBand[];
-  /** The notes this chart shows: those with a band, or recent ones when the x axis is not dates. */
+  /** The notes this chart shows, each written out under it, whether or not it has a band. */
   dataNotes: DataNote[];
   labels: string[];
   series: ReportChartSeries[];
@@ -527,26 +526,27 @@ function buildChartInput(
           visible.map((row) => row[xKey]),
         ).map(({ index, label, color }) => ({ index, label, color }));
 
-  const xValues = visible.map((row) => row[xKey]);
-  const placed =
-    chartType === "pie"
-      ? []
-      : dataNotes.flatMap((note) => {
-          const band = resolveDataNoteBand(note, xValues);
-          return band ? [{ note, band }] : [];
-        });
-  const xIsDates = chartType !== "pie" && xValuesAreDates(xValues);
+  // A pie has no x axis to place notes on, so it lists the recent ones.
+  const shownNotes = dataNotesOnChart(
+    dataNotes,
+    chartType === "pie" ? [] : visible.map((row) => row[xKey]),
+    now,
+  );
 
   return {
     events,
-    bands: placed.map(({ note, band }) => ({
-      ...band,
-      label: note.title,
-      color: DATA_NOTE_COLORS[dataNoteTone(note)],
-    })),
-    dataNotes: xIsDates
-      ? placed.map(({ note }) => note)
-      : dataNotes.filter((note) => dataNoteIsRecent(note, now)),
+    bands: shownNotes.flatMap(({ note, band }) =>
+      band
+        ? [
+            {
+              ...band,
+              label: note.title,
+              color: DATA_NOTE_COLORS[dataNoteTone(note)],
+            },
+          ]
+        : [],
+    ),
+    dataNotes: shownNotes.map(({ note }) => note),
     labels,
     series: plotted.map((key, index) => ({
       label: formatReportSeriesLabel(panel, key),

@@ -8,6 +8,7 @@ import {
 import {
   dataNoteAppliesTo,
   dataNoteIsRecent,
+  dataNotesOnChart,
   dataNotesForPanel,
   dataNoteTone,
   formatDataNoteDates,
@@ -25,7 +26,7 @@ const days = (from: string, count: number) =>
 const panel = (id: string, sql: string) => ({ id, sql });
 
 describe("sqlCountsEvent", () => {
-  it("matches the event as a quoted string, in either quote and any case", () => {
+  it("matches the event as a quoted string, in either quote and whatever case the SQL keywords use", () => {
     expect(
       sqlCountsEvent(
         "where event = 'builder connect clicked'",
@@ -34,10 +35,23 @@ describe("sqlCountsEvent", () => {
     ).toBe(true);
     expect(
       sqlCountsEvent(
-        'WHERE event IN ("Builder_Connect_Failed")',
+        'WHERE event IN ("builder_connect_failed")',
         "builder_connect_failed",
       ),
     ).toBe(true);
+  });
+
+  it("treats event names that differ only in case as different events", () => {
+    expect(sqlCountsEvent("WHERE event = 'Signup'", "signup")).toBe(false);
+    expect(sqlCountsEvent('WHERE event = "signup"', "Signup")).toBe(false);
+    const signups = { ...SETUP_INCIDENT, matchEvents: ["signup"] };
+    expect(
+      dataNoteAppliesTo(
+        signups,
+        "dash",
+        panel("p1", "SELECT day, count(*) FROM events WHERE event = 'Signup'"),
+      ),
+    ).toBe(false);
   });
 
   it("ignores a name that is only part of another, unquoted, or a regex look-alike", () => {
@@ -181,6 +195,62 @@ describe("resolveDataNoteBand", () => {
     });
   });
 
+  it("shades nothing for a note that falls on days the query returned no row for", () => {
+    // GROUP BY day leaves out days with no events: Oct 10–12 sit between Oct 8 and Oct 13.
+    const between = {
+      ...SETUP_INCIDENT,
+      startDate: "2026-10-10",
+      endDate: "2026-10-12",
+    };
+    expect(resolveDataNoteBand(between, ["2026-10-08", "2026-10-13"])).toBe(
+      null,
+    );
+  });
+
+  it("shades only the days a note covers that have rows", () => {
+    const partly = {
+      ...SETUP_INCIDENT,
+      startDate: "2026-10-09",
+      endDate: "2026-10-11",
+    };
+    expect(
+      resolveDataNoteBand(partly, ["2026-10-08", "2026-10-11", "2026-10-14"]),
+    ).toEqual({ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true });
+  });
+
+  it("keeps each weekly point to its own week when weeks are missing", () => {
+    expect(
+      resolveDataNoteBand(SETUP_INCIDENT, [
+        "2026-09-28",
+        "2026-10-12",
+        "2026-10-19",
+      ]),
+    ).toEqual({ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true });
+    expect(
+      resolveDataNoteBand(SETUP_INCIDENT, ["2026-09-28", "2026-10-19"]),
+    ).toBe(null);
+  });
+
+  it("steps an axis of month starts by its months, quarters, or years", () => {
+    const september = {
+      ...SETUP_INCIDENT,
+      startDate: "2026-09-10",
+      endDate: "2026-09-12",
+    };
+    expect(resolveDataNoteBand(september, ["2026-08-01", "2026-10-01"])).toBe(
+      null,
+    );
+    expect(
+      resolveDataNoteBand(SETUP_INCIDENT, ["2026-09-01", "2026-10-01"]),
+    ).toEqual({ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true });
+    expect(
+      resolveDataNoteBand(september, ["2026-04-01", "2026-07-01"]),
+    ).toEqual({ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true });
+    expect(
+      resolveDataNoteBand(SETUP_INCIDENT, ["2025-01-01", "2026-01-01"]),
+    ).toEqual({ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true });
+  });
+
   it("places nothing outside the chart or on an axis that is not dates", () => {
     expect(resolveDataNoteBand(SETUP_INCIDENT, days("2026-09-01", 7))).toBe(
       null,
@@ -203,6 +273,43 @@ describe("resolveDataNoteBand", () => {
     expect(xValuesAreDates(["2026-10-14 07:00:00", "2026-10-14T08:00Z"])).toBe(
       true,
     );
+  });
+});
+
+describe("dataNotesOnChart", () => {
+  const now = Date.parse("2026-10-20T12:00:00Z");
+  const between = {
+    ...SETUP_INCIDENT,
+    id: "note-between",
+    startDate: "2026-10-10",
+    endDate: "2026-10-12",
+  };
+
+  it("shades the notes on its dates, writes out ones between them, and leaves off ones outside", () => {
+    const xValues = ["2026-10-08", "2026-10-09", "2026-10-13", "2026-10-14"];
+    expect(
+      dataNotesOnChart(
+        [SKIPS_UNTRACKED, between, SETUP_INCIDENT],
+        xValues,
+        now,
+      ),
+    ).toEqual([
+      { note: between, band: null },
+      {
+        note: SETUP_INCIDENT,
+        band: { startIndex: 1, endIndex: 2, startEdge: true, endEdge: true },
+      },
+    ]);
+  });
+
+  it("writes out the recent notes when the x axis is not dates", () => {
+    expect(
+      dataNotesOnChart(
+        [SKIPS_UNTRACKED, SETUP_INCIDENT],
+        ["Signup", "Connect"],
+        now,
+      ),
+    ).toEqual([{ note: SETUP_INCIDENT, band: null }]);
   });
 });
 
