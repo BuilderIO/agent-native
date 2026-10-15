@@ -165,7 +165,11 @@ export function classifyClock(input: {
     input.readyAt && input.readyAt > input.createdAt
       ? input.readyAt
       : input.createdAt;
-  const replies = input.activity.filter(isReply);
+  // Marking it ready hands it to us, so draft-period replies don't count.
+  const activity = input.activity.filter(
+    (item) => Date.parse(item.at) >= Date.parse(start),
+  );
+  const replies = activity.filter(isReply);
   if (replies.length === 0) {
     return {
       kind: "first-reply",
@@ -178,8 +182,7 @@ export function classifyClock(input: {
     };
   }
   const lastAuthorAt =
-    latest(input.activity.filter((item) => item.actor === "author"))?.at ??
-    input.createdAt;
+    latest(activity.filter((item) => item.actor === "author"))?.at ?? start;
   const lastReplyAt = latest(replies)!.at;
   if (lastAuthorAt > lastReplyAt) {
     return {
@@ -379,6 +382,7 @@ type GqlPr = {
   state: "OPEN" | "CLOSED" | "MERGED";
   isDraft: boolean;
   createdAt: string;
+  updatedAt: string;
   closedAt: string | null;
   mergedAt: string | null;
   maintainerCanModify: boolean;
@@ -465,7 +469,7 @@ type GqlTimelineItem = {
 
 function prFields(withBodies: boolean, withDetail: boolean): string {
   return `
-    number title url state isDraft createdAt closedAt mergedAt
+    number title url state isDraft createdAt updatedAt closedAt mergedAt
     maintainerCanModify mergeable headRefOid headRefName
     author { __typename login ... on User { name databaseId } }
     headRepository { nameWithOwner }
@@ -697,10 +701,11 @@ function updatedOutsidePrs(
         : undefined;
     } while (cursor);
   }
+  // Search matches whole days, so trim to the exact window.
   return fetchPrs(
     gh,
     [...numbers].sort((a, b) => a - b),
-  );
+  ).filter((pr) => Date.parse(pr.updatedAt) >= since.getTime());
 }
 
 /** Fork runs from first-time contributors wait for a maintainer to approve them. */
@@ -1251,7 +1256,9 @@ export function auditFlags(input: {
       ? input.readyAt
       : input.createdAt;
   const replies = input.activity.filter(isReply);
-  const first = replies[0];
+  const first = replies.find(
+    (reply) => Date.parse(reply.at) >= Date.parse(start),
+  );
   const firstReplyBusinessDays = first
     ? businessDaysBetween(new Date(start), new Date(first.at))
     : undefined;
@@ -1281,11 +1288,13 @@ export function auditFlags(input: {
       flags.push(`mentions Builder @${[...new Set(mentioned)].join(", @")}`);
   }
   if (input.state === "MERGED") {
-    // "Thanks, merging" comes just before the merge; an ask from that
-    // morning is not a closing comment.
+    // "Thanks, merging" comes just before the merge and "shipped" just
+    // after; an ask from that morning or a follow-up days later is neither.
+    const mergedAt = Date.parse(input.mergedAt!);
     const closing = replies.some(
       (reply) =>
-        Date.parse(reply.at) >= Date.parse(input.mergedAt!) - 60 * 60 * 1000 &&
+        Date.parse(reply.at) >= mergedAt - 60 * 60 * 1000 &&
+        Date.parse(reply.at) <= mergedAt + DAY_MS &&
         reply.kind === "comment",
     );
     if (!closing) flags.push("no Builder comment at merge");
@@ -1437,9 +1446,36 @@ function audit(
   return `${lines.join("\n")}\n`;
 }
 
-function valueOf(args: string[], flag: string): string | undefined {
-  const index = args.indexOf(flag);
-  return index >= 0 ? args[index + 1] : undefined;
+/**
+ * Splits arguments into positionals and options. An unknown option or a
+ * missing value is an error, so a typo can't quietly widen the report.
+ */
+function parseArgs(
+  args: string[],
+): { positional: string[]; flags: Map<string, string> } | { error: string } {
+  const positional: string[] = [];
+  const flags = new Map<string, string>();
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (arg === "--") continue;
+    if (!arg.startsWith("--")) {
+      positional.push(arg);
+      continue;
+    }
+    const equals = arg.indexOf("=");
+    const name = equals < 0 ? arg : arg.slice(0, equals);
+    if (name === "--json" && equals < 0) {
+      flags.set(name, "");
+      continue;
+    }
+    if (name !== "--days" && name !== "--by")
+      return { error: `unknown option ${arg}` };
+    const value = equals < 0 ? args[++index] : arg.slice(equals + 1);
+    if (!value || value.startsWith("--"))
+      return { error: `${name} needs a value` };
+    flags.set(name, value);
+  }
+  return { positional, flags };
 }
 
 const USAGE = `Usage:
@@ -1464,22 +1500,32 @@ export function runCommunityPrsCli(
   const sleep = options.sleep ?? sleepSync;
   const stdout = options.stdout ?? ((text) => process.stdout.write(text));
   const stderr = options.stderr ?? ((text) => process.stderr.write(text));
-  const json = args.includes("--json");
-  const [command = "sweep", target] = args.filter(
-    (arg, index) =>
-      !arg.startsWith("--") && !["--days", "--by"].includes(args[index - 1]!),
-  );
+  const parsed = parseArgs(args);
+  if ("error" in parsed) {
+    stderr(`${parsed.error}\n${USAGE}\n`);
+    return 2;
+  }
+  const { positional, flags } = parsed;
+  const json = flags.has("--json");
+  const [command = "sweep", ...rest] = positional;
+  const windowed = flags.has("--days") || flags.has("--by");
   try {
-    if (command === "sweep") stdout(sweep(gh, now, json, sleep));
-    else if (command === "pr" && Number.isInteger(Number(target)))
-      stdout(prReport(gh, Number(target), now, json, sleep));
-    else if (command === "audit") {
-      const days = Number(valueOf(args, "--days") ?? 30);
+    if (command === "sweep" && !rest.length && !windowed)
+      stdout(sweep(gh, now, json, sleep));
+    else if (
+      command === "pr" &&
+      rest.length === 1 &&
+      /^\d+$/.test(rest[0]!) &&
+      !windowed
+    )
+      stdout(prReport(gh, Number(rest[0]), now, json, sleep));
+    else if (command === "audit" && !rest.length) {
+      const days = Number(flags.get("--days") ?? 30);
       if (!Number.isInteger(days) || days < 1) {
         stderr(`--days must be a positive integer\n${USAGE}\n`);
         return 2;
       }
-      stdout(audit(gh, now, days, valueOf(args, "--by"), json));
+      stdout(audit(gh, now, days, flags.get("--by"), json));
     } else {
       stderr(`${USAGE}\n`);
       return 2;

@@ -91,6 +91,22 @@ describe("classifyClock", () => {
     );
   });
 
+  it("doesn't count a reply left while it was a draft", () => {
+    const readyAt = "2026-09-14T09:00:00.000Z";
+    const clock = classifyClock({
+      createdAt,
+      readyAt,
+      isDraft: false,
+      activity: [
+        act("author", createdAt),
+        act("builder", at(createdAt, 2), { body: "ping us when it's ready" }),
+      ],
+      now: new Date("2026-09-15T09:00:00.000Z"),
+    });
+    assert.equal(clock.kind, "first-reply");
+    assert.equal(clock.kind === "first-reply" && clock.since, readyAt);
+  });
+
   it("hands the turn back to us when the author updates after our reply", () => {
     const clock = classifyClock({
       createdAt,
@@ -314,6 +330,10 @@ describe("auditFlags", () => {
       "no Builder comment at merge",
     ]);
     assert.deepEqual(merged("2026-10-02T14:30:00.000Z"), []);
+    assert.deepEqual(merged("2026-10-02T17:00:00.000Z"), []);
+    assert.deepEqual(merged("2026-10-03T16:00:00.000Z"), [
+      "no Builder comment at merge",
+    ]);
   });
 
   it("flags our stale closes, not declines or the author's own close", () => {
@@ -394,6 +414,22 @@ describe("auditFlags", () => {
     ]);
   });
 
+  it("times the first reply from when it left draft", () => {
+    const { flags, firstReplyBusinessDays } = auditFlags({
+      ...base,
+      readyAt: "2026-10-05T09:00:00.000Z",
+      state: "OPEN",
+      closedAt: null,
+      mergedAt: null,
+      activity: [
+        act("builder", "2026-10-02T09:00:00.000Z", { body: "nice start, Sam" }),
+        act("builder", "2026-10-09T09:00:00.000Z", { body: "thanks Sam!" }),
+      ],
+    });
+    assert.equal(firstReplyBusinessDays, 4);
+    assert.deepEqual(flags, ["first reply late"]);
+  });
+
   it("starts no clock on a PR that has only ever been a draft", () => {
     assert.deepEqual(
       auditFlags({
@@ -469,6 +505,7 @@ describe("runCommunityPrsCli", () => {
       verdicts: { totalCount: 0, nodes: [] },
       mergeCommit: null,
       timelineItems: { nodes: [] },
+      updatedAt: (extra.closedAt as string | undefined) ?? createdAt,
       ...extra,
     };
   }
@@ -741,6 +778,10 @@ describe("runCommunityPrsCli", () => {
         authors: { totalCount: 60, nodes: [{ user: { login: "someone" } }] },
       },
     });
+    // Search matches whole days; this one changed before the window opened.
+    const earlier = pr(34, "veteran", "2026-09-20T09:00:00Z", {
+      updatedAt: "2026-10-01T08:00:00Z",
+    });
     const rebuilt = closedAfter(32, {
       __typename: "CrossReferencedEvent",
       createdAt: "2026-10-10T08:00:00Z",
@@ -754,9 +795,9 @@ describe("runCommunityPrsCli", () => {
           ? JSON.stringify({
               data: {
                 search: {
-                  issueCount: 4,
+                  issueCount: 5,
                   pageInfo: { hasNextPage: false, endCursor: "" },
-                  nodes: [draft, mentioned, rebuilt, crowded],
+                  nodes: [draft, mentioned, rebuilt, crowded, earlier],
                 },
               },
             })
@@ -767,12 +808,13 @@ describe("runCommunityPrsCli", () => {
                   pr31: mentioned,
                   pr32: rebuilt,
                   pr33: crowded,
+                  pr34: earlier,
                 },
               },
             }),
     });
     let out = "";
-    const code = runCommunityPrsCli(["audit", "--days", "14"], {
+    const code = runCommunityPrsCli(["audit", "--days=14"], {
       gh,
       now: new Date("2026-10-15T09:00:00Z"),
       stdout: (text) => (out += text),
@@ -787,5 +829,29 @@ describe("runCommunityPrsCli", () => {
     assert.match(rows[2]!, /closed 8d after our ask, with no ping/);
     assert.match(rows[2]!, /may have landed via #40, which credits the author/);
     assert.match(rows[3]!, /squash commit has more co-authors than read/);
+    assert.equal(rows.length, 4);
+  });
+
+  it("rejects options it can't read instead of widening the report", () => {
+    for (const args of [
+      ["audit", "--days"],
+      ["audit", "--by", "--json"],
+      ["audit", "--dayz", "7"],
+      ["audit", "--dayz=7"],
+      ["audit", "--days=0"],
+      ["audit", "extra"],
+      ["sweep", "--days", "7"],
+      ["pr", "12", "13"],
+      ["pr", "#12"],
+    ]) {
+      let err = "";
+      const code = runCommunityPrsCli(args, {
+        gh: () => assert.fail(`ran gh for ${args.join(" ")}`),
+        stdout: (text) => assert.fail(text),
+        stderr: (text) => (err += text),
+      });
+      assert.equal(code, 2, args.join(" "));
+      assert.match(err, /Usage:/, args.join(" "));
+    }
   });
 });
