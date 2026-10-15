@@ -358,6 +358,11 @@ export function semanticScopeForSearch(value: string): string {
   return "unknown";
 }
 
+export function semanticScopeForCandidate(value: string): string {
+  const scope = semanticScopeForSearch(value);
+  return scope === "active_user_activity" ? "product_activity" : scope;
+}
+
 export function semanticScopeForDictionaryEntry(
   entry: Record<string, unknown>,
 ): string {
@@ -421,8 +426,7 @@ export function semanticScopeForDictionaryEntry(
     return "product_activity";
   }
   if (declared) return declared;
-  const inferred = semanticScopeForSearch(evidence);
-  return inferred === "active_user_activity" ? "product_activity" : inferred;
+  return semanticScopeForCandidate(evidence);
 }
 
 export function stripNonPositiveInstructions(value: string): string {

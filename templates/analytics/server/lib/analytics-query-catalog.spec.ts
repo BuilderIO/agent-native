@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  candidateScopeCompatibility,
   candidateQueryPriority,
   rankAnalyticsQueryCatalog,
   relevanceTerms,
@@ -3773,6 +3774,36 @@ describe("analytics query catalog", () => {
       kind: "dashboard-panel",
       panelId: "mau-by-region",
     });
+  });
+
+  it("keeps time-scoped active-user intent compatible with dashboard panels", () => {
+    const search = "weekly active users by organization";
+    const results = rankAnalyticsQueryCatalog({
+      search,
+      limit: 4,
+      dashboards: [
+        {
+          id: "weekly-active-users",
+          title: "Product Usage",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "weekly-active-users-by-organization",
+                title: "Weekly Active Users by Organization",
+                source: "bigquery",
+                sql: "SELECT activity_date, organization_id, COUNT(DISTINCT user_id) FROM product_usage GROUP BY 1, 2",
+              },
+            ],
+          },
+        },
+      ],
+      dictionaryEntries: [],
+    });
+    const panel = results.find((result) => result.kind === "dashboard-panel");
+
+    expect(panel).toBeDefined();
+    expect(candidateScopeCompatibility(panel!, search)).toBe(1);
   });
 
   it("keeps partial approved definitions ahead of partial certified panels", () => {

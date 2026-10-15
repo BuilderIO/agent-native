@@ -50,6 +50,7 @@ export interface DataSourceProviderStatus {
   connectionHealth?:
     | "connected"
     | "not_connected"
+    | "checking"
     | "needs_reauth"
     | "error"
     | "unknown";

@@ -10,6 +10,7 @@ import {
   matchSearchFields as matchScore,
   paginateSearchResults,
   semanticScopeCompatibility,
+  semanticScopeForCandidate,
   semanticScopeForDictionaryEntry,
   semanticScopeForSearch,
   searchTerms,
@@ -336,12 +337,16 @@ const SEMANTIC_SCOPES = new Set([
   "crm_record",
 ]);
 
-function inferSemanticScope(value: string): string {
+function inferRequestedSemanticScope(value: string): string {
   return semanticScopeForSearch(value);
 }
 
+function inferCandidateSemanticScope(value: string): string {
+  return semanticScopeForCandidate(value);
+}
+
 function isMembershipRosterRequest(search: string): boolean {
-  return inferSemanticScope(search) === "membership_roster";
+  return inferRequestedSemanticScope(search) === "membership_roster";
 }
 
 function requestedTemporalUnit(search: string): string | null {
@@ -2226,7 +2231,7 @@ function hasExplicitActivityEvidence(
   ) {
     return false;
   }
-  return inferSemanticScope(searchable) === "product_activity";
+  return inferCandidateSemanticScope(searchable) === "product_activity";
 }
 
 function hasActiveOnlyMembershipEvidence(
@@ -2377,7 +2382,7 @@ export function candidateSemanticScope(
     return semanticScopeForDictionaryEntry(candidate);
   }
   if (hasMembershipRosterEvidence(candidate)) return "membership_roster";
-  return inferSemanticScope(
+  return inferCandidateSemanticScope(
     [
       candidate.dashboardTitle,
       candidate.dashboardDescription,
@@ -2395,7 +2400,7 @@ export function candidateSemanticScope(
 }
 
 function requestedSemanticScope(search: string): string {
-  return inferSemanticScope(search);
+  return inferRequestedSemanticScope(search);
 }
 
 export function candidateScopeCompatibility(

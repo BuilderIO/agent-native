@@ -333,7 +333,9 @@ export default defineAction({
               ? "needs_reauth"
               : connectionStatuses.has("error")
                 ? "error"
-                : "not_connected";
+                : connectionStatuses.has("checking")
+                  ? "checking"
+                  : "not_connected";
         const ready = hasRequiredCredentials
           ? true
           : workspace.error

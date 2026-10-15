@@ -6,6 +6,7 @@ import {
   matchSearchFields,
   paginateSearchResults,
   semanticScopeCompatibility,
+  semanticScopeForCandidate,
   semanticScopeForDictionaryEntry,
   semanticScopeForSearch,
   stripNonPositiveInstructions,
@@ -145,6 +146,15 @@ describe("Analytics term matching", () => {
     expect(semanticScopeForSearch("monthly active users by region")).toBe(
       "active_user_activity",
     );
+    expect(
+      semanticScopeForCandidate("weekly active users by organization"),
+    ).toBe("product_activity");
+    expect(
+      semanticScopeCompatibility(
+        semanticScopeForCandidate("weekly active users by organization"),
+        semanticScopeForSearch("weekly active users by organization"),
+      ),
+    ).toBe(1);
     expect(semanticScopeForSearch("who has access to the workspace")).toBe(
       "membership_roster",
     );

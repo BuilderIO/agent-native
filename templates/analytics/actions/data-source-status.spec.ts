@@ -486,6 +486,34 @@ describe("data-source-status", () => {
     });
   });
 
+  it("reports a checking workspace connection separately from disconnected", async () => {
+    mocks.workspaceSummary = {
+      ...mocks.workspaceSummary,
+      grantState: "granted",
+      grantAvailability: "available",
+      connectionCount: 1,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 0,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: false,
+      statuses: ["checking"],
+      connections: [{ id: "analytics-grant", status: "checking" }],
+    };
+
+    const result = (await dataSourceStatus.run({ key: "hubspot" })) as any;
+    const hubspot = result.providers.find(
+      (provider: any) => provider.provider === "hubspot",
+    );
+
+    expect(hubspot).toMatchObject({
+      configured: true,
+      ready: false,
+      connectionHealth: "checking",
+      workspaceConnection: { statuses: ["checking"] },
+    });
+  });
+
   it("does not label an unavailable workspace inventory as provider health error", async () => {
     mocks.listWorkspaceConnections.mockRejectedValueOnce(
       new Error("Workspace connection inventory unavailable"),
