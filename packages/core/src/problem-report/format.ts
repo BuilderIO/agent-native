@@ -17,7 +17,10 @@ export function clipText(text: string, maxChars: number): string {
 }
 
 export function isFailedRecorderEvent(event: RecorderEvent): boolean {
-  return event.type === "error" || event.ok === false;
+  return (
+    event.type === "error" ||
+    (event.ok === false && event.errorCode !== "cancelled")
+  );
 }
 
 export function countRecorderEventsByType(

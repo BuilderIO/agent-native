@@ -160,6 +160,30 @@ describe("save-recording-app-activity", () => {
     expect(result).toMatchObject({ status: "saved", summary });
   });
 
+  it("does not count calls the app cancelled as failures", async () => {
+    await action.run(
+      action.schema.parse(
+        payload({
+          events: [
+            {
+              timestampMs: 1_000,
+              elapsedMs: -2_000,
+              type: "action",
+              name: "list-designs",
+              ok: false,
+              errorCode: "cancelled",
+            },
+          ],
+        }),
+      ),
+    );
+
+    const summary = JSON.parse(
+      mocks.updatedValues!.appActivitySummaryJson as string,
+    );
+    expect(summary).toMatchObject({ eventCount: 1, failureCount: 0 });
+  });
+
   it("drops malformed events and counts them instead of storing them", async () => {
     await action.run(
       action.schema.parse(

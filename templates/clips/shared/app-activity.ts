@@ -160,10 +160,11 @@ function boundedObject(
 }
 
 export function isAppActivityFailure(
-  event: Pick<AppActivityEvent, "type" | "ok" | "status">,
+  event: Pick<AppActivityEvent, "type" | "ok" | "status" | "errorCode">,
 ): boolean {
+  if (event.type === "error") return true;
+  if (event.errorCode === "cancelled") return false;
   return (
-    event.type === "error" ||
     event.ok === false ||
     (typeof event.status === "number" && event.status >= 400)
   );

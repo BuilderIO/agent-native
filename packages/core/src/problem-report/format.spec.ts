@@ -5,6 +5,7 @@ import {
   PROBLEM_REPORT_SUMMARY_MAX_BYTES,
   formatProblemReportSummary,
   formatRecorderEvent,
+  isFailedRecorderEvent,
 } from "./format.js";
 
 const REF = `attachment:v1:${"x".repeat(2_600)}`;
@@ -28,6 +29,20 @@ function report(overrides: Partial<RecorderReport> = {}): RecorderReport {
 function bytes(text: string): number {
   return new TextEncoder().encode(text).length;
 }
+
+describe("isFailedRecorderEvent", () => {
+  it("counts errors and failed calls, not calls the app cancelled", () => {
+    const action = { t: -1, at: 1, type: "action" as const, name: "list" };
+
+    expect(isFailedRecorderEvent({ ...action, ok: false, status: 403 })).toBe(
+      true,
+    );
+    expect(
+      isFailedRecorderEvent({ ...action, ok: false, errorCode: "cancelled" }),
+    ).toBe(false);
+    expect(isFailedRecorderEvent({ t: -1, at: 1, type: "error" })).toBe(true);
+  });
+});
 
 describe("formatRecorderEvent", () => {
   it("prints outcome, status, code, duration and request id on one line", () => {
