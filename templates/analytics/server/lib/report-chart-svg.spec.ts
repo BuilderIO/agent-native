@@ -4,6 +4,7 @@ vi.mock("@agent-native/core/server", () => ({
   OG_FONT_FAMILY: "Liberation Sans",
 }));
 
+import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
 import {
   estimateTextWidth,
   REPORT_CHART_FONT_FAMILY,
@@ -638,6 +639,78 @@ describe("renderFunnelChartSvg", () => {
     expect(svg).toContain("Signed up");
     expect(svg).toContain("↓50.0%");
     expect(svg).toContain('aria-label="Pipeline"');
+  });
+});
+
+describe("renderFunnelChartSvg with funnelOutcomes", () => {
+  const funnel = resolveDashboardFunnelRows(
+    [
+      {
+        step: "Your role",
+        shown: 1927,
+        completed: 1168,
+        skipped: 520,
+        left_here: 75,
+        optional: true,
+      },
+      {
+        step: "Choose setup",
+        shown: 2543,
+        completed: 1885,
+        skipped: 0,
+        left_here: 337,
+        optional: false,
+      },
+      {
+        step: "Broken",
+        shown: 10,
+        completed: 9,
+        skipped: 0,
+        left_here: 9,
+        optional: false,
+      },
+    ],
+    "step",
+    "shown",
+    {
+      completedKey: "completed",
+      skippedKey: "skipped",
+      leftKey: "left_here",
+      optionalKey: "optional",
+    },
+  );
+
+  it("splits each stage and leads it with the share who left the app", () => {
+    const svg = renderFunnelChartSvg({
+      title: "Onboarding",
+      rows: funnel.items,
+      outcomes: funnel.outcomes,
+      width: 720,
+      height: 360,
+    });
+
+    expect(svg).toContain(">Left the app here<");
+    expect(svg).toContain(">Moved on without either<");
+    expect(svg).toContain(">3.9%<");
+    expect(svg).toContain(">13.3%<");
+    expect(svg.match(/>Optional</g)).toHaveLength(1);
+    expect(svg).toContain('fill="url(#funnel-skipped)"');
+    expect(svg).toContain(">1.9k shown<");
+    expect(svg).not.toContain("↓");
+  });
+
+  it("draws a stage whose counts add up to more than shown as a plain bar", () => {
+    const svg = renderFunnelChartSvg({
+      title: "Onboarding",
+      rows: funnel.items,
+      outcomes: funnel.outcomes,
+      width: 720,
+      height: 360,
+    });
+
+    expect(funnel.items[2].outcomes).toBeUndefined();
+    expect(svg).toContain(">Broken<");
+    expect(svg.match(/clip-path="url\(#funnel-stage-/g)).toHaveLength(2);
   });
 });
 

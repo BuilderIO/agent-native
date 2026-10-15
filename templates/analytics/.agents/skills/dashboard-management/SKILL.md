@@ -227,6 +227,17 @@ non-negative count or value. The renderer preserves the SQL row order, shows
 each stage's share of the first stage, and shows the change from the previous
 stage. Keep the intended stage order in SQL with `ORDER BY`.
 
+When people can skip a stage or go around it (onboarding, setup flows), add
+`config.funnelOutcomes` so a skip never reads as drop-off. It names result
+columns of per-stage people counts, not shares: `completedKey` and `leftKey`
+are required, `skippedKey` is optional, and `optionalKey` names a boolean
+column that tags a stage Optional. `yKey` stays the people shown the stage, and
+completed + skipped + left must not exceed it; the rest are "moved on without
+either". Each bar then splits into those outcomes and the stage leads with the
+share who left the app there. A missing column draws the usual warning; a
+stage whose counts are not numbers or add up to more than shown draws a plain
+bar, and the panel check reports it under `funnelOutcomes`.
+
 When a dashboard is being migrated from an extension, create a new v2 copy,
 bind its panels to the real provider schema or Data Programs, and compare it
 with the original before retiring the extension-backed version. Do not invent
