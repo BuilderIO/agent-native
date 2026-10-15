@@ -114,20 +114,32 @@ export function DashboardAnnotationsProvider({
 }
 
 /**
- * Draws key dates already resolved for one dashboard. A Human Review preview
- * can show another organization's dashboard, whose key dates list-key-dates
- * does not return, so get-sql-dashboard sends them with it.
+ * Draws key dates and data notes already resolved for one dashboard. A Human
+ * Review preview can show another organization's dashboard, whose annotations
+ * the lists do not return, so get-sql-dashboard sends them with it.
  */
-export function ResolvedKeyDatesProvider({
+export function ResolvedAnnotationsProvider({
+  dashboardId,
+  annotations,
   keyDates,
+  dataNotes,
   children,
 }: {
+  dashboardId: string;
+  annotations?: DashboardAnnotations;
   keyDates: readonly PanelEvent[];
+  dataNotes: readonly DataNote[];
   children: ReactNode;
 }) {
   const value = useMemo<DashboardAnnotationsValue>(
-    () => ({ ...NO_ANNOTATIONS, keyDates }),
-    [keyDates],
+    () => ({
+      ...NO_ANNOTATIONS,
+      dashboardId,
+      annotations,
+      keyDates,
+      dataNotes,
+    }),
+    [dashboardId, annotations, keyDates, dataNotes],
   );
   return (
     <DashboardAnnotationsContext.Provider value={value}>
