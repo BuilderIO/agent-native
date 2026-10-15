@@ -21,6 +21,7 @@ export function isTranscriptExistsError(error: unknown): boolean {
 const PAST_END_TOLERANCE_MS = 1_000;
 const ESTIMATED_MS_PER_WORD = 420;
 const MIN_LAST_SEGMENT_MS = 1_000;
+const REPLACEMENT_CHARACTER = "�";
 
 export type TranscriptImportErrorCode =
   | "empty"
@@ -82,7 +83,10 @@ export function parseTranscriptImport(
     typeof options.durationMs === "number" && options.durationMs > 0
       ? options.durationMs
       : null;
-  const lines = splitLines(stripBom(text));
+  // WebVTT's parser reads NUL as U+FFFD, and PostgreSQL text cannot store NUL.
+  const lines = splitLines(
+    stripBom(text).replace(/\0/g, REPLACEMENT_CHARACTER),
+  );
   const parsed =
     format === "text"
       ? parseTimestampedText(lines, durationMs)
@@ -126,15 +130,21 @@ function parseCues(lines: string[], format: "vtt" | "srt"): ParsedLines {
   const cues: Array<{ segment: TranscriptSegment; line: number }> = [];
   let language: string | null = null;
   const blocks = splitBlocks(lines);
-  for (const [blockIndex, block] of blocks.entries()) {
-    const first = block[0].text.trim();
-    if (blockIndex === 0 && /^WEBVTT(?:\s|$)/.test(first)) {
-      for (const line of block) {
-        const header = VTT_LANGUAGE_HEADER.exec(line.text.trim());
-        if (header) language = header[1];
-      }
-      continue;
+  if (blocks.length && /^WEBVTT(?:\s|$)/.test(blocks[0][0].text.trim())) {
+    const header = blocks.shift()!;
+    // A cue written straight under the header, with no blank line between,
+    // still belongs to the transcript.
+    const firstTiming = header.findIndex(
+      (line, index) => index > 0 && line.text.includes("-->"),
+    );
+    if (firstTiming > 0) blocks.unshift(header.splice(firstTiming));
+    for (const line of header) {
+      const match = VTT_LANGUAGE_HEADER.exec(line.text.trim());
+      if (match) language = match[1];
     }
+  }
+  for (const block of blocks) {
+    const first = block[0].text.trim();
     if (/^(?:NOTE|STYLE|REGION)(?:\s|$)/.test(first)) continue;
 
     // A cue starts with an optional identifier (SRT's index) and then its
@@ -348,7 +358,11 @@ function decodeEntities(text: string): string {
           body[1].toLowerCase() === "x"
             ? Number.parseInt(body.slice(2), 16)
             : Number.parseInt(body.slice(1), 10);
-        return code <= 0x10ffff ? String.fromCodePoint(code) : entity;
+        // HTML's reference rules, which WebVTT cue text follows: NUL, a
+        // surrogate, or a value past U+10FFFF is not a character.
+        const isCharacter =
+          code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff);
+        return isCharacter ? String.fromCodePoint(code) : REPLACEMENT_CHARACTER;
       }
       return NAMED_ENTITIES[body.toLowerCase()] ?? entity;
     },

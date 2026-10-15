@@ -215,13 +215,27 @@ describe("parseTranscriptImport", () => {
     );
   });
 
-  it("keeps a numeric character reference that is not a Unicode character", () => {
+  it("reads NUL and references that are not characters as U+FFFD", () => {
     const result = parseTranscriptImport(
-      "WEBVTT\n\n00:00.000 --> 00:01.000\nCaf&#xe9; &#x110000;",
+      "WEBVTT\n\n00:00.000 --> 00:01.000\nCaf&#xe9; a\0b &#0; &#xD800; &#x110000;",
     );
     expect(result).toMatchObject({
       ok: true,
-      segments: [{ text: "Café &#x110000;" }],
+      segments: [{ text: "Café a�b � � �" }],
+    });
+  });
+
+  it("reads a cue written straight under the WEBVTT header", () => {
+    const result = parseTranscriptImport(
+      "WEBVTT\nLanguage: fr\n00:00.000 --> 00:01.000\nBonjour\n\n00:01.000 --> 00:02.000\nSalut",
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 0, endMs: 1000, text: "Bonjour" },
+        { startMs: 1000, endMs: 2000, text: "Salut" },
+      ],
+      language: "fr",
     });
   });
 
