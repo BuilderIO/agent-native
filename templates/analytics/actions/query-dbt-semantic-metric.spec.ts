@@ -90,8 +90,13 @@ const connection = {
   },
 };
 
-function providerResult(json: unknown, status = 200, ok = true) {
-  return { response: { ok, status, json } };
+function providerResult(
+  json: unknown,
+  status = 200,
+  ok = true,
+  truncated = false,
+) {
+  return { response: { ok, status, json, truncated } };
 }
 
 function metricMetadataResult(
@@ -1508,6 +1513,49 @@ describe("query-dbt-semantic-metric", () => {
 
     expect(result).toMatchObject({ status: "connection_error" });
     expect(result).not.toHaveProperty("queryId");
+    expect(action.outputSchema.parse(result)).toEqual(result);
+  });
+
+  it("reports truncated metadata without offering an unsafe continuation cursor", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValueOnce(
+      providerResult(undefined, 200, true, true),
+    );
+
+    const result = await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({
+      status: "provider_error",
+      message: expect.stringContaining(
+        "truncated the metric metadata response",
+      ),
+    });
+    expect(result).not.toHaveProperty("queryId");
+    expect(result).not.toHaveProperty("nextPage");
+    expect(action.outputSchema.parse(result)).toEqual(result);
+  });
+
+  it("does not return the same result cursor after a truncated MetricFlow page", async () => {
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValueOnce(providerResult(undefined, 200, true, true));
+
+    const result = await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({
+      status: "provider_error",
+      message: expect.stringContaining("Narrow the date range"),
+    });
+    expect(result).not.toHaveProperty("queryId");
+    expect(result).not.toHaveProperty("nextPage");
     expect(action.outputSchema.parse(result)).toEqual(result);
   });
 

@@ -259,6 +259,7 @@ type GraphQlResult = {
   response?: {
     ok?: boolean;
     status?: number;
+    truncated?: boolean;
     json?: unknown;
   };
 };
@@ -382,6 +383,7 @@ class DbtSemanticLayerError extends Error {
   constructor(
     readonly status: DbtFailureState,
     message: string,
+    readonly recoverable = true,
   ) {
     super(message);
     this.name = "DbtSemanticLayerError";
@@ -610,6 +612,7 @@ function validateMetricQuerySpec(
 async function executeGraphQl(args: {
   connectionId: string;
   body: { query: string; variables: Record<string, unknown> };
+  responseKind: "metadata" | "query" | "result";
   signal?: AbortSignal;
 }): Promise<Record<string, unknown>> {
   let result: GraphQlResult;
@@ -644,6 +647,17 @@ async function executeGraphQl(args: {
     );
   }
   const response = result.response;
+  if (response?.truncated === true && response.ok !== false) {
+    const message = {
+      metadata:
+        "dbt Semantic Layer truncated the metric metadata response at 500 KB. No continuation cursor is safe because the current page may be incomplete. Refine the metric name or ask the dbt owner to reduce its exposed dimensions, then retry.",
+      query:
+        "dbt Semantic Layer truncated the metric query creation response at 500 KB, so no query ID can be resumed. Retry with narrower filters; if it repeats, ask the dbt owner to review the metric.",
+      result:
+        "dbt Semantic Layer truncated the metric result at 500 KB, so this page cannot be resumed safely. Narrow the date range or grouped dimensions and start a new metric query.",
+    }[args.responseKind];
+    throw new DbtSemanticLayerError("provider_error", message, false);
+  }
   if (!response || response.ok === false) {
     if (response?.status === 408 || response?.status === 504) {
       throw new DbtRequestTimeoutError(
@@ -995,6 +1009,7 @@ export default defineAction({
           const lookup = await executeGraphQl({
             connectionId: selected.id,
             signal: controller.signal,
+            responseKind: "metadata",
             body: {
               query: LOOKUP_METRIC,
               variables: {
@@ -1045,6 +1060,7 @@ export default defineAction({
             const manifest = await executeGraphQl({
               connectionId: selected.id,
               signal: controller.signal,
+              responseKind: "metadata",
               body: {
                 query: COUNT_METRICS,
                 variables: { environmentId },
@@ -1086,6 +1102,7 @@ export default defineAction({
           const created = await executeGraphQl({
             connectionId: selected.id,
             signal: controller.signal,
+            responseKind: "query",
             body: {
               query: CREATE_METRIC_QUERY,
               variables: {
@@ -1129,6 +1146,7 @@ export default defineAction({
         const response = await executeGraphQl({
           connectionId: selected.id,
           signal: controller.signal,
+          responseKind: "result",
           body: {
             query: READ_METRIC_QUERY,
             variables: {
@@ -1307,7 +1325,9 @@ export default defineAction({
       };
     } catch (error) {
       if (error instanceof DbtSemanticLayerError) {
-        const hasRecovery = Boolean(activeQueryId && initialResultPageCursor);
+        const hasRecovery =
+          error.recoverable &&
+          Boolean(activeQueryId && initialResultPageCursor);
         const recovery = hasRecovery
           ? {
               queryId: activeQueryId!,
