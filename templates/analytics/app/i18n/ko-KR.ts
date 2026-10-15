@@ -29,8 +29,7 @@ export default {
     label: "대시보드 모드",
     view: "보기",
     edit: "편집",
-    viewHint:
-      "아무것도 변경하지 않고 봅니다. 드래그한 열 너비는 나에게만 적용됩니다.",
+    viewHint: "편집이 꺼져 있습니다. 드래그한 열 너비는 나에게만 적용됩니다.",
     editHint: "변경 사항이 모두에게 저장됩니다",
     columnResizePersonal:
       "드래그하면 나에게만 크기가 바뀝니다. 더블클릭하면 초기화됩니다.",

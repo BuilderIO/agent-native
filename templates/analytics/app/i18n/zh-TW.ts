@@ -163,7 +163,7 @@ export default {
     label: "儀表板模式",
     view: "檢視",
     edit: "編輯",
-    viewHint: "瀏覽而不做任何變更。您拖曳的欄寬只對您生效。",
+    viewHint: "編輯已關閉。您拖曳的欄寬只對您生效。",
     editHint: "變更會為所有人儲存",
     columnResizePersonal: "拖曳以僅為您調整欄寬。按兩下可重設。",
     columnResizeShared: "拖曳以為所有人調整欄寬",

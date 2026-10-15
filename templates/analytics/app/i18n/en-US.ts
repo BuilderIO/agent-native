@@ -171,8 +171,7 @@ export default {
     label: "Dashboard mode",
     view: "View",
     edit: "Edit",
-    viewHint:
-      "Look without changing anything. Column widths you drag stay yours.",
+    viewHint: "Editing is off. Column widths you drag stay yours.",
     editHint: "Changes save for everyone",
     columnResizePersonal: "Drag to resize for you only. Double-click to reset.",
     columnResizeShared: "Drag to resize for everyone",

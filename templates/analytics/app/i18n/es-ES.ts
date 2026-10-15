@@ -30,7 +30,7 @@ export default {
     view: "Ver",
     edit: "Editar",
     viewHint:
-      "Consulte sin cambiar nada. Los anchos de columna que arrastre son solo para usted.",
+      "La edición está desactivada. Los anchos de columna que arrastre son solo para usted.",
     editHint: "Los cambios se guardan para todos",
     columnResizePersonal:
       "Arrastre para cambiar el tamaño solo para usted. Doble clic para restablecer.",

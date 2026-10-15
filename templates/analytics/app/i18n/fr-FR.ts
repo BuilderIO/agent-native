@@ -30,7 +30,7 @@ export default {
     view: "Afficher",
     edit: "Modifier",
     viewHint:
-      "Consultez sans rien modifier. Les largeurs de colonne que vous ajustez restent les vôtres.",
+      "La modification est désactivée. Les largeurs de colonne que vous ajustez restent les vôtres.",
     editHint: "Les modifications sont enregistrées pour tout le monde",
     columnResizePersonal:
       "Faites glisser pour redimensionner pour vous seul. Double-cliquez pour réinitialiser.",

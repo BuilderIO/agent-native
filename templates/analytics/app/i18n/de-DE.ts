@@ -30,7 +30,7 @@ export default {
     view: "Ansehen",
     edit: "Bearbeiten",
     viewHint:
-      "Ansehen, ohne etwas zu ändern. Spaltenbreiten, die Sie ziehen, gelten nur für Sie.",
+      "Bearbeiten ist deaktiviert. Spaltenbreiten, die Sie ziehen, gelten nur für Sie.",
     editHint: "Änderungen werden für alle gespeichert",
     columnResizePersonal:
       "Ziehen, um die Breite nur für Sie zu ändern. Doppelklick zum Zurücksetzen.",
