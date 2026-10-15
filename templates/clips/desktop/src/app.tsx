@@ -1205,7 +1205,13 @@ export function App({
     loadRecentLookbackSeconds,
   );
   const [lookbackNotice, setLookbackNotice] = useState<string | null>(null);
-  const [rewindConsentPending, setRewindConsentPending] = useState(false);
+  const [lookbackRewindConsentOpen, setLookbackRewindConsentOpen] =
+    useState(false);
+  const [lookbackRewindConsentBusy, setLookbackRewindConsentBusy] =
+    useState(false);
+  const [lookbackRewindConsentError, setLookbackRewindConsentError] = useState<
+    string | null
+  >(null);
   // The context request for the current recording. It keeps its own target so
   // a later cancel removes the item from the server that created it.
   const lookbackContextRef = useRef<{
@@ -1847,12 +1853,23 @@ export function App({
     saveRecentLookbackSeconds(nextRecent);
   }
 
-  // The consent dialog mounts only on the settings surface, so the Rewind
-  // button here opens that surface on the Rewind tab with the dialog already open.
   function openRewindConsent() {
-    setInitialSettingsTab("rewind");
-    setRewindConsentPending(true);
-    setPopoverView("settings");
+    setLookbackRewindConsentError(null);
+    setLookbackRewindConsentOpen(true);
+  }
+
+  async function turnOnRewindFromLookback() {
+    setLookbackRewindConsentBusy(true);
+    setLookbackRewindConsentError(null);
+    try {
+      await invoke<ScreenMemoryStatus>("screen_memory_start");
+      setLookbackRewindConsentOpen(false);
+    } catch (err) {
+      console.error("[clips-tray] turn on rewind failed:", err);
+      setLookbackRewindConsentError(t("lookbackContext.turnOnRewindFailed"));
+    } finally {
+      setLookbackRewindConsentBusy(false);
+    }
   }
 
   // Stopping capture is refused while a clip is recording, so a failure here
@@ -4712,8 +4729,6 @@ export function App({
           onCopyRewindAgentPrompt={copyRewindAgentPrompt}
           onOpenRewindDocs={openRewindDocs}
           onOpenMemory={() => setPopoverView("memory")}
-          rewindConsentPending={rewindConsentPending}
-          onRewindConsentHandled={() => setRewindConsentPending(false)}
           onCancel={() => setPopoverView("recorder")}
         />
       </div>
@@ -4826,6 +4841,18 @@ export function App({
 
   return (
     <div className="app app-recorder" ref={appRef}>
+      <RewindConsentDialog
+        open={lookbackRewindConsentOpen}
+        onOpenChange={(open) => {
+          setLookbackRewindConsentOpen(open);
+          if (!open) setLookbackRewindConsentError(null);
+        }}
+        busy={lookbackRewindConsentBusy}
+        disabled={!featureConfig}
+        error={lookbackRewindConsentError}
+        onConfirm={() => void turnOnRewindFromLookback()}
+      />
+
       {micOffConfirmOpen ? (
         <MicOffConfirmation
           onBack={closeMicOffConfirmation}
@@ -6336,6 +6363,54 @@ function formatStorageBytes(bytes: number): string {
   return `${Math.max(1, Math.round(mb))} MB`;
 }
 
+function RewindConsentDialog({
+  open,
+  onOpenChange,
+  busy,
+  disabled = false,
+  error,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  busy: boolean;
+  disabled?: boolean;
+  error?: string | null;
+  onConfirm: () => void;
+}) {
+  return (
+    <UiAlertDialog open={open} onOpenChange={onOpenChange}>
+      <UiAlertDialogContent className="max-w-md">
+        <UiAlertDialogHeader>
+          <UiAlertDialogTitle>Turn on Rewind?</UiAlertDialogTitle>
+          <UiAlertDialogDescription>
+            Clips will continuously record your screen and keep it on this
+            device. Agents get text excerpts, and video is shared only when you
+            approve it.
+          </UiAlertDialogDescription>
+        </UiAlertDialogHeader>
+        {error ? (
+          <Alert variant="destructive" className="p-2 text-xs">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        <UiAlertDialogFooter>
+          <UiAlertDialogCancel>Not now</UiAlertDialogCancel>
+          <UiAlertDialogAction
+            disabled={busy || disabled}
+            onClick={(event) => {
+              event.preventDefault();
+              onConfirm();
+            }}
+          >
+            {busy ? "Turning on…" : "Turn on Rewind"}
+          </UiAlertDialogAction>
+        </UiAlertDialogFooter>
+      </UiAlertDialogContent>
+    </UiAlertDialog>
+  );
+}
+
 function Setup({
   surface = "settings",
   initialSettingsTab,
@@ -6374,8 +6449,6 @@ function Setup({
   onCopyRewindAgentPrompt,
   onOpenRewindDocs,
   onOpenMemory,
-  rewindConsentPending = false,
-  onRewindConsentHandled,
   onCancel,
   onSignOut,
 }: {
@@ -6419,10 +6492,6 @@ function Setup({
   onCopyRewindAgentPrompt: () => void;
   onOpenRewindDocs: () => void;
   onOpenMemory?: () => void;
-  // Set when the popover's Turn on Rewind button opened this surface. Setup
-  // opens the Rewind consent dialog once and then reports it handled.
-  rewindConsentPending?: boolean;
-  onRewindConsentHandled?: () => void;
   onCancel?: () => void;
   onSignOut?: () => void;
 }) {
@@ -6452,13 +6521,6 @@ function Setup({
     featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG;
   const [screenMemory, setScreenMemory] = useState(observedScreenMemory);
   const [rewindConsentOpen, setRewindConsentOpen] = useState(false);
-
-  useEffect(() => {
-    if (!rewindConsentPending) return;
-    setSettingsTab("rewind");
-    setRewindConsentOpen(true);
-    onRewindConsentHandled?.();
-  }, [rewindConsentPending]);
   const screenMemoryRef = useRef(observedScreenMemory);
   const screenMemoryMutationRef = useRef(0);
   const screenMemoryMutationVersionRef = useRef(0);
@@ -7692,36 +7754,18 @@ function Setup({
               because the agent-handoff path uploads an approved range. A
               consent screen is the one place a comforting simplification is
               indistinguishable from a lie. */}
-          <UiAlertDialog
+          <RewindConsentDialog
             open={rewindConsentOpen}
             onOpenChange={setRewindConsentOpen}
-          >
-            <UiAlertDialogContent className="max-w-md">
-              <UiAlertDialogHeader>
-                <UiAlertDialogTitle>Turn on Rewind?</UiAlertDialogTitle>
-                <UiAlertDialogDescription>
-                  Clips will continuously record your screen and keep it on this
-                  device. Agents get text excerpts, and video is shared only
-                  when you approve it.
-                </UiAlertDialogDescription>
-              </UiAlertDialogHeader>
-              <UiAlertDialogFooter>
-                <UiAlertDialogCancel>Not now</UiAlertDialogCancel>
-                <UiAlertDialogAction
-                  disabled={screenMemoryConfigBusy || !featureConfig}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    void setScreenMemoryConfig({
-                      enabled: true,
-                      paused: false,
-                    }).finally(() => setRewindConsentOpen(false));
-                  }}
-                >
-                  {screenMemoryConfigBusy ? "Turning on…" : "Turn on Rewind"}
-                </UiAlertDialogAction>
-              </UiAlertDialogFooter>
-            </UiAlertDialogContent>
-          </UiAlertDialog>
+            busy={screenMemoryConfigBusy}
+            disabled={!featureConfig}
+            onConfirm={() => {
+              void setScreenMemoryConfig({
+                enabled: true,
+                paused: false,
+              }).finally(() => setRewindConsentOpen(false));
+            }}
+          />
           <SettingsRow
             label="Rewind"
             description="Keeps a rolling record of your recent screen on this device"

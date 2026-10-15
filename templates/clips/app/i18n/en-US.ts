@@ -19,6 +19,7 @@ const messages = {
     turnOffRewind: "Turn off",
     turnOffRewindFailed:
       "Couldn't turn off Rewind. Stop your recording and try again.",
+    turnOnRewindFailed: "Couldn't turn on Rewind. Try again.",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
       "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",

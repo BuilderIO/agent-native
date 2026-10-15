@@ -21,6 +21,7 @@ const messages = {
     turnOffRewind: "Désactiver",
     turnOffRewindFailed:
       "Impossible de désactiver Rewind. Arrêtez l'enregistrement et réessayez.",
+    turnOnRewindFailed: "Impossible d’activer Rewind. Réessayez.",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
       "Désactivé par défaut. L’historique de l’écran reste sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",

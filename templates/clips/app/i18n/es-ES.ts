@@ -21,6 +21,7 @@ const messages = {
     turnOffRewind: "Desactivar",
     turnOffRewindFailed:
       "No se pudo desactivar Rewind. Detén la grabación e inténtalo de nuevo.",
+    turnOnRewindFailed: "No se pudo activar Rewind. Inténtalo de nuevo.",
     rewindOffTitle: "Activar Rewind",
     rewindOffBody:
       "Desactivado de forma predeterminada. El historial de pantalla permanece en este dispositivo hasta que lo añades a una grabación o apruebas una solicitud para compartirlo.",

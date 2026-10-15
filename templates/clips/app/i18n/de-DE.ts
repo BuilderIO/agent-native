@@ -19,6 +19,8 @@ const messages = {
     turnOffRewind: "Ausschalten",
     turnOffRewindFailed:
       "Rewind konnte nicht deaktiviert werden. Beende die Aufnahme und versuche es erneut.",
+    turnOnRewindFailed:
+      "Rewind konnte nicht aktiviert werden. Versuch es erneut.",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
       "Standardmäßig deaktiviert. Der Bildschirmverlauf bleibt auf diesem Gerät, bis du ihn einer Aufnahme hinzufügst oder eine Freigabeanfrage bestätigst.",

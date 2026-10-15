@@ -19,6 +19,7 @@ const messages = {
     turnOffRewind: "बंद करें",
     turnOffRewindFailed:
       "Rewind बंद नहीं किया जा सका। रिकॉर्डिंग रोकें और फिर से प्रयास करें।",
+    turnOnRewindFailed: "Rewind चालू नहीं हो सका। फिर से प्रयास करें।",
     rewindOffTitle: "Rewind चालू करें",
     rewindOffBody:
       "डिफ़ॉल्ट रूप से बंद। स्क्रीन इतिहास इसी डिवाइस पर रहता है, जब तक आप उसे रिकॉर्डिंग में शामिल न करें या साझा करने का अनुरोध मंज़ूर न करें।",

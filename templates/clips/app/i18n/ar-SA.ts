@@ -20,6 +20,7 @@ const messages = {
     turnOnRewind: "تفعيل Rewind",
     turnOffRewind: "إيقاف",
     turnOffRewindFailed: "تعذّر إيقاف Rewind. أوقف التسجيل ثم حاول مرة أخرى.",
+    turnOnRewindFailed: "تعذّر تفعيل Rewind. حاول مرة أخرى.",
     rewindOffTitle: "تفعيل Rewind",
     rewindOffBody:
       "متوقف افتراضيًا. يبقى سجل الشاشة على هذا الجهاز حتى تضيفه إلى تسجيل أو توافق على طلب لمشاركته.",

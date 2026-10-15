@@ -21,6 +21,8 @@ const messages = {
     turnOffRewind: "オフにする",
     turnOffRewindFailed:
       "Rewindをオフにできませんでした。録画を停止してからもう一度お試しください。",
+    turnOnRewindFailed:
+      "Rewindをオンにできませんでした。もう一度お試しください。",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
       "初期設定ではオフです。画面履歴はこのデバイスに保存され、録画に含めるか共有リクエストを承認するまで外部に送信されません。",
