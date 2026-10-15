@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   loadDashboardSeed: vi.fn(),
   loadDashboardAnnotationSummary: vi.fn(),
   listKeyDateSets: vi.fn(),
+  listDataNotes: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", async (importOriginal) => {
@@ -55,6 +56,9 @@ vi.mock("../server/lib/dashboard-annotation-reads", () => ({
 vi.mock("../server/lib/key-dates-store", () => ({
   listKeyDateSets: mocks.listKeyDateSets,
 }));
+vi.mock("../server/lib/data-notes-store", () => ({
+  listDataNotes: mocks.listDataNotes,
+}));
 
 import {
   FIRST_PARTY_BIGQUERY_WAU_SQL,
@@ -62,6 +66,11 @@ import {
   PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
 } from "../server/lib/canonical-first-party-dashboard-repair";
 import { FIRST_PARTY_DASHBOARD_ID } from "../server/lib/first-party-metric-catalog";
+import {
+  CONNECT_UNDERCOUNT,
+  SETUP_INCIDENT,
+  SKIPS_UNTRACKED,
+} from "../shared/annotation-fixtures";
 
 const { default: getSqlDashboard } = await import("./get-sql-dashboard");
 
@@ -75,6 +84,8 @@ describe("get-sql-dashboard seed fallback", () => {
     mocks.loadDashboardSeed.mockReset();
     mocks.listKeyDateSets.mockReset();
     mocks.listKeyDateSets.mockResolvedValue([]);
+    mocks.listDataNotes.mockReset();
+    mocks.listDataNotes.mockResolvedValue([]);
   });
 
   it("returns a seed when no SQL dashboard row exists", async () => {
@@ -502,6 +513,76 @@ describe("get-sql-dashboard seed fallback", () => {
     });
     expect(ordinary).not.toHaveProperty("keyDates");
     expect(mocks.listKeyDateSets).not.toHaveBeenCalled();
+  });
+
+  it("sends a reviewed dashboard the data notes its charts draw, without who added them", async () => {
+    mocks.superOrgId = "org-a";
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    const panel = (id: string, event: string) => ({
+      id,
+      title: event,
+      sql: `SELECT day, count(*) FROM events WHERE event_name = '${event}' GROUP BY 1`,
+      width: 12,
+      source: "bigquery",
+      chartType: "line",
+    });
+    const customerDashboard = {
+      id: "customer-dashboard",
+      kind: "sql",
+      config: {
+        name: "Customer",
+        panels: [
+          panel("failures", "builder_connect_failed"),
+          panel("clicks", "builder connect clicked"),
+        ],
+        annotations: {
+          hiddenDataNotes: [
+            { noteId: CONNECT_UNDERCOUNT.id, panelId: "clicks" },
+          ],
+        },
+      },
+      ownerEmail: "customer@example.com",
+      orgId: "org-b",
+      visibility: "org",
+      role: "viewer",
+      canEdit: false,
+      canManage: false,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "customer@example.com",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    };
+    mocks.getDashboardForReview.mockResolvedValue(customerDashboard);
+    mocks.listDataNotes.mockResolvedValue([
+      SETUP_INCIDENT,
+      CONNECT_UNDERCOUNT,
+      SKIPS_UNTRACKED,
+    ]);
+
+    const review = await getSqlDashboard.run({
+      id: "customer-dashboard",
+      includeConfig: true,
+      reviewPreview: true,
+      reviewOrgId: "org-b",
+    });
+
+    expect(mocks.listDataNotes).toHaveBeenCalledWith({
+      email: "customer@example.com",
+      orgId: "org-b",
+    });
+    const { addedBy: _, ...incident } = SETUP_INCIDENT;
+    expect((review as { dataNotes: unknown }).dataNotes).toEqual([incident]);
+
+    mocks.listDataNotes.mockClear();
+    mocks.getDashboard.mockResolvedValue(customerDashboard);
+    const ordinary = await getSqlDashboard.run({
+      id: "customer-dashboard",
+      includeConfig: true,
+    });
+    expect(ordinary).not.toHaveProperty("dataNotes");
+    expect(mocks.listDataNotes).not.toHaveBeenCalled();
   });
 });
 

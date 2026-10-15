@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -87,6 +88,21 @@ function SetName({
       <span className="truncate">{set.name}</span>
       <IconPencil className="size-3 shrink-0 opacity-0 group-hover:opacity-60" />
     </button>
+  );
+}
+
+function KeyDateSetsSkeleton() {
+  return (
+    <div className="space-y-4" aria-hidden="true">
+      {[0, 1].map((section) => (
+        <div key={section} className="space-y-1">
+          <Skeleton className="h-7 w-32" />
+          {[0, 1, 2].map((row) => (
+            <Skeleton key={row} className="h-6 w-full" />
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -157,7 +173,7 @@ export function KeyDateSetsDialog({
   onAddKeyDate: (setId: string) => void;
 }) {
   const t = useT();
-  const { data } = useActionQuery("list-key-dates", undefined, {
+  const { data, isError } = useActionQuery("list-key-dates", undefined, {
     staleTime: 60_000,
   });
   const deleteSet = useDeleteKeyDateSet();
@@ -194,11 +210,19 @@ export function KeyDateSetsDialog({
             <DialogTitle>{t("annotations.keyDates")}</DialogTitle>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
-            {sets.length === 0 ? (
+            {/* A failed refresh keeps the last list, so it shows under the error. */}
+            {isError ? (
+              <p className="py-2 text-sm text-destructive">
+                {t("dashboard.keyDatesUnavailable")}
+              </p>
+            ) : !data ? (
+              <KeyDateSetsSkeleton />
+            ) : sets.length === 0 ? (
               <p className="py-2 text-sm text-muted-foreground">
                 {t("annotations.noKeyDates")}
               </p>
-            ) : (
+            ) : null}
+            {sets.length > 0 ? (
               <div className="space-y-4">
                 {sets.map((set) => (
                   <section key={set.id} className="space-y-1">
@@ -267,7 +291,7 @@ export function KeyDateSetsDialog({
                   </section>
                 ))}
               </div>
-            )}
+            ) : null}
           </div>
         </DialogContent>
       </Dialog>

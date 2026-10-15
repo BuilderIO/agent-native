@@ -1,44 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import type {
-  DashboardAnnotations,
-  SqlPanel,
-} from "../app/pages/adhoc/sql-dashboard/types";
-import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair.js";
 import { dashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope.js";
-import type { DashboardRecord } from "../server/lib/dashboards-store.js";
+import { dataNotesForReader } from "../server/lib/dashboard-data-notes.js";
 import {
   listDataNotes,
   requireDataNoteScope,
 } from "../server/lib/data-notes-store.js";
-import { dataNotesForPanel, type DataNote } from "../shared/data-notes.js";
-
-/**
- * Another organization's notes as one of its dashboards shows them: only the
- * ones its charts draw, with the ones it hides unless the reader can show
- * them again, and no member emails.
- */
-function notesForReader(
-  notes: readonly DataNote[],
-  dashboard: DashboardRecord,
-): DataNote[] {
-  const config = repairKnownFirstPartyDashboardQueries(
-    dashboard.id,
-    dashboard.config as Record<string, unknown>,
-  ).config as { panels?: SqlPanel[]; annotations?: DashboardAnnotations };
-  const annotations = dashboard.canEdit ? undefined : config.annotations;
-  const shown = new Set(
-    (config.panels ?? []).flatMap((panel) =>
-      dataNotesForPanel(notes, dashboard.id, panel, annotations).map(
-        (note) => note.id,
-      ),
-    ),
-  );
-  return notes
-    .filter((note) => shown.has(note.id))
-    .map(({ addedBy: _, ...note }) => note);
-}
 
 export default defineAction({
   description:
@@ -64,6 +32,6 @@ export default defineAction({
     const notes = await listDataNotes(drawn.scope);
     return drawn.editable
       ? { notes, editable: true }
-      : { notes: notesForReader(notes, drawn.dashboard), editable: false };
+      : { notes: dataNotesForReader(notes, drawn.dashboard), editable: false };
   },
 });

@@ -69,6 +69,9 @@ export function AnnotationsMenu({
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const sets = keyDateData?.sets ?? [];
   const hiddenSets = new Set(annotations?.hiddenKeyDateSets);
+  const hiddenNotes = new Set(
+    annotations?.hiddenDataNotes?.map((entry) => entry.noteId),
+  );
   const notesHere = useMemo(
     () =>
       (dataNoteData?.notes ?? []).filter((note) =>
@@ -85,6 +88,17 @@ export function AnnotationsMenu({
     const { hiddenKeyDateSets: _previous, ...rest } = annotations ?? {};
     onAnnotationsChange(
       hiddenKeyDateSets.length > 0 ? { ...rest, hiddenKeyDateSets } : rest,
+    );
+  };
+
+  const showNoteAgain = (noteId: string) => {
+    if (!onAnnotationsChange) return;
+    const hiddenDataNotes = (annotations?.hiddenDataNotes ?? []).filter(
+      (entry) => entry.noteId !== noteId,
+    );
+    const { hiddenDataNotes: _previous, ...rest } = annotations ?? {};
+    onAnnotationsChange(
+      hiddenDataNotes.length > 0 ? { ...rest, hiddenDataNotes } : rest,
     );
   };
 
@@ -150,19 +164,34 @@ export function AnnotationsMenu({
         <DropdownMenuLabel className="text-xs text-muted-foreground">
           {t("annotations.dataNotes")}
         </DropdownMenuLabel>
-        {notesHere.map((note) => (
-          <DropdownMenuItem
-            key={note.id}
-            disabled={!notesEditable || isPendingAnnotation(note.id)}
-            onSelect={() => onEditDataNote(note)}
-          >
-            <span
-              className="mr-2 size-2 shrink-0 rounded-full"
-              style={{ background: dataNoteColor(note) }}
-            />
-            <span className="min-w-0 truncate">{note.title}</span>
-          </DropdownMenuItem>
-        ))}
+        {notesHere.map((note) => {
+          // The note dialog, which has the other "Show again", won't open on
+          // another organization's note, yet its dashboard's editor can hide it.
+          const showAgain =
+            !notesEditable && !!onAnnotationsChange && hiddenNotes.has(note.id);
+          return (
+            <DropdownMenuItem
+              key={note.id}
+              disabled={
+                (!notesEditable && !showAgain) || isPendingAnnotation(note.id)
+              }
+              onSelect={() =>
+                showAgain ? showNoteAgain(note.id) : onEditDataNote(note)
+              }
+            >
+              <span
+                className="mr-2 size-2 shrink-0 rounded-full"
+                style={{ background: dataNoteColor(note) }}
+              />
+              <span className="min-w-0 truncate">{note.title}</span>
+              {showAgain ? (
+                <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">
+                  {t("annotations.showAgain")}
+                </span>
+              ) : null}
+            </DropdownMenuItem>
+          );
+        })}
         {notesEditable ? (
           <DropdownMenuItem onSelect={onAddDataNote}>
             <IconPlus className="mr-2 h-4 w-4" />

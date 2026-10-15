@@ -192,6 +192,30 @@ describe("AnnotationsMenu", () => {
     });
   });
 
+  it("lets an editor show another organization's note again where the dashboard hides it", () => {
+    mocks.editable = false;
+    const annotations: DashboardAnnotations = {
+      hiddenKeyDateSets: ["changes"],
+      hiddenDataNotes: [{ noteId: SETUP_INCIDENT.id, panelId: "failures" }],
+    };
+    const { onAnnotationsChange, onEditDataNote } = render({ annotations });
+    openMenu();
+
+    const hidden = item("menuitem", SETUP_INCIDENT.title);
+    expect(hidden.textContent).toContain("Show again");
+    act(() => hidden.click());
+    expect(onAnnotationsChange).toHaveBeenLastCalledWith({
+      hiddenKeyDateSets: ["changes"],
+    });
+    expect(onEditDataNote).not.toHaveBeenCalled();
+
+    render({ annotations, onAnnotationsChange: undefined });
+    openMenu();
+    expect(
+      item("menuitem", SETUP_INCIDENT.title).getAttribute("aria-disabled"),
+    ).toBe("true");
+  });
+
   it("holds adding and editing until the lists say whose they are", () => {
     mocks.loading = true;
     render();
