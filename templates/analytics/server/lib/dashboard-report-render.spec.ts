@@ -1099,11 +1099,10 @@ describe("renderReportEmail data notes", () => {
     expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({
       bands: [
         {
-          startIndex: 1,
-          endIndex: 2,
           label: "Builder.io account setup failures",
-          startEdge: true,
-          endEdge: true,
+          runs: [
+            { startIndex: 1, endIndex: 2, startEdge: true, endEdge: true },
+          ],
         },
       ],
     });
@@ -1112,6 +1111,27 @@ describe("renderReportEmail data notes", () => {
     );
     expect(email.html).toContain("a deploy on Oct 13 fixed it.");
     expect(email.text).toContain("! Builder.io account setup failures (Oct 9");
+  });
+
+  it("shades only the note's rows on a chart sorted by something other than date, under one title", async () => {
+    await render("bar", [SETUP_INCIDENT], {
+      panelRows: [
+        { date: "2026-10-09", failures: 20 },
+        { date: "2026-10-01", failures: 3 },
+        { date: "2026-10-13", failures: 40 },
+      ],
+    });
+    expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({
+      bands: [
+        {
+          label: "Builder.io account setup failures",
+          runs: [
+            { startIndex: 0, endIndex: 0, startEdge: true, endEdge: true },
+            { startIndex: 2, endIndex: 2, startEdge: true, endEdge: true },
+          ],
+        },
+      ],
+    });
   });
 
   it("writes a note that falls between the chart's dates under it, without a band", async () => {

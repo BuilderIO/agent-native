@@ -13,7 +13,7 @@ import {
   dataNoteTone,
   formatDataNoteDates,
   hiddenDataNotesIssue,
-  resolveDataNoteBand,
+  resolveDataNoteBands,
   sqlCountsEvent,
   xValuesAreDates,
 } from "./data-notes";
@@ -66,6 +66,37 @@ describe("sqlCountsEvent", () => {
     ).toBe(false);
     expect(sqlCountsEvent("where e = 'ab'", "a+b")).toBe(false);
   });
+
+  it("counts a name the SQL filters on: either side of =, a CASE WHEN, an IN list, or LIKE", () => {
+    for (const sql of [
+      "WHERE event = 'builder_connect_failed'",
+      "WHERE 'builder_connect_failed' = event",
+      "SELECT SUM(CASE WHEN event = 'builder_connect_failed' THEN 1 ELSE 0 END)",
+      "SELECT COUNT(CASE event WHEN 'builder_connect_failed' THEN 1 END)",
+      "WHERE event IN ('signup', 'builder_connect_failed', 'app_entered')",
+      "WHERE event like 'builder_connect_failed'",
+    ]) {
+      expect(sqlCountsEvent(sql, "builder_connect_failed"), sql).toBe(true);
+    }
+    expect(
+      sqlCountsEvent("WHERE event = 'user''s signup'", "user's signup"),
+    ).toBe(true);
+  });
+
+  it("ignores a name the SQL only selects, returns, excludes, comments on, or quotes inside another string", () => {
+    for (const sql of [
+      "SELECT day, 'builder_connect_failed' AS label, count(*) FROM events",
+      "SELECT CASE WHEN ok THEN 'builder_connect_failed' ELSE 'builder_connect_failed' END",
+      "WHERE event != 'builder_connect_failed' AND event <> 'builder_connect_failed'",
+      "WHERE event NOT IN ('builder_connect_failed') AND event NOT LIKE 'builder_connect_failed'",
+      "WHERE event = 'signup' -- was 'builder_connect_failed'",
+      "WHERE event = 'signup' /* event = 'builder_connect_failed' */",
+      "WHERE note = 'see event = ''builder_connect_failed'''",
+      `WHERE note = 'event = "builder_connect_failed"'`,
+    ]) {
+      expect(sqlCountsEvent(sql, "builder_connect_failed"), sql).toBe(false);
+    }
+  });
 });
 
 describe("dataNoteAppliesTo", () => {
@@ -80,6 +111,21 @@ describe("dataNoteAppliesTo", () => {
     expect(
       dataNoteAppliesTo(CONNECT_UNDERCOUNT, "dash", panel("p3", "select 1")),
     ).toBe(false);
+  });
+
+  it("ignores event names a chart only labels its rows with, in matchEvents and unlessEvents alike", () => {
+    const labelled = panel(
+      "p1",
+      "SELECT day, 'builder_connect_failed' AS series, count(*) FROM events WHERE event = 'signup' GROUP BY 1",
+    );
+    expect(dataNoteAppliesTo(SETUP_INCIDENT, "dash", labelled)).toBe(false);
+    const replacementLabel = panel(
+      "p2",
+      "SELECT day, 'builder_connect_clicked' AS renamed_to, count(*) FROM events WHERE event = 'builder connect clicked' GROUP BY 1",
+    );
+    expect(
+      dataNoteAppliesTo(CONNECT_UNDERCOUNT, "dash", replacementLabel),
+    ).toBe(true);
   });
 
   it("shows on a pinned chart whatever its SQL counts", () => {
@@ -119,62 +165,56 @@ describe("dataNoteAppliesTo", () => {
   });
 });
 
-describe("resolveDataNoteBand", () => {
+describe("resolveDataNoteBands", () => {
   it("covers a closed note's days on a daily axis, with both edges", () => {
-    expect(resolveDataNoteBand(SETUP_INCIDENT, days("2026-10-01", 14))).toEqual(
+    expect(
+      resolveDataNoteBands(SETUP_INCIDENT, days("2026-10-01", 14)),
+    ).toEqual([
       { startIndex: 8, endIndex: 12, startEdge: true, endEdge: true },
-    );
+    ]);
   });
 
   it("runs an ongoing note to the last point without an end edge", () => {
     expect(
-      resolveDataNoteBand(CONNECT_UNDERCOUNT, days("2026-09-28", 17)),
-    ).toEqual({ startIndex: 4, endIndex: 16, startEdge: true, endEdge: false });
+      resolveDataNoteBands(CONNECT_UNDERCOUNT, days("2026-09-28", 17)),
+    ).toEqual([
+      { startIndex: 4, endIndex: 16, startEdge: true, endEdge: false },
+    ]);
   });
 
   it("starts a note with no known start at the first point, without a start edge", () => {
     expect(
-      resolveDataNoteBand(SKIPS_UNTRACKED, days("2026-09-10", 14)),
-    ).toEqual({ startIndex: 0, endIndex: 7, startEdge: false, endEdge: true });
+      resolveDataNoteBands(SKIPS_UNTRACKED, days("2026-09-10", 14)),
+    ).toEqual([
+      { startIndex: 0, endIndex: 7, startEdge: false, endEdge: true },
+    ]);
   });
 
   it("clips a note that started before the chart and hides its start edge", () => {
-    expect(resolveDataNoteBand(SETUP_INCIDENT, days("2026-10-11", 7))).toEqual({
-      startIndex: 0,
-      endIndex: 2,
-      startEdge: false,
-      endEdge: true,
-    });
+    expect(resolveDataNoteBands(SETUP_INCIDENT, days("2026-10-11", 7))).toEqual(
+      [{ startIndex: 0, endIndex: 2, startEdge: false, endEdge: true }],
+    );
   });
 
   it("covers every weekly bucket that overlaps the note", () => {
     const weeks = ["2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19"];
-    expect(resolveDataNoteBand(SETUP_INCIDENT, weeks)).toEqual({
-      startIndex: 1,
-      endIndex: 2,
-      startEdge: true,
-      endEdge: true,
-    });
+    expect(resolveDataNoteBands(SETUP_INCIDENT, weeks)).toEqual([
+      { startIndex: 1, endIndex: 2, startEdge: true, endEdge: true },
+    ]);
   });
 
   it("covers the same weekly buckets when rows are newest first", () => {
     const weeks = ["2026-10-19", "2026-10-12", "2026-10-05", "2026-09-28"];
-    expect(resolveDataNoteBand(SETUP_INCIDENT, weeks)).toEqual({
-      startIndex: 1,
-      endIndex: 2,
-      startEdge: true,
-      endEdge: true,
-    });
+    expect(resolveDataNoteBands(SETUP_INCIDENT, weeks)).toEqual([
+      { startIndex: 1, endIndex: 2, startEdge: true, endEdge: true },
+    ]);
   });
 
   it("draws a newest-first note's end edge at its first row", () => {
     const newestFirst = days("2026-10-11", 6).reverse();
-    expect(resolveDataNoteBand(SETUP_INCIDENT, newestFirst)).toEqual({
-      startIndex: 3,
-      endIndex: 5,
-      startEdge: true,
-      endEdge: false,
-    });
+    expect(resolveDataNoteBands(SETUP_INCIDENT, newestFirst)).toEqual([
+      { startIndex: 3, endIndex: 5, startEdge: true, endEdge: false },
+    ]);
   });
 
   it("skips a null bucket and a total row, keeping each week's row", () => {
@@ -187,12 +227,49 @@ describe("resolveDataNoteBand", () => {
       "Total",
     ];
     expect(xValuesAreDates(weeks)).toBe(true);
-    expect(resolveDataNoteBand(SETUP_INCIDENT, weeks)).toEqual({
-      startIndex: 2,
-      endIndex: 3,
-      startEdge: true,
-      endEdge: true,
-    });
+    expect(resolveDataNoteBands(SETUP_INCIDENT, weeks)).toEqual([
+      { startIndex: 2, endIndex: 3, startEdge: true, endEdge: true },
+    ]);
+  });
+
+  it("shades each run of covered rows separately when rows are not in date order", () => {
+    // Sorted by count: Oct 1 sits between the note's days and stays unshaded.
+    expect(
+      resolveDataNoteBands(SETUP_INCIDENT, [
+        "2026-10-09",
+        "2026-10-01",
+        "2026-10-13",
+      ]),
+    ).toEqual([
+      { startIndex: 0, endIndex: 0, startEdge: true, endEdge: true },
+      { startIndex: 2, endIndex: 2, startEdge: true, endEdge: true },
+    ]);
+    expect(
+      resolveDataNoteBands(SETUP_INCIDENT, [
+        "2026-10-10",
+        "2026-10-12",
+        "2026-10-01",
+        "2026-10-11",
+        "2026-10-20",
+      ]),
+    ).toEqual([
+      { startIndex: 0, endIndex: 1, startEdge: true, endEdge: true },
+      { startIndex: 3, endIndex: 3, startEdge: true, endEdge: true },
+    ]);
+  });
+
+  it("leaves a null bucket between covered rows unshaded, without an edge on either side", () => {
+    expect(
+      resolveDataNoteBands(SETUP_INCIDENT, [
+        "2026-10-05",
+        null,
+        "2026-10-12",
+        "2026-10-19",
+      ]),
+    ).toEqual([
+      { startIndex: 0, endIndex: 0, startEdge: true, endEdge: false },
+      { startIndex: 2, endIndex: 2, startEdge: false, endEdge: true },
+    ]);
   });
 
   it("shades nothing for a note that falls on days the query returned no row for", () => {
@@ -202,8 +279,8 @@ describe("resolveDataNoteBand", () => {
       startDate: "2026-10-10",
       endDate: "2026-10-12",
     };
-    expect(resolveDataNoteBand(between, ["2026-10-08", "2026-10-13"])).toBe(
-      null,
+    expect(resolveDataNoteBands(between, ["2026-10-08", "2026-10-13"])).toEqual(
+      [],
     );
   });
 
@@ -214,21 +291,21 @@ describe("resolveDataNoteBand", () => {
       endDate: "2026-10-11",
     };
     expect(
-      resolveDataNoteBand(partly, ["2026-10-08", "2026-10-11", "2026-10-14"]),
-    ).toEqual({ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true });
+      resolveDataNoteBands(partly, ["2026-10-08", "2026-10-11", "2026-10-14"]),
+    ).toEqual([{ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true }]);
   });
 
   it("keeps each weekly point to its own week when weeks are missing", () => {
     expect(
-      resolveDataNoteBand(SETUP_INCIDENT, [
+      resolveDataNoteBands(SETUP_INCIDENT, [
         "2026-09-28",
         "2026-10-12",
         "2026-10-19",
       ]),
-    ).toEqual({ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true });
+    ).toEqual([{ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true }]);
     expect(
-      resolveDataNoteBand(SETUP_INCIDENT, ["2026-09-28", "2026-10-19"]),
-    ).toBe(null);
+      resolveDataNoteBands(SETUP_INCIDENT, ["2026-09-28", "2026-10-19"]),
+    ).toEqual([]);
   });
 
   it("steps an axis of month starts by its months, quarters, or years", () => {
@@ -237,26 +314,26 @@ describe("resolveDataNoteBand", () => {
       startDate: "2026-09-10",
       endDate: "2026-09-12",
     };
-    expect(resolveDataNoteBand(september, ["2026-08-01", "2026-10-01"])).toBe(
-      null,
-    );
     expect(
-      resolveDataNoteBand(SETUP_INCIDENT, ["2026-09-01", "2026-10-01"]),
-    ).toEqual({ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true });
+      resolveDataNoteBands(september, ["2026-08-01", "2026-10-01"]),
+    ).toEqual([]);
     expect(
-      resolveDataNoteBand(september, ["2026-04-01", "2026-07-01"]),
-    ).toEqual({ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true });
+      resolveDataNoteBands(SETUP_INCIDENT, ["2026-09-01", "2026-10-01"]),
+    ).toEqual([{ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true }]);
     expect(
-      resolveDataNoteBand(SETUP_INCIDENT, ["2025-01-01", "2026-01-01"]),
-    ).toEqual({ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true });
+      resolveDataNoteBands(september, ["2026-04-01", "2026-07-01"]),
+    ).toEqual([{ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true }]);
+    expect(
+      resolveDataNoteBands(SETUP_INCIDENT, ["2025-01-01", "2026-01-01"]),
+    ).toEqual([{ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true }]);
   });
 
   it("places nothing outside the chart or on an axis that is not dates", () => {
-    expect(resolveDataNoteBand(SETUP_INCIDENT, days("2026-09-01", 7))).toBe(
-      null,
+    expect(resolveDataNoteBands(SETUP_INCIDENT, days("2026-09-01", 7))).toEqual(
+      [],
     );
-    expect(resolveDataNoteBand(SETUP_INCIDENT, ["Signup", "Connect"])).toBe(
-      null,
+    expect(resolveDataNoteBands(SETUP_INCIDENT, ["Signup", "Connect"])).toEqual(
+      [],
     );
     expect(xValuesAreDates(["Signup"])).toBe(false);
     expect(xValuesAreDates([])).toBe(false);
@@ -269,7 +346,7 @@ describe("resolveDataNoteBand", () => {
     expect(xValuesAreDates(["2026-10-12", 2026])).toBe(false);
     expect(xValuesAreDates(["2026-10-12", "2026"])).toBe(false);
     expect(xValuesAreDates([null, "Total"])).toBe(false);
-    expect(resolveDataNoteBand(SKIPS_UNTRACKED, hours)).toBe(null);
+    expect(resolveDataNoteBands(SKIPS_UNTRACKED, hours)).toEqual([]);
     expect(xValuesAreDates(["2026-10-14 07:00:00", "2026-10-14T08:00Z"])).toBe(
       true,
     );
@@ -294,10 +371,10 @@ describe("dataNotesOnChart", () => {
         now,
       ),
     ).toEqual([
-      { note: between, band: null },
+      { note: between, bands: [] },
       {
         note: SETUP_INCIDENT,
-        band: { startIndex: 1, endIndex: 2, startEdge: true, endEdge: true },
+        bands: [{ startIndex: 1, endIndex: 2, startEdge: true, endEdge: true }],
       },
     ]);
   });
@@ -309,7 +386,7 @@ describe("dataNotesOnChart", () => {
         ["Signup", "Connect"],
         now,
       ),
-    ).toEqual([{ note: SETUP_INCIDENT, band: null }]);
+    ).toEqual([{ note: SETUP_INCIDENT, bands: [] }]);
   });
 });
 

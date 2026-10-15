@@ -535,13 +535,13 @@ function buildChartInput(
 
   return {
     events,
-    bands: shownNotes.flatMap(({ note, band }) =>
-      band
+    bands: shownNotes.flatMap(({ note, bands }) =>
+      bands.length > 0
         ? [
             {
-              ...band,
               label: note.title,
               color: DATA_NOTE_COLORS[dataNoteTone(note)],
+              runs: bands,
             },
           ]
         : [],

@@ -11,7 +11,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use "YYYY-MM-DD"');
 
 export default defineAction({
   description:
-    'Add a data note, or change the given fields of one by id. A data note explains a stretch of data on charts: kind "data" for tracking problems such as an undercount, a gap, or a renamed event, kind "incident" for a product outage. It draws as a shaded band over its dates on time charts (red for incidents, amber for open data problems, grey once fixed) and as a line under charts without a date axis. It shows on every chart whose SQL counts one of matchEvents as a quoted string, unless the SQL also counts one of unlessEvents (the replacement event that covers the gap), and on the charts listed in panels. Leave endDate empty while the problem is ongoing; mark it fixed with status "fixed", endDate, and fix. State facts the data shows; leave out causes nobody has confirmed.',
+    'Add a data note, or change the given fields of one by id. A data note explains a stretch of data on charts: kind "data" for tracking problems such as an undercount, a gap, or a renamed event, kind "incident" for a product outage. It draws as a shaded band over its dates on time charts (red for incidents, amber for open data problems, grey once fixed) and as a line under charts without a date axis. It shows on every chart whose SQL filters on one of matchEvents, unless the SQL also filters on one of unlessEvents (the replacement event that covers the gap), and on the charts listed in panels. Leave endDate empty while the problem is ongoing; mark it fixed with status "fixed", endDate, and fix. State facts the data shows; leave out causes nobody has confirmed.',
   schema: z.object({
     id: z
       .string()

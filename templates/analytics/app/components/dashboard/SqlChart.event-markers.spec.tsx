@@ -14,13 +14,21 @@ const mocks = vi.hoisted(() => ({
   dataNotesRefetchFailed: false,
   t: (key: string) => key,
   toastError: vi.fn(),
+  /** React Query hands back the same `data` until the list changes. */
+  keyDatesData: new WeakMap<unknown[], { sets: unknown[] }>(),
 }));
+
+function keyDatesData(sets: unknown[]) {
+  const data = mocks.keyDatesData.get(sets) ?? { sets };
+  mocks.keyDatesData.set(sets, data);
+  return data;
+}
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) =>
     name === "list-key-dates"
       ? {
-          data: mocks.keyDateSets && { sets: mocks.keyDateSets },
+          data: mocks.keyDateSets && keyDatesData(mocks.keyDateSets),
           isError: mocks.keyDatesFailed,
         }
       : name === "list-data-notes"
@@ -63,7 +71,13 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 
+vi.mock("@shared/panel-events", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@shared/panel-events")>();
+  return { ...actual, resolvePanelEvents: vi.fn(actual.resolvePanelEvents) };
+});
+
 import { SETUP_INCIDENT } from "@shared/annotation-fixtures";
+import { resolvePanelEvents } from "@shared/panel-events";
 
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -303,6 +317,47 @@ describe("SqlChart key-date markers", () => {
       expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(4);
     });
 
+    it("resolves a 1,000-date list once per chart, not again on each render", async () => {
+      const longAgo = Array.from({ length: 998 }, (_, day) =>
+        keyDate(
+          "changes",
+          new Date(Date.UTC(2023, 0, 1 + day)).toISOString().slice(0, 10),
+          `Old change ${day}`,
+        ),
+      );
+      mocks.keyDateSets = [
+        {
+          id: "changes",
+          name: "Product changes",
+          createdBy: "alice@example.test",
+          updatedAt: "2026-10-14T00:00:00.000Z",
+          dates: [
+            ...longAgo,
+            keyDate("changes", "2026-10-11", "Visitor source kept"),
+            keyDate("changes", "2026-10-13", "Clips launch"),
+          ],
+        },
+      ];
+      const chart = unmarked("line");
+      const renderChart = () =>
+        act(async () => {
+          root.render(
+            <DashboardAnnotationsProvider>
+              <SqlChart panel={chart} />
+            </DashboardAnnotationsProvider>,
+          );
+        });
+
+      await renderChart();
+      expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(2);
+      // Hovering a marker renders the chart again, and so does its parent.
+      expect(cardRows(await hoverMarker(1))).toEqual(["Clips launch"]);
+      await renderChart();
+
+      expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(2);
+      expect(resolvePanelEvents).toHaveBeenCalledTimes(1);
+    });
+
     it("stays quiet when there are no key dates", async () => {
       mocks.keyDateSets = [];
       await act(async () => {
@@ -366,6 +421,28 @@ describe("SqlChart key-date markers", () => {
         1,
       );
       expect(container.querySelector("[data-data-note-lines]")).toBeNull();
+    });
+
+    it("shades only the note's bars on a chart sorted by something other than date, under one title", async () => {
+      mocks.rows = [
+        { day: "2026-10-09", people: 20 },
+        { day: "2026-10-01", people: 3 },
+        { day: "2026-10-13", people: 40 },
+      ];
+      await renderInDashboard(failures("bar"));
+      const fills = [
+        ...container.querySelectorAll("[data-data-note-band] rect"),
+      ].map((rect) => {
+        const left = Number(rect.getAttribute("x"));
+        return [left, left + Number(rect.getAttribute("width"))];
+      });
+      expect(fills).toHaveLength(2);
+      const [[firstLeft, firstRight], [secondLeft]] = fills;
+      // The Oct 1 bar's slot, between the runs, stays clear.
+      expect(secondLeft - firstRight).toBeCloseTo(firstRight - firstLeft, 0);
+      expect(container.querySelectorAll("[data-data-note-label]")).toHaveLength(
+        1,
+      );
     });
 
     it("keeps a narrow band's whole title, inside the chart at its right edge", async () => {

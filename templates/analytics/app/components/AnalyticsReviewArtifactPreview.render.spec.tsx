@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   sqlChartProps: null as Record<string, unknown> | null,
+  chartEvents: undefined as unknown,
   markdownContent: null as string | null,
   queries: [] as Array<{
     action: string;
@@ -25,6 +26,7 @@ const mocks = vi.hoisted(() => ({
         },
       ],
       orgId: "customer-org",
+      keyDates: [],
     } as Record<string, unknown>,
     isLoading: false,
     isError: false,
@@ -60,12 +62,17 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@/components/dashboard/SqlChart", () => ({
-  SqlChart: (props: Record<string, unknown>) => {
-    mocks.sqlChartProps = props;
-    return null;
-  },
-}));
+vi.mock("@/components/dashboard/SqlChart", async () => {
+  const { usePanelEvents } =
+    await import("@/components/dashboard/dashboard-annotations-context");
+  return {
+    SqlChart: (props: { panel: SqlPanel }) => {
+      mocks.sqlChartProps = props;
+      mocks.chartEvents = usePanelEvents(props.panel);
+      return null;
+    },
+  };
+});
 
 vi.mock("@/components/Markdown", () => ({
   default: ({ content }: { content: string }) => {
@@ -78,6 +85,8 @@ vi.mock("@/pages/analyses/LegacyFusionAnalysis", () => ({
   default: () => null,
   isLegacyFusionAnalysis: () => false,
 }));
+
+import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 import { AnalyticsReviewArtifactPreview } from "./AnalyticsReviewArtifactPreview";
 
@@ -92,6 +101,7 @@ describe("Analytics review artifact preview rendering", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     mocks.sqlChartProps = null;
+    mocks.chartEvents = undefined;
     mocks.markdownContent = null;
     mocks.queries = [];
     mocks.query.data = {
@@ -105,6 +115,7 @@ describe("Analytics review artifact preview rendering", () => {
           chartType: "line",
         },
       ],
+      keyDates: [],
     };
     mocks.panelQuery.data = {
       rows: [{ total: 42 }],
@@ -171,6 +182,7 @@ describe("Analytics review artifact preview rendering", () => {
           chartType: "line",
         },
       ],
+      keyDates: [],
     };
 
     await act(async () => {
@@ -184,6 +196,42 @@ describe("Analytics review artifact preview rendering", () => {
     });
 
     expect(mocks.sqlChartProps).toMatchObject({ timeRange: 90 });
+  });
+
+  it("draws the key dates the reviewed dashboard came with on its charts", async () => {
+    const clipsLaunch = { date: "2026-10-13", label: "Clips launch" };
+    mocks.query.data = { ...mocks.query.data, keyDates: [clipsLaunch] };
+
+    await act(async () => {
+      root.render(
+        <AnalyticsReviewArtifactPreview
+          artifactId="dashboard-1"
+          compact={false}
+          reviewOrgId="customer-org"
+        />,
+      );
+    });
+
+    expect(mocks.chartEvents).toEqual([clipsLaunch]);
+  });
+
+  it("calls a dashboard that came without its key dates unavailable, not unmarked", async () => {
+    mocks.query.data = { panels: mocks.query.data.panels };
+
+    await act(async () => {
+      root.render(
+        <AnalyticsReviewArtifactPreview
+          artifactId="dashboard-1"
+          compact={false}
+          reviewOrgId="customer-org"
+        />,
+      );
+    });
+
+    expect(mocks.sqlChartProps).toBeNull();
+    expect(
+      container.querySelector('[data-preview-state="unavailable"]'),
+    ).not.toBeNull();
   });
 
   it("renders saved analysis results in the real review preview", async () => {

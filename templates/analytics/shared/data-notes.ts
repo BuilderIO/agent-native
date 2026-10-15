@@ -44,19 +44,101 @@ export const RECENT_DATA_NOTE_DAYS = 30;
 
 const DAY_MS = 86_400_000;
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// A comment, a quoted string (a doubled or backslashed quote stays inside it),
+// a backquoted name, a word, a run of comparison characters, or one character.
+const SQL_TOKEN =
+  /--[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|'(?:[^'\\]|''|\\[\s\S])*'|"(?:[^"\\]|""|\\[\s\S])*"|`[^`]*`|[\w$]+|[=<>!]+|\S/g;
+
+const QUOTE_ESCAPE: Record<string, RegExp> = {
+  "'": /\\([\s\S])|''/g,
+  '"': /\\([\s\S])|""/g,
+};
+
+interface SqlToken {
+  /** Upper-cased, except a quoted string's. */
+  text: string;
+  /** A quoted string's value, unescaped; null for any other token. */
+  value: string | null;
+}
+
+/** The SQL's tokens, without its comments. */
+function sqlTokens(sql: string): SqlToken[] {
+  return [...sql.matchAll(SQL_TOKEN)].flatMap(([text]): SqlToken[] => {
+    if (text.startsWith("--") || text.startsWith("/*")) return [];
+    const quote = text[0];
+    if (!QUOTE_ESCAPE[quote]) {
+      return [{ text: text.toUpperCase(), value: null }];
+    }
+    const value = text
+      .slice(1, -1)
+      .replace(QUOTE_ESCAPE[quote], (_, escaped?: string) => escaped ?? quote);
+    return [{ text, value }];
+  });
+}
+
+const COMPARED_AFTER = new Set(["=", "LIKE", "ILIKE", "WHEN"]);
+
+/**
+ * The quoted values the SQL filters rows on: either side of `=`, in WHERE or
+ * CASE WHEN alike, a LIKE pattern, a simple CASE's WHEN value, or an item of
+ * an IN list. A value it selects, returns from THEN or ELSE, excludes with
+ * `!=`, `<>`, or NOT, or only mentions in a comment does not count.
+ */
+function sqlFilterValues(sql: string): Set<string> {
+  const tokens = sqlTokens(sql);
+  const values = new Set<string>();
+  // Whether each open parenthesis holds an IN list.
+  const inList: boolean[] = [];
+  tokens.forEach((token, index) => {
+    const prev = tokens[index - 1]?.text;
+    const next = tokens[index + 1]?.text;
+    const negated = tokens[index - 2]?.text === "NOT";
+    if (token.text === "(") inList.push(prev === "IN" && !negated);
+    if (token.text === ")") inList.pop();
+    if (token.value === null) return;
+    const compared =
+      (prev !== undefined && COMPARED_AFTER.has(prev) && !negated) ||
+      next === "=";
+    const listed =
+      inList[inList.length - 1] === true &&
+      (prev === "(" || prev === ",") &&
+      (next === "," || next === ")");
+    if (compared || listed) values.add(token.value);
+  });
+  return values;
+}
+
+function filtersOn(values: ReadonlySet<string>, event: string): boolean {
+  const name = event.trim();
+  return name !== "" && values.has(name);
 }
 
 /**
- * True when the SQL names the event as a quoted string, the way a filter on
- * it does. Case counts: SQL compares the values exactly, so 'Signup' and
- * 'signup' are different events.
+ * True when the SQL filters rows on the event name as a quoted value. Case
+ * counts: SQL compares the values exactly, so 'Signup' and 'signup' are
+ * different events.
  */
 export function sqlCountsEvent(sql: string, event: string): boolean {
-  const name = event.trim();
-  if (!name) return false;
-  return new RegExp(`(['"])${escapeRegExp(name)}\\1`).test(sql);
+  return filtersOn(sqlFilterValues(sql), event);
+}
+
+function appliesTo(
+  note: Pick<DataNote, "matchEvents" | "unlessEvents" | "panels">,
+  dashboardId: string,
+  panelId: string,
+  filterValues: ReadonlySet<string>,
+): boolean {
+  if (
+    note.panels.some(
+      (ref) => ref.dashboardId === dashboardId && ref.panelId === panelId,
+    )
+  ) {
+    return true;
+  }
+  return (
+    note.matchEvents.some((event) => filtersOn(filterValues, event)) &&
+    !note.unlessEvents.some((event) => filtersOn(filterValues, event))
+  );
 }
 
 export function dataNoteAppliesTo(
@@ -64,17 +146,11 @@ export function dataNoteAppliesTo(
   dashboardId: string,
   panel: Pick<SqlPanel, "id" | "sql">,
 ): boolean {
-  if (
-    note.panels.some(
-      (ref) => ref.dashboardId === dashboardId && ref.panelId === panel.id,
-    )
-  ) {
-    return true;
-  }
-  const sql = panel.sql ?? "";
-  return (
-    note.matchEvents.some((event) => sqlCountsEvent(sql, event)) &&
-    !note.unlessEvents.some((event) => sqlCountsEvent(sql, event))
+  return appliesTo(
+    note,
+    dashboardId,
+    panel.id,
+    sqlFilterValues(panel.sql ?? ""),
   );
 }
 
@@ -90,9 +166,11 @@ export function dataNotesForPanel(
       .filter((entry) => entry.panelId === panel.id)
       .map((entry) => entry.noteId),
   );
+  const filterValues = sqlFilterValues(panel.sql ?? "");
   return notes.filter(
     (note) =>
-      !hidden.has(note.id) && dataNoteAppliesTo(note, dashboardId, panel),
+      !hidden.has(note.id) &&
+      appliesTo(note, dashboardId, panel.id, filterValues),
   );
 }
 
@@ -136,12 +214,17 @@ export function xValuesAreDates(xValues: readonly unknown[]): boolean {
   return dates > 0;
 }
 
+/** One run of adjacent rows a note covers. */
 export interface DataNoteBand {
   startIndex: number;
   endIndex: number;
-  /** Draw an edge at startIndex: the note's start falls inside the chart, or its end on a newest-first axis. */
+  /**
+   * Draw an edge at startIndex: the date row before it is one the note does
+   * not cover, or, at the chart's first date row, the note's start falls
+   * inside the chart (its end on a newest-first axis).
+   */
   startEdge: boolean;
-  /** Draw an edge at endIndex: the note's end falls inside the chart, or its start on a newest-first axis. */
+  /** Draw an edge at endIndex: the same, after it and at the last date row. */
   endEdge: boolean;
 }
 
@@ -176,46 +259,72 @@ function noteSpan(note: Pick<DataNote, "startDate" | "endDate">) {
   };
 }
 
-function bandOnAxis(
+/**
+ * A run ends wherever the next row is not covered, so rows sorted by
+ * something other than date shade only the rows in the note, never one
+ * between them.
+ */
+function bandsOnAxis(
   note: Pick<DataNote, "startDate" | "endDate">,
   axis: DateAxis,
-): DataNoteBand | null {
+): DataNoteBand[] {
   const { start, end } = noteSpan(note);
   const { buckets } = axis;
-  const covered = buckets.flatMap((bucket) =>
-    bucket.start < end && bucket.end > start ? [bucket.row] : [],
+  const covers = buckets.map(
+    (bucket) => bucket.start < end && bucket.end > start,
   );
-  if (covered.length === 0) return null;
   const startInside = start >= axis.start;
   const endInside = end <= axis.end;
   const newestFirst = buckets[0].start > buckets[buckets.length - 1].start;
-  return {
-    startIndex: covered[0],
-    endIndex: covered[covered.length - 1],
-    startEdge: newestFirst ? endInside : startInside,
-    endEdge: newestFirst ? startInside : endInside,
-  };
+  const runs: { first: number; last: number }[] = [];
+  covers.forEach((covered, i) => {
+    if (!covered) return;
+    const run = runs[runs.length - 1];
+    if (
+      run &&
+      run.last === i - 1 &&
+      buckets[i - 1].row === buckets[i].row - 1
+    ) {
+      run.last = i;
+    } else {
+      runs.push({ first: i, last: i });
+    }
+  });
+  // Runs split only by a row whose x is not a date get no edge there: the note goes on.
+  return runs.map(({ first, last }) => ({
+    startIndex: buckets[first].row,
+    endIndex: buckets[last].row,
+    startEdge:
+      first > 0 ? !covers[first - 1] : newestFirst ? endInside : startInside,
+    endEdge:
+      last < buckets.length - 1
+        ? !covers[last + 1]
+        : newestFirst
+          ? startInside
+          : endInside,
+  }));
 }
 
 /**
- * The run of x values a note covers. Each x value stands for one step of the
- * axis's cadence, so a weekly point covers its whole week whichever way the
- * rows are sorted, and a day the query returned no row for belongs to no x
- * value. Rows whose x is not a date (a null bucket, a total row) are skipped.
- * Null when the x axis is not dates or no x value falls in the note.
+ * The runs of x values a note covers, in row order. Each x value stands for
+ * one step of the axis's cadence, so a weekly point covers its whole week
+ * whichever way the rows are sorted, and a day the query returned no row for
+ * belongs to no x value. Rows whose x is not a date (a null bucket, a total
+ * row) are skipped. Empty when the x axis is not dates or no x value falls in
+ * the note.
  */
-export function resolveDataNoteBand(
+export function resolveDataNoteBands(
   note: Pick<DataNote, "startDate" | "endDate">,
   xValues: readonly unknown[],
-): DataNoteBand | null {
+): DataNoteBand[] {
   const axis = dateAxis(xValues);
-  return axis ? bandOnAxis(note, axis) : null;
+  return axis ? bandsOnAxis(note, axis) : [];
 }
 
 export interface ChartDataNote {
   note: DataNote;
-  /** Null when the note is written under the chart instead of shaded on it. */
-  band: DataNoteBand | null;
+  /** Empty when the note is written under the chart instead of shaded on it. */
+  bands: DataNoteBand[];
 }
 
 /**
@@ -233,13 +342,13 @@ export function dataNotesOnChart(
   if (!axis) {
     return notes
       .filter((note) => dataNoteIsRecent(note, now))
-      .map((note) => ({ note, band: null }));
+      .map((note) => ({ note, bands: [] }));
   }
   return notes.flatMap((note): ChartDataNote[] => {
-    const band = bandOnAxis(note, axis);
-    if (band) return [{ note, band }];
+    const bands = bandsOnAxis(note, axis);
+    if (bands.length > 0) return [{ note, bands }];
     const { start, end } = noteSpan(note);
-    return start < axis.end && end > axis.start ? [{ note, band: null }] : [];
+    return start < axis.end && end > axis.start ? [{ note, bands: [] }] : [];
   });
 }
 

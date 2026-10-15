@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   currentRequestUserIsOrgAdmin: vi.fn(),
   superOrgId: undefined as string | undefined,
   loadDashboardSeed: vi.fn(),
+  listKeyDateSets: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", async (importOriginal) => {
@@ -46,6 +47,10 @@ vi.mock("../server/lib/dashboard-seeds", () => ({
   loadDashboardSeed: mocks.loadDashboardSeed,
 }));
 
+vi.mock("../server/lib/key-dates-store", () => ({
+  listKeyDateSets: mocks.listKeyDateSets,
+}));
+
 import {
   FIRST_PARTY_BIGQUERY_WAU_SQL,
   LEGACY_NEW_VS_RECURRING_USERS_SQL,
@@ -63,6 +68,8 @@ describe("get-sql-dashboard seed fallback", () => {
     mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(false);
     mocks.superOrgId = undefined;
     mocks.loadDashboardSeed.mockReset();
+    mocks.listKeyDateSets.mockReset();
+    mocks.listKeyDateSets.mockResolvedValue([]);
   });
 
   it("returns a seed when no SQL dashboard row exists", async () => {
@@ -415,6 +422,81 @@ describe("get-sql-dashboard seed fallback", () => {
       "customer-dashboard",
       { kind: "super-organization", orgId: "org-b" },
     );
+  });
+
+  it("sends a reviewed dashboard its own organization's key dates, minus the sets it hides", async () => {
+    mocks.superOrgId = "org-a";
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    const customerDashboard = {
+      id: "customer-dashboard",
+      kind: "sql",
+      config: {
+        name: "Customer",
+        panels: [],
+        annotations: { hiddenKeyDateSets: ["launches"] },
+      },
+      ownerEmail: "customer@example.com",
+      orgId: "org-b",
+      visibility: "org",
+      role: "viewer",
+      canEdit: false,
+      canManage: false,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "customer@example.com",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    };
+    mocks.getDashboardForReview.mockResolvedValue(customerDashboard);
+    const keyDate = (setId: string, date: string, label: string) => ({
+      id: `${setId}-${date}`,
+      setId,
+      date,
+      label,
+      addedBy: "customer@example.com",
+      updatedAt: "2026-10-14T00:00:00.000Z",
+    });
+    mocks.listKeyDateSets.mockResolvedValue([
+      {
+        id: "changes",
+        name: "Product changes",
+        createdBy: "customer@example.com",
+        updatedAt: "2026-10-14T00:00:00.000Z",
+        dates: [keyDate("changes", "2026-10-11", "Visitor source kept")],
+      },
+      {
+        id: "launches",
+        name: "Launches",
+        createdBy: "customer@example.com",
+        updatedAt: "2026-10-14T00:00:00.000Z",
+        dates: [keyDate("launches", "2026-10-13", "Clips launch")],
+      },
+    ]);
+
+    const review = await getSqlDashboard.run({
+      id: "customer-dashboard",
+      includeConfig: true,
+      reviewPreview: true,
+      reviewOrgId: "org-b",
+    });
+
+    expect(mocks.listKeyDateSets).toHaveBeenCalledWith({
+      email: "customer@example.com",
+      orgId: "org-b",
+    });
+    expect((review as { keyDates: unknown }).keyDates).toEqual([
+      { date: "2026-10-11", label: "Visitor source kept" },
+    ]);
+
+    mocks.listKeyDateSets.mockClear();
+    mocks.getDashboard.mockResolvedValue(customerDashboard);
+    const ordinary = await getSqlDashboard.run({
+      id: "customer-dashboard",
+      includeConfig: true,
+    });
+    expect(ordinary).not.toHaveProperty("keyDates");
+    expect(mocks.listKeyDateSets).not.toHaveBeenCalled();
   });
 });
 
