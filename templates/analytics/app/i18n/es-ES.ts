@@ -1078,11 +1078,6 @@ export default {
     savedShared: "Guardado para todos",
     saving: "Guardando…",
     savingShared: "Guardando para todos…",
-    failed: "No se pudo guardar",
-    you: "usted",
-    sharedHint: "Todas las personas con acceso ven esta versión",
-    privateHint:
-      "Solo usted y las personas con quienes lo comparta ven esta versión",
     oneOtherViewer: "1 persona más lo tiene abierto",
     otherViewers: "{{count}} personas más lo tienen abierto",
     changeSaved: "{{change}} · Guardado",

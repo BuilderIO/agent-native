@@ -12,17 +12,17 @@ Dashboards are the canonical SQL-backed Analytics resources. New dashboards, sav
 
 Current storage:
 
-| Table              | Purpose                                      |
-| ------------------ | -------------------------------------------- |
-| `dashboards`       | Explorer and SQL dashboard records           |
-| `dashboard_folders` | Personal and shared SQL dashboard folders  |
-| `dashboard_views`  | Saved filter presets per dashboard           |
-| `dashboard_shares` | Standard framework share grants              |
-| `dashboard_folder_shares` | Standard folder share grants          |
-| `dashboard_revisions` | Bounded dashboard history snapshots       |
-| `analyses`         | Saved ad-hoc analysis records                |
-| `analysis_revisions` | Bounded analysis history snapshots        |
-| `analysis_shares`  | Standard framework share grants for analyses |
+| Table                     | Purpose                                      |
+| ------------------------- | -------------------------------------------- |
+| `dashboards`              | Explorer and SQL dashboard records           |
+| `dashboard_folders`       | Personal and shared SQL dashboard folders    |
+| `dashboard_views`         | Saved filter presets per dashboard           |
+| `dashboard_shares`        | Standard framework share grants              |
+| `dashboard_folder_shares` | Standard folder share grants                 |
+| `dashboard_revisions`     | Bounded dashboard history snapshots          |
+| `analyses`                | Saved ad-hoc analysis records                |
+| `analysis_revisions`      | Bounded analysis history snapshots           |
+| `analysis_shares`         | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
 
@@ -67,10 +67,10 @@ guessing from times. `changesStatus` is `absent` for revisions saved before
 changes were recorded and `unreadable` when the stored list is corrupt; say you
 can't tell what those changed rather than treating them as empty.
 
-On the page, an editor's own saves show in the header as "Saved for everyone"
-(org or public visibility; "Saved" when private) with the time and who saved
-last, and a toast names the change and offers Undo. That Undo, like "undo my
-last change" in chat, restores the newest revision from
+On the page, each of an editor's own saves shows a toast that names the change,
+says "Saved for everyone" (org or public visibility; "Saved" when private),
+counts the others who have the dashboard open, and offers Undo. That Undo, like
+"undo my last change" in chat, restores the newest revision from
 `list-dashboard-revisions`. The History panel shows each revision's first
 change with "+N more".
 
@@ -138,7 +138,7 @@ those CTEs needs its own `{{timeRange}}`/`{{<id>Start}}`/`{{<id>End}}`
 reference or literal date bound — not just the final `SELECT` or one sibling
 CTE. A CTE that computes something like "this user's first-ever active day"
 by scanning `analytics_events` with no bound at all will full-table-scan on
-every render even though the panel *looks* time-bound overall (root cause of
+every render even though the panel _looks_ time-bound overall (root cause of
 a 2026-07-25 production incident: several dashboards had exactly this shape).
 Server validation checks each top-level CTE independently now, so this fails
 at save time — but write it right the first time: bound every CTE, or use
@@ -230,12 +230,12 @@ The recent extension-backed dashboards in Builder Analytics cluster into a few
 repeatable compositions. Prefer these native panels, with a real SQL or Data
 Program result behind each one, when creating a replacement or a new dashboard:
 
-| Pattern | Native composition |
-| --- | --- |
-| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative |
-| Account engagement / outreach | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts |
-| GTM pipeline / cross-sell | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up |
-| Win/loss analysis | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
+| Pattern                          | Native composition                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative            |
+| Account engagement / outreach    | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts                  |
+| GTM pipeline / cross-sell        | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up                      |
+| Win/loss analysis                | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
 
 Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
 non-negative count or value. The renderer preserves the SQL row order, shows
