@@ -355,7 +355,8 @@ async function safeExtractHtml(
 } | null> {
   try {
     return await extractHtml(body, url, extract, includeMarkdown);
-  } catch {
+  } catch (error) {
+    void error;
     // If the parser rejects the body (e.g. linkedom throws because the
     // document has no parseable documentElement), fall back to treating the
     // HTML-labeled response as plain text so web-request surfaces the status
