@@ -10,6 +10,7 @@ import {
   otherViewerCount,
   useDashboardSaveFeedback,
 } from "./dashboard-save-feedback";
+import type { DashboardSaveOutcome } from "./dashboard-save-queue";
 
 const toastMock = vi.hoisted(() => ({
   loading: vi.fn(),
@@ -19,8 +20,8 @@ const toastMock = vi.hoisted(() => ({
 vi.mock("sonner", () => ({ toast: toastMock }));
 
 const ME = "me@example.com";
-type SaveOutcome = { changed: boolean; updatedAt?: string };
-const WROTE = { changed: true, updatedAt: "v1" };
+type SaveOutcome = DashboardSaveOutcome;
+const WROTE = { changed: true, updatedAt: "v1", revisionId: "rev1" };
 
 let container: HTMLDivElement;
 let root: Root;
@@ -115,7 +116,10 @@ describe("useDashboardSaveFeedback", () => {
       action: { label: "Undo" },
     });
     options.action.onClick();
-    expect(onUndo).toHaveBeenCalledExactlyOnceWith("v1");
+    expect(onUndo).toHaveBeenCalledExactlyOnceWith({
+      revisionId: "rev1",
+      updatedAt: "v1",
+    });
   });
 
   it("leaves the toast pending until the newest save lands", async () => {
@@ -156,6 +160,17 @@ describe("useDashboardSaveFeedback", () => {
     expect(toastMock.success).toHaveBeenCalledOnce();
   });
 
+  it("offers no Undo for a write that didn't say which revision it left", async () => {
+    render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
+    const save = deferred<SaveOutcome>();
+    act(() => {
+      void track(save.promise);
+    });
+    await act(async () => save.resolve({ changed: true, updatedAt: "v1" }));
+    expect(toastMock.success).not.toHaveBeenCalled();
+    expect(toastMock.dismiss).toHaveBeenCalledWith("dashboard-save:d1");
+  });
+
   it("drops the pending toast when the newest save fails", async () => {
     render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
     const save = deferred<SaveOutcome>();
@@ -183,7 +198,10 @@ describe("useDashboardSaveFeedback", () => {
 
     expect(toastMock.success).toHaveBeenCalledOnce();
     toastMock.success.mock.calls[0][1].action.onClick();
-    expect(onUndo).toHaveBeenCalledExactlyOnceWith("v1");
+    expect(onUndo).toHaveBeenCalledExactlyOnceWith({
+      revisionId: "rev1",
+      updatedAt: "v1",
+    });
   });
 
   it("keeps a newer save's toast when an earlier save fails", async () => {

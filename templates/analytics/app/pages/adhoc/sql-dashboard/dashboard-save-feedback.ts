@@ -6,6 +6,8 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
+import type { DashboardSaveOutcome } from "./dashboard-save-queue";
+
 const AGENT_EMAIL = "agent@system";
 
 /** People other than you with the dashboard open; the agent isn't counted. */
@@ -20,13 +22,21 @@ export function otherViewerCount(
   }).length;
 }
 
+/** What the toast's Undo takes back: one write, by the revision it left. */
+export type DashboardSaveUndo = {
+  revisionId: string;
+  /** The version the write made; once someone saves over it, Undo fails. */
+  updatedAt: string;
+};
+
 /**
  * Gives the page's saves one toast, replaced in place from "Saving…" to
  * "Saved" with Undo. Only the newest save on the open dashboard updates it,
  * and it offers Undo only when a save it covers changed the dashboard, even
- * if the newest one then failed. `onUndo` gets the version that write left,
- * so a newer save by someone else makes the undo fail instead of taking their
- * change back. It must be stable; the toast calls it after later renders.
+ * if the newest one then failed. `onUndo` gets that write's revision and
+ * version, so it undoes exactly that write, and a newer save by someone else
+ * makes it fail instead of taking their change back. It must be stable; the
+ * toast calls it after later renders.
  */
 export function useDashboardSaveFeedback({
   dashboardId,
@@ -37,7 +47,7 @@ export function useDashboardSaveFeedback({
   dashboardId: string | undefined;
   shared: boolean;
   otherViewers: number;
-  onUndo: (savedUpdatedAt: string) => void;
+  onUndo: (write: DashboardSaveUndo) => void;
 }) {
   const t = useT();
   // Read when a save lands, which can be renders after it started.
@@ -50,11 +60,12 @@ export function useDashboardSaveFeedback({
   // The open toast covers saves from `firstCoveredSaveRef` (0 when none is
   // pending) through the newest.
   const firstCoveredSaveRef = useRef(0);
-  const newestWriteRef = useRef<{ save: number; updatedAt: string } | null>(
-    null,
-  );
+  const newestWriteRef = useRef<{
+    save: number;
+    undo: DashboardSaveUndo;
+  } | null>(null);
 
-  // Undo restores the open dashboard's newest revision, so a toast must not
+  // Undo restores a revision of the open dashboard, so a toast must not
   // outlive its dashboard, and a save that lands after leaving it must not
   // bring the toast back.
   useEffect(() => {
@@ -67,9 +78,7 @@ export function useDashboardSaveFeedback({
   }, [dashboardId]);
 
   return useCallback(
-    <T extends { changed: boolean; updatedAt?: string }>(
-      save: Promise<T>,
-    ): Promise<T> => {
+    <T extends DashboardSaveOutcome>(save: Promise<T>): Promise<T> => {
       if (!dashboardId) return save;
       const toastId = `dashboard-save:${dashboardId}`;
       const saveNumber = ++newestSaveRef.current;
@@ -107,16 +116,19 @@ export function useDashboardSaveFeedback({
                   : undefined,
             action: {
               label: t("dashboard.undo"),
-              onClick: () => onUndo(write.updatedAt),
+              onClick: () => onUndo(write.undo),
             },
             duration: 6000,
           },
         );
       };
       save.then(
-        ({ changed, updatedAt }) => {
-          if (changed && updatedAt) {
-            newestWriteRef.current = { save: saveNumber, updatedAt };
+        ({ changed, updatedAt, revisionId }) => {
+          if (changed && updatedAt && revisionId) {
+            newestWriteRef.current = {
+              save: saveNumber,
+              undo: { revisionId, updatedAt },
+            };
           }
           if (isNewest()) settle();
         },
