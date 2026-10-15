@@ -44,19 +44,101 @@ export const RECENT_DATA_NOTE_DAYS = 30;
 
 const DAY_MS = 86_400_000;
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// A comment, a quoted string (a doubled or backslashed quote stays inside it),
+// a backquoted name, a word, a run of comparison characters, or one character.
+const SQL_TOKEN =
+  /--[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|'(?:[^'\\]|''|\\[\s\S])*'|"(?:[^"\\]|""|\\[\s\S])*"|`[^`]*`|[\w$]+|[=<>!]+|\S/g;
+
+const QUOTE_ESCAPE: Record<string, RegExp> = {
+  "'": /\\([\s\S])|''/g,
+  '"': /\\([\s\S])|""/g,
+};
+
+interface SqlToken {
+  /** Upper-cased, except a quoted string's. */
+  text: string;
+  /** A quoted string's value, unescaped; null for any other token. */
+  value: string | null;
+}
+
+/** The SQL's tokens, without its comments. */
+function sqlTokens(sql: string): SqlToken[] {
+  return [...sql.matchAll(SQL_TOKEN)].flatMap(([text]): SqlToken[] => {
+    if (text.startsWith("--") || text.startsWith("/*")) return [];
+    const quote = text[0];
+    if (!QUOTE_ESCAPE[quote]) {
+      return [{ text: text.toUpperCase(), value: null }];
+    }
+    const value = text
+      .slice(1, -1)
+      .replace(QUOTE_ESCAPE[quote], (_, escaped?: string) => escaped ?? quote);
+    return [{ text, value }];
+  });
+}
+
+const COMPARED_AFTER = new Set(["=", "LIKE", "ILIKE", "WHEN"]);
+
+/**
+ * The quoted values the SQL filters rows on: either side of `=`, in WHERE or
+ * CASE WHEN alike, a LIKE pattern, a simple CASE's WHEN value, or an item of
+ * an IN list. A value it selects, returns from THEN or ELSE, excludes with
+ * `!=`, `<>`, or NOT, or only mentions in a comment does not count.
+ */
+function sqlFilterValues(sql: string): Set<string> {
+  const tokens = sqlTokens(sql);
+  const values = new Set<string>();
+  // Whether each open parenthesis holds an IN list.
+  const inList: boolean[] = [];
+  tokens.forEach((token, index) => {
+    const prev = tokens[index - 1]?.text;
+    const next = tokens[index + 1]?.text;
+    const negated = tokens[index - 2]?.text === "NOT";
+    if (token.text === "(") inList.push(prev === "IN" && !negated);
+    if (token.text === ")") inList.pop();
+    if (token.value === null) return;
+    const compared =
+      (prev !== undefined && COMPARED_AFTER.has(prev) && !negated) ||
+      next === "=";
+    const listed =
+      inList[inList.length - 1] === true &&
+      (prev === "(" || prev === ",") &&
+      (next === "," || next === ")");
+    if (compared || listed) values.add(token.value);
+  });
+  return values;
+}
+
+function filtersOn(values: ReadonlySet<string>, event: string): boolean {
+  const name = event.trim();
+  return name !== "" && values.has(name);
 }
 
 /**
- * True when the SQL names the event as a quoted string, the way a filter on
- * it does. Case counts: SQL compares the values exactly, so 'Signup' and
- * 'signup' are different events.
+ * True when the SQL filters rows on the event name as a quoted value. Case
+ * counts: SQL compares the values exactly, so 'Signup' and 'signup' are
+ * different events.
  */
 export function sqlCountsEvent(sql: string, event: string): boolean {
-  const name = event.trim();
-  if (!name) return false;
-  return new RegExp(`(['"])${escapeRegExp(name)}\\1`).test(sql);
+  return filtersOn(sqlFilterValues(sql), event);
+}
+
+function appliesTo(
+  note: Pick<DataNote, "matchEvents" | "unlessEvents" | "panels">,
+  dashboardId: string,
+  panelId: string,
+  filterValues: ReadonlySet<string>,
+): boolean {
+  if (
+    note.panels.some(
+      (ref) => ref.dashboardId === dashboardId && ref.panelId === panelId,
+    )
+  ) {
+    return true;
+  }
+  return (
+    note.matchEvents.some((event) => filtersOn(filterValues, event)) &&
+    !note.unlessEvents.some((event) => filtersOn(filterValues, event))
+  );
 }
 
 export function dataNoteAppliesTo(
@@ -64,17 +146,11 @@ export function dataNoteAppliesTo(
   dashboardId: string,
   panel: Pick<SqlPanel, "id" | "sql">,
 ): boolean {
-  if (
-    note.panels.some(
-      (ref) => ref.dashboardId === dashboardId && ref.panelId === panel.id,
-    )
-  ) {
-    return true;
-  }
-  const sql = panel.sql ?? "";
-  return (
-    note.matchEvents.some((event) => sqlCountsEvent(sql, event)) &&
-    !note.unlessEvents.some((event) => sqlCountsEvent(sql, event))
+  return appliesTo(
+    note,
+    dashboardId,
+    panel.id,
+    sqlFilterValues(panel.sql ?? ""),
   );
 }
 
@@ -90,9 +166,11 @@ export function dataNotesForPanel(
       .filter((entry) => entry.panelId === panel.id)
       .map((entry) => entry.noteId),
   );
+  const filterValues = sqlFilterValues(panel.sql ?? "");
   return notes.filter(
     (note) =>
-      !hidden.has(note.id) && dataNoteAppliesTo(note, dashboardId, panel),
+      !hidden.has(note.id) &&
+      appliesTo(note, dashboardId, panel.id, filterValues),
   );
 }
 

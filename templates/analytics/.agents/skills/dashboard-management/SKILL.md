@@ -271,9 +271,14 @@ Notes belong to the organization, like key-date sets. Read them with
 only the fields given); remove with `delete-data-note`.
 
 - `matchEvents` lists the event names the problem affects. A note shows on every
-  chart whose SQL names one of them as a quoted string; `unlessEvents` skips
-  charts that also count the corrected event. Pin a note to specific charts with
-  `panels: [{ dashboardId, panelId }]` when no event name identifies them.
+  chart whose SQL filters on one of them, matched exactly and case-sensitively:
+  either side of `=` (in `WHERE` or `CASE WHEN`), an `IN (...)` item, a `LIKE`
+  pattern, or a simple `CASE event WHEN` value. A name the SQL only selects as a
+  label, returns from `THEN`/`ELSE`, excludes (`!=`, `<>`, `NOT IN`, `NOT LIKE`),
+  or writes in a comment does not count, and neither does `= ANY(ARRAY[...])` or
+  `IN UNNEST([...])`. `unlessEvents` skips charts that also filter on the
+  corrected event. Pin a note to specific charts with
+  `panels: [{ dashboardId, panelId }]` when no event filter identifies them.
 - `startDate` and `endDate` are `YYYY-MM-DD`. Leave out `endDate` while the
   problem is ongoing, and `startDate` when it has been wrong since before
   tracking began. Marking a note `status: "fixed"` needs an `endDate`; say what

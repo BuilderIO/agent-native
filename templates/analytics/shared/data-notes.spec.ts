@@ -66,6 +66,37 @@ describe("sqlCountsEvent", () => {
     ).toBe(false);
     expect(sqlCountsEvent("where e = 'ab'", "a+b")).toBe(false);
   });
+
+  it("counts a name the SQL filters on: either side of =, a CASE WHEN, an IN list, or LIKE", () => {
+    for (const sql of [
+      "WHERE event = 'builder_connect_failed'",
+      "WHERE 'builder_connect_failed' = event",
+      "SELECT SUM(CASE WHEN event = 'builder_connect_failed' THEN 1 ELSE 0 END)",
+      "SELECT COUNT(CASE event WHEN 'builder_connect_failed' THEN 1 END)",
+      "WHERE event IN ('signup', 'builder_connect_failed', 'app_entered')",
+      "WHERE event like 'builder_connect_failed'",
+    ]) {
+      expect(sqlCountsEvent(sql, "builder_connect_failed"), sql).toBe(true);
+    }
+    expect(
+      sqlCountsEvent("WHERE event = 'user''s signup'", "user's signup"),
+    ).toBe(true);
+  });
+
+  it("ignores a name the SQL only selects, returns, excludes, comments on, or quotes inside another string", () => {
+    for (const sql of [
+      "SELECT day, 'builder_connect_failed' AS label, count(*) FROM events",
+      "SELECT CASE WHEN ok THEN 'builder_connect_failed' ELSE 'builder_connect_failed' END",
+      "WHERE event != 'builder_connect_failed' AND event <> 'builder_connect_failed'",
+      "WHERE event NOT IN ('builder_connect_failed') AND event NOT LIKE 'builder_connect_failed'",
+      "WHERE event = 'signup' -- was 'builder_connect_failed'",
+      "WHERE event = 'signup' /* event = 'builder_connect_failed' */",
+      "WHERE note = 'see event = ''builder_connect_failed'''",
+      `WHERE note = 'event = "builder_connect_failed"'`,
+    ]) {
+      expect(sqlCountsEvent(sql, "builder_connect_failed"), sql).toBe(false);
+    }
+  });
 });
 
 describe("dataNoteAppliesTo", () => {
@@ -80,6 +111,21 @@ describe("dataNoteAppliesTo", () => {
     expect(
       dataNoteAppliesTo(CONNECT_UNDERCOUNT, "dash", panel("p3", "select 1")),
     ).toBe(false);
+  });
+
+  it("ignores event names a chart only labels its rows with, in matchEvents and unlessEvents alike", () => {
+    const labelled = panel(
+      "p1",
+      "SELECT day, 'builder_connect_failed' AS series, count(*) FROM events WHERE event = 'signup' GROUP BY 1",
+    );
+    expect(dataNoteAppliesTo(SETUP_INCIDENT, "dash", labelled)).toBe(false);
+    const replacementLabel = panel(
+      "p2",
+      "SELECT day, 'builder_connect_clicked' AS renamed_to, count(*) FROM events WHERE event = 'builder connect clicked' GROUP BY 1",
+    );
+    expect(
+      dataNoteAppliesTo(CONNECT_UNDERCOUNT, "dash", replacementLabel),
+    ).toBe(true);
   });
 
   it("shows on a pinned chart whatever its SQL counts", () => {
