@@ -383,7 +383,11 @@ function decodeEntities(text: string): string {
           code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff);
         return isCharacter ? String.fromCodePoint(code) : REPLACEMENT_CHARACTER;
       }
-      return NAMED_ENTITIES[body.toLowerCase()] ?? entity;
+      // Own keys only: "&constructor;" must not read Object.prototype.
+      const name = body.toLowerCase();
+      return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, name)
+        ? NAMED_ENTITIES[name]
+        : entity;
     },
   );
 }

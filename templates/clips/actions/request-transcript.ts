@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
@@ -1427,11 +1427,20 @@ async function writeTranscriptOrKeepImport(
   row: Parameters<typeof upsertTranscriptRow>[1],
 ) {
   if (await upsertTranscriptRow(db, row)) return null;
-  return preserveReadyTranscriptIfAvailable({
+  const kept = await preserveReadyTranscriptIfAvailable({
     db,
     recordingId: row.recordingId,
     ownerEmail: row.ownerEmail,
   });
+  // An import is always ready, so a refused write with nothing to keep means
+  // the row was deleted; carrying on would report work that wasn't saved.
+  if (!kept) {
+    fail(`Transcript row for ${row.recordingId} was removed while saving`, {
+      errorCode: "transcript_removed",
+      statusCode: 409,
+    });
+  }
+  return kept;
 }
 
 async function upsertTranscriptRow(

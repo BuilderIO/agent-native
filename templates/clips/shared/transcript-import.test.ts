@@ -279,6 +279,16 @@ describe("parseTranscriptImport", () => {
     });
   });
 
+  it("keeps a reference that names no character as written", () => {
+    const result = parseTranscriptImport(
+      "WEBVTT\n\n00:00.000 --> 00:01.000\n&constructor; &toString; &amp;",
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      segments: [{ text: "&constructor; &toString; &" }],
+    });
+  });
+
   it("starts a new cue at a timing line with no blank line before it", () => {
     const result = parseTranscriptImport(
       [

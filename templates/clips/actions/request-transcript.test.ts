@@ -1154,6 +1154,20 @@ describe("requestTranscript regeneration", () => {
       expect(result).toMatchObject({ status: "ready", preserved: true });
     });
 
+    it("fails rather than transcribing when the row is deleted before the pending write", async () => {
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [],
+      ];
+      mockUpdateReturning.mockResolvedValueOnce([]);
+
+      await expect(
+        requestTranscript.run({ recordingId: "rec_imported", force: true }),
+      ).rejects.toThrow("was removed while saving");
+      expect(mockTranscribeWithBuilder).not.toHaveBeenCalled();
+    });
+
     it("reports an import that lands just before a failure write, not the failure", async () => {
       mockTranscribeWithBuilder.mockRejectedValue(new Error("provider down"));
       mockSelectRows.queue = [
