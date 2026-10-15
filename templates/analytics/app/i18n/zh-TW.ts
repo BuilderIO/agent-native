@@ -1006,6 +1006,7 @@ export default {
     redoSuccess: "已重做儀表板變更",
     redoFailed: "無法重做儀表板變更",
     redoFailedWithMessage: "無法重做儀表板變更：{{message}}",
+    keyDatesUnavailable: "無法載入關鍵日期",
     panelSettings: "面板設定",
     revenueOverTime: "一段時間內的收入",
     recentSales: "最近銷售",

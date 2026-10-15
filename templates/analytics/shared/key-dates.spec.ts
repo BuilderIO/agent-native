@@ -69,6 +69,17 @@ describe("panelEventsWithKeyDates", () => {
     ).toEqual(keyDates);
   });
 
+  it("adds key dates to legacy stacked bar and area charts", () => {
+    for (const chartType of ["stacked-bar", "stacked-area"]) {
+      expect(
+        panelEventsWithKeyDates(
+          { chartType: chartType as never, config: {} },
+          keyDates,
+        ),
+      ).toEqual(keyDates);
+    }
+  });
+
   it("leaves other chart types with only their own events", () => {
     expect(
       panelEventsWithKeyDates({ chartType: "pie", config: {} }, keyDates),

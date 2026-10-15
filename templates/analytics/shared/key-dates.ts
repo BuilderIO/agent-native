@@ -3,6 +3,7 @@ import type {
   PanelEvent,
   SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import { LEGACY_CHART_TYPE_ALIASES } from "./panel-render-contract";
 
 export interface KeyDate {
   id: string;
@@ -63,7 +64,9 @@ export function panelEventsWithKeyDates(
   keyDates: readonly PanelEvent[],
 ): unknown {
   const own = panel.config?.events;
-  if (keyDates.length === 0 || !KEY_DATE_CHART_TYPES.has(panel.chartType)) {
+  const chartType =
+    LEGACY_CHART_TYPE_ALIASES[panel.chartType] ?? panel.chartType;
+  if (keyDates.length === 0 || !KEY_DATE_CHART_TYPES.has(chartType)) {
     return own;
   }
   const ownEvents: unknown[] = Array.isArray(own) ? own : [];

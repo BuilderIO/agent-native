@@ -1102,6 +1102,7 @@ export default {
     redoFailed: "Impossible de rétablir la modification du tableau de bord",
     redoFailedWithMessage:
       "Impossible de rétablir la modification du tableau de bord : {{message}}",
+    keyDatesUnavailable: "Impossible de charger les dates clés",
     panelSettings: "Paramètres du panneau",
     revenueOverTime: "Revenus au fil du temps",
     recentSales: "Ventes récentes",

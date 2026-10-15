@@ -7,12 +7,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
   keyDateSets: [] as unknown[],
+  keyDatesFailed: false,
+  t: (key: string) => key,
+  toastError: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: (name: string) => ({
-    data: name === "list-key-dates" ? { sets: mocks.keyDateSets } : undefined,
-  }),
+  useActionQuery: (name: string) =>
+    name !== "list-key-dates"
+      ? { data: undefined, isError: false }
+      : mocks.keyDatesFailed
+        ? { data: undefined, isError: true }
+        : { data: { sets: mocks.keyDateSets }, isError: false },
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
@@ -21,8 +27,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => mocks.t,
 }));
+
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 
 vi.mock("@/lib/demo-chart-trend", () => ({
   createDemoChartTrendRows: (rows: Record<string, unknown>[]) => rows,
@@ -113,6 +121,7 @@ describe("SqlChart key-date markers", () => {
 
   afterEach(() => {
     mocks.keyDateSets = [];
+    mocks.keyDatesFailed = false;
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
@@ -214,6 +223,37 @@ describe("SqlChart key-date markers", () => {
       });
       // The panel's Oct 12 and Oct 14 markers, plus the Oct 11 product change.
       expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(3);
+    });
+
+    it("says once that key dates failed to load, and keeps each chart's own markers", async () => {
+      mocks.keyDatesFailed = true;
+      await act(async () => {
+        root.render(
+          <DashboardKeyDatesProvider>
+            <SqlChart panel={panel("line")} />
+            <SqlChart panel={panel("bar")} />
+          </DashboardKeyDatesProvider>,
+        );
+      });
+      expect(mocks.toastError).toHaveBeenCalledTimes(1);
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "dashboard.keyDatesUnavailable",
+        { id: "key-dates-unavailable" },
+      );
+      expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(4);
+    });
+
+    it("stays quiet when there are no key dates", async () => {
+      mocks.keyDateSets = [];
+      await act(async () => {
+        root.render(
+          <DashboardKeyDatesProvider>
+            <SqlChart panel={unmarked("line")} />
+          </DashboardKeyDatesProvider>,
+        );
+      });
+      expect(mocks.toastError).not.toHaveBeenCalled();
+      expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(0);
     });
   });
 });

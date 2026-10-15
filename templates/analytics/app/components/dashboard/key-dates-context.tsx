@@ -1,6 +1,14 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { keyDateEvents, panelEventsWithKeyDates } from "@shared/key-dates";
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
 
 import type {
   DashboardAnnotations,
@@ -8,8 +16,17 @@ import type {
   SqlPanel,
 } from "@/pages/adhoc/sql-dashboard/types";
 
+interface DashboardKeyDatesValue {
+  keyDates: readonly PanelEvent[];
+  /** The list failed to load, so a chart without markers may still have key dates. */
+  keyDatesFailed: boolean;
+}
+
 const NO_KEY_DATES: readonly PanelEvent[] = [];
-const KeyDatesContext = createContext<readonly PanelEvent[]>(NO_KEY_DATES);
+const KeyDatesContext = createContext<DashboardKeyDatesValue>({
+  keyDates: NO_KEY_DATES,
+  keyDatesFailed: false,
+});
 
 /** Draws the organization's key dates, minus the sets this dashboard hides, on every time chart inside. */
 export function DashboardKeyDatesProvider({
@@ -19,15 +36,27 @@ export function DashboardKeyDatesProvider({
   annotations?: DashboardAnnotations;
   children: ReactNode;
 }) {
-  const { data } = useActionQuery("list-key-dates", undefined, {
+  const t = useT();
+  const { data, isError } = useActionQuery("list-key-dates", undefined, {
     staleTime: 60_000,
   });
-  const events = useMemo(
-    () => (data ? keyDateEvents(data.sets, annotations) : NO_KEY_DATES),
-    [data, annotations],
+  const keyDatesFailed = isError && !data;
+  useEffect(() => {
+    if (keyDatesFailed) {
+      toast.error(t("dashboard.keyDatesUnavailable"), {
+        id: "key-dates-unavailable",
+      });
+    }
+  }, [keyDatesFailed, t]);
+  const value = useMemo<DashboardKeyDatesValue>(
+    () => ({
+      keyDates: data ? keyDateEvents(data.sets, annotations) : NO_KEY_DATES,
+      keyDatesFailed,
+    }),
+    [data, annotations, keyDatesFailed],
   );
   return (
-    <KeyDatesContext.Provider value={events}>
+    <KeyDatesContext.Provider value={value}>
       {children}
     </KeyDatesContext.Provider>
   );
@@ -37,7 +66,7 @@ export function DashboardKeyDatesProvider({
 export function usePanelEvents(
   panel: Pick<SqlPanel, "chartType" | "config">,
 ): unknown {
-  const keyDates = useContext(KeyDatesContext);
+  const { keyDates } = useContext(KeyDatesContext);
   const { chartType } = panel;
   const events = panel.config?.events;
   return useMemo(

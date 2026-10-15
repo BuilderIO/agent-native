@@ -1055,6 +1055,7 @@ export default {
     redoFailed: "تعذرت إعادة تطبيق تغيير لوحة المعلومات",
     redoFailedWithMessage:
       "تعذرت إعادة تطبيق تغيير لوحة المعلومات: {{message}}",
+    keyDatesUnavailable: "تعذر تحميل التواريخ الرئيسية",
     panelSettings: "إعدادات اللوحة",
     revenueOverTime: "الإيرادات مع مرور الوقت",
     recentSales: "المبيعات الأخيرة",
