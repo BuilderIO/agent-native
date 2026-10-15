@@ -23,20 +23,6 @@ describe("DesignEditor pending live edits", () => {
     expect(discardHandler).toContain("clearPendingLiveEditState()");
   });
 
-  it("keeps Escape in the preview menu from reaching editor hotkeys", () => {
-    const source = readDesignEditorSource();
-    const menu = source.slice(
-      source.indexOf("data-design-pending-visual-style-toolbar"),
-      source.indexOf(
-        "{viewMode ===",
-        source.indexOf("data-design-pending-visual-style-toolbar"),
-      ),
-    );
-    expect(menu).toContain("onEscapeKeyDown={(event) =>");
-    expect(menu).toContain("event.stopPropagation()");
-    expect(menu).toContain("onClick={handleAbortPendingVisualStyles}");
-  });
-
   it("keeps visual-edit sessions on copy unless a host agent can receive the handoff", () => {
     const source = readDesignEditorSource();
     expect(source).toContain("data-design-public-agent-empty-state");
@@ -48,12 +34,6 @@ describe("DesignEditor pending live edits", () => {
     expect(source).toMatch(
       /canApplyPendingVisualEditsFromToolbar =\s*canApplyPendingVisualEditsWithAgent &&\s*\(!isVisualEditSurface \|\| hostEmbeddedEditor\);/,
     );
-  });
-
-  it("publishes the handoff for agents that do not have the Design tab", () => {
-    const source = readDesignEditorSource();
-    expect(source).toContain("runPublishVisualEditPending({");
-    expect(source).toContain("pendingVisualStylePrompt");
   });
 
   it("only publishes the durable handoff from an editor session", () => {

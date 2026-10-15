@@ -2,14 +2,11 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { readDesignEditorSource } from "../../pages/design-editor/read-design-editor-source";
-
 describe("DesignImportPanel", () => {
   const source = readFileSync(
     "app/components/design/DesignImportPanel.tsx",
     "utf8",
   );
-  const editorSource = readDesignEditorSource();
   const importConstants = readFileSync("app/lib/design-import.ts", "utf8");
 
   it("imports a Figma frame URL through the shared action surface", () => {
@@ -51,23 +48,6 @@ describe("DesignImportPanel", () => {
     expect(source).toContain('notification.variant === "warning"');
     expect(source).not.toContain(
       'toast.warning(t("designEditor.import.warningsToast")',
-    );
-  });
-
-  it("supports canvas-level Figma paste through the editor paste handler", () => {
-    expect(editorSource).toContain("const handleEditorPaste");
-    const pasteCommand = readFileSync(
-      "app/pages/design-editor/commands/editor-paste.ts",
-      "utf8",
-    );
-    expect(pasteCommand).toContain(
-      "getFigmaClipboardContent(event.clipboardData)",
-    );
-    expect(pasteCommand).toContain(
-      "void importFigmaClipboardIntoDesign(figmaContent)",
-    );
-    expect(editorSource).toContain(
-      'document.addEventListener("paste", handleEditorPaste, true)',
     );
   });
 

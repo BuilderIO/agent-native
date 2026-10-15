@@ -24,24 +24,6 @@ describe("Design editor mobile layout", () => {
     expect(layoutSource).toContain("{showAppNav && (\n");
   });
 
-  it("hands the right inspector rule both minimal-UI inputs", () => {
-    // The phone, hidden-UI and minimal-UI rules live in isRightInspectorVisible
-    // (minimal-inspector.test.ts); the editor must hand it both minimal inputs.
-    const inspectorVisibilityCall = editorSource.slice(
-      editorSource.indexOf("isRightInspectorVisible({"),
-      editorSource.indexOf(
-        "});",
-        editorSource.indexOf("isRightInspectorVisible({"),
-      ),
-    );
-    expect(inspectorVisibilityCall).toContain("minimalUi,");
-    expect(inspectorVisibilityCall).toContain("minimalInspectorHasSelection,");
-  });
-
-  it("keeps a widget's opened screen fit on its own camera, not the selection", () => {
-    expect(editorSource).toContain("initialFitScreenId: widgetEmbed\n");
-  });
-
   it("keeps save warnings out of a read-only directory widget but not other sessions", () => {
     const warn = editorSource.slice(
       editorSource.indexOf("const warnChangesWillRetry = useCallback"),

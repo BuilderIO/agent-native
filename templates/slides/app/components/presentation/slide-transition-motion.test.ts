@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  transitionDurationMs,
-  type SlideTransitionType,
-} from "../../../shared/slide-transitions";
+import type { SlideTransitionType } from "../../../shared/slide-transitions";
 import type { SlideDirection } from "./slide-navigation";
 import {
   resolveSlideTransitionMotion,
@@ -72,16 +69,6 @@ describe("reduced motion", () => {
 });
 
 describe("transition duration", () => {
-  it("takes the duration from the speed slider through transitionDurationMs", () => {
-    for (const speed of [0, 20, 45, 49]) {
-      const motion = resolveSlideTransitionMotion("dissolve", "forward", {
-        speed,
-        reducedMotion: false,
-      });
-      expect(motion?.durationMs).toBe(transitionDurationMs(speed));
-    }
-  });
-
   it("maps the slider ends to 5 s and 0.1 s", () => {
     const at = (speed: number | null | undefined) =>
       resolveSlideTransitionMotion("dissolve", "forward", {

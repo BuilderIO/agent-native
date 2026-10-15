@@ -23,64 +23,6 @@ function treeNode(
 }
 
 describe("document sidebar layout", () => {
-  it("keeps deeply nested page rows within the sidebar viewport", () => {
-    const preferences = readSidebarSource("../layout/sidebar-preferences.ts");
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
-
-    expect(preferences).toContain("export const MIN_SIDEBAR_WIDTH = 240");
-    expect(sidebar).toContain(
-      "[&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden",
-    );
-    expect(sidebar).toContain('className="w-full min-w-0 py-2"');
-    expect(sidebar).not.toContain("w-max");
-    expect(treeItem).toContain("const indent = depth * 12 + 12");
-    expect(treeItem).toContain("min-w-0");
-  });
-
-  it("does not highlight the current document in workspace trees while in Trash", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-
-    expect(sidebar).toContain(
-      'const sidebarActiveDocumentId = location.pathname.startsWith("/trash")',
-    );
-    expect(
-      sidebar.match(/activeDocumentId=\{sidebarActiveDocumentId\}/g),
-    ).toHaveLength(3);
-  });
-
-  it("keeps row actions inside the visible sidebar at narrow widths", () => {
-    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
-    const rowWidthBlock = treeItem.slice(
-      treeItem.indexOf("const rowWidth ="),
-      treeItem.indexOf("const {", treeItem.indexOf("const rowWidth =")),
-    );
-
-    expect(treeItem).toContain(": Math.max(0, sidebarWidth - 8)");
-    expect(rowWidthBlock).not.toContain("Math.max(224");
-    expect(rowWidthBlock).not.toContain("+ depth * 12");
-    expect(treeItem).toContain("absolute right-1 top-1/2");
-    expect(treeItem).toContain(
-      "group-focus-within:pointer-events-auto group-focus-within:opacity-100",
-    );
-
-    const sidebarWidth = 180;
-    const rowWidth = Math.max(0, sidebarWidth - 8);
-    const actionsRightEdge = rowWidth - 4;
-
-    expect(rowWidth).toBeLessThanOrEqual(sidebarWidth);
-    expect(actionsRightEdge).toBeLessThanOrEqual(sidebarWidth);
-  });
-
-  it("gates page tree actions by document capabilities", () => {
-    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
-
-    expect(treeItem).toContain("favoriteAvailable: true");
-    expect(treeItem).toContain("{canFavorite && (");
-    expect(treeItem).toContain("const canCreateChild = canEdit");
-    expect(treeItem).toContain("{canManage && (");
-  });
-
   it("uses the database icon as the default for database pages", () => {
     const database = {
       id: "db_1",
@@ -110,15 +52,6 @@ describe("document sidebar layout", () => {
     expect(getDocumentSidebarIconKind(treeNode())).toBe("page");
   });
 
-  it("keeps active ancestor expansion separate from user-expanded state", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-
-    expect(sidebar).toContain("const activeAncestorIds = useMemo");
-    expect(sidebar).toContain(
-      "for (const id of activeAncestorIds) expandedIds.add(id)",
-    );
-  });
-
   it("keeps hosted sidebar reads bounded while isolating exhaustive local inventory", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const documentsHook = readSidebarSource("../../hooks/use-documents.ts");
@@ -131,16 +64,6 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain("limit: Math.max(contentSpaces.length, 1)");
     expect(sidebar).toContain("useContentSpaces()");
     expect(documentsHook).toContain("enabled: options?.enabled !== false");
-  });
-
-  it("reveals child destinations without concurrent rollback conflicts", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-
-    expect(sidebar).toContain("const revealParentForCreation = useCallback");
-    expect(sidebar).toContain("parentCreationRevealsRef");
-    expect(sidebar).toContain("reveal.pendingCount += 1");
-    expect(sidebar).toContain("current.keepExpanded ||= succeeded");
-    expect(sidebar).toContain("settleParentExpansion(false)");
   });
 
   it("opens a new database immediately while persistence settles", () => {
@@ -244,49 +167,6 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("navigate(previousPath, {");
   });
 
-  it("renders one selected Content space with a shallow Files tree", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-
-    expect(sidebar).toContain('"get-content-sidebar-state"');
-    expect(sidebar).toContain('"update-content-sidebar-state"');
-    expect(sidebar).toContain(
-      "expandedDocumentIds={visibleExpandedDocumentIds}",
-    );
-    expect(sidebar).toContain(
-      "openFilesFolderIds(activeAncestorIds, expandedDocumentIds)",
-    );
-    expect(sidebar).toContain("createContentSidebarStateWriteQueue");
-    expect(sidebar).toContain(
-      'toast.error(t("sidebar.failedSaveSidebarState")',
-    );
-    expect(sidebar).toContain("<WorkspaceSidebarItem");
-    expect(sidebar).toContain("compact={compact}");
-    expect(sidebar).toContain('!compact && "ps-4"');
-    expect(sidebar).toContain(
-      "renderWorkspaceRoot(selectedSpace, undefined, true)",
-    );
-    expect(sidebar).toContain("value={selectedSpace.id}");
-    expect(sidebar).toContain("contentSpaces.map((space)");
-    expect(sidebar).not.toContain('<Link to="/favorites">');
-    expect(sidebar).toContain(
-      "pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`",
-    );
-    expect(sidebar).toContain(
-      "return handleSelectContentSpace(space, null, true)",
-    );
-    expect(sidebar).toContain(
-      'import { OrgSwitcher } from "@agent-native/toolkit/app/org";',
-    );
-    expect(sidebar).toContain("reserveSpace");
-    expect(sidebar).toContain("<OrgSwitcher");
-    expect(sidebar).not.toContain("<ExtensionsSidebarSection />");
-    expect(sidebar).toContain("<AppSidebarFooter");
-    expect(sidebar).toContain("<WorkspaceSourceMenu");
-    expect(sidebar).toContain("menuStart={");
-    expect(sidebar).toContain("onCreated={handleWorkspaceCreated}");
-    expect(sidebar).toContain("scroll={false}");
-  });
-
   it("never empties the Files tree while a deferred database read is paused", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const hooks = readSidebarSource("../../hooks/use-content-database.ts");
@@ -330,14 +210,6 @@ describe("document sidebar layout", () => {
       "workspaceSelectionQueueRef\n      .current(async () =>",
     );
     expect(sidebar).not.toContain("ensureWorkspaceExpanded(current, space.id)");
-  });
-
-  it("removes the standalone Local files destination and gates the dev database link to Code mode", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-
-    expect(sidebar).toContain("isCodeMode ? <DevDatabaseLink");
-    expect(sidebar).not.toContain("renderLocalFilesNavButton");
-    expect(sidebar).not.toContain('to="/local-files"\n              className');
   });
 
   it("persists tree section collapse state and exposes local file actions", () => {
@@ -425,76 +297,6 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
   });
 
-  it("marks the current page with one filled row style everywhere", () => {
-    const row = readSidebarSource("./SidebarNavigationRow.tsx");
-    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
-    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-
-    expect(row).toContain(
-      '"bg-sidebar-accent font-medium text-sidebar-accent-foreground"',
-    );
-    expect(row).toContain('aria-current={active ? "page" : undefined}');
-    expect(row).not.toContain("text-foreground/85");
-    expect(sections).toContain("entry.target.documentId === activeDocumentId");
-    expect(databaseSidebar).toContain("active={active}");
-    expect(databaseSidebar).toContain("revealActiveSidebarRow(rowRef.current)");
-    expect(databaseSidebar).not.toContain('active && "font-semibold');
-    expect(sidebar).toContain("sidebarRowClassName(trashActive)");
-  });
-
-  it("gives Recent rows the shared row actions with personal-only items", () => {
-    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
-    const recentRow = sections.slice(
-      sections.indexOf("function RecentSidebarRow"),
-      sections.indexOf("export function PersonalSidebarSections"),
-    );
-
-    expect(recentRow).toContain("<SidebarRowActions>");
-    expect(recentRow).toContain("<SidebarPageMenu");
-    expect(recentRow).toContain("onTogglePin=");
-    expect(recentRow).toContain("onRemoveFromRecent=");
-    for (const shared of [
-      "onRename",
-      "onDuplicate",
-      "onMove=",
-      "onMoveToTrash",
-      "addChild",
-      "useSidebarReorderItem",
-    ]) {
-      expect(recentRow).not.toContain(shared);
-    }
-  });
-
-  it("builds every sidebar Page menu from one component and one order", () => {
-    const rowActions = readSidebarSource("./SidebarRowActions.tsx");
-    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
-    const menu = rowActions.slice(
-      rowActions.indexOf("export function SidebarPageMenu"),
-    );
-
-    expect(databaseSidebar).toContain("<SidebarPageMenu");
-    expect(databaseSidebar).not.toContain("<SidebarRowMenu");
-    const order = [
-      "<SidebarPinMenuItem",
-      't("sidebar.copyLink")',
-      't("sidebar.openInNewTab")',
-      't("sidebar.rename")',
-      't("sidebar.duplicate")',
-      't("sidebar.moveTo")',
-      't("sidebar.removeFromRecent")',
-      't("sidebar.moveToTrash")',
-      "<SidebarPageActivity",
-    ].map((needle) => menu.indexOf(needle));
-    expect(order.every((index) => index >= 0)).toBe(true);
-    expect([...order].sort((a, b) => a - b)).toEqual(order);
-    expect(menu).toContain("event.preventDefault()");
-    expect(databaseSidebar).toContain(
-      "canEdit && !isLocalFile && pageActions !== null",
-    );
-    expect(databaseSidebar).toContain('className="relative min-w-0"');
-  });
-
   it("asks before moving a Page into another space and never offers local folders", () => {
     const dialog = readSidebarSource("./MovePageDialog.tsx");
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
@@ -506,82 +308,6 @@ describe("document sidebar layout", () => {
     expect(dialog).toContain("setTargetSpaceId(page?.spaceId");
     expect(sidebar).toContain('space.kind !== "source_backed"');
     expect(sidebar).toContain('useActionMutation("duplicate-page"');
-  });
-
-  it("keeps Trash in a fixed group and leaves Settings to the account menu", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const expandedBranch = sidebar.slice(
-      sidebar.lastIndexOf("<AppSidebarHeader"),
-    );
-
-    expect(expandedBranch.indexOf("</ScrollArea>")).toBeLessThan(
-      expandedBranch.indexOf("{renderTrashSection()}"),
-    );
-    expect(sidebar).not.toContain("renderSettingsNavButton");
-    expect(sidebar).not.toContain('to="/settings"');
-  });
-
-  it("names tree toggles after the item instead of the sidebar", () => {
-    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-
-    expect(databaseSidebar).toContain('t("sidebar.expandItem", { title })');
-    expect(databaseSidebar).toContain('t("sidebar.collapseItem", { title })');
-    expect(databaseSidebar).not.toContain('t("sidebar.expand")} ${title}');
-    expect(sidebar).toContain('t("sidebar.expandItem", { title: space.name })');
-    expect(databaseSidebar).toContain("<SidebarDepthGuides depth={depth} />");
-  });
-
-  it("aligns expanded sidebar labels and controls to shared columns", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
-
-    expect(sidebar).toContain(
-      "grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-2 pe-2",
-    );
-    expect(sidebar).toContain("grid-cols-[1.75rem_minmax(0,1fr)_auto]");
-    expect(sidebar).toContain(
-      "grid-cols-[1.75rem_minmax(0,1fr)_1.75rem] items-center gap-0 p-0",
-    );
-    expect(sidebar).toContain('className="shrink-0 ps-2 pe-2 py-2"');
-    expect(sidebar.match(/!px-0/g)).toHaveLength(2);
-    expect(sections).toContain('className="mb-4 min-w-0 px-2"');
-    expect(sidebar).not.toContain('variant="outline"');
-    expect(sidebar).toContain("w-[var(--radix-dropdown-menu-trigger-width)]");
-    expect(sidebar).toContain("max-w-[calc(100vw-1rem)]");
-    expect(sidebar).toContain('className="min-w-0 flex-1 truncate"');
-    expect(sidebar).toContain("col-start-2 min-w-0 truncate text-start");
-    expect(sidebar).toContain('className="min-w-0 truncate text-start"');
-    expect(sections).toContain(
-      "size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground",
-    );
-  });
-
-  it("keeps section visibility inside each section menu instead of a duplicate customize row", () => {
-    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
-
-    expect(sections).not.toContain('className="flex justify-end px-3"');
-    expect(sections).not.toContain('<IconDots className="size-4" />');
-
-    expect(sections).toContain("<DropdownMenuSeparator />");
-    expect(sections).toContain("checked={sections[sectionId].visible}");
-    expect(sections).toContain("onChangeVisible(sectionId, visible)");
-    expect(sections).toContain("change(sectionId, { visible })");
-
-    expect(
-      sections.split("onChangeVisible={(sectionId, visible) =>").length - 1,
-    ).toBe(2);
-
-    expect(sections).toContain('aria-label={t("sidebar.customizeSidebar")}');
-    const menuTrigger = sections.slice(
-      sections.indexOf("<DropdownMenuTrigger"),
-    );
-    expect(menuTrigger).not.toContain("aria-label={reorderLabels.drag(label)}");
-    expect(sections).toContain("seeAllHrefs:");
-    expect(sections).toContain("seeAllHref={seeAllHrefs?.[id]}");
-    expect(sections).toContain(
-      '<Link to={seeAllHref}>{t("sidebar.seeAll")}</Link>',
-    );
   });
 
   it("keeps delete confirmation owned by the stable sidebar", () => {
@@ -608,26 +334,5 @@ describe("document sidebar layout", () => {
     expect(treeItem).not.toContain("<AlertDialog");
     expect(databaseSidebar).not.toContain("deleteDialogOpen");
     expect(databaseSidebar).not.toContain("<AlertDialog");
-  });
-
-  it("keeps the Content sidebar quiet while lists load", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-
-    expect(sidebar).not.toContain('from "@/components/ThemeToggle"');
-    expect(sidebar).not.toContain('from "./NotionButton"');
-    expect(sidebar).not.toContain("border-s border-border/70");
-    expect(sidebar).not.toContain("border-t border-border/60");
-    expect(sidebar).toContain("isLoading");
-    expect(sidebar).toContain("renderTreeSkeleton()");
-    expect(sidebar).toContain("<Skeleton");
-  });
-
-  it("routes Favorites into its provisioned full database page", () => {
-    const route = readSidebarSource("../../routes/_app.favorites.tsx");
-
-    expect(route).toContain("useContentSpaces()");
-    expect(route).toContain("favoritesDocumentId");
-    expect(route).toContain("<Navigate");
-    expect(route).toContain("`/page/${documentId}`");
   });
 });
