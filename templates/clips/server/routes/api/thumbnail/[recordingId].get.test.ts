@@ -445,6 +445,26 @@ describe("/api/thumbnail/:recordingId route", () => {
       );
     });
 
+    it("is refused when the footage itself is in Trash", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence(
+          [{ recordingId: "clip-1" }],
+          [{ ...footageRow, trashedAt: "2026-10-14T12:00:00.000Z" }],
+        ),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: makeRow({ id: "clip-1" }),
+      });
+
+      const event = makeEvent();
+      const result = await handler(event as any);
+
+      expect(event.status).toBe(404);
+      expect(result).toEqual({ error: "Not found" });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
     it("is refused when the clip is private to the viewer", async () => {
       mockGetDb.mockReturnValue(
         createDbWithSelectSequence(

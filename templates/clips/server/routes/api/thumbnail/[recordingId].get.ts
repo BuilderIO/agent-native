@@ -284,11 +284,14 @@ async function loadRecording(recordingId: string, event: H3Event) {
     .select({
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      trashedAt: schema.recordings.trashedAt,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
     .limit(1);
-  if (!footage) return { error: "Not found", status: 404 } as const;
+  if (!footage || footage.trashedAt) {
+    return { error: "Not found", status: 404 } as const;
+  }
 
   return {
     recording: {
