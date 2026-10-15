@@ -5646,7 +5646,6 @@ async function runAuthoringFuzzQa(
     const trackCleanupRequests = (target: Page) => {
       if (cleanupRequestTrackingPages.has(target)) return;
       const onRequest = (request: any) => {
-        const requestUrl = new URL(request.url());
         let requestFrame: any = null;
         try {
           if (request.serviceWorker() === null) requestFrame = request.frame();
