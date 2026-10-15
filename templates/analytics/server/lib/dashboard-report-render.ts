@@ -530,7 +530,7 @@ function buildChartInput(
   const shownNotes = dataNotesOnChart(
     dataNotes,
     chartType === "pie" ? [] : visible.map((row) => row[xKey]),
-    now,
+    { xKey, now },
   );
 
   return {

@@ -274,18 +274,52 @@ export type XCadence =
   | { unit: "time"; step: number }
   | { unit: "days" | "months"; count: number };
 
+/** A bucket size an x column can name. */
+export type XGrain = "day" | "week" | "month" | "quarter" | "year";
+
+const GRAIN_CADENCE: Record<XGrain, XCadence> = {
+  day: { unit: "days", count: 1 },
+  week: { unit: "days", count: 7 },
+  month: { unit: "months", count: 1 },
+  quarter: { unit: "months", count: 3 },
+  year: { unit: "months", count: 12 },
+};
+
+const GRAIN_WORDS = new Set<string>(Object.keys(GRAIN_CADENCE));
+
 /**
- * Cadence comes from the calendar dates the points fall on, not the gaps
- * between them: local midnights 23 or 25 hours apart across a daylight-saving
- * change are still one point a day, and days a query returned no row for do
- * not stretch the points either side. Points all on the first of a month step
- * by months, or by quarters or years when they are all whole quarters or whole
- * years apart, points all on one weekday by weeks, and anything else, or a
- * lone point, by days. Several points a day step by the shortest gap between
- * them in time order, so rows sorted by value don't stretch a point into the
- * next day.
+ * The grain an x column's name gives: "day", "signup_week", "monthStart".
+ * Null when it names none, or more than one. A column named `date` names
+ * none, since queries write weekly and monthly buckets under that name too.
  */
-export function xCadence(points: readonly XDatePoint[]): XCadence {
+export function xColumnGrain(xKey: string): XGrain | null {
+  const grains = new Set(
+    xKey
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .map((word) => word.replace(/s$/, ""))
+      .filter((word) => GRAIN_WORDS.has(word)),
+  );
+  return grains.size === 1 ? ([...grains][0] as XGrain) : null;
+}
+
+/**
+ * Cadence comes from the grain the x column names, and otherwise from the
+ * calendar dates the points fall on, not the gaps between them: local
+ * midnights 23 or 25 hours apart across a daylight-saving change are still
+ * one point a day, and days a query returned no row for do not stretch the
+ * points either side. Points all on the first of a month step by months, or
+ * by quarters or years when they are all whole quarters or whole years
+ * apart, points all on one weekday by weeks, and anything else, or a lone
+ * point, by days. Several points a day step by the shortest gap between them
+ * in time order, whatever the column says, so rows sorted by value don't
+ * stretch a point into the next day.
+ */
+export function xCadence(
+  points: readonly XDatePoint[],
+  grain: XGrain | null = null,
+): XCadence {
   const days = [...new Set(points.map((point) => point.day))];
   if (new Set(points.map((point) => point.instant)).size > days.length) {
     const instants = points.map((point) => point.instant).sort((a, b) => a - b);
@@ -295,6 +329,7 @@ export function xCadence(points: readonly XDatePoint[]): XCadence {
       .filter((gap) => gap > 0);
     return { unit: "time", step: Math.min(...gaps) };
   }
+  if (grain) return GRAIN_CADENCE[grain];
   if (days.length < 2) return { unit: "days", count: 1 };
   const dates = days.map((day) => new Date(day));
   if (dates.every((date) => date.getUTCDate() === 1)) {

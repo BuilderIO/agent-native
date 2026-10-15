@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/hover-card";
 
 const DEFAULT_EVENT_COLOR = "hsl(var(--foreground))";
+/** How far a marker's hover target reaches from its x, the widest part of it. */
+const MARKER_REACH = 11;
 
 interface MarkerViewBox {
   x?: number;
@@ -132,6 +134,24 @@ export function useEventMarkerGroups(
       ),
     [events, rows, xKey],
   );
+}
+
+/**
+ * Padding for a date x-axis with a marker on its first or last value. A line
+ * or area chart puts those values on the plot's edges, and a bar sits only
+ * half its width in, so a marker there would hang off the plot: clipped by the
+ * chart on the right, over the y-axis labels on the left.
+ */
+export function useEventMarkerAxisPadding(
+  groups: readonly PanelEventGroup[],
+  rows: readonly Record<string, unknown>[],
+  xKey: string,
+): { left: number; right: number } {
+  const first = rows[0]?.[xKey];
+  const last = rows[rows.length - 1]?.[xKey];
+  const left = groups.some((group) => group.x === first) ? MARKER_REACH : 0;
+  const right = groups.some((group) => group.x === last) ? MARKER_REACH : 0;
+  return useMemo(() => ({ left, right }), [left, right]);
 }
 
 export function renderEventMarkers(
