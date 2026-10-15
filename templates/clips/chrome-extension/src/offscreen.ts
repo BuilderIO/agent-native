@@ -1352,6 +1352,13 @@ function armClipDurationLimit(recording: ActiveRecording): void {
   recording.limitTimer = null;
   if (recording.maxClipDurationMs === null) return;
   recording.limitTimer = setInterval(() => {
+    // A restart reuses the session id, so a superseded take's timer must never
+    // send an end for the replacement take.
+    if (activeRecording !== recording) {
+      if (recording.limitTimer !== null) clearInterval(recording.limitTimer);
+      recording.limitTimer = null;
+      return;
+    }
     if (
       !reachedClipDurationLimit(
         recording.duration,
@@ -1784,6 +1791,8 @@ async function restart(
   }
   recording.restarting = true;
   recording.cancelled = true;
+  if (recording.limitTimer !== null) clearInterval(recording.limitTimer);
+  recording.limitTimer = null;
   recording.nativeTranscription.cancel();
   if (recording.recorder.state !== "inactive") recording.recorder.stop();
   recording.stopCompositor?.();
