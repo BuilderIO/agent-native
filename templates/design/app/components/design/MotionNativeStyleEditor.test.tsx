@@ -415,7 +415,11 @@ describe("MotionNativeStyleEditor", () => {
       styleKey: "TextStagger",
       targetNodeId: "target-1",
     });
-    const { ignoreSpaces: _ignoreSpaces, ...legacyProps } = base.props;
+    const {
+      ignoreSpaces: _ignoreSpaces,
+      textDelayTimingMode: _textDelayTimingMode,
+      ...legacyProps
+    } = base.props;
     const style = { ...base, props: legacyProps };
     const onChange = vi.fn();
     await render({ styles: [style], onChange });
@@ -428,14 +432,42 @@ describe("MotionNativeStyleEditor", () => {
     await act(async () => ignoreSpaces!.click());
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        props: expect.objectContaining({ ignoreSpaces: false }),
+        props: expect.objectContaining({
+          ignoreSpaces: false,
+          textDelayTimingMode: "fixed-stagger",
+        }),
       }),
       expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
     );
   });
 
+  it.each(["WORD", "LINE", "PARAGRAPH"] as const)(
+    "hides Ignore spaces for %s TextStagger grouping",
+    async (grouping) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "target-1",
+      });
+      await render({
+        styles: [
+          {
+            ...base,
+            props: { ...base.props, textDelayGrouping: grouping },
+          },
+        ],
+      });
+      await openStyleDetails();
+
+      expect(
+        document.body.querySelector(
+          '[role="checkbox"][aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+        ),
+      ).toBeNull();
+    },
+  );
+
   it.each(["LINE", "PARAGRAPH"] as const)(
-    "offers vertical TextStagger order for %s grouping",
+    "preserves a stored vertical TextStagger order for %s grouping",
     async (grouping) => {
       const base = createMotionNativeStyleInstance({
         styleKey: "TextStagger",
@@ -462,7 +494,7 @@ describe("MotionNativeStyleEditor", () => {
       expect(document.body.textContent).toContain(
         "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
       );
-      expect(document.body.textContent).toContain(
+      expect(document.body.textContent).not.toContain(
         "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
       );
       await selectOption(
@@ -474,8 +506,8 @@ describe("MotionNativeStyleEditor", () => {
     },
   );
 
-  it.each(["CHARACTER", "WORD"] as const)(
-    "hides vertical TextStagger order for %s grouping",
+  it.each(["CHARACTER", "WORD", "LINE", "PARAGRAPH"] as const)(
+    "offers only horizontal TextStagger order for %s grouping",
     async (grouping) => {
       const base = createMotionNativeStyleInstance({
         styleKey: "TextStagger",

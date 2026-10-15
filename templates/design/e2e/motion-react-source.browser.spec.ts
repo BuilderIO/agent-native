@@ -453,6 +453,24 @@ test.describe.serial("React Motion source browser writeback", () => {
     await expect(
       page.getByRole("checkbox", { name: "Ignore spaces", exact: true }),
     ).toHaveCount(0);
+    await page.getByRole("combobox", { name: "Order", exact: true }).click();
+    for (const order of [
+      "Left to right",
+      "Right to left",
+      "Center out",
+      "Random",
+    ]) {
+      await expect(
+        page.getByRole("option", { name: order, exact: true }),
+      ).toBeVisible();
+    }
+    await expect(
+      page.getByRole("option", { name: "Top to bottom", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("option", { name: "Bottom to top", exact: true }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
     await expect
       .poll(() =>
         getAction(request, "get-motion-timeline", {
@@ -464,6 +482,25 @@ test.describe.serial("React Motion source browser writeback", () => {
         timelines: [
           {
             textDocument: { animations: [{ unit: "line" }] },
+          },
+        ],
+      });
+    await page.getByRole("combobox", { name: "Unit", exact: true }).click();
+    await page.getByRole("option", { name: "Word", exact: true }).click();
+    await expect(
+      page.getByRole("checkbox", { name: "Ignore spaces", exact: true }),
+    ).toHaveCount(0);
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: { animations: [{ unit: "word" }] },
           },
         ],
       });

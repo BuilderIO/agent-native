@@ -98,7 +98,9 @@ describe("native Figma Motion runtime adapter", () => {
     const legacyStyle = {
       ...style,
       props: Object.fromEntries(
-        Object.entries(style.props).filter(([key]) => key !== "ignoreSpaces"),
+        Object.entries(style.props).filter(
+          ([key]) => key !== "ignoreSpaces" && key !== "textDelayTimingMode",
+        ),
       ),
     };
 
@@ -109,6 +111,89 @@ describe("native Figma Motion runtime adapter", () => {
     expect(
       motionNativeStylesToTextAnimations([legacyStyle])[0],
     ).not.toHaveProperty("overlapPercent");
+
+    for (const ignoreSpaces of [false, true]) {
+      const editedLegacyStyle = {
+        ...legacyStyle,
+        props: {
+          ...legacyStyle.props,
+          ignoreSpaces,
+          textDelayTimingMode: "fixed-stagger",
+        },
+      };
+      expect(
+        motionNativeStylesToTextAnimations([editedLegacyStyle])[0],
+      ).toMatchObject({
+        ignoreSpaces,
+        staggerMs: 250,
+        durationMs: 500,
+      });
+      expect(
+        motionNativeStylesToTextAnimations([editedLegacyStyle])[0],
+      ).not.toHaveProperty("overlapPercent");
+    }
+  });
+
+  it("uses duration-fitted TextStagger timing only when explicitly selected", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const fixedStyle = {
+      ...style,
+      props: {
+        ...style.props,
+        textDelayTimingMode: "fixed-stagger",
+        ignoreSpaces: true,
+      },
+    };
+
+    expect(motionNativeStylesToTextAnimations([fixedStyle])[0]).toMatchObject({
+      ignoreSpaces: true,
+      staggerMs: 250,
+      durationMs: 500,
+    });
+    expect(
+      motionNativeStylesToTextAnimations([fixedStyle])[0],
+    ).not.toHaveProperty("overlapPercent");
+  });
+
+  it("preserves the previous overlap encoding for marker-less TextStagger styles", () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const { textDelayTimingMode: _timingMode, ...markerlessProps } = base.props;
+    const style = {
+      ...base,
+      props: {
+        ...markerlessProps,
+        ignoreSpaces: false,
+      },
+    };
+
+    expect(motionNativeStylesToTextAnimations([style])[0]).toMatchObject({
+      ignoreSpaces: false,
+      staggerMs: 250,
+      durationMs: 500,
+      overlapPercent: 50,
+    });
+  });
+
+  it("fails explicitly for an unknown TextStagger timing mode", () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const style = {
+      ...base,
+      props: { ...base.props, textDelayTimingMode: "springy" },
+    };
+
+    expectRuntimeError(
+      () => motionNativeStylesToTextAnimations([style]),
+      "invalid-style-props",
+    );
   });
 
   it("removes a normalized v1 TextStagger projection from authored text tracks", () => {
@@ -119,7 +204,9 @@ describe("native Figma Motion runtime adapter", () => {
     const legacyStyle = {
       ...style,
       props: Object.fromEntries(
-        Object.entries(style.props).filter(([key]) => key !== "ignoreSpaces"),
+        Object.entries(style.props).filter(
+          ([key]) => key !== "ignoreSpaces" && key !== "textDelayTimingMode",
+        ),
       ),
     };
     const legacyDocument = decodeMotionTextDocument(

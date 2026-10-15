@@ -365,10 +365,26 @@ export function MotionNativeStyleEditor({
     key: string,
     value: MotionNativeStyleJsonValue,
   ) {
+    const props = { ...instance.props, [key]: value };
+    if (
+      instance.styleKey === "TextStagger" &&
+      key === "ignoreSpaces" &&
+      !Object.prototype.hasOwnProperty.call(
+        instance.props,
+        "textDelayTimingMode",
+      )
+    ) {
+      props.textDelayTimingMode = Object.prototype.hasOwnProperty.call(
+        instance.props,
+        "ignoreSpaces",
+      )
+        ? "duration-fitted"
+        : "fixed-stagger";
+    }
     changeInstance(
       {
         ...instance,
-        props: { ...instance.props, [key]: value },
+        props,
       },
       identity,
     );
@@ -996,14 +1012,13 @@ function NativeTextStaggerDetails({
     value: option.value,
     labelKey: option.labelKey,
   }));
-  const supportsVerticalOrder = grouping === "LINE" || grouping === "PARAGRAPH";
-  const orderOptions = supportsVerticalOrder
-    ? [...TEXT_STAGGER_ORDER_OPTIONS, ...TEXT_STAGGER_VERTICAL_ORDER_OPTIONS]
-    : TEXT_STAGGER_ORDER_OPTIONS;
-  const order = stringValue(
-    instance.props.textDelayOrder,
-    orderOptions[0]?.value ?? "LEFT_RIGHT",
+  const order = stringValue(instance.props.textDelayOrder, "LEFT_RIGHT");
+  const storedVerticalOrder = TEXT_STAGGER_VERTICAL_ORDER_OPTIONS.find(
+    (option) => option.value === order,
   );
+  const orderOptions = storedVerticalOrder
+    ? [...TEXT_STAGGER_ORDER_OPTIONS, storedVerticalOrder]
+    : TEXT_STAGGER_ORDER_OPTIONS;
   const animationDirection = stringValue(
     instance.props.animationDirection,
     "in",
@@ -1101,7 +1116,7 @@ function NativeTextStaggerDetails({
         onChange={(value) => updateNumberProp("presetStaggerOverlap", value)}
       />
 
-      {grouping === "CHARACTER" || grouping === "WORD" ? (
+      {grouping === "CHARACTER" ? (
         <div className="flex min-h-6 items-center gap-2">
           <Checkbox
             id={`${id}-ignore-spaces`}

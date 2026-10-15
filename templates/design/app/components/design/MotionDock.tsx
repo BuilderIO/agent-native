@@ -2625,6 +2625,18 @@ export function AddTrackMenu({
               {t("designEditor.motion.text")}
             </DropdownMenuItem>
           ) : null}
+          {selectedTarget.isText && onCreateNativeStyle && onCreateText ? (
+            <DropdownMenuItem
+              className="h-6 gap-2 px-2 text-[12px] leading-none"
+              onSelect={() => onCreateText()}
+            >
+              <IconTypography
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+              {t("designEditor.motion.textAnimation.title")}
+            </DropdownMenuItem>
+          ) : null}
           {onCreateNativeStyle
             ? nativeStyleOptions.map(({ styleKey, labelKey, Icon }) => (
                 <DropdownMenuItem

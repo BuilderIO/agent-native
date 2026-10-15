@@ -473,6 +473,25 @@ describe("Motion source document CSS codec", () => {
     expect(compiled.css).toContain("500px 0px");
   });
 
+  it("round-trips the explicit TextStagger timing mode in source metadata", () => {
+    const nativeStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const timelineWithNativeStyle = {
+      ...timeline,
+      tracks: [],
+      nativeStyles: [nativeStyle],
+    };
+    const compiled = compileMotionCode(timelineWithNativeStyle);
+
+    expect(nativeStyle.props.textDelayTimingMode).toBe("duration-fitted");
+    expect(decodeMotionCodeMetadata(compiled.css)).toEqual({
+      status: "valid",
+      document: motionCodeDocumentFromTimeline(timelineWithNativeStyle),
+    });
+  });
+
   it("upgrades valid version 1 source documents while preserving authoring data", () => {
     const legacyDocument = {
       ...motionCodeDocumentFromTimeline(timeline),

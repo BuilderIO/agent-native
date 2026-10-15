@@ -346,6 +346,7 @@ test("native style states persist with the Motion inspector and timeline", async
   await addAnimation.click();
   for (const label of [
     "Text",
+    "Text animation",
     "Position",
     "Scale",
     "Rotation",
@@ -356,7 +357,7 @@ test("native style states persist with the Motion inspector and timeline", async
       page.getByRole("menuitem", { name: label, exact: true }),
     ).toBeVisible();
   }
-  await expect(page.getByRole("menuitem")).toHaveCount(6);
+  await expect(page.getByRole("menuitem")).toHaveCount(7);
   await captureMotionState(page, "motion-native-style-text-add-menu");
   const textStyleSave = page.waitForResponse(
     (response) =>
@@ -444,7 +445,10 @@ test("native style states persist with the Motion inspector and timeline", async
           nativeStyles: expect.arrayContaining([
             expect.objectContaining({
               styleKey: "TextStagger",
-              props: expect.objectContaining({ ignoreSpaces: true }),
+              props: expect.objectContaining({
+                ignoreSpaces: true,
+                textDelayTimingMode: "duration-fitted",
+              }),
             }),
           ]),
         },
@@ -471,7 +475,9 @@ test("native style states persist with the Motion inspector and timeline", async
       return {
         ...style,
         props: Object.fromEntries(
-          Object.entries(style.props).filter(([key]) => key !== "ignoreSpaces"),
+          Object.entries(style.props).filter(
+            ([key]) => key !== "ignoreSpaces" && key !== "textDelayTimingMode",
+          ),
         ),
       };
     },
@@ -504,6 +510,12 @@ test("native style states persist with the Motion inspector and timeline", async
       "ignoreSpaces",
     ),
   ).toBe(false);
+  expect(
+    Object.prototype.hasOwnProperty.call(
+      persistedLegacyStyle.props,
+      "textDelayTimingMode",
+    ),
+  ).toBe(false);
 
   await gotoEditor(page, designId);
   await selectByText(page, "Second fixture paragraph for selection tests.", {
@@ -531,6 +543,28 @@ test("native style states persist with the Motion inspector and timeline", async
     await legacyIgnoreSpacesResponse.text(),
   ).toBe(true);
   await expect(legacyIgnoreSpaces).not.toBeChecked();
+  await expect
+    .poll(() =>
+      getAction(request, "get-motion-timeline", {
+        designId,
+        sourceRef: fileId,
+      }),
+    )
+    .toMatchObject({
+      timelines: [
+        {
+          nativeStyles: expect.arrayContaining([
+            expect.objectContaining({
+              styleKey: "TextStagger",
+              props: expect.objectContaining({
+                ignoreSpaces: false,
+                textDelayTimingMode: "fixed-stagger",
+              }),
+            }),
+          ]),
+        },
+      ],
+    });
 });
 
 test("HTML Text source round trips through Alpine markup and runs in a browser", async ({

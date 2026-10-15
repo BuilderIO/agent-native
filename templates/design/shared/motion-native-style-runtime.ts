@@ -44,6 +44,7 @@ const DEFAULT_PROPS: Record<MotionNativeStyleKey, Record<string, unknown>> = {
     delay: 0,
     easing: DEFAULT_EASING,
     textDelayGrouping: "CHARACTER",
+    textDelayTimingMode: "duration-fitted",
     presetStaggerOverlap: 50,
     textDelayOrder: "LEFT_RIGHT",
     ignoreSpaces: false,
@@ -148,6 +149,7 @@ const TEXT_STAGGER_SUPPORTED_PROPS = new Set([
   "delay",
   "easing",
   "textDelayGrouping",
+  "textDelayTimingMode",
   "presetStaggerOverlap",
   "textDelayOrder",
   "ignoreSpaces",
@@ -745,17 +747,14 @@ function textStaggerAnimations(
   const durationMs = Math.round(style.duration * 1000);
   const staggerMs = Math.round((durationMs * (100 - overlap)) / 100);
   const ignoreSpaces = booleanProp(props.ignoreSpaces, true, "ignoreSpaces");
-  const hasExplicitSpaceBehavior = Object.prototype.hasOwnProperty.call(
-    props,
-    "ignoreSpaces",
-  );
+  const timingMode = textStaggerTimingMode(props);
   const textOptions: Pick<
     MotionTextAnimation,
     "animationDirection" | "order" | "overlapPercent" | "ignoreSpaces"
   > = {
     animationDirection,
     order,
-    ...(hasExplicitSpaceBehavior ? { overlapPercent: overlap } : {}),
+    ...(timingMode === "duration-fitted" ? { overlapPercent: overlap } : {}),
     ignoreSpaces,
   };
   const delayMs = Math.round(
@@ -925,6 +924,22 @@ function textStaggerUnit(value: string): MotionTextAnimation["unit"] {
     invalid(`Native Figma TextStagger grouping "${value}" is unsupported.`);
   }
   return unit;
+}
+
+function textStaggerTimingMode(
+  props: Record<string, unknown>,
+): "fixed-stagger" | "duration-fitted" {
+  const value = props.textDelayTimingMode;
+  if (value === undefined) {
+    // Earlier source encoded overlap timing through the presence of ignoreSpaces.
+    return Object.prototype.hasOwnProperty.call(props, "ignoreSpaces")
+      ? "duration-fitted"
+      : "fixed-stagger";
+  }
+  if (value === "fixed-stagger" || value === "duration-fitted") return value;
+  invalid(
+    'TextStagger textDelayTimingMode must be "fixed-stagger" or "duration-fitted".',
+  );
 }
 
 function textStaggerOrder(

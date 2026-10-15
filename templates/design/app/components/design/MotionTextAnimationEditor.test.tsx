@@ -110,7 +110,7 @@ describe("MotionTextAnimationEditor", () => {
       container.querySelector(
         '[aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
       ),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(
       container.querySelectorAll(
         '[aria-label="designEditor.motion.textAnimation.property"]',
@@ -199,7 +199,11 @@ describe("MotionTextAnimationEditor", () => {
 
   it("writes direction, order, and whitespace settings to every text track", async () => {
     const onChange = vi.fn();
-    await render({ onChange });
+    const characterAnimation = {
+      ...opacityAnimation,
+      unit: "character" as const,
+    };
+    await render({ animations: [characterAnimation], onChange });
 
     await selectOption(
       container.querySelector<HTMLButtonElement>(
@@ -208,7 +212,7 @@ describe("MotionTextAnimationEditor", () => {
       "designEditor.motion.nativeTextStagger.exit",
     );
     expect(onChange).toHaveBeenLastCalledWith([
-      { ...opacityAnimation, animationDirection: "out" },
+      { ...characterAnimation, animationDirection: "out" },
     ]);
 
     await selectOption(
@@ -218,7 +222,7 @@ describe("MotionTextAnimationEditor", () => {
       "designEditor.motion.nativeTextStagger.orderOptions.centerOut",
     );
     expect(onChange).toHaveBeenLastCalledWith([
-      { ...opacityAnimation, order: "center-out", direction: "forward" },
+      { ...characterAnimation, order: "center-out", direction: "forward" },
     ]);
 
     const ignoreSpaces = container.querySelector<HTMLButtonElement>(
@@ -226,7 +230,7 @@ describe("MotionTextAnimationEditor", () => {
     )!;
     await act(async () => ignoreSpaces.click());
     expect(onChange).toHaveBeenLastCalledWith([
-      { ...opacityAnimation, ignoreSpaces: false },
+      { ...characterAnimation, ignoreSpaces: false },
     ]);
   });
 
@@ -330,8 +334,8 @@ describe("MotionTextAnimationEditor", () => {
     ]);
   });
 
-  it.each(["line", "paragraph"] as const)(
-    "offers vertical ordering for %s text",
+  it.each(["character", "word", "line", "paragraph"] as const)(
+    "offers only horizontal ordering for %s text",
     async (unit) => {
       await render({ animations: [{ ...opacityAnimation, unit }] });
       await act(async () =>
@@ -342,33 +346,16 @@ describe("MotionTextAnimationEditor", () => {
           .click(),
       );
 
-      expect(document.body.textContent).toContain(
-        "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
-      );
-      expect(document.body.textContent).toContain(
-        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
-      );
-      await selectOption(
-        container.querySelector<HTMLButtonElement>(
-          '[aria-label="designEditor.motion.nativeTextStagger.order"]',
-        )!,
-        "designEditor.motion.nativeTextStagger.orderOptions.leftToRight",
-      );
-    },
-  );
-
-  it.each(["character", "word"] as const)(
-    "hides vertical ordering for %s text",
-    async (unit) => {
-      await render({ animations: [{ ...opacityAnimation, unit }] });
-      await act(async () =>
-        container
-          .querySelector<HTMLButtonElement>(
-            '[aria-label="designEditor.motion.nativeTextStagger.order"]',
-          )!
-          .click(),
-      );
-
+      for (const order of [
+        "leftToRight",
+        "rightToLeft",
+        "centerOut",
+        "random",
+      ]) {
+        expect(document.body.textContent).toContain(
+          `designEditor.motion.nativeTextStagger.orderOptions.${order}`,
+        );
+      }
       expect(document.body.textContent).not.toContain(
         "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
       );
@@ -384,7 +371,29 @@ describe("MotionTextAnimationEditor", () => {
     },
   );
 
-  it.each(["line", "paragraph"] as const)(
+  it("keeps a stored vertical order selectable without offering its alternative", async () => {
+    await render({
+      animations: [
+        { ...opacityAnimation, unit: "line", order: "top-to-bottom" },
+      ],
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+        )!
+        .click(),
+    );
+
+    expect(document.body.textContent).toContain(
+      "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
+    );
+    expect(document.body.textContent).not.toContain(
+      "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
+    );
+  });
+
+  it.each(["word", "line", "paragraph"] as const)(
     "hides the ignore-spaces control for %s text",
     async (unit) => {
       await render({ animations: [{ ...opacityAnimation, unit }] });

@@ -72,7 +72,10 @@ const CATALOG_MESSAGES = {
       previousKeyframe: "Previous keyframe",
       toggleAnimationVisibility: "Toggle animation visibility",
       toggleLayerVisibility: "Toggle layer visibility",
-      textAnimation: { properties: { scale: "Scale" } },
+      textAnimation: {
+        title: "Text animation",
+        properties: { scale: "Scale" },
+      },
       animationStyles: {
         hide: "Hide",
         show: "Show",
@@ -596,6 +599,7 @@ describe("Motion animation style menu", () => {
     await openMenu("Add animation");
     expect(menuItemLabels()).toEqual([
       "Text",
+      "Text animation",
       "Position",
       "Scale",
       "Rotation",
@@ -608,6 +612,32 @@ describe("Motion animation style menu", () => {
     expect(container.querySelector('button[aria-label="More Motion"]')).toBe(
       null,
     );
+  });
+
+  it("keeps authored Text animation creation reachable with native styles", async () => {
+    const onCreateText = vi.fn();
+    const onCreateNativeStyle = vi.fn();
+    await renderMenu(true, onCreateText, vi.fn(), onCreateNativeStyle);
+    await openMenu("Add animation");
+
+    expect(menuItemLabels()).toEqual([
+      "Text",
+      "Text animation",
+      "Position",
+      "Scale",
+      "Rotation",
+      "Size",
+      "Opacity",
+    ]);
+
+    await selectMenuItem("Text");
+    expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("TextStagger");
+    expect(onCreateText).not.toHaveBeenCalled();
+
+    await openMenu("Add animation");
+    await selectMenuItem("Text animation");
+    expect(onCreateText).toHaveBeenCalledOnce();
+    expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("TextStagger");
   });
 
   it("offers Path trim only for SVG path targets", async () => {

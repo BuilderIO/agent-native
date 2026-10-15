@@ -92,13 +92,10 @@ export function MotionTextAnimationEditor({
       ),
     );
   const ignoreSpaces = shared.ignoreSpaces ?? true;
-  const supportsVerticalOrder =
-    shared.unit === "line" || shared.unit === "paragraph";
-  const orderOptions = supportsVerticalOrder
-    ? [...TEXT_ORDERS, ...TEXT_VERTICAL_ORDERS]
+  const orderOptions = TEXT_VERTICAL_ORDERS.includes(order)
+    ? [...TEXT_ORDERS, order]
     : TEXT_ORDERS;
-  const supportsIgnoreSpaces =
-    shared.unit === "character" || shared.unit === "word";
+  const supportsIgnoreSpaces = shared.unit === "character";
   const availableProperties = TEXT_PROPERTIES.filter(
     (property) => !usedProperties.has(property),
   );
