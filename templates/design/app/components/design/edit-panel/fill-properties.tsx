@@ -293,6 +293,7 @@ export function FillProperties({
     index: number;
     previousLayerCount: number;
   } | null>(null);
+  const pickerHandoffRef = useRef<{ from: string; to: string } | null>(null);
   const renderedFillValue = isTextFillElement
     ? styles.color || ""
     : isVectorFillElement
@@ -403,6 +404,19 @@ export function FillProperties({
     };
   }
   const layerKeys = layerKeysRef.current.keys;
+  // The base picker stays open until the converted layer's row exists, so an
+  // Escape before the save lands closes it instead of being lost.
+  useEffect(() => {
+    const handoff = pickerHandoffRef.current;
+    if (!handoff) return;
+    if (!layerKeys.some((key) => `${fillStashKey}:${key}` === handoff.to)) {
+      return;
+    }
+    pickerHandoffRef.current = null;
+    setOpenFillPickerKey((current) =>
+      current === handoff.from ? handoff.to : current,
+    );
+  });
   const imageFillUploadScopeKey = JSON.stringify([
     uploadScopeKey ?? null,
     fillStashKey,
@@ -753,9 +767,10 @@ export function FillProperties({
                               index: backgroundLayers.length,
                               previousLayerCount: backgroundLayers.length,
                             };
-                            setOpenFillPickerKey(
-                              `${fillStashKey}:${convertedLayerKey}`,
-                            );
+                            pickerHandoffRef.current = {
+                              from: `${fillStashKey}:base`,
+                              to: `${fillStashKey}:${convertedLayerKey}`,
+                            };
                             commitStylePatch(
                               patch,
                               onStyleChange,
