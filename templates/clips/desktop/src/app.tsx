@@ -1853,16 +1853,7 @@ export function App({
   // is reported instead of leaving the row claiming Rewind is off.
   function turnOffRewind() {
     if (!featureConfig) return;
-    invoke("set_feature_config", {
-      config: {
-        ...featureConfig,
-        screenMemory: {
-          ...DEFAULT_SCREEN_MEMORY_CONFIG,
-          ...featureConfig.screenMemory,
-          enabled: false,
-        },
-      },
-    }).catch((err) => {
+    void invoke<ScreenMemoryStatus>("screen_memory_stop").catch((err) => {
       console.error("[clips-tray] turn off rewind failed:", err);
       setLookbackNotice(t("lookbackContext.turnOffRewindFailed"));
     });
