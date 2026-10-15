@@ -1738,7 +1738,6 @@ describe("DeckEditor generation signal wiring", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false);
-
   });
 
   it("recovers legacy retry journals and keeps unrelated query parameters", async () => {
