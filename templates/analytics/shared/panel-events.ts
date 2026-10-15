@@ -280,15 +280,17 @@ export type XCadence =
  * change are still one point a day, and days a query returned no row for do
  * not stretch the points either side. Points all on the first of a month step
  * by months (quarters or years when they all start one), points all on one
- * weekday by weeks, and anything else, or a lone point, by days.
+ * weekday by weeks, and anything else, or a lone point, by days. Several
+ * points a day step by the shortest gap between them in time order, so rows
+ * sorted by value don't stretch a point into the next day.
  */
 export function xCadence(points: readonly XDatePoint[]): XCadence {
   const days = [...new Set(points.map((point) => point.day))];
   if (new Set(points.map((point) => point.instant)).size > days.length) {
-    const instants = points.map((point) => point.instant);
+    const instants = points.map((point) => point.instant).sort((a, b) => a - b);
     const gaps = instants
       .slice(1)
-      .map((instant, index) => Math.abs(instant - instants[index]))
+      .map((instant, index) => instant - instants[index])
       .filter((gap) => gap > 0);
     return { unit: "time", step: Math.min(...gaps) };
   }
