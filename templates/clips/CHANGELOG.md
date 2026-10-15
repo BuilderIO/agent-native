@@ -3,11 +3,33 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-14
+
+### Improved
+
+- Clips suggestions are shorter and match the active view.
+
+### Fixed
+
+- Clips explains how to connect storage when saving screenshots or redacted clips.
+- Clips hides unsupported Loom edits, keeps empty-state suggestions relevant, and prevents recording controls from covering Feedback.
+- Clips no longer leave an upload progress toast running while waiting for storage setup.
+- Protected recordings keep playing while their access link refreshes.
+
 ## 2026-10-13
 
 ### Improved
 
 - The Rewind setup popover now expands smoothly, and its full-width help link is easier to find.
+
+### Fixed
+
+- Earlier screen time appears in Transcript as soon as Clips saves it
+- Earlier screen time can still be saved when audio is unavailable, and failed saves can be retried.
+- Earlier screen time saves with available audio even when some tracks are missing.
+- Recordings export even when some segments have no audio.
+- Silence-removal errors now explain when a transcript can't be used.
+- Silence removal offers transcript regeneration when timestamps are missing.
 
 ## 2026-10-12
 

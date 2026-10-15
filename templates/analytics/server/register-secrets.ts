@@ -1,6 +1,7 @@
 import { registerRequiredSecret } from "@agent-native/core/secrets";
 
 import { DBT_SEMANTIC_LAYER_TOKEN_KEY } from "./lib/dbt-connection.js";
+import { SIGMA_DIRECT_CREDENTIALS_KEY } from "./lib/sigma-connection.js";
 
 registerRequiredSecret({
   key: DBT_SEMANTIC_LAYER_TOKEN_KEY,
@@ -19,3 +20,30 @@ registerRequiredSecret({
   ],
   required: false,
 });
+
+for (const secret of [
+  {
+    key: SIGMA_DIRECT_CREDENTIALS_KEY,
+    label: "Sigma client credentials",
+    description:
+      "Client ID, secret, and optional API region for the Analytics-only Sigma connection. Stored together, encrypted, and scoped to the organization.",
+    docsUrl:
+      "https://help.sigmacomputing.com/reference/generate-client-credentials",
+    effectWhenRemoved:
+      "Sigma workbooks cannot be browsed in Analytics until credentials are saved again.",
+  },
+]) {
+  registerRequiredSecret({
+    ...secret,
+    scope: "org",
+    kind: "api-key",
+    usedFor: [
+      {
+        appId: "analytics",
+        feature: "Sigma workbook import",
+        effectWhenRemoved: secret.effectWhenRemoved,
+      },
+    ],
+    required: false,
+  });
+}

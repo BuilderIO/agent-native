@@ -6,11 +6,10 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { assertA2APersistablePayload } from "./persistence-safety.js";
 import type { Task, Message, TaskState, Artifact } from "./types.js";
 
-let _initPromise: Promise<void> | undefined;
 export const MAX_A2A_IDEMPOTENCY_KEY_CHARS = 128;
 const A2A_IDEMPOTENCY_INDEX = "idx_a2a_tasks_owner_scope_idempotency";
 const A2A_ORG_IDEMPOTENCY_INDEX = "idx_a2a_tasks_org_scope_idempotency";
@@ -24,85 +23,91 @@ export interface A2ATaskListCursor {
   id: string;
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS a2a_tasks (
-          id TEXT PRIMARY KEY,
-          context_id TEXT,
-          status_state TEXT NOT NULL DEFAULT 'submitted',
-          status_message TEXT,
-          status_timestamp TEXT NOT NULL,
-          history TEXT NOT NULL DEFAULT '[]',
-          artifacts TEXT NOT NULL DEFAULT '[]',
-          metadata TEXT,
-          owner_email TEXT,
-          owner_scope TEXT NOT NULL DEFAULT '',
-          idempotency_key TEXT,
-          created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL
-        )
-      `;
-      const createIdempotencyIndexSql =
-        `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_IDEMPOTENCY_INDEX} ` +
-        `ON a2a_tasks(owner_email, owner_scope, idempotency_key)`;
-      const createOrgIdempotencyIndexSql =
-        `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_ORG_IDEMPOTENCY_INDEX} ` +
-        "ON a2a_tasks(owner_scope, idempotency_key) " +
-        "WHERE owner_email IS NULL AND idempotency_key IS NOT NULL";
-      const createRecoveryIndexSql =
-        `CREATE INDEX IF NOT EXISTS ${A2A_RECOVERY_INDEX} ` +
-        "ON a2a_tasks(created_at) " +
-        "WHERE status_state IN ('submitted', 'working', 'processing')";
-      const createApprovalsSql = `
-        CREATE TABLE IF NOT EXISTS a2a_approvals (
-          id TEXT PRIMARY KEY,
-          task_id TEXT NOT NULL UNIQUE,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          tool_name TEXT NOT NULL,
-          tool_input TEXT NOT NULL,
-          approval_key TEXT NOT NULL,
-          call_id TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'pending',
-          result TEXT,
-          expires_at BIGINT NOT NULL,
-          created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL
-        )
-      `;
+export const a2aTasksStore = defineStore({
+  id: "a2a_tasks",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS a2a_tasks (
+            id TEXT PRIMARY KEY,
+            context_id TEXT,
+            status_state TEXT NOT NULL DEFAULT 'submitted',
+            status_message TEXT,
+            status_timestamp TEXT NOT NULL,
+            history TEXT NOT NULL DEFAULT '[]',
+            artifacts TEXT NOT NULL DEFAULT '[]',
+            metadata TEXT,
+            owner_email TEXT,
+            owner_scope TEXT NOT NULL DEFAULT '',
+            idempotency_key TEXT,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+          )
+        `;
+        const createIdempotencyIndexSql =
+          `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_IDEMPOTENCY_INDEX} ` +
+          `ON a2a_tasks(owner_email, owner_scope, idempotency_key)`;
+        const createOrgIdempotencyIndexSql =
+          `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_ORG_IDEMPOTENCY_INDEX} ` +
+          "ON a2a_tasks(owner_scope, idempotency_key) " +
+          "WHERE owner_email IS NULL AND idempotency_key IS NOT NULL";
+        const createRecoveryIndexSql =
+          `CREATE INDEX IF NOT EXISTS ${A2A_RECOVERY_INDEX} ` +
+          "ON a2a_tasks(created_at) " +
+          "WHERE status_state IN ('submitted', 'working', 'processing')";
+        const createApprovalsSql = `
+          CREATE TABLE IF NOT EXISTS a2a_approvals (
+            id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL UNIQUE,
+            owner_email TEXT NOT NULL,
+            org_id TEXT,
+            tool_name TEXT NOT NULL,
+            tool_input TEXT NOT NULL,
+            approval_key TEXT NOT NULL,
+            call_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            result TEXT,
+            expires_at BIGINT NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+          )
+        `;
 
-      await ensureTableExists("a2a_tasks", createSql);
-      await ensureColumnExists(
-        "a2a_tasks",
-        "owner_email",
-        `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_email TEXT`,
-      );
-      await ensureColumnExists(
-        "a2a_tasks",
-        "owner_scope",
-        `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_scope TEXT NOT NULL DEFAULT ''`,
-      );
-      await ensureColumnExists(
-        "a2a_tasks",
-        "idempotency_key",
-        `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
-      );
-      await ensureIndexExists(A2A_IDEMPOTENCY_INDEX, createIdempotencyIndexSql);
-      await ensureIndexExists(
-        A2A_ORG_IDEMPOTENCY_INDEX,
-        createOrgIdempotencyIndexSql,
-      );
-      await ensureIndexExists(A2A_RECOVERY_INDEX, createRecoveryIndexSql);
-      await ensureTableExists("a2a_approvals", createApprovalsSql);
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+        await ensureTableExists("a2a_tasks", createSql);
+        await ensureColumnExists(
+          "a2a_tasks",
+          "owner_email",
+          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_email TEXT`,
+        );
+        await ensureColumnExists(
+          "a2a_tasks",
+          "owner_scope",
+          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_scope TEXT NOT NULL DEFAULT ''`,
+        );
+        await ensureColumnExists(
+          "a2a_tasks",
+          "idempotency_key",
+          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+        );
+        await ensureIndexExists(
+          A2A_IDEMPOTENCY_INDEX,
+          createIdempotencyIndexSql,
+        );
+        await ensureIndexExists(
+          A2A_ORG_IDEMPOTENCY_INDEX,
+          createOrgIdempotencyIndexSql,
+        );
+        await ensureIndexExists(A2A_RECOVERY_INDEX, createRecoveryIndexSql);
+        await ensureTableExists("a2a_approvals", createApprovalsSql);
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return a2aTasksStore.ready();
 }
 
 export interface A2AApprovalRecord {

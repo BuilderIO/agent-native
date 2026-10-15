@@ -28,6 +28,7 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn(),
   eq: vi.fn(),
 }));
 
@@ -71,7 +72,13 @@ vi.mock("../../../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       password: "recordings.password",
       sharePasswordVersion: "recordings.sharePasswordVersion",
+      trashedAt: "recordings.trashedAt",
       visibility: "recordings.visibility",
+    },
+    recordingContextItems: {
+      recordingId: "recordingContextItems.recordingId",
+      mediaRecordingId: "recordingContextItems.mediaRecordingId",
+      status: "recordingContextItems.status",
     },
   },
 }));
@@ -98,6 +105,22 @@ function createDbWithRow(row: Record<string, unknown> | null) {
         from: vi.fn(() => builder),
         where: vi.fn(() => builder),
         limit: vi.fn(async () => (row ? [row] : [])),
+      };
+      return builder;
+    }),
+  };
+}
+
+// Rows are handed out per select call, in order; later calls get no rows.
+function createDbWithSelectSequence(...results: Array<unknown[]>) {
+  let call = 0;
+  return {
+    select: vi.fn(() => {
+      const rows = results[call++] ?? [];
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => rows),
       };
       return builder;
     }),
@@ -385,5 +408,118 @@ describe("/api/thumbnail/:recordingId route", () => {
       "old-media-token",
       "rec-1:password-scoped",
     );
+  });
+  describe("earlier-screen-time footage", () => {
+    const footageRow = {
+      thumbnailUrl: "https://cdn.example.com/footage-thumb.jpg",
+      animatedThumbnailUrl: null,
+    };
+    const imageResponse = () =>
+      new Response("thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+
+    it("is served under the access of the clip it is attached to", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence([{ recordingId: "clip-1" }], [footageRow]),
+      );
+      mockResolveAccess.mockImplementation(async (_type, id) =>
+        id === "clip-1"
+          ? {
+              role: "viewer",
+              resource: makeRow({ id: "clip-1", visibility: "private" }),
+            }
+          : null,
+      );
+      vi.mocked(fetch).mockResolvedValue(imageResponse());
+
+      const result = await handler(makeEvent() as any);
+
+      expect(mockResolveAccess).toHaveBeenCalledWith("recording", "clip-1");
+      expect(mockResolveAccess).not.toHaveBeenCalledWith("recording", "rec-1");
+      expect(result).toBeInstanceOf(Response);
+      expect(fetch).toHaveBeenCalledWith(
+        "https://cdn.example.com/footage-thumb.jpg",
+        expect.objectContaining({ redirect: "manual" }),
+      );
+    });
+
+    it("is refused when the footage itself is in Trash", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence(
+          [{ recordingId: "clip-1" }],
+          [{ ...footageRow, trashedAt: "2026-10-14T12:00:00.000Z" }],
+        ),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: makeRow({ id: "clip-1" }),
+      });
+
+      const event = makeEvent();
+      const result = await handler(event as any);
+
+      expect(event.status).toBe(404);
+      expect(result).toEqual({ error: "Not found" });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("is refused when the clip is private to the viewer", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence(
+          [{ recordingId: "clip-1" }],
+          [makeRow({ id: "clip-1", visibility: "private" })],
+        ),
+      );
+      mockResolveAccess.mockResolvedValue(null);
+
+      const event = makeEvent();
+      const result = await handler(event as any);
+
+      expect(event.status).toBe(404);
+      expect(result).toEqual({ error: "Not found" });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("is refused to non-owners while the clip is in Trash", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence([{ recordingId: "clip-1" }], [footageRow]),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: makeRow({
+          id: "clip-1",
+          trashedAt: "2026-10-14T12:00:00.000Z",
+        }),
+      });
+
+      const event = makeEvent();
+      const result = await handler(event as any);
+
+      expect(event.status).toBe(404);
+      expect(result).toEqual({ error: "Not found" });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("requires the clip's password, not the footage's", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence([{ recordingId: "clip-1" }], [footageRow]),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: makeRow({ id: "clip-1", password: "encrypted-password" }),
+      });
+
+      const event = makeEvent();
+      const result = await handler(event as any);
+
+      expect(event.status).toBe(401);
+      expect(result).toEqual({
+        error: "Password required",
+        passwordRequired: true,
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    });
   });
 });

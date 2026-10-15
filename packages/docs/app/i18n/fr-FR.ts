@@ -2555,6 +2555,7 @@ const frFR = {
     advancedRuntime: "Avancé : étendre le runtime",
     templatesSection: "Apps",
     gettingStarted: "Bien démarrer",
+    createWithAgent: "Créer avec un agent",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Qu'est-ce qu'Agent-Native ?",

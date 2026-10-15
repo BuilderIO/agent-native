@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isActionContractError } from "@agent-native/core/action";
 import {
   deleteAppState,
   writeAppState,
@@ -40,9 +40,9 @@ import {
   runFfmpegWithProgress,
   withRemuxSlot,
 } from "../server/lib/video-remux.js";
-import { STORAGE_SETUP_REQUIRED_REASON } from "../server/lib/video-storage.js";
 import { ensureRecordingFilmstrip } from "./lib/ensure-recording-filmstrip.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
+import { failStorageSetupRequired } from "./lib/storage-setup-error.js";
 
 const BURN_TIMEOUT_MS = 20 * 60 * 1000;
 const MAX_DURATION_DRIFT_MS = 250;
@@ -232,15 +232,9 @@ export async function burnRedactionsFor(args: {
     ownerEmail,
     stableUrl: true,
     recordAsset: false,
-  }).catch((err) => {
-    console.warn("[burn-recording-redactions] upload failed", {
-      recordingId: args.recordingId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
   });
   if (!upload?.url) {
-    throw new Error(STORAGE_SETUP_REQUIRED_REASON);
+    failStorageSetupRequired();
   }
 
   timer.mark("upload");
@@ -510,7 +504,11 @@ export default defineAction({
           `[burn-recording-redactions] ${args.recordingId} failed:`,
           message,
         );
-        failBurn(args.recordingId, message);
+        failBurn(
+          args.recordingId,
+          message,
+          isActionContractError(err) ? err.errorCode : undefined,
+        );
       }
     });
 

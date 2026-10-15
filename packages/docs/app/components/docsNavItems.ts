@@ -43,6 +43,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "getting-started",
       },
       {
+        id: "create-with-an-agent",
+        labelKey: "createWithAgent",
+        slug: "create-with-an-agent",
+      },
+      {
         id: "what-is-agent-native",
         labelKey: "whatIsAgentNative",
         slug: "what-is-agent-native",

@@ -6305,6 +6305,7 @@ function AgentKitApproval({
       ? metadata.toolName
       : (value.description ?? "");
   const exactCommandScope = actions?.alwaysAllowScope === "exact-command";
+  const allowPersistentApproval = metadata?.allowPersistentApproval !== false;
   if (value.options?.length || value.input) {
     return <AgentApprovalPrompt request={value} runId={runId} />;
   }
@@ -6333,6 +6334,9 @@ function AgentKitApproval({
         await callAction("set-tool-approval-policy", {
           toolName,
           enabled: true,
+          ...(typeof metadata?.approvalAskId === "string"
+            ? { approvalId: metadata.approvalAskId }
+            : {}),
         });
       }
       await control.resolveApproval(runId, value.id, {
@@ -6369,7 +6373,10 @@ function AgentKitApproval({
       onApprove={() => void resolve("approve")}
       onDeny={() => void resolve("deny")}
       onAlwaysAllow={
-        actions?.onAlwaysAllow || !exactCommandScope ? alwaysAllow : undefined
+        allowPersistentApproval &&
+        (actions?.onAlwaysAllow || !exactCommandScope)
+          ? alwaysAllow
+          : undefined
       }
     />
   );

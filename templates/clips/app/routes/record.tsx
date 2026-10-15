@@ -94,6 +94,7 @@ import {
   type FirstRunStorageSetupDismissal,
 } from "@/lib/first-run-storage-setup";
 import { LocalCopyOwnership } from "@/lib/local-copy-ownership";
+import { trackLocalRecordingSaved } from "@/lib/local-recording-saved";
 import {
   discardLocalRecording,
   LocalRecordingUploadError,
@@ -115,6 +116,7 @@ import {
   readRecoverableRecordingBackup,
   recordingBackupFilename,
   updateRecordingBackupMeta,
+  type LocalRecorderPlatform,
 } from "@/lib/recording-backup";
 import { copyFreshRecordingShareLink } from "@/lib/recording-link";
 import {
@@ -253,6 +255,25 @@ const MAC_MICROPHONE_PREF_URL =
 type BrowserDocumentPolicy = {
   allowsFeature?: (feature: string) => boolean;
 };
+
+/**
+ * The platform this browser recorder reports. Every event and row for a
+ * recording reads it from here, so the funnel events and the stored
+ * `recording_platform` cannot disagree.
+ */
+function browserRecorderPlatform(): LocalRecorderPlatform {
+  return isMobileRecorderRuntime(navigator) ? "mobile" : "web";
+}
+
+type RecordingCaptureType = "camera" | "tab" | "screen";
+
+function captureTypeFor(
+  mode: RecordingMode,
+  displaySurface: DisplaySurface | null,
+): RecordingCaptureType {
+  if (mode === "camera") return "camera";
+  return displaySurface === "browser" ? "tab" : "screen";
+}
 
 function isMacPlatform(): boolean {
   return /^darwin|mac/i.test(
@@ -1395,6 +1416,8 @@ export default function RecordRoute() {
     null,
   );
   const pendingLocalRef = useRef<PendingLocalUpload | null>(null);
+  const recordingCaptureTypeRef = useRef<RecordingCaptureType | null>(null);
+  const reportedLocalSavesRef = useRef(new Set<string>());
   pendingLocalRef.current = pendingLocal;
   // Holds the stopped engine only while its in-memory chunks are the sole
   // full copy (the local copy failed to write), so Download still works.
@@ -1670,9 +1693,8 @@ export default function RecordRoute() {
           : null;
         const recordingTitle = reportTitle ?? captureTitle.title;
         const recordingPayload = {
-          recordingPlatform: isMobileRecorderRuntime(navigator)
-            ? "mobile"
-            : "web",
+          recordingPlatform: browserRecorderPlatform(),
+          recordingSource: "recorder",
           title: recordingTitle,
           titleSource: reportTitle ? "context" : captureTitle.titleSource,
           sourceAppName: captureTitle.sourceAppName,
@@ -1688,6 +1710,7 @@ export default function RecordRoute() {
         engine.setBackupDetails({
           ownerEmail: authSessionEmailRef.current,
           title: recordingTitle,
+          recordingPlatform: browserRecorderPlatform(),
         });
         const dropRow = (id: string) =>
           void callAction(
@@ -1978,9 +2001,8 @@ export default function RecordRoute() {
           ? `Bug report: ${bugReportTitle(reportContext)}`
           : null;
         const recordingPayload = {
-          recordingPlatform: isMobileRecorderRuntime(navigator)
-            ? "mobile"
-            : "web",
+          recordingPlatform: browserRecorderPlatform(),
+          recordingSource: "file_upload",
           title:
             reportTitle ??
             (file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle()),
@@ -2492,6 +2514,8 @@ export default function RecordRoute() {
         await holdLocalCopy(id);
       }
       await engine.start();
+      const captureType = captureTypeFor(recordingMode, resolvedDisplaySurface);
+      recordingCaptureTypeRef.current = captureType;
       trackEvent("app.first_action", {
         action: "recording_start",
         surface: "recorder",
@@ -2503,14 +2527,10 @@ export default function RecordRoute() {
         template_name: "clips",
         output_id: pendingRef.current?.id,
         recording_attempt_id: pendingRef.current?.id,
-        capture_type:
-          recordingMode === "camera"
-            ? "camera"
-            : resolvedDisplaySurface === "browser"
-              ? "tab"
-              : "screen",
+        capture_type: captureType,
         has_extension: Boolean(extensionCapture),
         storage_connected: !pendingRef.current?.localOnly,
+        recording_platform: browserRecorderPlatform(),
         surface: "recorder",
       });
       if (!engine.capturesAudio()) {
@@ -2839,9 +2859,26 @@ export default function RecordRoute() {
   const enterPendingUpload = useCallback(
     (
       recordingId: string,
-      options: { engine?: RecorderEngine; recordedHere?: boolean } = {},
+      options: {
+        engine?: RecorderEngine;
+        recordedHere?: boolean;
+        /** Only the two local-only stop paths pass this. */
+        localSave?: {
+          stopOutcome: "stopped" | "stop_failed";
+          durationMs: number;
+        };
+      } = {},
     ) => {
-      const { engine, recordedHere = false } = options;
+      const { engine, recordedHere = false, localSave } = options;
+      if (localSave) {
+        trackLocalRecordingSaved(reportedLocalSavesRef.current, recordingId, {
+          recordingPlatform: browserRecorderPlatform(),
+          captureType: recordingCaptureTypeRef.current,
+          durationMs: localSave.durationMs,
+          stopOutcome: localSave.stopOutcome,
+          hasStoredCopy: !engine?.getBackupError(),
+        });
+      }
       pendingRef.current = null;
       engineRef.current = null;
       // Keep the stopped engine only when its memory is the sole full copy.
@@ -3057,6 +3094,8 @@ export default function RecordRoute() {
     ) {
       return;
     }
+    // Read at Stop: the engine's clock keeps running through the stop work.
+    const recordedMs = engine.getElapsedMs();
     setSavingKind("recording");
     setUiState("uploading");
     startUploadToast(t("recordRoute.savingRecording"));
@@ -3090,6 +3129,7 @@ export default function RecordRoute() {
         enterPendingUploadRef.current(pending.id, {
           engine,
           recordedHere: true,
+          localSave: { stopOutcome: "stopped", durationMs: recordedMs },
         });
         return;
       }
@@ -3163,6 +3203,7 @@ export default function RecordRoute() {
         enterPendingUploadRef.current(pending.id, {
           engine,
           recordedHere: true,
+          localSave: { stopOutcome: "stop_failed", durationMs: recordedMs },
         });
         return;
       }
@@ -4017,6 +4058,8 @@ export default function RecordRoute() {
                     "recordRoute.storageConnectedUploading",
                   )}
                   connectSource="clips_record_after_stop"
+                  key={pendingLocal.id}
+                  recordingAttemptId={pendingLocal.id}
                   connectFlow="record_first"
                   openSettingsInNewTab
                 />

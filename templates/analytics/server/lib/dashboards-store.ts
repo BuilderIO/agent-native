@@ -248,6 +248,7 @@ const ANALYSIS_REVISION_LIMIT = 30;
 const MAX_DASHBOARD_REFERENCE_RESULTS = 24;
 const MAX_DASHBOARD_REFERENCE_CANDIDATES = 200;
 const OUT_OF_SCOPE_REFERENCE_PROBE_LIMIT = 5;
+const MAX_DASHBOARD_METADATA_HYDRATION = 100;
 
 function stableStringify(value: unknown): string {
   if (value === undefined) return "undefined";
@@ -846,6 +847,45 @@ export async function getDashboard(
   return migratedByOther
     ? rowToDashboard(migratedByOther.resource, migratedByOther.role)
     : null;
+}
+
+export async function loadAccessibleDashboardMetadataByIds(
+  ctx: AccessCtx,
+  ids: readonly string[],
+): Promise<
+  Array<{
+    id: string;
+    kind: DashboardKind;
+    title: string;
+    ownerEmail: string;
+    orgId: string | null;
+    visibility: "private" | "org" | "public";
+  }>
+> {
+  const uniqueIds = [
+    ...new Set(ids.map((id) => id.trim()).filter(Boolean)),
+  ].slice(0, MAX_DASHBOARD_METADATA_HYDRATION);
+  if (!uniqueIds.length) return [];
+
+  return getDb()
+    .select({
+      id: schema.dashboards.id,
+      kind: schema.dashboards.kind,
+      title: schema.dashboards.title,
+      ownerEmail: schema.dashboards.ownerEmail,
+      orgId: schema.dashboards.orgId,
+      visibility: schema.dashboards.visibility,
+    })
+    .from(schema.dashboards)
+    .where(
+      and(
+        accessFilter(schema.dashboards, schema.dashboardShares, {
+          userEmail: ctx.email,
+          orgId: ctx.orgId ?? undefined,
+        }),
+        inArray(schema.dashboards.id, uniqueIds),
+      ),
+    );
 }
 
 export type DashboardReviewScope =

@@ -1,15 +1,22 @@
 import { useChatModels } from "@agent-native/core/client/agent-chat";
-import { emailToColor } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { resolveAgentProviderLogo } from "@agent-native/core/client/resources";
 import {
   PromptComposer,
   type MentionItem,
+  type ComposerTextReference,
   type ComposerTextSelection,
   type Reference,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/composer";
+import {
+  commentMentionKey,
+  findCommentMentions,
+  followsNameCharacter,
+  isMentionNameAt,
+  literalAtSignTest,
+  type CommentAgentMention,
+} from "@shared/comment-mentions";
 import { IconArrowUp, IconAt, IconMoodSmile } from "@tabler/icons-react";
 import {
   forwardRef,
@@ -32,10 +39,18 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { MentionMember } from "@/hooks/use-mention-members";
+import {
+  useMentionMembers,
+  type MentionMember,
+} from "@/hooks/use-mention-members";
 import { cn } from "@/lib/utils";
 
-import { agentLogoEngine, modelDisplayName } from "./agent-identity";
+import { modelDisplayName } from "./agent-identity";
+import {
+  draftMention,
+  sameMentions,
+  type MentionEntry,
+} from "./comment-drafts";
 import {
   CommentAiModelList,
   CommentAiSendControl,
@@ -44,11 +59,20 @@ import {
   type CommentAiMode,
   type CommentAiSelection,
 } from "./CommentAiRecipient";
+import { agentMentionMedia, personMentionMedia } from "./CommentIdentity";
 import { EmojiPickerPanel } from "./EmojiPicker";
 
-export interface MentionEntry {
-  email: string;
-  name: string;
+/** The agent a comment is sent to, named the way its chip reads. */
+export function aiRecipientMention(
+  selection: CommentAiSelection,
+): CommentAgentMention {
+  return {
+    kind: "agent",
+    model: selection.model,
+    engine: selection.engine,
+    provider: selection.provider,
+    name: modelDisplayName(selection.model),
+  };
 }
 
 export function mentionLabel(member: MentionMember): string {
@@ -69,7 +93,10 @@ interface CommentComposerProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
-  onMentionAdd: (entry: MentionEntry) => void;
+  /** Who the draft mentions, one per `@name` chip, in text order. */
+  mentions: readonly MentionEntry[];
+  /** Called with the chips, in text order, whenever they change. */
+  onMentionsChange: (mentions: MentionEntry[]) => void;
   onAiSubmit?: (payload: CommentAiSubmitPayload) => void;
   aiDraft?: CommentAiDraft | null;
   onAiDraftChange?: (draft: CommentAiDraft | null) => void;
@@ -80,7 +107,6 @@ interface CommentComposerProps {
   onSelectionChange?: (selection: ComposerTextSelection) => void;
   /** Shows a Cancel button beside Send, for editing or a new comment. */
   onCancel?: () => void;
-  members: MentionMember[];
   placeholder?: string;
   ariaLabel?: string;
   /** Accessible name for the send button. Defaults to "Comment". */
@@ -98,18 +124,18 @@ interface CommentComposerProps {
 }
 
 const AI_REFERENCE_TYPE = "content-comment-ai-recipient";
+/** An agent an existing comment mentions; unlike the recipient, it sends nothing. */
+const AGENT_REFERENCE_TYPE = "content-comment-agent";
 const MEMBER_REFERENCE_TYPE = "content-comment-member";
 /** Avatar lookups are per-person requests; bound them for large orgs. */
 const MEMBER_AVATAR_PROBE_LIMIT = 40;
 
 function providerMedia(selection: CommentAiSelection) {
-  const identity = resolveAgentProviderLogo(
-    agentLogoEngine(selection.model, selection.engine),
+  return agentMentionMedia(
+    selection.model,
+    selection.engine,
     selection.provider,
   );
-  return identity.logoUrl
-    ? ({ type: "image", src: identity.logoUrl } as const)
-    : ({ type: "text", text: selection.provider.slice(0, 1) } as const);
 }
 
 function aiReference(draft: CommentAiDraft) {
@@ -124,14 +150,84 @@ function aiReference(draft: CommentAiDraft) {
   };
 }
 
-/** The composer position of a plain-text offset; each line is a paragraph. */
-function editorPosition(text: string, offset: number) {
-  const lines = text.slice(0, offset).split("\n");
-  return lines.reduce((position, line) => position + line.length + 2, -1);
+/** Reads the same as the chip a picked member item makes. */
+function memberReference(person: { email: string; name: string }) {
+  return {
+    label: person.name,
+    media: personMentionMedia(person.email, person.name, undefined),
+    source: "content",
+    refType: MEMBER_REFERENCE_TYPE,
+    refId: person.email,
+    metadata: { email: person.email, name: person.name },
+  };
 }
 
-function memberInitial(member: MentionMember) {
-  return (mentionLabel(member)[0] ?? "?").toUpperCase();
+function agentReference(agent: CommentAgentMention) {
+  return {
+    label: agent.name,
+    icon: "agent",
+    media: agentMentionMedia(agent.model, agent.engine, agent.provider),
+    source: "content",
+    refType: AGENT_REFERENCE_TYPE,
+    refId: commentMentionKey(agent),
+    metadata: { mention: agent },
+  };
+}
+
+/**
+ * The chips a draft's plain text stands for, each at the `@name` its mention
+ * resolves to; an agent's chip is the AI recipient when it is that agent. A
+ * restored or edited draft gets its chips back this way, so the chips are
+ * always who it mentions.
+ */
+function textReferences(
+  text: string,
+  mentions: readonly MentionEntry[],
+  aiDraft: CommentAiDraft | null,
+): ComposerTextReference[] {
+  const recipient =
+    aiDraft && commentMentionKey(aiRecipientMention(aiDraft.selection));
+  const references: ComposerTextReference[] = findCommentMentions(
+    text,
+    mentions.map(draftMention),
+  ).map(({ start, name, mention }) => ({
+    start,
+    end: start + 1 + name.length,
+    reference:
+      mention.kind === "person"
+        ? memberReference(mention)
+        : aiDraft && commentMentionKey(mention) === recipient
+          ? aiReference(aiDraft)
+          : agentReference(mention),
+  }));
+  if (
+    !aiDraft ||
+    references.some(({ reference }) => reference.refType === AI_REFERENCE_TYPE)
+  )
+    return references;
+  // A draft saved before its mentions listed the AI chip. That chip was
+  // appended after the text, so at the end it can follow a word directly.
+  const ai = aiReference(aiDraft);
+  const isLiteral = literalAtSignTest(text);
+  for (
+    let start = text.indexOf(`@${ai.label}`);
+    start >= 0;
+    start = text.indexOf(`@${ai.label}`, start + 1)
+  ) {
+    const end = start + 1 + ai.label.length;
+    if (
+      !isLiteral(start) &&
+      (!followsNameCharacter(text, start) || !text.slice(end).trim()) &&
+      isMentionNameAt(text, start, ai.label) &&
+      !references.some(
+        (reference) => reference.start < end && start < reference.end,
+      )
+    ) {
+      references.push({ start, end, reference: ai });
+      break;
+    }
+  }
+  return references;
 }
 
 /** Reports one member's avatar URL; renders nothing. */
@@ -179,7 +275,8 @@ export const CommentComposer = forwardRef<
     value,
     onChange,
     onSubmit,
-    onMentionAdd,
+    mentions,
+    onMentionsChange,
     onAiSubmit,
     aiDraft = null,
     onAiDraftChange,
@@ -189,7 +286,6 @@ export const CommentComposer = forwardRef<
     onFocus,
     onSelectionChange,
     onCancel,
-    members,
     placeholder,
     ariaLabel,
     submitLabel,
@@ -202,6 +298,8 @@ export const CommentComposer = forwardRef<
   forwardedRef,
 ) {
   const t = useT();
+  const membersQuery = useMentionMembers();
+  const members = membersQuery.data ?? [];
   const wrapperRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [composerReady, setComposerReady] = useState(false);
@@ -209,7 +307,9 @@ export const CommentComposer = forwardRef<
     composerRef.current = handle;
     if (handle) setComposerReady(true);
   }, []);
-  const observedMemberIds = useRef(new Set<string>());
+  const [initialReferences] = useState(() =>
+    textReferences(value, mentions, aiDraft),
+  );
   const aiReferenceSeen = useRef(false);
   const hydratingControlledText = useRef(false);
   const lastEditorValue = useRef(value);
@@ -221,11 +321,13 @@ export const CommentComposer = forwardRef<
   });
   const aiDraftRef = useRef(aiDraft);
   const onAiDraftChangeRef = useRef(onAiDraftChange);
-  const onMentionAddRef = useRef(onMentionAdd);
+  const mentionsRef = useRef(mentions);
+  const onMentionsChangeRef = useRef(onMentionsChange);
   const onModelChangeRef = useRef(models.onModelChange);
   aiDraftRef.current = aiDraft;
   onAiDraftChangeRef.current = onAiDraftChange;
-  onMentionAddRef.current = onMentionAdd;
+  mentionsRef.current = mentions;
+  onMentionsChangeRef.current = onMentionsChange;
   onModelChangeRef.current = models.onModelChange;
 
   const [focused, setFocused] = useState(false);
@@ -286,7 +388,6 @@ export const CommentComposer = forwardRef<
   const mentionItems = useMemo<MentionItem[]>(() => {
     const memberItems = members.map((member) => {
       const label = mentionLabel(member);
-      const avatarUrl = avatarUrls[member.email];
       return {
         id: `member:${member.email}`,
         label,
@@ -295,13 +396,11 @@ export const CommentComposer = forwardRef<
         source: "content",
         refType: MEMBER_REFERENCE_TYPE,
         refId: member.email,
-        media: avatarUrl
-          ? ({ type: "image", src: avatarUrl, fit: "cover" } as const)
-          : ({
-              type: "text",
-              text: memberInitial(member),
-              backgroundColor: emailToColor(member.email),
-            } as const),
+        media: personMentionMedia(
+          member.email,
+          label,
+          avatarUrls[member.email],
+        ),
         metadata: { email: member.email, name: label },
       };
     });
@@ -372,21 +471,15 @@ export const CommentComposer = forwardRef<
     lastEditorValue.current = value;
     hydratingControlledText.current = true;
     const currentAiDraft = aiDraftRef.current;
-    const reference = currentAiDraft ? aiReference(currentAiDraft) : null;
-    // A restored draft keeps its AI chip as `@Label` text. Swap that text back
-    // for the chip in place; appending a chip would name the AI twice.
-    const label = reference ? `@${reference.label}` : "";
-    const at = label ? value.indexOf(label) : -1;
-    if (at < 0) {
-      composerRef.current?.setText(value);
-    } else {
-      const end =
-        at + label.length + (value[at + label.length] === " " ? 1 : 0);
-      composerRef.current?.setText(value.slice(0, at) + value.slice(end));
-      composerRef.current?.setSelection(editorPosition(value, at));
-    }
-    if (reference) {
-      composerRef.current?.replaceReference(AI_REFERENCE_TYPE, reference);
+    composerRef.current?.setText(
+      value,
+      textReferences(value, mentionsRef.current, currentAiDraft),
+    );
+    if (currentAiDraft) {
+      composerRef.current?.replaceReference(
+        AI_REFERENCE_TYPE,
+        aiReference(currentAiDraft),
+      );
     }
     hydratingControlledText.current = false;
   }, [composerReady, value]);
@@ -449,26 +542,20 @@ export const CommentComposer = forwardRef<
       aiDraftRef.current = null;
       onAiDraftChangeRef.current?.(null);
     }
-    for (const reference of references) {
-      if (reference.refType !== MEMBER_REFERENCE_TYPE || !reference.refId)
-        continue;
-      if (observedMemberIds.current.has(reference.refId)) continue;
-      observedMemberIds.current.add(reference.refId);
-      onMentionAddRef.current({
-        email: reference.refId,
-        name: reference.name,
-      });
-    }
-    for (const id of [...observedMemberIds.current]) {
-      if (
-        !references.some(
-          (reference) =>
-            reference.refType === MEMBER_REFERENCE_TYPE &&
-            reference.refId === id,
-        )
-      ) {
-        observedMemberIds.current.delete(id);
-      }
+    const mentions = references.flatMap((reference): MentionEntry[] => {
+      if (reference.refType === MEMBER_REFERENCE_TYPE && reference.refId)
+        return [{ email: reference.refId, name: reference.name }];
+      const selection = selectionOf(reference);
+      if (reference.refType === AI_REFERENCE_TYPE && selection)
+        return [aiRecipientMention(selection)];
+      const agent = (
+        reference.metadata as { mention?: CommentAgentMention } | undefined
+      )?.mention;
+      return reference.refType === AGENT_REFERENCE_TYPE && agent ? [agent] : [];
+    });
+    if (!sameMentions(mentions, mentionsRef.current)) {
+      mentionsRef.current = mentions;
+      onMentionsChangeRef.current(mentions);
     }
   }, []);
 
@@ -604,6 +691,7 @@ export const CommentComposer = forwardRef<
         composerRef={bindComposer}
         initialText={value}
         initialTextKey="comment-composer-controlled"
+        initialReferences={initialReferences}
         onTextChange={(text) => {
           if (text === lastEditorValue.current) return;
           lastEditorValue.current = text;
@@ -611,6 +699,12 @@ export const CommentComposer = forwardRef<
         }}
         onSubmit={submit}
         mentionItems={mentionItems}
+        mentionItemsError={
+          membersQuery.isError
+            ? t("comments.mentionPeopleLoadFailed")
+            : undefined
+        }
+        onRetryMentionItems={() => void membersQuery.refetch()}
         mentionPopoverDensity="stacked"
         includeDefaultMentionSearch={false}
         onReferencesChange={handleReferencesChange}

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import * as schema from "../db/schema";
+import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store";
 import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs";
 
 /**
@@ -31,9 +32,13 @@ const analyticsRollupsTsSource = readFileSync(
   new URL("../lib/first-party-analytics-rollups.ts", import.meta.url),
   "utf8",
 );
-// db.ts runs SOURCE_INDEX_RUNS_MIGRATION_SQL, so its DDL is migration history
-// even though db.ts does not spell the columns out.
-const migrationHistorySource = `${dbTsSource}\n${SOURCE_INDEX_RUNS_MIGRATION_SQL.join("\n")}`;
+// db.ts runs these SQL constants, so their DDL is migration history even
+// though db.ts does not spell the columns out.
+const migrationHistorySource = [
+  dbTsSource,
+  SOURCE_INDEX_RUNS_MIGRATION_SQL.join("\n"),
+  EXTERNAL_DASHBOARD_MIGRATION_SQL.join("\n"),
+].join("\n");
 
 interface DrizzleColumn {
   name: string;

@@ -591,9 +591,15 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
 
     const written = result.writes.get("target");
     expect(written).toBeTruthy();
+    const copyNode = buildCodeLayerProjection(written!).nodes.find(
+      (node) => node.layerName === "Copy",
+    );
+    expect(copyNode).toBeDefined();
+    expect(copyNode?.layerNameSource).toBe("text");
     const copy = new DOMParser()
       .parseFromString(written!, "text/html")
-      .querySelector('[data-agent-native-layer-name="Copy"]');
+      .querySelector(copyNode!.selectors[0]!);
+    expect(copy?.textContent).toBe("Copy");
     expect(copy?.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
       "grid",
     );

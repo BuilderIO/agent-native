@@ -61,7 +61,7 @@ function trigger(): HTMLButtonElement {
   return button;
 }
 
-// The popover renders into a portal, and the filter bar has its own "Clear all" button, so lookups stay inside the open dialog.
+// The popover renders into a portal, outside the filter bar's own buttons, so lookups stay inside the open dialog.
 function popover(): HTMLElement {
   const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
   if (!dialog) throw new Error("multi-select popover not open");

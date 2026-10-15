@@ -2382,6 +2382,46 @@ describe("createAgentKitProtocolAdapter", () => {
     });
   });
 
+  it("preserves message status when adapting protocol history", async () => {
+    let receivedInput: unknown;
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async (input) => {
+        receivedInput = input;
+        return {
+          id: "turn-1",
+          sessionId: "thread-1",
+          events: events(),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          ...userMessage("The first request did not start."),
+          id: "failed-user",
+          status: "error",
+        },
+        { ...userMessage("Start this request."), id: "current-user" },
+      ],
+    });
+
+    expect(receivedInput).toMatchObject({
+      messages: [
+        expect.objectContaining({ id: "failed-user", status: "error" }),
+        expect.objectContaining({ id: "current-user" }),
+      ],
+    });
+  });
+
   it("protects host metadata when creating a thread", async () => {
     let receivedMetadata: unknown;
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
@@ -3552,6 +3592,47 @@ describe("createAgentKitProtocolAdapter", () => {
 
     expect(cancel).not.toHaveBeenCalled();
     expect(disposeSession).toHaveBeenCalledOnce();
+  });
+
+  it("tells the approval card its server approval id and whether it can persist", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "agent-tool-approval-1",
+        askId: "agent-tool-approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish?",
+        allowPersistentApproval: false,
+      };
+    }
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(approvalEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          tools: { events: true, approvals: true },
+        },
+      }),
+    );
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish")],
+    });
+    const events = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "approval.requested",
+        request: expect.objectContaining({
+          metadata: expect.objectContaining({
+            approvalAskId: "agent-tool-approval-1",
+            allowPersistentApproval: false,
+          }),
+        }),
+      }),
+    );
   });
 
   it("binds approval decisions to the exact pending request and fails closed", async () => {

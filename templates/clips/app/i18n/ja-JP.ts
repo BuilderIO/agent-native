@@ -6,6 +6,7 @@ const messages = {
     includeLast: "直前を含める",
     whatIsThis: "これは何ですか？",
     off: "オフ",
+    none: "なし",
     custom: "カスタム…",
     customLabel: "カスタムの長さ",
     customAmount: "長さ",
@@ -17,6 +18,9 @@ const messages = {
     customErrorInvalid: "秒または分の整数で入力してください。",
     customErrorTooLong: "5分以内にしてください。",
     turnOnRewind: "Rewindをオンにする",
+    turnOffRewind: "オフにする",
+    turnOffRewindFailed:
+      "Rewindをオフにできませんでした。録画を停止してからもう一度お試しください。",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
       "初期設定ではオフです。画面履歴はこのデバイスに保存され、録画に含めるか共有リクエストを承認するまで外部に送信されません。",
@@ -207,9 +211,12 @@ const messages = {
     expandSidebar: "サイドバーを展開",
     collapseSidebar: "サイドバーを折りたたむ",
     agentEmptyState: "録画についてどのようにお手伝いしましょうか？",
-    agentSuggestionSummary: "最新の録画を要約して",
-    agentSuggestionPricing: "価格について話した箇所を探して",
-    agentSuggestionFiller: "このクリップからフィラー語を削除して",
+    agentSuggestionSummary: "録画を要約して",
+    agentSuggestionPricing: "価格の言及を探して",
+    agentSuggestionFiller: "フィラー語を削除して",
+    agentScreenshotSuggestionSummary: "スクリーンショットを要約して",
+    agentScreenshotSuggestionText: "スクリーンショット内の文字を探して",
+    agentScreenshotSuggestionCompare: "スクリーンショットを比較して",
     createFolderError: "作成に失敗しました",
     folderCreated: "フォルダを作成しました",
     folderNamePlaceholder: "フォルダ名",
@@ -1882,6 +1889,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (ローカライズ済み)",
     recordingDownloadStarted: "Recording download started (ローカライズ済み)",
+    partialLocalCopyDownloadStarted:
+      "ローカルコピーは不完全な可能性があります。利用可能な録画データをダウンロードしています。",
     backToLibrary: "Back to library (ローカライズ済み)",
     clipsRecorder: "Clips recorder (ローカライズ済み)",
     preparingSources: "Preparing sources… (ローカライズ済み)",
@@ -2047,6 +2056,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (ローカライズ済み)",
     cleanupComplete: "ディクテーションをクリーンアップしました",
     cleanupFailed: "ディクテーションをクリーンアップできませんでした",
+    undoCleanup: "元に戻す",
+    restoreOriginal: "元に戻す",
+    cleanupRestored: "元のディクテーションを復元しました",
+    cleanupRestoreFailed: "元のディクテーションを復元できませんでした",
     startFirst: "考えをテキストに変えましょう",
     recordOnDesktop: "デスクトップで録音",
     emptyDesktopDescription:

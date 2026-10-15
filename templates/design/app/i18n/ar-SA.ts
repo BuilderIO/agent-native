@@ -954,6 +954,14 @@ export default {
         toTopRight: "إلى أعلى اليمين",
         toBottomLeft: "إلى أسفل اليسار",
         toBottomRight: "إلى أسفل اليمين",
+        fromLeft: "من اليسار",
+        fromRight: "من اليمين",
+        fromTop: "من الأعلى",
+        fromBottom: "من الأسفل",
+        fromTopLeft: "من أعلى اليسار",
+        fromTopRight: "من أعلى اليمين",
+        fromBottomLeft: "من أسفل اليسار",
+        fromBottomRight: "من أسفل اليمين",
         clockwise: "مع عقارب الساعة",
         counterclockwise: "عكس عقارب الساعة",
         easingPresets: {
@@ -1003,6 +1011,8 @@ export default {
         save: "حفظ النمط",
         createDescription:
           "احفظ مسارات حركة الهدف المحدد كنمط قابل لإعادة الاستخدام.",
+        unsupportedSequence:
+          "يتعذر تطبيق هذا النمط لأن المقاطع التي تحرّك الخاصية نفسها متداخلة أو غير متصلة.",
         tooMany: "يمكن أن يتضمن النمط ما يصل إلى 24 حركة.",
         limit: "وصل هذا التصميم إلى حد 64 نمط حركة.",
       },
@@ -1035,8 +1045,13 @@ export default {
       timelineDescription:
         "مخطط الإطارات الرئيسية. {{tracks}} مسارات و{{keyframes}} إطارات رئيسية. استخدم مفاتيح الأسهم أو Space + السحب للتمرير، والقرص أو Cmd/Ctrl + عجلة الفأرة للتكبير، واسحب لتحريك الإطارات، واستخدم Shift/Cmd للتحديد المتعدد، وانقر مرتين للإضافة.",
       size: "الحجم",
+      sourceReadUnavailable:
+        "يتعذر على Motion قراءة هذا التحريك دون تغيير سلوكه.",
       sourceWriteUnavailable:
         "يمكن حاليًا كتابة كود Motion في تصميمات HTML المضمنة فقط.",
+      sourceConflict:
+        "تغيّر مصدر Motion أثناء وجود تعديلات غير محفوظة في المخطط الزمني. أعد تحميل الكود للتخلي عن تلك التعديلات واستخدام المصدر الحالي.",
+      reloadFromSource: "إعادة تحميل الكود",
       dockLabel: "لوحة الحركة",
       collapseDock: "طي لوحة الحركة",
       expandAllTracks: "توسيع كل المسارات",
@@ -1169,17 +1184,14 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "استيراد الرموز",
-      importTitle: "استيراد الرموز",
-      importHint:
-        "استخدم design.md أو CSS أو ملفات السمة أو التصميم الحالي قبل إضافة الرموز يدويا.",
-      files: "ملفات",
-      folder: "مجلد",
-      current: "الحالي",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "استيراد الرموز الملصقة",
+      importDtcg: "ملف DTCG…",
+      importCssOrTailwind: "ملف CSS أو Tailwind…",
+      importClipboard: "لصق من الحافظة",
+      importFromDesign: "إنشاء من التصميم",
+      importFailed: "تعذّر استيراد الرموز المميزة: {{message}}",
+      clipboardBlocked: "تعذّرت قراءة الحافظة. اسمح بالوصول ثم حاول مرة أخرى.",
+      clipboardEmpty: "الحافظة فارغة",
       importedCount: "تم استيراد {{count}} رمزا",
       importing: "جارٍ استيراد الرموز…",
       importedWithSkipped:
@@ -1198,6 +1210,21 @@ export default {
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "تعذّرت إضافة الرمز المميز: {{message}}",
+      types: {
+        color: "اللون",
+        fontFamily: "عائلة الخط",
+        fontWeight: "وزن الخط",
+        fontSize: "حجم الخط",
+        lineHeight: "ارتفاع السطر",
+        letterSpacing: "تباعد الأحرف",
+        spacing: "التباعد",
+        container: "الحاوية",
+        breakpoint: "نقطة التوقف",
+        radius: "نصف القطر",
+        shadow: "الظل",
+        opacity: "العتامة",
+      },
       editColor: "تعديل لون {{name}}",
     },
     import: {

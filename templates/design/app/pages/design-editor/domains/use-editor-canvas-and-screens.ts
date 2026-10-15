@@ -65,7 +65,7 @@ import {
   getFreshActiveFileContent,
   getFreshScreenContent,
 } from "../editor-state";
-import { MAX_DESIGN_UNDO_STACK } from "../history";
+import { insertAtFileOrderIndex, MAX_DESIGN_UNDO_STACK } from "../history";
 import {
   autoHeightScreenIds,
   getAllScreenFrameEntries,
@@ -335,19 +335,27 @@ export function useEditorCanvasAndScreens({
       filename: string;
       fileType: DesignFile["fileType"];
       content: string;
+      createdAt?: string | null;
+      fileOrderIndex?: number;
       result?: Record<string, unknown> | null;
     }) => {
       if (!id) return;
       const now = new Date().toISOString();
+      const createdAt =
+        args.createdAt === undefined ? args.result?.createdAt : args.createdAt;
+      if (
+        createdAt !== undefined &&
+        createdAt !== null &&
+        typeof createdAt !== "string"
+      ) {
+        throw new Error("Invalid file creation timestamp");
+      }
       const optimisticFile: DesignFile = {
         id: args.fileId,
         filename: args.filename,
         fileType: args.fileType,
         content: annotateScreenHtmlForPersist(args.content, args.fileType),
-        createdAt:
-          typeof args.result?.createdAt === "string"
-            ? args.result.createdAt
-            : now,
+        createdAt: createdAt === undefined ? now : createdAt,
         updatedAt:
           typeof args.result?.updatedAt === "string"
             ? args.result.updatedAt
@@ -359,7 +367,11 @@ export function useEditorCanvasAndScreens({
         ? historyFilesRef.current.map((file) =>
             file.id === args.fileId ? optimisticFile : file,
           )
-        : [...historyFilesRef.current, optimisticFile];
+        : insertAtFileOrderIndex(
+            historyFilesRef.current,
+            optimisticFile,
+            args.fileOrderIndex,
+          );
       void queryClient.cancelQueries({
         queryKey: ["action", "get-design", { id }],
         exact: true,
@@ -374,7 +386,11 @@ export function useEditorCanvasAndScreens({
             ? old.files.map((file: DesignFile) =>
                 file.id === args.fileId ? optimisticFile : file,
               )
-            : [...old.files, optimisticFile],
+            : insertAtFileOrderIndex(
+                old.files,
+                optimisticFile,
+                args.fileOrderIndex,
+              ),
         };
       });
     },

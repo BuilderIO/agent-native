@@ -1,3 +1,4 @@
+import { GUIDED_QUESTIONS_SUBMITTED_EVENT } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import {
   DESIGN_GENERATION_ATTEMPT_QUERY_PARAM,
   isDesignGenerationAttemptId,
@@ -5,6 +6,7 @@ import {
 import { promptLengthBucket } from "@shared/prompt-length-bucket";
 import { useEffect, useMemo, useRef } from "react";
 
+import { readAgentRunStatus } from "@/lib/agent-run-status";
 import {
   SYSTEM_CONTEXT_KEY,
   TEMPLATE_CONTEXT_KEY,
@@ -84,7 +86,8 @@ export function trackDesignPromptSubmitted({
   trackDesignRelay("design_prompt_submitted", {
     output_id: outputId,
     output_type: "design",
-    source,
+    // Not `source`: the browser relay sets `source: "client"` on every event.
+    prompt_source: source,
     has_text: prompt.trim().length > 0,
     prompt_length_bucket: promptLengthBucket(prompt),
     reference_types: referenceTypes,
@@ -101,22 +104,15 @@ type ReadyViewFile = {
   updatedAt?: string | null;
 };
 
-function outputFileSignatures(
-  files: readonly ReadyViewFile[],
-): Map<string, string> {
-  return new Map(
-    generationOutputFiles(files).map((file) => [
-      file.id,
-      `${file.updatedAt ?? ""}:${file.content.length}`,
-    ]),
-  );
-}
-
 const sentReadyViewAttempts = new Set<string>();
+// Per page, not per hook: the editor can mount this hook more than once, and
+// each instance hears the same run signals.
+const reportedReadyViewRuns = new Set<string>();
 
-/** Test-only: forget which generation attempts this page already reported. */
+/** Test-only: forget which runs and attempts this page already reported. */
 export function resetDesignReadyViewsForTest(): void {
   sentReadyViewAttempts.clear();
+  reportedReadyViewRuns.clear();
 }
 
 function readUrlGenerationAttemptId(): string | null {
@@ -134,127 +130,162 @@ function readUrlGenerationAttemptId(): string | null {
   }
 }
 
+const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
+const RUN_STATUS_ATTEMPTS = 3;
+const RUN_STATUS_RETRY_MS = 1500;
+
 /**
- * `design_ready_viewed`: the owner is looking at a finished generation that
- * left at least one renderable screen.
+ * Whether the server reports this exact run as completed. The chat's own
+ * "stopped running" signal says `run.completed` for every ending, so it cannot
+ * tell success from an error, an abort or a truncation. The run-state route
+ * also reports a truncated run as `completed` for older clients; only the
+ * terminal reason `done` marks a run that actually finished.
+ */
+async function runCompleted(threadId: string, runId: string): Promise<boolean> {
+  for (let attempt = 0; attempt < RUN_STATUS_ATTEMPTS; attempt += 1) {
+    const run = await readAgentRunStatus(threadId);
+    if (!run.ok || (run.runId && run.runId !== runId)) return false;
+    if (!run.active) {
+      if (run.status !== "completed") return false;
+      if (run.terminalReason) return run.terminalReason === "done";
+      // The reason is written just after the status; read again.
+    }
+    await new Promise((resolve) => setTimeout(resolve, RUN_STATUS_RETRY_MS));
+  }
+  return false;
+}
+
+/**
+ * `design_ready_viewed`: the owner has the design open with its screens when
+ * an agent run on it completes.
  *
- * A generation is one span of `generationActive` (a pending home-prompt
- * generation or an editor-tracked agent run). It counts as finished when that
- * span ends without a user stop and changed the design's output files; a span
- * that wrote nothing, or ended in a stop, is not a ready view. A page opened
- * from a `generate-design` link carries that run's attempt id and reports it
- * once when it loads already finished.
+ * Every agent run in the page announces itself with its run id, whoever
+ * started it (the home prompt, the editor, or a chat message), and counts once
+ * the server reports that exact run completed; an errored, aborted or
+ * truncated run never does. Whether the run produced output is the server's
+ * record, not the browser's: the event carries `run_id`, which
+ * `generation_completed` and `design_edited` also carry, so the warehouse
+ * keeps the runs that wrote screens. A page opened from a `generate-design`
+ * link reports that link's attempt once when it loads already finished.
  */
 export function useDesignReadyViewTracking({
   designId,
   isOwner,
   designLoaded,
-  generationActive,
   files,
-  stopCountRef,
 }: {
   designId: string | undefined;
   isOwner: boolean;
   designLoaded: boolean;
-  generationActive: boolean;
   files: readonly ReadyViewFile[];
-  /** Incremented whenever the user stops a generation. */
-  stopCountRef: { readonly current: number };
 }): void {
   // The editor stays mounted across in-app navigation, so the attempt id is
-  // read for each design rather than once: an id from one design's link must
-  // never be reported against the next design opened in the same page.
+  // read per design and per URL rather than once: an id from one link must
+  // never be reported against another design, or hide a newer link's id.
+  const search = typeof window === "undefined" ? "" : window.location.search;
   const urlAttemptId = useMemo(
     () => (designId ? readUrlGenerationAttemptId() : null),
-    [designId],
+    [designId, search],
   );
-  const episodeRef = useRef<{
-    designId: string;
-    baseline: Map<string, string>;
-    stopCount: number;
-  } | null>(null);
-  const cancelPendingRef = useRef<(() => void) | null>(null);
+  const latest = useRef({ designId, isOwner, designLoaded, files });
+  latest.current = { designId, isOwner, designLoaded, files };
+  const cancelSendsRef = useRef(new Set<() => void>());
 
-  useEffect(
-    () => () => {
-      cancelPendingRef.current?.();
-      cancelPendingRef.current = null;
-    },
-    [designId],
-  );
+  const send = useRef((properties: Record<string, unknown>) => {
+    // runWhenTabVisible calls back synchronously when the tab is visible, so
+    // the cancel handle may not exist yet when the send runs.
+    let sent = false;
+    const cancel = runWhenTabVisible(() => {
+      sent = true;
+      trackDesignRelay("design_ready_viewed", properties);
+    });
+    if (!sent) cancelSendsRef.current.add(cancel);
+  }).current;
+
+  useEffect(() => {
+    // Runs seen starting while this design was open, by run id. A run is
+    // confirmed at most once.
+    const runs = new Map<string, { threadId: string; ending: boolean }>();
+    const cancelSends = cancelSendsRef.current;
+    let disposed = false;
+    const onRunning = (event: Event) => {
+      try {
+        const detail = (event as CustomEvent).detail as {
+          isRunning?: unknown;
+          runId?: unknown;
+          threadId?: unknown;
+          tabId?: unknown;
+        } | null;
+        const runId = typeof detail?.runId === "string" ? detail.runId : "";
+        const threadId =
+          typeof detail?.threadId === "string"
+            ? detail.threadId
+            : typeof detail?.tabId === "string"
+              ? detail.tabId
+              : "";
+        if (!runId || !threadId) return;
+        const run = runs.get(runId);
+        if (detail?.isRunning === true) {
+          if (!run && latest.current.designLoaded) {
+            runs.set(runId, { threadId, ending: false });
+          }
+          return;
+        }
+        if (detail?.isRunning !== false || !run || run.ending) return;
+        run.ending = true;
+        void runCompleted(run.threadId, runId)
+          .then((completed) => {
+            if (disposed || !completed) return;
+            const { designId, isOwner, files } = latest.current;
+            const screenCount = generationOutputFiles(files).length;
+            if (!designId || !isOwner || screenCount === 0) return;
+            if (reportedReadyViewRuns.has(runId)) return;
+            reportedReadyViewRuns.add(runId);
+            send({
+              output_id: designId,
+              output_type: "design",
+              screen_count: screenCount,
+              is_owner: true,
+              run_id: runId,
+            });
+          })
+          .catch(() => {
+            // coercion-ok: an unconfirmed run is never reported.
+          });
+      } catch {
+        // coercion-ok: a failed analytics read must never affect the editor.
+      }
+    };
+    window.addEventListener(AGENT_CHAT_RUNNING_EVENT, onRunning);
+    return () => {
+      disposed = true;
+      window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, onRunning);
+      for (const cancel of cancelSends) cancel();
+      cancelSends.clear();
+    };
+  }, [designId, send]);
 
   useEffect(() => {
     try {
-      if (!designId || !designLoaded) return;
-      const episode =
-        episodeRef.current?.designId === designId ? episodeRef.current : null;
-      if (generationActive) {
-        if (!episode) {
-          episodeRef.current = {
-            designId,
-            baseline: outputFileSignatures(files),
-            stopCount: stopCountRef.current,
-          };
-        }
-        return;
-      }
-
-      // A URL attempt id names the run that produced the design the page
-      // opened on. It is consumed by its first report, so later in-page
-      // generations are not attributed to it.
-      const generationAttemptId =
-        urlAttemptId && !sentReadyViewAttempts.has(urlAttemptId)
-          ? urlAttemptId
-          : null;
-      if (episode) {
-        episodeRef.current = null;
-        if (episode.stopCount !== stopCountRef.current) return;
-        const current = outputFileSignatures(files);
-        const changed = [...current].some(
-          ([fileId, signature]) => episode.baseline.get(fileId) !== signature,
-        );
-        if (!changed) return;
-      } else if (!generationAttemptId) {
-        return;
-      }
-
+      if (!designId || !designLoaded || !isOwner || !urlAttemptId) return;
+      // A link's attempt is consumed by its first report, so later in-page
+      // runs are never attributed to it.
+      if (sentReadyViewAttempts.has(urlAttemptId)) return;
       const screenCount = generationOutputFiles(files).length;
-      if (!isOwner || screenCount === 0) return;
-      if (generationAttemptId) sentReadyViewAttempts.add(generationAttemptId);
-      const properties = {
+      if (screenCount === 0) return;
+      sentReadyViewAttempts.add(urlAttemptId);
+      send({
         output_id: designId,
         output_type: "design",
         screen_count: screenCount,
         is_owner: true,
-        ...(generationAttemptId
-          ? { generation_attempt_id: generationAttemptId }
-          : {}),
-      };
-      cancelPendingRef.current?.();
-      cancelPendingRef.current = runWhenTabVisible(() => {
-        cancelPendingRef.current = null;
-        trackDesignRelay("design_ready_viewed", properties);
+        generation_attempt_id: urlAttemptId,
       });
     } catch {
       // coercion-ok: a failed analytics send must never affect the editor.
     }
-  }, [
-    designId,
-    designLoaded,
-    files,
-    generationActive,
-    isOwner,
-    stopCountRef,
-    urlAttemptId,
-  ]);
+  }, [designId, designLoaded, files, isOwner, send, urlAttemptId]);
 }
-
-/**
- * Toolkit's `GUIDED_QUESTIONS_SUBMITTED_EVENT`, dispatched by the shared
- * guided-questions flow on every human submit delivered to the agent.
- */
-export const GUIDED_QUESTIONS_SUBMITTED_EVENT =
-  "agentNative.guidedQuestionsSubmitted";
 
 const VARIANT_SET_PATTERN = /\bfrom variant set ([A-Za-z0-9_-]+)\./;
 const VARIANT_DESIGN_PATTERN = /\bwith designId ([A-Za-z0-9_-]+)\b/;

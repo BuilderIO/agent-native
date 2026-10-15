@@ -3649,6 +3649,14 @@ const PATTERNS = [
     re: /\b(?:cache|caching|cache-control|stale-while-revalidate|SWR|CDN)\b[^.!?]{0,140}\b(?:wrong|broken|slow|again|regression|revert|reverted|no-cache|no-store|max-age=0|must-revalidate|fire|every few weeks)\b/i,
   },
   {
+    key: "request-path-schema",
+    label:
+      "Reported schema work on the request path, a missing framework table, or migration drift",
+    fixedBy:
+      "defineStore registry + store-migrations.lock.json in guard:release-schema-complete + framework-stores skill (2026-10-15)",
+    re: /\b(?:migrations?|ensure\w*Table|schema|ddl|CREATE TABLE)\b[^.!?]{0,80}\b(?:every (?:cold start|request|boot)|on cold start|hundreds of|not migrated|SchemaNotMigrated|relation [^ ]+ does not exist|missing (?:table|column)|drift(?:ed)?)\b|\b(?:hundreds of|every cold start|each cold start)\b[^.!?]{0,40}\b(?:migrations?|schema checks?|ddl)\b/i,
+  },
+  {
     key: "slow-list-query",
     label: "Reported a list/read that is slow in production",
     fixedBy:

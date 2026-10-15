@@ -531,7 +531,7 @@ describe("delegated A2A tool surface", () => {
   it("keeps framework automation tools on the delegated first request", () => {
     const source = readFileSync("src/server/agent-chat-plugin.ts", "utf8");
     const a2aActionsStart = source.indexOf(
-      "const a2aActions = attachToolSearch(",
+      "const a2aRegisteredActions = devActive",
     );
     const a2aToolSurfaceStart = source.indexOf(
       "const a2aToolSurface = createA2AEngineToolSurface(",

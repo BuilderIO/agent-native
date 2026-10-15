@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.208.0",
+  "version": "0.209.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -672,6 +672,7 @@
     "@agent-native/recap-cli": "workspace:^",
     "@anthropic-ai/sdk": "^0.90.0",
     "@babel/parser": "8.0.7",
+    "@better-auth/core": "1.7.6",
     "@clack/prompts": "^1.7.0",
     "@mcp-b/webmcp-polyfill": "^5.1.0",
     "@modelcontextprotocol/client": "2.0.0",
