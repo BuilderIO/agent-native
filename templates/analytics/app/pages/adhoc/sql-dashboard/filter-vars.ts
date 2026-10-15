@@ -1,4 +1,4 @@
-import type { DashboardFilter, FilterType } from "./types";
+import type { DashboardFilter, FilterPreset, FilterType } from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
@@ -62,14 +62,16 @@ export function isDashboardFilter(value: unknown): value is DashboardFilter {
             typeof option.label === "string",
         ))) &&
     (value.presets === undefined ||
-      (Array.isArray(value.presets) &&
-        value.presets.every(
-          (preset) =>
-            isRecord(preset) &&
-            typeof preset.label === "string" &&
-            Array.isArray(preset.values) &&
-            preset.values.every((v) => typeof v === "string"),
-        )))
+      (Array.isArray(value.presets) && value.presets.every(isFilterPreset)))
+  );
+}
+
+export function isFilterPreset(value: unknown): value is FilterPreset {
+  return (
+    isRecord(value) &&
+    typeof value.label === "string" &&
+    Array.isArray(value.values) &&
+    value.values.every((v) => typeof v === "string")
   );
 }
 

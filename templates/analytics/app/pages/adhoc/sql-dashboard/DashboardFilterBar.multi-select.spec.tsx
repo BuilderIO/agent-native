@@ -333,15 +333,58 @@ describe("multi-select dashboard filter", () => {
       expect(popoverButton("Paid").getAttribute("aria-pressed")).toBe("false");
     });
 
+    it("puts presets beside Select all, with no visible header", () => {
+      render("/dashboards/test?f_plan=free", withPresets);
+      act(() => trigger().click());
+
+      const row = popoverButton("Select all").parentElement;
+      expect(row?.contains(popoverButton("Paid"))).toBe(true);
+      expect(row?.contains(popoverButton("Clear all"))).toBe(true);
+      expect(
+        popover().querySelector('[role="group"]')?.getAttribute("aria-label"),
+      ).toBe("Presets");
+      expect(popover().textContent).not.toContain("Presets");
+    });
+
     it("hides presets while searching values", () => {
       render("/dashboards/test", withPresets);
       act(() => trigger().click());
-      expect(popover().querySelector('[role="group"]')?.textContent).toContain(
-        "Presets",
-      );
+      expect(popoverButton("Paid")).toBeTruthy();
 
       setSearchQuery("free");
       expect(() => popoverButton("Paid")).toThrow("button Paid not rendered");
+    });
+
+    it("skips malformed presets instead of failing the dashboard", () => {
+      const malformed = [
+        {
+          ...filters[0],
+          presets: [
+            null,
+            { label: "Broken", values: "self_serve" },
+            { label: "Paid", values: ["self_serve", "enterprise"] },
+          ],
+        },
+      ] as unknown as DashboardFilter[];
+      render("/dashboards/test?f_plan=self_serve,enterprise", malformed);
+      expect(trigger().textContent).toContain("Paid");
+
+      act(() => trigger().click());
+      expect(popoverButton("Paid")).toBeTruthy();
+      expect(() => popoverButton("Broken")).toThrow(
+        "button Broken not rendered",
+      );
+    });
+
+    it("renders no presets when the presets field is not a list", () => {
+      const malformed = [
+        { ...filters[0], presets: "Paid" },
+      ] as unknown as DashboardFilter[];
+      render("/dashboards/test", malformed);
+      act(() => trigger().click());
+
+      expect(popover().querySelector('[role="group"]')).toBeNull();
+      expect(optionLabel("Free")).toBeTruthy();
     });
   });
 });

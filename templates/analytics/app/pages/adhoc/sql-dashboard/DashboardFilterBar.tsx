@@ -44,6 +44,7 @@ import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import {
   FILTER_PARAM_PREFIX,
   isDateRangePresetFilter,
+  isFilterPreset,
   MULTI_SELECT_EMPTY,
   resolveDefault,
   resolveFilterVars,
@@ -402,7 +403,6 @@ function MultiSelectFilter({
   const labelId = useId();
   const triggerId = useId();
   const optionsListId = useId();
-  const presetsLabelId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const seenOptionValues = new Set<string>();
@@ -424,7 +424,11 @@ function MultiSelectFilter({
       options.find((option) => option.value === selectedValue)?.label ??
       selectedValue,
   );
-  const presets = filter.presets ?? [];
+  // Saves reject a malformed preset, but a config edited through the shared
+  // document reaches this render unchecked; skip the bad preset, not the page.
+  const presets = Array.isArray(filter.presets)
+    ? filter.presets.filter(isFilterPreset)
+    : [];
   const presetSelected = (preset: FilterPreset) =>
     new Set(preset.values).size === selectedSet.size &&
     preset.values.every((presetValue) => selectedSet.has(presetValue));
@@ -498,7 +502,11 @@ function MultiSelectFilter({
             </span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-64">
+        <PopoverContent
+          align="start"
+          // Room for Select all, a preset and Clear all on one row.
+          className={presets.length > 0 ? "w-72" : "w-64"}
+        >
           <MenuSearchInput
             aria-controls={optionsListId}
             aria-label={t("sqlDashboard.searchValues")}
@@ -506,38 +514,7 @@ function MultiSelectFilter({
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
-          {presets.length > 0 && !normalizedQuery && (
-            <div
-              role="group"
-              aria-labelledby={presetsLabelId}
-              className="border-b p-1"
-            >
-              <div
-                id={presetsLabelId}
-                className="px-2 py-1 text-xs font-medium text-muted-foreground"
-              >
-                {t("sqlDashboard.presets")}
-              </div>
-              {presets.map((preset) => {
-                const active = presetSelected(preset);
-                return (
-                  <Button
-                    key={preset.label}
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    aria-pressed={active}
-                    className="h-auto w-full justify-start gap-2 rounded-sm px-2 py-1.5 font-normal has-[>svg]:px-2 [&_svg]:size-4"
-                    onClick={() => applyPreset(preset)}
-                  >
-                    <IconCheck className={cn(!active && "invisible")} />
-                    <span className="min-w-0 truncate">{preset.label}</span>
-                  </Button>
-                );
-              })}
-            </div>
-          )}
-          <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5">
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b px-2 py-1.5">
             <Button
               type="button"
               variant="ghost"
@@ -547,12 +524,39 @@ function MultiSelectFilter({
             >
               {t("sqlDashboard.selectAll")}
             </Button>
+            {presets.length > 0 && !normalizedQuery && (
+              <div
+                role="group"
+                aria-label={t("sqlDashboard.presets")}
+                className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1"
+              >
+                {presets.map((preset) => {
+                  const active = presetSelected(preset);
+                  return (
+                    <Button
+                      key={preset.label}
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      aria-pressed={active}
+                      className={cn(
+                        "min-w-0 max-w-full",
+                        active && "bg-accent",
+                      )}
+                      onClick={() => applyPreset(preset)}
+                    >
+                      {active && <IconCheck />}
+                      <span className="min-w-0 truncate">{preset.label}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
             {selected.length > 0 && (
               <Button
                 type="button"
                 variant="ghost"
                 size="xs"
-                className="w-full justify-start"
                 onClick={() => setSelected([])}
               >
                 {t("sqlDashboard.clearAll")}
