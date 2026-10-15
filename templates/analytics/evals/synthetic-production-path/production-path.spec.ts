@@ -603,6 +603,7 @@ type SafeReasonCode =
   | "candidate_missing"
   | "production_path_failed"
   | "find_data_missing"
+  | "find_data_multiple_calls"
   | "unexpected_action"
   | "action_failed"
   | "usage_missing"
@@ -666,6 +667,7 @@ const SAFE_REASON_CODES = new Set<SafeReasonCode>([
   "candidate_missing",
   "production_path_failed",
   "find_data_missing",
+  "find_data_multiple_calls",
   "unexpected_action",
   "action_failed",
   "usage_missing",
@@ -1053,6 +1055,7 @@ function reasonForRun(
   if (counts.findDataCalls === 0) return "find_data_missing";
   if (counts.otherActionCalls > 0) return "unexpected_action";
   if (counts.failedActionCalls > 0) return "action_failed";
+  if (counts.findDataCalls !== 1) return "find_data_multiple_calls";
   if (!output.usage?.usageReported || !receipt.usageCaptured) {
     return "usage_missing";
   }
@@ -1462,6 +1465,40 @@ describe("Analytics synthetic production-path retrieval harness", () => {
         sourceIndexSourcesFreshness: null,
       }),
     ).toBe(false);
+  });
+
+  it("fails a ranked eval that invokes find-data more than once", () => {
+    const output = {
+      ok: true,
+      toolCallDetails: [
+        {
+          name: "find-data",
+          result: JSON.stringify({
+            results: [{ table: SYNTHETIC_CASES[0]!.expectedTable }],
+          }),
+        },
+        { name: "find-data", result: "{}" },
+      ],
+      usage: { usageReported: true },
+    } as unknown as AgentRunOutput;
+    const receipt: EvalProductionPathReceipt = {
+      productionAgentLoopInvoked: true,
+      requestPreparationInvoked: true,
+      systemPromptBuilt: true,
+      finalResponseGuardInstalled: true,
+      finalResponseGuardApplied: true,
+      usageCaptured: true,
+      prefetchStatus: "ok",
+      ownerEmail: IDENTITY.ownerEmail,
+      orgId: IDENTITY.orgId,
+      initialToolNames: ["find-data"],
+      availableActionNames: ["find-data"],
+      readOnlyActionNames: ["find-data"],
+    };
+
+    expect(reasonForRun(SYNTHETIC_CASES[0]!, output, receipt)).toBe(
+      "find_data_multiple_calls",
+    );
   });
 
   it("keeps harness cases synthetic and writes only the approved CSV schema", async () => {

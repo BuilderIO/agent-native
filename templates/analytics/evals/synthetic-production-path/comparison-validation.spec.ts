@@ -368,6 +368,37 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     );
   });
 
+  it("records multiple find-data calls as a contract failure", () => {
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
+    const afterStart = 1 + SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
+    const columns = rows[afterStart]!.split(",");
+    columns[7] = "0";
+    columns[8] = "find_data_multiple_calls";
+    columns[9] = "";
+    columns[10] = "false";
+    columns[11] = "2";
+    rows[afterStart] = columns.join(",");
+
+    const result = validateProductionPathComparisonCsv(rows.join("\n"));
+    expect(result.after.failedRuns).toBeGreaterThan(0);
+  });
+
+  it("rejects find_data_multiple_calls when the CSV records only one call", () => {
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
+    const afterStart = 1 + SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
+    const columns = rows[afterStart]!.split(",");
+    columns[7] = "0";
+    columns[8] = "find_data_multiple_calls";
+    columns[9] = "";
+    columns[10] = "false";
+    columns[11] = "1";
+    rows[afterStart] = columns.join(",");
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "find_data_multiple_calls reason does not match its action fields",
+    );
+  });
+
   it.each(["production_path_failed", "unexpected_action"] as const)(
     "rejects a %s row that claims a retrieval rank",
     (reasonCode) => {

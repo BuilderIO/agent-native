@@ -392,6 +392,7 @@ const REASON_CODES = new Set([
   "candidate_missing",
   "production_path_failed",
   "find_data_missing",
+  "find_data_multiple_calls",
   "unexpected_action",
   "action_failed",
   "usage_missing",
@@ -798,6 +799,18 @@ export function validateProductionPathComparisonCsv(
     ) {
       throw new Error(
         "Comparison CSV find_data_missing reason does not match its action fields.",
+      );
+    }
+    if (
+      row.reason_code === "find_data_multiple_calls" &&
+      (!row.completed ||
+        row.aborted ||
+        row.find_data_calls <= 1 ||
+        row.other_action_calls !== 0 ||
+        row.failed_action_calls !== 0)
+    ) {
+      throw new Error(
+        "Comparison CSV find_data_multiple_calls reason does not match its action fields.",
       );
     }
     if (

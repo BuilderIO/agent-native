@@ -2153,6 +2153,35 @@ describe("analytics query catalog", () => {
     expect(results).toEqual([]);
   });
 
+  it.each([
+    "WITH memberships AS (SELECT workspace_id, COUNT(*) AS user_id FROM workspace_memberships GROUP BY workspace_id), broken_rows (user_id, workspace_id, role) SELECT user_id, workspace_id, role FROM memberships",
+    "WITH memberships AS (SELECT user_id, workspace_id, role FROM workspace_memberships) invalid_tail",
+  ])("rejects malformed membership CTE definitions: %s", (sql) => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "malformed-membership-cte",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "role-roster",
+                title: "Users by workspace role",
+                sql,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
   it("rejects otherwise row-level dashboard output grouped by a time period", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "current workspace user roster with roles",
@@ -2209,6 +2238,36 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it("accepts membership as a validated inner join from user and workspace dimensions", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "workspace-role-membership-join-roster",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "role-roster",
+                title: "Users by workspace role",
+                sql: "SELECT u.email, w.name, m.role FROM users u JOIN workspace_memberships m ON u.id = m.user_id JOIN workspaces w ON w.id = m.workspace_id",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "dashboard-panel",
+      dashboardId: "workspace-role-membership-join-roster",
+      panelId: "role-roster",
+    });
+  });
+
   it("accepts reversed member-key join operands with narrowing filters", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "current workspace user roster with roles",
@@ -2246,6 +2305,9 @@ describe("analytics query catalog", () => {
     "SELECT u.email, w.name, m.role FROM workspace_memberships m JOIN users u ON m.workspace_id = u.id JOIN workspaces w ON m.user_id = w.id",
     "SELECT u.email, w.name, m.role FROM workspace_memberships m JOIN users u ON u.id = w.id JOIN workspaces w ON w.id = m.workspace_id",
     "SELECT u.email, m.role FROM workspace_memberships m CROSS JOIN users u ON m.user_id = u.id",
+    "SELECT u.email, w.name, m.role FROM users u LEFT JOIN workspace_memberships m ON u.id = m.user_id JOIN workspaces w ON w.id = m.workspace_id",
+    "SELECT e.email, w.name, m.role FROM workspace_memberships m JOIN user_emails e ON e.user_id = m.user_id JOIN workspaces w ON w.id = m.workspace_id",
+    "SELECT e.event_id, w.name, m.role FROM workspace_memberships m JOIN user_events e ON e.user_id = m.user_id JOIN workspaces w ON w.id = m.workspace_id",
   ])("rejects membership panels without verified identity joins: %s", (sql) => {
     const results = rankAnalyticsQueryCatalog({
       search: "current workspace user roster with roles",

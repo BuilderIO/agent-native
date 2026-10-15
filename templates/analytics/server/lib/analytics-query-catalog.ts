@@ -49,6 +49,25 @@ const MAX_CATALOG_DASHBOARD_HYDRATION = 24;
 // ponytail: scan the 200 most recently updated summaries; a search-backed index is the upgrade path if larger workspaces need older references.
 const MAX_CATALOG_DASHBOARD_SUMMARIES = 200;
 const MAX_CATALOG_DICTIONARY_ENTRIES = 200;
+const DASHBOARD_USER_DIMENSION_NAMES = new Set([
+  "user",
+  "users",
+  "member",
+  "members",
+  "person",
+  "persons",
+  "people",
+]);
+const DASHBOARD_ORGANIZATION_DIMENSION_NAMES = new Set([
+  "organization",
+  "organizations",
+  "org",
+  "orgs",
+  "workspace",
+  "workspaces",
+  "team",
+  "teams",
+]);
 const RETIRED_CATALOG_STATES = new Set([
   "deprecated",
   "obsolete",
@@ -157,6 +176,16 @@ export type AnalyticsQueryCatalogCandidate =
       sourceIndexStale?: boolean;
       sourceIndexFreshnessUnknown?: boolean;
     };
+
+type DashboardPanelCandidate = Extract<
+  AnalyticsQueryCatalogCandidate,
+  { kind: "dashboard-panel" }
+>;
+
+const dashboardMembershipOutputCache = new WeakMap<
+  DashboardPanelCandidate,
+  { query: string; result: boolean }
+>();
 
 export type AnalyticsQueryCatalogSearchResult = {
   candidates: AnalyticsQueryCatalogCandidate[];
@@ -1278,7 +1307,7 @@ function matchingSqlParenthesis(sql: string, openIndex: number): number | null {
 
 function dashboardCteDefinitions(
   query: string,
-): Map<string, DashboardCteDefinition> {
+): Map<string, DashboardCteDefinition> | null {
   const definitions = new Map<string, DashboardCteDefinition>();
   const sql = stripSqlComments(query);
   if (!sql) return definitions;
@@ -1292,24 +1321,24 @@ function dashboardCteDefinitions(
 
   while (cursor < sql.length) {
     const name = readSqlIdentifier(sql, cursor);
-    if (!name) return new Map();
+    if (!name || definitions.has(name.value)) return null;
     cursor = skipSqlWhitespace(sql, name.end);
     let columns: string[] | null = null;
     if (sql[cursor] === "(") {
       const close = matchingSqlParenthesis(sql, cursor);
-      if (close === null) return new Map();
+      if (close === null) return null;
       const parsedColumns = splitTopLevelSqlList(sql.slice(cursor + 1, close));
-      if (!parsedColumns) return new Map();
+      if (!parsedColumns) return null;
       columns = parsedColumns.map((column) => {
         const identifier = readSqlIdentifier(column, 0);
         return identifier?.value ?? "";
       });
-      if (columns.some((column) => !column)) return new Map();
+      if (columns.some((column) => !column)) return null;
       cursor = skipSqlWhitespace(sql, close + 1);
     }
 
     const asEnd = sqlKeywordEndAt(sql, cursor, "as");
-    if (asEnd === null) return new Map();
+    if (asEnd === null) return null;
     cursor = skipSqlWhitespace(sql, asEnd);
     const materializedEnd = sqlKeywordEndAt(sql, cursor, "materialized");
     if (materializedEnd !== null)
@@ -1324,18 +1353,23 @@ function dashboardCteDefinitions(
         cursor = skipSqlWhitespace(sql, notMaterializedEnd);
       }
     }
-    if (sql[cursor] !== "(") return new Map();
+    if (sql[cursor] !== "(") return null;
     const close = matchingSqlParenthesis(sql, cursor);
-    if (close === null) return new Map();
+    if (close === null) return null;
     definitions.set(name.value, {
       query: sql.slice(cursor + 1, close),
       columns,
     });
     cursor = skipSqlWhitespace(sql, close + 1);
-    if (sql[cursor] !== ",") break;
-    cursor = skipSqlWhitespace(sql, cursor + 1);
+    if (sql[cursor] === ",") {
+      cursor = skipSqlWhitespace(sql, cursor + 1);
+      if (cursor >= sql.length) return null;
+      continue;
+    }
+    if (sqlKeywordEndAt(sql, cursor, "select") === null) return null;
+    return definitions;
   }
-  return definitions;
+  return null;
 }
 
 function dashboardTopLevelRelationReferences(
@@ -1485,7 +1519,9 @@ function dashboardPhysicalRelationNames(
   visiting = new Set<string>(),
 ): string[] {
   const ctes = new Map(inheritedCtes);
-  for (const [name, definition] of dashboardCteDefinitions(query)) {
+  const queryCtes = dashboardCteDefinitions(query);
+  if (queryCtes === null) return [];
+  for (const [name, definition] of queryCtes) {
     ctes.set(name, definition);
   }
   return dashboardTopLevelRelationReferences(query).flatMap((relation) =>
@@ -1542,26 +1578,54 @@ function dashboardJoinIdentityRole(
   relationNames: string[],
 ): boolean {
   const normalizedColumn = column.replace(/[_-]+/g, " ").toLowerCase();
-  const normalizedRelations = relationNames
-    .join(" ")
-    .replace(/[_-]+/g, " ")
-    .toLowerCase();
+  if (!isCanonicalDashboardIdentityDimension(relationNames, role)) return false;
   if (role === "user") {
-    return (
-      /\b(?:users?|members?|people|persons?)\b/.test(normalizedRelations) &&
-      /^(?:id|user id|member id|person id|user key|member key|person key)$/.test(
-        normalizedColumn,
-      )
+    return /^(?:id|user id|member id|person id|user key|member key|person key)$/.test(
+      normalizedColumn,
     );
   }
-  return (
-    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(
-      normalizedRelations,
-    ) &&
-    /^(?:id|organization id|org id|workspace id|team id|organization key|org key|workspace key|team key)$/.test(
-      normalizedColumn,
-    )
+  return /^(?:id|organization id|org id|workspace id|team id|organization key|org key|workspace key|team key)$/.test(
+    normalizedColumn,
   );
+}
+
+function isCanonicalDashboardIdentityDimension(
+  relationNames: string[],
+  entity: "user" | "organization",
+): boolean {
+  if (relationNames.length !== 1) return false;
+  const leaf = relationNames[0]!.split(".").pop() ?? "";
+  const normalized = leaf
+    .replace(/["`]/g, "")
+    .toLowerCase()
+    .replace(/^(?:dim|dimension)_/, "");
+  const canonicalNames =
+    entity === "user"
+      ? DASHBOARD_USER_DIMENSION_NAMES
+      : DASHBOARD_ORGANIZATION_DIMENSION_NAMES;
+  return canonicalNames.has(normalized);
+}
+
+function dashboardJoinEqualityPairs(expression: string): Array<{
+  leftAlias: string;
+  leftColumn: string;
+  rightAlias: string;
+  rightColumn: string;
+}> {
+  const safeExpression = maskSqlStringLiterals(expression);
+  if (/\bor\b/i.test(safeExpression)) return [];
+  const identifier =
+    '(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*)';
+  const equality = new RegExp(
+    `(${identifier})\\s*\\.\\s*(${identifier})\\s*=\\s*(${identifier})\\s*\\.\\s*(${identifier})`,
+    "gi",
+  );
+  return Array.from(safeExpression.matchAll(equality), (match) => ({
+    leftAlias: match[1]!.replace(/["`]/g, "").toLowerCase(),
+    leftColumn: match[2]!.replace(/["`]/g, "").toLowerCase(),
+    rightAlias: match[3]!.replace(/["`]/g, "").toLowerCase(),
+    rightColumn: match[4]!.replace(/["`]/g, "").toLowerCase(),
+  }));
 }
 
 function dashboardJoinConnectsMembershipIdentity(
@@ -1571,38 +1635,24 @@ function dashboardJoinConnectsMembershipIdentity(
   joinedRelations: string[],
   membershipAliases: Map<string, string[]>,
 ): boolean {
-  const safeExpression = maskSqlStringLiterals(expression);
-  if (/\bor\b/i.test(safeExpression)) return false;
-  const identifier =
-    '(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*)';
-  const equality = new RegExp(
-    `(${identifier})\\s*\\.\\s*(${identifier})\\s*=\\s*(${identifier})\\s*\\.\\s*(${identifier})`,
-    "gi",
-  );
-  for (const match of safeExpression.matchAll(equality)) {
-    const [, leftAliasRaw, leftColumnRaw, rightAliasRaw, rightColumnRaw] =
-      match;
-    const leftAlias = leftAliasRaw!.replace(/["`]/g, "").toLowerCase();
-    const leftColumn = leftColumnRaw!.replace(/["`]/g, "").toLowerCase();
-    const rightAlias = rightAliasRaw!.replace(/["`]/g, "").toLowerCase();
-    const rightColumn = rightColumnRaw!.replace(/["`]/g, "").toLowerCase();
+  for (const pair of dashboardJoinEqualityPairs(expression)) {
     const otherAlias =
-      leftAlias === joinedAlias
-        ? rightAlias
-        : rightAlias === joinedAlias
-          ? leftAlias
+      pair.leftAlias === joinedAlias
+        ? pair.rightAlias
+        : pair.rightAlias === joinedAlias
+          ? pair.leftAlias
           : null;
     const otherColumn =
-      leftAlias === joinedAlias
-        ? rightColumn
-        : rightAlias === joinedAlias
-          ? leftColumn
+      pair.leftAlias === joinedAlias
+        ? pair.rightColumn
+        : pair.rightAlias === joinedAlias
+          ? pair.leftColumn
           : null;
     const joinedColumn =
-      leftAlias === joinedAlias
-        ? leftColumn
-        : rightAlias === joinedAlias
-          ? rightColumn
+      pair.leftAlias === joinedAlias
+        ? pair.leftColumn
+        : pair.rightAlias === joinedAlias
+          ? pair.rightColumn
           : null;
     if (!otherAlias || !otherColumn || !joinedColumn) continue;
     const membershipRelations = membershipAliases.get(otherAlias);
@@ -1615,6 +1665,50 @@ function dashboardJoinConnectsMembershipIdentity(
       continue;
     }
     return true;
+  }
+  return false;
+}
+
+function dashboardJoinConnectsJoinedMembership(
+  expression: string,
+  joinedAlias: string,
+  joinedMembershipRelations: string[],
+  joinedRoles: Map<string, "user" | "organization">,
+  physicalRelationsByAlias: Map<string, string[]>,
+): boolean {
+  for (const pair of dashboardJoinEqualityPairs(expression)) {
+    const otherAlias =
+      pair.leftAlias === joinedAlias
+        ? pair.rightAlias
+        : pair.rightAlias === joinedAlias
+          ? pair.leftAlias
+          : null;
+    const membershipColumn =
+      pair.leftAlias === joinedAlias
+        ? pair.leftColumn
+        : pair.rightAlias === joinedAlias
+          ? pair.rightColumn
+          : null;
+    const identityColumn =
+      pair.leftAlias === joinedAlias
+        ? pair.rightColumn
+        : pair.rightAlias === joinedAlias
+          ? pair.leftColumn
+          : null;
+    const role = otherAlias ? joinedRoles.get(otherAlias) : null;
+    if (!otherAlias || !membershipColumn || !identityColumn || !role) continue;
+    if (
+      joinedMembershipRelations.some((relation) =>
+        hasDashboardIdentityColumnAtSource(membershipColumn, relation, role),
+      ) &&
+      dashboardJoinIdentityRole(
+        identityColumn,
+        role,
+        physicalRelationsByAlias.get(otherAlias) ?? [],
+      )
+    ) {
+      return true;
+    }
   }
   return false;
 }
@@ -1661,6 +1755,24 @@ function dashboardJoinsPreserveMembershipIdentity(
   const sql = stripSqlComments(query);
   if (!sql) return false;
   for (const join of joins) {
+    const membershipRelations = memberships.get(join.alias);
+    if (membershipRelations) {
+      const on = dashboardJoinOnExpression(sql, join);
+      if (
+        join.joinKind !== "inner" ||
+        !on ||
+        !dashboardJoinConnectsJoinedMembership(
+          on,
+          join.alias,
+          membershipRelations,
+          joinedRoles,
+          physicalRelationsByAlias,
+        )
+      ) {
+        return false;
+      }
+      continue;
+    }
     const role = joinedRoles.get(join.alias);
     const on = dashboardJoinOnExpression(sql, join);
     if (
@@ -1733,7 +1845,9 @@ function dashboardProjectionExpressionHasIdentity(
   const path = simpleSqlIdentifierPath(parsed.expression);
   if (!path) return false;
   const ctes = new Map(inheritedCtes);
-  for (const [name, definition] of dashboardCteDefinitions(query)) {
+  const queryCtes = dashboardCteDefinitions(query);
+  if (queryCtes === null) return false;
+  for (const [name, definition] of queryCtes) {
     ctes.set(name, definition);
   }
 
@@ -1796,7 +1910,9 @@ function hasDashboardProjectionEntity(
   inheritedCtes: Map<string, DashboardCteDefinition> = new Map(),
 ): boolean {
   const ctes = new Map(inheritedCtes);
-  for (const [name, definition] of dashboardCteDefinitions(query)) {
+  const queryCtes = dashboardCteDefinitions(query);
+  if (queryCtes === null) return false;
+  for (const [name, definition] of queryCtes) {
     ctes.set(name, definition);
   }
   return expressions.some((projection) =>
@@ -1813,16 +1929,28 @@ function hasDashboardProjectionEntity(
 }
 
 function hasRowLevelDashboardMembershipOutput(
-  candidate: Extract<
-    AnalyticsQueryCatalogCandidate,
-    { kind: "dashboard-panel" }
-  >,
+  candidate: DashboardPanelCandidate,
 ) {
   if (typeof candidate.query !== "string") return false;
+  const cached = dashboardMembershipOutputCache.get(candidate);
+  if (cached?.query === candidate.query) return cached.result;
   const parsed = parseSimpleDashboardMembershipQuery(candidate.query);
-  if (!parsed) return false;
+  if (!parsed) {
+    dashboardMembershipOutputCache.set(candidate, {
+      query: candidate.query,
+      result: false,
+    });
+    return false;
+  }
   const inheritedCtes = dashboardCteDefinitions(candidate.query);
-  return parsed.every((branch) => {
+  if (inheritedCtes === null) {
+    dashboardMembershipOutputCache.set(candidate, {
+      query: candidate.query,
+      result: false,
+    });
+    return false;
+  }
+  const result = parsed.every((branch) => {
     const physicalRelations = dashboardPhysicalRelationNames(
       branch.sql,
       inheritedCtes,
@@ -1895,6 +2023,11 @@ function hasRowLevelDashboardMembershipOutput(
       )
     );
   });
+  dashboardMembershipOutputCache.set(candidate, {
+    query: candidate.query,
+    result,
+  });
+  return result;
 }
 
 function dashboardHasTopLevelCommaJoin(query: string): boolean {
