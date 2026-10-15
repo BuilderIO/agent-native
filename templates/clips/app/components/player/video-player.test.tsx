@@ -176,6 +176,42 @@ describe("VideoPlayer playback", () => {
     expect(playSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("runs queued frame steps in order instead of netting them", async () => {
+    const video = getVideo();
+
+    // A step back from the first frame can't move, so , , . ends one in.
+    await act(async () => {
+      handleRef.current?.stepFrame(-1);
+      handleRef.current?.stepFrame(-1);
+      handleRef.current?.stepFrame(1);
+    });
+
+    expect(video.currentTime).toBeCloseTo(1 / 30, 2);
+  });
+
+  it("only pauses while the key that paused playback is held", async () => {
+    const video = getVideo();
+    // A known duration keeps the pause from probing for one by seeking.
+    Object.defineProperty(video, "duration", { value: 10, configurable: true });
+    act(() => {
+      getPlayerSurface().click();
+    });
+    const playingAt = video.currentTime;
+
+    await act(async () => {
+      handleRef.current?.stepFrame(1);
+      handleRef.current?.stepFrame(1, true);
+      handleRef.current?.stepFrame(1, true);
+    });
+    expect(video.paused).toBe(true);
+    expect(video.currentTime).toBe(playingAt);
+
+    await act(async () => {
+      handleRef.current?.stepFrame(1);
+    });
+    expect(video.currentTime).toBeCloseTo(playingAt + 1 / 30, 2);
+  });
+
   it("keeps playback errors above the player controls", () => {
     const video = getVideo();
     vi.spyOn(video, "load").mockImplementation(() => {});

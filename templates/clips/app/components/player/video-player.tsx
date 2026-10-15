@@ -1087,7 +1087,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     seekToVisibleMsRef.current = seekToVisibleMs;
     const excludedRangesRef = useRef(excludedRanges);
     excludedRangesRef.current = excludedRanges;
-    const frameStepRef = useRef({ running: false, pending: 0 });
+    const frameStepRef = useRef({
+      running: false,
+      pending: [] as Array<1 | -1>,
+      pausedByPress: false,
+    });
     // Embedded players expose no frames to step through.
     const hasFrameAccess = !embedProvider && !isLoomEmbed;
 
@@ -1095,22 +1099,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       (direction: 1 | -1, repeat = false) => {
         const v = videoRef.current;
         if (!v || !hasFrameAccess) return;
+        const queue = frameStepRef.current;
         if (!v.paused) {
           pauseVideo();
+          // The press that paused only pauses, even while its key is held.
+          queue.pausedByPress = true;
           return;
         }
-        const queue = frameStepRef.current;
+        if (repeat && queue.pausedByPress) return;
+        queue.pausedByPress = false;
         if (queue.running) {
           // A held key repeats faster than seeks settle, so only separate
-          // presses queue up.
-          if (!repeat) queue.pending += direction;
+          // presses queue up. They run in order rather than netting out: at
+          // either end of the clip a step can't move to undo the next one.
+          if (!repeat) queue.pending.push(direction);
           return;
         }
         queue.running = true;
         void (async () => {
           try {
-            let next: number = direction;
-            while (next !== 0 && videoRef.current === v && v.paused) {
+            let next: 1 | -1 | undefined = direction;
+            while (next !== undefined && videoRef.current === v && v.paused) {
               await stepVideoFrame(
                 {
                   video: v,
@@ -1118,14 +1127,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   seekMs: (ms) => seekToVisibleMsRef.current(ms),
                   excludedRanges: excludedRangesRef.current,
                 },
-                next > 0 ? 1 : -1,
+                next,
               );
-              next = Math.sign(queue.pending);
-              queue.pending -= next;
+              next = queue.pending.shift();
             }
           } finally {
             queue.running = false;
-            queue.pending = 0;
+            queue.pending = [];
           }
         })();
       },
