@@ -36,6 +36,7 @@ import {
   type DragStartEvent,
   type CollisionDetection,
 } from "@dnd-kit/core";
+import { describeDashboardChanges } from "@shared/dashboard-change-summary";
 import { normalizeDashboardConfig } from "@shared/dashboard-config-normalization";
 import {
   IconArchive,
@@ -713,6 +714,11 @@ function SqlDashboardPageContent({
   useEffect(() => {
     dashboardUpdatedAtRef.current = dashboardUpdatedAt;
   }, [dashboardUpdatedAt]);
+  // A save runs before its edit renders, so this is the config it replaces.
+  const shownDashboardRef = useRef<SqlDashboardConfig | null>(null);
+  useEffect(() => {
+    shownDashboardRef.current = dashboard;
+  }, [dashboard]);
   const dashboardSaveQueueRef = useRef<{
     dashboardId: string;
     queue: ReturnType<typeof createDashboardSaveQueue<SqlDashboardConfig>>;
@@ -1287,9 +1293,12 @@ function SqlDashboardPageContent({
       }
       resetRevisionNavigation();
       holdDashboardConfig();
+      const changes = shownDashboardRef.current
+        ? describeDashboardChanges(shownDashboardRef.current, updated)
+        : null;
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
-      void trackSave(enqueueDashboardSave(dashboardId, updated))
+      void trackSave(enqueueDashboardSave(dashboardId, updated), changes)
         .then(({ isLatest }) => {
           if (!isLatest) return;
           queryClient.removeQueries({
@@ -1344,10 +1353,14 @@ function SqlDashboardPageContent({
       }
       resetRevisionNavigation();
       holdDashboardConfig();
+      const changes = shownDashboardRef.current
+        ? describeDashboardChanges(shownDashboardRef.current, updated)
+        : null;
       let isLatest: boolean;
       try {
         ({ isLatest } = await trackSave(
           enqueueDashboardSave(dashboardId, updated),
+          changes,
         ));
       } catch (err) {
         pendingConfigRef.current = null;

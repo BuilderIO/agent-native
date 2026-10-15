@@ -4,10 +4,12 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import type { DashboardChange } from "@shared/dashboard-change-summary";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { dashboardChangeLine } from "@/components/dashboard/dashboard-change-text";
 import {
   Tooltip,
   TooltipContent,
@@ -38,7 +40,8 @@ export function otherViewerCount(
 
 /**
  * Tracks the page's own saves: the header status reads `state`, and each save
- * gets one toast, replaced in place from "Saving…" to "Saved" with Undo.
+ * gets one toast, replaced in place from "Saving…" to "Saved" with Undo, and
+ * naming what the save changed when the caller passes `changes`.
  * `onUndo` must be stable; the toast calls it after later renders.
  */
 export function useDashboardSaveFeedback({
@@ -65,7 +68,10 @@ export function useDashboardSaveFeedback({
   }, [dashboardId]);
 
   const track = useCallback(
-    <T extends DashboardSaveResult>(save: Promise<T>): Promise<T> => {
+    <T extends DashboardSaveResult>(
+      save: Promise<T>,
+      changes?: DashboardChange[] | null,
+    ): Promise<T> => {
       const toastId = `dashboard-save:${dashboardId}`;
       setState({ status: "saving" });
       toast.loading(
@@ -79,22 +85,17 @@ export function useDashboardSaveFeedback({
           if (!isLatest) return;
           setState({ status: "saved" });
           const viewers = otherViewersRef.current;
-          toast.success(
-            shared
-              ? t("dashboardSaveStatus.savedShared")
-              : t("dashboardSaveStatus.saved"),
-            {
-              id: toastId,
-              description:
-                viewers === 1
-                  ? t("dashboardSaveStatus.oneOtherViewer")
-                  : viewers > 1
-                    ? t("dashboardSaveStatus.otherViewers", { count: viewers })
-                    : undefined,
-              action: { label: t("dashboard.undo"), onClick: onUndo },
-              duration: 6000,
-            },
-          );
+          toast.success(savedToastTitle(t, shared, changes), {
+            id: toastId,
+            description:
+              viewers === 1
+                ? t("dashboardSaveStatus.oneOtherViewer")
+                : viewers > 1
+                  ? t("dashboardSaveStatus.otherViewers", { count: viewers })
+                  : undefined,
+            action: { label: t("dashboard.undo"), onClick: onUndo },
+            duration: 6000,
+          });
         },
         (error: unknown) => {
           setState({
@@ -111,6 +112,29 @@ export function useDashboardSaveFeedback({
   );
 
   return { state, track };
+}
+
+function savedToastTitle(
+  t: ReturnType<typeof useT>,
+  shared: boolean,
+  changes: DashboardChange[] | null | undefined,
+): string {
+  const line = changes ? dashboardChangeLine(changes, 0, t) : null;
+  if (!line) {
+    return shared
+      ? t("dashboardSaveStatus.savedShared")
+      : t("dashboardSaveStatus.saved");
+  }
+  const change =
+    line.moreCount > 0
+      ? t("dashboardChanges.withMore", {
+          change: line.first,
+          count: line.moreCount,
+        })
+      : line.first;
+  return shared
+    ? t("dashboardSaveStatus.changeSavedShared", { change })
+    : t("dashboardSaveStatus.changeSaved", { change });
 }
 
 export function DashboardSaveStatus({

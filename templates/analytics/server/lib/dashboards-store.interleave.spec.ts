@@ -203,6 +203,7 @@ vi.mock("../db/index.js", () => {
       createdAt: { name: "createdAt" },
       createdBy: { name: "createdBy" },
       chatContext: { name: "chatContext" },
+      changeSummary: { name: "changeSummary" },
     },
     analysisRevisions: {
       id: { name: "id" },
@@ -406,6 +407,7 @@ const {
   DASHBOARD_SAVE_MAX_ATTEMPTS,
   listDashboardRevisionMetadata,
   parseRevisionChatContextMetadata,
+  restoreDashboardRevision,
 } = await import("./dashboards-store.js");
 
 const ctx = { email: "alice@example.com", orgId: null };
@@ -873,6 +875,57 @@ describe("revision chat metadata", () => {
     ]);
   });
 
+  it("distinguishes absent, valid, and unreadable change summaries", async () => {
+    state.revisions = [
+      {
+        id: "summarized",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "Traffic",
+        createdAt: "2026-07-09T00:03:00.000Z",
+        createdBy: null,
+        chatContext: null,
+        changeSummary: JSON.stringify({
+          changes: [{ kind: "panel-added", title: "DAU" }],
+          omitted: 2,
+        }),
+      },
+      {
+        id: "corrupt",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "Traffic",
+        createdAt: "2026-07-09T00:02:00.000Z",
+        createdBy: null,
+        chatContext: null,
+        changeSummary: "not-json",
+      },
+      {
+        id: "legacy",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "Traffic",
+        createdAt: "2026-07-09T00:01:00.000Z",
+        createdBy: null,
+        chatContext: null,
+      },
+    ];
+
+    const [summarized, corrupt, legacy] = await listDashboardRevisionMetadata(
+      "traffic",
+      ctx,
+    );
+    expect(summarized).toMatchObject({
+      changesStatus: "valid",
+      changes: [{ kind: "panel-added", title: "DAU" }],
+      omittedChanges: 2,
+    });
+    expect(corrupt.changesStatus).toBe("unreadable");
+    expect(corrupt).not.toHaveProperty("changes");
+    expect(legacy.changesStatus).toBe("absent");
+    expect(legacy).not.toHaveProperty("changes");
+  });
+
   it("distinguishes absent, valid, and unreadable legacy context", () => {
     expect(parseRevisionChatContextMetadata(null)).toEqual({
       chatContext: null,
@@ -886,5 +939,97 @@ describe("revision chat metadata", () => {
       chatContext: null,
       chatContextStatus: "unreadable",
     });
+  });
+});
+
+describe("revision change summaries", () => {
+  function signupsTable(templateWidth: number) {
+    return {
+      name: "Traffic",
+      panels: [
+        {
+          ...panel("signups"),
+          title: "Signups by Template",
+          chartType: "table",
+          config: {
+            columns: [{ key: "template", width: templateWidth }, { key: "n" }],
+          },
+        },
+      ],
+    };
+  }
+
+  it("records what a save changed on the revision it leaves behind", async () => {
+    state.dashboard.config = JSON.stringify(signupsTable(120));
+
+    await upsertDashboard(
+      "traffic",
+      "sql",
+      signupsTable(220),
+      ctx,
+      state.dashboard.updatedAt,
+    );
+
+    expect(state.revisions).toHaveLength(1);
+    expect(JSON.parse(state.revisions[0].config)).toEqual(signupsTable(120));
+    await expect(
+      listDashboardRevisionMetadata("traffic", ctx),
+    ).resolves.toMatchObject([
+      {
+        createdBy: "alice@example.com",
+        changesStatus: "valid",
+        changes: [
+          {
+            kind: "column-resized",
+            title: "Signups by Template",
+            columns: 1,
+            direction: "wider",
+          },
+        ],
+        omittedChanges: 0,
+      },
+    ]);
+  });
+
+  it("marks a restore and names what it put back", async () => {
+    state.dashboard.config = JSON.stringify({
+      name: "Traffic",
+      panels: [panel("a"), panel("b")],
+    });
+    state.revisions = [
+      {
+        id: "before-b",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "Traffic",
+        config: JSON.stringify({ name: "Traffic", panels: [panel("a")] }),
+        createdAt: "2026-07-09T00:01:00.000Z",
+        createdBy: "alice@example.com",
+        chatContext: null,
+      },
+    ];
+
+    const restored = await restoreDashboardRevision("traffic", "before-b", ctx);
+
+    const snapshot = state.revisions.find(
+      (row) => row.id === restored?.snapshotRevisionId,
+    );
+    expect(JSON.parse(snapshot.changeSummary)).toEqual({
+      changes: [
+        { kind: "version-restored" },
+        { kind: "panel-removed", title: "b" },
+      ],
+      omitted: 0,
+    });
+  });
+
+  it("records no change for a snapshot taken outside a save", async () => {
+    await createDashboardRevisionSnapshot("traffic", ctx);
+
+    expect(state.revisions).toHaveLength(1);
+    expect(state.revisions[0].changeSummary).toBeUndefined();
+    await expect(
+      listDashboardRevisionMetadata("traffic", ctx),
+    ).resolves.toMatchObject([{ changesStatus: "absent" }]);
   });
 });

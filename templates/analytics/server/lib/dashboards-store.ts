@@ -27,6 +27,13 @@ import {
   sql,
 } from "drizzle-orm";
 
+import {
+  describeDashboardChanges,
+  parseDashboardChangeSummary,
+  summarizeDashboardChanges,
+  type DashboardChange,
+  type DashboardChangeSummary,
+} from "../../shared/dashboard-change-summary";
 import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import {
@@ -123,12 +130,20 @@ export interface DashboardRevisionRecord {
   chatContext: AnalyticsRevisionChatContext | null;
 }
 
+export type RevisionChangeSummaryMetadata =
+  | { changesStatus: "absent" | "unreadable" }
+  | {
+      changesStatus: "valid";
+      changes: DashboardChange[];
+      omittedChanges: number;
+    };
+
 export type DashboardRevisionMetadata = Omit<
   DashboardRevisionRecord,
   "config"
 > & {
   chatContextStatus: RevisionChatContextStatus;
-};
+} & RevisionChangeSummaryMetadata;
 
 export type DashboardArchiveFilter = "active" | "archived" | "all";
 export type DashboardHiddenFilter = "visible" | "hidden" | "all";
@@ -366,6 +381,19 @@ export function parseRevisionChatContextMetadata(raw: unknown): {
   } catch {
     return { chatContext: null, chatContextStatus: "unreadable" };
   }
+}
+
+export function parseRevisionChangeSummaryMetadata(
+  raw: unknown,
+): RevisionChangeSummaryMetadata {
+  const parsed = parseDashboardChangeSummary(raw);
+  return parsed.status === "valid"
+    ? {
+        changesStatus: "valid",
+        changes: parsed.summary.changes,
+        omittedChanges: parsed.summary.omitted,
+      }
+    : { changesStatus: parsed.status };
 }
 
 function escapeLikeLiteral(value: string): string {
@@ -676,6 +704,7 @@ function rowToDashboardRevisionMetadata(row: any): DashboardRevisionMetadata {
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
     ...parseRevisionChatContextMetadata(row.chatContext),
+    ...parseRevisionChangeSummaryMetadata(row.changeSummary),
   };
 }
 
@@ -1632,11 +1661,18 @@ async function pruneDashboardRevisions(
   }
 }
 
+/**
+ * Records `dashboard` as a restore point. For a save, that is the state the
+ * save replaces, and `changeSummary` is what the save changes. A save whose
+ * prior state is already the newest revision (the agent's end-of-turn
+ * snapshot, say) adds no row, so what it changed goes unrecorded.
+ */
 async function snapshotDashboardRevision(
   db: any,
   dashboard: DashboardRecord,
   ctx: AccessCtx,
   chatContext: AnalyticsRevisionChatContext | null = requestRevisionChatContext(),
+  changeSummary: DashboardChangeSummary | null = null,
 ): Promise<string> {
   const config = stableStringify(dashboard.config);
   const [latest] = await db
@@ -1677,6 +1713,9 @@ async function snapshotDashboardRevision(
       createdAt: nextRevisionTimestamp(latest?.createdAt),
       createdBy: ctx.email,
       ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
+      ...(changeSummary
+        ? { changeSummary: JSON.stringify(changeSummary) }
+        : {}),
       ownerEmail: dashboard.ownerEmail,
       orgId: dashboard.orgId,
     })
@@ -1779,6 +1818,11 @@ async function upsertDashboardWithOutcome(
   if (nameChanged) {
     await assertDashboardNameIsAvailable(title, ctx, existing?.id);
   }
+  const changeSummary = existing
+    ? summarizeDashboardChanges(
+        describeDashboardChanges(existing.config, config),
+      )
+    : null;
   const persist = async (writeDb: any): Promise<void> => {
     if (existing) {
       const setValues = {
@@ -1812,6 +1856,7 @@ async function upsertDashboardWithOutcome(
             existing,
             ctx,
             requestRevisionChatContext(),
+            changeSummary,
           );
       } else {
         if (changed)
@@ -1820,6 +1865,7 @@ async function upsertDashboardWithOutcome(
             existing,
             ctx,
             requestRevisionChatContext(),
+            changeSummary,
           );
         const [row] = await writeDb
           .update(schema.dashboards)
@@ -2172,6 +2218,7 @@ export async function listDashboardRevisionMetadata(
       createdAt: schema.dashboardRevisions.createdAt,
       createdBy: schema.dashboardRevisions.createdBy,
       chatContext: schema.dashboardRevisions.chatContext,
+      changeSummary: schema.dashboardRevisions.changeSummary,
     })
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
@@ -2267,6 +2314,10 @@ export async function restoreDashboardRevision(
       existing,
       ctx,
       requestRevisionChatContext(),
+      summarizeDashboardChanges([
+        { kind: "version-restored" },
+        ...describeDashboardChanges(existing.config, revision.config),
+      ]),
     );
     const [row] = await tx
       .select()

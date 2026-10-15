@@ -173,6 +173,39 @@ describe("DashboardSaveStatus", () => {
     expect(onUndo).toHaveBeenCalledOnce();
   });
 
+  it("names the change in the saved toast", async () => {
+    const widened = {
+      kind: "column-resized" as const,
+      title: "Signups by Template",
+      columns: 1,
+      direction: "wider" as const,
+    };
+    const saveWith = async (
+      changes: Parameters<typeof feedback.track>[1],
+    ): Promise<string> => {
+      toastMock.success.mockClear();
+      const save = deferred<{ isLatest: boolean }>();
+      act(() => {
+        void feedback.track(save.promise, changes);
+      });
+      await act(async () => save.resolve({ isLatest: true }));
+      return toastMock.success.mock.calls[0][0];
+    };
+
+    render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
+    await expect(saveWith([widened])).resolves.toBe(
+      "Widened a column in “Signups by Template” · Saved for everyone",
+    );
+
+    render(<FeedbackProbe shared={false} otherViewers={0} onUndo={vi.fn()} />);
+    await expect(
+      saveWith([widened, { kind: "layout-changed" }, { kind: "other" }]),
+    ).resolves.toBe(
+      "Widened a column in “Signups by Template” +2 more · Saved",
+    );
+    await expect(saveWith([])).resolves.toBe("Saved");
+  });
+
   it("leaves the toast pending while a newer save is queued", async () => {
     render(<FeedbackProbe shared={false} otherViewers={0} onUndo={vi.fn()} />);
     const save = deferred<{ isLatest: boolean }>();
