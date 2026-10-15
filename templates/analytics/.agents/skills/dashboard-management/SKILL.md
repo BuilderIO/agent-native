@@ -256,8 +256,9 @@ The patch replaces the whole list, so include the sets already hidden.
 - A set's date that a panel also lists in `config.events` draws once.
 - `mutate-dashboard` rejects malformed events and other chart types.
 - Scheduled email reports draw key dates and panel events: the guide line,
-  badge, and label text, including on combo charts. Same-day labels join into
-  one; labels that would overlap move to a second row.
+  badge, and label text, including on combo charts. Labels sit in rows above the
+  plot: same-day labels join, a long one wraps at words, and days that find no
+  room are counted, not cut.
 
 ## Reusable Native Dashboard Patterns
 
