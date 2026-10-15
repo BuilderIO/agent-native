@@ -644,7 +644,8 @@ describe("Word delete", () => {
     keys(el, ["Alt+Backspace"]);
     expect(saved(el)).toBe("<p>hello&nbsp;</p>");
     keys(el, ["type:X"]);
-    expect(saved(el)).toBe("<p>hello&nbsp;X</p>");
+    // The nbsp only held the space while it trailed; text follows now.
+    expect(saved(el)).toBe("<p>hello X</p>");
   });
 
   it("keeps the space when the line ends in a break", () => {
