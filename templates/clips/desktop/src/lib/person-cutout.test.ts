@@ -103,6 +103,10 @@ describe("createCompositor", () => {
     };
   };
 
+  // WebGL2 context on which every call succeeds.
+  const workingWebgl = (): unknown =>
+    new Proxy(() => {}, { get: () => () => workingWebgl() });
+
   it("keeps the target free for Canvas 2D when WebGL setup fails", () => {
     vi.stubGlobal("document", { createElement: () => fakeCanvas() });
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -112,5 +116,32 @@ describe("createCompositor", () => {
 
     expect(compositor).toBeDefined();
     expect(target.contexts).toEqual(["2d"]);
+  });
+
+  it("uses Canvas 2D when the target has no WebGL after the probe passed", () => {
+    vi.stubGlobal("document", {
+      createElement: () => ({ getContext: () => workingWebgl() }),
+    });
+    const target = fakeCanvas();
+    const getContext = target.getContext.bind(target);
+    target.getContext = (type: string) =>
+      type === "webgl2" ? (target.contexts.push(type), null) : getContext(type);
+
+    const compositor = createCompositor(target as unknown as HTMLCanvasElement);
+
+    expect(compositor).toBeDefined();
+    expect(target.contexts).toContain("2d");
+  });
+
+  it("fails clearly when WebGL setup fails on the target after the probe passed", () => {
+    vi.stubGlobal("document", {
+      createElement: () => ({ getContext: () => workingWebgl() }),
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const target = fakeCanvas();
+
+    expect(() =>
+      createCompositor(target as unknown as HTMLCanvasElement),
+    ).toThrow("Canvas 2D is unavailable for the camera cut-out.");
   });
 });

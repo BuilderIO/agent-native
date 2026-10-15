@@ -495,11 +495,19 @@ function createCanvas2dCompositor(canvas: HTMLCanvasElement): Compositor {
  * Builds the WebGL compositor when it works, else the Canvas 2D one. A canvas
  * cannot switch to Canvas 2D once it holds a WebGL context, so WebGL setup is
  * tried on a scratch canvas first and the target stays free for the fallback.
+ * If WebGL still fails on the target, Canvas 2D is tried there; when the
+ * target is already held by WebGL that throws, and callers keep their
+ * non-cut-out camera.
  */
 export function createCompositor(canvas: HTMLCanvasElement): Compositor {
   if (webglCompositorWorks()) {
-    const webgl = createWebglCompositor(canvas);
-    if (webgl) return webgl;
+    try {
+      const webgl = createWebglCompositor(canvas);
+      if (webgl) return webgl;
+    } catch (err) {
+      console.warn("[person-cutout] WebGL compositor failed on target", err);
+    }
+    loseWebglContext(canvas);
   }
   return createCanvas2dCompositor(canvas);
 }
@@ -514,11 +522,16 @@ function webglCompositorWorks(): boolean {
     console.warn("[person-cutout] WebGL compositor unavailable", err);
     return false;
   } finally {
-    probe
-      .getContext("webgl2")
-      ?.getExtension("WEBGL_lose_context")
-      ?.loseContext();
+    loseWebglContext(probe);
   }
+}
+
+/** Frees the GPU context of a canvas whose WebGL setup was abandoned. */
+function loseWebglContext(canvas: HTMLCanvasElement) {
+  canvas
+    .getContext("webgl2")
+    ?.getExtension("WEBGL_lose_context")
+    ?.loseContext();
 }
 
 // --- Cut-out ---------------------------------------------------------------
