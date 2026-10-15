@@ -205,6 +205,48 @@ describe("DataNoteDialog", () => {
     );
   });
 
+  it("takes back the end date Fixed filled in when Fixed is unchecked", () => {
+    render({ note: CONNECT_UNDERCOUNT, markFixed: true });
+    const fixed = dialog().querySelector<HTMLElement>('[role="checkbox"]')!;
+    act(() => fixed.click());
+    expect(fixed.getAttribute("aria-checked")).toBe("false");
+    act(() => button("Save").click());
+
+    expect(mocks.save).toHaveBeenCalledWith(
+      expect.objectContaining({ endDate: null, status: "open", fix: null }),
+    );
+  });
+
+  it("keeps an open note's own end date when Fixed goes on and off again", () => {
+    render({ note: { ...CONNECT_UNDERCOUNT, endDate: "2026-10-12" } });
+    const fixed = dialog().querySelector<HTMLElement>('[role="checkbox"]')!;
+    act(() => fixed.click());
+    act(() => fixed.click());
+    act(() => button("Save").click());
+
+    expect(mocks.save).toHaveBeenCalledWith(
+      expect.objectContaining({ endDate: "2026-10-12", status: "open" }),
+    );
+  });
+
+  it("reopens a fixed note as ongoing, without the end date it was fixed on", () => {
+    render({ note: SETUP_INCIDENT });
+    const fixed = dialog().querySelector<HTMLElement>('[role="checkbox"]')!;
+    expect(fixed.getAttribute("aria-checked")).toBe("true");
+    act(() => fixed.click());
+    act(() => button("Save").click());
+
+    expect(mocks.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: SETUP_INCIDENT.id,
+        startDate: SETUP_INCIDENT.startDate,
+        endDate: null,
+        status: "open",
+        fix: null,
+      }),
+    );
+  });
+
   it("stays open for a click beside an edited note; Escape still discards it", async () => {
     const { onClose } = render({ note: SETUP_INCIDENT });
     await clickOverlay();

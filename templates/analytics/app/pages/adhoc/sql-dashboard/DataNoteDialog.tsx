@@ -58,6 +58,11 @@ interface FormState {
   note: string;
   startDate: string;
   endDate: string;
+  /**
+   * The end date unchecking Fixed puts back: the open note's own, or none for
+   * a note saved as fixed, which reopens as ongoing.
+   */
+  openEndDate: string;
   fixed: boolean;
   fix: string;
   matchEvents: string;
@@ -88,6 +93,7 @@ function initialForm(draft: DataNoteDraft): FormState {
     note: source.note ?? "",
     startDate: source.startDate ?? "",
     endDate: source.endDate ?? (marksFixed(draft) ? today() : ""),
+    openEndDate: source.status === "fixed" ? "" : (source.endDate ?? ""),
     fixed: marksFixed(draft) || source.status === "fixed",
     fix: source.fix ?? "",
     matchEvents: (source.matchEvents ?? []).join(", "),
@@ -323,7 +329,13 @@ function DataNoteForm({
                 <Label>{t("annotations.end")}</Label>
                 <OptionalDate
                   value={form.endDate}
-                  onChange={(endDate) => update({ endDate })}
+                  onChange={(endDate) =>
+                    update(
+                      form.fixed
+                        ? { endDate }
+                        : { endDate, openEndDate: endDate },
+                    )
+                  }
                   placeholder={t("annotations.ongoing")}
                   clearLabel={t("annotations.clearDate")}
                 />
@@ -337,12 +349,11 @@ function DataNoteForm({
                 id={`${ids}-fixed`}
                 checked={form.fixed}
                 onCheckedChange={(checked) =>
-                  update({
-                    fixed: checked === true,
-                    ...(checked === true && !form.endDate
-                      ? { endDate: today() }
-                      : {}),
-                  })
+                  update(
+                    checked === true
+                      ? { fixed: true, endDate: form.endDate || today() }
+                      : { fixed: false, endDate: form.openEndDate },
+                  )
                 }
               />
               <span>{t("dataNotes.fixed")}</span>
