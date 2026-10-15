@@ -218,7 +218,8 @@ for this. They live in two places:
 - **Key-date sets** hold moments that matter across charts, such as Launches or
   Product changes. A set belongs to the organization (to the user when there is
   no organization) and draws on every time chart of every dashboard. Read sets
-  with `list-key-dates`; add or edit a date with `save-key-date` (name the set
+  with `list-key-dates`, passing `dashboardId` for the ones a dashboard draws;
+  add or edit a date with `save-key-date` (name the set
   with `setName` and it is created if missing); rename or create a set with
   `save-key-date-set`; remove with `delete-key-date` or `delete-key-date-set`.
   Prefer a set to copying one date into many panels.
@@ -261,26 +262,30 @@ Annotations menu, which also adds and edits key dates and sets.
   badge, and label text, including on combo charts. Labels sit in rows above the
   plot: same-day labels join, a long one wraps at words, and days that find no
   room are counted, not cut.
-- Human Review previews of a dashboard draw the key dates of the dashboard's
-  organization, minus the sets it hides, even when the reviewer is in another
-  organization: `get-sql-dashboard` with `reviewPreview` returns them as
-  `keyDates`.
+- A dashboard draws the key dates of its owner's organization, minus the sets
+  it hides, even for a viewer or reviewer in another organization. There
+  `list-key-dates` returns `editable: false`: a date you save lands in your
+  own organization's sets, not on that dashboard. Human Review previews get
+  them from `get-sql-dashboard` with `reviewPreview` as `keyDates`.
 
 ## Data Notes
 
 A data note says the numbers on a chart are wrong or unusual for a stretch of
 time: an incident (`kind: "incident"`) or a tracking problem (`kind: "data"`).
 Use one instead of a key date whenever the point is "don't trust this range".
-Notes belong to the organization, like key-date sets. Read them with
-`list-data-notes`; add or change one with `save-data-note` (pass `id` to change
-only the fields given); remove with `delete-data-note`.
+Notes belong to the organization, like key-date sets, and a dashboard draws
+its owner organization's. Read them with `list-data-notes`, passing
+`dashboardId` for the ones a dashboard draws; add or change one with
+`save-data-note` (pass `id` to change only the fields given); remove with
+`delete-data-note`.
 
 - `matchEvents` lists the event names the problem affects. A note shows on every
-  chart whose SQL filters on one of them, matched exactly and case-sensitively:
-  either side of `=` (in `WHERE` or `CASE WHEN`), an `IN (...)` item, a `LIKE`
-  pattern, or a simple `CASE event WHEN` value. A name the SQL only selects as a
-  label, returns from `THEN`/`ELSE`, excludes (`!=`, `<>`, `NOT IN`, `NOT LIKE`),
-  or writes in a comment does not count, and neither does `= ANY(ARRAY[...])` or
+  chart whose SQL filters on one of them: either side of `=` (in `WHERE` or
+  `CASE WHEN`), an `IN (...)` item, or a simple `CASE event WHEN` value,
+  matched exactly and case-sensitively; or a `LIKE` pattern (`ILIKE` in any
+  case). A name the SQL only selects as a label, returns from `THEN`/`ELSE`,
+  excludes (`!=`, `<>`, or a `NOT` over its comparison or parentheses), or
+  writes in a comment does not count, and neither does `= ANY(ARRAY[...])` or
   `IN UNNEST([...])`. `unlessEvents` skips charts that also filter on the
   corrected event. Pin a note to specific charts with
   `panels: [{ dashboardId, panelId }]` when no event filter identifies them.

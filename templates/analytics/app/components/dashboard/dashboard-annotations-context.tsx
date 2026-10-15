@@ -52,8 +52,10 @@ const DashboardAnnotationsContext =
   createContext<DashboardAnnotationsValue>(NO_ANNOTATIONS);
 
 /**
- * Draws the organization's key dates, minus the sets this dashboard hides,
- * and its data notes, minus the ones hidden per chart, on every chart inside.
+ * Draws the dashboard's key dates, minus the sets it hides, and its data
+ * notes, minus the ones hidden per chart, on every chart inside. Both are its
+ * owner organization's, which differ from the viewer's when it was shared
+ * from another organization.
  */
 export function DashboardAnnotationsProvider({
   dashboardId,
@@ -67,10 +69,11 @@ export function DashboardAnnotationsProvider({
   children: ReactNode;
 }) {
   const t = useT();
-  const keyDateQuery = useActionQuery("list-key-dates", undefined, {
+  const scope = dashboardId ? { dashboardId } : undefined;
+  const keyDateQuery = useActionQuery("list-key-dates", scope, {
     staleTime: 60_000,
   });
-  const dataNoteQuery = useActionQuery("list-data-notes", undefined, {
+  const dataNoteQuery = useActionQuery("list-data-notes", scope, {
     staleTime: 60_000,
   });
   const keyDateData = keyDateQuery.data;
