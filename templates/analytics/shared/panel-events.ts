@@ -174,6 +174,22 @@ function containingBucket(points: readonly number[], target: number): number {
   return best;
 }
 
+/** The earliest row written on `day`, or -1 when no row is. */
+function firstRowOfDay(
+  rows: readonly { instant: number; day: number }[],
+  day: number,
+): number {
+  let best = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (
+      rows[i].day === day &&
+      (best < 0 || rows[i].instant < rows[best].instant)
+    )
+      best = i;
+  }
+  return best;
+}
+
 /**
  * The calendar day an x value is written on, as UTC ms. A zoned timestamp
  * keeps its own date: local midnight east of UTC is the previous UTC day.
@@ -186,9 +202,11 @@ function xDay(value: unknown, instant: number): number {
 
 /**
  * Snaps each event to the nearest x value. Daily axes match on the event's
- * date; an axis with several points per day matches on its time of day too.
- * Rows whose x is not a date (a null bucket, a total row) are skipped; events
- * outside the x range, and x axes with no dates at all, resolve to nothing.
+ * date. On an axis with several points per day, a timed event marks the
+ * bucket its instant falls in, and an untimed one the first row written on
+ * its date, or nothing when no row is. Rows whose x is not a date (a null
+ * bucket, a total row) are skipped; events outside the x range, and x axes
+ * with no dates at all, resolve to nothing.
  */
 export function resolvePanelEvents(
   events: unknown,
@@ -217,14 +235,23 @@ export function resolvePanelEvents(
       )
     : 0;
 
+  const rowFor = (event: PanelEvent): number => {
+    // Not UTC midnight: on offset rows that is an hour of another day, and in
+    // a window that starts later in the day it is before the first row.
+    if (subDaily && !event.time) {
+      return firstRowOfDay(rows, Date.parse(event.date));
+    }
+    const target = subDaily ? panelEventInstant(event) : Date.parse(event.date);
+    if (target < min || target >= max + Math.max(step, 1)) return -1;
+    return subDaily
+      ? containingBucket(points, target)
+      : nearestPoint(points, target);
+  };
+
   const resolved: ResolvedPanelEvent[] = [];
   for (const event of events) {
     if (!isValidPanelEvent(event)) continue;
-    const target = subDaily ? panelEventInstant(event) : Date.parse(event.date);
-    if (target < min || target >= max + Math.max(step, 1)) continue;
-    const best = subDaily
-      ? containingBucket(points, target)
-      : nearestPoint(points, target);
+    const best = rowFor(event);
     if (best < 0) continue;
     const { row } = rows[best];
     resolved.push({
