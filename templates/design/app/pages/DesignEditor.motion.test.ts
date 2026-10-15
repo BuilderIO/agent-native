@@ -172,8 +172,28 @@ describe("upsertMotionStyleKeyframes", () => {
         keyframes: [
           { t: 0, value: "1", ease: "ease" },
           { t: 0.5, value: "0.5", ease: "ease" },
-          { t: 1, value: "1", ease: "ease" },
         ],
+        label: "Hero",
+      },
+    ]);
+  });
+
+  it("creates only the edited keyframe for a new property at the timeline start", () => {
+    expect(
+      upsertMotionStyleKeyframes({
+        tracks: [],
+        targetNodeId: "hero",
+        label: "Hero",
+        styles: { opacity: "0.5" },
+        computedStyles: { opacity: "1" },
+        playhead: 0,
+        timelineDurationMs: 2000,
+      }),
+    ).toEqual([
+      {
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0.5", ease: "ease" }],
         label: "Hero",
       },
     ]);
@@ -249,7 +269,6 @@ describe("applyMotionStyleKeyframeEdit", () => {
     expect(next[0]?.keyframes).toEqual([
       { t: 0, value: "1", ease: "ease" },
       { t: 0.5, value: "0.5", ease: "ease" },
-      { t: 1, value: "1", ease: "ease" },
     ]);
   });
 

@@ -22,7 +22,7 @@ import type { MotionTimeline } from "./motion-timeline";
 const html = `<!doctype html>
 <html>
 <head>
-  <link rel="stylesheet" href="./site.css">
+  <link rel="preload" as="style" href="./site.css">
   <script src="./head.js"></script>
 </head>
 <body>
@@ -105,7 +105,9 @@ describe("HTML Motion source adapter", () => {
         "",
       ),
     ).toBe(html);
-    expect(edit.source).toContain('<link rel="stylesheet" href="./site.css">');
+    expect(edit.source).toContain(
+      '<link rel="preload" as="style" href="./site.css">',
+    );
     expect(edit.source).toContain('<script src="./head.js"></script>');
     expect(edit.source).toContain('<script src="./page.js"></script>');
     expect(edit.source).toContain("agent-native-motion-source:v3:");
@@ -429,6 +431,22 @@ describe("HTML Motion source adapter", () => {
       status: "invalid",
       error: { code: "unsupported-authored-motion" },
     });
+  });
+
+  it("fails closed instead of treating linked stylesheet-only HTML as absent", () => {
+    const source = `<!doctype html>
+<html>
+<head><link rel="stylesheet" href="./site.css"></head>
+<body><h1 data-agent-native-node-id="hero-title">Hello</h1></body>
+</html>`;
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(() => apply(source)).toThrow(
+      "HTML Motion cannot be added while linked stylesheets remain unresolved.",
+    );
   });
 
   it("round-trips one authored CSS animation with multiple properties in Alpine HTML", () => {

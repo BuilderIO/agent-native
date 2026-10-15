@@ -387,7 +387,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   ).toBeVisible();
   await expect(
     animationStyleBrowser.getByRole("button", { name: "Path" }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await captureMotionStep(page, "motion-animation-style-browser");
 
   const opacityPresetSave = page.waitForResponse(

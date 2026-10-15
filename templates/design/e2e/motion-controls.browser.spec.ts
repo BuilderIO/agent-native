@@ -248,6 +248,14 @@ test("Motion inspector states match the editable timeline", async ({
       has: page.getByRole("button", { name: "Close", exact: true }),
     });
   await expect(animationCatalog).toBeVisible();
+  for (const action of ["Position", "Scale", "Rotation", "Size", "Opacity"]) {
+    await expect(
+      animationCatalog.getByRole("button", { name: action, exact: true }),
+    ).toBeVisible();
+  }
+  await expect(
+    animationCatalog.getByRole("button", { name: "Path", exact: true }),
+  ).toHaveCount(0);
   await animationCatalog.evaluate(async (popover) => {
     const finiteAnimations = popover
       .getAnimations()
@@ -332,7 +340,7 @@ test("Motion inspector states match the editable timeline", async ({
       ),
     ).find((button) => button.getBoundingClientRect().width > 0);
     return {
-      viewportWidth: innerWidth,
+      viewportWidth: document.documentElement.clientWidth,
       menu: bounds(document.querySelector('[role="menu"]')),
       trigger: bounds(trigger ?? null),
     };
@@ -666,6 +674,104 @@ test("Motion inspector states match the editable timeline", async ({
   }
   await expect(page.getByRole("menuitem")).toHaveCount(6);
   await captureReferenceState(page, "motion-controls-text-add-menu");
+
+  await page.keyboard.press("Escape");
+  await selectByText(page, "Reference Rectangle", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+    deep: false,
+  });
+  const currentTime = dock.getByRole("textbox", { name: "Current time" });
+  const appearance = page
+    .getByRole("heading", { name: "Appearance", exact: true })
+    .locator("xpath=ancestor::section");
+  const opacity = appearance.locator('input[aria-label="Opacity" i]');
+  await expect(opacity).toBeVisible();
+  await currentTime.fill("0");
+  await currentTime.press("Tab");
+  await autoKeyframe.check();
+
+  const startOpacitySave = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await opacity.fill("70");
+  await opacity.press("Enter");
+  const savedStartOpacity = await startOpacitySave;
+  expect(savedStartOpacity.ok(), await savedStartOpacity.text()).toBe(true);
+  const opacityTimelineRow = dock.locator(
+    '[data-motion-property-row="opacity"]',
+  );
+  await expect(opacityTimelineRow).toBeVisible();
+  await expect(
+    opacityTimelineRow.getByRole("button", { name: "Add or remove keyframe" }),
+  ).toBeVisible();
+  const startTimeline = await getAction(request, "get-motion-timeline", {
+    designId,
+    sourceRef: fileId,
+  });
+  const opacityTrack = startTimeline.timelines?.[0]?.tracks?.find(
+    (track: { property: string; targetNodeId: string }) =>
+      track.property === "opacity" &&
+      track.targetNodeId === "e2e-motion-reference-rectangle",
+  );
+  expect(
+    opacityTrack?.keyframes?.map((keyframe: { t: number }) => keyframe.t),
+  ).toEqual([0]);
+  expect(
+    opacityTrack?.keyframes?.map(
+      (keyframe: { value: string }) => keyframe.value,
+    ),
+  ).toEqual(["0.7"]);
+  await captureReferenceState(
+    page,
+    "motion-controls-auto-key-new-track-at-start",
+  );
+
+  await currentTime.fill("1000");
+  await currentTime.press("Tab");
+  await selectByText(page, "Reference Rectangle Two", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+    deep: false,
+  });
+  const middleOpacitySave = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await opacity.fill("70");
+  await opacity.press("Enter");
+  const savedMiddleOpacity = await middleOpacitySave;
+  expect(savedMiddleOpacity.ok(), await savedMiddleOpacity.text()).toBe(true);
+  const middleTimeline = await getAction(request, "get-motion-timeline", {
+    designId,
+    sourceRef: fileId,
+  });
+  const middleOpacityTrack = middleTimeline.timelines?.[0]?.tracks?.find(
+    (track: { property: string; targetNodeId: string }) =>
+      track.property === "opacity" &&
+      track.targetNodeId === "e2e-motion-reference-rectangle-2",
+  );
+  expect(
+    middleOpacityTrack?.keyframes?.map((keyframe: { t: number }) => keyframe.t),
+  ).toEqual([0, 0.5]);
+  expect(
+    middleOpacityTrack?.keyframes?.map(
+      (keyframe: { value: string }) => keyframe.value,
+    ),
+  ).toEqual(["1", "0.7"]);
+  await expect(
+    opacityTimelineRow.getByRole("button", { name: "Add or remove keyframe" }),
+  ).toBeVisible();
+  await captureReferenceState(
+    page,
+    "motion-controls-auto-key-new-track-midpoint",
+  );
+  await autoKeyframe.uncheck();
 });
 
 test("a new motion preset applies to every selected target", async ({

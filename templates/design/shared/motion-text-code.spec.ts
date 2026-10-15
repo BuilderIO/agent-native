@@ -1241,6 +1241,32 @@ describe("Motion Text source and runtime", () => {
     ).toThrow("Motion text animation span exceeds the 120000ms runtime limit.");
   });
 
+  it("bounds line text spans by their maximum word-group count", () => {
+    const lineDocument: MotionTextDocument = {
+      version: 2,
+      animations: [
+        {
+          ...document.animations[0]!,
+          unit: "line",
+          staggerMs: 9_600,
+          delayMs: 0,
+          durationMs: 1_000,
+        },
+      ],
+    };
+    const thirteenLines =
+      '<div data-agent-native-node-id="headline">One two three four five six seven eight nine ten eleven twelve thirteen</div>';
+    const fourteenLines =
+      '<div data-agent-native-node-id="headline">One two three four five six seven eight nine ten eleven twelve thirteen fourteen</div>';
+
+    expect(() =>
+      injectMotionTextRuntime(thirteenLines, lineDocument),
+    ).not.toThrow();
+    expect(() => injectMotionTextRuntime(fourteenLines, lineDocument)).toThrow(
+      'Motion text target "headline" resolves to at most 14 line units whose animation span exceeds the 120000ms runtime limit.',
+    );
+  });
+
   it("groups line units by rendered line while keeping text content intact", () => {
     const lineDocument: MotionTextDocument = {
       ...document,

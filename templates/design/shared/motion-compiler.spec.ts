@@ -244,6 +244,21 @@ describe("compile — property is emitted safely", () => {
 });
 
 describe("parse — managed style fallback", () => {
+  it("round-trips a one-keyframe track through managed CSS", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.tracks[0]!.keyframes = [{ t: 0, value: "0.5", ease: "linear" }];
+
+    const { css } = compile(timeline);
+
+    expect(parse(css)).toEqual([
+      {
+        targetNodeId: "node1",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0.5", ease: "linear" }],
+      },
+    ]);
+  });
+
   it("injects and replaces the managed style block with tolerant close tags", () => {
     const first = injectManagedMotionCss(
       "<html><head></head><body><button>Hi</button></body></html>",

@@ -1015,7 +1015,15 @@ function readSource(
       "HTML Motion Path trim markers do not match the active Motion timeline.",
     );
   }
-  if (!document && !textDocument) return { status: "absent" };
+  if (!document && !textDocument) {
+    if (hasLinkedStylesheet(nodes)) {
+      sourceError(
+        "unsupported-authored-motion",
+        "HTML Motion cannot be added while linked stylesheets remain unresolved.",
+      );
+    }
+    return { status: "absent" };
+  }
 
   return {
     status: "valid",

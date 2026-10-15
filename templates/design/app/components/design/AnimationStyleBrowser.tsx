@@ -270,21 +270,6 @@ export function AnimationStyleBrowser({
                       </button>
                     </li>
                   ))}
-                  <li>
-                    <button
-                      type="button"
-                      disabled
-                      className="flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1.5 text-start text-xs text-muted-foreground opacity-50"
-                    >
-                      <IconTimelineEvent
-                        aria-hidden="true"
-                        className="size-3.5 shrink-0"
-                      />
-                      <span>
-                        {t("designEditor.motion.animationStyles.path")}
-                      </span>
-                    </button>
-                  </li>
                 </ul>
               ) : null}
               {categoryStyles.length > 0 ? (

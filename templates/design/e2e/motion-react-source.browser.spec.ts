@@ -626,7 +626,9 @@ test.describe.serial("React Motion source browser writeback", () => {
         response.request().method() === "POST",
       { timeout: 20_000 },
     );
-    await page.getByRole("option", { name: "Center out", exact: true }).click();
+    await page
+      .getByRole("option", { name: "Left to right", exact: true })
+      .click();
     const orderResponse = await orderSave;
     expect(orderResponse.ok(), await orderResponse.text()).toBe(true);
     await expect
@@ -640,7 +642,7 @@ test.describe.serial("React Motion source browser writeback", () => {
         timelines: [
           {
             textDocument: {
-              animations: [{ unit: "line", order: "center-out" }],
+              animations: [{ unit: "line", order: "left-to-right" }],
             },
           },
         ],

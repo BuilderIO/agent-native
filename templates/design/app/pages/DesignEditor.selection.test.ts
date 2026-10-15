@@ -1417,7 +1417,6 @@ describe("DesignEditor motion timeline hydration", () => {
         keyframes: [
           { t: 0, value: "1", ease: "ease" },
           { t: 0.5, value: "0.25", ease: "ease" },
-          { t: 1, value: "1", ease: "ease" },
         ],
       },
       {
@@ -1427,7 +1426,6 @@ describe("DesignEditor motion timeline hydration", () => {
         keyframes: [
           { t: 0, value: "rgb(34, 197, 94)", ease: "ease" },
           { t: 0.5, value: "rgb(255, 0, 0)", ease: "ease" },
-          { t: 1, value: "rgb(34, 197, 94)", ease: "ease" },
         ],
       },
     ]);

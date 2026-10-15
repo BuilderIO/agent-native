@@ -317,6 +317,14 @@ describe("evaluateMotionEase", () => {
 });
 
 describe("sampleMotionKeyframesAt", () => {
+  it("holds the value of a single keyframe across the track", () => {
+    const keyframes: MotionKeyframe[] = [{ t: 0, value: "0.5" }];
+
+    expect(sampleMotionKeyframesAt(keyframes, 0)).toBe("0.5");
+    expect(sampleMotionKeyframesAt(keyframes, 0.5)).toBe("0.5");
+    expect(sampleMotionKeyframesAt(keyframes, 1)).toBe("0.5");
+  });
+
   it("lerps plain numeric values linearly", () => {
     const keyframes: MotionKeyframe[] = [
       { t: 0, value: "0", ease: "linear" },

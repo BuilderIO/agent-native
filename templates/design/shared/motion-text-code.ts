@@ -632,7 +632,9 @@ function staticTextUnitCount(
         `Motion text target "${animation.targetNodeId}" exceeds the ${MAX_RUNTIME_UNITS}-unit runtime limit.`,
       );
     }
-    return null;
+    // Runtime lines are groups of animated word fragments. Their exact count
+    // depends on layout, so the fragment count is the safe source-side bound.
+    return fragmentCount;
   }
   if (animation.unit === "paragraph") {
     if (PARAGRAPH_TAGS.has(target.tagName ?? "")) return 1;
@@ -692,9 +694,11 @@ function assertSupportedStaticTextSpan(
     !Number.isFinite(animationSpanMs) ||
     animationSpanMs > MAX_TEXT_DURATION_MS
   ) {
+    const unitCountDescription =
+      animation.unit === "line" ? `at most ${unitCount}` : String(unitCount);
     sourceError(
       "unsupported-target",
-      `Motion text target "${animation.targetNodeId}" resolves to ${unitCount} ${animation.unit} units whose animation span exceeds the ${MAX_TEXT_DURATION_MS}ms runtime limit.`,
+      `Motion text target "${animation.targetNodeId}" resolves to ${unitCountDescription} ${animation.unit} units whose animation span exceeds the ${MAX_TEXT_DURATION_MS}ms runtime limit.`,
     );
   }
 }

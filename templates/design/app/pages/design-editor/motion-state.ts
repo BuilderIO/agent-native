@@ -545,20 +545,15 @@ export function upsertMotionStyleKeyframes(args: {
     if (value === baseValue) continue;
     const keyframes =
       t <= MOTION_KEYFRAME_TIME_EPSILON
-        ? [
-            { t: 0, value, ease },
-            { t: 1, value: baseValue, ease },
-          ]
-        : t >= 1 - MOTION_KEYFRAME_TIME_EPSILON
-          ? [
-              { t: 0, value: baseValue, ease },
-              { t: 1, value, ease },
-            ]
-          : [
-              { t: 0, value: baseValue, ease },
-              { t, value, ease },
-              { t: 1, value: baseValue, ease },
-            ];
+        ? [{ t: 0, value, ease }]
+        : [
+            { t: 0, value: baseValue, ease },
+            {
+              t: t >= 1 - MOTION_KEYFRAME_TIME_EPSILON ? 1 : t,
+              value,
+              ease,
+            },
+          ];
     nextTracks = [
       ...nextTracks,
       {

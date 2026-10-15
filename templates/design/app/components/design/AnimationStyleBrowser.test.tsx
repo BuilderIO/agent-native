@@ -228,6 +228,22 @@ describe("AnimationStyleBrowser", () => {
     expect(onApplyPreset).toHaveBeenCalledWith(basicStyles[0]);
   });
 
+  it("does not show a disabled Path placeholder among basic actions", async () => {
+    await render();
+
+    const basicHeading = Array.from(container.querySelectorAll("h3")).find(
+      (heading) => heading.textContent === "Basic",
+    );
+    const basicActions = Array.from(
+      basicHeading?.parentElement?.querySelectorAll<HTMLButtonElement>(
+        "button",
+      ) ?? [],
+    ).map((button) => button.textContent?.trim());
+
+    expect(basicActions).toEqual(["Position", "Opacity"]);
+    expect(container.textContent).not.toContain("Path");
+  });
+
   it("creates a source style from selected animation tracks", async () => {
     const onSaveStyle = vi.fn();
     await render({ onSaveStyle });
