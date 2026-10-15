@@ -314,30 +314,38 @@ describe("resolveDashboardFilterRestoreStep", () => {
 });
 
 describe("dashboardFilterPreferenceUpdate", () => {
+  function update(
+    saved: { filters?: Record<string, string>; viewId?: string },
+    search: string,
+    savedState: "loading" | "error" | "success" = "success",
+  ) {
+    return dashboardFilterPreferenceUpdate({
+      saved,
+      savedState,
+      searchParams: new URLSearchParams(search),
+    });
+  }
+
   it("saves an open view when the URL has no filters", () => {
-    expect(
-      dashboardFilterPreferenceUpdate({}, new URLSearchParams("view=q3")),
-    ).toEqual({ filters: {}, viewId: "q3" });
-    expect(
-      dashboardFilterPreferenceUpdate(
-        { filters: {}, viewId: "q3" },
-        new URLSearchParams("view=q3"),
-      ),
-    ).toBeNull();
+    expect(update({}, "view=q3")).toEqual({ filters: {}, viewId: "q3" });
+    expect(update({ filters: {}, viewId: "q3" }, "view=q3")).toBeNull();
   });
 
   it("saves nothing for an unfiltered dashboard with no view open", () => {
-    expect(
-      dashboardFilterPreferenceUpdate({}, new URLSearchParams("tab=activity")),
-    ).toBeNull();
+    expect(update({}, "tab=activity")).toBeNull();
   });
 
   it("drops the view once it is closed", () => {
     expect(
-      dashboardFilterPreferenceUpdate(
+      update(
         { filters: personalFilters, viewId: "q3" },
-        new URLSearchParams("f_timeRange=7d&f_emailFilter=all"),
+        "f_timeRange=7d&f_emailFilter=all",
       ),
     ).toEqual({ filters: personalFilters });
+  });
+
+  it("writes nothing until the preference has been read", () => {
+    expect(update({}, "view=q3&f_timeRange=7d", "loading")).toBeNull();
+    expect(update({}, "view=q3&f_timeRange=7d", "error")).toBeNull();
   });
 });

@@ -954,6 +954,11 @@ function SqlDashboardPageContent({
   } = useUserPref<{ filters: Record<string, string>; viewId?: string }>(
     filterPrefKey,
   );
+  const savedFiltersState = filtersLoaded
+    ? "success"
+    : filtersError
+      ? "error"
+      : "loading";
 
   const {
     views,
@@ -1097,11 +1102,7 @@ function SqlDashboardPageContent({
       savedFilters: savedFilters?.filters,
       savedViewId,
       viewsState: dashboardViewsState,
-      savedFiltersState: filtersLoaded
-        ? "success"
-        : filtersError
-          ? "error"
-          : "loading",
+      savedFiltersState,
       progress: previousProgress,
     });
     filterRestoreProgress.current = restoreStep.progress;
@@ -1166,8 +1167,7 @@ function SqlDashboardPageContent({
       { replace: true },
     );
   }, [
-    filtersLoaded,
-    filtersError,
+    savedFiltersState,
     dashboardViewsState,
     loaded,
     dashboard,
@@ -1209,10 +1209,11 @@ function SqlDashboardPageContent({
       if (filterPreferenceSaveState === "changed") {
         skipFilterPreferenceSave.current = null;
       }
-      const update = dashboardFilterPreferenceUpdate(
-        savedFilters,
+      const update = dashboardFilterPreferenceUpdate({
+        saved: savedFilters,
+        savedState: savedFiltersState,
         searchParams,
-      );
+      });
       if (update) saveFilterPref(update);
     }, 1500);
     return () => clearTimeout(saveTimer.current);
@@ -1223,8 +1224,7 @@ function SqlDashboardPageContent({
     savedFilters,
     saveFilterPref,
     reportScreenshot,
-    filtersLoaded,
-    filtersError,
+    savedFiltersState,
     dashboardViewsState,
   ]);
 

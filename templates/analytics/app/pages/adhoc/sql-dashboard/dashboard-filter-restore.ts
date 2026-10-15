@@ -76,10 +76,18 @@ export function dashboardFilterParams(
   return filters;
 }
 
-export function dashboardFilterPreferenceUpdate(
-  saved: { filters?: Record<string, string>; viewId?: string },
-  searchParams: URLSearchParams,
-): { filters: Record<string, string>; viewId?: string } | null {
+export function dashboardFilterPreferenceUpdate({
+  saved,
+  savedState,
+  searchParams,
+}: {
+  saved: { filters?: Record<string, string>; viewId?: string };
+  savedState: "loading" | "error" | "success";
+  searchParams: URLSearchParams;
+}): { filters: Record<string, string>; viewId?: string } | null {
+  // An unread preference (still loading, or failed) is not an empty one: skip
+  // the write rather than compare against the `{}` the hook returns meanwhile.
+  if (savedState !== "success") return null;
   const filters = dashboardFilterParams(searchParams);
   const viewId = searchParams.get("view") ?? undefined;
   if (sameDashboardFilterMap(saved.filters, filters) && saved.viewId === viewId)
