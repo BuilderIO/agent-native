@@ -71,6 +71,7 @@ describe("data-note actions", () => {
             panels: [
               { id: "failures", sql: counts("builder_connect_failed") },
               { id: "clicks", sql: counts("builder connect clicked") },
+              { id: "intro", chartType: "section", sql: "" },
             ],
             annotations: {
               hiddenDataNotes: [
@@ -101,6 +102,35 @@ describe("data-note actions", () => {
       expect(mocks.listDataNotes).toHaveBeenCalledWith(owner);
       const { addedBy: _, ...incident } = SETUP_INCIDENT;
       expect(result).toEqual({ notes: [incident], editable: false });
+    });
+
+    it("drops pins to the owner's other dashboards, and notes only a section is pinned to", async () => {
+      shared(false);
+      const pinned = {
+        ...SKIPS_UNTRACKED,
+        matchEvents: ["no_chart_counts_this"],
+        panels: [
+          { dashboardId: "shared-dashboard", panelId: "failures" },
+          { dashboardId: "owner-only-dashboard", panelId: "pipeline" },
+        ],
+      };
+      const onSection = {
+        ...CONNECT_UNDERCOUNT,
+        matchEvents: ["no_chart_counts_this"],
+        panels: [{ dashboardId: "shared-dashboard", panelId: "intro" }],
+      };
+      mocks.listDataNotes.mockResolvedValue([pinned, onSection] as never);
+
+      const result = await actions.list.run({
+        dashboardId: "shared-dashboard",
+      });
+
+      expect(result.notes).toEqual([
+        expect.objectContaining({
+          id: SKIPS_UNTRACKED.id,
+          panels: [{ dashboardId: "shared-dashboard", panelId: "failures" }],
+        }),
+      ]);
     });
 
     it("keeps the notes it hides for a reader who can show them again", async () => {
