@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import { createDashboardSaveQueue } from "./dashboard-save-queue";
 
 function deferred() {
-  let resolve!: (result: { changed: boolean }) => void;
+  let resolve!: (result: { changed: boolean; updatedAt?: string }) => void;
   let reject!: (error: unknown) => void;
-  const promise = new Promise<{ changed: boolean }>((done, fail) => {
-    resolve = done;
-    reject = fail;
-  });
+  const promise = new Promise<{ changed: boolean; updatedAt?: string }>(
+    (done, fail) => {
+      resolve = done;
+      reject = fail;
+    },
+  );
   return { promise, resolve, reject };
 }
 
@@ -32,13 +34,17 @@ describe("dashboard save queue", () => {
     });
     expect(save).toHaveBeenCalledTimes(1);
 
-    firstSave.resolve({ changed: true });
+    firstSave.resolve({ changed: true, updatedAt: "v1" });
     await vi.waitFor(() => {
       expect(save).toHaveBeenCalledWith({ panels: ["second-row"] });
     });
     secondSave.resolve({ changed: false });
 
-    await expect(first).resolves.toEqual({ isLatest: false, changed: true });
+    await expect(first).resolves.toEqual({
+      isLatest: false,
+      changed: true,
+      updatedAt: "v1",
+    });
     await expect(second).resolves.toEqual({ isLatest: true, changed: false });
   });
 

@@ -62,7 +62,9 @@ current state first, then syncs open dashboard editors.
 On the page, each of an editor's own saves shows a toast: "Saved for everyone"
 (org or public visibility; "Saved" when private), how many others have the
 dashboard open, and Undo. That Undo, like "undo my last change" in chat,
-restores the newest revision from `list-dashboard-revisions`.
+restores the newest revision from `list-dashboard-revisions`, but only while
+the dashboard is as that save left it: once someone else has saved, it fails
+rather than taking their change back.
 
 Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.

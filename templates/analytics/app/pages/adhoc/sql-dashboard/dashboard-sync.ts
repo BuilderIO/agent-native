@@ -56,6 +56,17 @@ export function createDashboardAdoptionHold({
   };
 }
 
+/**
+ * The hold left after one dashboard's save fails. The page may have moved on
+ * to another dashboard whose own save holds it by now; that hold stays.
+ */
+export function releaseDashboardAdoptionHold(
+  hold: DashboardAdoptionHold | null,
+  dashboardId: string,
+): DashboardAdoptionHold | null {
+  return hold?.dashboardId === dashboardId ? null : hold;
+}
+
 export function shouldAdoptDashboardQueryResult({
   dashboardId,
   loaded,

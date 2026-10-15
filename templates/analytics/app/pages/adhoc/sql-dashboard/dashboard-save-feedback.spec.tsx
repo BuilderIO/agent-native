@@ -19,7 +19,8 @@ const toastMock = vi.hoisted(() => ({
 vi.mock("sonner", () => ({ toast: toastMock }));
 
 const ME = "me@example.com";
-const WROTE = { changed: true };
+type SaveOutcome = { changed: boolean; updatedAt?: string };
+const WROTE = { changed: true, updatedAt: "v1" };
 
 let container: HTMLDivElement;
 let root: Root;
@@ -96,7 +97,7 @@ describe("useDashboardSaveFeedback", () => {
   it("turns one toast from saving into saved, with the viewer count and Undo", async () => {
     const onUndo = vi.fn();
     render(<FeedbackProbe shared otherViewers={2} onUndo={onUndo} />);
-    const save = deferred<{ changed: boolean }>();
+    const save = deferred<SaveOutcome>();
 
     act(() => {
       void track(save.promise);
@@ -114,13 +115,13 @@ describe("useDashboardSaveFeedback", () => {
       action: { label: "Undo" },
     });
     options.action.onClick();
-    expect(onUndo).toHaveBeenCalledOnce();
+    expect(onUndo).toHaveBeenCalledExactlyOnceWith("v1");
   });
 
   it("leaves the toast pending until the newest save lands", async () => {
     render(<FeedbackProbe shared={false} otherViewers={0} onUndo={vi.fn()} />);
-    const first = deferred<{ changed: boolean }>();
-    const second = deferred<{ changed: boolean }>();
+    const first = deferred<SaveOutcome>();
+    const second = deferred<SaveOutcome>();
 
     act(() => {
       void track(first.promise);
@@ -136,7 +137,7 @@ describe("useDashboardSaveFeedback", () => {
 
   it("offers Undo only when a save the toast covers changed the dashboard", async () => {
     render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
-    const unchanged = deferred<{ changed: boolean }>();
+    const unchanged = deferred<SaveOutcome>();
     act(() => {
       void track(unchanged.promise);
     });
@@ -144,8 +145,8 @@ describe("useDashboardSaveFeedback", () => {
     expect(toastMock.success).not.toHaveBeenCalled();
     expect(toastMock.dismiss).toHaveBeenCalledWith("dashboard-save:d1");
 
-    const wrote = deferred<{ changed: boolean }>();
-    const thenUnchanged = deferred<{ changed: boolean }>();
+    const wrote = deferred<SaveOutcome>();
+    const thenUnchanged = deferred<SaveOutcome>();
     act(() => {
       void track(wrote.promise);
       void track(thenUnchanged.promise);
@@ -157,7 +158,7 @@ describe("useDashboardSaveFeedback", () => {
 
   it("drops the pending toast when the newest save fails", async () => {
     render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
-    const save = deferred<{ changed: boolean }>();
+    const save = deferred<SaveOutcome>();
 
     act(() => {
       void track(save.promise).catch(() => {});
@@ -167,10 +168,28 @@ describe("useDashboardSaveFeedback", () => {
     expect(toastMock.success).not.toHaveBeenCalled();
   });
 
+  it("keeps Saved and Undo for an earlier write when the newest save fails", async () => {
+    const onUndo = vi.fn();
+    render(<FeedbackProbe shared otherViewers={0} onUndo={onUndo} />);
+    const wrote = deferred<SaveOutcome>();
+    const failed = deferred<SaveOutcome>();
+
+    act(() => {
+      void track(wrote.promise);
+      void track(failed.promise).catch(() => {});
+    });
+    await act(async () => wrote.resolve(WROTE));
+    await act(async () => failed.reject(new Error("Conflict")));
+
+    expect(toastMock.success).toHaveBeenCalledOnce();
+    toastMock.success.mock.calls[0][1].action.onClick();
+    expect(onUndo).toHaveBeenCalledExactlyOnceWith("v1");
+  });
+
   it("keeps a newer save's toast when an earlier save fails", async () => {
     render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
-    const first = deferred<{ changed: boolean }>();
-    const second = deferred<{ changed: boolean }>();
+    const first = deferred<SaveOutcome>();
+    const second = deferred<SaveOutcome>();
 
     act(() => {
       void track(first.promise).catch(() => {});
@@ -193,7 +212,7 @@ describe("useDashboardSaveFeedback", () => {
         onUndo={onUndo}
       />,
     );
-    const save = deferred<{ changed: boolean }>();
+    const save = deferred<SaveOutcome>();
     act(() => {
       void track(save.promise);
     });
