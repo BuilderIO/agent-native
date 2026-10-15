@@ -5,6 +5,8 @@ const messages = {
     whatIsThis: "What is this?",
     off: "Off",
     none: "None",
+    noneExplanation:
+      "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
     custom: "Custom…",
     customLabel: "Custom length",
     customAmount: "Length",

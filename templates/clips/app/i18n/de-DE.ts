@@ -5,6 +5,8 @@ const messages = {
     whatIsThis: "Was ist das?",
     off: "Aus",
     none: "Keine",
+    noneExplanation:
+      "„Keine“ bedeutet, dass neue Clips keine frühere Bildschirmzeit enthalten. Rewind zeichnet deinen Bildschirm weiter auf, solange es eingeschaltet ist. Wähle unten „Ausschalten“, um die Aufnahme zu stoppen.",
     custom: "Benutzerdefiniert…",
     customLabel: "Benutzerdefinierte Dauer",
     customAmount: "Dauer",

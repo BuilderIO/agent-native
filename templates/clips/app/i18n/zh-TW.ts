@@ -5,6 +5,8 @@ const messages = {
     whatIsThis: "這是什麼？",
     off: "關",
     none: "無",
+    noneExplanation:
+      "「無」表示新的 Clip 不會包含先前的螢幕時間。Rewind 開啟時仍會持續錄製螢幕。若要停止，請選擇下方的「關閉」。",
     custom: "自訂…",
     customLabel: "自訂長度",
     customAmount: "長度",

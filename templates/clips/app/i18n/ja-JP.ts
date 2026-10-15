@@ -7,6 +7,8 @@ const messages = {
     whatIsThis: "これは何ですか？",
     off: "オフ",
     none: "なし",
+    noneExplanation:
+      "「なし」は、新しいClipに録画前の画面を含めないという意味です。Rewindがオンの間は画面を録画し続けます。停止するには、下の「オフにする」を選択してください。",
     custom: "カスタム…",
     customLabel: "カスタムの長さ",
     customAmount: "長さ",

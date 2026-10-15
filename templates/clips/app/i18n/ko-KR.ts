@@ -5,6 +5,8 @@ const messages = {
     whatIsThis: "이것은 무엇입니까?",
     off: "끔",
     none: "없음",
+    noneExplanation:
+      "‘없음’은 새 Clip에 이전 화면 시간이 포함되지 않는다는 뜻입니다. Rewind가 켜져 있는 동안 화면은 계속 녹화됩니다. 중지하려면 아래의 ‘끄기’를 선택하세요.",
     custom: "사용자 지정…",
     customLabel: "사용자 지정 길이",
     customAmount: "길이",

@@ -7,6 +7,8 @@ const messages = {
     whatIsThis: "ما هذا؟",
     off: "إيقاف",
     none: "لا شيء",
+    noneExplanation:
+      "تعني «لا شيء» أن المقاطع الجديدة لن تتضمن وقت الشاشة السابق. سيواصل Rewind تسجيل الشاشة ما دام مفعّلًا. اختر «إيقاف» أدناه لإيقافه.",
     custom: "مخصص…",
     customLabel: "مدة مخصصة",
     customAmount: "المدة",

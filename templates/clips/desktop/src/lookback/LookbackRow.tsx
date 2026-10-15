@@ -12,6 +12,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -176,6 +177,11 @@ export function LookbackRow({
             </>
           ) : null}
         </DropdownMenuRadioGroup>
+        {shownSeconds === 0 ? (
+          <DropdownMenuLabel className="whitespace-normal text-start font-normal leading-4">
+            {t("lookbackContext.noneExplanation")}
+          </DropdownMenuLabel>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem inset onSelect={openCustom}>
           {t("lookbackContext.custom")}

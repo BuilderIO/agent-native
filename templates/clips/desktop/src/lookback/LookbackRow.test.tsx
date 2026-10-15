@@ -200,6 +200,9 @@ describe("LookbackRow with Rewind on", () => {
     expect(buttonWithText("Turn on Rewind")).toBeUndefined();
 
     openMenu();
+    expect(document.body.textContent).not.toContain(
+      "None means new Clips won’t include earlier screen time.",
+    );
     expect(menuItemTexts()).toEqual([
       "None",
       "30 s",
@@ -217,6 +220,16 @@ describe("LookbackRow with Rewind on", () => {
 
     expect(trigger().textContent).toContain("None");
     expect(host.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("explains that None excludes earlier screen time without stopping Rewind", () => {
+    render({ seconds: 0, rewindOn: true });
+
+    openMenu();
+
+    expect(document.body.textContent).toContain(
+      "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
+    );
   });
 
   it("turns Rewind off from the menu without changing the length", () => {

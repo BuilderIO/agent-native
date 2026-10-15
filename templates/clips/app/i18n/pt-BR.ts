@@ -7,6 +7,8 @@ const messages = {
     whatIsThis: "O que é isto?",
     off: "Desativado",
     none: "Nenhum",
+    noneExplanation:
+      "“Nenhum” significa que novos Clips não incluirão o tempo de tela anterior. O Rewind continuará gravando sua tela enquanto estiver ligado. Selecione “Desativar” abaixo para parar.",
     custom: "Personalizado…",
     customLabel: "Duração personalizada",
     customAmount: "Duração",
