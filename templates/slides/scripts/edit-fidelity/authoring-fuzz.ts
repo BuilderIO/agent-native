@@ -628,15 +628,19 @@ export function browserSessionNavigationRequestIdentity(
   return { status: "identified", kind, sessionId: sessionIds[0] };
 }
 
-export function cleanupNavigationSessionRequestKey(identity: {
+export function cleanupNavigationSessionRequestKeys(identity: {
   kind: "poll" | "heartbeat";
   sessionId: string;
   pathname: string;
 }) {
-  return identity.kind === "heartbeat" &&
+  const keys = [`${identity.kind}:${identity.sessionId}`];
+  if (
+    identity.kind === "heartbeat" &&
     identity.pathname === "/_agent-native/browser-sessions"
-    ? "heartbeat:registration"
-    : `${identity.kind}:${identity.sessionId}`;
+  ) {
+    keys.push("heartbeat:registration");
+  }
+  return keys;
 }
 
 type IdentifiedBrowserSessionRequest = Extract<

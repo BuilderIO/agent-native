@@ -31,7 +31,7 @@ import {
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
   browserSessionNavigationRequestIdentity,
-  cleanupNavigationSessionRequestKey,
+  cleanupNavigationSessionRequestKeys,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
   isFirefoxBrowserSessionConsoleError,
@@ -5620,7 +5620,7 @@ async function runAuthoringFuzzQa(
     let cleanupNavigationCompetingPollStarted = false;
     const cleanupNavigationCompetingRequestUrls = new Set<string>();
     const cleanupNavigationCompetingSessionRequests = new Set<string>();
-    const cleanupSessionRequestKey = cleanupNavigationSessionRequestKey;
+    const cleanupSessionRequestKeys = cleanupNavigationSessionRequestKeys;
     const cleanupSessionIdentityFor = (
       request: any,
     ): CleanupSessionIdentity | null => {
@@ -5692,9 +5692,9 @@ async function runAuthoringFuzzQa(
         if (cleanupNavigationStarted && isBrowserSessionRequest(request)) {
           cleanupNavigationCompetingRequestUrls.add(request.url());
           if (sessionIdentity) {
-            cleanupNavigationCompetingSessionRequests.add(
-              cleanupSessionRequestKey(sessionIdentity),
-            );
+            for (const key of cleanupSessionRequestKeys(sessionIdentity)) {
+              cleanupNavigationCompetingSessionRequests.add(key);
+            }
           }
         }
         if (
@@ -5975,8 +5975,8 @@ async function runAuthoringFuzzQa(
           ({ request, startedAt, sessionIdentity, ...candidate }) => {
             const finishedAt = cleanupRequestFinishedAt.get(request);
             const competingSessionRequestStarted = sessionIdentity
-              ? cleanupNavigationCompetingSessionRequests.has(
-                  cleanupSessionRequestKey(sessionIdentity),
+              ? cleanupSessionRequestKeys(sessionIdentity).some((key) =>
+                  cleanupNavigationCompetingSessionRequests.has(key),
                 )
               : cleanupNavigationCompetingRequestUrls.has(candidate.url);
             return {

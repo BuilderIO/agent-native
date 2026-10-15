@@ -17,7 +17,7 @@ import {
   isSlashCommandNavigationStateReady,
   createRetiredBrowserSessionErrorCorrelator,
   browserSessionNavigationRequestIdentity,
-  cleanupNavigationSessionRequestKey,
+  cleanupNavigationSessionRequestKeys,
   browserSessionIdAfterRequest,
   authoringFuzzBrowserSessionCorsHeaders,
   authoringFuzzBrowserSessionResponse,
@@ -2609,28 +2609,42 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
   ).toBe(false);
 });
 
-it("correlates cleanup registrations by their shared endpoint", () => {
-  const registrationKey = (sessionId: string) =>
-    cleanupNavigationSessionRequestKey({
-      kind: "heartbeat",
-      sessionId,
-      pathname: "/_agent-native/browser-sessions",
-    });
+it("correlates cleanup registrations by endpoint and session", () => {
+  const keys = (
+    kind: "poll" | "heartbeat",
+    sessionId: string,
+    pathname: string,
+  ) => cleanupNavigationSessionRequestKeys({ kind, sessionId, pathname });
+  const overlaps = (left: string[], right: string[]) =>
+    left.some((key) => right.includes(key));
+  const registrationPath = "/_agent-native/browser-sessions";
+  const heartbeatPath = (sessionId: string) =>
+    `/_agent-native/browser-sessions/${sessionId}/heartbeat`;
 
-  expect(registrationKey("old-session")).toBe(registrationKey("new-session"));
   expect(
-    cleanupNavigationSessionRequestKey({
-      kind: "heartbeat",
-      sessionId: "old-session",
-      pathname: "/_agent-native/browser-sessions/old-session/heartbeat",
-    }),
-  ).not.toBe(
-    cleanupNavigationSessionRequestKey({
-      kind: "heartbeat",
-      sessionId: "new-session",
-      pathname: "/_agent-native/browser-sessions/new-session/heartbeat",
-    }),
-  );
+    overlaps(
+      keys("heartbeat", "old-session", registrationPath),
+      keys("heartbeat", "new-session", registrationPath),
+    ),
+  ).toBe(true);
+  expect(
+    overlaps(
+      keys("heartbeat", "old-session", registrationPath),
+      keys("heartbeat", "old-session", heartbeatPath("old-session")),
+    ),
+  ).toBe(true);
+  expect(
+    overlaps(
+      keys("heartbeat", "old-session", registrationPath),
+      keys("heartbeat", "new-session", heartbeatPath("new-session")),
+    ),
+  ).toBe(false);
+  expect(
+    overlaps(
+      keys("heartbeat", "old-session", heartbeatPath("old-session")),
+      keys("heartbeat", "new-session", heartbeatPath("new-session")),
+    ),
+  ).toBe(false);
 });
 
 it("accepts Firefox's retired-session warning when the request finished during the reload", () => {
