@@ -102,6 +102,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Tooltip,
   TooltipContent,
@@ -621,6 +622,11 @@ async function saveDashboard(
 
 const TILE_HIGHLIGHT_MS = 2000;
 
+// The tooltip trigger around each item replaces its `data-state`, so the
+// selected mode is styled from `aria-checked`, which the trigger leaves alone.
+const DASHBOARD_MODE_ITEM_CLASS =
+  "h-6 px-2 text-xs text-muted-foreground aria-checked:bg-accent aria-checked:text-foreground aria-checked:shadow-sm";
+
 export default function SqlDashboardPage() {
   const { session } = useSession();
 
@@ -697,6 +703,7 @@ function SqlDashboardPageContent({
   const [redoRevisionIds, setRedoRevisionIds] = useState<string[]>([]);
   const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
   const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
@@ -714,6 +721,10 @@ function SqlDashboardPageContent({
   } | null>(null);
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
+  // Every dashboard opens in view mode, where nothing on the page saves for
+  // everyone: drag handles, column edits, and inline renames exist only while
+  // an editor has switched to edit mode.
+  const editing = canEdit && editMode;
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
   const canCertify =
     !reportScreenshot &&
@@ -752,6 +763,7 @@ function SqlDashboardPageContent({
     title: dashboard?.name,
     panelCount: dashboard?.panels.length,
     canEdit,
+    editing,
   });
   const isDemoDashboard = dashboard?.demo?.id === "demo-node-exporter";
   const showDemoIntro =
@@ -980,6 +992,7 @@ function SqlDashboardPageContent({
     setDashboardUpdatedAt(null);
     setDashboardUpdatedBy(null);
     setResourceAccess(null);
+    setEditMode(false);
     resetRevisionNavigation();
     revisionRestoreInFlightRef.current = false;
     if (!dashboardId) setLoaded(true);
@@ -1456,7 +1469,7 @@ function SqlDashboardPageContent({
   ]);
 
   useEffect(() => {
-    if (reportScreenshot) return;
+    if (!editing) return;
 
     const handleUndoShortcut = (event: KeyboardEvent) => {
       if (
@@ -1489,9 +1502,9 @@ function SqlDashboardPageContent({
     canEdit,
     dashboardId,
     dashboardRevisions,
+    editing,
     handleRedo,
     handleUndo,
-    reportScreenshot,
     restoreDashboardRevision.isPending,
   ]);
 
@@ -2040,7 +2053,7 @@ function SqlDashboardPageContent({
   useSetPageTitle(
     reportScreenshot ? null : dashboard ? (
       <div className="flex min-w-0 items-center gap-2">
-        {editingName && canEdit ? (
+        {editingName && editing ? (
           <Input
             size="sm"
             ref={nameInputRef}
@@ -2051,7 +2064,7 @@ function SqlDashboardPageContent({
             className="w-full sm:w-64 text-lg font-semibold"
             autoFocus
           />
-        ) : canEdit ? (
+        ) : editing ? (
           <button
             className="group flex min-w-0 items-center gap-1 truncate text-lg font-semibold hover:text-primary"
             onClick={() => {
@@ -2095,6 +2108,50 @@ function SqlDashboardPageContent({
           agentActive={agentActive}
           currentUserEmail={session?.email}
         />
+        {canEdit ? (
+          <ToggleGroup
+            type="single"
+            value={editing ? "edit" : "view"}
+            onValueChange={(value) => {
+              if (!value) return;
+              setEditMode(value === "edit");
+              trackEvent("dashboard_mode_changed", {
+                app_name: "analytics",
+                template_name: "analytics",
+                mode: value,
+              });
+            }}
+            aria-label={t("dashboardMode.label")}
+            className="h-8 gap-0.5 rounded-md border p-0.5"
+          >
+            {/* The hints are wider than their buttons, so a hoverable hint
+                would stay open over the neighbouring button and block its hint. */}
+            <Tooltip disableHoverableContent>
+              <TooltipTrigger asChild>
+                <ToggleGroupItem
+                  value="view"
+                  className={DASHBOARD_MODE_ITEM_CLASS}
+                >
+                  <IconEye className="h-3.5 w-3.5" />
+                  {t("dashboardMode.view")}
+                </ToggleGroupItem>
+              </TooltipTrigger>
+              <TooltipContent>{t("dashboardMode.viewHint")}</TooltipContent>
+            </Tooltip>
+            <Tooltip disableHoverableContent>
+              <TooltipTrigger asChild>
+                <ToggleGroupItem
+                  value="edit"
+                  className={DASHBOARD_MODE_ITEM_CLASS}
+                >
+                  <IconPencil className="h-3.5 w-3.5" />
+                  {t("dashboardMode.edit")}
+                </ToggleGroupItem>
+              </TooltipTrigger>
+              <TooltipContent>{t("dashboardMode.editHint")}</TooltipContent>
+            </Tooltip>
+          </ToggleGroup>
+        ) : null}
         {dashboardId && (
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
@@ -2136,7 +2193,7 @@ function SqlDashboardPageContent({
             }
           />
         ) : null}
-        {canEdit ? (
+        {editing ? (
           <AddPanelPopover
             onSave={handleSavePanel}
             dashboardId={dashboardId ?? ""}
@@ -2184,7 +2241,7 @@ function SqlDashboardPageContent({
             {dashboardId ? (
               <>
                 <DropdownMenuSeparator />
-                {canEdit ? (
+                {editing ? (
                   <DropdownMenuItem
                     disabled={!canUndo || restoreDashboardRevision.isPending}
                     aria-keyshortcuts="Meta+Z"
@@ -2201,7 +2258,7 @@ function SqlDashboardPageContent({
                     </span>
                   </DropdownMenuItem>
                 ) : null}
-                {canEdit ? (
+                {editing ? (
                   <DropdownMenuItem
                     disabled={!canRedo || restoreDashboardRevision.isPending}
                     aria-keyshortcuts="Meta+Shift+Z"
@@ -2505,7 +2562,7 @@ function SqlDashboardPageContent({
         </Alert>
       ) : null}
       {/* Description (click to edit) */}
-      {editingDescription && canEdit ? (
+      {editingDescription && editing ? (
         <Textarea
           ref={descriptionInputRef}
           value={descriptionInput}
@@ -2525,22 +2582,22 @@ function SqlDashboardPageContent({
       ) : !reportScreenshot && dashboard.description ? (
         <button
           className={
-            canEdit
+            editing
               ? "text-sm text-muted-foreground hover:text-foreground text-left flex items-start gap-1.5 w-full group"
               : "text-sm text-muted-foreground text-left flex items-start gap-1.5 w-full"
           }
           onClick={() => {
-            if (!canEdit) return;
+            if (!editing) return;
             setDescriptionInput(dashboard.description ?? "");
             setEditingDescription(true);
           }}
         >
           <span className="flex-1">{dashboard.description}</span>
-          {canEdit ? (
+          {editing ? (
             <IconPencil className="h-3 w-3 mt-0.5 shrink-0 opacity-0 group-hover:opacity-60" />
           ) : null}
         </button>
-      ) : canEdit ? (
+      ) : editing ? (
         <button
           className="text-xs text-muted-foreground/60 hover:text-muted-foreground flex items-center gap-1"
           onClick={() => {
@@ -2628,9 +2685,9 @@ function SqlDashboardPageContent({
         <DndContext
           sensors={sensors}
           collisionDetection={dashboardCollisionDetection}
-          onDragStart={canEdit ? handleDragStart : undefined}
-          onDragOver={canEdit ? handleDragOver : undefined}
-          onDragEnd={canEdit ? handleDragEnd : undefined}
+          onDragStart={editing ? handleDragStart : undefined}
+          onDragOver={editing ? handleDragOver : undefined}
+          onDragEnd={editing ? handleDragEnd : undefined}
           onDragCancel={handleDragCancel}
         >
           <div
@@ -2683,7 +2740,7 @@ function SqlDashboardPageContent({
                       resolvedSql=""
                       onRemove={() => removePanel(section.id)}
                       onEdit={() => openEditPanel(section)}
-                      editable={canEdit}
+                      editable={editing}
                       eagerLoad={reportScreenshot}
                       isDragSource={activeDragPanelId === section.id}
                     />
@@ -2696,7 +2753,7 @@ function SqlDashboardPageContent({
                   key={`row-slot-${group.key}-${rowIndex}`}
                   slot={{ type: "row", groupKey: group.key, rowIndex }}
                   activeSlot={activeDropSlot}
-                  disabled={!canEdit}
+                  disabled={!editing}
                 />
               );
 
@@ -2723,7 +2780,7 @@ function SqlDashboardPageContent({
                               columnIndex: 0,
                             }}
                             activeSlot={activeDropSlot}
-                            disabled={!canEdit}
+                            disabled={!editing}
                           />
                           {row.panels.map((panel, columnIndex) => (
                             <Fragment key={panel.id}>
@@ -2736,7 +2793,7 @@ function SqlDashboardPageContent({
                                     ? undefined
                                     : remoteEditingPanels.get(panel.id)
                                 }
-                                editable={canEdit}
+                                editable={editing}
                                 eagerLoad={reportScreenshot}
                                 reportScreenshot={reportScreenshot}
                                 isDragSource={activeDragPanelId === panel.id}
@@ -2759,7 +2816,7 @@ function SqlDashboardPageContent({
                                   columnIndex: columnIndex + 1,
                                 }}
                                 activeSlot={activeDropSlot}
-                                disabled={!canEdit}
+                                disabled={!editing}
                               />
                             </Fragment>
                           ))}

@@ -62,6 +62,13 @@ current state first, then syncs open dashboard editors.
 Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.
 
+Dashboards open in View mode. An editor switches the header toggle to Edit
+before drags, renames, and column edits on the page save for everyone; the chat
+context reports the current mode. A table column width dragged in View mode is
+stored only in that person's browser, so "widen this column for me" is a drag
+in View mode, not a dashboard change. `config.columns[].width` is the shared
+width everyone sees; set it only when asked to change the dashboard itself.
+
 Never use `db-patch`, raw SQL, or settings-key edits to create or modify a
 dashboard config. Those bypass the dashboard action's access checks, SQL
 validation, collab sync, and verification. If a dashboard action fails

@@ -25,6 +25,17 @@ export default {
     templateCatalog: "Catálogo",
     semanticLayer: "Capa semántica",
   },
+  dashboardMode: {
+    label: "Modo del panel",
+    view: "Ver",
+    edit: "Editar",
+    viewHint:
+      "Consulte sin cambiar nada. Los anchos de columna que arrastre son solo para usted.",
+    editHint: "Los cambios se guardan para todos",
+    columnResizePersonal:
+      "Arrastre para cambiar el tamaño solo para usted. Doble clic para restablecer.",
+    columnResizeShared: "Arrastre para cambiar el tamaño para todos",
+  },
   dashboardHeader: {
     updated: "Actualizado el {{date}}",
     created: "Creado el {{date}}",
