@@ -31,6 +31,14 @@ vi.mock("./auth.js", () => ({
   getSession: async () => mockSession.value,
 }));
 
+const defaultStateAccess = vi.hoisted(() => ({
+  resolve: async (): Promise<unknown> => null,
+}));
+
+vi.mock("../sharing/access.js", () => ({
+  resolveAccess: () => defaultStateAccess.resolve(),
+}));
+
 describe("poll event SSE handler", () => {
   beforeEach(() => {
     mockSession.value = { email: "test@example.com", orgId: "org-1" };
@@ -322,6 +330,109 @@ describe("poll event SSE handler", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it("spreads the reconnect of a stream it hands back to polling", async () => {
+      vi.useFakeTimers();
+      try {
+        const { state, event } = await openStream(() => new Promise(() => {}));
+
+        state.recordChange(deckChange("stuck"));
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        const hint = event.pushed.find(
+          (data): data is { event: string; retry: number } =>
+            typeof data === "object" &&
+            data !== null &&
+            (data as { event?: string }).event === "reconnect",
+        );
+        expect(hint?.retry).toBeGreaterThanOrEqual(1_000);
+        expect(hint?.retry).toBeLessThanOrEqual(5_000);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("awareness events awaiting an access check", () => {
+    const presence = (clientId: number) => ({
+      source: "awareness" as const,
+      type: "awareness-change" as const,
+      docId: "doc-1",
+      states: [{ clientId, state: "{}" }],
+      owner: "alice@example.com",
+      resourceType: "deck",
+      resourceId: "deck-awareness",
+    });
+
+    async function openDefaultStream() {
+      const { createPollEventsHandler } = await import("./poll-events.js");
+      const { __resetCollabAccessCacheForTests } = await import("./poll.js");
+      const { getAwarenessEmitter, AWARENESS_CHANGE_EVENT } =
+        await import("../collab/awareness.js");
+      __resetCollabAccessCacheForTests();
+      mockSession.value = { email: "bob@example.com", orgId: undefined };
+      const event = {
+        pushed: [] as unknown[],
+        close: undefined as any,
+        closed: false,
+      };
+      await (createPollEventsHandler() as any)(event);
+      const clientIds = () =>
+        event.pushed
+          .filter((data): data is string => typeof data === "string")
+          .map((data) => JSON.parse(data))
+          .filter((data) => data.source === "awareness")
+          .map((data) => data.states[0].clientId);
+      const emit = (change: ReturnType<typeof presence>) =>
+        getAwarenessEmitter().emit(AWARENESS_CHANGE_EVENT, change);
+      return { event, clientIds, emit };
+    }
+
+    it("delivers a sharee's first presence event once access is confirmed instead of dropping it", async () => {
+      defaultStateAccess.resolve = async () => ({ role: "viewer" });
+      const { event, clientIds, emit } = await openDefaultStream();
+
+      emit(presence(1));
+      await vi.waitFor(() => expect(clientIds()).toEqual([1]));
+
+      emit(presence(2));
+      expect(clientIds()).toEqual([1, 2]);
+
+      event.close?.();
+    });
+
+    it("keeps presence order while the first event's check is running", async () => {
+      let confirm: (() => void) | undefined;
+      defaultStateAccess.resolve = () =>
+        new Promise((resolve) => {
+          confirm = () => resolve({ role: "viewer" });
+        });
+      const { event, clientIds, emit } = await openDefaultStream();
+
+      emit(presence(1));
+      emit(presence(2));
+      await vi.waitFor(() => expect(confirm).toBeDefined());
+      expect(clientIds()).toEqual([]);
+
+      confirm?.();
+      await vi.waitFor(() => expect(clientIds()).toEqual([1, 2]));
+
+      event.close?.();
+    });
+
+    it("drops presence the resolver denies without closing the stream", async () => {
+      defaultStateAccess.resolve = async () => null;
+      const { event, clientIds, emit } = await openDefaultStream();
+
+      emit(presence(1));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(clientIds()).toEqual([]);
+      expect(event.closed).toBe(false);
+
+      event.close?.();
     });
   });
 

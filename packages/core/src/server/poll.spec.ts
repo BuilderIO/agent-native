@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import { getVersion, recordChange, getChangesSince } from "./poll.js";
+import { runWithRequestContext } from "./request-context.js";
 
 describe("poll", () => {
   describe("getVersion", () => {
@@ -84,6 +85,51 @@ describe("poll", () => {
       const result = getChangesSince(before);
       expect(result.events[0].id).toBe("res-1");
       expect(result.events[0].path).toBe("file.md");
+    });
+  });
+
+  describe("sender tab", () => {
+    const fromTab = (event: Parameters<typeof recordChange>[0]) => {
+      const before = getVersion();
+      runWithRequestContext(
+        { userEmail: "a@example.com", run: { browserTabId: "tab-writer" } },
+        () => recordChange(event),
+      );
+      return getChangesSince(before).events[0];
+    };
+    const deck = {
+      source: "deck",
+      type: "deck-changed",
+      key: "d1",
+      resourceType: "deck",
+      resourceId: "d1",
+    };
+
+    it("names the writing tab on a resource event recorded while serving it", () => {
+      expect(fromTab(deck).requestSource).toBe("tab-writer");
+    });
+
+    it("keeps a sender the caller already named", () => {
+      expect(fromTab({ ...deck, requestSource: "agent" }).requestSource).toBe(
+        "agent",
+      );
+    });
+
+    it("leaves action events and unscoped events alone", () => {
+      expect(fromTab({ ...deck, source: "action" })).not.toHaveProperty(
+        "requestSource",
+      );
+      expect(
+        fromTab({ source: "settings", type: "change", key: "k" }),
+      ).not.toHaveProperty("requestSource");
+    });
+
+    it("names no sender outside a browser request", () => {
+      const before = getVersion();
+      recordChange(deck);
+      expect(getChangesSince(before).events[0]).not.toHaveProperty(
+        "requestSource",
+      );
     });
   });
 

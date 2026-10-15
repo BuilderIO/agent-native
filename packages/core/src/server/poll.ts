@@ -30,7 +30,12 @@ import {
 } from "../jobs/sweep-hooks.js";
 import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
 import { getSettingsEmitter } from "../settings/store.js";
+import {
+  type ChangeVisibilityDelivery,
+  recordChangeVisibilityHold,
+} from "../observability/metrics.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
+import { getRequestRunContext } from "./request-context.js";
 import {
   pruneSyncEvents,
   SYNC_EVENTS_PRUNE_STATE_TABLE,
@@ -342,7 +347,34 @@ async function readExtensionTargetsForRows(
   );
 }
 
+/**
+ * What the access cache knows right now. "pending" means a check is running;
+ * it is never an answer, only a reason to wait for one.
+ */
 export type ChangeVisibility = "visible" | "hidden" | "pending";
+
+/**
+ * The delivery decision for one event and one viewer. "undetermined" is the
+ * access check failing to finish inside the wait: it is not a denial, and a
+ * caller must hold the event or hand the viewer back to a cursor read, never
+ * treat it as hidden.
+ */
+export type ChangeVisibilityDecision = "visible" | "hidden" | "undetermined";
+
+export interface ChangeViewer {
+  email: string;
+  orgId: string | undefined;
+}
+
+export interface ResolveChangeVisibilityOptions {
+  timeoutMs?: number;
+  delivery?: ChangeVisibilityDelivery;
+}
+
+type VisibilityScopedEvent = Pick<
+  ChangeEvent,
+  "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+>;
 
 class SyncEventsTableUnavailableError extends Error {
   constructor() {
@@ -859,30 +891,12 @@ export class AppSyncState {
   }
 
   /**
-   * Decide whether a poll/SSE change event should be delivered to a user.
-   *
-   * SYNC-CACHE VARIANT — WHY THIS IS SYNCHRONOUS:
-   * This function is called on hot, synchronous paths: the SSE emitter callback
-   * `push(change)` in poll-events.ts (fires per event) and the
-   * `getChangesSinceForUser` loop in this file. Making it async would be
-   * invasive. Instead, for the access-aware branch we consult an in-memory
-   * cache and, on a miss, fire a NON-BLOCKING background access check and
-   * return `false` for the current event. Callers that must not lose the event
-   * use `getChangeVisibilityForUser` and wait for the pending check (the SSE
-   * handler and `getCombinedChangesSinceForUser` do); this boolean form alone
-   * would drop the first event for a fresh (user, resource) pair, and a live
-   * stream does not poll to recover it.
-   *
-   * Security: a cache MISS returns `false`, so we NEVER deliver to a user before
-   * their access has been affirmatively confirmed by the resolver — the same
-   * authority that gates the HTTP routes. Errors fail closed (cached deny).
-   * Organization membership alone does not grant access to a resource-scoped event.
+   * @deprecated Use `resolveChangeVisibilityForUser`. This answers `false`
+   * while an access check is still running, so a caller that cannot read again
+   * later silently loses a collaborator's first event for a resource.
    */
   canSeeChangeForUser(
-    event: Pick<
-      ChangeEvent,
-      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-    >,
+    event: VisibilityScopedEvent,
     userEmail: string,
     orgId: string | undefined,
   ): boolean {
@@ -906,41 +920,65 @@ export class AppSyncState {
   }
 
   /**
-   * Like `getChangeVisibilityForUser`, but a "pending" verdict waits (bounded)
-   * for this event's own access check and answers again, so a caller that
-   * cannot poll later does not lose the event. Still "pending" after the wait
-   * means the check did not finish.
+   * The one delivery decision for a change or awareness event. A running
+   * access check is waited on (bounded), so the answer is either affirmative,
+   * a denial, or "undetermined" when the check outlasted the wait.
+   *
+   * Security: nothing resource-scoped is "visible" until the access resolver,
+   * the same authority that gates the HTTP routes, has confirmed it. Resolver
+   * errors fail closed as a cached denial. Organization membership alone does
+   * not grant a resource-scoped event.
    */
   async resolveChangeVisibilityForUser(
-    event: Pick<
-      ChangeEvent,
-      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-    >,
-    userEmail: string,
-    orgId: string | undefined,
-    timeoutMs: number,
-  ): Promise<ChangeVisibility> {
-    const visibility = this.getChangeVisibilityForUser(event, userEmail, orgId);
-    if (visibility !== "pending" || !event.resourceType || !event.resourceId) {
-      return visibility;
-    }
-    const check = this.accessInFlight.get(
-      accessCacheKey(
-        userEmail.trim().toLowerCase(),
-        orgId,
-        event.resourceType,
-        event.resourceId,
-      ),
+    event: VisibilityScopedEvent,
+    viewer: ChangeViewer,
+    options: ResolveChangeVisibilityOptions = {},
+  ): Promise<ChangeVisibilityDecision> {
+    const visibility = this.getChangeVisibilityForUser(
+      event,
+      viewer.email,
+      viewer.orgId,
     );
-    if (check) await this.waitForAccessChecks([check], timeoutMs);
-    return this.getChangeVisibilityForUser(event, userEmail, orgId);
+    if (visibility !== "pending") return visibility;
+    const startedAt = Date.now();
+    const check =
+      event.resourceType && event.resourceId
+        ? this.accessInFlight.get(
+            accessCacheKey(
+              viewer.email.trim().toLowerCase(),
+              viewer.orgId,
+              event.resourceType,
+              event.resourceId,
+            ),
+          )
+        : undefined;
+    if (check) {
+      await this.waitForAccessChecks(
+        [check],
+        options.timeoutMs ?? ACCESS_CHECK_WAIT_MS,
+      );
+    }
+    const settled = this.getChangeVisibilityForUser(
+      event,
+      viewer.email,
+      viewer.orgId,
+    );
+    const decision = settled === "pending" ? "undetermined" : settled;
+    recordChangeVisibilityHold(
+      options.delivery ?? "sse",
+      decision,
+      Date.now() - startedAt,
+    );
+    return decision;
   }
 
+  /**
+   * The access cache's current answer, scheduling a check on a miss. Only for
+   * hot paths that act on an already-settled answer and fall through to
+   * `resolveChangeVisibilityForUser` on "pending".
+   */
   getChangeVisibilityForUser(
-    event: Pick<
-      ChangeEvent,
-      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-    >,
+    event: VisibilityScopedEvent,
     userEmail: string,
     orgId: string | undefined,
   ): ChangeVisibility {
@@ -1481,12 +1519,14 @@ export class AppSyncState {
     }
     // A read stopped at an event whose access check had not finished. The
     // check is already running, so waiting for it here (bounded) delivers the
-    // event now instead of one poll interval later.
+    // event now instead of one poll interval later. Still pending afterwards
+    // is fine: the cursor stops before that event and the next read resumes.
+    const startedAt = Date.now();
     await this.waitForAccessChecks(
       this.accessInFlight.values(),
       ACCESS_CHECK_WAIT_MS,
     );
-    const { accessPending: _pending, ...result } =
+    const { accessPending, ...result } =
       await this.readCombinedChangesSinceForUser(
         since,
         userEmail,
@@ -1494,6 +1534,11 @@ export class AppSyncState {
         useDurableEvents,
         cursor,
       );
+    recordChangeVisibilityHold(
+      "poll",
+      accessPending ? "undetermined" : "decided",
+      Date.now() - startedAt,
+    );
     return result;
   }
 
@@ -1976,24 +2021,59 @@ export function __resetCollabAccessCacheForTests(): void {
   getDefaultAppSyncState().__resetAccessCacheForTests();
 }
 
+/**
+ * @deprecated Use `resolveChangeVisibilityForUser`. This answers `false`
+ * while an access check is still running.
+ */
 export function canSeeChangeForUser(
-  event: Pick<
-    ChangeEvent,
-    "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-  >,
+  event: VisibilityScopedEvent,
   userEmail: string,
   orgId: string | undefined,
 ): boolean {
   return getDefaultAppSyncState().canSeeChangeForUser(event, userEmail, orgId);
 }
 
-export function recordChange(event: {
+export function resolveChangeVisibilityForUser(
+  event: VisibilityScopedEvent,
+  viewer: ChangeViewer,
+  options?: ResolveChangeVisibilityOptions,
+): Promise<ChangeVisibilityDecision> {
+  return getDefaultAppSyncState().resolveChangeVisibilityForUser(
+    event,
+    viewer,
+    options,
+  );
+}
+
+type RecordedChange = {
   source: string;
   type: string;
   key?: string;
   [k: string]: unknown;
-}): void {
-  getDefaultAppSyncState().recordChange(event);
+};
+
+/**
+ * A resource-scoped event written while serving a browser tab names that tab,
+ * so other viewers can tell a collaborator's change from their own echo
+ * without each template stamping it. Action events are left alone: their
+ * `requestSource` comes from the caller's header, and `callAction` omits it on
+ * purpose so the calling tab still refreshes.
+ */
+function withSenderTab<T extends RecordedChange>(event: T): T {
+  if (
+    event.source === "action" ||
+    typeof event.requestSource === "string" ||
+    typeof event.resourceType !== "string" ||
+    typeof event.resourceId !== "string"
+  ) {
+    return event;
+  }
+  const browserTabId = getRequestRunContext()?.browserTabId;
+  return browserTabId ? { ...event, requestSource: browserTabId } : event;
+}
+
+export function recordChange(event: RecordedChange): void {
+  getDefaultAppSyncState().recordChange(withSenderTab(event));
 }
 
 export function prepareTransactionalChange(event: {
@@ -2002,7 +2082,9 @@ export function prepareTransactionalChange(event: {
   key?: string;
   [k: string]: unknown;
 }): Promise<TransactionalChange> {
-  return getDefaultAppSyncState().prepareTransactionalChange(event);
+  return getDefaultAppSyncState().prepareTransactionalChange(
+    withSenderTab(event),
+  );
 }
 
 setActionChangeFastPath((target) => {

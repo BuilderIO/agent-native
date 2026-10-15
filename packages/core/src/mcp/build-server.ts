@@ -45,6 +45,10 @@ import {
 } from "../org/service-principal-guard.js";
 import { isActionGranted } from "../org/service-principal-policy.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
+import {
+  createActionChangeScope,
+  runInActionChangeScope,
+} from "../server/action-change-scope.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { BearerCredentialRefusal } from "../server/bearer-credential-refusal.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -3465,15 +3469,15 @@ export async function createMCPServerForRequest(
           );
           if (approvalResult !== undefined) return approvalResult;
 
-          const result = await entry.run(
-            (args as Record<string, string>) ?? {},
-            {
+          const changeScope = createActionChangeScope();
+          const result = await runInActionChangeScope(changeScope, () =>
+            entry.run((args as Record<string, string>) ?? {}, {
               userEmail: getRequestUserEmail(),
               orgId: getRequestOrgId() ?? null,
               appId: config.appId,
               caller: "mcp",
               actionName: name,
-            },
+            }),
           );
           const mcpResult = isMcpActionResult(result) ? result : null;
           const rawResult = mcpResult ? mcpResult.raw : result;
@@ -3687,7 +3691,7 @@ export async function createMCPServerForRequest(
             try {
               await writeActionChangeMarker({
                 actionName: name,
-                ...actionChangeResource(entry, args, rawResult),
+                ...actionChangeResource(entry, args, rawResult, changeScope),
                 owner: getRequestUserEmail() ?? undefined,
                 orgId: getRequestOrgId() ?? undefined,
               });

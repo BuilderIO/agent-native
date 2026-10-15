@@ -13,7 +13,7 @@ vi.mock("../sharing/access.js", () => ({
     (resolveAccessMock as any)(...(args as [any, any, any])),
 }));
 
-import { canSeeAwarenessChangeForUser } from "../server/poll-events.js";
+import { resolveAwarenessVisibilityForUser } from "../server/poll-events.js";
 import {
   canSeeChangeForUser,
   getChangesSinceForUser,
@@ -388,70 +388,91 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
 });
 
 describe("awareness event scoping via poll-events", () => {
-  it("drops unscoped awareness events instead of treating them as global", () => {
-    expect(
-      canSeeAwarenessChangeForUser({}, "alice@example.com", undefined),
-    ).toBe(false);
-    expect(canSeeAwarenessChangeForUser({}, "bob@example.com", "org-b")).toBe(
-      false,
-    );
+  beforeEach(() => {
+    __resetCollabAccessCacheForTests();
+    resolveAccessMock.mockReset();
   });
 
-  it("delivers owner-scoped awareness only to the owner", () => {
-    expect(
-      canSeeAwarenessChangeForUser(
-        { owner: "alice@example.com" },
-        "alice@example.com",
-        undefined,
-      ),
-    ).toBe(true);
-    expect(
-      canSeeAwarenessChangeForUser(
-        { owner: "alice@example.com" },
-        "bob@example.com",
-        undefined,
-      ),
-    ).toBe(false);
+  const viewer = (email: string, orgId?: string) => ({ email, orgId });
+
+  it("drops unscoped awareness events instead of treating them as global", async () => {
+    await expect(
+      resolveAwarenessVisibilityForUser({}, viewer("alice@example.com")),
+    ).resolves.toBe("hidden");
+    await expect(
+      resolveAwarenessVisibilityForUser({}, viewer("bob@example.com", "org-b")),
+    ).resolves.toBe("hidden");
   });
 
-  it("delivers org-scoped awareness only within the org", () => {
-    expect(
-      canSeeAwarenessChangeForUser(
-        { orgId: "org-acme" },
-        "alice@example.com",
-        "org-acme",
-      ),
-    ).toBe(true);
-    expect(
-      canSeeAwarenessChangeForUser(
-        { orgId: "org-acme" },
-        "eve@example.com",
-        "org-evil",
-      ),
-    ).toBe(false);
+  it("delivers owner-scoped awareness only to the owner", async () => {
+    const event = { owner: "alice@example.com" };
+    await expect(
+      resolveAwarenessVisibilityForUser(event, viewer("alice@example.com")),
+    ).resolves.toBe("visible");
+    await expect(
+      resolveAwarenessVisibilityForUser(event, viewer("bob@example.com")),
+    ).resolves.toBe("hidden");
   });
 
-  it("delivers resource-scoped awareness to explicit sharees after the access cache resolves", async () => {
+  it("delivers org-scoped awareness only within the org", async () => {
+    const event = { orgId: "org-acme" };
+    await expect(
+      resolveAwarenessVisibilityForUser(
+        event,
+        viewer("alice@example.com", "org-acme"),
+      ),
+    ).resolves.toBe("visible");
+    await expect(
+      resolveAwarenessVisibilityForUser(
+        event,
+        viewer("eve@example.com", "org-evil"),
+      ),
+    ).resolves.toBe("hidden");
+  });
+
+  const sharedDocPresence = {
+    owner: "alice@example.com",
+    resourceType: "document",
+    resourceId: "doc-res-1",
+  };
+
+  it("delivers a sharee's first presence event once access is confirmed instead of dropping it", async () => {
     resolveAccessMock.mockResolvedValue({ role: "viewer", resource: {} });
-    const event = {
-      owner: "alice@example.com",
-      resourceType: "document",
-      resourceId: "doc-res-1",
-    };
 
-    expect(
-      canSeeAwarenessChangeForUser(event, "sharee@example.com", "org-bob"),
-    ).toBe(false);
-
-    await flushAsync();
+    await expect(
+      resolveAwarenessVisibilityForUser(
+        sharedDocPresence,
+        viewer("sharee@example.com", "org-bob"),
+      ),
+    ).resolves.toBe("visible");
     expect(resolveAccessMock).toHaveBeenCalledWith("document", "doc-res-1", {
       userEmail: "sharee@example.com",
       orgId: "org-bob",
     });
+  });
 
-    expect(
-      canSeeAwarenessChangeForUser(event, "sharee@example.com", "org-bob"),
-    ).toBe(true);
+  it("withholds presence from a viewer the resolver denies", async () => {
+    resolveAccessMock.mockResolvedValue(null);
+
+    await expect(
+      resolveAwarenessVisibilityForUser(
+        sharedDocPresence,
+        viewer("stranger@example.com", "org-x"),
+      ),
+    ).resolves.toBe("hidden");
+  });
+
+  it("answers undetermined, not hidden, when the access check outlasts the wait", async () => {
+    resolveAccessMock.mockImplementation(() => new Promise(() => {}));
+
+    await expect(
+      resolveAwarenessVisibilityForUser(
+        sharedDocPresence,
+        viewer("sharee@example.com", "org-bob"),
+        undefined,
+        5,
+      ),
+    ).resolves.toBe("undetermined");
   });
 });
 

@@ -28,6 +28,9 @@ const GEN_AI_TOKEN_USAGE_BUCKETS = [
   64, 256, 1_024, 4_096, 16_384, 65_536, 262_144, 1_048_576,
 ];
 
+// Waits are bounded at 1 s (poll) and 10 s (SSE).
+const CHANGE_VISIBILITY_HOLD_BUCKETS_S = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
+
 export const OBSERVABILITY_FLUSH_TIMEOUT_MS = 2_000;
 
 // A timer that fires this much past its deadline means the process was frozen
@@ -83,6 +86,7 @@ interface Instruments {
   flushFailures: MetricCounter;
   traceWriteFailures: MetricCounter;
   actionChangeMarkerFailures: MetricCounter;
+  changeVisibilityHoldDuration: MetricHistogram;
 }
 
 let cachedInstruments: Instruments | undefined;
@@ -153,6 +157,15 @@ function instruments(): Instruments | undefined {
       {
         description:
           "Action writes whose durable change marker did not persist; polling clients were not told about them.",
+      },
+    ),
+    changeVisibilityHoldDuration: meter.createHistogram(
+      "agent_native.change_visibility.hold.duration",
+      {
+        description:
+          "Time a collaborator event was held waiting for its access check before delivery was decided.",
+        unit: "s",
+        advice: { explicitBucketBoundaries: CHANGE_VISIBILITY_HOLD_BUCKETS_S },
       },
     ),
   };
@@ -329,6 +342,23 @@ export function recordTraceWriteFailure(
 export function recordActionChangeMarkerFailure(error: unknown): void {
   instruments()?.actionChangeMarkerFailures.add(1, {
     "error.type": flushErrorType(error),
+  });
+}
+
+export type ChangeVisibilityDelivery = "poll" | "sse" | "awareness";
+
+/**
+ * Recorded once per event or read that had to wait on an access check. A poll
+ * read waits on every check it hit at once, so it reports only "decided".
+ */
+export function recordChangeVisibilityHold(
+  delivery: ChangeVisibilityDelivery,
+  outcome: "visible" | "hidden" | "decided" | "undetermined",
+  durationMs: number,
+): void {
+  instruments()?.changeVisibilityHoldDuration.record(durationMs / 1000, {
+    "agent_native.change_visibility.delivery": delivery,
+    "agent_native.change_visibility.outcome": outcome,
   });
 }
 

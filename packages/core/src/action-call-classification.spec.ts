@@ -6,6 +6,11 @@ import {
   actionChangeResource,
 } from "./action-call-classification.js";
 import { defineAction } from "./action.js";
+import {
+  createActionChangeScope,
+  noteResourceAccess,
+  runInActionChangeScope,
+} from "./server/action-change-scope.js";
 import { createAgentEngineScriptEntries } from "./server/agent-chat/script-entries.js";
 
 const emits = (entry: object, params: unknown, fallbackReadOnly = false) =>
@@ -160,5 +165,65 @@ describe("actionChangeResource", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  describe("derived from the call's write access", () => {
+    async function runCall(
+      accesses: Array<[string, string, "viewer" | "editor" | "owner"]>,
+      entry: Parameters<typeof actionChangeResource>[0] = {},
+    ) {
+      const scope = createActionChangeScope();
+      await runInActionChangeScope(scope, async () => {
+        await Promise.resolve();
+        for (const [type, id, role] of accesses) {
+          noteResourceAccess(type, id, role);
+        }
+      });
+      return actionChangeResource(entry, {}, {}, scope);
+    }
+
+    it("names the one resource an undeclared action asserted write access to", async () => {
+      expect(
+        await runCall([
+          ["document", "doc-1", "viewer"],
+          ["document", "doc-1", "editor"],
+          ["document", "doc-1", "owner"],
+        ]),
+      ).toEqual(resource);
+    });
+
+    it("does not treat read access as a change", async () => {
+      expect(await runCall([["document", "doc-1", "viewer"]])).toBeUndefined();
+    });
+
+    it("leaves a call that wrote several resources to an explicit declaration", async () => {
+      expect(
+        await runCall([
+          ["document", "doc-1", "editor"],
+          ["document", "doc-2", "editor"],
+        ]),
+      ).toBeUndefined();
+    });
+
+    it("lets a declaration win, including a declared null", async () => {
+      const writes: Array<[string, string, "editor"]> = [
+        ["document", "doc-1", "editor"],
+      ];
+      expect(
+        await runCall(writes, {
+          changeResource: () => ({ resourceType: "folder", resourceId: "f1" }),
+        }),
+      ).toEqual({ resourceType: "folder", resourceId: "f1" });
+      expect(
+        await runCall(writes, { changeResource: () => null }),
+      ).toBeUndefined();
+    });
+
+    it("ignores access noted outside any action call", () => {
+      noteResourceAccess("document", "doc-1", "editor");
+      expect(
+        actionChangeResource({}, {}, {}, createActionChangeScope()),
+      ).toBeUndefined();
+    });
   });
 });

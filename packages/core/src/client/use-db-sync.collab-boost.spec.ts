@@ -260,10 +260,16 @@ describe("collab poll boost", () => {
         expect(await boosted(deckEvent("agent"))).toBeLessThanOrEqual(1);
       });
 
-      it("ignores other resource events even when they name a sender", async () => {
+      it("wakes for any source's resource event that names another sender", async () => {
         expect(
-          await boosted({ ...deckEvent("other-tab"), source: "resource" }),
-        ).toBeLessThanOrEqual(1);
+          await boosted({ ...deckEvent("other-tab"), source: "dashboard" }),
+        ).toBeGreaterThanOrEqual(11);
+      });
+
+      it("stays idle for a sender-named event with no resource", async () => {
+        const { resourceType: _type, resourceId: _id, ...unscoped } =
+          deckEvent("other-tab");
+        expect(await boosted(unscoped)).toBeLessThanOrEqual(1);
       });
     });
 

@@ -237,10 +237,17 @@ export {
   getChangesSince,
   getPollEmitter,
   canSeeChangeForUser,
+  resolveChangeVisibilityForUser,
   POLL_CHANGE_EVENT,
+  type ChangeViewer,
+  type ChangeVisibilityDecision,
+  type ResolveChangeVisibilityOptions,
   type TransactionalChange,
 } from "./poll.js";
-export { createPollEventsHandler } from "./poll-events.js";
+export {
+  createPollEventsHandler,
+  resolveAwarenessVisibilityForUser,
+} from "./poll-events.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
   BETTER_AUTH_MIGRATIONS,

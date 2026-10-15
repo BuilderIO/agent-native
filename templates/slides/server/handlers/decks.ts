@@ -1,5 +1,4 @@
 import { recordChange } from "@agent-native/core/server/poll";
-import { getRequestRunContext } from "@agent-native/core/server/request-context";
 import { eq } from "drizzle-orm";
 import { defineEventHandler, setResponseStatus, createEventStream } from "h3";
 
@@ -76,16 +75,12 @@ export async function notifyClients(
           ...(options.visibility ? { visibility: options.visibility } : {}),
         }
       : await resolveDeckChangeScope(deckId);
-  // The writing tab's id lets other viewers tell a collaborator's save or
-  // deletion from their own echo; clients wake on the former only.
-  const requestSource = getRequestRunContext()?.browserTabId;
   recordChange({
     source: "deck",
     type,
     key: deckId,
     resourceType: "deck",
     resourceId: deckId,
-    ...(requestSource ? { requestSource } : {}),
     ...scope,
     ...payload,
   });

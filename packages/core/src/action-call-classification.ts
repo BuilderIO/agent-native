@@ -1,4 +1,8 @@
 import type { ActionChangeResource, ActionPlanModeConfig } from "./action.js";
+import {
+  type ActionChangeScope,
+  derivedChangeResource,
+} from "./server/action-change-scope.js";
 
 export function actionCallIsReadOnly(
   entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
@@ -41,10 +45,13 @@ export function actionCallEmitsChange(
 }
 
 /**
- * The resource a successful call changed, for an action that declares
- * `changeResource`. A declaration that throws or returns something malformed
- * is a bug in the action: it is logged, and the event falls back to reaching
- * only the actor rather than failing a call that already succeeded.
+ * The resource a successful call changed. A declared `changeResource` wins,
+ * including a declared `null`. Otherwise it is the one resource the call
+ * asserted write access to while it ran (see `action-change-scope`).
+ *
+ * A declaration that throws or returns something malformed is a bug in the
+ * action: it is logged, and the event falls back to reaching only the actor
+ * rather than failing a call that already succeeded.
  */
 export function actionChangeResource(
   entry: {
@@ -55,8 +62,9 @@ export function actionChangeResource(
   },
   params: unknown,
   result: unknown,
+  scope?: ActionChangeScope,
 ): ActionChangeResource | undefined {
-  if (!entry.changeResource) return undefined;
+  if (!entry.changeResource) return derivedChangeResource(scope);
   try {
     const resource = entry.changeResource(params, result);
     if (!resource) return undefined;

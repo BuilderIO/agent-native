@@ -7,6 +7,7 @@ import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
 import { orgMembers, organizations } from "../org/schema.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
+import { noteResourceAccess } from "../server/action-change-scope.js";
 import {
   getRequestAuthCapability,
   getRequestContext,
@@ -876,5 +877,6 @@ export async function assertAccess(
       `Requires ${minRole} role on ${resourceType} ${resourceId} (have ${access.role})`,
     );
   }
+  noteResourceAccess(resourceType, resourceId, minRole);
   return access;
 }

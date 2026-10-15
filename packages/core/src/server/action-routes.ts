@@ -85,6 +85,10 @@ import {
 } from "../tracking/failure-counters.js";
 import { redact, redactErrorStack } from "../tracking/redaction.js";
 import { ACTION_ROUTE_PREFIX, bindActionBatch } from "./action-batch.js";
+import {
+  createActionChangeScope,
+  runInActionChangeScope,
+} from "./action-change-scope.js";
 import { notifyActionChangeForResponse } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
@@ -1488,7 +1492,10 @@ function mountActionRoutesInternal(
                   runContext,
                 );
               }
-              const result = await entry.run(params, runContext);
+              const changeScope = createActionChangeScope();
+              const result = await runInActionChangeScope(changeScope, () =>
+                entry.run(params, runContext),
+              );
 
               if (
                 caller !== "mcp-widget" &&
@@ -1496,7 +1503,7 @@ function mountActionRoutesInternal(
               ) {
                 const markerLanded = await notifyActionChangeForResponse({
                   actionName: name,
-                  ...actionChangeResource(entry, params, result),
+                  ...actionChangeResource(entry, params, result, changeScope),
                   ...(userEmail ? { owner: userEmail } : {}),
                   ...(getHeader(event, "x-request-source")
                     ? {

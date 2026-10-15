@@ -134,13 +134,12 @@ type CollabActivityEvent = {
   requestSource?: string;
 };
 
-// The server mirrors every saved file into its Yjs doc under the "agent"
-// source, so a lone editor's own save comes back as a collab event that is not
-// from anyone else. Only an event a browser tab posted names its sender: a Yjs
-// update, or a resource event such as Slides' `deck` carrying the writing tab.
+// Core stamps the writing tab on every resource-scoped event it records while
+// serving a browser, whatever the source. The server mirrors every saved file
+// into its Yjs doc under the "agent" source, so a lone editor's own save comes
+// back as an event that is not from anyone else.
 function namesHumanSender(event: CollabActivityEvent): boolean {
   return (
-    (event.source === "collab" || event.source === "deck") &&
     typeof event.requestSource === "string" &&
     event.requestSource !== "" &&
     event.requestSource !== "agent"

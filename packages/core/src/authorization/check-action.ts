@@ -11,6 +11,7 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
 import { resolveWorkspaceAccessAppId } from "../org/workspace-app-identity.js";
+import { noteResourceAccess } from "../server/action-change-scope.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
 import { registerActionAccessChecker } from "./action-access-runtime.js";
@@ -242,6 +243,16 @@ export async function assertActionAccess(
 ): Promise<ActionAccessDecision> {
   const decision = await checkAction(config, args, ctx);
   if (!decision.allowed) throw new ForbiddenError(decision.reason);
+  if (config?.resource) {
+    const resourceId = valueAtPath(args, config.resource.idFrom);
+    if (typeof resourceId === "string") {
+      noteResourceAccess(
+        config.resource.type,
+        resourceId,
+        config.resource.level ?? "viewer",
+      );
+    }
+  }
   return decision;
 }
 

@@ -25,6 +25,10 @@ import {
   actionChangeResource,
 } from "../action-call-classification.js";
 import {
+  createActionChangeScope,
+  runInActionChangeScope,
+} from "../server/action-change-scope.js";
+import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
 } from "../action-ui.js";
@@ -8068,6 +8072,7 @@ export async function runAgentLoop(opts: {
 
         let result: string;
         let chatUIResult: unknown;
+        const changeScope = createActionChangeScope();
         let isError = false;
         let toolErrorCode: string | undefined;
         let mcpApp:
@@ -8151,11 +8156,13 @@ export async function runAgentLoop(opts: {
               ...(opts.turnId ? { turnId: opts.turnId } : {}),
             };
             actionInvoked = true;
-            return runActionWithExecutionOutcome(
-              actionEntry.run,
-              toolCall.input as Record<string, string>,
-              actionContext,
-              actionExecutionOutcome,
+            return runInActionChangeScope(changeScope, () =>
+              runActionWithExecutionOutcome(
+                actionEntry.run,
+                toolCall.input as Record<string, string>,
+                actionContext,
+                actionExecutionOutcome,
+              ),
             );
           };
           const actionPromise = Promise.resolve(
@@ -8503,6 +8510,7 @@ export async function runAgentLoop(opts: {
                   actionEntry,
                   toolCall.input,
                   chatUIResult,
+                  changeScope,
                 ),
                 ...(owner ? { owner } : {}),
                 ...(orgId ? { orgId } : {}),

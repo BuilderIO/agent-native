@@ -28,12 +28,19 @@ import path from "node:path";
 import { defineEventHandler, getHeader, readBody, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
 
-import { actionCallEmitsChange } from "../action-call-classification.js";
+import {
+  actionCallEmitsChange,
+  actionChangeResource,
+} from "../action-call-classification.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
+import {
+  createActionChangeScope,
+  runInActionChangeScope,
+} from "./action-change-scope.js";
 import { notifyActionChange } from "./action-change.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
@@ -313,9 +320,15 @@ export function mountDevActionForwardRoute(
             caller: "cli",
             actionName: name,
           };
-          const result = await entry.run(params, ctx);
+          const changeScope = createActionChangeScope();
+          const result = await runInActionChangeScope(changeScope, () =>
+            entry.run(params, ctx),
+          );
           if (actionCallEmitsChange(entry, params, false)) {
-            await notifyActionChange({ actionName: name }).catch(() => {});
+            await notifyActionChange({
+              actionName: name,
+              ...actionChangeResource(entry, params, result, changeScope),
+            }).catch(() => {});
           }
           const devHandoffUrl = devActionHandoffUrl(result);
           return {
