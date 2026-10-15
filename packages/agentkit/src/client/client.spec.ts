@@ -10,6 +10,7 @@ import type {
 import type { AgentStreamIntegrityReport } from "../protocol/index.js";
 import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   AgentProtocolValidationError,
   AgentKitProtocolError,
   createAgentKitProtocolVersionOffer,
@@ -10318,6 +10319,112 @@ describe("AgentKitClient", () => {
       });
       expect(startRun).not.toHaveBeenCalled();
       expect(queueMessage).not.toHaveBeenCalled();
+    } finally {
+      readiness.resolve();
+      now.mockRestore();
+      await client.dispose();
+    }
+  });
+
+  it("sends the remaining retry lifetime when a direct request reaches transport", async () => {
+    const readiness = Promise.withResolvers<void>();
+    const readinessStarted = Promise.withResolvers<void>();
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([
+          protocolEvent(1, { type: "run.started" }),
+          protocolEvent(2, { type: "run.completed" }),
+        ]),
+        capabilities: { "x-agent-native-submission-deadlines": true },
+        async assertAiSetupReady() {
+          readinessStarted.resolve();
+          await readiness.promise;
+        },
+        startRun,
+      },
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+
+    try {
+      const sending = client.sendMessage({
+        threadId: "thread-1",
+        text: "Retry",
+        metadata: {
+          custom: {
+            [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 2_000,
+          },
+        },
+      });
+      await readinessStarted.promise;
+      now.mockReturnValue(1_250);
+      readiness.resolve();
+      const run = await sending;
+
+      expect(startRun.mock.calls[0]?.[0].metadata).toMatchObject({
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 2_000,
+          [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 750,
+        },
+      });
+      await run.completed;
+    } finally {
+      readiness.resolve();
+      now.mockRestore();
+      await client.dispose();
+    }
+  });
+
+  it("sends the remaining retry lifetime when a queue request reaches transport", async () => {
+    const readiness = Promise.withResolvers<void>();
+    const readinessStarted = Promise.withResolvers<void>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, text }) => ({
+        message: {
+          id: "queued-1",
+          threadId,
+          text,
+          createdAt: "2026-08-29T00:00:00.000Z",
+        },
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          messageQueue: true,
+          "x-agent-native-submission-deadlines": true,
+        },
+        async assertAiSetupReady() {
+          readinessStarted.resolve();
+          await readiness.promise;
+        },
+        queueMessage,
+      },
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+
+    try {
+      const queued = client.queueMessage({
+        threadId: "thread-1",
+        text: "Retry",
+        metadata: {
+          custom: {
+            [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 2_000,
+          },
+        },
+      });
+      await readinessStarted.promise;
+      now.mockReturnValue(1_250);
+      readiness.resolve();
+      await queued;
+
+      expect(queueMessage.mock.calls[0]?.[0].metadata).toMatchObject({
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 2_000,
+          [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 750,
+        },
+      });
     } finally {
       readiness.resolve();
       now.mockRestore();

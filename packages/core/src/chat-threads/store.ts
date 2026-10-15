@@ -6,6 +6,7 @@ import {
   type AgentRunOptions,
 } from "@agent-native/agentkit/protocol";
 
+import { normalizeSubmissionDeadlineMetadata } from "../agent/submission-deadline.js";
 import {
   extractThreadMeta,
   mergeThreadDataForClientSave,
@@ -1736,6 +1737,17 @@ export async function mutateThreadQueuedMessages(
   mutation: ThreadQueuedMessageMutation,
 ): Promise<ThreadQueuedMessageMutationResult | null> {
   if (mutation.type === "append") {
+    const metadata = normalizeSubmissionDeadlineMetadata(
+      mutation.message.metadata,
+      Date.now(),
+    );
+    mutation = {
+      type: "append",
+      message: {
+        ...mutation.message,
+        ...(metadata ? { metadata } : {}),
+      },
+    };
     try {
       assertNoInlineImageBytes(
         { type: "file", metadata: mutation.message.metadata },

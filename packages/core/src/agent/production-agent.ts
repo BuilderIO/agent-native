@@ -369,6 +369,7 @@ import {
   setupResumeRefusedRunId,
 } from "./setup-resume-claim.js";
 import { getStrictToolInputValidator } from "./strict-tool-input.js";
+import { normalizeSubmissionDeadlineMetadata } from "./submission-deadline.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
@@ -10864,7 +10865,7 @@ export function createProductionAgentHandler(
         : typeof parentId === "string" && parentId.trim()
           ? parentId.trim()
           : undefined;
-    let requestMetadata = body.metadata;
+    let requestMetadata = normalizeSubmissionDeadlineMetadata(body.metadata);
     const continuedRunId = (requested: unknown) =>
       internalContinuation === true &&
       typeof requested === "string" &&

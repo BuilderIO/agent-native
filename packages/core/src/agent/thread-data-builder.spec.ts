@@ -6113,6 +6113,37 @@ describe("upsertUserMessage", () => {
     expect(queued).toEqual({ status: "submission_expired" });
   });
 
+  it("accepts an expired direct replay only when its run was already saved", () => {
+    const first = applySubmittedUserMessage(
+      {},
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-direct",
+        submissionExpiresAt: Date.now() + 60_000,
+      }),
+    );
+    if (!("repo" in first)) throw new Error("Expected a submitted result.");
+
+    const later = applySubmittedUserMessage(
+      first.repo,
+      buildUserMessage({ text: "A later prompt", runId: "run-later" }),
+    );
+    if (!("repo" in later)) throw new Error("Expected a submitted result.");
+
+    const replay = applySubmittedUserMessage(
+      later.repo,
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-direct",
+        submissionExpiresAt: Date.now() - 1,
+      }),
+    );
+
+    expect(replay).toEqual({ status: "already_submitted", repo: later.repo });
+    if (!("repo" in replay)) throw new Error("Expected an idempotent replay.");
+    expect(replay.repo.messages).toHaveLength(2);
+  });
+
   it("submits a background operation once and reports a later run as already claimed", () => {
     const operation = {
       kind: "background-operation" as const,

@@ -2,6 +2,9 @@ import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type {
   AgentAnnotation,
   AgentAnnotationSnapshot,
+  AgentCapabilitiesDiscovery,
+  AgentCapabilityDescriptor,
+  AgentCapabilityId,
   AgentError,
   AgentEvent,
   AgentMessage,
@@ -10,6 +13,7 @@ import type {
   AgentRunSnapshot,
   AgentQueuedMessage,
   AgentRequestContext,
+  DiscoverCapabilitiesInput,
   AgentToolCall,
   AgentThreadSnapshot,
   AgentWidgetSnapshot,
@@ -17,8 +21,10 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+  createCapabilityUnsupportedError,
   agentEventSequenceEnd,
   isAgentKitProtocolVersion,
+  negotiateAgentKitProtocolVersion,
   parseAgentQueuedMessage,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
@@ -3855,7 +3861,6 @@ export function createAgentNativeAgentKitTransport(
       threadForking: true,
       feedback: true,
       messageQueue: true,
-      [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
       suggestions: true,
       connectionRequests: true,
     },
@@ -4302,10 +4307,91 @@ export function createAgentNativeAgentKitTransport(
   };
   const subscribeToRun =
     protocolTransport.subscribeToRun.bind(protocolTransport);
+  const discoverCapabilities =
+    protocolTransport.discoverCapabilities?.bind(protocolTransport);
+  const serverBackedCapabilities = isAgentNativeChatRuntime(runtime);
+  const capabilitiesUrl = apiUrl.endsWith("/")
+    ? `${apiUrl}capabilities`
+    : `${apiUrl}/capabilities`;
   transport = {
     ...protocolTransport,
     assertAiSetupReady,
     startRun: (input, context) => startRunTrackingRunningState(input, context),
+    async discoverCapabilities(
+      input: DiscoverCapabilitiesInput,
+      context?: AgentRequestContext,
+    ): Promise<AgentCapabilitiesDiscovery> {
+      const capability = AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID;
+      const discovery: AgentCapabilitiesDiscovery = discoverCapabilities
+        ? await discoverCapabilities(input, context)
+        : (() => {
+            const legacy = protocolTransport.capabilities ?? {};
+            return {
+              protocol: negotiateAgentKitProtocolVersion(input.protocol, {
+                correlationId: context?.correlationId,
+              }),
+              capabilities: Object.entries(legacy).reduce<
+                AgentCapabilityDescriptor[]
+              >((descriptors, [id, state]) => {
+                if (typeof state !== "boolean") return descriptors;
+                const capabilityId = id as AgentCapabilityId;
+                descriptors.push(
+                  state
+                    ? { id: capabilityId, state: "available" }
+                    : {
+                        id: capabilityId,
+                        state: "unsupported",
+                        error: createCapabilityUnsupportedError(capabilityId),
+                      },
+                );
+                return descriptors;
+              }, []),
+              discoveredAt: new Date().toISOString(),
+              legacy,
+            };
+          })();
+      let supported = false;
+      if (serverBackedCapabilities) {
+        try {
+          const response = await fetcher(capabilitiesUrl, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            credentials: "same-origin",
+            cache: "no-store",
+            ...(context?.signal ? { signal: context.signal } : {}),
+          });
+          if (response.ok) {
+            const serverCapabilities = asRecord(await response.json());
+            supported = serverCapabilities?.[capability] === true;
+          }
+        } catch (error) {
+          if (context?.signal?.aborted) throw error;
+        }
+      }
+      const descriptor: AgentCapabilityDescriptor = supported
+        ? { id: capability, state: "available" }
+        : {
+            id: capability,
+            state: "unsupported",
+            error: createCapabilityUnsupportedError(capability, {
+              message:
+                "This server does not advertise deadline-safe prompt recovery.",
+            }),
+          };
+      return {
+        ...discovery,
+        capabilities: [
+          ...discovery.capabilities.filter(
+            (candidate) => candidate.id !== capability,
+          ),
+          descriptor,
+        ],
+        legacy: {
+          ...discovery.legacy,
+          [capability]: supported,
+        },
+      };
+    },
     async *subscribeToRun(input) {
       dispatchAgentChatRunning({
         isRunning: true,

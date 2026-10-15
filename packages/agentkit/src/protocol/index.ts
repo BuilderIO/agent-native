@@ -30,6 +30,8 @@ export const AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE =
   "application/x-agent-native-tool-result";
 export const AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY =
   "agentNativeSubmissionExpiresAt";
+export const AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY =
+  "agentNativeSubmissionTtlMs";
 export const AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID =
   "x-agent-native-submission-deadlines" as const;
 

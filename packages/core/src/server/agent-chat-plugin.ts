@@ -3,6 +3,7 @@ import nodePath from "node:path";
 
 import {
   AgentProtocolValidationError,
+  AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
   parseQueueMessageInput,
 } from "@agent-native/agentkit/protocol";
 import {
@@ -4053,14 +4054,15 @@ export function createAgentChatPlugin(
                   submissionFailure = result.status;
                   return threadData;
                 }
-                const submitted = details.failure
-                  ? foldUnstartedTurnFailure(result.repo, {
-                      runId: details.runId,
-                      threadId,
-                      turnId: details.turnId,
-                      ...details.failure,
-                    })
-                  : result.repo;
+                const submitted =
+                  details.failure && result.status !== "already_submitted"
+                    ? foldUnstartedTurnFailure(result.repo, {
+                        runId: details.runId,
+                        threadId,
+                        turnId: details.turnId,
+                        ...details.failure,
+                      })
+                    : result.repo;
                 const meta = extractThreadMeta(submitted);
                 return {
                   threadData: JSON.stringify(submitted),
@@ -8267,6 +8269,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // This is mounted last because h3's use() is prefix-based, meaning /_agent-native/agent-chat
       // also matches /_agent-native/agent-chat/threads/... — we skip sub-path requests here so the
       // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
+      const capabilitiesPath = `${routePath}/capabilities`;
+      getH3App(nitroApp).use(
+        capabilitiesPath,
+        defineEventHandler((event) => {
+          const requestPath = new URL(
+            event.node?.req?.url || event.path || "",
+            "http://localhost",
+          ).pathname;
+          if (requestPath !== capabilitiesPath) {
+            setResponseStatus(event, 404);
+            return { error: "Not found" };
+          }
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          setResponseHeader(event, "Cache-Control", "no-store");
+          return { [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true };
+        }),
+      );
+
       getH3App(nitroApp).use(
         routePath,
         withTransientDatabaseFallback(routePath, async (event) => {

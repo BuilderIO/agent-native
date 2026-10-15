@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY } from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -7020,6 +7021,65 @@ describe("createProductionAgentHandler", () => {
         turnId: expect.any(String),
       }),
     );
+  });
+
+  it("anchors retry deadlines to the server request time", async () => {
+    const onRunPrepared = vi.fn();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunPrepared,
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+    try {
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Retry the prompt",
+            metadata: {
+              custom: {
+                agentNativeSubmissionExpiresAt: 99_999_999,
+                [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 1_200,
+              },
+            },
+          }),
+        }),
+      );
+
+      await runWithRequestContext(
+        { userEmail: "owner@example.com", run: {} },
+        () => handler(event),
+      );
+
+      expect(onRunPrepared).toHaveBeenCalledWith(
+        expect.objectContaining({ submissionExpiresAt: 11_200 }),
+      );
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("preserves request tracking identity through delayed run completion", async () => {

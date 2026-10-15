@@ -40,6 +40,7 @@ import {
   AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
   AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
   AgentProtocolValidationError,
   AgentKitProtocolError,
@@ -304,6 +305,24 @@ function assertSubmissionNotExpired(submissionExpiresAt: number | undefined) {
       { code: "submission_expired", retryable: false },
     );
   }
+}
+
+function submissionMetadataAtHandoff(
+  metadata: Record<string, unknown> | undefined,
+  expiresAt: number | undefined,
+): Record<string, unknown> | undefined {
+  if (expiresAt === undefined) return metadata;
+  const custom = metadataRecord(metadata?.custom) ?? {};
+  return {
+    ...metadata,
+    custom: {
+      ...custom,
+      [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: Math.max(
+        0,
+        expiresAt - Date.now(),
+      ),
+    },
+  };
 }
 
 function sameQueuedMessageIds(
@@ -2998,7 +3017,7 @@ export class AgentKitClient implements AgentKitController {
               ? { requestAttachments: input.requestAttachments }
               : {}),
             options: input.options,
-            metadata: input.metadata,
+            metadata: submissionMetadataAtHandoff(input.metadata, expiresAt),
           },
           context,
         );
@@ -3849,7 +3868,7 @@ export class AgentKitClient implements AgentKitController {
               text: input.text,
               attachments,
               ...(requestAttachments?.length ? { requestAttachments } : {}),
-              metadata: input.metadata,
+              metadata: submissionMetadataAtHandoff(input.metadata, expiresAt),
               options: input.options,
             },
             context,

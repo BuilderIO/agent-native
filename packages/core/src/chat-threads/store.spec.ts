@@ -17,7 +17,10 @@ vi.mock("./emitter.js", () => ({
   emitChatThreadChange: emitChatThreadChangeMock,
 }));
 
-import { AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY } from "@agent-native/agentkit/protocol";
+import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+} from "@agent-native/agentkit/protocol";
 
 import {
   applySubmittedUserMessage,
@@ -2319,6 +2322,34 @@ describe("chat thread store", () => {
     expect(claim?.submissionExpired).toBe(true);
     expect(claim?.claimedMessage).toBeUndefined();
     expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+  });
+
+  it("anchors a queued retry lifetime to server time before persisting it", async () => {
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+    try {
+      const appended = await mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-retry-with-ttl",
+          text: "Retry the prompt",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 99_999_999,
+              [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 1_200,
+            },
+          },
+        },
+      });
+
+      expect(appended?.message?.metadata?.custom).toEqual({
+        [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 11_200,
+      });
+      expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("allows cleanup of an expired queue item with a live promotion claim", async () => {

@@ -1713,6 +1713,26 @@ export function applySubmittedUserMessage(
       repo: claimQueuedMessage(repo, queuedMessage.id),
     };
   }
+  const submittedRunId = userCustom?.submittedRunId;
+  const wasDirectlySubmitted =
+    !queuedMessage &&
+    typeof submittedRunId === "string" &&
+    submittedRunId.trim().length > 0 &&
+    Array.isArray(repo?.messages) &&
+    repo.messages.some((entry: unknown) => {
+      const message = getStoredMessage(entry);
+      const custom = message?.metadata?.custom;
+      return (
+        message?.role === "user" &&
+        custom &&
+        typeof custom === "object" &&
+        !Array.isArray(custom) &&
+        custom.submittedRunId === submittedRunId
+      );
+    });
+  if (wasDirectlySubmitted) {
+    return { status: "already_submitted", repo };
+  }
   if (
     userCustom &&
     Object.prototype.hasOwnProperty.call(
