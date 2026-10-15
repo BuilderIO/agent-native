@@ -658,6 +658,9 @@ type WatchedRequestNavigationCandidate = {
   outgoingRequestKind?: "poll" | "heartbeat";
   requestSessionId?: string | null;
   retiredSessionId?: string | null;
+  requestSourceIsMainFrame?: boolean;
+  requestFrameUrl?: string | null;
+  outgoingDocumentUrl?: string | null;
   outgoingAbortWarningAgeMs?: number;
   competingSameTypeRequest?: boolean;
 };
@@ -821,6 +824,10 @@ function isFinishedRetiredSessionRequest(
       completedImmediatelyBeforeNavigation) &&
     candidate.outgoingRequestKind === requestKind &&
     candidate.sameOrigin === true &&
+    candidate.requestSourceIsMainFrame === true &&
+    normalizeDocumentUrl(candidate.requestFrameUrl ?? null) !== null &&
+    normalizeDocumentUrl(candidate.requestFrameUrl ?? null) ===
+      normalizeDocumentUrl(candidate.outgoingDocumentUrl ?? null) &&
     candidate.requestSessionId !== null &&
     candidate.requestSessionId === candidate.retiredSessionId &&
     candidate.responseStatus !== undefined &&
@@ -2236,6 +2243,9 @@ export async function runAuthoringFuzz(
         outgoingRequestKind: candidate.outgoingRequestKind ?? undefined,
         requestSessionId: candidate.requestSessionId,
         retiredSessionId: candidate.retiredSessionId,
+        requestSourceIsMainFrame: candidate.requestSourceIsMainFrame,
+        requestFrameUrl: candidate.requestFrameUrl,
+        outgoingDocumentUrl: candidate.outgoingDocumentUrl,
         ...(candidate.failureAt === null
           ? {}
           : { outgoingAbortWarningAgeMs: now - candidate.failureAt }),
@@ -7865,7 +7875,6 @@ export async function runAuthoringFuzz(
         reloadNavigationStartedAt,
       );
       for (const [request, startedAt] of watchedRequests.entries()) {
-        const requestUrl = new URL(request.url());
         const trackedRequest = inFlightBrowserSessionRequests.get(request);
         const sessionIdentity = trackedRequest?.identity;
         const requestFrame =
