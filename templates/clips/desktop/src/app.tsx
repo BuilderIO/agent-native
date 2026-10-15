@@ -3936,7 +3936,6 @@ export function App({
           preAcquiredDisplayStream:
             options?.resumeCapture?.displayStream ?? null,
           preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
-          preAcquiredCaptureSuspension: attempt.captureSuspension,
           pendingTranscriptionTeardown:
             options?.resumeCapture?.transcriptionTornDown ?? null,
           signal: attempt.signal,
@@ -3996,7 +3995,6 @@ export function App({
         await boundedCleanup(started.cancel());
         attempt.ensureActive();
       }
-      attempt.captureSuspension = null;
       // Capture already began: an abandoned start stops and keeps the take.
       if (
         (stopRequestedDuringStart || attempt.signal.aborted) &&

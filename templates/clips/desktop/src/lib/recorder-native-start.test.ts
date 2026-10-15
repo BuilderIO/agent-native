@@ -220,7 +220,6 @@ const params: StartParams = {
   cameraOn: false,
   micId: "webkit-selected-id",
   micLabel: "USB Microphone",
-  preAcquiredCaptureSuspension: { leaseId: null, suspendedRewind: false },
 };
 
 const handlers = new Map<string, Set<(event: { payload: unknown }) => void>>();
@@ -351,11 +350,27 @@ afterEach(() => {
 
 describe("native recording startup", () => {
   it("requests earlier screen time for a hosted window recording", async () => {
+    let originAtSuspension: ReturnType<typeof getRewindClipOrigin> = null;
+    let originAtWarm: ReturnType<typeof getRewindClipOrigin> = null;
+    let acquiredAfterCountdown = false;
+    nativeCommands.set("rewind_capture_suspension_acquire", async () => {
+      acquiredAfterCountdown = mocks.emit.mock.calls.some(
+        ([name]) => name === "clips:countdown-done",
+      );
+      originAtSuspension = getRewindClipOrigin(createdRecordingId());
+      return { leaseId: "rewind-suspension", suspendedRewind: true };
+    });
+    nativeCommands.set("native_fullscreen_recording_warm", async () => {
+      originAtWarm = getRewindClipOrigin(createdRecordingId());
+    });
     const pending = startRecording({ ...params, lookbackEnabled: true });
     await vi.advanceTimersByTimeAsync(3_600);
     const handle = await pending;
     const recordingId = createdRecordingId();
 
+    expect(originAtSuspension).toMatchObject({ recordingId });
+    expect(originAtWarm).toMatchObject({ recordingId });
+    expect(acquiredAfterCountdown).toBe(true);
     const origin = getRewindClipOrigin(recordingId);
     if (!origin) throw new Error("recording origin was not saved");
     expect(origin).toMatchObject({
@@ -363,6 +378,13 @@ describe("native recording startup", () => {
       includeMicrophone: true,
       includeSystemAudio: true,
     });
+    const commands = mocks.invoke.mock.calls.map(([command]) => command);
+    expect(commands.indexOf("rewind_capture_suspension_acquire")).toBeLessThan(
+      commands.indexOf("native_fullscreen_recording_warm"),
+    );
+    expect(commands.indexOf("native_fullscreen_recording_warm")).toBeLessThan(
+      commands.indexOf("native_fullscreen_recording_begin"),
+    );
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ id: "context-1" }), {
         status: 200,
@@ -764,15 +786,16 @@ describe("native recording startup", () => {
     const pending = startRecording(params);
     await flush();
     expect(fetchMock).toHaveBeenCalled();
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    expect(getUserMedia).not.toHaveBeenCalled();
     expect(calls("native_fullscreen_recording_warm")[0][1]).toMatchObject({
       micDeviceId: params.micId,
       micDeviceLabel: params.micLabel,
       includeAudio: true,
     });
-    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(3_600);
-    const handle = await pending;
-    expect(getUserMedia).not.toHaveBeenCalled();
     expect(calls("native_fullscreen_recording_begin")[0][1]).toMatchObject({
       micDeviceId: params.micId,
       micDeviceLabel: params.micLabel,
@@ -970,7 +993,7 @@ describe("native recording startup", () => {
     expect(getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("waits for countdown presentation before native warm starts", async () => {
+  it("waits for countdown completion before native warm starts", async () => {
     const warm = deferred<void>();
     const startupEvents: string[] = [];
     const onCaptureIdentityAvailable = vi.fn((recordingId: string) => {
@@ -1015,16 +1038,17 @@ describe("native recording startup", () => {
 
     await mocks.emit("clips:countdown-presented", { attemptId });
     await flush();
+    expect(startupEvents).toEqual([`identity:${recordingId}`]);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
+    await mocks.emit("clips:countdown-done", { attemptId, cause: "timer" });
+    await flush();
     expect(startupEvents).toEqual([
       `identity:${recordingId}`,
       `warm:${recordingId}`,
     ]);
-    await vi.advanceTimersByTimeAsync(3_600);
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
     warm.resolve();
-    await flush();
-    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
-    await mocks.emit("clips:countdown-done", { attemptId, cause: "timer" });
     await flush();
     const handle = await pending;
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
@@ -1033,26 +1057,39 @@ describe("native recording startup", () => {
 
   it("propagates warm failure without beginning a fallback capture", async () => {
     const failure = new Error("Selected microphone is unavailable");
+    nativeCommands.set("rewind_capture_suspension_acquire", async () => ({
+      leaseId: "warm-failure-suspension",
+      suspendedRewind: true,
+    }));
     nativeCommands.set("native_fullscreen_recording_warm", async () => {
       throw failure;
     });
     const pending = startRecording(params);
     const failed = expect(pending).rejects.toBe(failure);
     await flush();
+    await vi.advanceTimersByTimeAsync(3_600);
     await failed;
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("rewind_capture_suspension_release")).toEqual([
+      [
+        "rewind_capture_suspension_release",
+        { leaseId: "warm-failure-suspension" },
+      ],
+    ]);
     expect(mocks.transcribe).not.toHaveBeenCalled();
     expect(mocks.emit).not.toHaveBeenCalledWith("clips:toolbar-enabled", true);
   });
 
-  it("runs the countdown during transcription startup and retains the capture", async () => {
+  it("starts transcription after the countdown and retains the capture", async () => {
     const transcription = deferred<TranscriptionCapture>();
     const transcript = capture();
     mocks.transcribe.mockReturnValueOnce(transcription.promise);
     const pending = startRecording(params);
     await flush();
     expect(calls("show_countdown")).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    expect(mocks.transcribe).toHaveBeenCalledOnce();
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
     transcription.resolve(transcript);
     await flush();
@@ -1065,6 +1102,10 @@ describe("native recording startup", () => {
 
   it("does not start transcription or begin after cancellation during warm", async () => {
     const warm = deferred<void>();
+    nativeCommands.set("rewind_capture_suspension_acquire", async () => ({
+      leaseId: "warm-cancel-suspension",
+      suspendedRewind: true,
+    }));
     nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
     const controller = new AbortController();
     const pending = startRecording({ ...params, signal: controller.signal });
@@ -1073,12 +1114,21 @@ describe("native recording startup", () => {
     });
     await flush();
     expect(calls("show_countdown")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(1);
     controller.abort();
     await flush();
     warm.resolve();
     await failed;
     expect(mocks.transcribe).not.toHaveBeenCalled();
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("rewind_capture_suspension_release")).toEqual([
+      [
+        "rewind_capture_suspension_release",
+        { leaseId: "warm-cancel-suspension" },
+      ],
+    ]);
     expect(calls("native_fullscreen_recording_cancel").length).toBeGreaterThan(
       0,
     );
@@ -1092,6 +1142,9 @@ describe("native recording startup", () => {
     const first = startRecording({ ...params, signal: controller.signal });
     const failed = expect(first).rejects.toMatchObject({ name: "AbortError" });
     await flush();
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    expect(mocks.transcribe).toHaveBeenCalledTimes(1);
     controller.abort();
     await failed;
     transcription.resolve(transcript);

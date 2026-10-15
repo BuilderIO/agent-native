@@ -242,7 +242,6 @@ export interface StartParams {
   preAcquiredCameraStream?: MediaStream | null;
   preAcquiredDisplayStream?: MediaStream | null;
   preAcquiredAudioStream?: MediaStream | null;
-  preAcquiredCaptureSuspension?: RewindCaptureSuspensionLease | null;
   pendingTranscriptionTeardown?: Promise<void> | null;
   countdownAttemptId?: string;
   onCaptureIdentityAvailable?: (captureIdentity: string) => void;
@@ -310,6 +309,24 @@ export function forgetRewindClipOrigin(recordingId: string): void {
   if (!origins[recordingId]) return;
   delete origins[recordingId];
   writeRewindClipOrigins(origins);
+}
+
+function rememberRewindClipOriginForStart(
+  recordingId: string,
+  params: StartParams,
+): void {
+  if (!params.lookbackEnabled || getRewindClipOrigin(recordingId)) return;
+  const startedAt = new Date().toISOString();
+  rememberRewindClipOrigin({
+    recordingId,
+    startedAt,
+    includeMicrophone: params.micOn,
+    includeSystemAudio: shouldRequestSystemAudio(
+      params.mode !== "camera",
+      params.systemAudioOn,
+    ),
+    rememberedAt: startedAt,
+  });
 }
 
 export const RESTART_CAPTURE_ENDED_MESSAGE =
@@ -1920,14 +1937,6 @@ const COUNTDOWN_SHOW_TIMEOUT_MS = 10_000;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function waitForCountdownPresentation(
-  countdownShown: Promise<void>,
-  countdownPresented: Promise<void>,
-): Promise<void> {
-  await countdownShown;
-  await countdownPresented;
 }
 
 function abortableWait(ms: number, signal?: AbortSignal): Promise<void> {
@@ -3576,6 +3585,9 @@ async function startNativeFullscreenRecording(
   let captureRegion: RegionCaptureRect | null = null;
   let transcriptionCapture: TranscriptionCapture | null = null;
   let countdownPromise: Promise<void> | null = null;
+  const captureSuspensionCleanup: {
+    release: (() => Promise<void>) | null;
+  } = { release: null };
   const countdownController = new AbortController();
   const countdownSignal = params.signal
     ? AbortSignal.any([params.signal, countdownController.signal])
@@ -3674,33 +3686,14 @@ async function startNativeFullscreenRecording(
       bubbleCaptureExcluded = true;
     }
 
-    let resolveCountdownShown!: () => void;
-    let rejectCountdownShown!: (error: unknown) => void;
-    const countdownShown = new Promise<void>((resolve, reject) => {
-      resolveCountdownShown = resolve;
-      rejectCountdownShown = reject;
-    });
-    void countdownShown.catch(() => {});
-    let resolveCountdownPresented!: () => void;
-    let rejectCountdownPresented!: (error: unknown) => void;
-    const countdownPresented = new Promise<void>((resolve, reject) => {
-      resolveCountdownPresented = resolve;
-      rejectCountdownPresented = reject;
-    });
-    void countdownPresented.catch(() => {});
     countdownPromise = runRecordingCountdown(
       true,
       countdownSignal,
-      {
-        onShown: () => resolveCountdownShown(),
-        onPresented: () => resolveCountdownPresented(),
-      },
+      undefined,
       params.countdownAttemptId,
     );
     void countdownPromise.catch((error) => {
       startupFailed = true;
-      rejectCountdownShown(error);
-      rejectCountdownPresented(error);
     });
     console.log(
       localOnly
@@ -3718,8 +3711,33 @@ async function startNativeFullscreenRecording(
     const warmMic = async (recordingId: string) => {
       assertStartupActive();
       params.onCaptureIdentityAvailable?.(recordingId);
-      await waitForCountdownPresentation(countdownShown, countdownPresented);
+      const activeCountdown = countdownPromise;
+      if (!activeCountdown) {
+        throw new Error("Native recording countdown was not started");
+      }
+      await activeCountdown;
+      await audioCue.playBeforeCapture();
       assertStartupActive();
+      rememberRewindClipOriginForStart(recordingId, params);
+      const captureSuspension = await guardRecordingStart(
+        acquireRewindCaptureSuspension({
+          requiresScreen: true,
+          requiresMicrophone: wantsAudio,
+        }),
+        {
+          signal: params.signal,
+          onLateResolve: (lease) => {
+            void captureSuspensionReleaser(lease)().catch((err) =>
+              console.error(
+                "[clips-recorder] late Rewind suspension cleanup failed:",
+                err,
+              ),
+            );
+          },
+        },
+      );
+      captureSuspensionCleanup.release =
+        captureSuspensionReleaser(captureSuspension);
       // An IPC timeout does not stop native work. Fail the startup on timeout;
       // never let begin race a warm invoke that is still creating its stream.
       await guardRecordingStart(
@@ -3815,8 +3833,8 @@ async function startNativeFullscreenRecording(
     }
 
     await countdownPromise;
-    await audioCue.playBeforeCapture();
     assertStartupActive();
+    params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     const beginStartedAt = Date.now();
     const beginPromise = invoke("native_fullscreen_recording_begin", {
       recordingId: id,
@@ -3824,7 +3842,6 @@ async function startNativeFullscreenRecording(
       localOnly,
       hasCamera: wantsCamera,
     });
-    params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     await guardRecordingStart(beginPromise, { signal: params.signal });
     assertStartupActive();
     console.log(
@@ -3892,6 +3909,14 @@ async function startNativeFullscreenRecording(
         params.authToken,
       );
     }
+    await captureSuspensionCleanup
+      .release?.()
+      .catch((releaseError) =>
+        console.error(
+          "[clips-recorder] Rewind suspension release after startup failure failed:",
+          releaseError,
+        ),
+      );
     throw err;
   }
 
@@ -4349,7 +4374,9 @@ async function startNativeFullscreenRecording(
     }
   }
 
-  return handle;
+  return captureSuspensionCleanup.release
+    ? recorderWithCaptureSuspension(handle, captureSuspensionCleanup.release)
+    : handle;
 }
 
 function createSyntheticScreenStream(): {
@@ -4474,19 +4501,7 @@ export async function startRecording(
       signal: startController.signal,
       onCaptureStartRequested: (recordingId, captureIdentity) => {
         requestedRecordingId = recordingId;
-        if (recordingId && params.lookbackEnabled) {
-          const startedAt = new Date().toISOString();
-          rememberRewindClipOrigin({
-            recordingId,
-            startedAt,
-            includeMicrophone: params.micOn,
-            includeSystemAudio: shouldRequestSystemAudio(
-              params.mode !== "camera",
-              params.systemAudioOn,
-            ),
-            rememberedAt: startedAt,
-          });
-        }
+        if (recordingId) rememberRewindClipOriginForStart(recordingId, params);
         if (captureIdentity === undefined) {
           params.onCaptureStartRequested?.(recordingId);
         } else {
@@ -4619,31 +4634,12 @@ async function startRecordingInner(
         )
       : null;
     if (rewindRecorder) return rewindRecorder;
-    const suspension =
-      params.preAcquiredCaptureSuspension ??
-      (nativeFullscreenCapture || nativeWindowCapture
-        ? await acquireRewindCaptureSuspension({
-            requiresScreen: true,
-            requiresMicrophone: wantsAudio,
-          })
-        : null);
-    const releaseSuspension = suspension
-      ? captureSuspensionReleaser(suspension)
-      : null;
-    try {
-      const recorder = await startNativeFullscreenRecording(
-        params,
-        wantsCamera,
-        wantsAudio,
-        audioCue,
-      );
-      return releaseSuspension
-        ? recorderWithCaptureSuspension(recorder, releaseSuspension)
-        : recorder;
-    } catch (err) {
-      await releaseSuspension?.();
-      throw err;
-    }
+    return startNativeFullscreenRecording(
+      params,
+      wantsCamera,
+      wantsAudio,
+      audioCue,
+    );
   }
 
   // 1. Acquire streams BEFORE the countdown so recording can start without a
