@@ -836,6 +836,27 @@ describe("get-sql-dashboard agent reads", () => {
     expect(JSON.stringify(result).length).toBeLessThan(12_000);
   });
 
+  it("drops the left-out panel ids when they alone are over the cap", async () => {
+    const panels = Array.from({ length: 400 }, (_, index) =>
+      sqlPanel(`panel-${index}-`.padEnd(40, "x")),
+    );
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as Record<string, unknown>;
+
+    expect(JSON.stringify(result, null, 2).length).toBeLessThanOrEqual(12_000);
+    expect(result).toMatchObject({
+      truncated: true,
+      omittedKeys: expect.arrayContaining(["omittedPanelIds"]),
+    });
+    expect(result.omittedPanelIds).toBeUndefined();
+    const kept = (result.panels as unknown[]).length;
+    expect(kept + Number(result.omittedPanelCount ?? 0)).toBe(panels.length);
+  });
+
   // key-dates-store: 50 sets, 1,000 dates, 80-character names, 120-character
   // labels; data-notes-store: 200 notes, 120-character titles.
   const limits = { sets: 50, dates: 1_000, notes: 200 };

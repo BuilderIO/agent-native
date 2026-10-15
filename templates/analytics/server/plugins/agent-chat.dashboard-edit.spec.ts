@@ -17,6 +17,7 @@ vi.mock("../../.generated/actions-registry.js", () => ({
   },
 }));
 
+import { GENERIC_NO_DATA_FALLBACK_MESSAGE } from "../lib/real-data-actions";
 import { realDataFinalGuard } from "./agent-chat";
 
 const SAVED_RECEIPT: WriteReceipt = {
@@ -883,6 +884,41 @@ describe("realDataFinalGuard dashboard edits", () => {
           ),
         ),
       ]).toEqual([offPage, offPage]);
+    });
+
+    it("doesn't read the open dashboard's name as a source the user asked for", () => {
+      const ask = "How many signups did we get last week?";
+      const onWarehouseDashboard = appendAgentChatContextToMessage(
+        ask,
+        dashboardPageItem.replace(/Product signups/g, "Warehouse KPIs"),
+      );
+      const judge = (userText: string) =>
+        realDataFinalGuard(
+          guardContext({
+            userText,
+            draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+            toolResults: [
+              {
+                name: "data-source-status",
+                isError: false,
+                content: JSON.stringify({
+                  configuredDataSources: [
+                    {
+                      provider: "first-party",
+                      label: "First-party Analytics",
+                      via: "built-in",
+                      queryAction: "query-agent-native-analytics",
+                    },
+                  ],
+                }),
+              },
+            ],
+          }),
+        );
+      const offPage = judge(ask);
+
+      expect(offPage?.retryMessage).toContain("query-agent-native-analytics");
+      expect(judge(onWarehouseDashboard)).toEqual(offPage);
     });
   });
 

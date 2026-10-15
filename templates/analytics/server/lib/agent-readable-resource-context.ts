@@ -346,7 +346,6 @@ const SCREEN_CONTEXT_KEPT_KEYS: ReadonlySet<string> = new Set([
   "truncated",
   "hint",
   "omittedKeys",
-  "omittedPanelIds",
   ...SCREEN_CONTEXT_LISTS.flat(),
 ]);
 
