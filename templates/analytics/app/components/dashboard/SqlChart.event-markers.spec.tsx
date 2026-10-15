@@ -25,7 +25,7 @@ function keyDatesData(sets: unknown[]) {
 }
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: (name: string) =>
+  useActionQuery: vi.fn((name: string) =>
     name === "list-key-dates"
       ? {
           data: mocks.keyDateSets && keyDatesData(mocks.keyDateSets),
@@ -39,6 +39,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
               isError: mocks.dataNotesRefetchFailed,
             }
         : { data: undefined, isError: false },
+  ),
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
@@ -76,6 +77,7 @@ vi.mock("@shared/panel-events", async (importOriginal) => {
   return { ...actual, resolvePanelEvents: vi.fn(actual.resolvePanelEvents) };
 });
 
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { SETUP_INCIDENT } from "@shared/annotation-fixtures";
 import { resolvePanelEvents } from "@shared/panel-events";
 
@@ -353,6 +355,23 @@ describe("SqlChart key-date markers", () => {
 
       expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(2);
       expect(resolvePanelEvents).toHaveBeenCalledTimes(1);
+    });
+
+    it("loads the key dates and notes of the dashboard it draws, not the viewer's", async () => {
+      await act(async () => {
+        root.render(
+          <DashboardAnnotationsProvider dashboardId="shared-dashboard">
+            <SqlChart panel={unmarked("line")} />
+          </DashboardAnnotationsProvider>,
+        );
+      });
+      for (const list of ["list-key-dates", "list-data-notes"]) {
+        expect(useActionQuery).toHaveBeenCalledWith(
+          list,
+          { dashboardId: "shared-dashboard" },
+          expect.anything(),
+        );
+      }
     });
 
     it("stays quiet when there are no key dates", async () => {
