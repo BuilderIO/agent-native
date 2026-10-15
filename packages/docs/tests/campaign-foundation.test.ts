@@ -7,6 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildCampaignCtaUrl } from "../app/lib/campaign-links";
 import { campaignMeta } from "../app/lib/campaign-seo";
 import { buildCampaignPages } from "../app/vite-sitemap-plugin";
+import {
+  ARTICLE_TOPICS,
+  getArticleTopics,
+  type ArticleTopic,
+  type ArticleTopicSummary,
+} from "../lib/article-topics";
 import { articleMarkdown, parseCampaignContent } from "../lib/campaign-content";
 import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
 import { loadCampaignContent } from "../lib/campaign-content.server";
@@ -180,7 +186,8 @@ const optionalFields = {
 const article = {
   ...common,
   use_case: "sample",
-  category: "clips",
+  topic: "coding-agents",
+  apps: ["clips"],
   published: "2026-09-02",
   author: "Writer",
   related_resources: [
@@ -449,22 +456,136 @@ describe("campaign content", () => {
     },
   );
 
-  it("allows Content use cases without adding a Content article category", () => {
+  it("accepts Content as a use-case app and article app without creating an app category page", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const content = parseCampaignContent(
       sources(
         { "sample.yaml": yaml({ ...useCase, app: "content" }) },
-        { "sample.md": markdown({ ...article, category: "content" }) },
+        { "sample.md": markdown({ ...article, apps: ["content"] }) },
       ),
     );
     expect(content.useCases[0].app).toBe("content");
-    expect(content.articles).toEqual([]);
-    expect(error).toHaveBeenCalledExactlyOnceWith(
-      expect.stringContaining("invalid content skipped (category"),
-    );
+    expect(content.articles[0].apps).toEqual(["content"]);
+    expect(error).not.toHaveBeenCalled();
     const paths = buildCampaignPages(content).map((page) => page.path);
     expect(paths).toContain("/use-cases/sample/");
-    expect(paths).not.toContain("/articles/category/content/");
+    expect(paths.some((path) => path.includes("/category/"))).toBe(false);
+  });
+
+  it.each(Object.keys(ARTICLE_TOPICS) as ArticleTopic[])(
+    "accepts the configured article topic %s",
+    (topic) => {
+      const content = parseCampaignContent(
+        sources(undefined, {
+          "sample.md": markdown({
+            ...article,
+            topic,
+            category: "unknown-legacy-category",
+          }),
+        }),
+      );
+      expect(content.articles[0].topic).toBe(topic);
+      expect(content.articles[0]).not.toHaveProperty("category");
+    },
+  );
+
+  it.each([undefined, null, "", "clips", "unknown", [], 1])(
+    "logs and skips an absent or invalid required article topic (%j)",
+    (topic) => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const content = parseCampaignContent(
+        sources(undefined, {
+          "sample.md": markdown({ ...article, topic, category: "clips" }),
+          "valid.md": markdown({ ...article, slug: "valid" }),
+        }),
+      );
+      expect(content.articles.map((item) => item.slug)).toEqual(["valid"]);
+      expect(error).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining("sample.md: invalid content skipped (topic"),
+      );
+    },
+  );
+
+  it.each([
+    undefined,
+    [],
+    ["clips"],
+    ["design"],
+    ["plans"],
+    ["analytics"],
+    ["slides"],
+    ["content"],
+    ["clips", "design", "plans", "analytics", "slides", "content"],
+  ])(
+    "accepts optional article apps without inventing defaults (%j)",
+    (apps) => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const content = parseCampaignContent(
+        sources(undefined, {
+          "sample.md": markdown({ ...article, apps }),
+        }),
+      );
+      expect(content.articles).toHaveLength(1);
+      if (apps === undefined)
+        expect(content.articles[0]).not.toHaveProperty("apps");
+      else expect(content.articles[0].apps).toEqual(apps);
+      expect(error).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    null,
+    "clips",
+    {},
+    ["unknown"],
+    ["plan"],
+    ["clips", "unknown"],
+    [1],
+    [null],
+  ])("logs and skips invalid article apps (%j)", (apps) => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(
+      parseCampaignContent(
+        sources(undefined, {
+          "sample.md": markdown({ ...article, apps }),
+        }),
+      ).articles,
+    ).toEqual([]);
+    expect(error).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("sample.md: invalid content skipped (apps"),
+    );
+  });
+
+  it("summarizes only populated configured topics, in configuration order, without mutating input", () => {
+    const topics = Object.keys(ARTICLE_TOPICS) as ArticleTopic[];
+    const fixtures = [
+      { topic: topics[1] },
+      { topic: topics[0] },
+      { topic: topics[1] },
+    ];
+    const original = structuredClone(fixtures);
+    const summaries: ArticleTopicSummary[] = getArticleTopics(fixtures);
+    expect(summaries).toEqual([
+      { slug: topics[0], ...ARTICLE_TOPICS[topics[0]], count: 1 },
+      { slug: topics[1], ...ARTICLE_TOPICS[topics[1]], count: 2 },
+    ]);
+    expect(getArticleTopics([])).toEqual([]);
+    expect(fixtures).toEqual(original);
+    for (const slug of topics) {
+      expect(getArticleTopics([{ topic: slug }])).toEqual([
+        { slug, ...ARTICLE_TOPICS[slug], count: 1 },
+      ]);
+      const content = parseCampaignContent(
+        sources(undefined, {
+          "sample.md": markdown({ ...article, topic: slug }),
+        }),
+      );
+      const paths = buildCampaignPages(content).map((page) => page.path);
+      expect(paths).toContain(`/articles/topic/${slug}/`);
+      expect(
+        paths.filter((path) => path.startsWith("/articles/topic/")),
+      ).toEqual([`/articles/topic/${slug}/`]);
+    }
   });
 
   it("accepts null stories as absent and normalizes used_before strings to lists", () => {
@@ -530,6 +651,55 @@ describe("campaign content", () => {
     );
     expect(bundled.useCases).toHaveLength(14);
     expect(bundled.articles).toHaveLength(8);
+    expect(
+      bundled.articles.map(({ slug, topic, apps }) => ({ slug, topic, apps })),
+    ).toEqual([
+      {
+        slug: "how-do-you-build-a-landing-page-with-ai",
+        topic: "prototyping",
+        apps: ["design"],
+      },
+      {
+        slug: "how-to-write-a-bug-report",
+        topic: "coding-agents",
+        apps: ["clips"],
+      },
+      {
+        slug: "what-goes-in-a-design-brief",
+        topic: "prototyping",
+        apps: ["design"],
+      },
+      {
+        slug: "what-goes-in-a-technical-design-document",
+        topic: "coding-agents",
+        apps: ["plans"],
+      },
+      {
+        slug: "what-should-a-saas-metrics-dashboard-include",
+        topic: "metrics",
+        apps: ["analytics"],
+      },
+      {
+        slug: "what-should-a-startup-pitch-deck-include",
+        topic: "presentations",
+        apps: ["slides"],
+      },
+      {
+        slug: "what-should-meeting-notes-include",
+        topic: "meetings-and-notes",
+        apps: ["clips"],
+      },
+      {
+        slug: "what-should-you-look-for-in-dictation-software",
+        topic: "meetings-and-notes",
+        apps: ["clips"],
+      },
+    ]);
+    for (const item of bundled.articles)
+      expect(item).not.toHaveProperty("category");
+    expect(
+      getArticleTopics(bundled.articles).map(({ count }) => count),
+    ).toEqual([2, 2, 2, 1, 1]);
     expect(
       bundled.useCases.map((item) => [
         item.slug,
@@ -701,7 +871,7 @@ describe("campaign content", () => {
     }
   });
 
-  it("includes categories, pagination at twelve, supplied dates and safe article mirrors", () => {
+  it("includes only populated topics, index pagination at twelve, supplied dates and safe article mirrors", () => {
     const content = parseCampaignContent(sources());
     content.articles = Array.from({ length: 13 }, (_, index) => ({
       ...content.articles[0],
@@ -714,9 +884,7 @@ describe("campaign content", () => {
         "/use-cases/sample/",
         "/articles/",
         "/articles/page/2/",
-        "/articles/category/clips/",
-        "/articles/category/clips/page/2/",
-        "/articles/category/analytics/",
+        "/articles/topic/coding-agents/",
       ]),
     );
     expect(
@@ -729,6 +897,18 @@ describe("campaign content", () => {
       pages.find((page) => page.path === "/articles/page/2/")?.markdown,
     ).toContain("article-12");
     expect(pages.map((page) => page.path)).not.toContain("/articles/page/1/");
+    expect(pages.some((page) => page.path.includes("/category/"))).toBe(false);
+    expect(pages.some((page) => /\/topic\/[^/]+\/page\//.test(page.path))).toBe(
+      false,
+    );
+    expect(pages.some((page) => page.path.includes("/topic/metrics/"))).toBe(
+      false,
+    );
+    const topic = pages.find(
+      (page) => page.path === "/articles/topic/coding-agents/",
+    )!;
+    expect(topic.markdown?.match(/^- \[/gm)).toHaveLength(13);
+    expect(topic.markdown).toContain("article-12");
   });
 });
 
