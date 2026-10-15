@@ -4,7 +4,8 @@ use_case: design-brief-to-prototype
 job_id: job-design-brief
 title: "What goes in a design brief?"
 meta_description: "A design brief says what you're making, who it's for, and the limits it works within. A copy-and-paste template, an example, and how to turn one into a prototype."
-category: design
+topic: prototyping
+apps: [design]
 audience: technical
 published: 2026-10-14
 author: "Agent-Native Team"

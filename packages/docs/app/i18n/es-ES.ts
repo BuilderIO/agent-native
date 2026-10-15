@@ -48,7 +48,11 @@ const esES = {
     frequencyLabel: "Con qué frecuencia: {{text}}",
     articles: "Artículos",
     articlesIntro:
-      "Respuestas prácticas sobre cómo realizar trabajo recurrente con apps Agent-Native y tu agente de IA.",
+      "Respuestas prácticas sobre el trabajo recurrente con agentes de IA. Para ver páginas que explican una tarea concreta paso a paso, explora los {{useCases}}.",
+    useCasesLink: "casos de uso",
+    articleCountOne: "{{count}} artículo",
+    articleCountOther: "{{count}} artículos",
+    moreOnTopic: "Más sobre {{topic}}",
     oldWay: "La forma anterior",
     newWay: "La nueva forma",
     alternative: "Una alternativa de código abierto a {{names}}",

@@ -47,7 +47,11 @@ const hiIN = {
     frequencyLabel: "कितनी बार: {{text}}",
     articles: "लेख",
     articlesIntro:
-      "Agent-Native ऐप और अपने AI एजेंट से बार-बार होने वाला काम पूरा करने के व्यावहारिक जवाब।",
+      "AI एजेंट के साथ बार-बार होने वाले काम के बारे में व्यावहारिक जवाब। किसी एक काम को चरण-दर-चरण समझाने वाले पेज के लिए {{useCases}} देखें।",
+    useCasesLink: "उपयोग के उदाहरण",
+    articleCountOne: "{{count}} लेख",
+    articleCountOther: "{{count}} लेख",
+    moreOnTopic: "{{topic}} के बारे में और जानें",
     oldWay: "पुराना तरीका",
     newWay: "नया तरीका",
     alternative: "{{names}} का एक ओपन-सोर्स विकल्प",

@@ -20,8 +20,8 @@ export function loader({ params }: LoaderFunctionArgs) {
     content.articles.filter((article) => article.slug !== item.slug),
   );
   const more = [
-    ...candidates.filter((article) => article.category === item.category),
-    ...candidates.filter((article) => article.category !== item.category),
+    ...candidates.filter((article) => article.topic === item.topic),
+    ...candidates.filter((article) => article.topic !== item.topic),
   ].slice(0, 3);
   return {
     article: publicArticle(item),

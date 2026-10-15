@@ -1,6 +1,8 @@
 import matter from "gray-matter";
 import { z } from "zod";
 
+import { ARTICLE_TOPICS, type ArticleTopic } from "./article-topics";
+
 export const USE_CASES_BASE = "/use-cases";
 export const ARTICLES_BASE = "/articles";
 export const CATEGORY_NAMES = {
@@ -24,7 +26,10 @@ const text = z
   .string()
   .refine((value) => value.trim().length > 0, "Expected nonempty text");
 const slug = text.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-const category = z.enum(categories);
+const app = z.enum([...categories, "content"]);
+const topic = z.enum(
+  Object.keys(ARTICLE_TOPICS) as [ArticleTopic, ...ArticleTopic[]],
+);
 export function isSafeCampaignUrl(value: string): boolean {
   if (/[\s\\\u0000-\u001f\u007f]/.test(value)) return false;
   if (value.startsWith("/") && !value.startsWith("//")) return true;
@@ -76,7 +81,7 @@ const common = {
 };
 const useCaseSchema = z.object({
   ...common,
-  app: z.enum([...categories, "content"]),
+  app,
   subhead: text,
   secondary_cta_label: text,
   old_way: z.object({ heading: text, body: text }),
@@ -152,7 +157,8 @@ const useCaseSchema = z.object({
 const articleSchema = z.object({
   ...common,
   use_case: slug,
-  category,
+  topic,
+  apps: z.array(app).optional(),
   published: date,
   updated: date.optional(),
   author: text,

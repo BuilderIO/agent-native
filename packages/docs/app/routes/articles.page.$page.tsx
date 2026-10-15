@@ -1,5 +1,6 @@
 import { useLoaderData, type LoaderFunctionArgs } from "react-router";
 
+import { getArticleTopics } from "../../lib/article-topics";
 import { ARTICLES_BASE, ARTICLES_PAGE_SIZE } from "../../lib/campaign-content";
 import { loadCampaignContent } from "../../lib/campaign-content.server";
 import { ArticlesList } from "../components/campaign/articles";
@@ -22,6 +23,7 @@ export function loader({ params }: LoaderFunctionArgs) {
     articles: articles
       .slice(start, start + ARTICLES_PAGE_SIZE)
       .map(publicArticle),
+    topics: getArticleTopics(articles),
     page,
     hasMore: start + ARTICLES_PAGE_SIZE < articles.length,
   };
@@ -39,7 +41,10 @@ export const meta = ({
   return content
     ? campaignMeta(
         enUS.campaign.articles,
-        enUS.campaign.articlesIntro,
+        enUS.campaign.articlesIntro.replace(
+          "{{useCases}}",
+          enUS.campaign.useCasesLink,
+        ),
         `${ARTICLES_BASE}/page/${content.page}`,
         "website",
         params?.locale,

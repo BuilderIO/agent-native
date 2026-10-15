@@ -2,11 +2,12 @@ import { useT, useLocale } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
 import {
-  ARTICLES_BASE,
-  USE_CASES_BASE,
-  CATEGORY_NAMES,
-  categories,
-} from "../../../lib/campaign-content";
+  ARTICLE_TOPICS,
+  getArticleTopics,
+  type ArticleTopic,
+  type ArticleTopicSummary,
+} from "../../../lib/article-topics";
+import { ARTICLES_BASE, USE_CASES_BASE } from "../../../lib/campaign-content";
 import { sitePathForLocale } from "../docs-locale";
 import { TemplateLandingShell } from "../template-landing";
 import { Button } from "../website-redesign/ds/button";
@@ -30,33 +31,49 @@ import {
 
 export function ArticlesList({
   articles,
-  category,
+  topic,
+  topics = getArticleTopics(articles),
   page,
   hasMore,
 }: {
   articles: Article[];
-  category?: string;
+  topic?: ArticleTopic;
+  topics?: ArticleTopicSummary[];
   page: number;
   hasMore: boolean;
 }) {
   const t = useT();
   const { locale } = useLocale();
+  const intro = t("campaign.articlesIntro", { useCases: "{{useCases}}" }).split(
+    "{{useCases}}",
+  );
   return (
     <TemplateLandingShell className="builder-brand-tokens campaign-page pb-16">
       <div className="campaign-section border-x border-[var(--docs-border)]">
         <SectionHeader
-          eyebrow={category ? t("campaign.articles") : undefined}
+          eyebrow={topic ? t("campaign.articles") : undefined}
           as="h1"
-          heading={
-            category
-              ? CATEGORY_NAMES[category as Article["category"]]
-              : t("campaign.articles")
+          heading={topic ? ARTICLE_TOPICS[topic].name : t("campaign.articles")}
+          subheading={
+            topic ? (
+              ARTICLE_TOPICS[topic].description
+            ) : (
+              <>
+                {intro[0]}
+                <Link
+                  to={sitePathForLocale(USE_CASES_BASE, locale)}
+                  className="campaign-inline-link text-[var(--docs-accent)]"
+                >
+                  {t("campaign.useCasesLink")}
+                </Link>
+                {intro[1]}
+              </>
+            )
           }
-          subheading={category ? undefined : t("campaign.articlesIntro")}
         />
       </div>
       <section className="border border-[var(--docs-border)]">
-        {!category ? (
+        {!topic ? (
           <div className="campaign-section">
             <SectionHeader heading={t("campaign.allArticles")} />
           </div>
@@ -68,10 +85,10 @@ export function ArticlesList({
           >
             <Link
               to={sitePathForLocale(`${ARTICLES_BASE}/${article.slug}`, locale)}
-              className="grid gap-3 p-6 no-underline hover:bg-[var(--b-bg-raised)] sm:grid-cols-[7rem_1fr] sm:p-8"
+              className="grid gap-3 p-6 no-underline hover:bg-[var(--b-bg-raised)] sm:grid-cols-[1fr_2fr] sm:p-8"
             >
               <span className="campaign-label">
-                {CATEGORY_NAMES[article.category]}
+                {ARTICLE_TOPICS[article.topic].name}
               </span>
               <h2 className="campaign-card-title">{article.title}</h2>
             </Link>
@@ -91,29 +108,39 @@ export function ArticlesList({
           </Button>
         </div>
       ) : null}
-      {!category ? (
+      {!topic ? (
         <section className="mt-16 border border-[var(--docs-border)]">
           <div className="campaign-section">
             <SectionHeader heading={t("campaign.allTopics")} />
           </div>
-          <div className="grid gap-px bg-[var(--docs-border)] sm:grid-cols-2 lg:grid-cols-3">
-            {categories.map((key) => (
-              <ContentCard
-                key={key}
-                href={sitePathForLocale(
-                  `${ARTICLES_BASE}/category/${key}`,
-                  locale,
-                )}
-                title={CATEGORY_NAMES[key]}
-                body={t(`campaign.topics.${key}`)}
-              />
-            ))}
-            <ContentCard
-              href={sitePathForLocale(USE_CASES_BASE, locale)}
-              title={t("campaign.useCases")}
-              body={t("campaign.useCasesDescription")}
-            />
-          </div>
+          <ul className="m-0 grid list-none gap-px bg-[var(--docs-border)] p-0 lg:grid-cols-2">
+            {topics
+              .filter((item) => item.count > 0)
+              .map((item) => (
+                <li key={item.slug} className="bg-[var(--b-bg-page)]">
+                  <Link
+                    to={sitePathForLocale(
+                      `${ARTICLES_BASE}/topic/${item.slug}`,
+                      locale,
+                    )}
+                    className="flex h-full flex-col gap-3 p-6 no-underline hover:bg-[var(--b-bg-raised)] sm:p-8"
+                  >
+                    <h3 className="campaign-card-title">{item.name}</h3>
+                    <p className="m-0 text-[var(--fg-secondary)]">
+                      {item.description}
+                    </p>
+                    <span className="campaign-label">
+                      {t(
+                        item.count === 1
+                          ? "campaign.articleCountOne"
+                          : "campaign.articleCountOther",
+                        { count: item.count },
+                      )}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+          </ul>
         </section>
       ) : null}
     </TemplateLandingShell>
@@ -149,6 +176,7 @@ export function ArticlePage({
           "@type": "Article",
           headline: article.title,
           description: article.meta_description,
+          articleSection: ARTICLE_TOPICS[article.topic].name,
           datePublished: article.published,
           dateModified: article.updated ?? article.published,
           author: { "@type": "Person", name: article.author },
@@ -172,11 +200,11 @@ export function ArticlePage({
             <span aria-hidden="true">/</span>
             <Link
               to={sitePathForLocale(
-                `${ARTICLES_BASE}/category/${article.category}`,
+                `${ARTICLES_BASE}/topic/${article.topic}`,
                 locale,
               )}
             >
-              {CATEGORY_NAMES[article.category]}
+              {ARTICLE_TOPICS[article.topic].name}
             </Link>
           </nav>
           <h1 className="m-0 text-3xl font-medium leading-tight tracking-tight sm:text-5xl">
@@ -276,10 +304,10 @@ export function ArticlePage({
           <div className="campaign-section">
             <SectionHeader
               heading={
-                more.some((item) => item.category !== article.category)
+                more.some((item) => item.topic !== article.topic)
                   ? t("campaign.genericMore")
-                  : t("campaign.moreArticles", {
-                      category: CATEGORY_NAMES[article.category],
+                  : t("campaign.moreOnTopic", {
+                      topic: ARTICLE_TOPICS[article.topic].name,
                     })
               }
             />
@@ -294,7 +322,7 @@ export function ArticlePage({
                 )}
                 eyebrow={
                   <span className="campaign-label">
-                    {CATEGORY_NAMES[item.category]}
+                    {ARTICLE_TOPICS[item.topic].name}
                   </span>
                 }
                 title={item.title}

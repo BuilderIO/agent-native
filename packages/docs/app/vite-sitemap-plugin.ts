@@ -15,13 +15,12 @@ import {
   normalizeLocaleCode,
 } from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
+import { getArticleTopics } from "../lib/article-topics";
 import {
   ARTICLES_BASE,
   ARTICLES_PAGE_SIZE,
-  CATEGORY_NAMES,
   USE_CASES_BASE,
   articleMarkdown,
-  categories,
   type CampaignContent,
 } from "../lib/campaign-content";
 import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
@@ -247,13 +246,23 @@ export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
         ].join("\n\n") + "\n",
     })),
     ...articleIndex(ARTICLES_BASE, "Articles", articles),
-    ...categories.flatMap((category) =>
-      articleIndex(
-        `${ARTICLES_BASE}/category/${category}`,
-        CATEGORY_NAMES[category],
-        articles.filter((article) => article.category === category),
-      ),
-    ),
+    ...getArticleTopics(articles).map((topic) => {
+      const items = articles.filter((article) => article.topic === topic.slug);
+      return {
+        path: `${ARTICLES_BASE}/topic/${topic.slug}/`,
+        title: topic.name,
+        description: topic.description,
+        markdown: `# ${topic.name}\n\n${topic.description}\n\n${items
+          .map(
+            (article) =>
+              `- [${article.title}](${ARTICLES_BASE}/${article.slug}/)`,
+          )
+          .join("\n")}\n`,
+        lastmod: latestDate(
+          items.map((article) => article.updated ?? article.published),
+        ),
+      };
+    }),
     ...articles.map((article) => ({
       path: `${ARTICLES_BASE}/${article.slug}/`,
       title: article.title,

@@ -4,7 +4,8 @@ use_case: ai-meeting-notes
 job_id: job-meeting-notes
 title: "What should meeting notes include?"
 meta_description: "Good meeting notes capture decisions, owners, and open questions, not a transcript. A copy-and-paste template, and how AI note-takers fit in."
-category: clips
+topic: meetings-and-notes
+apps: [clips]
 audience: broad
 published: 2026-10-14
 author: "Agent-Native Team"

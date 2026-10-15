@@ -47,7 +47,11 @@ const jaJP = {
     frequencyLabel: "頻度：{{text}}",
     articles: "記事",
     articlesIntro:
-      "Agent-Native アプリと AI エージェントで繰り返しの仕事をこなすための実践的な回答。",
+      "AI エージェントと取り組む繰り返しの仕事についての実践的な回答。個別の仕事をステップごとに解説するページは、{{useCases}}をご覧ください。",
+    useCasesLink: "ユースケース",
+    articleCountOne: "{{count}} 件の記事",
+    articleCountOther: "{{count}} 件の記事",
+    moreOnTopic: "{{topic}}についてもっと読む",
     oldWay: "従来の方法",
     newWay: "新しい方法",
     alternative: "{{names}} に代わるオープンソースの選択肢",

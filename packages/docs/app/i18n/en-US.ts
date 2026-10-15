@@ -45,7 +45,11 @@ const enUS = {
     frequencyLabel: "How often: {{text}}",
     articles: "Articles",
     articlesIntro:
-      "Practical answers about getting recurring work done with Agent-Native apps and your AI agent.",
+      "Practical answers about recurring work with AI agents. For step-by-step pages on a single job, browse the {{useCases}}.",
+    useCasesLink: "use cases",
+    articleCountOne: "{{count}} article",
+    articleCountOther: "{{count}} articles",
+    moreOnTopic: "More on {{topic}}",
     oldWay: "The old way",
     newWay: "The new way",
     alternative: "An open-source alternative to {{names}}",

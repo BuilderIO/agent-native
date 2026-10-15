@@ -4,7 +4,8 @@ use_case: see-what-your-coding-agent-plans
 job_id: job-agent-plan-review
 title: "What goes in a technical design document?"
 meta_description: "A technical design document explains what you'll build and why before you build it. A copy-and-paste template, and how to review one with your coding agent."
-category: plans
+topic: coding-agents
+apps: [plans]
 audience: technical
 published: 2026-10-14
 author: "Agent-Native Team"

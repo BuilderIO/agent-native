@@ -4,7 +4,8 @@ use_case: startup-pitch-deck
 job_id: job-pitch-deck
 title: "What should a startup pitch deck include?"
 meta_description: "A startup pitch deck tells one story: the problem, your answer, proof it's working, and the ask. A slide-by-slide outline, and how to draft one faster."
-category: slides
+topic: presentations
+apps: [slides]
 audience: gtm-ops
 published: 2026-10-14
 author: "Agent-Native Team"

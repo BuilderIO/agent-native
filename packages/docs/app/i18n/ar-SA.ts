@@ -47,7 +47,11 @@ const arSA = {
     frequencyLabel: "معدل التكرار: {{text}}",
     articles: "المقالات",
     articlesIntro:
-      "إجابات عملية حول إنجاز العمل المتكرر باستخدام تطبيقات Agent-Native ووكيل الذكاء الاصطناعي.",
+      "إجابات عملية حول العمل المتكرر مع وكلاء الذكاء الاصطناعي. للاطلاع على صفحات تشرح مهمة واحدة خطوة بخطوة، تصفّح {{useCases}}.",
+    useCasesLink: "حالات الاستخدام",
+    articleCountOne: "{{count}} مقال",
+    articleCountOther: "{{count}} مقالات",
+    moreOnTopic: "المزيد حول {{topic}}",
     oldWay: "الطريقة القديمة",
     newWay: "الطريقة الجديدة",
     alternative: "بديل مفتوح المصدر لـ {{names}}",

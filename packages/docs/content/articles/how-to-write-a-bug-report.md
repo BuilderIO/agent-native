@@ -4,7 +4,8 @@ use_case: bug-reports-with-console-logs
 job_id: job-bug-report
 title: "How do you write a bug report an engineer can act on?"
 meta_description: "A good bug report answers four questions without a follow-up. Here's a copy-and-paste template, how to capture console errors, and when a recording beats text."
-category: clips
+topic: coding-agents
+apps: [clips]
 audience: technical
 published: 2026-10-14
 author: "Agent-Native Team"

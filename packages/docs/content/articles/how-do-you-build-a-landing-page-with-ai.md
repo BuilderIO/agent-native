@@ -4,7 +4,8 @@ use_case: landing-page-prototypes
 job_id: job-landing-page
 title: "How do you build a landing page with AI?"
 meta_description: "Decide the offer, audience, and one action first. Then let AI draft versions you can compare and edit. Your options, and what Design does and doesn't do."
-category: design
+topic: prototyping
+apps: [design]
 audience: technical
 published: 2026-10-14
 author: "Agent-Native Team"

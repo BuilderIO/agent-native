@@ -4,7 +4,8 @@ use_case: startup-kpi-dashboard
 job_id: job-kpi-dashboard
 title: "What should a SaaS metrics dashboard include?"
 meta_description: "A SaaS metrics dashboard should show recurring revenue, whether customers stay, and whether new users become active. The core metrics, and how to build the dashboard."
-category: analytics
+topic: metrics
+apps: [analytics]
 audience: technical
 published: 2026-10-14
 author: "Agent-Native Team"

@@ -4,7 +4,8 @@ use_case: dictate-instead-of-typing
 job_id: job-dictation
 title: "What should you look for in dictation software?"
 meta_description: "Check how it handles your own vocabulary, where it works, what it does to your text, and whether you can search it later. How the options compare."
-category: clips
+topic: meetings-and-notes
+apps: [clips]
 audience: technical
 published: 2026-10-14
 author: "Agent-Native Team"

@@ -48,7 +48,11 @@ const ptBR = {
     frequencyLabel: "Com que frequência: {{text}}",
     articles: "Artigos",
     articlesIntro:
-      "Respostas práticas sobre como realizar trabalho recorrente com apps Agent-Native e seu agente de IA.",
+      "Respostas práticas sobre trabalho recorrente com agentes de IA. Para ver páginas que explicam uma tarefa específica passo a passo, explore os {{useCases}}.",
+    useCasesLink: "casos de uso",
+    articleCountOne: "{{count}} artigo",
+    articleCountOther: "{{count}} artigos",
+    moreOnTopic: "Mais sobre {{topic}}",
     oldWay: "A forma antiga",
     newWay: "A nova forma",
     alternative: "Uma alternativa de código aberto a {{names}}",

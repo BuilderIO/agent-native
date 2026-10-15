@@ -46,7 +46,11 @@ const koKR = {
     frequencyLabel: "빈도: {{text}}",
     articles: "글",
     articlesIntro:
-      "Agent-Native 앱과 AI 에이전트로 반복 업무를 처리하는 방법에 대한 실용적인 답변입니다.",
+      "AI 에이전트와 함께하는 반복 업무에 대한 실용적인 답변입니다. 개별 업무를 단계별로 설명하는 페이지는 {{useCases}}에서 찾아보세요.",
+    useCasesLink: "사용 사례",
+    articleCountOne: "글 {{count}}개",
+    articleCountOther: "글 {{count}}개",
+    moreOnTopic: "{{topic}} 관련 글 더 보기",
     oldWay: "기존 방식",
     newWay: "새로운 방식",
     alternative: "{{names}}의 오픈 소스 대안",

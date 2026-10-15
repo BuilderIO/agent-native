@@ -1,5 +1,6 @@
 import { useLoaderData } from "react-router";
 
+import { getArticleTopics } from "../../lib/article-topics";
 import { ARTICLES_BASE, ARTICLES_PAGE_SIZE } from "../../lib/campaign-content";
 import { loadCampaignContent } from "../../lib/campaign-content.server";
 import { ArticlesList } from "../components/campaign/articles";
@@ -13,7 +14,10 @@ import { campaignMeta } from "../lib/campaign-seo";
 export const meta = ({ params }: { params?: { locale?: string } } = {}) =>
   campaignMeta(
     enUS.campaign.articles,
-    enUS.campaign.articlesIntro,
+    enUS.campaign.articlesIntro.replace(
+      "{{useCases}}",
+      enUS.campaign.useCasesLink,
+    ),
     ARTICLES_BASE,
     "website",
     params?.locale,
@@ -22,6 +26,7 @@ export function loader() {
   const articles = newestArticles(loadCampaignContent().articles);
   return {
     articles: articles.slice(0, ARTICLES_PAGE_SIZE).map(publicArticle),
+    topics: getArticleTopics(articles),
     page: 1,
     hasMore: articles.length > ARTICLES_PAGE_SIZE,
   };

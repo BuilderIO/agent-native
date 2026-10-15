@@ -46,7 +46,11 @@ const zhCN = {
     frequencyLabel: "使用频率：{{text}}",
     articles: "文章",
     articlesIntro:
-      "关于使用 Agent-Native 应用和 AI 智能体完成重复工作的实用解答。",
+      "关于与 AI 智能体一起完成重复工作的实用解答。如需查看针对单项工作的分步指南，请浏览{{useCases}}。",
+    useCasesLink: "使用场景",
+    articleCountOne: "{{count}} 篇文章",
+    articleCountOther: "{{count}} 篇文章",
+    moreOnTopic: "更多关于{{topic}}的内容",
     oldWay: "旧方式",
     newWay: "新方式",
     alternative: "{{names}} 的开源替代方案",

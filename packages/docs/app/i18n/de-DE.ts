@@ -48,7 +48,11 @@ const deDE = {
     frequencyLabel: "Wie oft: {{text}}",
     articles: "Artikel",
     articlesIntro:
-      "Praktische Antworten zur Erledigung wiederkehrender Arbeit mit Agent-Native-Apps und deinem KI-Agenten.",
+      "Praktische Antworten zu wiederkehrender Arbeit mit KI-Agenten. Schritt-für-Schritt-Anleitungen für einzelne Aufgaben findest du in den {{useCases}}.",
+    useCasesLink: "Anwendungsfällen",
+    articleCountOne: "{{count}} Artikel",
+    articleCountOther: "{{count}} Artikel",
+    moreOnTopic: "Mehr zu {{topic}}",
     oldWay: "Der bisherige Weg",
     newWay: "Der neue Weg",
     alternative: "Eine Open-Source-Alternative zu {{names}}",

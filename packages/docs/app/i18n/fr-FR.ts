@@ -48,7 +48,11 @@ const frFR = {
     frequencyLabel: "À quelle fréquence : {{text}}",
     articles: "Articles",
     articlesIntro:
-      "Des réponses pratiques pour réaliser le travail récurrent avec les apps Agent-Native et votre agent IA.",
+      "Des réponses pratiques sur le travail récurrent avec des agents IA. Pour des pages qui détaillent une tâche précise étape par étape, parcourez les {{useCases}}.",
+    useCasesLink: "cas d’usage",
+    articleCountOne: "{{count}} article",
+    articleCountOther: "{{count}} articles",
+    moreOnTopic: "En savoir plus sur {{topic}}",
     oldWay: "L’ancienne méthode",
     newWay: "La nouvelle méthode",
     alternative: "Une alternative open source à {{names}}",

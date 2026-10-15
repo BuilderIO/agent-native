@@ -18,11 +18,11 @@ import { useSnackbar } from "../website-redesign/ds/snackbar";
 import { safeHref, type Article, type UseCase } from "./public-content";
 
 export function CampaignView({ item }: { item: UseCase | Article }) {
-  const article = "category" in item;
+  const article = "topic" in item;
   const { slug, job_id } = item;
   const app = article ? undefined : item.app;
   const use_case = article ? item.use_case : undefined;
-  const category = article ? item.category : undefined;
+  const topic = article ? item.topic : undefined;
   const [searchParams] = useSearchParams();
   const angle =
     !article &&
@@ -33,10 +33,10 @@ export function CampaignView({ item }: { item: UseCase | Article }) {
     trackEvent(
       article ? "article_view" : "use_case_view",
       article
-        ? { slug, use_case, job_id, category }
+        ? { slug, use_case, job_id, topic }
         : { slug, job_id, app, angle },
     );
-  }, [article, slug, job_id, app, use_case, category, angle]);
+  }, [article, slug, job_id, app, use_case, topic, angle]);
   return null;
 }
 
@@ -50,11 +50,11 @@ export function CampaignCta({
   const [searchParams] = useSearchParams();
   const search = new URLSearchParams(searchParams);
   const angle =
-    !("category" in item) &&
+    !("topic" in item) &&
     item.angles?.some((entry) => entry.id === search.get("angle"))
       ? search.get("angle")!
       : "base";
-  if (!("category" in item) && angle === "base") search.delete("angle");
+  if (!("topic" in item) && angle === "base") search.delete("angle");
   const href = safeHref(
     buildCampaignCtaUrl(item.app_cta_url, item.job_id, search.toString()),
   );
@@ -66,13 +66,13 @@ export function CampaignCta({
       className="max-w-full whitespace-normal"
       onClick={() => {
         trackEvent(
-          "category" in item ? "article_cta_click" : "use_case_cta_click",
-          "category" in item
+          "topic" in item ? "article_cta_click" : "use_case_cta_click",
+          "topic" in item
             ? {
                 slug: item.slug,
                 use_case: item.use_case,
                 job_id: item.job_id,
-                category: item.category,
+                topic: item.topic,
                 location,
               }
             : {
@@ -116,7 +116,8 @@ export function CampaignBand({ item }: { item: UseCase | Article }) {
 }
 
 export function CampaignScreenshot({ item }: { item: UseCase | Article }) {
-  const app = "app" in item ? item.app : item.category;
+  const app = "app" in item ? item.app : item.apps?.[0];
+  if (!app) return null;
   const appKey = app === "plans" ? "plan" : app;
   return (
     <figure className="docs-content m-0">

@@ -44,7 +44,11 @@ const messages = {
     frequencyLabel: "使用頻率：{{text}}",
     articles: "文章",
     articlesIntro:
-      "關於使用 Agent-Native 應用程式和 AI 代理完成重複工作的實用解答。",
+      "關於與 AI 代理一起完成重複工作的實用解答。如需查看針對單項工作的逐步指南，請瀏覽{{useCases}}。",
+    useCasesLink: "使用情境",
+    articleCountOne: "{{count}} 篇文章",
+    articleCountOther: "{{count}} 篇文章",
+    moreOnTopic: "更多關於{{topic}}的內容",
     oldWay: "舊方式",
     newWay: "新方式",
     alternative: "{{names}} 的開源替代方案",
