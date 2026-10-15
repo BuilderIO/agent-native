@@ -2432,6 +2432,25 @@ export function startInPlaceTextSession(
     return true;
   }
 
+  /**
+   * Restoring parses the snapshot, and a DOM the author or a command built can
+   * serialize to markup that parses into something else (an li inside an li).
+   * The history entries beside the restored state are deltas against that
+   * markup, so they are re-based on what the element now serializes to.
+   */
+  function rebaseHistory(restoredHtml: string) {
+    const settled = el.innerHTML;
+    if (settled === restoredHtml) return;
+    for (const entry of [undoStack.at(-1), redoStack.at(-1)]) {
+      if (!entry || typeof entry.html === "string") continue;
+      entry.html = materializeSnapshotHtml(entry, restoredHtml);
+      entry.byteSize =
+        entry.metadataByteSize + retainedStringByteLength(entry.html);
+      compactSnapshot(entry, settled);
+    }
+    trimHistory();
+  }
+
   function undo() {
     const state = active ? undoStack.at(-1) : undefined;
     if (!state) return false;
@@ -2445,6 +2464,7 @@ export function startInPlaceTextSession(
     restoringHistory = true;
     try {
       restoreHistory(state, restoredHtml);
+      rebaseHistory(restoredHtml);
       lastEdit = null;
       notify();
     } finally {
@@ -2466,6 +2486,7 @@ export function startInPlaceTextSession(
     restoringHistory = true;
     try {
       restoreHistory(state, restoredHtml);
+      rebaseHistory(restoredHtml);
       lastEdit = null;
       notify();
     } finally {
