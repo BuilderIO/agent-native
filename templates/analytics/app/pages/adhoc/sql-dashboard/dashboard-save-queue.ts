@@ -1,3 +1,5 @@
+import type { DashboardChange } from "@shared/dashboard-change-summary";
+
 export type DashboardSaveOutcome = {
   /** False when the dashboard already matched and the server wrote nothing. */
   changed: boolean;
@@ -5,6 +7,10 @@ export type DashboardSaveOutcome = {
   updatedAt?: string;
   /** The revision holding the dashboard as it was before the save, when it wrote. */
   revisionId?: string;
+  /** What the save changed, as history records it on `revisionId`. */
+  changes?: DashboardChange[];
+  /** Changes left out of `changes` by history's cap. */
+  omittedChanges?: number;
 };
 
 export type DashboardSaveResult = DashboardSaveOutcome & { isLatest: boolean };

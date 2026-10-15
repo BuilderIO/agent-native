@@ -3,7 +3,7 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
-import type { DashboardChange } from "@shared/dashboard-change-summary";
+import type { DashboardChangeSummary } from "@shared/dashboard-change-summary";
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
@@ -37,7 +37,7 @@ export type DashboardSaveUndo = {
  * "Saved" with Undo. Only the newest save on the open dashboard updates it,
  * and it offers Undo only when a save it covers changed the dashboard, even if
  * the newest one then failed or changed nothing. The toast names that write's
- * `changes` when the caller passed them, and `onUndo` gets its revision and
+ * changes as history records them, and `onUndo` gets its revision and
  * version, so it undoes exactly that write, and a newer save by someone else
  * makes it fail instead of taking their change back. It must be stable; the
  * toast calls it after later renders.
@@ -67,7 +67,7 @@ export function useDashboardSaveFeedback({
   const newestWriteRef = useRef<{
     save: number;
     undo: DashboardSaveUndo;
-    changes: DashboardChange[] | null | undefined;
+    changes: DashboardChangeSummary | null;
   } | null>(null);
 
   // Undo restores a revision of the open dashboard, so a toast must not
@@ -83,10 +83,7 @@ export function useDashboardSaveFeedback({
   }, [dashboardId]);
 
   return useCallback(
-    <T extends DashboardSaveOutcome>(
-      save: Promise<T>,
-      changes?: DashboardChange[] | null,
-    ): Promise<T> => {
+    <T extends DashboardSaveOutcome>(save: Promise<T>): Promise<T> => {
       if (!dashboardId) return save;
       const toastId = `dashboard-save:${dashboardId}`;
       const saveNumber = ++newestSaveRef.current;
@@ -128,12 +125,15 @@ export function useDashboardSaveFeedback({
         });
       };
       save.then(
-        ({ changed, updatedAt, revisionId }) => {
+        ({ changed, updatedAt, revisionId, changes, omittedChanges }) => {
           if (changed && updatedAt && revisionId) {
             newestWriteRef.current = {
               save: saveNumber,
               undo: { revisionId, updatedAt },
-              changes,
+              changes:
+                changes && omittedChanges !== undefined
+                  ? { changes, omitted: omittedChanges }
+                  : null,
             };
           }
           if (isNewest()) settle();
@@ -152,9 +152,11 @@ export function useDashboardSaveFeedback({
 function savedToastTitle(
   t: ReturnType<typeof useT>,
   shared: boolean,
-  changes: DashboardChange[] | null | undefined,
+  summary: DashboardChangeSummary | null,
 ): string {
-  const line = changes ? dashboardChangeLine(changes, 0, t) : null;
+  const line = summary
+    ? dashboardChangeLine(summary.changes, summary.omitted, t)
+    : null;
   if (!line) {
     return shared
       ? t("dashboardSaveStatus.savedShared")

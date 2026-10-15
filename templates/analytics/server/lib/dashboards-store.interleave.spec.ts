@@ -699,7 +699,7 @@ describe("dashboards-store concurrency", () => {
     expect(readPanelIds()).toEqual(["a", "b"]);
   });
 
-  it("reports the revision a save left, holding the dashboard from before it", async () => {
+  it("reports the revision a save left, holding the dashboard from before it and what the save changed", async () => {
     const outcome = await upsertDashboardOutcome(
       "traffic",
       "sql",
@@ -714,6 +714,11 @@ describe("dashboards-store concurrency", () => {
     expect(JSON.parse(revision.config).panels.map((p: any) => p.id)).toEqual([
       "a",
     ]);
+    expect(outcome.changeSummary).toEqual({
+      changes: [{ kind: "panel-added", title: "b" }],
+      omitted: 0,
+    });
+    expect(JSON.parse(revision.changeSummary)).toEqual(outcome.changeSummary);
 
     const unchanged = await upsertDashboardOutcome(
       "traffic",
@@ -724,6 +729,7 @@ describe("dashboards-store concurrency", () => {
     );
     expect(unchanged.didWrite).toBe(false);
     expect(unchanged.revisionId).toBeUndefined();
+    expect(unchanged.changeSummary).toBeUndefined();
   });
 
   it("preserves legacy last-write-wins when expectedUpdatedAt is omitted", async () => {

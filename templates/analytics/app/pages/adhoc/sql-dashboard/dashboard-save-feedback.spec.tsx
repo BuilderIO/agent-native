@@ -22,6 +22,11 @@ vi.mock("sonner", () => ({ toast: toastMock }));
 const ME = "me@example.com";
 type SaveOutcome = DashboardSaveOutcome;
 const WROTE = { changed: true, updatedAt: "v1", revisionId: "rev1" };
+const REARRANGED = {
+  ...WROTE,
+  changes: [{ kind: "layout-changed" as const }],
+  omittedChanges: 0,
+};
 
 let container: HTMLDivElement;
 let root: Root;
@@ -122,37 +127,41 @@ describe("useDashboardSaveFeedback", () => {
     });
   });
 
-  it("names the change in the saved toast", async () => {
+  it("names the change history records for the save", async () => {
     const widened = {
       kind: "column-resized" as const,
       title: "Signups by Template",
       columns: 1,
       direction: "wider" as const,
     };
-    const saveWith = async (
-      changes: Parameters<typeof track>[1],
-    ): Promise<string> => {
+    const saveWith = async (outcome: SaveOutcome): Promise<string> => {
       toastMock.success.mockClear();
       const save = deferred<SaveOutcome>();
       act(() => {
-        void track(save.promise, changes);
+        void track(save.promise);
       });
-      await act(async () => save.resolve(WROTE));
+      await act(async () => save.resolve(outcome));
       return toastMock.success.mock.calls[0][0];
     };
 
     render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
-    await expect(saveWith([widened])).resolves.toBe(
+    await expect(
+      saveWith({ ...WROTE, changes: [widened], omittedChanges: 0 }),
+    ).resolves.toBe(
       "Widened a column in “Signups by Template” · Saved for everyone",
     );
 
     render(<FeedbackProbe shared={false} otherViewers={0} onUndo={vi.fn()} />);
     await expect(
-      saveWith([widened, { kind: "layout-changed" }, { kind: "other" }]),
+      saveWith({
+        ...WROTE,
+        changes: [widened, { kind: "layout-changed" }],
+        omittedChanges: 1,
+      }),
     ).resolves.toBe(
       "Widened a column in “Signups by Template” +2 more · Saved",
     );
-    await expect(saveWith([])).resolves.toBe("Saved");
+    await expect(saveWith(WROTE)).resolves.toBe("Saved");
   });
 
   it("leaves the toast pending until the newest save lands", async () => {
@@ -199,10 +208,10 @@ describe("useDashboardSaveFeedback", () => {
     const unchanged = deferred<SaveOutcome>();
 
     act(() => {
-      void track(wrote.promise, [{ kind: "layout-changed" }]);
-      void track(unchanged.promise, [{ kind: "other" }]);
+      void track(wrote.promise);
+      void track(unchanged.promise);
     });
-    await act(async () => wrote.resolve(WROTE));
+    await act(async () => wrote.resolve(REARRANGED));
     await act(async () => unchanged.resolve({ changed: false }));
 
     expect(toastMock.success).toHaveBeenCalledOnce();
@@ -241,10 +250,10 @@ describe("useDashboardSaveFeedback", () => {
     const failed = deferred<SaveOutcome>();
 
     act(() => {
-      void track(wrote.promise, [{ kind: "layout-changed" }]);
-      void track(failed.promise, [{ kind: "other" }]).catch(() => {});
+      void track(wrote.promise);
+      void track(failed.promise).catch(() => {});
     });
-    await act(async () => wrote.resolve(WROTE));
+    await act(async () => wrote.resolve(REARRANGED));
     await act(async () => failed.reject(new Error("Conflict")));
 
     expect(toastMock.success).toHaveBeenCalledOnce();

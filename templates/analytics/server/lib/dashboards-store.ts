@@ -1794,6 +1794,8 @@ export interface DashboardUpsertOutcome {
    * the dashboard.
    */
   revisionId?: string;
+  /** What the write changed, as recorded on `revisionId`. */
+  changeSummary?: DashboardChangeSummary;
 }
 
 async function upsertDashboardWithOutcome(
@@ -1945,7 +1947,12 @@ async function upsertDashboardWithOutcome(
     dashboard.orgId,
     dashboard.visibility,
   );
-  return { dashboard, didWrite: true, revisionId };
+  return {
+    dashboard,
+    didWrite: true,
+    revisionId,
+    ...(revisionId && changeSummary ? { changeSummary } : {}),
+  };
 }
 
 export async function upsertDashboardOutcome(

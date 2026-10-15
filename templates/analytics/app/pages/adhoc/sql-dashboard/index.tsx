@@ -36,7 +36,6 @@ import {
   type DragStartEvent,
   type CollisionDetection,
 } from "@dnd-kit/core";
-import { describeDashboardChanges } from "@shared/dashboard-change-summary";
 import { normalizeDashboardConfig } from "@shared/dashboard-config-normalization";
 import {
   IconArchive,
@@ -720,11 +719,6 @@ function SqlDashboardPageContent({
   useEffect(() => {
     dashboardUpdatedAtRef.current = dashboardUpdatedAt;
   }, [dashboardUpdatedAt]);
-  // A save runs before its edit renders, so this is the config it replaces.
-  const shownDashboardRef = useRef<SqlDashboardConfig | null>(null);
-  useEffect(() => {
-    shownDashboardRef.current = dashboard;
-  }, [dashboard]);
   // One queue per dashboard for the page's life: a second queue for a
   // dashboard you come back to would run its saves alongside the first's.
   const dashboardSaveQueuesRef = useRef(
@@ -1277,6 +1271,8 @@ function SqlDashboardPageContent({
           changed: result.changed,
           updatedAt: result.updatedAt,
           revisionId: result.revisionId,
+          changes: result.changes,
+          omittedChanges: result.omittedChanges,
         };
       },
     );
@@ -1293,16 +1289,10 @@ function SqlDashboardPageContent({
       }
       resetRevisionNavigation();
       const hold = holdDashboardConfig();
-      const changes = shownDashboardRef.current
-        ? describeDashboardChanges(shownDashboardRef.current, updated)
-        : null;
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
       const queue = dashboardSaveQueue(dashboardId);
-      void trackSave(
-        queue.enqueue(updated, dashboardUpdatedAtRef.current),
-        changes,
-      )
+      void trackSave(queue.enqueue(updated, dashboardUpdatedAtRef.current))
         .then(({ isLatest }) => {
           if (!isLatest) return;
           queryClient.removeQueries({
@@ -1363,15 +1353,11 @@ function SqlDashboardPageContent({
       }
       resetRevisionNavigation();
       const hold = holdDashboardConfig();
-      const changes = shownDashboardRef.current
-        ? describeDashboardChanges(shownDashboardRef.current, updated)
-        : null;
       const queue = dashboardSaveQueue(dashboardId);
       let isLatest: boolean;
       try {
         ({ isLatest } = await trackSave(
           queue.enqueue(updated, dashboardUpdatedAtRef.current),
-          changes,
         ));
       } catch (err) {
         // A newer queued save still needs the hold and sends the whole config.
