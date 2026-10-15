@@ -1,6 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  MAX_DATA_NOTE_EVENT_LENGTH,
+  MAX_DATA_NOTE_EVENTS,
   dataNoteAppliesTo,
+  dataNoteEventsFit,
   type DataNote,
   type DataNoteKind,
   type DataNotePanelRef,
@@ -207,10 +210,19 @@ function DataNoteForm({
     (panel) => !pinnedHere.some((ref) => ref.panelId === panel.id),
   );
   const matchEvents = splitEvents(form.matchEvents);
+  const unlessEvents = splitEvents(form.unlessEvents);
+  const matchEventsFit = dataNoteEventsFit(matchEvents);
+  const unlessEventsFit = dataNoteEventsFit(unlessEvents);
+  const eventsLimit = t("annotations.eventsLimit", {
+    max: MAX_DATA_NOTE_EVENTS,
+    length: MAX_DATA_NOTE_EVENT_LENGTH,
+  });
   const canSave =
     form.title.trim() !== "" &&
     form.note.trim() !== "" &&
     (matchEvents.length > 0 || form.panels.length > 0) &&
+    matchEventsFit &&
+    unlessEventsFit &&
     (!form.fixed || form.endDate !== "") &&
     (!form.startDate || !form.endDate || form.startDate <= form.endDate);
 
@@ -226,7 +238,7 @@ function DataNoteForm({
       status: form.fixed ? "fixed" : "open",
       fix: form.fixed && form.fix.trim() ? form.fix.trim() : null,
       matchEvents,
-      unlessEvents: splitEvents(form.unlessEvents),
+      unlessEvents,
       panels: form.panels,
     };
     onClose();
@@ -374,10 +386,22 @@ function DataNoteForm({
                 id={`${ids}-events`}
                 value={form.matchEvents}
                 placeholder={t("annotations.eventsPlaceholder")}
+                aria-invalid={!matchEventsFit || undefined}
+                aria-describedby={
+                  matchEventsFit ? undefined : `${ids}-events-limit`
+                }
                 onChange={(event) =>
                   update({ matchEvents: event.target.value })
                 }
               />
+              {matchEventsFit ? null : (
+                <p
+                  id={`${ids}-events-limit`}
+                  className="text-xs text-destructive"
+                >
+                  {eventsLimit}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor={`${ids}-unless`}>
@@ -386,10 +410,22 @@ function DataNoteForm({
               <Input
                 id={`${ids}-unless`}
                 value={form.unlessEvents}
+                aria-invalid={!unlessEventsFit || undefined}
+                aria-describedby={
+                  unlessEventsFit ? undefined : `${ids}-unless-limit`
+                }
                 onChange={(event) =>
                   update({ unlessEvents: event.target.value })
                 }
               />
+              {unlessEventsFit ? null : (
+                <p
+                  id={`${ids}-unless-limit`}
+                  className="text-xs text-destructive"
+                >
+                  {eventsLimit}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>{t("annotations.charts")}</Label>

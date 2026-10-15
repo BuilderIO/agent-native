@@ -22,7 +22,9 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useState,
   type ReactNode,
   type SyntheticEvent,
 } from "react";
@@ -60,6 +62,10 @@ const LABEL_HEIGHT = 16;
 const LABEL_GAP = 2;
 const LABEL_PADDING = 6;
 const LABEL_INSET = 2;
+/** Between the lowest title row and the plot, clear of the top y-axis label. */
+const LABEL_CLEARANCE = 8;
+/** Recharts' default margin on each side of a chart. */
+const CHART_EDGE = 5;
 
 function DataNoteDetails({
   note,
@@ -233,6 +239,7 @@ export function useDataNoteLayout(
     const shown = dataNotesOnChart(
       notes,
       rows.map((row) => row[xKey]),
+      { xKey },
     );
     return {
       shaded: shown.filter(({ bands }) => bands.length > 0),
@@ -376,7 +383,34 @@ export function layoutDataNoteLabels(
   });
 }
 
-/** One title per note, at its first band. */
+/**
+ * The chart margin that holds the band titles' rows above the plot. One row
+ * is reserved until the titles are laid out, since most charts need just one.
+ */
+export function useDataNoteChartMargin(shaded: readonly ShadedDataNote[]) {
+  const [rows, setRows] = useState(1);
+  const labelRows = shaded.length > 0 ? rows : 0;
+  const margin = useMemo(
+    () => ({
+      top:
+        CHART_EDGE +
+        (labelRows > 0
+          ? LABEL_CLEARANCE + labelRows * (LABEL_HEIGHT + LABEL_GAP)
+          : 0),
+      right: CHART_EDGE,
+      bottom: CHART_EDGE,
+      left: CHART_EDGE,
+    }),
+    [labelRows],
+  );
+  return { margin, onLabelRows: setRows };
+}
+
+/**
+ * One title per note, at its first band, in rows above the plot. Up there a
+ * title covers no data, axis label or key-date line, and rows keep titles
+ * off each other.
+ */
 function BandLabels({
   shaded,
   rows,
@@ -384,6 +418,7 @@ function BandLabels({
   xValues,
   panelId,
   onHoverChange,
+  onLabelRows,
 }: {
   shaded: readonly ShadedDataNote[];
   rows: readonly Record<string, unknown>[];
@@ -391,34 +426,51 @@ function BandLabels({
   xValues: readonly unknown[];
   panelId?: string;
   onHoverChange?: (hovered: boolean) => void;
+  onLabelRows?: (rows: number) => void;
 }) {
   const scale = useXAxisScale();
   const plot = usePlotArea();
-  if (!scale || !plot) return null;
-  const placed = shaded.flatMap((entry) => {
-    const edges = bandEdges(
-      scale,
-      plot,
-      rows[entry.bands[0].startIndex][xKey],
-      rows[entry.bands[0].endIndex][xKey],
-      xValues,
-    );
-    return edges ? [{ entry, edges }] : [];
-  });
-  const slots = layoutDataNoteLabels(
-    placed.map(({ entry, edges }) => ({
-      left: edges.left,
-      right: edges.right,
-      title: entry.note.title,
-    })),
-    plot.x,
-    plot.x + plot.width,
-  );
+  const placed =
+    scale && plot
+      ? shaded.flatMap((entry) => {
+          const edges = bandEdges(
+            scale,
+            plot,
+            rows[entry.bands[0].startIndex][xKey],
+            rows[entry.bands[0].endIndex][xKey],
+            xValues,
+          );
+          return edges ? [{ entry, edges }] : [];
+        })
+      : null;
+  const slots =
+    placed && plot
+      ? layoutDataNoteLabels(
+          placed.map(({ entry, edges }) => ({
+            left: edges.left,
+            right: edges.right,
+            title: entry.note.title,
+          })),
+          plot.x,
+          plot.x + plot.width,
+        )
+      : null;
+  const rowCount = slots
+    ? slots.reduce((count, slot) => Math.max(count, slot.row + 1), 0)
+    : null;
+  useLayoutEffect(() => {
+    if (rowCount !== null) onLabelRows?.(rowCount);
+  }, [onLabelRows, rowCount]);
+  if (!placed || !slots || !plot) return null;
   return (
     <>
-      {placed.map(({ entry, edges }, index) => {
+      {placed.map(({ entry }, index) => {
         const { text, x, width, row } = slots[index];
-        const y = edges.top + LABEL_INSET + row * (LABEL_HEIGHT + LABEL_GAP);
+        const y =
+          plot.y -
+          LABEL_CLEARANCE -
+          LABEL_HEIGHT -
+          row * (LABEL_HEIGHT + LABEL_GAP);
         return (
           <DataNoteHoverCard
             key={entry.note.id}
@@ -467,12 +519,15 @@ export function renderDataNoteBands(
     yAxisId,
     panelId,
     onHoverChange,
+    onLabelRows,
   }: {
     rows: readonly Record<string, unknown>[];
     xKey: string;
     yAxisId?: string;
     panelId: string;
     onHoverChange?: (hovered: boolean) => void;
+    /** Hears how many title rows sit above the plot; see `useDataNoteChartMargin`. */
+    onLabelRows?: (rows: number) => void;
   },
 ): ReactNode[] {
   if (shaded.length === 0) return [];
@@ -520,6 +575,7 @@ export function renderDataNoteBands(
           xValues={xValues}
           panelId={panelId}
           onHoverChange={onHoverChange}
+          onLabelRows={onLabelRows}
         />
       }
     />,

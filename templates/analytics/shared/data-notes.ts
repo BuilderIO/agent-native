@@ -2,7 +2,13 @@ import type {
   DashboardAnnotations,
   SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
-import { xBucketEnd, xCadence, xDatePoints, xInstant } from "./panel-events";
+import {
+  xBucketEnd,
+  xCadence,
+  xColumnGrain,
+  xDatePoints,
+  xInstant,
+} from "./panel-events";
 
 export const DATA_NOTE_KINDS = ["data", "incident"] as const;
 export type DataNoteKind = (typeof DATA_NOTE_KINDS)[number];
@@ -38,6 +44,17 @@ export interface DataNote {
   /** Absent for a reader from another organization. */
   addedBy?: string;
   updatedAt: string;
+}
+
+/** How many names `matchEvents` and `unlessEvents` each take, and how long each name may be. */
+export const MAX_DATA_NOTE_EVENTS = 20;
+export const MAX_DATA_NOTE_EVENT_LENGTH = 200;
+
+export function dataNoteEventsFit(events: readonly string[]): boolean {
+  return (
+    events.length <= MAX_DATA_NOTE_EVENTS &&
+    events.every((event) => event.length <= MAX_DATA_NOTE_EVENT_LENGTH)
+  );
 }
 
 /** A chart without a date axis can't place a note, so it flags notes that are ongoing or ended this recently. */
@@ -378,11 +395,14 @@ interface DateAxis {
   end: number;
 }
 
-/** The chart's date rows by their position in xValues; null when the x axis is not dates. */
-function dateAxis(xValues: readonly unknown[]): DateAxis | null {
+/**
+ * The chart's date rows by their position in xValues, each the length of the
+ * grain its x column names, if it names one; null when the x axis is not dates.
+ */
+function dateAxis(xValues: readonly unknown[], xKey?: string): DateAxis | null {
   if (!xValuesAreDates(xValues)) return null;
   const points = xDatePoints(xValues, xDateInstant);
-  const cadence = xCadence(points);
+  const cadence = xCadence(points, xKey ? xColumnGrain(xKey) : null);
   const buckets = points.map(({ row, instant, day }) => {
     const start = cadence.unit === "time" ? instant : day;
     return { row, start, end: xBucketEnd(cadence, start) };
@@ -459,8 +479,9 @@ function bandsOnAxis(
 export function resolveDataNoteBands(
   note: Pick<DataNote, "startDate" | "endDate">,
   xValues: readonly unknown[],
+  xKey?: string,
 ): DataNoteBand[] {
-  const axis = dateAxis(xValues);
+  const axis = dateAxis(xValues, xKey);
   return axis ? bandsOnAxis(note, axis) : [];
 }
 
@@ -479,9 +500,9 @@ export interface ChartDataNote {
 export function dataNotesOnChart(
   notes: readonly DataNote[],
   xValues: readonly unknown[],
-  now: number = Date.now(),
+  { xKey, now = Date.now() }: { xKey?: string; now?: number } = {},
 ): ChartDataNote[] {
-  const axis = dateAxis(xValues);
+  const axis = dateAxis(xValues, xKey);
   if (!axis) {
     return notes
       .filter((note) => dataNoteIsRecent(note, now))

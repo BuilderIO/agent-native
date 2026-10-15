@@ -2156,6 +2156,7 @@ export default {
     events: "Betroffene Events",
     eventsPlaceholder: "event_name, other_event",
     unlessEvents: "Außer Diagrammen, die auch zählen",
+    eventsLimit: "Bis zu {{max}} Events mit je höchstens {{length}} Zeichen",
     charts: "Diagramme",
     pinChart: "Diagramm anheften",
     unpin: "{{title}} lösen",

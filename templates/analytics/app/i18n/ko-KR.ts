@@ -2069,6 +2069,7 @@ export default {
     events: "영향받는 이벤트",
     eventsPlaceholder: "event_name, other_event",
     unlessEvents: "다음도 집계하는 차트 제외",
+    eventsLimit: "이벤트는 최대 {{max}}개, 각 {{length}}자까지",
     charts: "차트",
     pinChart: "차트 고정",
     unpin: "{{title}} 고정 해제",

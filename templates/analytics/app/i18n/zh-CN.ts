@@ -1989,6 +1989,7 @@ export default {
     events: "受影响的事件",
     eventsPlaceholder: "event_name, other_event",
     unlessEvents: "不包括同时统计以下事件的图表",
+    eventsLimit: "最多 {{max}} 个事件，每个最多 {{length}} 个字符",
     charts: "图表",
     pinChart: "固定图表",
     unpin: "取消固定 {{title}}",

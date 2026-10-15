@@ -179,6 +179,34 @@ describe("DataNoteDialog", () => {
     expect(button("Save").disabled).toBe(true);
   });
 
+  const events = (count: number) =>
+    Array.from({ length: count }, (_, i) => `event_${i}`).join(", ");
+
+  it.each([
+    ["21 events", "Events it affects", events(21), events(20)],
+    [
+      "an event name of 201 characters",
+      "Except charts that also count",
+      "e".repeat(201),
+      "e".repeat(200),
+    ],
+  ])(
+    "keeps Save off for %s, saying why, as the save action would refuse it",
+    (_name, label, tooMany, enough) => {
+      render({ note: SETUP_INCIDENT });
+      const limit = "Up to 20 events, 200 characters each";
+
+      type(field(label), tooMany);
+      expect(button("Save").disabled).toBe(true);
+      expect(dialog().textContent).toContain(limit);
+      expect(field(label).getAttribute("aria-invalid")).toBe("true");
+
+      type(field(label), enough);
+      expect(button("Save").disabled).toBe(false);
+      expect(dialog().textContent).not.toContain(limit);
+    },
+  );
+
   it("marks an open note fixed as of today, keeping its other fields", () => {
     render({ note: CONNECT_UNDERCOUNT, markFixed: true });
     const fixed = dialog().querySelector<HTMLElement>('[role="checkbox"]')!;

@@ -2129,6 +2129,7 @@ export default {
     events: "Eventos afetados",
     eventsPlaceholder: "event_name, other_event",
     unlessEvents: "Exceto gráficos que também contam",
+    eventsLimit: "Até {{max}} eventos de até {{length}} caracteres cada",
     charts: "Gráficos",
     pinChart: "Fixar um gráfico",
     unpin: "Desafixar {{title}}",

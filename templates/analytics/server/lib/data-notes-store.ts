@@ -6,6 +6,9 @@ import { and, count, desc, eq, sql } from "drizzle-orm";
 import {
   DATA_NOTE_KINDS,
   DATA_NOTE_STATUSES,
+  MAX_DATA_NOTE_EVENT_LENGTH,
+  MAX_DATA_NOTE_EVENTS,
+  dataNoteEventsFit,
   type DataNote,
   type DataNoteKind,
   type DataNotePanelRef,
@@ -24,8 +27,6 @@ export const MAX_DATA_NOTES = 200;
 const MAX_TITLE_LENGTH = 120;
 const MAX_NOTE_LENGTH = 1000;
 const MAX_FIX_LENGTH = 500;
-const MAX_EVENTS = 20;
-const MAX_EVENT_LENGTH = 200;
 const MAX_PANELS = 50;
 
 const notes = schema.analyticsDataNotes;
@@ -122,12 +123,9 @@ function cleanEvents(value: readonly string[], field: string): string[] {
   const events = [
     ...new Set(value.map((event) => event.trim()).filter(Boolean)),
   ];
-  if (
-    events.length > MAX_EVENTS ||
-    events.some((event) => event.length > MAX_EVENT_LENGTH)
-  ) {
+  if (!dataNoteEventsFit(events)) {
     invalid(
-      `${field} takes up to ${MAX_EVENTS} event names of up to ${MAX_EVENT_LENGTH} characters.`,
+      `${field} takes up to ${MAX_DATA_NOTE_EVENTS} event names of up to ${MAX_DATA_NOTE_EVENT_LENGTH} characters.`,
     );
   }
   return events;

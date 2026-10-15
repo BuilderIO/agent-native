@@ -17,6 +17,7 @@ import {
   sqlCountsEvent,
   xValuesAreDates,
 } from "./data-notes";
+import { xColumnGrain } from "./panel-events";
 
 const days = (from: string, count: number) =>
   Array.from({ length: count }, (_, index) =>
@@ -479,11 +480,9 @@ describe("dataNotesOnChart", () => {
   it("shades the notes on its dates, writes out ones between them, and leaves off ones outside", () => {
     const xValues = ["2026-10-08", "2026-10-09", "2026-10-13", "2026-10-14"];
     expect(
-      dataNotesOnChart(
-        [SKIPS_UNTRACKED, between, SETUP_INCIDENT],
-        xValues,
+      dataNotesOnChart([SKIPS_UNTRACKED, between, SETUP_INCIDENT], xValues, {
         now,
-      ),
+      }),
     ).toEqual([
       { note: between, bands: [] },
       {
@@ -498,9 +497,72 @@ describe("dataNotesOnChart", () => {
       dataNotesOnChart(
         [SKIPS_UNTRACKED, SETUP_INCIDENT],
         ["Signup", "Connect"],
-        now,
+        { now },
       ),
     ).toEqual([{ note: SETUP_INCIDENT, bands: [] }]);
+  });
+
+  it("keeps a daily chart's rows to their own days when they all fall on one weekday", () => {
+    const mondays = ["2026-10-05", "2026-10-12"];
+    expect(
+      dataNotesOnChart([SETUP_INCIDENT], mondays, { xKey: "day", now }),
+    ).toEqual([
+      {
+        note: SETUP_INCIDENT,
+        bands: [
+          { startIndex: 1, endIndex: 1, startEdge: true, endEdge: false },
+        ],
+      },
+    ]);
+    expect(
+      dataNotesOnChart([SETUP_INCIDENT], mondays, { xKey: "week", now }),
+    ).toEqual([
+      {
+        note: SETUP_INCIDENT,
+        bands: [{ startIndex: 0, endIndex: 1, startEdge: true, endEdge: true }],
+      },
+    ]);
+  });
+
+  it("shades a lone weekly or monthly row over the whole bucket its column names", () => {
+    expect(
+      dataNotesOnChart([SETUP_INCIDENT], ["2026-10-05"], {
+        xKey: "signup_week",
+        now,
+      }),
+    ).toEqual([
+      {
+        note: SETUP_INCIDENT,
+        bands: [
+          { startIndex: 0, endIndex: 0, startEdge: true, endEdge: false },
+        ],
+      },
+    ]);
+    expect(
+      dataNotesOnChart([SETUP_INCIDENT], ["2026-10-01"], {
+        xKey: "monthStart",
+        now,
+      }),
+    ).toEqual([
+      {
+        note: SETUP_INCIDENT,
+        bands: [{ startIndex: 0, endIndex: 0, startEdge: true, endEdge: true }],
+      },
+    ]);
+    expect(
+      dataNotesOnChart([SETUP_INCIDENT], ["2026-10-05"], { xKey: "day", now }),
+    ).toEqual([]);
+  });
+});
+
+describe("xColumnGrain", () => {
+  it("reads the grain a column's name gives, and none from a plain date", () => {
+    expect(xColumnGrain("day")).toBe("day");
+    expect(xColumnGrain("signup_week")).toBe("week");
+    expect(xColumnGrain("monthStart")).toBe("month");
+    expect(xColumnGrain("Quarters")).toBe("quarter");
+    expect(xColumnGrain("date")).toBeNull();
+    expect(xColumnGrain("week_or_month")).toBeNull();
   });
 });
 

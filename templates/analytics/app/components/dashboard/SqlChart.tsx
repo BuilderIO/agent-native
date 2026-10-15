@@ -130,9 +130,14 @@ import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
 import {
   DataNoteLines,
   renderDataNoteBands,
+  useDataNoteChartMargin,
   useDataNoteLayout,
 } from "./data-note-bands";
-import { renderEventMarkers, useEventMarkerGroups } from "./event-markers";
+import {
+  renderEventMarkers,
+  useEventMarkerAxisPadding,
+  useEventMarkerGroups,
+} from "./event-markers";
 
 export { limitChartRows };
 
@@ -2735,6 +2740,8 @@ function BarRenderer({
     xKey,
   );
   const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2758,7 +2765,11 @@ function BarRenderer({
       }
     >
       <ChartResponsiveContainer>
-        <BarChart key={JSON.stringify(yKeys)} data={rows}>
+        <BarChart
+          key={JSON.stringify(yKeys)}
+          data={rows}
+          margin={chartMargin.margin}
+        >
           {categoryLabels ? (
             <CategoryXAxis
               dataKey={xKey}
@@ -2773,6 +2784,7 @@ function BarRenderer({
               tickLine={false}
               axisLine={false}
               tickFormatter={xLabelFormatter}
+              padding={xPadding}
             />
           )}
           {renderChartYAxes(dualAxis, yFormatter)}
@@ -2782,11 +2794,12 @@ function BarRenderer({
             vertical={false}
           />
           {renderDataNoteBands(dataNoteLayout.shaded, {
-            rows: rows,
+            rows,
             xKey,
             yAxisId: dualAxis.enabled ? "left" : undefined,
             panelId: panel.id,
             onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
           })}
           <Tooltip
             active={eventHovered ? false : undefined}
@@ -2864,6 +2877,8 @@ function ComboRenderer({
     xKey,
   );
   const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -2888,7 +2903,7 @@ function ComboRenderer({
       }
     >
       <ChartResponsiveContainer>
-        <ComposedChart data={rows}>
+        <ComposedChart data={rows} margin={chartMargin.margin}>
           {categoryLabels ? (
             <CategoryXAxis
               dataKey={xKey}
@@ -2903,6 +2918,7 @@ function ComboRenderer({
               tickLine={false}
               axisLine={false}
               tickFormatter={xLabelFormatter}
+              padding={xPadding}
             />
           )}
           {renderChartYAxes(dualAxis, yFormatter)}
@@ -2912,11 +2928,12 @@ function ComboRenderer({
             vertical={false}
           />
           {renderDataNoteBands(dataNoteLayout.shaded, {
-            rows: rows,
+            rows,
             xKey,
             yAxisId: dualAxis.enabled ? "left" : undefined,
             panelId: panel.id,
             onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
           })}
           <Tooltip
             active={eventHovered ? false : undefined}
@@ -3024,6 +3041,8 @@ function TimeSeriesRenderer({
   );
   const dataNoteLayout = useDataNoteLayout(dataNotes, chartRows, xKey);
   const eventGroups = useEventMarkerGroups(panelEvents, chartRows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, chartRows, xKey);
 
   if (chartType === "line") {
     return (
@@ -3040,7 +3059,7 @@ function TimeSeriesRenderer({
         }
       >
         <ChartResponsiveContainer>
-          <LineChart data={chartRows}>
+          <LineChart data={chartRows} margin={chartMargin.margin}>
             <XAxis
               dataKey={xKey}
               stroke="hsl(var(--muted-foreground))"
@@ -3048,6 +3067,7 @@ function TimeSeriesRenderer({
               tickLine={false}
               axisLine={false}
               tickFormatter={xLabelFormatter}
+              padding={xPadding}
             />
             {renderChartYAxes(dualAxis, yFormatter)}
             <CartesianGrid
@@ -3061,6 +3081,7 @@ function TimeSeriesRenderer({
               yAxisId: dualAxis.enabled ? "left" : undefined,
               panelId: panel.id,
               onHoverChange: setEventHovered,
+              onLabelRows: chartMargin.onLabelRows,
             })}
             <Tooltip
               active={eventHovered ? false : undefined}
@@ -3134,7 +3155,11 @@ function TimeSeriesRenderer({
       }
     >
       <ChartResponsiveContainer>
-        <AreaChart key={JSON.stringify(yKeys)} data={chartRows}>
+        <AreaChart
+          key={JSON.stringify(yKeys)}
+          data={chartRows}
+          margin={chartMargin.margin}
+        >
           {showFill && (
             <defs>
               {yKeys.map((key, i) => (
@@ -3167,6 +3192,7 @@ function TimeSeriesRenderer({
             tickLine={false}
             axisLine={false}
             tickFormatter={xLabelFormatter}
+            padding={xPadding}
           />
           {renderChartYAxes(dualAxis, yFormatter)}
           <CartesianGrid
@@ -3180,6 +3206,7 @@ function TimeSeriesRenderer({
             yAxisId: dualAxis.enabled ? "left" : undefined,
             panelId: panel.id,
             onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
           })}
           <Tooltip
             active={eventHovered ? false : undefined}
