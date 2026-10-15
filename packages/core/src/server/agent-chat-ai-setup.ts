@@ -19,7 +19,11 @@ import {
   resolveBuilderPrivateKey,
   resolveSecretDetailed,
 } from "./credential-provider.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "./request-context.js";
 
 export const AGENT_CHAT_AI_SETUP_REQUIRED_CODE =
   "AGENT_CHAT_AI_SETUP_REQUIRED" as const;
@@ -167,8 +171,10 @@ export async function isAgentChatAiSetupReady(input?: {
 async function hasEligibleChatGPTSubscription(
   ownerEmail: string,
 ): Promise<boolean> {
-  // A personal subscription never grants readiness in an org-scoped request.
-  if (getRequestOrgId()) return false;
+  const requestContext = getRequestContext();
+  if (getRequestOrgId() || requestContext?.orgScope !== "personal") {
+    return false;
+  }
   return hasChatGPTSubscriptionCredential(ownerEmail);
 }
 

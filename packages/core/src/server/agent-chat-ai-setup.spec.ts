@@ -38,6 +38,7 @@ const credentialMocks = vi.hoisted(() => ({
 
 const requestContextMocks = vi.hoisted(() => ({
   orgId: "test-org" as string | undefined,
+  orgScope: undefined as "personal" | undefined,
 }));
 
 vi.mock("./credential-provider.js", () => ({
@@ -64,6 +65,10 @@ vi.mock("./chatgpt-subscription-oauth.js", () => ({
 }));
 
 vi.mock("./request-context.js", () => ({
+  getRequestContext: () => ({
+    orgId: requestContextMocks.orgId,
+    orgScope: requestContextMocks.orgScope,
+  }),
   getRequestOrgId: () => requestContextMocks.orgId,
   getRequestUserEmail: () => "steve@example.com",
 }));
@@ -149,6 +154,7 @@ const testStatusEngineEntries: AgentEngineEntry[] = [
 describe("Agent-Native chat AI setup gate", () => {
   beforeEach(() => {
     requestContextMocks.orgId = "test-org";
+    requestContextMocks.orgScope = undefined;
     invalidateAgentEngineStatusCache();
     for (const entry of testStatusEngineEntries) registerAgentEngine(entry);
     credentialMocks.builderReady.mockResolvedValue(false);
@@ -187,6 +193,7 @@ describe("Agent-Native chat AI setup gate", () => {
 
   it("accepts a usable local ChatGPT plan account as chat setup", async () => {
     requestContextMocks.orgId = undefined;
+    requestContextMocks.orgScope = "personal";
     credentialMocks.chatGPTReady.mockResolvedValue(true);
 
     await expect(isAgentChatAiSetupReady()).resolves.toBe(true);
@@ -196,6 +203,7 @@ describe("Agent-Native chat AI setup gate", () => {
 
   it("reports local ChatGPT plan eligibility in the engine status snapshot", async () => {
     requestContextMocks.orgId = undefined;
+    requestContextMocks.orgScope = "personal";
     credentialMocks.chatGPTReady.mockResolvedValue(true);
 
     await expect(
@@ -204,6 +212,14 @@ describe("Agent-Native chat AI setup gate", () => {
         detectFromUserSecrets: async () => null,
       }),
     ).resolves.toBe(true);
+  });
+
+  it("does not treat unresolved scope as personal ChatGPT eligibility", async () => {
+    requestContextMocks.orgId = undefined;
+    credentialMocks.chatGPTReady.mockResolvedValue(true);
+
+    await expect(isAgentChatAiSetupReady()).resolves.toBe(false);
+    expect(credentialMocks.chatGPTReady).not.toHaveBeenCalled();
   });
 
   it("does not treat a personal ChatGPT plan as org chat setup", async () => {

@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
-const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const resolveOrgScopeForEmailMock = vi.hoisted(() => vi.fn());
+const hasOrgScopeResolutionUnavailableMock = vi.hoisted(() => vi.fn());
 const getTurnInitiatorByRunMock = vi.hoisted(() => vi.fn());
 const isLoopbackRequestMock = vi.hoisted(() => vi.fn());
 const isDirectLoopbackRequestMock = vi.hoisted(() => vi.fn());
@@ -23,7 +24,8 @@ vi.mock("./request-origin.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
-  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+  resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
+  hasOrgScopeResolutionUnavailable: hasOrgScopeResolutionUnavailableMock,
 }));
 
 vi.mock("../agent/run-store.js", () => ({
@@ -67,14 +69,16 @@ describe("server/agent-run-context", () => {
   beforeEach(() => {
     getSessionMock.mockReset();
     getOrgContextMock.mockReset();
-    resolveOrgIdForEmailMock.mockReset();
+    resolveOrgScopeForEmailMock.mockReset();
+    hasOrgScopeResolutionUnavailableMock.mockReset();
     getTurnInitiatorByRunMock.mockReset();
     isLoopbackRequestMock.mockReset();
     isDirectLoopbackRequestMock.mockReset();
     getForwardedRequestOriginMock.mockReset();
     getSessionMock.mockResolvedValue(null);
     getOrgContextMock.mockResolvedValue({ orgId: null });
-    resolveOrgIdForEmailMock.mockResolvedValue(null);
+    resolveOrgScopeForEmailMock.mockResolvedValue({ status: "personal" });
+    hasOrgScopeResolutionUnavailableMock.mockReturnValue(false);
     getTurnInitiatorByRunMock.mockResolvedValue(null);
     isLoopbackRequestMock.mockReturnValue(false);
     isDirectLoopbackRequestMock.mockReturnValue(false);
@@ -153,12 +157,15 @@ describe("server/agent-run-context", () => {
     expect(orgId).toBe("org-explicit");
     expect(getSessionMock).not.toHaveBeenCalled();
     expect(getOrgContextMock).not.toHaveBeenCalled();
-    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
   it("falls back to owner email when an explicit org resolver has no session org", async () => {
     const event = makeEvent();
-    resolveOrgIdForEmailMock.mockResolvedValue("org-by-email");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-by-email",
+    });
 
     await expect(
       resolveAgentRunOrgId({
@@ -169,7 +176,55 @@ describe("server/agent-run-context", () => {
     ).resolves.toBe("org-by-email");
     expect(getSessionMock).not.toHaveBeenCalled();
     expect(getOrgContextMock).not.toHaveBeenCalled();
-    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith("alice@example.com");
+    expect(resolveOrgScopeForEmailMock).toHaveBeenCalledWith(
+      "alice@example.com",
+    );
+  });
+
+  it("confirms personal scope after every organization lookup succeeds without an org", async () => {
+    getSessionMock.mockResolvedValue({ orgId: null });
+    getOrgContextMock.mockResolvedValue({ orgId: null });
+    resolveOrgScopeForEmailMock.mockResolvedValue({ status: "personal" });
+
+    await expect(
+      resolveAgentRunRequestContext({
+        event: makeEvent(),
+        ownerContext: { owner: "alice@example.com", anonymous: false },
+      }),
+    ).resolves.toMatchObject({ orgId: undefined, orgScope: "personal" });
+  });
+
+  it("keeps organization scope unknown when an organization lookup fails", async () => {
+    getSessionMock.mockRejectedValue(new Error("session unavailable"));
+    getOrgContextMock.mockRejectedValue(new Error("org store unavailable"));
+    resolveOrgScopeForEmailMock.mockResolvedValue({ status: "unknown" });
+
+    const requestContext = await resolveAgentRunRequestContext({
+      event: makeEvent(),
+      ownerContext: { owner: "alice@example.com", anonymous: false },
+    });
+
+    expect(requestContext.orgId).toBeUndefined();
+    expect(requestContext.orgScope).toBeUndefined();
+  });
+
+  it("does not treat a swallowed membership read failure as personal scope", async () => {
+    const event = makeEvent();
+    getSessionMock.mockResolvedValue({ orgId: null });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+    });
+    hasOrgScopeResolutionUnavailableMock.mockReturnValue(true);
+    resolveOrgScopeForEmailMock.mockResolvedValue({ status: "unknown" });
+
+    const requestContext = await resolveAgentRunRequestContext({
+      event,
+      ownerContext: { owner: "alice@example.com", anonymous: false },
+    });
+
+    expect(requestContext.orgId).toBeUndefined();
+    expect(requestContext.orgScope).toBeUndefined();
   });
 
   it("falls back from session org to implicit org membership", async () => {
@@ -187,7 +242,10 @@ describe("server/agent-run-context", () => {
 
   it("resolves cookieless background org context from the verified owner email", async () => {
     const event = makeEvent();
-    resolveOrgIdForEmailMock.mockResolvedValue("org-by-email");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-by-email",
+    });
 
     await expect(
       resolveAgentRunOrgId({
@@ -195,12 +253,17 @@ describe("server/agent-run-context", () => {
         ownerContext: { owner: "alice@example.com", anonymous: false },
       }),
     ).resolves.toBe("org-by-email");
-    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith("alice@example.com");
+    expect(resolveOrgScopeForEmailMock).toHaveBeenCalledWith(
+      "alice@example.com",
+    );
   });
 
   it("does not resolve anonymous owners into org-scoped user context", async () => {
     const event = makeEvent();
-    resolveOrgIdForEmailMock.mockResolvedValue("org-by-email");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-by-email",
+    });
 
     await expect(
       resolveAgentRunOrgId({
@@ -208,7 +271,7 @@ describe("server/agent-run-context", () => {
         ownerContext: { owner: "public-owner", anonymous: true },
       }),
     ).resolves.toBeUndefined();
-    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
   it("runs foreground and background handlers inside the resolved request context", async () => {
@@ -420,14 +483,41 @@ describe("server/agent-run-context", () => {
       anonymous: false,
       firstRunId: "run_123",
     });
-    resolveOrgIdForEmailMock.mockResolvedValue("org-from-another-membership");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-from-another-membership",
+    });
 
     const seeded = await seedBackgroundAgentRunOwnerContext(event, "run_123");
 
     await expect(
       resolveAgentRunOrgId({ event, ownerContext: seeded! }),
     ).resolves.toBeUndefined();
-    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+    const requestContext = await resolveAgentRunRequestContext({
+      event,
+      ownerContext: seeded!,
+    });
+    expect(requestContext.orgId).toBeUndefined();
+    expect(requestContext.orgScope).toBeUndefined();
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves a durable initiator's confirmed personal scope", async () => {
+    const event = makeEvent();
+    getTurnInitiatorByRunMock.mockResolvedValue({
+      email: "editor@example.com",
+      orgId: null,
+      orgScope: "personal",
+      anonymous: false,
+      firstRunId: "run_123",
+    });
+
+    const seeded = await seedBackgroundAgentRunOwnerContext(event, "run_123");
+
+    await expect(
+      resolveAgentRunRequestContext({ event, ownerContext: seeded! }),
+    ).resolves.toMatchObject({ orgId: undefined, orgScope: "personal" });
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
   it("fails closed when a legacy run has no persisted initiator", async () => {
@@ -440,6 +530,6 @@ describe("server/agent-run-context", () => {
       statusCode: 409,
       statusMessage: "Agent turn initiator is unavailable",
     });
-    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 });

@@ -27,11 +27,13 @@ function pruneStatusCache(now: number): void {
 function statusCacheKey(identity: {
   userEmail?: string | null;
   orgId?: string | null;
+  orgScope?: "personal" | null;
   isDirectLoopbackRequest?: boolean;
 }): string {
   return JSON.stringify([
     identity.userEmail?.trim().toLowerCase() ?? null,
     identity.orgId?.trim() || null,
+    identity.orgScope === "personal",
     identity.isDirectLoopbackRequest === true,
   ]);
 }
@@ -40,6 +42,7 @@ export function memoizeAgentEngineStatus<T>(
   identity: {
     userEmail?: string | null;
     orgId?: string | null;
+    orgScope?: "personal" | null;
     isDirectLoopbackRequest?: boolean;
   },
   load: () => Promise<T>,
@@ -79,6 +82,7 @@ export function memoizeAgentEngineStatus<T>(
 export function getMemoizedAgentEngineStatus<T>(identity: {
   userEmail?: string | null;
   orgId?: string | null;
+  orgScope?: "personal" | null;
   isDirectLoopbackRequest?: boolean;
 }): Promise<T> | undefined {
   pruneStatusCache(Date.now());

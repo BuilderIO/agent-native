@@ -59,6 +59,27 @@ describe("memoizeAgentEngineStatus", () => {
     expect(load).toHaveBeenCalledTimes(3);
   });
 
+  it("keeps confirmed personal scope separate from unresolved scope", async () => {
+    let calls = 0;
+    const load = vi.fn(async () => ({ chatEligible: ++calls === 2 }));
+    const unknownScope = {
+      userEmail: "steve@example.test",
+      orgId: undefined,
+      isDirectLoopbackRequest: true,
+    };
+
+    await expect(memoizeAgentEngineStatus(unknownScope, load)).resolves.toEqual(
+      { chatEligible: false },
+    );
+    await expect(
+      memoizeAgentEngineStatus({ ...unknownScope, orgScope: "personal" }, load),
+    ).resolves.toEqual({ chatEligible: true });
+    await expect(memoizeAgentEngineStatus(unknownScope, load)).resolves.toEqual(
+      { chatEligible: false },
+    );
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it("expires the answer after one second and clears it after a credential change", async () => {
     let configured = false;
     const load = vi.fn(async () => ({ chatEligible: configured }));

@@ -105,7 +105,11 @@ import {
   registerBuiltinNotificationChannels,
 } from "../notifications/channels.js";
 import { createNotificationsHandler } from "../notifications/routes.js";
-import { getOrgContext } from "../org/context.js";
+import {
+  getOrgContext,
+  hasOrgScopeResolutionUnavailable,
+  resolveOrgScopeForEmail,
+} from "../org/context.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
@@ -449,13 +453,30 @@ function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry>
  */
 export async function resolveAgentEngineStatusIdentity(
   event: H3Event,
-): Promise<{ userEmail: string | undefined; orgId: string | undefined }> {
+): Promise<{
+  userEmail: string | undefined;
+  orgId: string | undefined;
+  orgScope?: "personal";
+}> {
   const session = await getSession(event);
   const userEmail = session?.email;
   if (!userEmail) return { userEmail: undefined, orgId: undefined };
   try {
     const orgCtx = await getOrgContext(event);
-    return { userEmail, orgId: orgCtx.orgId ?? undefined };
+    if (orgCtx.orgId) return { userEmail, orgId: orgCtx.orgId };
+    if (hasOrgScopeResolutionUnavailable(event)) {
+      return { userEmail, orgId: undefined };
+    }
+    if (orgCtx.email.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
+      return { userEmail, orgId: undefined, orgScope: "personal" };
+    }
+    const scope = await resolveOrgScopeForEmail(userEmail);
+    if (scope.status === "organization") {
+      return { userEmail, orgId: scope.orgId };
+    }
+    return scope.status === "personal"
+      ? { userEmail, orgId: undefined, orgScope: "personal" }
+      : { userEmail, orgId: undefined };
   } catch (error) {
     /* org module not present in this template */
     if (!isMissingOrganizationTableError(error)) throw error;
@@ -1662,10 +1683,10 @@ async function detectUsageEngineName(
   userEmail: string | undefined,
 ): Promise<string | null> {
   try {
-    const orgId = userEmail
-      ? (await resolveAgentEngineStatusIdentity(event)).orgId
-      : undefined;
-    const status = await runWithRequestContext({ userEmail, orgId }, () =>
+    const identity = userEmail
+      ? await resolveAgentEngineStatusIdentity(event)
+      : { userEmail, orgId: undefined };
+    const status = await runWithRequestContext(identity, () =>
       resolveAgentEngineStatus({
         ...requestAgentEngineStatusDeps(),
         // Tracking only needs the engine name; skip the base-URL secret read.
@@ -5901,7 +5922,7 @@ export function createCoreRoutesPlugin(
         defineEventHandler(async (event) => {
           try {
             const statusStartedAt = Date.now();
-            const { userEmail, orgId } =
+            const { userEmail, orgId, orgScope } =
               await resolveAgentEngineStatusIdentity(event);
             const directLoopbackRequest = isDirectLoopbackRequest(event);
             const requestOrigin = directLoopbackRequest
@@ -5911,6 +5932,7 @@ export function createCoreRoutesPlugin(
               {
                 userEmail,
                 orgId,
+                orgScope,
                 isDirectLoopbackRequest: directLoopbackRequest,
               },
               async () =>
@@ -5918,6 +5940,7 @@ export function createCoreRoutesPlugin(
                   {
                     userEmail,
                     orgId,
+                    ...(orgScope ? { orgScope } : {}),
                     isLoopbackRequest: isLoopbackRequest(event),
                     isDirectLoopbackRequest: directLoopbackRequest,
                     ...(requestOrigin ? { requestOrigin } : {}),

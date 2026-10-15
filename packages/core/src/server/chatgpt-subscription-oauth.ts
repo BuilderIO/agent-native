@@ -336,7 +336,9 @@ function currentRequestIsLocalLoopback(): boolean {
   if (
     !context?.isLoopbackRequest ||
     !context.isDirectLoopbackRequest ||
-    !context.requestOrigin
+    !context.requestOrigin ||
+    context.orgId ||
+    context.orgScope !== "personal"
   ) {
     return false;
   }
