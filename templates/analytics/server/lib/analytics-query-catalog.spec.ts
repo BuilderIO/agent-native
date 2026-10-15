@@ -3124,7 +3124,6 @@ describe("analytics query catalog", () => {
             "Users, seats, roles, and permissions for each workspace.",
           table: "workspace_memberships",
           columnsUsed: "user_id, workspace_id, seat_type, role, permission",
-          semanticScope: "membership_roster",
           approved: true,
         },
         {

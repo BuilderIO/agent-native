@@ -279,6 +279,13 @@ describe("Analytics term matching", () => {
     ).toBe("membership");
     expect(
       semanticScopeForDictionaryEntry({
+        metric: "Analytics App Membership Roster",
+        definition: "Users, seats, roles, and permissions for each workspace.",
+        table: "workspace_memberships",
+      }),
+    ).toBe("membership_roster");
+    expect(
+      semanticScopeForDictionaryEntry({
         columnsUsed: "root_org_id",
         semanticScope: "membership",
       }),

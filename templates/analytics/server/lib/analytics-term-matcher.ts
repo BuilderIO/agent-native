@@ -413,7 +413,9 @@ export function semanticScopeForDictionaryEntry(
     .replace(/[_-]+/g, " ");
   const isAnalyticsAppActivity =
     /\b(?:agent[\s-]*native|analytics)\b/.test(semanticEvidence) &&
-    /\b(?:app|application|open(?:ed|ing|s)?|launch(?:ed|ing|es)?)\b/.test(
+    /\b(?:app|application)\b/.test(semanticEvidence) &&
+    /\b(?:open(?:ed|ing|s)?|launch(?:ed|ing|es)?)\b/.test(semanticEvidence) &&
+    !/\b(?:members?|membership|seats?|roles?|permissions?|access|roster|licenses?|billable)\b/.test(
       semanticEvidence,
     );
   const isActiveUserActivityMetric =
