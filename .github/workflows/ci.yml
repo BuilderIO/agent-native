@@ -64,7 +64,11 @@ jobs:
           node-version: "22"
 
       - name: Test change scope classifier
-        run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts scripts/ci-build-workspaces.test.ts
+        run: >-
+          node --experimental-strip-types --test
+          scripts/ci-change-scope.test.ts
+          scripts/ci-change-scope-renames.test.ts
+          scripts/ci-build-workspaces.test.ts
 
       - name: Test fast-test lane planner
         run: node --experimental-strip-types --test scripts/ci-test-lanes.test.ts

@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -116,13 +110,11 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     );
 
     const modeChangePath = "templates/design/e2e/mode-change.spec.ts";
-    const modeChangeHead = commitFromBase(
-      "rename and change Design spec mode",
-      () => {
-        runGit("mv", sourcePath, modeChangePath);
-        chmodSync(join(repoPath, modeChangePath), 0o755);
-      },
-    );
+    runGit("reset", "--hard", baseSha);
+    runGit("mv", sourcePath, modeChangePath);
+    runGit("update-index", "--chmod=+x", modeChangePath);
+    runGit("commit", "--quiet", "-m", "rename and change Design spec mode");
+    const modeChangeHead = runGit("rev-parse", "HEAD");
     const modeChangeRename = scopeFor(modeChangeHead);
     assert.deepEqual(modeChangeRename.pureRenames, []);
     assert.ok(
@@ -156,7 +148,7 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
   }
 });
 
-test("a pure Design spec rename remains in the normal CI changed paths", () => {
+test("classification retains the path but excludes supplied pure renames", () => {
   const pureRenamePath = "templates/design/e2e/renamed-interaction.spec.ts";
   const pureRenameScope = classifyChangedPaths(
     [pureRenamePath],
