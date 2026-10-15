@@ -2,6 +2,10 @@
 export const FALLBACK_FRAME_SECONDS = 1 / 30;
 
 const DURATION_SAMPLES = 15;
+// One step back can measure a held still screen; a few samples outvote it.
+const MIN_DURATION_SAMPLES = 3;
+// Until the frame length is measured, search finely enough for 60 fps.
+const UNMEASURED_PRECISION_SECONDS = 0.5 / 60;
 const MAX_DURATION_SAMPLE_SECONDS = 1;
 const PRESENTED_FRAME_TIMEOUT_MS = 1000;
 // Doubling from 1.5 frames, this reaches past any clip, so a long-held still
@@ -132,11 +136,11 @@ export class VideoFrameClock {
   }
 
   /**
-   * Typical frame length, or null until playback or a step back measures
-   * one; the median shrugs off dropped and held frames.
+   * Typical frame length, or null until playback or step backs have measured
+   * a few frames; the median shrugs off dropped and held frames.
    */
   frameSeconds(): number | null {
-    if (this.durations.length === 0) return null;
+    if (this.durations.length < MIN_DURATION_SAMPLES) return null;
     const sorted = [...this.durations].sort((a, b) => a - b);
     return sorted[Math.floor(sorted.length / 2)];
   }
@@ -360,9 +364,11 @@ async function stepWithinSpan(
 ): Promise<boolean> {
   const learned = clock.frameSeconds();
   const frame = learned ?? FALLBACK_FRAME_SECONDS;
-  // Aim at the middle of the next frame, then widen when a held frame
-  // (screen recordings hold still screens) covers the aim point.
-  let reach = 1.5 * frame;
+  // Aim just past where a frame of typical length would end. The next frame
+  // shows there unless a held frame (screen recordings hold still screens)
+  // covers the aim point, which the widening below handles, or two frames
+  // fit before it, which takes one under about half the typical length.
+  let reach = frame + 0.001;
   let lo = from;
   let next: number | null = null;
   let shownNow = start;
@@ -390,7 +396,7 @@ async function stepWithinSpan(
     let probe = 0;
     probe < MAX_NARROWING_PROBES &&
     (lo > start || learned === null) &&
-    next - lo > 0.5 * frame;
+    next - lo > (learned === null ? UNMEASURED_PRECISION_SECONDS : 0.5 * frame);
     probe++
   ) {
     const mid = (lo + next) / 2;

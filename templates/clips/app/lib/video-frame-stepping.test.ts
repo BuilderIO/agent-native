@@ -239,18 +239,51 @@ describe("stepVideoFrame", () => {
     expect(shown).toEqual([11, 12, 11]);
   });
 
-  it("learns a short frame length from a step back", async () => {
-    const { fake, step, goToFrame } = setup(frameStarts(60, 120));
-    await goToFrame(10);
+  it("doesn't pass the frame after a short one", async () => {
+    // Frame 4 lasts half as long as the rest, as in a variable-rate WebM.
+    const frames = [0, 1, 2, 3, 4, 4.5, 5.5, 6.5].map((n) => n / 30);
+    const { fake, step, goToFrame } = setup(frames);
+    await goToFrame(3);
 
-    await step(-1);
-    const shown: number[] = [fake.shownFrame()];
-    for (let i = 0; i < 3; i++) {
-      await step(1);
+    const shown: number[] = [];
+    // Steps back measure the clip's 1/30 s frame length.
+    for (const direction of [-1, -1, -1, 1, 1, 1, 1, 1] as const) {
+      await step(direction);
       shown.push(fake.shownFrame());
     }
 
-    expect(shown).toEqual([9, 10, 11, 12]);
+    expect(shown).toEqual([2, 1, 0, 1, 2, 3, 4, 5]);
+  });
+
+  it("learns a short frame length from step backs", async () => {
+    const { fake, step, goToFrame } = setup(frameStarts(60, 120));
+    await goToFrame(10);
+
+    const shown: number[] = [];
+    for (const direction of [-1, -1, -1, 1, 1, 1, 1] as const) {
+      await step(direction);
+      shown.push(fake.shownFrame());
+    }
+
+    expect(shown).toEqual([9, 8, 7, 8, 9, 10, 11]);
+  });
+
+  it("isn't misled by one step back across a held frame", async () => {
+    // A still screen from 0.5 s to 1 s, then 24 fps.
+    const frames = [
+      ...frameStarts(24, 13, true),
+      ...Array.from({ length: 24 }, (_, i) => 1 + i / 24),
+    ];
+    const { fake, step, goToFrame } = setup(frames);
+    await goToFrame(13);
+
+    const shown: number[] = [];
+    for (const direction of [-1, 1, 1, 1] as const) {
+      await step(direction);
+      shown.push(fake.shownFrame());
+    }
+
+    expect(shown).toEqual([12, 13, 14, 15]);
   });
 
   it("stops at the first frame after a held frame", async () => {
