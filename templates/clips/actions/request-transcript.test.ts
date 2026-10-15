@@ -1124,6 +1124,43 @@ describe("requestTranscript regeneration", () => {
         expect.anything(),
       );
     });
+
+    it("reports an import that lands just before a failure write, not the failure", async () => {
+      mockTranscribeWithBuilder.mockRejectedValue(new Error("provider down"));
+      mockSelectRows.queue = [
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [recordingRow],
+        [pendingRow],
+        [{ recordingId: "rec_imported" }],
+        [importedRow],
+        [titleRow],
+      ];
+      mockUpdateReturning
+        .mockResolvedValueOnce([{ recordingId: "rec_imported" }])
+        .mockResolvedValueOnce([]);
+
+      const result = await requestTranscript.run({
+        recordingId: "rec_imported",
+        force: true,
+      });
+
+      const failureWrite = mockUpdateSet.mock.calls.findIndex(
+        ([values]) => (values as { status?: string }).status === "failed",
+      );
+      expect(mockUpdateWhere.mock.calls[failureWrite][0]).toContainEqual({
+        or: [
+          { isNull: "recordingTranscripts.source" },
+          { ne: ["recordingTranscripts.source", "imported"] },
+        ],
+      });
+      expect(result).toMatchObject({ status: "ready", preserved: true });
+      expect(mockTrack).not.toHaveBeenCalledWith(
+        "recording_transcription_failed",
+        expect.anything(),
+        expect.anything(),
+      );
+    });
   });
 });
 

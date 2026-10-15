@@ -54,6 +54,10 @@ const TIME = String.raw`(?:\d+:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?`;
 const CUE_TIMING = new RegExp(
   String.raw`^\s*(${TIME})\s*-->\s*(${TIME})(?:\s+.*)?$`,
 );
+// A start time right before the arrow: timestamped prose such as
+// "0:05 Use a --> b" is still text, while a cue with a bad end time is SRT
+// and gets SRT's line-specific error.
+const CUE_TIMING_START = new RegExp(String.raw`^\s*${TIME}\s*-->`);
 const TIMESTAMP_LINE = new RegExp(
   String.raw`^\s*(?:[-*]\s+)?(?:\*\*)?[[(]?(${TIME})[\])]?(?:\*\*)?(?:\s*[-–—:|]?\s+(.*))?$`,
 );
@@ -67,7 +71,9 @@ export function detectTranscriptFormat(text: string): TranscriptImportFormat {
   const body = stripBom(text);
   const firstLine = body.trimStart().split(/\r?\n/, 1)[0] ?? "";
   if (/^WEBVTT(?:\s|$)/.test(firstLine)) return "vtt";
-  if (splitLines(body).some((line) => line.includes("-->"))) return "srt";
+  if (splitLines(body).some((line) => CUE_TIMING_START.test(line))) {
+    return "srt";
+  }
   return "text";
 }
 
@@ -315,14 +321,18 @@ function formatSrtTime(ms: number): string {
   return `${h}:${m}:${s},${millis}`;
 }
 
-/** Milliseconds, or null when a minute or second field is 60 or more. */
+/**
+ * Milliseconds, or null when a minute or second field is 60 or more or the
+ * hours are too many digits to count exactly.
+ */
 function parseTimestamp(value: string): number | null {
   const [clock, fraction = ""] = value.split(/[.,]/);
   const parts = clock.split(":").map(Number);
   if (parts.slice(1).some((part) => part >= 60)) return null;
   const seconds = parts.reduce((total, part) => total * 60 + part, 0);
   const millis = fraction ? Number(fraction.padEnd(3, "0")) : 0;
-  return seconds * 1000 + millis;
+  const ms = seconds * 1000 + millis;
+  return Number.isSafeInteger(ms) ? ms : null;
 }
 
 function cleanCueText(

@@ -587,7 +587,7 @@ export async function importLoomTranscriptForRecording({
         durationMs: recording.durationMs,
       });
       if (transcript) {
-        await upsertTranscriptRow(db, {
+        const kept = await writeTranscriptOrKeepImport(db, {
           recordingId,
           ownerEmail,
           status: "ready",
@@ -597,6 +597,7 @@ export async function importLoomTranscriptForRecording({
           fullText: transcript.fullText,
           now,
         });
+        if (kept) return kept;
         await writeAppState("refresh-signal", { ts: Date.now() });
         await finalizeEndedMeetingsForRecording(db, recordingId);
         await queueBrainExport(recordingId);
@@ -637,7 +638,7 @@ export async function importLoomTranscriptForRecording({
   });
   if (preserved) return preserved;
 
-  await upsertTranscriptRow(db, {
+  const kept = await writeTranscriptOrKeepImport(db, {
     recordingId,
     ownerEmail,
     status: "failed",
@@ -646,6 +647,7 @@ export async function importLoomTranscriptForRecording({
     fullText: "",
     now,
   });
+  if (kept) return kept;
   await writeAppState("refresh-signal", { ts: Date.now() });
   return {
     recordingId,
@@ -697,7 +699,7 @@ async function failAudioOnlyPreparation({
     : isTransientTranscriptionError(err);
   const nextRetryCount = currentRetryCount + 1;
 
-  await upsertTranscriptRow(db, {
+  const kept = await writeTranscriptOrKeepImport(db, {
     recordingId,
     ownerEmail,
     status: "failed",
@@ -708,6 +710,7 @@ async function failAudioOnlyPreparation({
     now,
     ...(transient ? { retryCount: nextRetryCount } : {}),
   });
+  if (kept) return kept;
   await writeAppState("refresh-signal", { ts: Date.now() });
 
   if (transient) {
@@ -1148,13 +1151,14 @@ const requestTranscriptAction = defineAction({
           ownerEmail,
         });
         if (preserved) return preserved;
-        await upsertTranscriptRow(db, {
+        const kept = await writeTranscriptOrKeepImport(db, {
           recordingId: args.recordingId,
           ownerEmail,
           status: "failed",
           failureReason: reason,
           now,
         });
+        if (kept) return kept;
         await writeAppState("refresh-signal", { ts: Date.now() });
         throw new Error(reason);
       }
@@ -1248,7 +1252,7 @@ const requestTranscriptAction = defineAction({
         }
 
         if (fullText) {
-          const written = await upsertTranscriptRow(db, {
+          const kept = await writeTranscriptOrKeepImport(db, {
             recordingId: args.recordingId,
             ownerEmail,
             status: "ready",
@@ -1261,14 +1265,7 @@ const requestTranscriptAction = defineAction({
               ? existingNativeTranscript?.updatedAt
               : undefined,
           });
-          if (!written) {
-            const preserved = await preserveReadyTranscriptIfAvailable({
-              db,
-              recordingId: args.recordingId,
-              ownerEmail,
-            });
-            if (preserved) return preserved;
-          }
+          if (kept) return kept;
           await writeAppState("refresh-signal", { ts: Date.now() });
           await finalizeEndedMeetingsForRecording(db, args.recordingId);
           await queueBrainExport(args.recordingId);
@@ -1382,7 +1379,7 @@ const requestTranscriptAction = defineAction({
       ? isTransientTranscriptionError(new Error(builderError))
       : false;
     const cloudNextRetryCount = currentRetryCount + 1;
-    await upsertTranscriptRow(db, {
+    const kept = await writeTranscriptOrKeepImport(db, {
       recordingId: args.recordingId,
       ownerEmail,
       status: "failed",
@@ -1391,6 +1388,7 @@ const requestTranscriptAction = defineAction({
       now,
       ...(cloudTransient ? { retryCount: cloudNextRetryCount } : {}),
     });
+    if (kept) return kept;
     track(
       "recording_transcription_failed",
       {
@@ -1417,6 +1415,23 @@ const requestTranscriptAction = defineAction({
     };
   },
 });
+
+/**
+ * Writes an automatic transcript or failure. When the write is refused
+ * because an imported transcript landed after the caller's last check,
+ * returns that transcript's result so the caller reports it instead.
+ */
+async function writeTranscriptOrKeepImport(
+  db: ReturnType<typeof getDb>,
+  row: Parameters<typeof upsertTranscriptRow>[1],
+) {
+  if (await upsertTranscriptRow(db, row)) return null;
+  return preserveReadyTranscriptIfAvailable({
+    db,
+    recordingId: row.recordingId,
+    ownerEmail: row.ownerEmail,
+  });
+}
 
 async function upsertTranscriptRow(
   db: ReturnType<typeof getDb>,

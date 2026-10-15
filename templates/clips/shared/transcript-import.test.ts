@@ -40,6 +40,18 @@ describe("detectTranscriptFormat", () => {
     expect(detectTranscriptFormat(SRT)).toBe("srt");
     expect(detectTranscriptFormat("0:00 hello")).toBe("text");
   });
+
+  it("keeps timestamped text with an arrow in its prose as text", () => {
+    const text = "0:05 Use a --> b for the flow.\n0:10 Done.";
+    expect(detectTranscriptFormat(text)).toBe("text");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 5000, endMs: 10_000, text: "Use a --> b for the flow." },
+        { startMs: 10_000 },
+      ],
+    });
+  });
 });
 
 describe("parseTranscriptImport", () => {
@@ -187,6 +199,18 @@ describe("parseTranscriptImport", () => {
     [
       "a start time with 90 seconds",
       "0:00 hello\n0:90 world",
+      "missing-timestamp",
+      2,
+    ],
+    [
+      "a cue timing with more hours than a number can hold",
+      `1\n${"9".repeat(400)}:00:00,000 --> 00:00:01,000\nhello`,
+      "bad-timing",
+      2,
+    ],
+    [
+      "a start time with more hours than a number can hold",
+      `0:00 hello\n${"9".repeat(400)}:00:00 world`,
       "missing-timestamp",
       2,
     ],

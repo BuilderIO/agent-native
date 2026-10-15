@@ -42,6 +42,7 @@ import { TranscriptSegmentRow } from "../transcript/transcript-segment-row";
 import {
   TranscriptImportButton,
   type TranscriptImportRequest,
+  type TranscriptReplacement,
 } from "./transcript-import-button";
 
 export interface TranscriptSegment {
@@ -174,6 +175,8 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   } = props;
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
+  const [importReplacement, setImportReplacement] =
+    useState<TranscriptReplacement | null>(null);
   const visibleSegments = useMemo(() => {
     const edits = parseEdits(editsJson);
     return segments.filter((segment) => !isExcluded(segment.startMs, edits));
@@ -256,6 +259,8 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         hasReadyTranscript={hasReadyTranscript}
         isImporting={isImporting}
         onImport={onImportTranscript}
+        replacement={importReplacement}
+        onReplacementChange={setImportReplacement}
       />
     ) : null;
   const withImport = (content: ReactNode) =>

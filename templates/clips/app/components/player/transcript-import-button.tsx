@@ -7,7 +7,7 @@ import {
   type TranscriptImportError,
 } from "@shared/transcript-import";
 import { IconFileUpload, IconLoader2 } from "@tabler/icons-react";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { toast } from "sonner";
 
 import {
@@ -32,12 +32,20 @@ export interface TranscriptImportRequest {
   replace: boolean;
 }
 
+/** A picked file waiting on the user's answer to "Replace transcript?". */
+export interface TranscriptReplacement {
+  fileName: string;
+  text: string;
+}
+
 export function TranscriptImportButton({
   variant,
   durationMs,
   hasReadyTranscript,
   isImporting,
   onImport,
+  replacement,
+  onReplacementChange,
 }: {
   variant: "icon" | "button";
   durationMs?: number | null;
@@ -45,14 +53,16 @@ export function TranscriptImportButton({
   isImporting: boolean;
   /** Rejects when the import fails; the caller reports the failure. */
   onImport: (request: TranscriptImportRequest) => Promise<unknown>;
+  /**
+   * Held by the caller: when a conflict refreshes the panel to its ready
+   * state, a different button mounts while the question is still open.
+   */
+  replacement: TranscriptReplacement | null;
+  onReplacementChange: (replacement: TranscriptReplacement | null) => void;
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const [replacement, setReplacement] = useState<{
-    fileName: string;
-    text: string;
-  } | null>(null);
   const label = t("transcriptImport.addFile");
 
   // aria-disabled, not disabled: a disabled button cannot take the focus the
@@ -74,7 +84,7 @@ export function TranscriptImportButton({
       // A transcript became ready after this panel last loaded, so ask
       // before replacing it, as for one that was ready all along.
       if (!replace && isTranscriptExistsError(error)) {
-        setReplacement({ fileName, text });
+        onReplacementChange({ fileName, text });
       }
     }
   }
@@ -93,7 +103,7 @@ export function TranscriptImportButton({
       return;
     }
     if (hasReadyTranscript) {
-      setReplacement({ fileName: file.name, text });
+      onReplacementChange({ fileName: file.name, text });
       return;
     }
     await submit(file.name, text, false);
@@ -149,7 +159,7 @@ export function TranscriptImportButton({
       <AlertDialog
         open={replacement !== null}
         onOpenChange={(open) => {
-          if (!open) setReplacement(null);
+          if (!open) onReplacementChange(null);
         }}
       >
         <AlertDialogContent
@@ -177,7 +187,7 @@ export function TranscriptImportButton({
                 if (replacement) {
                   void submit(replacement.fileName, replacement.text, true);
                 }
-                setReplacement(null);
+                onReplacementChange(null);
               }}
             >
               {t("transcriptImport.replace")}

@@ -6,11 +6,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { TranscriptImportButton } from "./transcript-import-button";
+import { TranscriptPanel, type TranscriptPanelProps } from "./transcript-panel";
 
 const toastError = vi.hoisted(() => vi.fn());
 
 vi.mock("sonner", () => ({ toast: { error: toastError } }));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => path,
+  appPath: (path: string) => path,
+}));
+
+vi.mock("@agent-native/toolkit/app/settings", () => ({
+  openBuilderConnectPopup: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, string>) =>
@@ -23,8 +32,12 @@ vi.mock("@/lib/utils", () => ({
 }));
 
 const VTT = "WEBVTT\n\n00:00.000 --> 00:02.000\nHello there.\n";
+const READY: Partial<TranscriptPanelProps> = {
+  status: "ready",
+  segments: [{ startMs: 0, endMs: 2000, text: "Automatic words." }],
+};
 
-describe("TranscriptImportButton", () => {
+describe("transcript file import", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -41,15 +54,19 @@ describe("TranscriptImportButton", () => {
     container.remove();
   });
 
-  function render(onImport: (request: unknown) => Promise<unknown>) {
+  function render(
+    onImport: (request: unknown) => Promise<unknown>,
+    props: Partial<TranscriptPanelProps> = { status: "pending" },
+  ) {
     act(() => {
       root.render(
         <TooltipProvider>
-          <TranscriptImportButton
-            variant="button"
-            hasReadyTranscript={false}
-            isImporting={false}
-            onImport={onImport}
+          <TranscriptPanel
+            segments={[]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            onImportTranscript={onImport}
+            {...props}
           />
         </TooltipProvider>,
       );
@@ -68,7 +85,7 @@ describe("TranscriptImportButton", () => {
     });
   }
 
-  it("asks to replace when a transcript became ready after the panel loaded", async () => {
+  it("asks to replace a transcript that became ready after the panel loaded, through the panel's switch to ready", async () => {
     const onImport = vi
       .fn()
       .mockRejectedValueOnce(
@@ -80,8 +97,14 @@ describe("TranscriptImportButton", () => {
     render(onImport);
 
     await pick(new File([VTT], "talk.vtt"));
-
     expect(onImport).toHaveBeenCalledWith({ text: VTT, replace: false });
+    expect(document.body.textContent).toContain(
+      "transcriptImport.replaceDescription talk.vtt",
+    );
+
+    // The conflict's refetch shows the ready transcript, which mounts the
+    // header's import button in place of the pending state's.
+    render(onImport, READY);
     expect(document.body.textContent).toContain(
       "transcriptImport.replaceDescription talk.vtt",
     );
