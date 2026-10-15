@@ -23,12 +23,12 @@ const putRoute = source.slice(
 );
 
 describe("agent app model-default ChatGPT options", () => {
-  it("limits ChatGPT to personal defaults or local loopback development", () => {
+  it("limits ChatGPT to direct-loopback personal defaults", () => {
     expect(listRoute).toContain("getUserLabEnabled(");
     expect(listRoute).toContain("ctx.userEmail");
     expect(listRoute).toContain("CHATGPT_SUBSCRIPTION_LAB");
     expect(listRoute).toContain("directLoopbackRequest &&");
-    expect(listRoute).toContain("(!ctx.orgId || isDevMode()) &&");
+    expect(listRoute).toContain("!ctx.orgId &&");
     expect(listRoute).toContain("chatGPTEnabled && ctx.userEmail");
     expect(listRoute).toContain("visibleEngines.map(async (entry) => ({");
   });
@@ -82,10 +82,8 @@ describe("agent app model-default ChatGPT options", () => {
     expect(putRoute).toContain("setResponseStatus(event, 400)");
   });
 
-  it("rejects ChatGPT models for org defaults outside local loopback development", () => {
-    const orgGuard = putRoute.indexOf(
-      "if (ctx.orgId && !(isDevMode() && isDirectLoopbackRequest(event)))",
-    );
+  it("rejects ChatGPT models for org defaults in every environment", () => {
+    const orgGuard = putRoute.indexOf("if (ctx.orgId)");
     const catalogCheck = putRoute.indexOf("listChatGPTSubscriptionModels(");
     const write = putRoute.indexOf("await writeAgentAppModelDefaultSettings(");
 
@@ -94,6 +92,7 @@ describe("agent app model-default ChatGPT options", () => {
     expect(putRoute).toContain(
       "ChatGPT plan access cannot be used for organization app model defaults.",
     );
+    expect(putRoute).not.toContain("isDevMode()");
     expect(write).toBeGreaterThan(catalogCheck);
   });
 });

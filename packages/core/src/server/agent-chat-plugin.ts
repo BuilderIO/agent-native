@@ -5547,14 +5547,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         const directLoopbackRequest = isDirectLoopbackRequest(event);
         const chatGPTEnabled =
           directLoopbackRequest &&
-          (!ctx.orgId || isDevMode()) &&
+          !ctx.orgId &&
           !!ctx.userEmail &&
           availableEngines.some(
             (entry) => entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME,
           ) &&
           (await getUserLabEnabled(ctx.userEmail, CHATGPT_SUBSCRIPTION_LAB));
         // Provider model selections follow the setting scope. ChatGPT catalogs
-        // are user-scoped, so they are only available for personal defaults.
+        // are user-scoped, so organization defaults cannot use them.
         const selectionScope = ctx.orgId ? "org" : "user";
         const selections = new Map<
           string,
@@ -5730,7 +5730,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             };
           }
           if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
-            if (ctx.orgId && !(isDevMode() && isDirectLoopbackRequest(event))) {
+            if (ctx.orgId) {
               setResponseStatus(event, 400);
               return {
                 error:
