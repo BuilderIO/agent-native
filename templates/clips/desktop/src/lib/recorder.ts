@@ -236,6 +236,7 @@ export interface StartParams {
   cameraOn: boolean;
   systemAudioOn?: boolean;
   voiceCleanupEnabled?: boolean;
+  lookbackEnabled?: boolean;
   signal?: AbortSignal;
   localRecordingMode?: LocalRecordingMode;
   preAcquiredCameraStream?: MediaStream | null;
@@ -3091,16 +3092,6 @@ async function tryStartRewindFullscreenRecording(
       },
     });
     id = recording.id;
-    const originalStartedAt = new Date().toISOString();
-    if (!localOnly) {
-      rememberRewindClipOrigin({
-        recordingId: id,
-        startedAt: originalStartedAt,
-        includeMicrophone: includeMic,
-        includeSystemAudio,
-        rememberedAt: originalStartedAt,
-      });
-    }
   } catch (err) {
     transcriptionAborted = true;
     await (transcriptionCapture as TranscriptionCapture | null)
@@ -4290,6 +4281,7 @@ export async function startRecording(
 ): Promise<RecorderHandle> {
   const audioCue = preparedAudioCue ?? createAudioCue();
   const startController = new AbortController();
+  let requestedRecordingId: string | null = null;
   const cancelStartup = () => {
     startController.abort();
     void emit("clips:countdown-cancel").catch(() => {});
@@ -4300,6 +4292,24 @@ export async function startRecording(
     {
       ...params,
       signal: startController.signal,
+      onCaptureStartRequested: (recordingId, captureIdentity) => {
+        requestedRecordingId = recordingId;
+        if (recordingId && params.lookbackEnabled) {
+          const startedAt = new Date().toISOString();
+          rememberRewindClipOrigin({
+            recordingId,
+            startedAt,
+            includeMicrophone: params.micOn,
+            includeSystemAudio: params.systemAudioOn !== false,
+            rememberedAt: startedAt,
+          });
+        }
+        if (captureIdentity === undefined) {
+          params.onCaptureStartRequested?.(recordingId);
+        } else {
+          params.onCaptureStartRequested?.(recordingId, captureIdentity);
+        }
+      },
     },
     audioCue,
   );
@@ -4317,6 +4327,7 @@ export async function startRecording(
       },
     });
   } catch (err) {
+    if (requestedRecordingId) forgetRewindClipOrigin(requestedRecordingId);
     audioCue.cleanup();
     await boundedCleanup(invoke("hide_recording_chrome"));
     const e = err as { name?: string; message?: string } | null;

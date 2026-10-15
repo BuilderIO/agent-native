@@ -3880,6 +3880,7 @@ export function App({
           micOn,
           systemAudioOn,
           voiceCleanupEnabled,
+          lookbackEnabled: lookbackLabEnabled && rewindOn,
           localRecordingMode: recordingLocalMode,
           preAcquiredCameraStream,
           preAcquiredDisplayStream:
