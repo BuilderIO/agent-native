@@ -211,6 +211,17 @@ function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
 // an in-flight create or deploy would otherwise recreate what cleanup deleted.
 const activeRuns = new Set<ChildProcess>();
 
+async function waitUpTo(ms: number, work: Promise<unknown>): Promise<void> {
+  let giveUp: NodeJS.Timeout | undefined;
+  await Promise.race([
+    work,
+    new Promise<void>((resolve) => {
+      giveUp = setTimeout(resolve, ms);
+    }),
+  ]);
+  clearTimeout(giveUp);
+}
+
 async function stopActiveRuns(): Promise<void> {
   const running = [...activeRuns];
   const closed = Promise.all(
@@ -223,15 +234,20 @@ async function stopActiveRuns(): Promise<void> {
   const killer = setTimeout(() => {
     for (const child of running) killGroup(child, "SIGKILL");
   }, 5_000);
-  let giveUp: NodeJS.Timeout | undefined;
-  await Promise.race([
-    closed,
-    new Promise<void>((resolve) => {
-      giveUp = setTimeout(resolve, 10_000);
-    }),
-  ]);
+  await waitUpTo(10_000, closed);
   clearTimeout(killer);
-  clearTimeout(giveUp);
+}
+
+// Creations that run in this process rather than in a child, so a cancellation
+// can wait for them: a DROP that runs before a CREATE has landed is a no-op,
+// and the database would outlive the cleanup.
+const creations = new Set<Promise<unknown>>();
+
+function tracked<T>(creation: Promise<T>): Promise<T> {
+  creations.add(creation);
+  const forget = () => creations.delete(creation);
+  creation.then(forget, forget);
+  return creation;
 }
 
 interface RunOptions {
@@ -374,7 +390,9 @@ async function createDatabase(
   // never landed, and a CREATE that landed but errored on the way back is
   // still cleaned up.
   onCleanup(`database ${name}`, () => dropDatabase(adminUrl, name));
-  await withSql(adminUrl, (sql) => sql.unsafe(`CREATE DATABASE "${name}"`));
+  await tracked(
+    withSql(adminUrl, (sql) => sql.unsafe(`CREATE DATABASE "${name}"`)),
+  );
   const url = databaseUrlFor(adminUrl, name);
   registerSecrets(...secretsInUrl(url));
   return url;
@@ -1060,6 +1078,7 @@ async function main(): Promise<void> {
     interruptedBy ??= signal;
     log(`received ${signal}; cleaning up`);
     await stopActiveRuns();
+    await waitUpTo(10_000, Promise.allSettled([...creations]));
     await finish(null);
   };
   process.once("SIGINT", () => void interrupted("SIGINT"));
