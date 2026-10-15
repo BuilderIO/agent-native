@@ -1,12 +1,7 @@
-import { CONTEXT_XRAY_MIGRATIONS } from "../agent/context-xray/migrations.js";
-import { OBSERVATIONAL_MEMORY_MIGRATIONS } from "../agent/observational-memory/migrations.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDatabaseUrl } from "../db/client.js";
-import { runMigrations } from "../db/migrations.js";
 import { withStoreMigrationLock } from "../db/store-registry.js";
-import { ORG_MIGRATIONS } from "../org/migrations.js";
 import { ensureSharingAccessIndexes } from "../sharing/indexes.js";
-import { runAutomationTriggerEventMigrations } from "../triggers/event-queue.js";
 import { runBetterAuthMigrations } from "./better-auth-migrations.js";
 import { recordDatabaseIdentity } from "./database-identity.js";
 import { runFrameworkSchemaEnsures } from "./release-schema.js";
@@ -64,14 +59,6 @@ export async function runFrameworkReleaseMigrations(
     await runFrameworkSchemaEnsures();
     await recordDatabaseIdentity();
     await runBetterAuthMigrations(nitroApp);
-    await runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" })(nitroApp);
-    await runMigrations(CONTEXT_XRAY_MIGRATIONS, {
-      table: "_context_xray_migrations",
-    })(nitroApp);
-    await runMigrations(OBSERVATIONAL_MEMORY_MIGRATIONS, {
-      table: "_observational_memory_migrations",
-    })(nitroApp);
-    await runAutomationTriggerEventMigrations(nitroApp);
     // Last, so the framework's own share and owner tables exist. An app's tables
     // are indexed by the release after the one that creates them.
     await ensureSharingAccessIndexes();

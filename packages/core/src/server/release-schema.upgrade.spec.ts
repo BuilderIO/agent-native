@@ -67,6 +67,45 @@ function drift(a: SchemaFingerprint, b: SchemaFingerprint): string[] {
     .sort();
 }
 
+describe("local boot against a database an older release created", () => {
+  it("imports the boot-time lists' history instead of re-running them", async () => {
+    await closeDbExec();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-upgrade-"));
+    dirs.push(dir);
+    const url = `pglite:${dir}`;
+    process.env.DATABASE_URL = url;
+    const client = await getPgliteClient(url);
+    await client.exec(
+      fs.readFileSync(
+        path.join(import.meta.dirname, "__fixtures__", FIXTURES[0]),
+        "utf8",
+      ),
+    );
+
+    const [{ orgStore }, { contextXrayStore }, { observationalMemoryStore }] =
+      await Promise.all([
+        import("../org/schema-store.js"),
+        import("../agent/context-xray/schema-store.js"),
+        import("../agent/observational-memory/store.js"),
+      ]);
+    await orgStore.ready();
+    await contextXrayStore.ready();
+    await observationalMemoryStore.ready();
+
+    const { rows } = await getDbExec().execute(
+      `SELECT store_id, count(*) FILTER (WHERE source = 'legacy')::int AS legacy,
+              count(*) FILTER (WHERE source = 'step')::int AS step
+         FROM _an_store_migrations
+        WHERE store_id IN ('org', 'context_xray')
+        GROUP BY store_id ORDER BY store_id`,
+    );
+    expect(rows).toEqual([
+      { store_id: "context_xray", legacy: 3, step: 0 },
+      { store_id: "org", legacy: 34, step: 0 },
+    ]);
+  }, 300_000);
+});
+
 afterAll(async () => {
   await closeDbExec();
   if (previousUrl === undefined) delete process.env.DATABASE_URL;
@@ -94,7 +133,7 @@ describe("release schema upgrade convergence", () => {
       const { rows } = await getDbExec().execute(
         "SELECT count(*)::int AS n FROM _an_store_migrations WHERE source = 'legacy'",
       );
-      expect(Number(rows[0]?.n)).toBeGreaterThanOrEqual(57);
+      expect(Number(rows[0]?.n)).toBeGreaterThanOrEqual(102);
     },
     300_000,
   );

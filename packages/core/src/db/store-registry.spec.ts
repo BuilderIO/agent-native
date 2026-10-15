@@ -539,3 +539,55 @@ describe("release order", () => {
     );
   });
 });
+
+describe("stores folded from lists that ran at boot", () => {
+  it("imports their history in local runtimes instead of re-running it", async () => {
+    const table = `widgets_${++seq}`;
+    const oldList = `_${table}_migrations`;
+    await getDbExec().execute(
+      `CREATE TABLE ${oldList} (version BIGINT PRIMARY KEY)`,
+    );
+    await getDbExec().execute(`INSERT INTO ${oldList} (version) VALUES (1)`);
+    const ran: string[] = [];
+    const entry = (version: number) => ({
+      name: `v${version}`,
+      run: async () => void ran.push(`v${version}`),
+      legacy: { table: oldList, version, ranAtBoot: true },
+    });
+
+    await defineStore({ id: table, migrations: [entry(1), entry(2)] }).ready();
+
+    expect(ran).toEqual(["v2"]);
+  });
+
+  it("keeps running them through their old bookkeeping in hosted requests", async () => {
+    const table = `widgets_${++seq}`;
+    const oldList = `_${table}_migrations`;
+    simulateHostedFunction({ releaseMigrations: false });
+
+    await defineStore({
+      id: table,
+      migrations: [
+        {
+          name: "v1",
+          sql: [`CREATE TABLE IF NOT EXISTS ${table} (id TEXT)`],
+          legacy: {
+            table: oldList,
+            version: 1,
+            ranAtBoot: true,
+            entry: {
+              version: 1,
+              sql: `CREATE TABLE IF NOT EXISTS ${table} (id TEXT)`,
+            },
+          },
+        },
+      ],
+    }).ready();
+
+    expect(await tableExists(table)).toBe(true);
+    const { rows } = await getDbExec().execute(
+      `SELECT MAX(version)::int AS v FROM ${oldList}`,
+    );
+    expect(rows[0]?.v).toBe(1);
+  });
+});

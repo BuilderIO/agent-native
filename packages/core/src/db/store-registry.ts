@@ -25,6 +25,7 @@ import {
   isProductionServerlessFunctionRuntime,
   withMigrationExecutionRuntime,
 } from "./migration-runtime.js";
+import { runMigrations, type MigrationEntry } from "./migrations.js";
 import { retainRequestDbPoolScope } from "./request-pool-context.js";
 import {
   dbClientGeneration,
@@ -75,6 +76,16 @@ export interface LegacyMigrationRef {
   readonly version: number;
   /** Set for named entries, which were gated by name, not version. */
   readonly name?: string;
+  /**
+   * Where the list ran on main. A release-only list (the default) keeps
+   * running only in the release step. A list that also ran at plugin boot
+   * runs everywhere: local runtimes import its history once, and hosted apps
+   * without release migrations keep running it through `runMigrations` and
+   * its old table, exactly as before.
+   */
+  readonly ranAtBoot?: boolean;
+  /** The original entry, for that hosted `runMigrations` path. */
+  readonly entry?: MigrationEntry;
 }
 
 export interface StoreDefinition {
@@ -252,7 +263,9 @@ async function applyPending(
     // An entry carried over from a `runMigrations` list ran only in the release
     // step on main; local runtimes get those tables from the store's own
     // migrations, and running the list there would need its release-only order.
-    if (migration.legacy && !isRelease) continue;
+    if (migration.legacy && !migration.legacy.ranAtBoot && !isRelease) {
+      continue;
+    }
     if (migration.legacy && (await legacy.recorded(migration.legacy))) {
       await recordMigration(exec, store, migration, "legacy");
       applied.add(migration.name);
@@ -354,12 +367,24 @@ class LegacyBookkeeping {
 
 async function replay(store: StoreDefinition): Promise<void> {
   const exec = getDbExec();
+  const bootLists = new Map<string, MigrationEntry[]>();
   for (const migration of store.migrations) {
+    if (migration.legacy?.ranAtBoot && migration.legacy.entry) {
+      const list = bootLists.get(migration.legacy.table) ?? [];
+      list.push(migration.legacy.entry);
+      bootLists.set(migration.legacy.table, list);
+      continue;
+    }
     // A request never runs a backfill or seed, nor an entry carried over from
     // a release-only `runMigrations` list: neither ever ran in these apps'
     // requests, and versioned entries are not all safe to repeat.
     if (migration.kind === "data" || migration.legacy) continue;
     await runMigration(migration, exec);
+  }
+  // Lists that ran at boot on main keep their own bookkeeping here, so these
+  // apps neither re-run nor skip an entry when they upgrade.
+  for (const [table, entries] of bootLists) {
+    await runMigrations(entries, { table })(undefined);
   }
 }
 

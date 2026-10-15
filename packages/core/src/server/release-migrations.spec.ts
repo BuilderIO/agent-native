@@ -149,12 +149,6 @@ describe("runFrameworkReleaseMigrations", () => {
     expect(mocks.order).toEqual(["schema-ensures", "better-auth"]);
   });
 
-  it("runs the durable trigger event queue migration", async () => {
-    await runFrameworkReleaseMigrations(null);
-
-    expect(mocks.runAutomationTriggerEventMigrations).toHaveBeenCalledOnce();
-  });
-
   it("propagates a schema-ensure failure instead of migrating on regardless", async () => {
     mocks.runFrameworkSchemaEnsures.mockRejectedValueOnce(new Error("boom"));
 
@@ -246,9 +240,13 @@ describe("runFrameworkReleaseMigrations", () => {
       "_oauth_token_migrations",
       "_observability_migrations",
       "_workspace_connections_migrations",
+      "_org_migrations",
+      "_context_xray_migrations",
+      "_observational_memory_migrations",
     ]) {
       expect(migrationTables).not.toContain(folded);
     }
+    expect(mocks.runAutomationTriggerEventMigrations).not.toHaveBeenCalled();
     expect(mocks.runFrameworkSchemaEnsures).toHaveBeenCalled();
   });
 

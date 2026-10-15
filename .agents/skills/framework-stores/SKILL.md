@@ -47,8 +47,11 @@ Drizzle (see `storing-data`).
 - **Folding a `runMigrations` list.** Append it whole with
   `...fromMigrationEntries(TABLE, LIST, { data: [...] })` to the store that
   owns its tables. Each entry keeps its old identity, so databases that
-  applied it import it instead of re-running it, and it runs only in the
-  release step. Never rename or reorder the entries.
+  applied it import it instead of re-running it. A release-only list keeps
+  running only in the release step; pass `{ ranAtBoot: true }` for a list that
+  also ran at plugin boot, so local runtimes import its history and hosted
+  apps without release migrations keep its old bookkeeping. Never rename or
+  reorder the entries.
 - **Mark data migrations.** Backfills and seeds get `kind: "data"`; a schema
   snapshot cannot replace them.
 - **Never swallow a failure inside a migration.** The ledger would record it as
