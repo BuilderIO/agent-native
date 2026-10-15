@@ -68,6 +68,34 @@ type PreviewState =
   | { status: "error" };
 
 const PREVIEW_DEBOUNCE_MS = 220;
+const PREVIEW_TIMEOUT_MS = 60_000;
+
+async function loadPreviewWithTimeout(
+  value: ScreenHistoryWindow,
+  invoke: RewindInvoke | undefined,
+) {
+  let timedOut = false;
+  let timeout: number | undefined;
+  const request = loadRewindPreview(value, invoke);
+  const deadline = new Promise<never>((_, reject) => {
+    timeout = window.setTimeout(() => {
+      timedOut = true;
+      reject(new Error("Earlier screen time preview timed out."));
+    }, PREVIEW_TIMEOUT_MS);
+  });
+  void request.then(
+    (result) => {
+      if (timedOut) void discardQuietly(result.path, invoke);
+    },
+    () => undefined,
+  );
+
+  try {
+    return await Promise.race([request, deadline]);
+  } finally {
+    if (timeout !== undefined) window.clearTimeout(timeout);
+  }
+}
 
 // Radix unmounts the content on close, so each open starts from the item's window.
 function LookbackEditForm({
@@ -119,7 +147,7 @@ function LookbackEditForm({
         try {
           await previousTask;
           if (cancelled) return;
-          const result = await loadRewindPreview(value, invoke);
+          const result = await loadPreviewWithTimeout(value, invoke);
           if (cancelled) {
             await discardQuietly(result.path, invoke);
             return;

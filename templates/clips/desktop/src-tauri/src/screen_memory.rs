@@ -1220,7 +1220,12 @@ pub(crate) fn acquire_temporary_audio_consumer(
     }
     if !producer_active {
         ensure_running_inner(app, &config)?;
-        producer_active = true;
+        producer_active = state
+            .inner
+            .lock()
+            .map_err(|error| error.to_string())?
+            .active
+            .is_some();
     }
     if already_present {
         return Ok(Some(TemporaryAudioLease {
@@ -2417,6 +2422,10 @@ fn rotate_segment_with_capture_mode_change(
             return Err(start_error);
         }
     };
+    if let Some(reason) = sample_active_window(config).1 {
+        mark_active_segment_exclusion_tainted(app);
+        append_event(app, coverage_gap_event(reason));
+    }
     let (active, exclusion_active) = {
         let state = app.state::<ScreenMemoryState>();
         let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
