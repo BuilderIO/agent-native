@@ -292,19 +292,24 @@ describe("public campaign frontend", () => {
   });
 
   it.each(DOCS_LOCALES)(
-    "adds only the articles word link below the existing intro for %s",
+    "SSR renders a single intro paragraph with only articles linked for %s",
     (locale) => {
       currentLocale.locale = locale;
       const document = dom(markup(<UseCasesIndex items={[useCase]} />));
-      const intro = [...document.querySelectorAll("p")].find(
-        (node) => node.textContent === enUS.campaign.useCasesIntro,
-      )!;
-      const browse = intro.parentElement!.nextElementSibling!;
-      expect(browse.textContent).toBe(
-        "Or browse the articles for templates and how-tos.",
+      const header = document.querySelector("h1")!.parentElement!;
+      expect(header.querySelectorAll("h1 ~ p")).toHaveLength(1);
+      const intro = header.querySelector("h1 + p")!;
+      expect(intro.textContent).toBe(
+        "Pick the job you do again and again, or browse the articles for templates and how-tos.",
       );
-      expect(browse.querySelectorAll("a")).toHaveLength(1);
-      const link = browse.querySelector("a")!;
+      expect(intro.textContent).toBe(
+        enUS.campaign.useCasesIntro.replace("{{articles}}", "articles"),
+      );
+      expect(header.parentElement?.querySelectorAll(":scope > p")).toHaveLength(
+        0,
+      );
+      expect(intro.querySelectorAll("a")).toHaveLength(1);
+      const link = intro.querySelector("a")!;
       expect(link.textContent).toBe("articles");
       expect(link.getAttribute("href")).toBe(
         sitePathForLocale(ARTICLES_BASE, locale),
@@ -887,35 +892,36 @@ describe("public campaign frontend", () => {
     },
   );
 
-  it("keeps article closing CTA content aligned in one compact block without changing use-case actions", () => {
-    const page = dom(
-      markup(<ArticlePage article={article} useCase={null} more={[]} />),
-    );
-    const band = [...page.querySelectorAll("section")].at(-1)!;
-    const content = band.firstElementChild!;
-    const stack = content.firstElementChild!;
-    expect(content.classList.contains("py-10")).toBe(true);
-    expect(content.classList.contains("pb-16")).toBe(false);
-    expect(stack.classList.contains("items-start")).toBe(true);
-    expect([...stack.children].map((element) => element.tagName)).toEqual([
-      "H2",
-      "P",
-      "A",
-    ]);
-    expect(stack.querySelector("h2")?.textContent).toBe(
-      article.cta_band_heading,
-    );
-    expect(stack.querySelector("p")?.textContent).toBe(
-      article.cta_band_subhead,
-    );
-    expect(stack.querySelector("a")?.textContent).toBe(article.cta_label);
-    expect(band.querySelector(".template-detail-cta-actions")).toBeNull();
-    const casePage = dom(markup(<UseCasePage item={useCase} articles={[]} />));
-    const caseBand = [...casePage.querySelectorAll("section")].at(-1)!;
-    expect(
-      caseBand.querySelector(".template-detail-cta-actions"),
-    ).not.toBeNull();
-    expect(caseBand.children[1].classList.contains("pb-16")).toBe(true);
+  it("SSR renders identical compact left-aligned closing CTA blocks for articles and use cases", () => {
+    const pages = [
+      [<ArticlePage article={article} useCase={null} more={[]} />, article],
+      [<UseCasePage item={useCase} articles={[]} />, useCase],
+    ] as const;
+    const bands = pages.map(([page, item]) => {
+      const document = dom(markup(page));
+      const band = [...document.querySelectorAll("section")].at(-1)!;
+      const content = band.firstElementChild!;
+      const stack = content.firstElementChild!;
+      expect(content.classList.contains("campaign-section")).toBe(true);
+      expect(content.classList.contains("pb-16")).toBe(false);
+      expect(stack.classList.contains("flex-col")).toBe(true);
+      expect(stack.classList.contains("items-start")).toBe(true);
+      expect(stack.classList.contains("text-start")).toBe(true);
+      expect([...stack.children].map((element) => element.tagName)).toEqual([
+        "DIV",
+        "P",
+        "A",
+      ]);
+      expect(stack.children[0].querySelector("h2")?.textContent).toBe(
+        item.cta_band_heading,
+      );
+      expect(stack.children[1].textContent).toBe(item.cta_band_subhead);
+      expect(stack.children[2].textContent).toBe(item.cta_label);
+      expect(band.querySelectorAll("a")).toHaveLength(1);
+      expect(band.querySelector(".template-detail-cta-actions")).toBeNull();
+      return band;
+    });
+    expect(bands[0].outerHTML).toBe(bands[1].outerHTML);
   });
 
   it("scopes tables before, within and after article FAQs without changing semantic headers", () => {
@@ -1255,39 +1261,58 @@ describe("public campaign frontend", () => {
         />,
       ),
     );
-    const recipes = [...document.querySelectorAll("article")];
+    const grid = document.querySelector("section .campaign-recipes-grid")!;
+    for (const className of ["grid", "md:grid-cols-2", "lg:grid-cols-3"])
+      expect(grid.classList.contains(className)).toBe(true);
+    const recipes = [...grid.querySelectorAll(":scope > article")];
     expect(
       recipes.map((node) => node.querySelector("h3")?.textContent),
     ).toEqual([recipe.title, second.title]);
+    for (const [index, item] of [recipe, second].entries()) {
+      const card = recipes[index];
+      expect(card.classList.contains("flex")).toBe(true);
+      expect(card.classList.contains("flex-col")).toBe(true);
+      const content = card.firstElementChild!;
+      expect(content.tagName).toBe("DIV");
+      expect(content.classList.contains("flex-1")).toBe(true);
+      expect(content.classList.contains("flex-col")).toBe(true);
+      expect([...content.children].map((node) => node.tagName)).toEqual(
+        index === 0
+          ? ["DIV", "DIV", "DL", "DIV", "DL"]
+          : ["DIV", "DIV", "DL", "DL"],
+      );
+      expect(
+        content.children[0]
+          .querySelector(".campaign-frequency-tag")
+          ?.getAttribute("aria-label"),
+      ).toBe(`How often: ${item.how_often}`);
+      const title = content.querySelector("h3")!;
+      expect(title.nextElementSibling?.tagName).toBe("P");
+      expect(title.nextElementSibling?.textContent).toBe(item.when);
+      expect(
+        title.nextElementSibling?.classList.contains("campaign-body"),
+      ).toBe(true);
+      expect(
+        [...content.querySelectorAll("dt")].map((node) => node.textContent),
+      ).toEqual(["Do", "You get"]);
+      expect(
+        [...content.querySelectorAll("dd")].map((node) => node.textContent),
+      ).toEqual([item.do, item.you_get]);
+    }
     expect([...recipes[0].children].map((node) => node.tagName)).toEqual([
-      "H3",
-      "DL",
       "DIV",
       "DL",
     ]);
-    expect(
-      [...recipes[0].querySelectorAll("dt")].map((node) => node.textContent),
-    ).toEqual(["When", "Do", "You get", "Save for next time", "How often"]);
-    expect(
-      [...recipes[0].querySelectorAll("dd")].map((node) => node.textContent),
-    ).toEqual([
-      recipe.when,
-      recipe.do,
-      recipe.you_get,
-      recipe.save,
-      recipe.how_often,
-    ]);
+    const footer = recipes[0].lastElementChild!;
+    expect(footer.classList.contains("border-t")).toBe(true);
+    expect(footer.querySelector("dt")?.textContent).toBe("Save for next time");
+    expect(footer.querySelector("dd")?.textContent).toBe(recipe.save);
     expect(recipes[0].querySelector("pre code")?.textContent).toBe(
       recipe.prompt!.trim(),
     );
     expect([...recipes[1].children].map((node) => node.tagName)).toEqual([
-      "H3",
-      "DL",
-      "DL",
+      "DIV",
     ]);
-    expect(
-      [...recipes[1].querySelectorAll("dt")].map((node) => node.textContent),
-    ).toEqual(["When", "Do", "You get", "How often"]);
     expect(recipes[1].querySelector("button")).toBeNull();
     expect(document.querySelector("#how-it-works")?.textContent).toContain(
       "Works with: Test calendar, Test CRM",
@@ -1332,12 +1357,20 @@ describe("public campaign frontend", () => {
       expect(
         [...rendered.querySelectorAll("dt")].map((node) => node.textContent),
       ).toEqual(
-        save
-          ? ["When", "Do", "You get", "Save for next time", "How often"]
-          : ["When", "Do", "You get", "How often"],
+        save ? ["Do", "You get", "Save for next time"] : ["Do", "You get"],
       );
-      if (save) expect(rendered.textContent).toContain(save);
-      else expect(rendered.textContent).not.toContain(recipe.save);
+      expect(rendered.querySelector("h3 + p")?.textContent).toBe(recipe.when);
+      expect(
+        rendered.querySelector(".campaign-frequency-tag")?.textContent,
+      ).toBe(recipe.how_often);
+      const footer = rendered.querySelector(":scope > dl");
+      if (save) {
+        expect(footer?.classList.contains("border-t")).toBe(true);
+        expect(footer?.querySelector("dd")?.textContent).toBe(save);
+      } else {
+        expect(footer).toBeNull();
+        expect(rendered.textContent).not.toContain(recipe.save);
+      }
     },
   );
 
@@ -1407,6 +1440,106 @@ describe("public campaign frontend", () => {
       if (!success) expect(trackEvent).not.toHaveBeenCalled();
     },
   );
+
+  it("SSR uses the same accessible clock tag above index titles, in the hero and atop recipes", () => {
+    const item = {
+      ...useCase,
+      how_often_label: "Every week",
+      recipes: [recipe],
+    };
+    const index = dom(
+      markup(
+        <UseCasesIndex items={[item, { ...useCase, slug: "untagged" }]} />,
+      ),
+    );
+    const page = dom(markup(<UseCasePage item={item} articles={[]} />));
+    const card = index.querySelector(".grid a")!;
+    const indexTag = card.querySelector(".campaign-frequency-tag")!;
+    const pageTags = [...page.querySelectorAll(".campaign-frequency-tag")];
+    expect(index.querySelectorAll(".campaign-frequency-tag")).toHaveLength(1);
+    expect(pageTags).toHaveLength(2);
+    const [heroTag, recipeTag] = pageTags;
+    for (const [tag, text] of [
+      [indexTag, item.how_often_label],
+      [heroTag, item.how_often_label],
+      [recipeTag, recipe.how_often],
+    ] as const) {
+      expect(tag.tagName).toBe("SPAN");
+      expect(tag.textContent).toBe(text);
+      expect(tag.getAttribute("aria-label")).toBe(`How often: ${text}`);
+      expect(tag.querySelectorAll("svg")).toHaveLength(1);
+      const icon = tag.querySelector("svg")!;
+      expect(icon.classList.contains("tabler-icon-clock")).toBe(true);
+      expect(icon.getAttribute("aria-hidden")).toBe("true");
+      expect(icon.getAttribute("width")).toBe("14");
+      expect(icon.getAttribute("height")).toBe("14");
+    }
+    expect(indexTag.outerHTML).toBe(heroTag.outerHTML);
+    expect(indexTag.parentElement?.nextElementSibling?.tagName).toBe("H3");
+    expect(card.querySelector("h3")?.textContent).toBe(item.title);
+    expect(heroTag.closest("article")).toBeNull();
+    expect(
+      heroTag.compareDocumentPosition(page.querySelector("h1")!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(recipeTag.closest("article")?.querySelector("h3")?.textContent).toBe(
+      recipe.title,
+    );
+    expect(
+      recipeTag.parentElement?.nextElementSibling?.querySelector("h3")
+        ?.textContent,
+    ).toBe(recipe.title);
+    const absent = dom(markup(<UseCasePage item={useCase} articles={[]} />));
+    expect(absent.querySelector(".campaign-frequency-tag")).toBeNull();
+  });
+
+  it("SSR labels Next and Articles sections and keeps next-job and deeper-article descriptions verbatim", () => {
+    const next = {
+      ...useCase,
+      slug: "test-next",
+      title: "Test next job",
+      subhead: "Test next-job description, kept verbatim.",
+    };
+    const document = dom(
+      markup(
+        <UseCasePage
+          item={{ ...useCase, next_jobs: [next.slug] }}
+          articles={[article]}
+          useCases={[next]}
+        />,
+      ),
+    );
+    for (const [eyebrow, heading, title, description, href] of [
+      [
+        "Next",
+        "What to do next",
+        next.title,
+        next.subhead,
+        `${USE_CASES_BASE}/${next.slug}`,
+      ],
+      [
+        "Articles",
+        "Go deeper",
+        article.title,
+        article.meta_description,
+        `${ARTICLES_BASE}/${article.slug}`,
+      ],
+    ]) {
+      const h2 = [...document.querySelectorAll("h2")].find(
+        (node) => node.textContent === heading,
+      )!;
+      expect(h2.previousElementSibling?.textContent).toBe(eyebrow);
+      const section = h2.closest("section")!;
+      expect(section.querySelectorAll("h2")).toHaveLength(1);
+      expect(
+        h2.parentElement?.parentElement?.classList.contains("campaign-section"),
+      ).toBe(true);
+      const card = section.querySelector("a")!;
+      expect(card.getAttribute("href")).toBe(sitePathForLocale(href));
+      expect(card.querySelector("h3")?.textContent).toBe(title);
+      expect(card.querySelector("h3 + div")?.textContent).toBe(description);
+    }
+  });
 
   it("resolves next jobs in declared order, skips unknown jobs, localizes links and tracks clicks", () => {
     currentLocale.locale = "fr-FR";
@@ -1624,6 +1757,43 @@ describe("public campaign frontend", () => {
     expect(view.getByLabelText("How often").textContent).toBe("Any");
     expect(trackEvent).not.toHaveBeenCalled();
   });
+
+  it.each(["engineering", "product", "marketing"] as const)(
+    "filters the real dictation use case by its engineering/product roles in the %s UI",
+    async (role) => {
+      const actual = await vi.importActual<
+        typeof import("../../../lib/campaign-content.server")
+      >("../../../lib/campaign-content.server");
+      const { useCases } = actual.loadCampaignContent();
+      const dictation = useCases.find(
+        (item) => item.slug === "dictate-instead-of-typing",
+      )!;
+      expect(dictation).toBeDefined();
+      expect(dictation.roles).toEqual(["engineering", "product"]);
+      expect(dictation.frequency).toBe("daily");
+      const view = renderCampaign(
+        <UseCasesIndex items={useCases} />,
+        `/use-cases?role=${role}&often=daily`,
+      );
+      expect(view.getByLabelText("Role").textContent).toBe(
+        {
+          engineering: "Engineering",
+          product: "Product",
+          marketing: "Marketing",
+        }[role],
+      );
+      expect(view.getByLabelText("How often").textContent).toBe("Daily");
+      const card = view.container.querySelector(
+        `a[href="${sitePathForLocale(`${USE_CASES_BASE}/${dictation.slug}`)}"]`,
+      )!;
+      expect(card.querySelector("h3")?.textContent).toBe(dictation.title);
+      expect(card.closest("[hidden]") !== null).toBe(role === "marketing");
+      expect(visibleCardTitles(view).includes(dictation.title)).toBe(
+        role !== "marketing",
+      );
+      expect(trackEvent).not.toHaveBeenCalled();
+    },
+  );
 
   it("SSR includes all fourteen real use-case cards despite filters and renders Content screenshots", async () => {
     const actual = await vi.importActual<
