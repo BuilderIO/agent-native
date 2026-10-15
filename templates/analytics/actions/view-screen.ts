@@ -11,6 +11,7 @@ import {
   fitDashboardScreenContext,
 } from "../server/lib/agent-readable-resource-context";
 import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
+import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
 import { loadDashboardAnnotationSummary } from "../server/lib/dashboard-annotation-reads";
 import { storedDashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
@@ -201,11 +202,20 @@ export default defineAction({
         const orgId = getRequestOrgId() || null;
         const email = getRequestUserEmail();
         if (email) {
-          const dashboard = await getDashboard(nav.dashboardId, {
+          const stored = await getDashboard(nav.dashboardId, {
             email,
             orgId,
           });
-          if (dashboard) {
+          if (stored) {
+            // The page draws what get-sql-dashboard returns: for a first-party
+            // dashboard, the repaired SQL, not the stored SQL.
+            const dashboard = {
+              ...stored,
+              config: repairKnownFirstPartyDashboardQueries(
+                stored.id,
+                stored.config,
+              ).config,
+            };
             screen.dashboard = fitDashboardScreenContext(
               buildDashboardAgentContext(dashboard, {
                 forAgent: true,

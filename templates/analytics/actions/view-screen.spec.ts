@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FIRST_PARTY_BIGQUERY_DASHBOARD_ID } from "../server/lib/canonical-first-party-dashboard-repair";
+import { summarizeDashboardAnnotations } from "../server/lib/dashboard-annotation-summary";
+import { CONNECT_UNDERCOUNT } from "../shared/annotation-fixtures";
+
 const navigationState: { current: unknown } = { current: null };
 const urlState: { current: unknown } = { current: null };
 const selectedObjectState: { current: unknown } = { current: null };
@@ -51,7 +55,11 @@ vi.mock("../server/lib/analytics-alerts", () => ({
   listAnalyticsAlertRules: vi.fn(async () => []),
 }));
 const loadDashboardAnnotationSummary = vi.fn(
-  async (): Promise<Record<string, unknown>> => ({
+  async (
+    _drawn: unknown,
+    _dashboardId: string,
+    _config: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> => ({
     keyDateSets: [],
     dataNotes: [],
   }),
@@ -1117,6 +1125,50 @@ describe("view-screen dashboard summary", () => {
       expect.objectContaining({ name: "Weekly" }),
     );
     expect(out.dashboard).toMatchObject(summary);
+  });
+
+  it("places data notes on a first-party dashboard's repaired charts, not its stored SQL", async () => {
+    // The repair widens this stored DAU query to count app_entered too.
+    const storedSql =
+      "SELECT event_date, COUNT(DISTINCT user_key) AS users FROM events WHERE event_name = 'session status' AND signed_in = 'true' AND NULLIF(user_key, '') IS NOT NULL GROUP BY 1";
+    const appEntered = {
+      ...CONNECT_UNDERCOUNT,
+      matchEvents: ["app_entered"],
+      unlessEvents: [],
+    };
+    loadDashboardAnnotationSummary.mockImplementationOnce(
+      async (_drawn, dashboardId, config) => ({
+        ...summarizeDashboardAnnotations(dashboardId, config, [], [appEntered]),
+      }),
+    );
+    getDashboard.mockReset();
+    getDashboard.mockResolvedValue({
+      ...savedDashboard([
+        {
+          id: "dau-over-time",
+          title: "DAU",
+          source: "bigquery",
+          chartType: "line",
+          width: 1,
+          sql: storedSql,
+        },
+      ]),
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+    } as never);
+    selectedObjectState.current = null;
+    setScreen(
+      { view: "adhoc", dashboardId: FIRST_PARTY_BIGQUERY_DASHBOARD_ID },
+      { pathname: `/dashboards/${FIRST_PARTY_BIGQUERY_DASHBOARD_ID}` },
+    );
+
+    const out = await runScreen();
+
+    expect(out.dashboard.dataNotes).toEqual([
+      expect.objectContaining({
+        id: CONNECT_UNDERCOUNT.id,
+        panelIds: ["dau-over-time"],
+      }),
+    ]);
   });
 
   it("drops key-date lists before panels when a large dashboard is trimmed", async () => {
