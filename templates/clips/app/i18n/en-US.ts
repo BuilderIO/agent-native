@@ -33,13 +33,13 @@ const messages = {
       "Couldn't access Rewind's storage. Check disk space and folder permissions, then try again.",
     rewindConsentTitle: "Turn on Rewind?",
     rewindConsentBody:
-      "While Rewind is on, Clips continuously records your screen and keeps recent history on this device until it reaches your time or storage limit. Choose Screen + audio to also capture your microphone and system audio. Connected agents can access screen images directly, without a Clips approval; what happens to those images next depends on the agent. When you set an earlier-screen-time length, Clips adds that much history to each new Clip, using the Clip's sharing settings. Requests to share a selected time range as a Clip are reviewed before sending by default. Turn off review before sending in Rewind settings to send those requests automatically. A Clip may include captured microphone and system audio. Turning Rewind off stops new recording but keeps saved history; choose Delete all to erase it sooner.",
+      "While Rewind is on, Clips continuously records your screen and keeps recent history on this device until it reaches your time or storage limit. Choose Screen + audio to also capture your microphone and system audio. Connected agents can access screen images directly, without a Clips approval; what happens to those images next depends on the agent. When you set an earlier-screen-time length, Clips adds that much history to each new Clip, using the Clip's sharing settings. Requests to share a selected time range as a Clip are reviewed before sending by default. Turn off review before sending in Rewind settings to send those requests automatically. A Clip may include captured microphone and system audio. Turning Rewind off stops new recording but keeps saved history. While Rewind is off, history can remain past your time and storage limits until recording starts again. Choose Delete all to erase saved history now.",
     rewindConsentCancel: "Not now",
     rewindConsentConfirm: "Turn on Rewind",
     rewindConsentBusy: "Turning on…",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
-      "To include earlier screen time, turn on Rewind first. It keeps a rolling screen history on this device until it reaches your time or storage limit. Turning Rewind off stops new recording but does not erase saved history; choose Delete all to remove it sooner. A requested Clip is reviewed before sending by default, unless you turn off review before sending in Rewind settings.",
+      "To include earlier screen time, turn on Rewind first. While Rewind is on, it keeps recent screen history on this device within your time and storage limits. When Rewind is off, saved history can remain past those limits until recording starts again; choose Delete all to erase it now. A requested Clip is reviewed before sending by default, unless you turn off review before sending in Rewind settings.",
     requestFailed:
       "Couldn't include earlier screen time. The recording continues without it.",
     localOnlyUnavailable:

@@ -139,10 +139,10 @@ describe("LookbackRow with Rewind off", () => {
       "To include earlier screen time, turn on Rewind first.",
     );
     expect(document.body.textContent).toContain(
-      "rolling screen history on this device until it reaches your time or storage limit.",
+      "While Rewind is on, it keeps recent screen history on this device within your time and storage limits.",
     );
     expect(document.body.textContent).toContain(
-      "Turning Rewind off stops new recording but does not erase saved history; choose Delete all to remove it sooner.",
+      "When Rewind is off, saved history can remain past those limits until recording starts again; choose Delete all to erase it now.",
     );
     expect(document.body.textContent).toContain(
       "A requested Clip is reviewed before sending by default, unless you turn off review before sending in Rewind settings.",
@@ -203,6 +203,10 @@ describe("LookbackRow with Rewind on", () => {
     expect(document.body.textContent).not.toContain(
       "None means new Clips won’t include earlier screen time.",
     );
+    const noneOption = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    ).find((item) => item.textContent?.trim() === "None");
+    expect(noneOption?.hasAttribute("aria-describedby")).toBe(false);
     expect(menuItemTexts()).toEqual([
       "None",
       "30 s",
@@ -227,6 +231,15 @@ describe("LookbackRow with Rewind on", () => {
 
     openMenu();
 
+    const noneOption = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    ).find((item) => item.textContent?.trim() === "None");
+    const descriptionId = noneOption?.getAttribute("aria-describedby");
+
+    expect(descriptionId).toBeTruthy();
+    expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
+      "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
+    );
     expect(document.body.textContent).toContain(
       "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
     );

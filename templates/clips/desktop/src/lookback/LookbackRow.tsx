@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronDown, IconHistory } from "@tabler/icons-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useId, useRef, useState } from "react";
 
 import {
   lookbackLabel,
@@ -64,6 +64,7 @@ export function LookbackRow({
   openUrl = openExternal,
 }: LookbackRowProps) {
   const t = useT();
+  const noneExplanationId = useId();
   const { open, onOpenChange } = useRowMenu();
   const [customOpen, setCustomOpen] = useState(false);
   const [rewindOffOpen, setRewindOffOpen] = useState(false);
@@ -158,7 +159,12 @@ export function LookbackRow({
           value={String(shownSeconds)}
           onValueChange={(value) => onSecondsChange(Number(value))}
         >
-          <DropdownMenuRadioItem value="0">
+          <DropdownMenuRadioItem
+            value="0"
+            aria-describedby={
+              shownSeconds === 0 ? noneExplanationId : undefined
+            }
+          >
             {t("lookbackContext.none")}
           </DropdownMenuRadioItem>
           {SCREEN_HISTORY_PRESETS.map((preset) => (
@@ -178,7 +184,10 @@ export function LookbackRow({
           ) : null}
         </DropdownMenuRadioGroup>
         {shownSeconds === 0 ? (
-          <DropdownMenuLabel className="whitespace-normal text-start font-normal leading-4">
+          <DropdownMenuLabel
+            id={noneExplanationId}
+            className="whitespace-normal text-start font-normal leading-4"
+          >
             {t("lookbackContext.noneExplanation")}
           </DropdownMenuLabel>
         ) : null}
