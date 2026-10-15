@@ -234,6 +234,8 @@ createAgentChatPlugin({
 
 在条目上设置 `revision` 即可避免这种情况：一次性批准和“始终允许”会记录其所针对的修
 订版本，修订版本不同则会再次询问用户。
+自定义的“始终允许”处理程序应将批准的 `askId` 作为 `approvalId` 传给
+`set-tool-approval-policy`；否则，该授权仅涵盖没有修订版本的条目。
 
 对对话先前使用或加载过、但本次运行已不再拥有的工具发起调用，会以
 `Error: Tool no longer available` 而不是 `Unknown tool` 失败；在已加载的工具消失

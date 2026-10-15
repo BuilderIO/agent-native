@@ -81,12 +81,4 @@ ${AGENT_TOOL_APPROVAL_INDEX_SQL}`,
 ${AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL}`,
     },
   },
-  {
-    version: 5,
-    name: "agent-tool-approvals-tool-revision",
-    sql: {
-      postgres: `${AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL};
-${AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL}`,
-    },
-  },
 ];

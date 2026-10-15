@@ -22,6 +22,7 @@ import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
   actionCallEmitsChange,
   actionCallIsReadOnly,
+  actionCallIsRetrySafe,
   actionChangeResource,
 } from "../action-call-classification.js";
 import {
@@ -142,6 +143,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
   runWithRequestContext,
+  type RequestRunContext,
 } from "../server/request-context.js";
 import { secretKeyNames } from "../server/secret-key-aliases.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
@@ -1150,6 +1152,8 @@ export interface ActionEntry {
     result: any,
   ) => import("../action.js").ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
+  /** See `ActionDefinition.retrySafe`. */
+  retrySafe?: boolean | ((input: any) => boolean);
   dedupe?: boolean;
   toolCallable?: boolean;
   agentDiscoveryAvailable?: (
@@ -1889,7 +1893,16 @@ export interface ProductionAgentOptions {
     threadId: string,
     runId: string,
   ) => void | Promise<void>;
-  onEngineResolved?: (engine: AgentEngine, model: string) => void;
+  /**
+   * Called when the run's engine, model, and effort resolve, and again before
+   * each model call, because a call can run on a rate-limit fallback model or
+   * at the lower effort an empty-response retry steps down to.
+   */
+  onEngineResolved?: (
+    engine: AgentEngine,
+    model: string,
+    reasoningEffort: ReasoningEffort | undefined,
+  ) => void;
   resolveOwnerEmail?: (event: any) => string | Promise<string>;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
   skipFilesContext?: boolean;
@@ -6125,6 +6138,15 @@ export async function runAgentLoop(opts: {
   unknownWriteToolNames?: Set<string>;
   internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
+  /**
+   * The model and effort each model call uses. Either can change mid-run: a
+   * rate limit falls back to another model, and an empty response steps effort
+   * down.
+   */
+  onModelSettings?: (
+    model: string,
+    reasoningEffort: ReasoningEffort | undefined,
+  ) => void;
   onUsage?: (usage: AgentLoopUsage) => void;
   onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
@@ -6785,6 +6807,7 @@ export async function runAgentLoop(opts: {
           providerOptions,
         };
 
+        opts.onModelSettings?.(model, effectiveReasoningEffort);
         usage.llmCalls = (usage.llmCalls ?? 0) + 1;
         notifyModelInputObserver(opts.onModelInput, engineMessages);
         const eventStream = engine.stream(streamOpts);
@@ -7181,7 +7204,7 @@ export async function runAgentLoop(opts: {
             fallbackModelAttempted = true;
             send({
               type: "activity",
-              label: `${model} is rate limited — switching to ${fallbackModel}`,
+              label: "Model is rate limited — switching to a backup model",
             });
             send({ type: "clear" });
             model = fallbackModel;
@@ -7190,7 +7213,9 @@ export async function runAgentLoop(opts: {
             usage.cacheReadTokens = 0;
             usage.cacheWriteTokens = 0;
             usage.model = fallbackModel;
-            retry = -1;
+            // The sibling shares the throttled quota, so it gets this one
+            // attempt; a fresh retry budget only re-hits the same limit.
+            retry = maxRetriesForError(err) - 1;
             continue;
           }
         }
@@ -7639,6 +7664,9 @@ export async function runAgentLoop(opts: {
       const actionIsReadOnly = actionEntry
         ? actionCallIsReadOnly(actionEntry, toolCall.input, false)
         : false;
+      const actionRetrySafe = actionEntry
+        ? actionCallIsRetrySafe(actionEntry, toolCall.input)
+        : false;
       const repeatGuardStopFromThisCall = noteRepeatedToolCall(
         toolCall.name,
         toolCall.input,
@@ -7678,6 +7706,16 @@ export async function runAgentLoop(opts: {
       ) => {
         if (event.outcomeUnknown) {
           unknownWriteToolNames.add(toolCall.name);
+        }
+        // A write that errored after it was invoked may still have committed,
+        // retry-safe or not, so cached reads of its target are stale.
+        if (
+          event.outcomeUnknown ||
+          (event.isError &&
+            actionInvoked &&
+            !actionIsReadOnly &&
+            !actionRefused)
+        ) {
           readOnlyToolResultCache.clear();
           duplicateReadOnlyToolCalls.clear();
         }
@@ -8201,8 +8239,8 @@ export async function runAgentLoop(opts: {
           recordToolResult(result, true);
           requestedActionStop ??= {
             message:
-              `I stopped because the ${toolCall.name} action was interrupted ${priorInterruptions} time(s) and its result is unknown. ` +
-              `Check whether it completed before asking me to retry.`,
+              `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
+              `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
             errorCode: "write_tool_outcome_unknown",
           };
           return {
@@ -8383,6 +8421,10 @@ export async function runAgentLoop(opts: {
         let result: string;
         let chatUIResult: unknown;
         let isError = false;
+        // A deadline or abort after invocation leaves a zombie that may still
+        // commit, so a retry-safe action stays blocked for it; an error the
+        // handler returned does not.
+        let toolResultLost = false;
         let toolErrorCode: string | undefined;
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
@@ -8470,6 +8512,7 @@ export async function runAgentLoop(opts: {
               toolCall.input as Record<string, string>,
               actionContext,
               actionExecutionOutcome,
+              actionEntry,
             );
           };
           const actionPromise = Promise.resolve(
@@ -8713,6 +8756,9 @@ export async function runAgentLoop(opts: {
           }
         } catch (err: any) {
           actionRefused = actionExecutionOutcome.refused;
+          toolResultLost =
+            signal.aborted ||
+            isToolCallTimeoutResult(String((err as Error)?.message ?? err));
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
             : undefined;
@@ -8839,7 +8885,10 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(isError
-            ? actionInvoked && !actionIsReadOnly && !actionRefused
+            ? actionInvoked &&
+              !actionIsReadOnly &&
+              !actionRefused &&
+              (!actionRetrySafe || toolResultLost)
               ? { outcomeUnknown: true as const }
               : { completedSideEffect: false }
             : receipt
@@ -10289,6 +10338,8 @@ export interface ContinuationDispatchBudget {
   maxDispatchAttempts: number;
   dispatchResponseTimeoutMs: number;
   backoffCapMs: number;
+  /** Total sleep allowed while the target answers 429/502/503/504/520. */
+  overloadWaitBudgetMs: number;
 }
 
 export function resolveContinuationDispatchBudget(opts: {
@@ -10300,6 +10351,9 @@ export function resolveContinuationDispatchBudget(opts: {
       maxDispatchAttempts: 3,
       dispatchResponseTimeoutMs: 15_000,
       backoffCapMs: Infinity,
+      // Durable-background chaining is entered from the foreground function,
+      // which a host kills about 60s in, so it waits no longer than that tier.
+      overloadWaitBudgetMs: 10_000,
     };
   }
   if (opts.workerProvenInBackgroundFunction) {
@@ -10307,12 +10361,17 @@ export function resolveContinuationDispatchBudget(opts: {
       maxDispatchAttempts: 5,
       dispatchResponseTimeoutMs: 15_000,
       backoffCapMs: 4_000,
+      // The chain starts 2 minutes before the 15-minute background budget;
+      // five hung dispatches plus backoff already take about 82s of that.
+      overloadWaitBudgetMs: 30_000,
     };
   }
+  // A hosted foreground function is killed soon after its soft timeout.
   return {
     maxDispatchAttempts: 2,
     dispatchResponseTimeoutMs: 10_000,
     backoffCapMs: Infinity,
+    overloadWaitBudgetMs: 10_000,
   };
 }
 
@@ -11777,7 +11836,7 @@ export function createProductionAgentHandler(
       engine.capabilities.vision === true,
     );
 
-    options.onEngineResolved?.(engine, effectiveModel);
+    options.onEngineResolved?.(engine, effectiveModel, reasoningEffort);
 
     console.log(
       `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} engineDefault=${engine.defaultModel} effort=${reasoningEffort ?? "unset"} turnId=${requestTurnId ?? "(none)"}`,
@@ -13395,9 +13454,26 @@ export function createProductionAgentHandler(
                   `\n</custom-agent-profile>`;
 
                 let responseText = "";
-                const subUsage = await runAgentLoop({
+                // A profile is its own model conversation running beside
+                // others, so it gets its own run context: its model and effort
+                // never stand in for another loop's, and it starts with
+                // nothing read, since the run's reads are what the run's
+                // model saw. New per-conversation fields reset here too.
+                const profileRun: RequestRunContext = {
+                  ...getRequestRunContext(),
+                  model: profile.model ?? model,
+                  reasoningEffort,
+                  toolSearchReads: undefined,
+                  extensionContentReads: undefined,
+                  extensionExcerptReads: undefined,
+                };
+                const profileLoopOpts: Parameters<typeof runAgentLoop>[0] = {
                   engine,
                   model: profile.model ?? model,
+                  onModelSettings: (loopModel, effort) => {
+                    profileRun.model = loopModel;
+                    profileRun.reasoningEffort = effort;
+                  },
                   systemPrompt: profilePrompt,
                   tools: requestTools,
                   availableTools: availableRequestTools,
@@ -13455,7 +13531,11 @@ export function createProductionAgentHandler(
                   ...(resolvedRunSoftTimeoutMs > 0
                     ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
                     : {}),
-                });
+                };
+                const subUsage = await runWithRequestContext(
+                  { ...getRequestContext(), run: profileRun },
+                  () => runAgentLoop(profileLoopOpts),
+                );
                 await control.flushEvents();
 
                 try {
@@ -13597,6 +13677,12 @@ export function createProductionAgentHandler(
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
+          // Custom agent profile loops report into their own run context
+          // copies, so only this loop sets the run's model and effort.
+          onModelSettings: (
+            model: string,
+            effort: ReasoningEffort | undefined,
+          ) => options.onEngineResolved?.(engine, model, effort),
           runId,
           followUpSuggestions: true,
           systemPrompt: requestSystemPrompt,

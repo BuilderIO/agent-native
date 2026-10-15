@@ -32,6 +32,7 @@ import {
   toggleSlideList,
 } from "./list-editing";
 import {
+  applyInlineTextFormat,
   applyInlineTextStyle,
   type InlineTextFormat,
   type InlineTextStyleApplication,
@@ -411,15 +412,29 @@ interface TextOffsets {
   backward: boolean;
 }
 
+interface SnapshotHtmlDelta {
+  baseLength: number;
+  baseHash: readonly [number, number];
+  prefix: number;
+  suffix: number;
+  replacement: Uint8Array | Uint16Array;
+}
+
 interface Snapshot extends TextOffsets {
   tag: string;
   attributes: [string, string][];
-  html: string;
+  html: string | SnapshotHtmlDelta;
+  metadataByteSize: number;
   byteSize: number;
+  initialState: boolean;
   /** Whether the session's temporary layout reservation is applied. */
   layoutReservationApplied: boolean;
   /** Which of the element's zero-width spaces, in text order, are the author's. */
   authorZwsp: number[];
+}
+
+interface FullSnapshot extends Omit<Snapshot, "html"> {
+  html: string;
 }
 
 /** One pasted line and the pasted UL/OL elements it was nested in, outermost first. */
@@ -436,25 +451,13 @@ function countZwsp(text: string) {
   return text.split(ZERO_WIDTH_SPACE).length - 1;
 }
 
-function utf8ByteLength(value: string) {
-  let bytes = 0;
+function retainedStringByteLength(value: string) {
   for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code < 0x80) bytes += 1;
-    else if (code < 0x800) bytes += 2;
-    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
-      const next = value.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        bytes += 4;
-        index += 1;
-      } else {
-        bytes += 3;
-      }
-    } else {
-      bytes += 3;
-    }
+    // Browser engines store Latin-1 strings compactly; one wider code unit
+    // makes the whole retained snapshot use two bytes per UTF-16 code unit.
+    if (value.charCodeAt(index) > 0xff) return value.length * 2;
   }
-  return bytes;
+  return value.length;
 }
 
 function textNodesIn(root: Node): Text[] {
@@ -712,8 +715,7 @@ function rowTextVisualLinePoint(
 
 /**
  * Characters before a point in `root`. With `breaks`, each `<br>` counts as
- * one, so a caret between two `<br>`s keeps its line; a count that must
- * survive `<br>`s turning into items (a list toggle) leaves them out.
+ * one, so a caret between two `<br>`s keeps its line.
  */
 function textOffset(
   root: HTMLElement,
@@ -820,6 +822,7 @@ function textPoint(
 ): [Node, number] {
   let remaining = offset;
   let last: Text | null = null;
+  let lastBreak: HTMLBRElement | null = null;
   const walker = document.createTreeWalker(
     root,
     NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
@@ -833,9 +836,11 @@ function textPoint(
         ];
       }
       remaining -= 1;
+      lastBreak = node;
       continue;
     }
     if (!(node instanceof Text)) continue;
+    if (node.length > 0) lastBreak = null;
     if (
       remaining < node.length ||
       (before && node.length > 0 && remaining === node.length)
@@ -844,6 +849,12 @@ function textPoint(
     }
     remaining -= node.length;
     last = node;
+  }
+  if (breaks && remaining === 0 && lastBreak) {
+    return [
+      lastBreak.parentNode!,
+      Array.from(lastBreak.parentNode!.childNodes).indexOf(lastBreak) + 1,
+    ];
   }
   return last ? [last, last.length] : [root, root.childNodes.length];
 }
@@ -926,6 +937,19 @@ function retag(element: HTMLElement, tagName: string): HTMLElement {
 function rowMarker(row: HTMLElement): HTMLElement | null {
   const first = row.firstElementChild;
   return first instanceof HTMLElement && isBulletMarker(first) ? first : null;
+}
+
+function placeCaretAtRowEdge(
+  row: HTMLElement,
+  caret: Range,
+  edge: "start" | "end",
+) {
+  const marker = rowMarker(row);
+  const text = rowTextRange(row, marker);
+  placeCaret(
+    ...(rowTextVisualLinePoint(text, marker, row, caret, edge) ??
+      rowTextPoint(text, marker, row, edge)),
+  );
 }
 
 function isEmptyRow(row: HTMLElement) {
@@ -1802,7 +1826,7 @@ export function startInPlaceTextSession(
     return true;
   }
 
-  function snapshot(selection = selectionOffsets(true)): Snapshot {
+  function snapshot(selection = selectionOffsets(true)): FullSnapshot {
     const tag = el.tagName;
     const attributes = Array.from(
       el.attributes,
@@ -1821,23 +1845,139 @@ export function startInPlaceTextSession(
       }
     }
     const html = el.innerHTML;
+    const authorZwsp = Array.from(authorZwspOrdinals());
+    const metadataByteSize =
+      retainedStringByteLength(tag) +
+      attributes.reduce(
+        (size, [name, value]) =>
+          size +
+          retainedStringByteLength(name) +
+          retainedStringByteLength(value),
+        0,
+      ) +
+      authorZwsp.length * 8 +
+      128;
     return {
       tag,
       attributes,
       html,
-      byteSize:
-        utf8ByteLength(tag) +
-        utf8ByteLength(html) +
-        attributes.reduce(
-          (size, [name, value]) =>
-            size + utf8ByteLength(name) + utf8ByteLength(value),
-          0,
-        ) +
-        65,
+      metadataByteSize,
+      byteSize: metadataByteSize + retainedStringByteLength(html),
+      initialState: tag === initialRootTagName && html === startHtml,
       layoutReservationApplied,
-      authorZwsp: Array.from(authorZwspOrdinals()),
+      authorZwsp,
       ...selection,
     };
+  }
+
+  function historyHtmlHash(value: string): readonly [number, number] {
+    let first = 0x811c9dc5;
+    let second = 0x9e3779b9;
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
+      first = Math.imul(first ^ code, 0x01000193);
+      second = Math.imul(second ^ (code + index), 0x85ebca6b);
+    }
+    return [first >>> 0, second >>> 0];
+  }
+
+  function encodeHistoryText(
+    value: string,
+    byteLength: number,
+  ): Uint8Array | Uint16Array {
+    if (byteLength === value.length) {
+      const bytes = new Uint8Array(value.length);
+      for (let index = 0; index < value.length; index += 1) {
+        bytes[index] = value.charCodeAt(index);
+      }
+      return bytes;
+    }
+    const codeUnits = new Uint16Array(value.length);
+    for (let index = 0; index < value.length; index += 1) {
+      codeUnits[index] = value.charCodeAt(index);
+    }
+    return codeUnits;
+  }
+
+  function decodeHistoryText(value: Uint8Array | Uint16Array) {
+    const chunks: string[] = [];
+    for (let start = 0; start < value.length; start += 8192) {
+      chunks.push(
+        String.fromCharCode(...Array.from(value.subarray(start, start + 8192))),
+      );
+    }
+    return chunks.join("");
+  }
+
+  function compactSnapshot(snapshot: Snapshot | undefined, baseHtml: string) {
+    if (!snapshot || typeof snapshot.html !== "string") return;
+    const targetHtml = snapshot.html;
+    let prefix = 0;
+    const commonLength = Math.min(targetHtml.length, baseHtml.length);
+    while (
+      prefix < commonLength &&
+      targetHtml.charCodeAt(prefix) === baseHtml.charCodeAt(prefix)
+    ) {
+      prefix += 1;
+    }
+    let suffix = 0;
+    const commonTailLength = Math.min(
+      targetHtml.length - prefix,
+      baseHtml.length - prefix,
+    );
+    while (
+      suffix < commonTailLength &&
+      targetHtml.charCodeAt(targetHtml.length - suffix - 1) ===
+        baseHtml.charCodeAt(baseHtml.length - suffix - 1)
+    ) {
+      suffix += 1;
+    }
+    const replacement = targetHtml.slice(prefix, targetHtml.length - suffix);
+    const replacementByteLength = retainedStringByteLength(replacement);
+    const deltaByteSize = replacementByteLength + 96;
+    const targetByteLength = snapshot.byteSize - snapshot.metadataByteSize;
+    if (deltaByteSize >= targetByteLength * 0.75) return;
+    const encodedReplacement = encodeHistoryText(
+      replacement,
+      replacementByteLength,
+    );
+    snapshot.html = {
+      baseLength: baseHtml.length,
+      baseHash: historyHtmlHash(baseHtml),
+      prefix,
+      suffix,
+      replacement: encodedReplacement,
+    };
+    snapshot.byteSize =
+      snapshot.metadataByteSize + encodedReplacement.byteLength + 96;
+  }
+
+  function materializeSnapshotHtml(snapshot: Snapshot, baseHtml: string) {
+    if (typeof snapshot.html === "string") return snapshot.html;
+    const delta = snapshot.html;
+    if (
+      baseHtml.length !== delta.baseLength ||
+      delta.prefix + delta.suffix > baseHtml.length
+    ) {
+      throw new Error("undo history base no longer matches its snapshot");
+    }
+    const [firstHash, secondHash] = historyHtmlHash(baseHtml);
+    if (firstHash !== delta.baseHash[0] || secondHash !== delta.baseHash[1]) {
+      throw new Error("undo history content no longer matches its snapshot");
+    }
+    const baseEnd = baseHtml.length - delta.suffix;
+    if (
+      delta.prefix === baseHtml.length &&
+      delta.suffix === 0 &&
+      delta.replacement.length === 0
+    ) {
+      return baseHtml;
+    }
+    return (
+      baseHtml.slice(0, delta.prefix) +
+      decodeHistoryText(delta.replacement) +
+      baseHtml.slice(baseEnd)
+    );
   }
 
   function rootAttributesChanged() {
@@ -1882,16 +2022,14 @@ export function startInPlaceTextSession(
         historyByteEvictions += 1;
         historyBytesEvicted += removed.byteSize;
       }
-      if (removed.tag === initialRootTagName && removed.html === startHtml) {
-        initialHistoryStateEvicted = true;
-      }
+      if (removed.initialState) initialHistoryStateEvicted = true;
       bytes -= removed.byteSize;
     }
     retainedHistoryBytes = bytes;
     publishHistoryStats();
   }
 
-  function restore(state: Snapshot) {
+  function restore(state: Snapshot, html: string) {
     if (el.tagName !== state.tag) rebind(retag(el, state.tag));
     for (const attribute of Array.from(el.attributes)) {
       if (!state.attributes.some(([name]) => name === attribute.name)) {
@@ -1901,15 +2039,15 @@ export function startInPlaceTextSession(
     for (const [name, value] of state.attributes) {
       if (el.getAttribute(name) !== value) el.setAttribute(name, value);
     }
-    el.innerHTML = state.html;
+    el.innerHTML = html;
     authorZwsp = new Set(state.authorZwsp);
     zwspText = el.textContent!;
     selectOffsets(state, true);
   }
 
-  function restoreHistory(state: Snapshot) {
+  function restoreHistory(state: Snapshot, html: string) {
     captureReservationParentHeight();
-    restore(state);
+    restore(state, html);
     if (reservationEnabled && state.layoutReservationApplied) {
       el.style.cssText = el.getAttribute("style") ?? "";
     }
@@ -1926,14 +2064,14 @@ export function startInPlaceTextSession(
       layoutReservationApplied && Number.isFinite(restoredHeight)
         ? Math.max(0, restoredHeight)
         : initialLayout.height;
-    if (reservationEnabled && state.html !== startHtml) {
+    if (reservationEnabled && html !== startHtml) {
       preserveLayoutReservation(true);
     }
     publishHistoryStats();
   }
 
   /** Records the pre-change state; a run of typing or deleting is one step. */
-  function checkpoint(kind: EditKind, boundary = false, before?: Snapshot) {
+  function checkpoint(kind: EditKind, boundary = false, before?: FullSnapshot) {
     edited = true;
     const now = Date.now();
     const selection = before ?? selectionOffsets(true);
@@ -1949,9 +2087,12 @@ export function startInPlaceTextSession(
       lastEdit.after.backward === selection.backward;
     lastEdit = { kind, at: now, boundary, after: null };
     if (coalesce) return;
+    const previous = undoStack.at(-1);
+    if (previous && typeof previous.html === "string") {
+      compactSnapshot(previous, before?.html ?? el.innerHTML);
+    }
     redoStack.length = 0;
     undoStack.push(before ?? snapshot(selection));
-    trimHistory();
   }
 
   function edit(kind: EditKind, mutate: () => void | boolean) {
@@ -1965,6 +2106,10 @@ export function startInPlaceTextSession(
       mutate();
     }
     reshapeAtCaret();
+    if (kind === "command") {
+      compactSnapshot(undoStack.at(-1), el.innerHTML);
+    }
+    trimHistory();
     notify(kind === "command");
   }
 
@@ -1980,21 +2125,28 @@ export function startInPlaceTextSession(
       after: null,
     };
     if (!mutate()) return false;
+    compactSnapshot(undoStack.at(-1), before.html);
     redoStack.length = 0;
     undoStack.push(before);
+    compactSnapshot(before, el.innerHTML);
     trimHistory();
     notify(true);
     return true;
   }
 
   function undo() {
-    const state = active ? undoStack.pop() : undefined;
+    const state = active ? undoStack.at(-1) : undefined;
     if (!state) return false;
-    redoStack.push(snapshot());
+    const baseHtml = el.innerHTML;
+    const restoredHtml = materializeSnapshotHtml(state, baseHtml);
+    const current = snapshot();
+    compactSnapshot(current, restoredHtml);
+    undoStack.pop();
+    redoStack.push(current);
     trimHistory();
     restoringHistory = true;
     try {
-      restoreHistory(state);
+      restoreHistory(state, restoredHtml);
       lastEdit = null;
       notify();
     } finally {
@@ -2004,13 +2156,18 @@ export function startInPlaceTextSession(
   }
 
   function redo() {
-    const state = active ? redoStack.pop() : undefined;
+    const state = active ? redoStack.at(-1) : undefined;
     if (!state) return false;
-    undoStack.push(snapshot());
+    const baseHtml = el.innerHTML;
+    const restoredHtml = materializeSnapshotHtml(state, baseHtml);
+    const current = snapshot();
+    compactSnapshot(current, restoredHtml);
+    redoStack.pop();
+    undoStack.push(current);
     trimHistory();
     restoringHistory = true;
     try {
-      restoreHistory(state);
+      restoreHistory(state, restoredHtml);
       lastEdit = null;
       notify();
     } finally {
@@ -2529,6 +2686,14 @@ export function startInPlaceTextSession(
     return !hasRenderedContent(before.cloneContents());
   }
 
+  function hasTextBeforeCaret(caret: Range) {
+    const line = nearestLineBox(caret.startContainer, el);
+    const before = document.createRange();
+    before.selectNodeContents(line);
+    before.setEnd(caret.startContainer, caret.startOffset);
+    return before.toString().replaceAll(ZERO_WIDTH_SPACE, "").length > 0;
+  }
+
   function paragraphAfter(caret: Range, block: HTMLElement) {
     const after = document.createRange();
     after.selectNodeContents(block);
@@ -2538,6 +2703,26 @@ export function startInPlaceTextSession(
       !remainder.textContent?.replaceAll(/[\u200b\ufeff]/g, "") &&
       !hasRenderedContent(remainder)
     );
+  }
+
+  function backwardDemotionBlock(caret: Range) {
+    let blockquote: HTMLElement | null = null;
+    for (
+      let current =
+        caret.startContainer instanceof HTMLElement
+          ? caret.startContainer
+          : caret.startContainer.parentElement;
+      current && current !== el && el.contains(current);
+      current = current.parentElement
+    ) {
+      if (current.tagName === "BLOCKQUOTE") {
+        blockquote = current;
+        break;
+      }
+    }
+    if (el.tagName === "BLOCKQUOTE") blockquote = el;
+    const block = nearestBlock(caret.startContainer, el);
+    return blockquote ?? (/^H[1-6]$/.test(block.tagName) ? block : null);
   }
 
   function previousTextBlock(block: HTMLElement): HTMLElement | null {
@@ -2694,25 +2879,13 @@ export function startInPlaceTextSession(
         caret = selectionRange() ?? caret;
       }
     }
-    let blockquote: HTMLElement | null = null;
-    for (
-      let current =
-        caret.startContainer instanceof HTMLElement
-          ? caret.startContainer
-          : caret.startContainer.parentElement;
-      current && current !== el && el.contains(current);
-      current = current.parentElement
-    ) {
-      if (current.tagName === "BLOCKQUOTE") {
-        blockquote = current;
-        break;
-      }
-    }
-    if (el.tagName === "BLOCKQUOTE") blockquote = el;
     const block = nearestBlock(caret.startContainer, el);
-    const demote =
-      blockquote ?? (/^H[1-6]$/.test(block.tagName) ? block : null);
-    if (demote && paragraphBefore(caret, demote)) {
+    const demote = backwardDemotionBlock(caret);
+    if (
+      demote &&
+      paragraphBefore(caret, demote) &&
+      !hasTextBeforeCaret(caret)
+    ) {
       if (demote.tagName === "BLOCKQUOTE") plainifyQuote(demote);
       else if (demote === el)
         retagRoot(initialRootTagName === "DIV" ? "DIV" : "P");
@@ -4068,26 +4241,57 @@ export function startInPlaceTextSession(
   }
 
   function toggleListAtBlock(block: HTMLElement, kind: SlideListKind): boolean {
-    return keepingSelection(() => {
-      if (
-        block === el &&
-        Array.from(el.childNodes).some(
-          (child) =>
-            child instanceof HTMLElement &&
-            (BLOCK_TAGS.has(child.tagName) || child.tagName === "HR"),
-        ) &&
-        Array.from(el.childNodes).some(
-          (child) =>
-            !(child instanceof HTMLElement && BLOCK_TAGS.has(child.tagName)),
-        )
-      ) {
-        materializeRootInlineBlocks();
-        const caret = selectionRange();
-        if (caret) {
-          const target = commandBlock(caret.startContainer);
-          if (target !== el) return toggleListAtBlock(target, kind);
-        }
+    const caretBefore = selectionRange();
+    const elementCaretOffset =
+      caretBefore?.collapsed &&
+      !(caretBefore.startContainer instanceof Text) &&
+      block.contains(caretBefore.startContainer)
+        ? textOffset(
+            block,
+            caretBefore.startContainer,
+            caretBefore.startOffset,
+            true,
+          )
+        : null;
+    if (
+      block === el &&
+      Array.from(el.childNodes).some(
+        (child) =>
+          child instanceof HTMLElement &&
+          (BLOCK_TAGS.has(child.tagName) || child.tagName === "HR"),
+      ) &&
+      Array.from(el.childNodes).some(
+        (child) =>
+          !(child instanceof HTMLElement && BLOCK_TAGS.has(child.tagName)),
+      )
+    ) {
+      const range = selectionRange();
+      const points = range
+        ? ([
+            [range.startContainer, range.startOffset],
+            [range.endContainer, range.endOffset],
+          ] as const)
+        : null;
+      const offsets = selectionOffsets();
+      materializeRootInlineBlocks();
+      const intact = points?.every(
+        ([node, offset]) =>
+          node !== el &&
+          el.contains(node) &&
+          offset <=
+            (node instanceof Text ? node.length : node.childNodes.length),
+      );
+      if (points && intact) select(points[0], points[1], offsets.backward);
+      else selectOffsets(offsets);
+
+      const caret = selectionRange();
+      if (caret) {
+        const target = commandBlock(caret.startContainer);
+        if (target !== el) return toggleListAtBlock(target, kind);
       }
+    }
+    let convertedLine: HTMLElement | null = null;
+    const changed = keepingSelection(() => {
       if (isBulletRow(block) && block !== el) {
         if (kind === "bullet") {
           rowMarker(block)?.remove();
@@ -4133,12 +4337,17 @@ export function startInPlaceTextSession(
       preserveBlockMargins(block, list);
       const look = sourceTextLook(block);
       const line = block.tagName === "LI" ? block : retag(block, "LI");
+      convertedLine = line;
       keepTextLook(line, look);
       line.replaceWith(list);
       list.append(line);
       mergeAdjacentLists(list);
       return true;
     });
+    if (changed && elementCaretOffset !== null && convertedLine) {
+      placeCaret(...textPoint(convertedLine, elementCaretOffset, false, true));
+    }
+    return changed;
   }
 
   function insertDividerAtBlock(block: HTMLElement, caret: Range) {
@@ -4682,7 +4891,7 @@ export function startInPlaceTextSession(
               : "700";
           formatted = applyInlineTextStyle(el, { fontWeight });
         } else {
-          formatted = toggleInlineTextFormat(el, inline.format);
+          formatted = applyInlineTextFormat(el, inline.format);
         }
         const applied = formatted.scope === "selection";
         if (applied && formatted.range) {
@@ -4780,28 +4989,43 @@ export function startInPlaceTextSession(
         return true;
       }),
     toggleList: (kind) =>
-      command(() =>
-        keepingSelection(() => {
-          const range = selectionRange();
-          const rows = slideListRows(el, range);
-          const selectedRows = range
-            ? rows.filter((row) =>
-                range.collapsed
-                  ? row.contains(range.startContainer)
-                  : range.intersectsNode(row),
-              )
-            : [];
-          const selectedUnmarkedRows = range
-            ? Array.from(el.children).filter(
-                (child): child is HTMLElement =>
-                  child instanceof HTMLElement &&
-                  !isBulletRow(child) &&
-                  ["DIV", "LI", "P"].includes(child.tagName) &&
-                  (range.collapsed
-                    ? child.contains(range.startContainer)
-                    : range.intersectsNode(child)),
-              )
-            : [];
+      command(() => {
+        const range = selectionRange();
+        const rows = slideListRows(el, range);
+        const selectedRows = range
+          ? rows.filter((row) =>
+              range.collapsed
+                ? row.contains(range.startContainer)
+                : range.intersectsNode(row),
+            )
+          : [];
+        const selectedUnmarkedRows = range
+          ? Array.from(el.children).filter(
+              (child): child is HTMLElement =>
+                child instanceof HTMLElement &&
+                !isBulletRow(child) &&
+                ["DIV", "LI", "P"].includes(child.tagName) &&
+                (range.collapsed
+                  ? child.contains(range.startContainer)
+                  : range.intersectsNode(child)),
+            )
+          : [];
+        if (range?.collapsed) {
+          const block = commandBlock(range.startContainer);
+          const hasLegacyBulletAction =
+            kind === "bullet" &&
+            rows.length > 0 &&
+            selectedRows.length === 0 &&
+            selectedUnmarkedRows.length > 0;
+          if (
+            block !== el &&
+            selectedRows.length === 0 &&
+            !hasLegacyBulletAction
+          ) {
+            return toggleListAtBlock(block, kind);
+          }
+        }
+        return keepingSelection(() => {
           if (
             kind === "bullet" &&
             rows.length > 0 &&
@@ -4824,16 +5048,12 @@ export function startInPlaceTextSession(
             if (next !== el) rebind(next);
             return true;
           }
-          if (range?.collapsed) {
-            const block = commandBlock(range.startContainer);
-            if (block !== el) return toggleListAtBlock(block, kind);
-          }
           const next = toggleSlideList(el, kind);
           if (!next) return false;
           if (next !== el) rebind(next);
           return true;
-        }),
-      ),
+        });
+      }),
     applyAuthoringCommand,
   };
 
@@ -4987,6 +5207,8 @@ export function startInPlaceTextSession(
           reshape(dragSource);
           notify();
         }
+        compactSnapshot(undoStack.at(-1), el.innerHTML);
+        trimHistory();
       } else {
         command(() => insertClipboard(data, at));
       }
@@ -5051,11 +5273,32 @@ export function startInPlaceTextSession(
     } else if (!input.isComposing) {
       reshapeAtCaret();
     }
+    if (
+      !input.isComposing &&
+      !(input.inputType === "deleteByDrag" && dragDeleted)
+    ) {
+      trimHistory();
+    }
     notify(isStructuralInputType(input.inputType));
   }
 
   function onKeyDown(event: KeyboardEvent) {
     if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Backspace") {
+      const range = selectionRange();
+      const demote = range?.collapsed ? backwardDemotionBlock(range) : null;
+      if (
+        range &&
+        demote &&
+        paragraphBefore(range, demote) &&
+        !hasTextBeforeCaret(range) &&
+        !isNativeDelete("deleteContentBackward", range)
+      ) {
+        event.preventDefault();
+        edit("delete", () => deleteAtBlockEdge(range, "backward"));
+        return;
+      }
+    }
     if (
       event.key === "Enter" &&
       event.shiftKey &&
@@ -5079,22 +5322,12 @@ export function startInPlaceTextSession(
       (key === "arrowleft" || key === "arrowright")
     ) {
       const range = selectionFocusRange();
-      const row = range && legacyRowAt(range.startContainer);
+      const row =
+        range &&
+        (listItemAt(range.startContainer) ?? legacyRowAt(range.startContainer));
       if (range && row) {
         event.preventDefault();
-        const marker = rowMarker(row);
-        const text = rowTextRange(row, marker);
-        if (key === "arrowleft") {
-          placeCaret(
-            ...(rowTextVisualLinePoint(text, marker, row, range, "start") ??
-              rowTextPoint(text, marker, row, "start")),
-          );
-        } else {
-          placeCaret(
-            ...(rowTextVisualLinePoint(text, marker, row, range, "end") ??
-              rowTextPoint(text, marker, row, "end")),
-          );
-        }
+        placeCaretAtRowEdge(row, range, key === "arrowleft" ? "start" : "end");
         return;
       }
     }
@@ -5107,15 +5340,12 @@ export function startInPlaceTextSession(
       !/Mac|iPhone|iPad/.test(navigator.platform)
     ) {
       const range = selectionFocusRange();
-      const row = range && legacyRowAt(range.startContainer);
+      const row =
+        range &&
+        (listItemAt(range.startContainer) ?? legacyRowAt(range.startContainer));
       if (range && row) {
         event.preventDefault();
-        const marker = rowMarker(row);
-        const text = rowTextRange(row, marker);
-        placeCaret(
-          ...(rowTextVisualLinePoint(text, marker, row, range, "start") ??
-            rowTextPoint(text, marker, row, "start")),
-        );
+        placeCaretAtRowEdge(row, range, "start");
         return;
       }
     }
@@ -5190,15 +5420,12 @@ export function startInPlaceTextSession(
       !event.shiftKey
     ) {
       const range = selectionFocusRange();
-      const row = range && legacyRowAt(range.startContainer);
+      const row =
+        range &&
+        (listItemAt(range.startContainer) ?? legacyRowAt(range.startContainer));
       if (range && row && !/Mac|iPhone|iPad/.test(navigator.platform)) {
         event.preventDefault();
-        const marker = rowMarker(row);
-        const text = rowTextRange(row, marker);
-        placeCaret(
-          ...(rowTextVisualLinePoint(text, marker, row, range, "end") ??
-            rowTextPoint(text, marker, row, "end")),
-        );
+        placeCaretAtRowEdge(row, range, "end");
       } else {
         // One character in, the caret is on the text's own line for End.
         const selection = selectionRange();
@@ -5360,6 +5587,7 @@ export function startInPlaceTextSession(
       if (!active) return;
       reshapeAtCaret();
       applyMarkdownShortcut();
+      trimHistory();
       notify();
     }, 0);
   }

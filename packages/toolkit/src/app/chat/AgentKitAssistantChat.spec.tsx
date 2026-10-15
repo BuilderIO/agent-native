@@ -10186,7 +10186,10 @@ describe("AgentKitAssistantChat host behavior", () => {
       title: "Allow publishing?",
       description: "publish-release",
       kind: "approval",
-      metadata: { toolName: "publish-release" },
+      metadata: {
+        toolName: "publish-release",
+        approvalAskId: "agent-tool-approval-1",
+      },
     };
     await mount(baseProps());
 
@@ -10205,12 +10208,36 @@ describe("AgentKitAssistantChat host behavior", () => {
       {
         toolName: "publish-release",
         enabled: true,
-        approvalId: "approval-default-policy",
+        approvalId: "agent-tool-approval-1",
       },
     );
     expect(chatMocks.control.resolveApproval).toHaveBeenCalledWith(
       "run-1",
       "approval-default-policy",
+      { decision: "approve", optionIds: ["approve"] },
+    );
+  });
+
+  it("saves a name-only policy when the approval has no server approval id", async () => {
+    chatMocks.approvalRequest = {
+      id: "provider-approval-7",
+      title: "Allow this connector tool?",
+      kind: "approval",
+      metadata: { toolName: "connector-tool" },
+    };
+    await mount(baseProps());
+
+    await act(async () => {
+      await chatMocks.approvalCardProps.onAlwaysAllow();
+    });
+
+    expect(chatMocks.callAction).toHaveBeenCalledWith(
+      "set-tool-approval-policy",
+      { toolName: "connector-tool", enabled: true },
+    );
+    expect(chatMocks.control.resolveApproval).toHaveBeenCalledWith(
+      "run-1",
+      "provider-approval-7",
       { decision: "approve", optionIds: ["approve"] },
     );
   });

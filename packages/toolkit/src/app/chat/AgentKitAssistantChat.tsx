@@ -6334,7 +6334,9 @@ function AgentKitApproval({
         await callAction("set-tool-approval-policy", {
           toolName,
           enabled: true,
-          approvalId: value.id,
+          ...(typeof metadata?.approvalAskId === "string"
+            ? { approvalId: metadata.approvalAskId }
+            : {}),
         });
       }
       await control.resolveApproval(runId, value.id, {

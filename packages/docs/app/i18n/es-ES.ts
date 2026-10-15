@@ -2544,6 +2544,7 @@ const esES = {
     advancedRuntime: "Avanzado: extender el runtime",
     templatesSection: "Apps",
     gettingStarted: "Primeros pasos",
+    createWithAgent: "Crear con un agente",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "¿Qué es Agent-Native?",

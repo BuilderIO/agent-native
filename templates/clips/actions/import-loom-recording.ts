@@ -14,6 +14,7 @@ import { parseEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -267,6 +268,16 @@ export default defineAction({
       parseEdits(existingRecording?.editsJson).thumbnail,
     );
 
+    // Each import path below inserts the row in exactly one branch.
+    const trackImportedRowCreated = () =>
+      trackRecordingCreated({
+        recordingId: id,
+        userId: ownerEmail,
+        platform: "import",
+        source: "import",
+        hasAudio: true,
+        hasCamera: false,
+      });
     const buildRecordingValues = (
       videoSizeBytes: number,
       videoFormat: "mp4" | "webm" = "mp4",
@@ -324,6 +335,7 @@ export default defineAction({
           ownerEmail,
           createdAt,
         });
+        trackImportedRowCreated();
       }
 
       await writeAppState(`recording-upload-${id}`, {
@@ -394,6 +406,7 @@ export default defineAction({
           ownerEmail,
           createdAt,
         });
+        trackImportedRowCreated();
       }
 
       await writeAppState(`recording-upload-${id}`, {
@@ -493,6 +506,7 @@ export default defineAction({
         ownerEmail,
         createdAt,
       });
+      trackImportedRowCreated();
     }
 
     await dispatchPostFinalizeJob({

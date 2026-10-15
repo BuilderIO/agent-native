@@ -6,6 +6,7 @@ const messages = {
     includeLast: "Incluir os últimos",
     whatIsThis: "O que é isto?",
     off: "Desativado",
+    none: "Nenhum",
     custom: "Personalizado…",
     customLabel: "Duração personalizada",
     customAmount: "Duração",
@@ -17,6 +18,9 @@ const messages = {
     customErrorInvalid: "Informe um número inteiro de segundos ou minutos.",
     customErrorTooLong: "Use no máximo 5 min.",
     turnOnRewind: "Ativar o Rewind",
+    turnOffRewind: "Desativar",
+    turnOffRewindFailed:
+      "Não foi possível desativar o Rewind. Pare a gravação e tente novamente.",
     rewindOffTitle: "Ativar o Rewind",
     rewindOffBody:
       "Desativado por padrão. O histórico da tela fica neste dispositivo até você incluí-lo em uma gravação ou aprovar uma solicitação para compartilhá-lo.",
@@ -2057,6 +2061,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI",
     cleanupComplete: "Ditado limpo",
     cleanupFailed: "Não foi possível limpar o ditado",
+    undoCleanup: "Desfazer",
+    restoreOriginal: "Restaurar original",
+    cleanupRestored: "Ditado original restaurado",
+    cleanupRestoreFailed: "Não foi possível restaurar o ditado original",
     startFirst: "Transforme suas ideias em texto",
     recordOnDesktop: "Gravar no desktop",
     emptyDesktopDescription:

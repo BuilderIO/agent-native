@@ -400,6 +400,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
       semanticScope: "membership",
       sourceKind: "dbt",
       sourceIndexStale: true,
+      sourceIndexGeneratedAt: "2026-06-30T00:00:00.000Z",
       sourceIndexAgeDays: 104,
       sourceIndexStaleAfterDays: 90,
       approved: false,
@@ -429,6 +430,9 @@ describe("retrieveAnalyticsPromptReferences", () => {
 
     expect(result.jevPromptCandidates[0]?.content).toContain(
       "Stale generated metadata (104 days old; refresh threshold 90 days)",
+    );
+    expect(result.jevPromptCandidates[0]?.content).toContain(
+      "Source metadata freshness timestamp: 2026-06-30T00:00:00.000Z",
     );
     expect(result.jevPromptCandidates[0]?.content).toContain(
       "Treat this entry only as a search lead",

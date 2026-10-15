@@ -579,6 +579,113 @@ function hasFieldMeaningClaim(
     );
 }
 
+type RetrievedFindDataMetadata = {
+  table: string;
+  content: string;
+};
+
+function normalizedRelationName(value: string): string {
+  return value
+    .trim()
+    .replace(/^[`\"]|[`\"]$/g, "")
+    .toLowerCase();
+}
+
+function retrievedFindDataMetadata(
+  run: AgentRunOutput,
+): RetrievedFindDataMetadata[] {
+  return (run.toolCallDetails ?? [])
+    .filter(
+      (call) =>
+        call.name === "find-data" &&
+        call.completed === true &&
+        call.isError !== true &&
+        typeof call.result === "string",
+    )
+    .flatMap((call) => {
+      try {
+        const result: unknown = JSON.parse(call.result!);
+        if (!result || typeof result !== "object" || Array.isArray(result)) {
+          return [];
+        }
+        const candidates = (result as { results?: unknown }).results;
+        if (!Array.isArray(candidates)) return [];
+        return candidates.flatMap((candidate) => {
+          if (
+            !candidate ||
+            typeof candidate !== "object" ||
+            Array.isArray(candidate)
+          ) {
+            return [];
+          }
+          const record = candidate as Record<string, unknown>;
+          if (typeof record.table !== "string" || !record.table.trim()) {
+            return [];
+          }
+          return [
+            {
+              table: normalizedRelationName(record.table),
+              content: JSON.stringify(record).toLowerCase(),
+            },
+          ];
+        });
+      } catch (error) {
+        throw new Error("Could not parse retrieved find-data metadata.", {
+          cause: error,
+        });
+      }
+    });
+}
+
+function retrievedMetadataForRelation(
+  candidates: RetrievedFindDataMetadata[],
+  relation: string,
+): string[] {
+  const expectedTable = normalizedRelationName(relation);
+  return candidates
+    .filter((candidate) => candidate.table === expectedTable)
+    .map((candidate) => candidate.content);
+}
+
+function hasRetrievedRelationGrainClaim(
+  candidates: RetrievedFindDataMetadata[],
+  claim: RelationGrainClaim,
+  allClaims: RelationGrainClaim[],
+): boolean {
+  return hasRelationGrainClaim(
+    retrievedMetadataForRelation(candidates, claim.relation),
+    claim,
+    allClaims,
+  );
+}
+
+function hasRetrievedRelationFieldsClaim(
+  candidates: RetrievedFindDataMetadata[],
+  claim: RelationFieldsClaim,
+  allRelations: RelationGrainClaim[],
+): boolean {
+  return hasRelationFieldsClaim(
+    retrievedMetadataForRelation(candidates, claim.relation),
+    claim,
+    allRelations,
+  );
+}
+
+function hasRetrievedMetadataPhrases(
+  candidates: RetrievedFindDataMetadata[],
+  relation: string,
+  phraseGroups: string[][],
+): boolean {
+  return retrievedMetadataForRelation(candidates, relation).some((line) =>
+    phraseGroups.every((group) =>
+      group.some(
+        (phrase) =>
+          findCompletePhraseIndexes(line, phrase.toLowerCase()).length > 0,
+      ),
+    ),
+  );
+}
+
 function sourceContractScorer(
   contract: SourceContract,
 ): Scorer<AgentRunOutput, { passed: boolean; reasons: string[] }> {
@@ -594,10 +701,19 @@ function sourceContractScorer(
           (group) => group.alternatives,
         ),
       ];
+      const evidenceLines = retrievedFindDataMetadata(run);
+      if (evidenceLines.length === 0) {
+        reasons.push("no successful find-data metadata evidence was retrieved");
+      }
       for (const claim of contract.relationGrains) {
         if (!hasRelationGrainClaim(lines, claim, allClaims)) {
           reasons.push(
             `${claim.relation} did not declare its expected ${claim.grains[0]}`,
+          );
+        }
+        if (!hasRetrievedRelationGrainClaim(evidenceLines, claim, allClaims)) {
+          reasons.push(
+            `retrieved metadata did not support ${claim.relation} at ${claim.grains[0]}`,
           );
         }
       }
@@ -606,6 +722,11 @@ function sourceContractScorer(
         if (!hasRelationFieldsClaim(lines, claim, allClaims)) {
           reasons.push(
             `${claim.relation} did not attribute its expected fields: ${claim.fields.join(", ")}`,
+          );
+        }
+        if (!hasRetrievedRelationFieldsClaim(evidenceLines, claim, allClaims)) {
+          reasons.push(
+            `retrieved metadata did not support fields for ${claim.relation}`,
           );
         }
       }
@@ -617,6 +738,13 @@ function sourceContractScorer(
           )
         ) {
           reasons.push(`missing ${group.label} with its expected grain`);
+        }
+        if (
+          !group.alternatives.some((claim) =>
+            hasRetrievedRelationGrainClaim(evidenceLines, claim, allClaims),
+          )
+        ) {
+          reasons.push(`retrieved metadata did not support ${group.label}`);
         }
       }
 
@@ -632,10 +760,32 @@ function sourceContractScorer(
             `${claim.relation} was not assigned to its expected ${claim.meanings[0]} time scope`,
           );
         }
+        const meaningGroups = [
+          claim.meanings,
+          ...(claim.requiredMeaningGroups ?? []),
+        ];
+        if (
+          !hasRetrievedMetadataPhrases(
+            evidenceLines,
+            claim.relation,
+            meaningGroups,
+          )
+        ) {
+          reasons.push(
+            `retrieved metadata did not support the time scope for ${claim.relation}`,
+          );
+        }
         for (const group of claim.requiredMeaningGroups ?? []) {
           if (!hasRequiredRelationMeaningGroup(lines, claim, group)) {
             reasons.push(
               `${claim.relation} omitted required semantic detail: ${group[0]}`,
+            );
+          }
+          if (
+            !hasRetrievedMetadataPhrases(evidenceLines, claim.relation, [group])
+          ) {
+            reasons.push(
+              `retrieved metadata did not support required detail for ${claim.relation}: ${group[0]}`,
             );
           }
         }
@@ -645,6 +795,17 @@ function sourceContractScorer(
         if (!hasFieldMeaningClaim(lines, claim, contract.fieldMeanings ?? [])) {
           reasons.push(
             `${claim.relation}.${claim.field} was not mapped to its expected population`,
+          );
+        }
+        if (
+          !hasRetrievedMetadataPhrases(evidenceLines, claim.relation, [
+            [claim.field],
+            claim.meanings,
+            ...(claim.requiredDisclaimers ?? []).map((value) => [value]),
+          ])
+        ) {
+          reasons.push(
+            `retrieved metadata did not support the population for ${claim.relation}.${claim.field}`,
           );
         }
       }

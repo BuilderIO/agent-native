@@ -6,6 +6,7 @@ import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
 import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import { captureCliOutput } from "./cli-capture.js";
+import { carryExecutionKey } from "./filesystem-action-entry.js";
 
 let _fs: typeof import("fs") | undefined;
 async function getFs(): Promise<typeof import("fs")> {
@@ -157,6 +158,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
+  if (
+    typeof entry.retrySafe === "boolean" ||
+    typeof entry.retrySafe === "function"
+  ) {
+    out.retrySafe = entry.retrySafe;
+  }
+  carryExecutionKey(entry, out);
   if (typeof entry.endsTurn === "boolean") {
     out.endsTurn = entry.endsTurn;
   }

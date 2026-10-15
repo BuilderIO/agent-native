@@ -273,6 +273,9 @@ etwas Neues bedeutet.
 Setze `revision` an einem Eintrag, um das zu verhindern: Einmalgenehmigungen und
 „Immer erlauben“ halten die Revision fest, für die sie erteilt wurden, und eine
 andere Revision fragt den Benutzer erneut.
+Ein eigener „Immer erlauben“-Handler sollte die `askId` der Genehmigung als
+`approvalId` an `set-tool-approval-policy` übergeben; ohne sie gilt die Freigabe
+nur für Einträge ohne Revision.
 
 Ein Aufruf eines Tools, das die Unterhaltung zuvor verwendet oder geladen hat,
 das dieser Lauf aber nicht mehr hat, schlägt mit `Error: Tool no longer available`

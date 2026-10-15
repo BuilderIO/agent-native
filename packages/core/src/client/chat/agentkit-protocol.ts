@@ -2617,6 +2617,7 @@ export function createAgentKitProtocolAdapter(
                 ...(event.allowPersistentApproval === false
                   ? { allowPersistentApproval: false }
                   : {}),
+                ...(event.askId ? { approvalAskId: event.askId } : {}),
               },
             } satisfies AgentApprovalRequest,
           },

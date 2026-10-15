@@ -4,6 +4,7 @@ const messages = {
     includeLast: "Letzte einbeziehen",
     whatIsThis: "Was ist das?",
     off: "Aus",
+    none: "Keine",
     custom: "Benutzerdefiniert…",
     customLabel: "Benutzerdefinierte Dauer",
     customAmount: "Dauer",
@@ -15,6 +16,9 @@ const messages = {
     customErrorInvalid: "Gib eine ganze Zahl in Sekunden oder Minuten ein.",
     customErrorTooLong: "Höchstens 5 Min.",
     turnOnRewind: "Rewind aktivieren",
+    turnOffRewind: "Ausschalten",
+    turnOffRewindFailed:
+      "Rewind konnte nicht deaktiviert werden. Beende die Aufnahme und versuche es erneut.",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
       "Standardmäßig deaktiviert. Der Bildschirmverlauf bleibt auf diesem Gerät, bis du ihn einer Aufnahme hinzufügst oder eine Freigabeanfrage bestätigst.",
@@ -2079,6 +2083,11 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (Lokalisiert)",
     cleanupComplete: "Diktat bereinigt",
     cleanupFailed: "Diktat konnte nicht bereinigt werden",
+    undoCleanup: "Rückgängig",
+    restoreOriginal: "Original wiederherstellen",
+    cleanupRestored: "Ursprüngliches Diktat wiederhergestellt",
+    cleanupRestoreFailed:
+      "Ursprüngliches Diktat konnte nicht wiederhergestellt werden",
     startFirst: "Verwandle deine Gedanken in Text",
     recordOnDesktop: "Auf dem Desktop aufnehmen",
     emptyDesktopDescription:

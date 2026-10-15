@@ -67,10 +67,10 @@ import {
   optimisticRemoveBreakpointData,
 } from "../commands/optimistic-breakpoint-mutation";
 import { runPersistFrameGeometrySave } from "../commands/persist-frame-geometry-save";
+import { runQueueFrameGeometrySave } from "../commands/queue-frame-geometry-save";
 import { runWriteFrameGeometrySnapshot } from "../commands/write-frame-geometry-snapshot";
 import {
   applyDesignDataOperations,
-  buildFrameGeometryDataOperations,
   clearAcknowledgedDesignDataOperationsThroughRevision,
   compactDesignDataOperations,
   pendingDesignDataOperations,
@@ -80,17 +80,11 @@ import {
 } from "../data-operations";
 import { deriveDesignBreakpoints } from "../derive/design-breakpoints";
 import {
-  cloneCanvasFrameGeometry,
   frameHeightChangedIds,
-  getCanvasFrameGeometry,
   getDesignDataRecord,
 } from "../design-data-geometry-utils";
 import { type UndoRedoOrderKind } from "../editor-state";
 import { runResumePendingGeneration } from "../effects/resume-pending-generation";
-import {
-  quantizeCanvasFrameGeometryForPersist,
-  sanitizeCanvasFrameGeometryForPersist,
-} from "../geometry-persistence";
 import {
   type ContentHistoryChange,
   type FileDeletionRestoreClaim,
@@ -935,57 +929,29 @@ export function useEditorActiveScreenAndGeometry({
   );
 
   const queueFrameGeometrySave = useCallback(
-    (geometryById: CanvasFrameGeometryById) => {
-      if (!id || !canEditDesignRef.current) return;
-      const previousGeometry = cloneCanvasFrameGeometry(
-        getCanvasFrameGeometry(designDataJsonRef.current),
-      );
-      pendingFrameGeometrySaveRef.current = {
-        geometryById: quantizeCanvasFrameGeometryForPersist(
-          cloneCanvasFrameGeometry(geometryById),
-          previousGeometry,
-        ),
-        previousGeometry,
-      };
-      const pending = pendingFrameGeometrySaveRef.current;
-      const { geometryById: safeGeometryById } =
-        sanitizeCanvasFrameGeometryForPersist(
-          pending.geometryById,
-          pending.previousGeometry,
-          boardFileId ? [boardFileId] : [],
-        );
-      const dataOperations = buildFrameGeometryDataOperations({
-        previousGeometry: pending.previousGeometry,
-        nextGeometry: safeGeometryById,
-        designData: designDataJsonRef.current,
-      });
-      const combinedOperations = compactDesignDataOperations([
-        ...pendingDesignDataOperations(
-          pendingFrameGeometryOperationsForUnloadRef.current,
-        ),
-        ...dataOperations,
-      ]);
-      if (combinedOperations.length > 0) {
-        const revision = frameGeometryOperationRevisionRef.current + 1;
-        frameGeometryOperationRevisionRef.current = revision;
-        const entry = createFrameGeometryOutboxEntry(
-          combinedOperations,
-          revision,
-        );
-        if (entry) void journalOutboxEntry(entry);
-      }
-      if (frameGeometrySaveTimerRef.current !== null) {
-        window.clearTimeout(frameGeometrySaveTimerRef.current);
-      }
-      frameGeometrySaveTimerRef.current = window.setTimeout(
-        flushPendingFrameGeometrySave,
-        500,
-      );
-    },
+    (geometryById: CanvasFrameGeometryById) =>
+      runQueueFrameGeometrySave(
+        {
+          boardFileId,
+          canEditDesignRef,
+          createFrameGeometryOutboxEntry,
+          designDataJsonRef,
+          flushPendingFrameGeometrySave,
+          frameGeometryOperationRevisionRef,
+          frameGeometryOperationsInFlightRef,
+          frameGeometrySaveTimerRef,
+          id,
+          journalOutboxEntry,
+          pendingFrameGeometryOperationsForUnloadRef,
+          pendingFrameGeometrySaveRef,
+        },
+        geometryById,
+      ),
     [
       boardFileId,
       createFrameGeometryOutboxEntry,
       flushPendingFrameGeometrySave,
+      frameGeometryOperationsInFlightRef,
       id,
       journalOutboxEntry,
     ],

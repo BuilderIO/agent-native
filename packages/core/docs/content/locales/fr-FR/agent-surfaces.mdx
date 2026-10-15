@@ -272,6 +272,9 @@ même nom désigne plus tard autre chose.
 Définissez `revision` sur une entrée pour l’empêcher : les approbations ponctuelles
 et « Toujours autoriser » enregistrent la révision pour laquelle elles ont été
 données, et une révision différente redemande à l’utilisateur.
+Un gestionnaire « Toujours autoriser » personnalisé doit transmettre l’`askId`
+de l’approbation à `set-tool-approval-policy` en tant que `approvalId` ; sans lui,
+l’autorisation ne couvre que les entrées sans révision.
 
 Un appel à un outil que la conversation a utilisé ou chargé plus tôt, mais que
 cette exécution n’a plus, échoue avec `Error: Tool no longer available` au lieu de

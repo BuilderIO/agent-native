@@ -41,8 +41,11 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: async () => true,
 }));
 
-const { AGENT_TOOL_APPROVAL_MIGRATIONS } =
-  await import("./tool-approval-migrations.js");
+const {
+  AGENT_TOOL_APPROVAL_MIGRATIONS,
+  AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL,
+  AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL,
+} = await import("./tool-approval-migrations.js");
 const {
   AgentToolApprovalNotFoundError,
   consumeAgentToolApproval,
@@ -68,7 +71,6 @@ const call = {
 beforeAll(async () => {
   pglite = await createTestPglite();
   for (const migration of AGENT_TOOL_APPROVAL_MIGRATIONS) {
-    if (migration.version === 5) continue;
     await pglite.exec(migration.sql.postgres as string);
   }
   // Written before revisions existed.
@@ -92,8 +94,9 @@ beforeAll(async () => {
       VALUES ('legacy-policy', ?, ?, 'legacy-tool', TRUE, 0, 0)`,
     [scope.ownerEmail, scope.orgId],
   );
-  const v5 = AGENT_TOOL_APPROVAL_MIGRATIONS.find((m) => m.version === 5)!;
-  await pglite.exec(v5.sql.postgres as string);
+  // The stores' "tool-revision" migrations.
+  await pglite.exec(AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL);
+  await pglite.exec(AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL);
 });
 
 afterAll(async () => {

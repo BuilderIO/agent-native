@@ -245,6 +245,9 @@ createAgentChatPlugin({
 
 항목에 `revision`을 설정하면 이를 막을 수 있습니다. 일회성 승인과 "항상 허용"은
 승인된 당시의 리비전을 기록하며, 리비전이 다르면 사용자에게 다시 묻습니다.
+사용자 지정 "항상 허용" 핸들러는 승인의 `askId`를 `approvalId`로
+`set-tool-approval-policy`에 전달해야 합니다. 전달하지 않으면 이 허용은 리비전이
+없는 항목에만 적용됩니다.
 
 대화가 앞서 사용했거나 로드했지만 이번 실행에는 더 이상 없는 도구를 호출하면
 `Unknown tool` 대신 `Error: Tool no longer available`로 실패하며, 로드된 도구가

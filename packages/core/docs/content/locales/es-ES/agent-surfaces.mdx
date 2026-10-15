@@ -272,6 +272,9 @@ significar algo nuevo.
 Establece `revision` en una entrada para evitarlo: las aprobaciones de una sola
 vez y "Permitir siempre" registran la revisión para la que se dieron, y una
 revisión distinta vuelve a preguntar al usuario.
+Un controlador personalizado de "Permitir siempre" debe pasar el `askId` de la
+aprobación a `set-tool-approval-policy` como `approvalId`; sin él, la concesión
+solo cubre las entradas que no tienen revisión.
 
 Una llamada a una herramienta que la conversación usó o cargó antes, pero que esta
 ejecución ya no tiene, falla con `Error: Tool no longer available` en lugar de

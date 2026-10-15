@@ -245,6 +245,9 @@ createAgentChatPlugin({
 
 エントリーに `revision` を設定すると、これを防げます。1 回限りの承認と「常に許
 可」は承認時のリビジョンを記録し、別のリビジョンでは再度ユーザーに確認します。
+カスタムの「常に許可」ハンドラーは、承認の `askId` を `approvalId` として
+`set-tool-approval-policy` に渡してください。渡さない場合、この許可はリビジョンの
+ないエントリーにのみ適用されます。
 
 会話が以前に使用または読み込んだツールのうち、この実行にはもうないものを呼び出
 すと、`Unknown tool` ではなく `Error: Tool no longer available` で失敗し、読み込

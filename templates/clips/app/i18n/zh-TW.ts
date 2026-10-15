@@ -4,6 +4,7 @@ const messages = {
     includeLast: "包含最近",
     whatIsThis: "這是什麼？",
     off: "關",
+    none: "無",
     custom: "自訂…",
     customLabel: "自訂長度",
     customAmount: "長度",
@@ -15,6 +16,8 @@ const messages = {
     customErrorInvalid: "請輸入整數秒數或分鐘數。",
     customErrorTooLong: "請不超過 5 分鐘。",
     turnOnRewind: "開啟 Rewind",
+    turnOffRewind: "關閉",
+    turnOffRewindFailed: "無法關閉 Rewind。請先停止錄製，然後再試一次。",
     rewindOffTitle: "開啟 Rewind",
     rewindOffBody:
       "預設為關閉。螢幕歷程記錄會保留在此裝置上，直到你將它加入錄影或核准分享請求。",
@@ -1927,6 +1930,10 @@ const messages = {
     cleanupWithAi: "使用 AI 清理",
     cleanupComplete: "聽寫已清理",
     cleanupFailed: "無法清理聽寫",
+    undoCleanup: "復原",
+    restoreOriginal: "還原原文",
+    cleanupRestored: "已還原原始聽寫",
+    cleanupRestoreFailed: "無法還原原始聽寫",
     startFirst: "把想法變成文字",
     recordOnDesktop: "在桌面版錄製",
     emptyDesktopDescription:

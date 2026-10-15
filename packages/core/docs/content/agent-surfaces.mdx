@@ -258,7 +258,9 @@ when the same name later means something new.
 
 Set `revision` on an entry to stop that: one-time approvals and "Always allow"
 record the revision they were given for, and a different revision asks the user
-again.
+again. A custom "Always allow" handler should pass the approval's `askId` to
+`set-tool-approval-policy` as `approvalId`; without it, the grant covers only
+entries that have no revision.
 
 A call to a tool the conversation used or loaded earlier, but that this run no
 longer has, fails with `Error: Tool no longer available` instead of
