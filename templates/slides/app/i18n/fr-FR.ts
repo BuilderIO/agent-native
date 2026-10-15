@@ -848,6 +848,8 @@ const messages = {
       "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
     historyStepConflict:
       "Certaines modifications de cette étape de l’historique ont été ignorées, car la diapositive a changé ailleurs.",
+    historyStepFailed:
+      "Cette étape de l’historique a été ignorée, car elle n’a pas pu être appliquée.",
     textEditConflictNotSaved:
       "Votre modification du texte n'a pas été enregistrée, car le même texte a été modifié ailleurs au même moment.",
   },

@@ -197,10 +197,23 @@ export interface CreateLocalOpUndoOptions<TOp> {
   maxDepth?: number;
   coalesceMs?: number;
   onChange?: () => void;
+  onApplyError?: (
+    error: unknown,
+    direction: "undo" | "redo",
+    entry: LocalOpUndoEntry<TOp>,
+  ) => void;
   now?: () => number;
 }
 
 type LocalOpUndoApplyOutcome = void | boolean | "conflict";
+
+function isPromiseLike<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+  return (
+    ((typeof value === "object" && value !== null) ||
+      typeof value === "function") &&
+    typeof (value as PromiseLike<T>).then === "function"
+  );
+}
 
 interface StampedEntry<TOp> extends LocalOpUndoEntry<TOp> {
   at: number;
@@ -214,6 +227,7 @@ export function createLocalOpUndoController<TOp>(
     maxDepth = 200,
     coalesceMs = 800,
     onChange,
+    onApplyError,
     now = () => Date.now(),
   } = options;
 
@@ -223,6 +237,16 @@ export function createLocalOpUndoController<TOp>(
 
   function notify() {
     onChange?.();
+  }
+
+  function discardFailedApply(
+    entry: StampedEntry<TOp>,
+    direction: "undo" | "redo",
+  ) {
+    const source = direction === "undo" ? undoStack : redoStack;
+    if (source[source.length - 1] !== entry) return;
+    source.pop();
+    notify();
   }
 
   function completeApply(
@@ -277,11 +301,15 @@ export function createLocalOpUndoController<TOp>(
       applying = true;
       try {
         const result = apply(entry.undo, "undo", entry);
-        const applied =
-          result && typeof result === "object" && "then" in result
-            ? await result
-            : result;
+        const applied = isPromiseLike(result) ? await result : result;
         return completeApply(entry, "undo", applied);
+      } catch (error) {
+        discardFailedApply(entry, "undo");
+        if (onApplyError) {
+          onApplyError(error, "undo", entry);
+          return false;
+        }
+        throw error;
       } finally {
         applying = false;
       }
@@ -294,11 +322,15 @@ export function createLocalOpUndoController<TOp>(
       applying = true;
       try {
         const result = apply(entry.redo, "redo", entry);
-        const applied =
-          result && typeof result === "object" && "then" in result
-            ? await result
-            : result;
+        const applied = isPromiseLike(result) ? await result : result;
         return completeApply(entry, "redo", applied);
+      } catch (error) {
+        discardFailedApply(entry, "redo");
+        if (onApplyError) {
+          onApplyError(error, "redo", entry);
+          return false;
+        }
+        throw error;
       } finally {
         applying = false;
       }
@@ -339,12 +371,19 @@ export function useLocalOpUndo<TOp>(
   const [, setTick] = useState(0);
   const applyRef = useRef(options.apply);
   applyRef.current = options.apply;
+  const onApplyErrorRef = useRef(options.onApplyError);
+  onApplyErrorRef.current = options.onApplyError;
 
   const controller = useMemo(
     () =>
       createLocalOpUndoController<TOp>({
         apply: (ops, direction, entry) =>
           applyRef.current(ops, direction, entry),
+        onApplyError: (error, direction, entry) => {
+          const handler = onApplyErrorRef.current;
+          if (!handler) throw error;
+          handler(error, direction, entry);
+        },
         maxDepth: options.maxDepth,
         coalesceMs: options.coalesceMs,
         now: options.now,

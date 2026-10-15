@@ -843,6 +843,8 @@ const messages = {
       "Diese Änderung wurde nicht gespeichert, weil sie der Folie Editor-Markup hinzugefügt hätte.",
     historyStepConflict:
       "Einige Änderungen dieses Verlaufsschritts wurden übersprungen, weil die Folie an anderer Stelle geändert wurde.",
+    historyStepFailed:
+      "Dieser Verlaufsschritt wurde übersprungen, weil er nicht angewendet werden konnte.",
     textEditConflictNotSaved:
       "Deine Textänderung wurde nicht gespeichert, weil derselbe Text gleichzeitig an anderer Stelle geändert wurde.",
   },

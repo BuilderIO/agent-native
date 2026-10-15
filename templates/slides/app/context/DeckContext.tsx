@@ -3479,11 +3479,15 @@ function undoOpsWithoutRemoteFieldConflicts(
           hasConflict = true;
           return [];
         }
-        if (applyUndoOpToDecks(simulatedDecks, op) === simulatedDecks)
-          return [];
         const expectedOrder =
           expectedSlideOrders.get(op.deckId) ?? op.orderedIds;
         const expectedIds = new Set(expectedOrder);
+        if (deck.slides.some((slide) => !expectedIds.has(slide.id))) {
+          hasConflict = true;
+          return [];
+        }
+        if (applyUndoOpToDecks(simulatedDecks, op) === simulatedDecks)
+          return [];
         const currentIds = new Set(deck.slides.map((slide) => slide.id));
         const expectedPresentOrder = expectedOrder.filter((id) =>
           currentIds.has(id),
@@ -4793,6 +4797,10 @@ export function DeckProvider({
               direction === "undo" ? entry.redo : entry.undo,
               startingDecks,
             );
+          if (hasConflict) {
+            toast.error(tRef.current("deckEditor.historyStepConflict"));
+            return "conflict";
+          }
           const appliedOps: DeckUndoOp[] = [];
           let currentDecks = startingDecks;
           for (const op of applicableOps) {
@@ -4802,10 +4810,6 @@ export function DeckProvider({
             currentDecks = nextDecks;
           }
           const didApply = appliedOps.length > 0 || restoredStaleDrafts;
-          if (hasConflict) {
-            toast.error(tRef.current("deckEditor.historyStepConflict"));
-          }
-          if (hasConflict && appliedOps.length === 0) return "conflict";
           if (!didApply) return true;
           // Nothing consumes the reveal without a mounted editor, and a
           // multi-slide step makes the diff expensive.
@@ -4897,6 +4901,13 @@ export function DeckProvider({
             }
           }
           return didApply;
+        },
+        onApplyError: (error, direction, entry) => {
+          captureError(error, {
+            tags: { area: "slides-history", direction },
+            extra: { deckId, label: entry.label },
+          });
+          toast.error(tRef.current("deckEditor.historyStepFailed"));
         },
         onChange: () => {
           const current = undoControllerRef.current.get(deckId);

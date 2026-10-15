@@ -5267,7 +5267,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(getStaleContentConflictSlideId(initial.id)).toBeUndefined();
   });
 
-  it("undoes only fields a collaborator has not changed", async () => {
+  it("skips the whole undo step when a collaborator changed one of its fields", async () => {
     window.history.pushState({}, "", "/deck/undo-conflict-deck");
     const { fetchMock, setAccessibleDeck } = setupFetch();
     const { result } = renderHook(() => useDecks(), { wrapper });
@@ -5328,6 +5328,7 @@ describe("DeckContext deck creation persistence", () => {
       "Remote edit",
     );
 
+    const toastSpy = vi.spyOn(toast, "error");
     const patchCallsBeforeUndo = fetchMock.mock.calls.filter(([url]) =>
       requestString(url).includes("/_agent-native/actions/patch-deck"),
     ).length;
@@ -5343,26 +5344,16 @@ describe("DeckContext deck creation persistence", () => {
       "Remote background",
     );
     expect(result.current.getDeck(initial.id)?.slides[0]?.notes).toBe(
-      "Before notes",
+      "Local notes",
     );
     expect(
       fetchMock.mock.calls.filter(([url]) =>
         requestString(url).includes("/_agent-native/actions/patch-deck"),
       ),
-    ).toHaveLength(patchCallsBeforeUndo + 1);
-    const undoPatch = fetchMock.mock.calls
-      .filter(([url]) =>
-        requestString(url).includes("/_agent-native/actions/patch-deck"),
-      )
-      .at(-1);
-    expect(actionCallBody(undoPatch?.[1]).operations).toMatchObject([
-      {
-        op: "patch-slide",
-        slideId: "slide-1",
-        fields: { notes: "Before notes" },
-        baseFields: { notes: { present: true, value: "Local notes" } },
-      },
-    ]);
+    ).toHaveLength(patchCallsBeforeUndo);
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(false);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
   });
 
   async function establishStaleContentConflict(
@@ -5706,6 +5697,7 @@ describe("DeckContext deck creation persistence", () => {
       "Remote edit",
     );
 
+    const toastSpy = vi.spyOn(toast, "error");
     const patchCallsBeforeUndo = fetchMock.mock.calls.filter(([url]) =>
       requestString(url).includes("/_agent-native/actions/patch-deck"),
     ).length;
@@ -5721,25 +5713,16 @@ describe("DeckContext deck creation persistence", () => {
       "Remote background",
     );
     expect(result.current.getDeck(initial.id)?.slides[0]?.notes).toBe(
-      "Before notes",
+      "Local notes",
     );
     expect(
       fetchMock.mock.calls.filter(([url]) =>
         requestString(url).includes("/_agent-native/actions/patch-deck"),
       ),
-    ).toHaveLength(patchCallsBeforeUndo + 1);
-    const undoPatch = fetchMock.mock.calls
-      .filter(([url]) =>
-        requestString(url).includes("/_agent-native/actions/patch-deck"),
-      )
-      .at(-1);
-    expect(actionCallBody(undoPatch?.[1]).operations).toMatchObject([
-      {
-        op: "patch-slide",
-        slideId: "slide-1",
-        fields: { notes: "Before notes" },
-      },
-    ]);
+    ).toHaveLength(patchCallsBeforeUndo);
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(false);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
   });
 
   it("undoes an image move while preserving a remote edit to a different object", async () => {
@@ -5989,6 +5972,121 @@ describe("DeckContext deck creation persistence", () => {
       "Original notes",
     );
     expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(false);
+  });
+
+  it("keeps a remote slide in place when a batched historical reorder conflicts", async () => {
+    window.history.pushState({}, "", "/deck/undo-remote-reorder-deck");
+    const initial: Deck = {
+      id: "undo-remote-reorder-deck",
+      title: "Undo Remote Reorder Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "Original notes",
+          layout: "title",
+        },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "Original slide 2 notes",
+          layout: "content",
+        },
+        {
+          id: "slide-3",
+          content: "<h1>Three</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    await act(async () => {
+      result.current.updateSlide(initial.id, "slide-2", {
+        notes: "Older local note edit",
+      });
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const beforeBatch = result.current.getDeck(initial.id)!;
+    const reorderedSlides = [
+      beforeBatch.slides[2]!,
+      { ...beforeBatch.slides[0]!, notes: "Batched local note edit" },
+      beforeBatch.slides[1]!,
+    ];
+    await act(async () => {
+      result.current.setDeckSlides(initial.id, reorderedSlides, {
+        persistence: "immediate",
+      });
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const locallyUpdatedDeck = result.current.getDeck(initial.id)!;
+    const remoteSlide: Slide = {
+      id: "remote-slide",
+      content: "<h1>Remote</h1>",
+      notes: "",
+      layout: "content",
+    };
+    setAccessibleDeck({
+      ...locallyUpdatedDeck,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        locallyUpdatedDeck.slides[0]!,
+        remoteSlide,
+        ...locallyUpdatedDeck.slides.slice(1),
+      ],
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+
+    await act(async () => {
+      result.current.undo(initial.id);
+    });
+
+    expect(
+      result.current.getDeck(initial.id)!.slides.map((slide) => slide.id),
+    ).toEqual(["slide-3", "remote-slide", "slide-1", "slide-2"]);
+    expect(
+      result.current
+        .getDeck(initial.id)!
+        .slides.find((slide) => slide.id === "slide-1")!.notes,
+    ).toBe("Batched local note edit");
+    expect(
+      result.current
+        .getDeck(initial.id)!
+        .slides.find((slide) => slide.id === "slide-2")!.notes,
+    ).toBe("Older local note edit");
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(true);
+    expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
+
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    expect(
+      result.current.getDeck(initial.id)!.slides.map((slide) => slide.id),
+    ).toEqual(["slide-3", "remote-slide", "slide-1", "slide-2"]);
+    expect(
+      result.current
+        .getDeck(initial.id)!
+        .slides.find((slide) => slide.id === "slide-2")!.notes,
+    ).toBe("Original slide 2 notes");
   });
 
   it("does not undo a local slide addition after a remote edit to that slide", async () => {

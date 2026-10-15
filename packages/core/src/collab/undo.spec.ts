@@ -59,6 +59,22 @@ describe("createLocalOpUndoController", () => {
     expect(controller.canUndo()).toBe(true);
   });
 
+  it("publishes synchronous history movement before undo returns", async () => {
+    const { controller } = makeController();
+    controller.push({ undo: [{ op: "patch", path: "slides.1" }], redo: [] });
+
+    const undo = controller.undo();
+
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+    await undo;
+
+    const redo = controller.redo();
+    expect(controller.canUndo()).toBe(true);
+    expect(controller.canRedo()).toBe(false);
+    await redo;
+  });
+
   it("push clears the redo stack", async () => {
     const { controller } = makeController();
     controller.push({ undo: [{ op: "a", path: "1" }], redo: [] });
@@ -95,7 +111,7 @@ describe("createLocalOpUndoController", () => {
     expect(controller.canRedo()).toBe(true);
   });
 
-  it("skips a conflicted entry without hiding older history or creating redo", async () => {
+  it("discards a conflicted entry without hiding older history or creating redo", async () => {
     const controller = createLocalOpUndoController<Op>({
       apply: (ops) => (ops[0]?.op === "conflict" ? "conflict" : true),
     });
@@ -118,6 +134,99 @@ describe("createLocalOpUndoController", () => {
     expect(await controller.undo()).toBe(true);
     expect(controller.canUndo()).toBe(false);
     expect(controller.canRedo()).toBe(true);
+  });
+
+  it("reports and discards a rejected undo while keeping older history reachable", async () => {
+    const error = new Error("undo persistence failed");
+    const onApplyError = vi.fn();
+    const onChange = vi.fn();
+    const controller = createLocalOpUndoController<Op>({
+      apply: (ops) => {
+        if (ops[0]?.op === "failed") throw error;
+      },
+      onApplyError,
+      onChange,
+    });
+    controller.push({
+      undo: [{ op: "patch", path: "older", value: "before" }],
+      redo: [{ op: "patch", path: "older", value: "after" }],
+      label: "Older edit",
+    });
+    controller.push({
+      undo: [{ op: "failed", path: "newer", value: "before" }],
+      redo: [{ op: "failed", path: "newer", value: "after" }],
+      label: "Failed edit",
+    });
+    onChange.mockClear();
+
+    expect(await controller.undo()).toBe(false);
+    expect(onApplyError).toHaveBeenCalledWith(
+      error,
+      "undo",
+      expect.objectContaining({ label: "Failed edit" }),
+    );
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(controller.peekUndoLabel()).toBe("Older edit");
+    expect(controller.canUndo()).toBe(true);
+    expect(controller.canRedo()).toBe(false);
+
+    expect(await controller.undo()).toBe(true);
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it("reports and discards a rejected redo without restoring the failed entry", async () => {
+    const error = new Error("redo persistence failed");
+    const onApplyError = vi.fn();
+    let failRedo = false;
+    const controller = createLocalOpUndoController<Op>({
+      apply: (_ops, direction) => {
+        if (failRedo && direction === "redo") throw error;
+      },
+      onApplyError,
+    });
+    controller.push({
+      undo: [{ op: "patch", path: "older", value: "before" }],
+      redo: [{ op: "patch", path: "older", value: "after" }],
+      label: "Older edit",
+    });
+    controller.push({
+      undo: [{ op: "patch", path: "newer", value: "before" }],
+      redo: [{ op: "patch", path: "newer", value: "after" }],
+      label: "Failed redo",
+    });
+
+    expect(await controller.undo()).toBe(true);
+    failRedo = true;
+    expect(await controller.redo()).toBe(false);
+    expect(onApplyError).toHaveBeenCalledWith(
+      error,
+      "redo",
+      expect.objectContaining({ label: "Failed redo" }),
+    );
+    expect(controller.canUndo()).toBe(true);
+    expect(controller.peekUndoLabel()).toBe("Older edit");
+    expect(controller.canRedo()).toBe(false);
+  });
+
+  it("rethrows an apply failure when no error handler is configured", async () => {
+    const error = new Error("apply failed");
+    const controller = createLocalOpUndoController<Op>({
+      apply: (ops) => {
+        if (ops[0]?.op === "failed") throw error;
+      },
+    });
+    controller.push({ undo: [{ op: "patch", path: "older" }], redo: [] });
+    controller.push({
+      undo: [{ op: "failed", path: "newer" }],
+      redo: [],
+      label: "Failed edit",
+    });
+
+    await expect(controller.undo()).rejects.toBe(error);
+    expect(controller.peekUndoLabel()).toBeUndefined();
+    expect(controller.canUndo()).toBe(true);
+    expect(controller.canRedo()).toBe(false);
+    expect(await controller.undo()).toBe(true);
   });
 
   it("does not start a second undo while the current apply is pending", async () => {
