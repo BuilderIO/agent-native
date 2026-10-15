@@ -72,45 +72,12 @@ describe("processWebContent", () => {
     ).resolves.toMatchObject({ content: "(empty response body)" });
   });
 
-  it("falls back to raw text when the HTML parser rejects the body", async () => {
-    vi.doMock("linkedom/worker", () => {
-      throw new Error(
-        "Cannot destructure property 'firstElementChild' of 'documentElement' as it is null.",
-      );
-    });
-    const { processWebContent } = await import("./web-content.js");
-
-    await expect(
-      processWebContent({
-        url: "https://example.com/",
-        body: "Access denied",
-        contentType: "text/html",
-      }),
-    ).resolves.toMatchObject({ content: "Access denied" });
-  });
-
-  it("falls back to the size note when the HTML parser rejects it", async () => {
-    vi.doMock("linkedom/worker", () => {
-      throw new Error(
-        "Cannot destructure property 'firstElementChild' of 'documentElement' as it is null.",
-      );
-    });
-    const { processWebContent } = await import("./web-content.js");
-    const body = "(response too large - 1200009 bytes, max 1048576)";
-
-    await expect(
-      processWebContent({
-        url: "https://example.com/",
-        body,
-        contentType: "text/html",
-      }),
-    ).resolves.toMatchObject({ content: body });
-  });
-
   it("propagates unrelated HTML extraction failures", async () => {
-    vi.doMock("linkedom/worker", () => {
-      throw new Error("Optional peer linkedom is not installed.");
-    });
+    vi.doMock("linkedom/worker", () => ({
+      parseHTML: () => {
+        throw new Error("Optional peer linkedom is not installed.");
+      },
+    }));
     const { processWebContent } = await import("./web-content.js");
 
     await expect(
@@ -125,21 +92,72 @@ describe("processWebContent", () => {
   it.each(["links", "metadata"] as const)(
     "preserves the raw body when HTML parser rejection leaves %s mode without extraction",
     async (responseMode) => {
-      vi.doMock("linkedom/worker", () => {
-        throw new Error(
-          "Cannot destructure property 'firstElementChild' of 'documentElement' as it is null.",
-        );
-      });
-      const { processWebContent } = await import("./web-content.js");
+      const { processWebContent, formatWebContentResult } = await import(
+        "./web-content.js"
+      );
 
-      await expect(
-        processWebContent({
-          url: "https://example.com/",
-          body: "Access denied",
-          contentType: "text/html",
-          responseMode,
-        }),
-      ).resolves.toMatchObject({ content: "Access denied" });
+      const result = await processWebContent({
+        url: "https://example.com/",
+        body: "Access denied",
+        contentType: "text/html",
+        responseMode,
+      });
+
+      expect(result).toMatchObject({ content: "Access denied" });
+      expect(formatWebContentResult(result)).toContain("Access denied");
     },
   );
+
+  it.each(["links", "metadata"] as const)(
+    "truncates the structured-mode fallback body for %s when maxChars is set",
+    async (responseMode) => {
+      const { processWebContent, formatWebContentResult } = await import(
+        "./web-content.js"
+      );
+      const body = `Access denied ${"x".repeat(40)}`;
+      const maxChars = 20;
+
+      const result = await processWebContent({
+        url: "https://example.com/",
+        body,
+        contentType: "text/html",
+        responseMode,
+        maxChars,
+      });
+
+      expect(result.truncated).toBe(true);
+      expect(result.contentLength).toBe(body.length);
+      expect(result.content).toBe(
+        `${body.slice(0, maxChars)}\n... (truncated)`,
+      );
+      expect(formatWebContentResult(result)).toContain("... (truncated)");
+    },
+  );
+});
+
+describe("formatWebContentResult", () => {
+  it("appends fallback content after links output", async () => {
+    const { formatWebContentResult } = await import("./web-content.js");
+    expect(
+      formatWebContentResult({
+        mode: "links",
+        extract: "readability",
+        contentType: "text/html",
+        links: [],
+        content: "Access denied",
+      }),
+    ).toBe("(none)\n\nAccess denied");
+  });
+
+  it("appends fallback content after metadata output", async () => {
+    const { formatWebContentResult } = await import("./web-content.js");
+    const formatted = formatWebContentResult({
+      mode: "metadata",
+      extract: "readability",
+      contentType: "text/html",
+      content: "Access denied",
+    });
+    expect(formatted).toContain('"contentType": "text/html"');
+    expect(formatted).toContain("\n\nAccess denied");
+  });
 });

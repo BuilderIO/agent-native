@@ -225,8 +225,7 @@ export async function processWebContent(
   if (mode === "links") {
     result.links = extracted?.links ?? [];
     if (htmlExtractionFailed) {
-      result.content = options.body;
-      result.contentLength = options.body.length;
+      applyFallbackBody(result, options.body, maxChars);
     }
     return result;
   }
@@ -234,8 +233,7 @@ export async function processWebContent(
   if (mode === "metadata") {
     if (options.includeLinks) result.links = extracted?.links ?? [];
     if (htmlExtractionFailed) {
-      result.content = options.body;
-      result.contentLength = options.body.length;
+      applyFallbackBody(result, options.body, maxChars);
     }
     return result;
   }
@@ -292,8 +290,10 @@ export function formatWebContentResult(result: WebContentResult): string {
     lines.push(formatMatches(result));
   } else if (result.mode === "links") {
     lines.push(formatLinks(result.links ?? []));
+    if (result.content) lines.push("", result.content);
   } else if (result.mode === "metadata") {
     lines.push(formatMetadata(result));
+    if (result.content) lines.push("", result.content);
   } else if (result.content) {
     lines.push(result.content);
   }
@@ -317,6 +317,19 @@ export function formatWebContentResult(result: WebContentResult): string {
   }
 
   return lines.join("\n").trim();
+}
+
+function applyFallbackBody(
+  result: WebContentResult,
+  body: string,
+  maxChars: number,
+) {
+  const truncated = body.length > maxChars;
+  result.content = truncated
+    ? `${body.slice(0, maxChars)}\n... (truncated)`
+    : body;
+  result.truncated = truncated;
+  result.contentLength = body.length;
 }
 
 function resolveMode(
