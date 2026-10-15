@@ -361,9 +361,9 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 
 ### Beta signup database-isolation gate
 
-| Repository variable          | Purpose                                                                                                                                                    |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETA_DATABASES_ISOLATED`    | Set to `true` only after every Beta app runtime and migration database is verified isolated from production; gates unattended Beta signup E2E writes.       |
+| Repository variable       | Purpose                                                                                                                                               |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETA_DATABASES_ISOLATED` | Set to `true` only after every Beta app runtime and migration database is verified isolated from production; gates unattended Beta signup E2E writes. |
 
 The scheduled `Beta E2E (scheduled)` workflow reports through
 `scripts/beta-e2e-digest.ts`. The Beta, production-health, and signup reporters
