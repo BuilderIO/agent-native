@@ -120,6 +120,13 @@ fn failed_mode_change_recovery(
     }
 }
 
+fn capture_mode_change_start_allowed(
+    exclusion_active: bool,
+    active_exclusion_tainted: bool,
+) -> bool {
+    !exclusion_active && !active_exclusion_tainted
+}
+
 struct TemporaryAudioConsumer {
     graph_lease_id: String,
 }
@@ -1877,6 +1884,32 @@ fn rotate_segment_with_capture_mode_change(
     app: &AppHandle,
     config: &ScreenMemoryConfig,
 ) -> Result<(), String> {
+    let (start_allowed, active) = {
+        let state = app.state::<ScreenMemoryState>();
+        let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        let active_exclusion_tainted = runtime
+            .active
+            .as_ref()
+            .is_some_and(|active| active.exclusion_tainted.load(Ordering::SeqCst));
+        let start_allowed =
+            capture_mode_change_start_allowed(runtime.exclusion_active, active_exclusion_tainted);
+        let active = if start_allowed {
+            None
+        } else {
+            runtime.active.take()
+        };
+        (start_allowed, active)
+    };
+    if !start_allowed {
+        if let Some(active) = active {
+            discard_excluded_segment(app, active)?;
+        } else {
+            end_rewind_lease(app);
+            let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+        }
+        return Ok(());
+    }
+
     let next = match start_new_segment(app, config.capture_mode) {
         Ok(next) => next,
         Err(start_error) => {
@@ -3749,6 +3782,14 @@ command = "keep"
             ),
             FailedModeChangeRecovery::KeepActive
         );
+    }
+
+    #[test]
+    fn capture_mode_change_does_not_start_during_an_exclusion() {
+        assert!(capture_mode_change_start_allowed(false, false));
+        assert!(!capture_mode_change_start_allowed(true, false));
+        assert!(!capture_mode_change_start_allowed(false, true));
+        assert!(!capture_mode_change_start_allowed(true, true));
     }
 
     #[test]
