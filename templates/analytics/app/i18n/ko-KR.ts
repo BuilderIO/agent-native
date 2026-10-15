@@ -1034,6 +1034,12 @@ export default {
     operationalPain: "운영상 어려움",
     untitledTheme: "제목 없는 테마",
   },
+  dashboardFilterScope: {
+    onlyYou: "이 필터는 나만 봅니다",
+    hint: "필터를 바꿔도 다른 사람의 대시보드는 바뀌지 않습니다. 공유하려면 링크를 보내세요.",
+    hintSaveView:
+      "필터를 바꿔도 다른 사람의 대시보드는 바뀌지 않습니다. 공유하려면 보기를 저장하거나 링크를 보내세요.",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "대시보드 기록",

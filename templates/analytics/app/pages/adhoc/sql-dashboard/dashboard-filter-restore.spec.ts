@@ -16,6 +16,7 @@ function resolveStep(
     search?: string;
     defaultView?: typeof defaultView | undefined;
     savedFilters?: Record<string, string> | undefined;
+    savedViewId?: string;
     viewsState?: "loading" | "error" | "success";
     savedFiltersState?: "loading" | "error" | "success";
     progress?: DashboardFilterRestoreProgress;
@@ -36,6 +37,7 @@ function resolveStep(
     searchParams: new URLSearchParams(search),
     defaultView: configuredDefault,
     savedFilters: configuredSavedFilters,
+    savedViewId: options.savedViewId,
     viewsState,
     savedFiltersState,
     progress,
@@ -246,6 +248,28 @@ describe("resolveDashboardFilterRestoreStep", () => {
     expect(resolveStep({ defaultView: undefined })).toEqual({
       progress: { status: "complete" },
       restore: { filters: personalFilters, source: "personal" },
+    });
+  });
+
+  it("reopens the saved view that was open with the personal filters", () => {
+    expect(resolveStep({ defaultView: undefined, savedViewId: "q3" })).toEqual({
+      progress: { status: "complete" },
+      restore: { filters: personalFilters, viewId: "q3", source: "personal" },
+    });
+    expect(
+      resolveStep({
+        defaultView: undefined,
+        savedFilters: {},
+        savedViewId: "q3",
+      }).restore,
+    ).toEqual({ filters: {}, viewId: "q3", source: "personal" });
+  });
+
+  it("leaves the dashboard default ahead of a saved personal view", () => {
+    expect(resolveStep({ savedViewId: "q3" }).restore).toEqual({
+      filters: defaultView.filters,
+      viewId: defaultView.id,
+      source: "dashboard-default",
     });
   });
 

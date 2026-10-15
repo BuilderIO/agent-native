@@ -950,7 +950,9 @@ function SqlDashboardPageContent({
     isSuccess: filtersLoaded,
     isError: filtersError,
     save: saveFilterPref,
-  } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
+  } = useUserPref<{ filters: Record<string, string>; viewId?: string }>(
+    filterPrefKey,
+  );
 
   const {
     views,
@@ -959,6 +961,10 @@ function SqlDashboardPageContent({
     saveView,
   } = useDashboardViews(dashboardId ?? undefined);
   const defaultView = views.find((view) => view.isDefault);
+  // A deleted view must not come back as a dangling `view` param.
+  const savedViewId = views.some((view) => view.id === savedFilters?.viewId)
+    ? savedFilters?.viewId
+    : undefined;
 
   const filterRestoreProgress = useRef<DashboardFilterRestoreProgress>({
     status: "pending",
@@ -1082,6 +1088,7 @@ function SqlDashboardPageContent({
       searchParams,
       defaultView,
       savedFilters: savedFilters?.filters,
+      savedViewId,
       viewsState: dashboardViewsLoaded
         ? "success"
         : dashboardViewsSettled
@@ -1164,6 +1171,7 @@ function SqlDashboardPageContent({
     dashboard,
     defaultView,
     savedFilters,
+    savedViewId,
     reportScreenshot,
     searchParams,
     setSearchParams,
@@ -1204,8 +1212,18 @@ function SqlDashboardPageContent({
       if (filterPreferenceSaveState === "changed") {
         skipFilterPreferenceSave.current = null;
       }
-      if (sameDashboardFilterMap(savedFilters?.filters, currentFilters)) return;
-      saveFilterPref({ filters: currentFilters });
+      const viewId = searchParams.get("view") ?? undefined;
+      if (
+        sameDashboardFilterMap(savedFilters?.filters, currentFilters) &&
+        savedFilters?.viewId === viewId
+      ) {
+        return;
+      }
+      saveFilterPref(
+        viewId
+          ? { filters: currentFilters, viewId }
+          : { filters: currentFilters },
+      );
     }, 1500);
     return () => clearTimeout(saveTimer.current);
   }, [

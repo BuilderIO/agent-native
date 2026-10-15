@@ -1083,6 +1083,12 @@ export default {
     operationalPain: "Operationsschmerz",
     untitledTheme: "Thema ohne Titel",
   },
+  dashboardFilterScope: {
+    onlyYou: "Nur Sie sehen diese Filter",
+    hint: "Filteränderungen ändern das Dashboard für niemand anderen. Um sie zu teilen, senden Sie den Link.",
+    hintSaveView:
+      "Filteränderungen ändern das Dashboard für niemand anderen. Um sie zu teilen, speichern Sie eine Ansicht oder senden Sie den Link.",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "Dashboard-Verlauf",

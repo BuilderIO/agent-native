@@ -3,6 +3,7 @@ import {
   IconChevronDown,
   IconDeviceFloppy,
   IconFilterOff,
+  IconUser,
 } from "@tabler/icons-react";
 import { useCallback, useId, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -37,6 +38,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { DateRangeInput } from "../_shared/components/DateRangeInput";
@@ -320,6 +326,26 @@ export function DashboardFilterBar({
               </CollapsibleTrigger>
             </div>
             {/* Outside the hover group on purpose: hidden until hover, people missed it. */}
+            {canReset && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    tabIndex={0}
+                    className="flex items-center gap-1 px-2 text-xs text-muted-foreground"
+                  >
+                    <IconUser className="h-3 w-3" />
+                    <span className="hidden sm:inline">
+                      {t("dashboardFilterScope.onlyYou")}
+                    </span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  {onSaveView
+                    ? t("dashboardFilterScope.hintSaveView")
+                    : t("dashboardFilterScope.hint")}
+                </TooltipContent>
+              </Tooltip>
+            )}
             {canReset && (
               <Button
                 variant="ghost"

@@ -171,6 +171,12 @@ export default {
     updated: "Updated {{date}}",
     created: "Created {{date}}",
   },
+  dashboardFilterScope: {
+    onlyYou: "Only you see these filters",
+    hint: "Changing filters doesn't change the dashboard for anyone else. To share them, send the link.",
+    hintSaveView:
+      "Changing filters doesn't change the dashboard for anyone else. To share them, save a view or send the link.",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "Dashboard history",

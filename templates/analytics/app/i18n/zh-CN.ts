@@ -992,6 +992,12 @@ export default {
     operationalPain: "操作痛",
     untitledTheme: "无标题主题",
   },
+  dashboardFilterScope: {
+    onlyYou: "只有你能看到这些筛选条件",
+    hint: "更改筛选条件不会改变其他人看到的仪表板。要分享它们，请发送链接。",
+    hintSaveView:
+      "更改筛选条件不会改变其他人看到的仪表板。要分享它们，请保存视图或发送链接。",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "仪表板历史记录",

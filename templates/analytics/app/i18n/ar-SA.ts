@@ -1033,6 +1033,12 @@ export default {
     operationalPain: "الألم التشغيلي",
     untitledTheme: "موضوع بدون عنوان",
   },
+  dashboardFilterScope: {
+    onlyYou: "أنت وحدك ترى عوامل التصفية هذه",
+    hint: "تغيير عوامل التصفية لا يغيّر لوحة المعلومات لأي شخص آخر. لمشاركتها، أرسل الرابط.",
+    hintSaveView:
+      "تغيير عوامل التصفية لا يغيّر لوحة المعلومات لأي شخص آخر. لمشاركتها، احفظ عرضًا أو أرسل الرابط.",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "سجل لوحة المعلومات",

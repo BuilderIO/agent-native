@@ -987,6 +987,12 @@ export default {
     operationalPain: "營運痛點",
     untitledTheme: "無標題主題",
   },
+  dashboardFilterScope: {
+    onlyYou: "只有你看得到這些篩選條件",
+    hint: "變更篩選條件不會改變其他人看到的儀表板。若要分享，請傳送連結。",
+    hintSaveView:
+      "變更篩選條件不會改變其他人看到的儀表板。若要分享，請儲存檢視或傳送連結。",
+  },
   dashboard: {
     sqlDashboard: "SQL 儀表板",
     historyTitle: "儀表板歷史記錄",

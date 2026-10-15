@@ -117,6 +117,7 @@ export function resolveDashboardFilterRestoreStep({
   searchParams,
   defaultView,
   savedFilters,
+  savedViewId,
   viewsState,
   savedFiltersState,
   progress,
@@ -124,6 +125,9 @@ export function resolveDashboardFilterRestoreStep({
   searchParams: URLSearchParams;
   defaultView: { id: string; filters: Record<string, string> } | undefined;
   savedFilters: Record<string, string> | undefined;
+  // The view open when the filters were saved; the caller passes it only while
+  // that view still exists.
+  savedViewId?: string;
   viewsState: "loading" | "error" | "success";
   savedFiltersState: "loading" | "error" | "success";
   progress: DashboardFilterRestoreProgress;
@@ -191,6 +195,8 @@ export function resolveDashboardFilterRestoreStep({
   return {
     progress: { status: "complete" },
     restore:
-      Object.keys(filters).length > 0 ? { filters, source: "personal" } : null,
+      Object.keys(filters).length > 0 || savedViewId
+        ? { filters, viewId: savedViewId, source: "personal" }
+        : null,
   };
 }

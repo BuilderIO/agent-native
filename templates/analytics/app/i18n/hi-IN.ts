@@ -1023,6 +1023,12 @@ export default {
     operationalPain: "ऑपरेशन संबंधी दर्द",
     untitledTheme: "शीर्षकहीन विषय",
   },
+  dashboardFilterScope: {
+    onlyYou: "ये फ़िल्टर केवल आपको दिखते हैं",
+    hint: "फ़िल्टर बदलने से डैशबोर्ड किसी और के लिए नहीं बदलता। इन्हें साझा करने के लिए लिंक भेजें।",
+    hintSaveView:
+      "फ़िल्टर बदलने से डैशबोर्ड किसी और के लिए नहीं बदलता। इन्हें साझा करने के लिए दृश्य सहेजें या लिंक भेजें।",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "डैशबोर्ड इतिहास",

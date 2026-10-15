@@ -6,6 +6,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { i18nCatalog } from "../../../i18n";
 import { DashboardFilterBar } from "./DashboardFilterBar";
 import type { DashboardFilter } from "./types";
@@ -44,10 +46,12 @@ function render(
         initialLocale="en-US"
         persistPreference={false}
       >
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <DashboardFilterBar filters={list} />
-          <SearchProbe />
-        </MemoryRouter>
+        <TooltipProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <DashboardFilterBar filters={list} />
+            <SearchProbe />
+          </MemoryRouter>
+        </TooltipProvider>
       </AgentNativeI18nProvider>,
     );
   });

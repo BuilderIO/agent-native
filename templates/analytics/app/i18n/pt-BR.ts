@@ -1068,6 +1068,12 @@ export default {
     operationalPain: "Dor operacional",
     untitledTheme: "Tema sem título",
   },
+  dashboardFilterScope: {
+    onlyYou: "Só você vê estes filtros",
+    hint: "Mudar os filtros não muda o painel para mais ninguém. Para compartilhá-los, envie o link.",
+    hintSaveView:
+      "Mudar os filtros não muda o painel para mais ninguém. Para compartilhá-los, salve uma visualização ou envie o link.",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "Histórico do painel",

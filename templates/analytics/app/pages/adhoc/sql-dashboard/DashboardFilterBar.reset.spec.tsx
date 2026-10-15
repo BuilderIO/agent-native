@@ -6,6 +6,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { i18nCatalog } from "../../../i18n";
 import {
   DashboardFilterBar,
@@ -64,6 +66,7 @@ function render(
   options: {
     list?: DashboardFilter[];
     views?: DashboardSavedView[] | null;
+    canSaveViews?: boolean;
   } = {},
 ) {
   act(() => {
@@ -73,13 +76,16 @@ function render(
         initialLocale="en-US"
         persistPreference={false}
       >
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <DashboardFilterBar
-            filters={options.list ?? filters}
-            views={options.views}
-          />
-          <SearchProbe />
-        </MemoryRouter>
+        <TooltipProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <DashboardFilterBar
+              filters={options.list ?? filters}
+              views={options.views}
+              onSaveView={options.canSaveViews ? () => {} : undefined}
+            />
+            <SearchProbe />
+          </MemoryRouter>
+        </TooltipProvider>
       </AgentNativeI18nProvider>,
     );
   });
@@ -88,6 +94,12 @@ function render(
 function resetButton(): HTMLButtonElement | undefined {
   return [...container.querySelectorAll("button")].find(
     (button) => button.textContent?.trim() === "Reset filters",
+  );
+}
+
+function onlyYouLabel(): HTMLElement | undefined {
+  return [...container.querySelectorAll<HTMLElement>("[tabindex]")].find(
+    (el) => el.textContent?.trim() === "Only you see these filters",
   );
 }
 
@@ -113,6 +125,7 @@ describe("resetting dashboard filters", () => {
   it("hides the reset when no filter is set", () => {
     render("/dashboards/v3");
     expect(resetButton()).toBeUndefined();
+    expect(onlyYouLabel()).toBeUndefined();
   });
 
   it("hides the reset when the URL spells out the defaults", () => {
@@ -127,6 +140,30 @@ describe("resetting dashboard filters", () => {
     const button = resetButton();
     expect(button).toBeDefined();
     expect(button?.closest(".opacity-0")).toBeNull();
+  });
+
+  it("says only you see the changed filters, next to the reset", () => {
+    render("/dashboards/v3?f_emailFilter=all");
+    const label = onlyYouLabel();
+    expect(label).toBeDefined();
+    expect(label?.closest(".opacity-0")).toBeNull();
+
+    act(() => resetButton()!.click());
+    expect(onlyYouLabel()).toBeUndefined();
+  });
+
+  it("names saving a view as a way to share only to people who can save views", () => {
+    const hint = () => {
+      act(() => onlyYouLabel()!.focus());
+      return document.body.querySelector('[role="tooltip"]')?.textContent;
+    };
+    render("/dashboards/v3?f_emailFilter=all", { canSaveViews: true });
+    expect(hint()).toContain("save a view or send the link");
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    render("/dashboards/v3?f_emailFilter=all");
+    expect(hint()).toContain("To share them, send the link.");
   });
 
   it("returns every filter to its default and keeps unrelated params", () => {
