@@ -15,7 +15,7 @@ import { isIsoCalendarDate } from "../../shared/panel-events.js";
 import { getDb, schema } from "../db/index.js";
 import {
   inAnnotationScope,
-  lockAnnotationScope,
+  writeInAnnotationScope,
   requireAnnotationScope,
   type AnnotationScope,
 } from "./annotation-scope.js";
@@ -281,16 +281,6 @@ async function addNote(
   return toDataNote(row);
 }
 
-function withScopeLock<T>(
-  scope: AnnotationScope,
-  write: (tx: any) => Promise<T>,
-): Promise<T> {
-  return (getDb() as any).transaction(async (tx: any) => {
-    await lockAnnotationScope(tx, scope);
-    return write(tx);
-  });
-}
-
 /** Adds a note, or changes only the fields given on the note with `id`. */
 export async function saveDataNote(
   scope: AnnotationScope,
@@ -298,17 +288,19 @@ export async function saveDataNote(
 ): Promise<DataNote> {
   const { id } = input;
   if (id) {
-    return withScopeLock(scope, (tx) => updateNote(tx, scope, id, input));
+    return writeInAnnotationScope(scope, (tx) =>
+      updateNote(tx, scope, id, input),
+    );
   }
   const fields = cleanNote(input);
-  return withScopeLock(scope, (tx) => addNote(tx, scope, fields));
+  return writeInAnnotationScope(scope, (tx) => addNote(tx, scope, fields));
 }
 
 export async function deleteDataNote(
   scope: AnnotationScope,
   id: string,
 ): Promise<{ id: string }> {
-  return withScopeLock(scope, async (tx) => {
+  return writeInAnnotationScope(scope, async (tx) => {
     const deleted = await tx
       .delete(notes)
       .where(and(inAnnotationScope(notes, scope), eq(notes.id, id)))

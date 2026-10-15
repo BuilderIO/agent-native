@@ -5,6 +5,8 @@ import {
 } from "@agent-native/core/server";
 import { and, eq, isNull, sql, type Column, type SQL } from "drizzle-orm";
 
+import { getDb } from "../db/index.js";
+
 /** Who key dates and data notes are read and written for. */
 export type AnnotationScope = { email: string; orgId: string | null };
 
@@ -47,4 +49,15 @@ export async function lockAnnotationScope(
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext('analytics-annotations:' || ${key}))`,
   );
+}
+
+/** Runs `write` in one transaction that holds the scope's lock from its start. */
+export function writeInAnnotationScope<T>(
+  scope: AnnotationScope,
+  write: (tx: any) => Promise<T>,
+): Promise<T> {
+  return (getDb() as any).transaction(async (tx: any) => {
+    await lockAnnotationScope(tx, scope);
+    return write(tx);
+  });
 }

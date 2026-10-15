@@ -9,19 +9,11 @@ const { PGlite } = createRequire(
 )("@electric-sql/pglite");
 
 const getDbMock = vi.hoisted(() => vi.fn());
-const lockSpy = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const schema =
     await vi.importActual<typeof import("../db/schema.js")>("../db/schema.js");
   return { getDb: getDbMock, schema };
-});
-vi.mock("./annotation-scope.js", async () => {
-  const actual = await vi.importActual<typeof import("./annotation-scope.js")>(
-    "./annotation-scope.js",
-  );
-  lockSpy.mockImplementation(actual.lockAnnotationScope);
-  return { ...actual, lockAnnotationScope: lockSpy };
 });
 
 import { SETUP_INCIDENT } from "../../shared/annotation-fixtures.js";
@@ -47,12 +39,20 @@ const incident = {
 describe("data-notes store", () => {
   type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
   let client: PGliteClient;
+  let queries: { query: string; params: unknown[] }[];
 
   beforeEach(async () => {
     client = await PGlite.create("memory://");
     getDbMock.mockReset();
-    getDbMock.mockReturnValue(drizzle(client, { schema: dbModule.schema }));
-    lockSpy.mockClear();
+    queries = [];
+    getDbMock.mockReturnValue(
+      drizzle(client, {
+        schema: dbModule.schema,
+        logger: {
+          logQuery: (query, params) => queries.push({ query, params }),
+        },
+      }),
+    );
     for (let run = 0; run < 2; run++) {
       for (const statement of DATA_NOTES_MIGRATION_SQL) {
         await client.exec(statement);
@@ -281,10 +281,19 @@ describe("data-notes store", () => {
       const added = await store.saveDataNote(alice, incident);
       await store.saveDataNote(bob, { id: added.id, title: "Setup failures" });
       await store.deleteDataNote(alice, added.id);
-      expect(lockSpy.mock.calls.map(([, scope]) => scope)).toEqual([
-        alice,
-        bob,
-        alice,
+      const writes = queries.filter(
+        ({ query }) => !/^s*(begin|commit)/i.test(query),
+      );
+      expect(
+        writes.flatMap(({ query, params }, index) =>
+          query.includes("pg_advisory_xact_lock")
+            ? [{ key: params[0], next: writes[index + 1]?.query.split(" ")[0] }]
+            : [],
+        ),
+      ).toEqual([
+        { key: "org:org-1", next: "select" },
+        { key: "org:org-1", next: "select" },
+        { key: "org:org-1", next: "delete" },
       ]);
     });
 

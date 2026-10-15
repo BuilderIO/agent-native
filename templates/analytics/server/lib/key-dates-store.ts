@@ -8,7 +8,7 @@ import { isValidPanelEvent } from "../../shared/panel-events.js";
 import { getDb, schema } from "../db/index.js";
 import {
   inAnnotationScope,
-  lockAnnotationScope,
+  writeInAnnotationScope,
   requireAnnotationScope,
   type AnnotationScope,
 } from "./annotation-scope.js";
@@ -37,16 +37,6 @@ function toKeyDate(row: typeof dates.$inferSelect): KeyDate {
     addedBy: row.ownerEmail,
     updatedAt: row.updatedAt,
   };
-}
-
-function writeInScope<T>(
-  scope: KeyDateScope,
-  write: (tx: any) => Promise<T>,
-): Promise<T> {
-  return (getDb() as any).transaction(async (tx: any) => {
-    await lockAnnotationScope(tx, scope);
-    return write(tx);
-  });
 }
 
 export async function listKeyDateSets(
@@ -143,7 +133,7 @@ export async function saveKeyDateSet(
   input: { id?: string; name: string },
 ): Promise<KeyDateSet> {
   const name = cleanSetName(input.name);
-  return writeInScope(scope, async (tx) => {
+  return writeInAnnotationScope(scope, async (tx) => {
     const duplicate = await findSet(
       tx,
       scope,
@@ -183,7 +173,7 @@ export async function deleteKeyDateSet(
   scope: KeyDateScope,
   id: string,
 ): Promise<{ id: string; deletedDates: number }> {
-  return writeInScope(scope, async (tx) => {
+  return writeInAnnotationScope(scope, async (tx) => {
     if (!(await findSet(tx, scope, eq(sets.id, id)))) notFound("set", id);
     const removedDates = await tx
       .delete(dates)
@@ -255,7 +245,7 @@ export async function saveKeyDate(
       { errorCode: "invalid_key_date", statusCode: 400 },
     );
   }
-  return writeInScope(scope, async (tx) => {
+  return writeInAnnotationScope(scope, async (tx) => {
     const set = await resolveSet(tx, scope, input);
     const now = new Date().toISOString();
     const values = {
@@ -303,7 +293,7 @@ export async function deleteKeyDate(
   scope: KeyDateScope,
   id: string,
 ): Promise<{ id: string }> {
-  return writeInScope(scope, async (tx) => {
+  return writeInAnnotationScope(scope, async (tx) => {
     const deleted = await tx
       .delete(dates)
       .where(and(inScope(dates, scope), eq(dates.id, id)))
