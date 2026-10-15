@@ -17,10 +17,15 @@ const TOKEN_PREFIX = "clipsup_";
 export const RECORDING_UPLOAD_TICKET_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_PENDING_TICKETS = 20;
 const MAX_CAS_ATTEMPTS = 8;
+// How long a reservation whose recording row is still missing counts toward the
+// cap: ample for create-recording, short enough that a deleted recording or a
+// failed release does not hold a slot for the ticket's whole lifetime.
+const RESERVATION_GRACE_MS = 10 * 60 * 1000;
 
 export interface RecordingUploadTicket extends Record<string, unknown> {
   recordingId: string;
   tokenHash: string;
+  reservedAt: number;
   expiresAt: number;
 }
 
@@ -100,9 +105,9 @@ function dropExpiredTickets(
 }
 
 /**
- * Drops a ticket only once its recording exists and has left "uploading".
- * A ticket is reserved before its recording is created, so a missing row is
- * an upload still starting; evicting either would strand it mid-file.
+ * A ticket holds a slot while its recording is "uploading", or while it is a
+ * fresh reservation whose recording is not created yet. Evicting either would
+ * strand an upload mid-file.
  */
 async function liveTickets(
   ownerEmail: string,
@@ -120,15 +125,17 @@ async function liveTickets(
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
       ),
     );
-  const finishedIds = new Set(
-    recordings
-      .filter((recording) => recording.status !== "uploading")
-      .map((recording) => recording.id),
+  const statusById = new Map(
+    recordings.map((recording) => [recording.id, recording.status]),
   );
+  const now = Date.now();
   return Object.fromEntries(
-    Object.entries(unexpired).filter(
-      ([recordingId]) => !finishedIds.has(recordingId),
-    ),
+    Object.entries(unexpired).filter(([recordingId, ticket]) => {
+      const status = statusById.get(recordingId);
+      return status === undefined
+        ? now - ticket.reservedAt < RESERVATION_GRACE_MS
+        : status === "uploading";
+    }),
   );
 }
 
@@ -175,10 +182,12 @@ export async function createRecordingUploadTicket(
   recordingId: string,
 ): Promise<RecordingUploadTicket & { token: string }> {
   const token = `${TOKEN_PREFIX}${encodeOwner(ownerEmail)}.${crypto.randomBytes(32).toString("base64url")}`;
+  const reservedAt = Date.now();
   const ticket: RecordingUploadTicket = {
     recordingId,
     tokenHash: tokenHash(token),
-    expiresAt: Date.now() + RECORDING_UPLOAD_TICKET_TTL_MS,
+    reservedAt,
+    expiresAt: reservedAt + RECORDING_UPLOAD_TICKET_TTL_MS,
   };
 
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {

@@ -115,6 +115,7 @@ describe("recording upload tickets", () => {
     expect(stored.tickets["rec-1"]).toEqual({
       recordingId: "rec-1",
       tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      reservedAt: expect.any(Number),
       expiresAt: created.expiresAt,
     });
     expect(settings.get(storageKey)).not.toContain(created.token);
@@ -265,6 +266,31 @@ describe("recording upload tickets", () => {
     await expect(
       requireRecordingUploadTicketOwner(ticketEvent(first.token), ids[0]),
     ).resolves.toMatchObject({ recordingId: ids[0] });
+  });
+
+  it("frees a slot whose recording never appeared once the reservation is stale", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-14T12:00:00.000Z"));
+    const { createRecordingUploadTicket } =
+      await import("./recording-upload-ticket.js");
+    const ids = Array.from({ length: 20 }, (_, i) => `rec-${i}`);
+    for (const id of ids) {
+      await createRecordingUploadTicket("owner@example.com", id);
+    }
+    // rec-0 was deleted, or its creation failed and the release did too.
+    recordingRows.statusById = Object.fromEntries(
+      ids.slice(1).map((id) => [id, "uploading"]),
+    );
+
+    await expect(
+      createRecordingUploadTicket("owner@example.com", "rec-new"),
+    ).rejects.toMatchObject({ statusCode: 429 });
+
+    vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+    await createRecordingUploadTicket("owner@example.com", "rec-new");
+    const stored = Object.keys(JSON.parse(settings.get(storageKey)!).tickets);
+    expect(stored).not.toContain(ids[0]);
+    expect(stored).toContain("rec-new");
   });
 
   it("frees capacity held by uploads that already finished", async () => {
