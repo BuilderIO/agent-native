@@ -94,6 +94,21 @@ describe("recording context model", () => {
     ).toBe(true);
   });
 
+  it("does not poll unclaimed pending items for viewers who cannot process them", () => {
+    expect(
+      hasUnfinishedContextItems(
+        [item({ status: "pending", mediaRecordingId: null })],
+        false,
+      ),
+    ).toBe(false);
+    expect(
+      hasUnfinishedContextItems(
+        [item({ status: "processing", mediaRecordingId: null })],
+        false,
+      ),
+    ).toBe(true);
+  });
+
   it("uses the safe waiting state for viewers without a device ID", () => {
     expect(
       hasUnfinishedContextItems([

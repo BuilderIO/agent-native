@@ -61,10 +61,7 @@ import { toast } from "sonner";
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { ClipsAvatar } from "@/components/clips-avatar";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
-import {
-  RecordingContextSection,
-  recordingAccessTokenFromVideoUrl,
-} from "@/components/lookback/recording-context-panel";
+import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
@@ -756,7 +753,15 @@ export default function ShareRoute() {
       if (agentAccessToken) {
         url.searchParams.set(CLIPS_AGENT_ACCESS_PARAM, agentAccessToken);
       }
-      const res = await fetch(url.toString());
+      const cachedMediaAccessToken = queryClient.getQueryData<{
+        data?: { recording?: { mediaAccessToken?: unknown } };
+      }>(shareQueryKey)?.data?.recording?.mediaAccessToken;
+      const res = await fetch(url.toString(), {
+        headers:
+          typeof cachedMediaAccessToken === "string" && cachedMediaAccessToken
+            ? { "x-clips-media-token": cachedMediaAccessToken }
+            : undefined,
+      });
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };
     },
@@ -2076,10 +2081,7 @@ export default function ShareRoute() {
               <RecordingContextSection
                 recordingId={recording.id}
                 canManage={false}
-                accessToken={recordingAccessTokenFromVideoUrl(
-                  recording.videoUrl,
-                  recording.id,
-                )}
+                accessToken={recording.mediaAccessToken ?? undefined}
               />
               <TranscriptPanel
                 segments={transcriptSegments}

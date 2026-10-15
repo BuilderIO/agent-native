@@ -68,26 +68,11 @@ export function contextVideoSrc(
   return accessToken ? `${src}?t=${encodeURIComponent(accessToken)}` : src;
 }
 
-export function recordingAccessTokenFromVideoUrl(
-  videoUrl: string | null | undefined,
-  recordingId: string,
-): string | undefined {
-  if (!videoUrl) return undefined;
-  const parsed = new URL(videoUrl, "http://local.test");
-  const clipRoute = `/api/video/${encodeURIComponent(recordingId)}`;
-  if (
-    parsed.origin !== "http://local.test" ||
-    !parsed.pathname.endsWith(clipRoute)
-  ) {
-    return undefined;
-  }
-  return parsed.searchParams.get("t") ?? undefined;
-}
-
 export function useRecordingContextItems(
   recordingId: string | undefined,
   enabled: boolean,
   accessToken?: string,
+  canPollUnclaimedPending = false,
 ) {
   return useActionQuery<ListRecordingContextResult>(
     "list-recording-context",
@@ -98,7 +83,10 @@ export function useRecordingContextItems(
     {
       enabled: enabled && Boolean(recordingId),
       refetchInterval: (query) =>
-        hasUnfinishedContextItems(query.state.data?.items ?? [])
+        hasUnfinishedContextItems(
+          query.state.data?.items ?? [],
+          canPollUnclaimedPending,
+        )
           ? CONTEXT_POLL_MS
           : false,
     },
@@ -120,6 +108,8 @@ export function RecordingContextSection({
   const location = useLocation();
   const { session } = useSession();
   const queryClient = useQueryClient();
+  const canPollUnclaimedPending =
+    canManage && isAuthenticatedRecordingPath(location.pathname, !!session);
   useDbSync({
     queryClient,
     realtime:
@@ -140,13 +130,19 @@ export function RecordingContextSection({
           CONTEXT_SYNC_ACTIONS.has(event.key),
       ),
   });
-  const itemsQuery = useRecordingContextItems(recordingId, true, accessToken);
+  const itemsQuery = useRecordingContextItems(
+    recordingId,
+    true,
+    accessToken,
+    canPollUnclaimedPending,
+  );
   const { isError, error } = itemsQuery;
   useEffect(() => {
     if (isError) captureClientException(error);
   }, [error, isError]);
 
-  if (!recordingId || !itemsQuery.data?.items.length) {
+  const hasItems = Boolean(itemsQuery.data?.items.length);
+  if (!recordingId || (!hasItems && !itemsQuery.isError)) {
     return null;
   }
   return (
@@ -154,6 +150,7 @@ export function RecordingContextSection({
       recordingId={recordingId}
       canManage={canManage}
       accessToken={accessToken}
+      canPollUnclaimedPending={canPollUnclaimedPending}
     />
   );
 }
@@ -162,13 +159,20 @@ export function RecordingContextPanel({
   recordingId,
   canManage = true,
   accessToken,
+  canPollUnclaimedPending = canManage,
 }: {
   recordingId: string;
   canManage?: boolean;
   accessToken?: string;
+  canPollUnclaimedPending?: boolean;
 }) {
   const t = useT();
-  const itemsQuery = useRecordingContextItems(recordingId, true, accessToken);
+  const itemsQuery = useRecordingContextItems(
+    recordingId,
+    true,
+    accessToken,
+    canPollUnclaimedPending,
+  );
   // Hides an item as soon as its removal lands, without waiting for the refetch.
   const [removedIds, setRemovedIds] = useState<ReadonlySet<string>>(
     () => new Set(),

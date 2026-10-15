@@ -39,13 +39,17 @@ export function isWaitingOnOtherDevice(item: RecordingContextItem): boolean {
   );
 }
 
-// The desktop worker finishes these, so the panel polls until none remain.
-// An item held by another device is excluded: this page cannot advance it.
+// Owner recording pages poll unclaimed requests; every viewer can observe
+// requests already being processed. An item held by another device is excluded.
 export function hasUnfinishedContextItems(
   items: readonly RecordingContextItem[],
+  canPollUnclaimedPending = true,
 ): boolean {
   return items.some(
-    (item) => isContextItemUnfinished(item) && !isWaitingOnOtherDevice(item),
+    (item) =>
+      isContextItemUnfinished(item) &&
+      !isWaitingOnOtherDevice(item) &&
+      (item.status !== "pending" || canPollUnclaimedPending),
   );
 }
 

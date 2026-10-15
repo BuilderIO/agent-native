@@ -13,7 +13,6 @@ import type { RecordingContextItem } from "./recording-context-model";
 import {
   RecordingContextPanel,
   RecordingContextSection,
-  recordingAccessTokenFromVideoUrl,
 } from "./recording-context-panel";
 
 const queryState = vi.hoisted(() => ({
@@ -405,6 +404,7 @@ describe("RecordingContextSection", () => {
     recordingId: string | undefined = "rec_1",
     pathname = "/r/rec_1",
     accessToken?: string,
+    canManage = true,
   ) {
     act(() =>
       root.render(
@@ -412,6 +412,7 @@ describe("RecordingContextSection", () => {
           <QueryClientProvider client={queryClient}>
             <RecordingContextSection
               recordingId={recordingId}
+              canManage={canManage}
               accessToken={accessToken}
             />
           </QueryClientProvider>
@@ -485,6 +486,42 @@ describe("RecordingContextSection", () => {
     render();
     expect(container.innerHTML).toBe("");
     expect(queryOptions.current?.enabled).toBe(true);
+  });
+
+  it("shows the load-failed state when listing context fails without items", () => {
+    setQuery({
+      isError: true,
+      isPending: false,
+      error: new Error("list failed"),
+    });
+    render();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't load earlier screen time.",
+    );
+  });
+
+  it("does not poll an unclaimed pending item from a public share view", () => {
+    const pending = item({ status: "pending", mediaRecordingId: null });
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [pending] },
+    });
+    render("rec_1", "/share/share-id", undefined, false);
+
+    expect(
+      queryOptions.current?.refetchInterval?.({
+        state: { data: { items: [pending] } },
+      }),
+    ).toBe(false);
+
+    render("rec_1", "/r/rec_1", undefined, true);
+    expect(
+      queryOptions.current?.refetchInterval?.({
+        state: { data: { items: [pending] } },
+      }),
+    ).toBe(3000);
   });
 
   it("refreshes only this clip's context when the desktop changes it", () => {
@@ -574,31 +611,5 @@ describe("RecordingContextSection", () => {
       ),
     );
     expect(container.innerHTML).toBe("");
-  });
-});
-
-describe("recordingAccessTokenFromVideoUrl", () => {
-  it("accepts only the local media URL for the same Clip", () => {
-    expect(
-      recordingAccessTokenFromVideoUrl(
-        "/api/video/rec_1?t=signed-token",
-        "rec_1",
-      ),
-    ).toBe("signed-token");
-    expect(
-      recordingAccessTokenFromVideoUrl(
-        "/api/video/another?t=signed-token",
-        "rec_1",
-      ),
-    ).toBeUndefined();
-    expect(
-      recordingAccessTokenFromVideoUrl(
-        "https://media.example.com/video.mp4?t=signed-token",
-        "rec_1",
-      ),
-    ).toBeUndefined();
-    expect(() =>
-      recordingAccessTokenFromVideoUrl("http://[", "rec_1"),
-    ).toThrow();
   });
 });
