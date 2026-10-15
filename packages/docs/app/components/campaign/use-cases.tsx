@@ -68,7 +68,7 @@ export function UseCasesIndex({ items }: { items: UseCase[] }) {
     !hydrated ||
     ((!role ||
       item.roles?.includes("everyone") ||
-      item.roles?.includes(role)) &&
+      item.roles?.some((candidate) => candidate === role)) &&
       (!often || item.frequency === often));
   const clearParams = new URLSearchParams(searchParams);
   clearParams.delete("role");
@@ -189,11 +189,11 @@ export function UseCasesIndex({ items }: { items: UseCase[] }) {
 export function UseCasePage({
   item,
   articles,
-  useCases,
+  useCases = [],
 }: {
   item: UseCase;
   articles: Article[];
-  useCases: UseCase[];
+  useCases?: UseCase[];
 }) {
   const t = useT();
   const { locale } = useLocale();
@@ -204,7 +204,7 @@ export function UseCasePage({
   );
   const nextJobs = (item.next_jobs ?? []).flatMap((id) => {
     const next = useCases.find(
-      (candidate) => candidate.job_id === id || candidate.slug === id,
+      (candidate) => candidate.slug === id,
     );
     return next ? [next] : [];
   });
@@ -349,7 +349,15 @@ export function UseCasePage({
                 </dl>
                 {recipe.prompt ? (
                   <div className="min-w-0 max-w-full overflow-x-auto">
-                    <CodeBlock code={recipe.prompt} lang="text" />
+                    <CodeBlock
+                      code={recipe.prompt}
+                      lang="text"
+                      onCopySuccess={() => trackEvent("recipe_copy", {
+                        slug: item.slug,
+                        job_id: item.job_id,
+                        recipe_id: recipe.id,
+                      })}
+                    />
                   </div>
                 ) : null}
                 <dl className="m-0 space-y-4 text-[var(--fg-secondary)]">

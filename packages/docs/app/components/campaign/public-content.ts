@@ -34,6 +34,13 @@ export function publicUseCase(item: UseCase): UseCase {
           in_app: item.todays_stack.in_app,
         }
       : undefined,
+    recipes: item.recipes?.map(({ id, title, when, do: action, prompt, you_get, save, how_often }) => ({ id, title, when, do: action, prompt, you_get, save, how_often })),
+    next_jobs: item.next_jobs,
+    connects_to: item.connects_to,
+    frequency: item.frequency,
+    how_often_label: item.how_often_label,
+    roles: item.roles,
+    angles: item.angles?.map(({ id, audience, title, subhead, old_way_body }) => ({ id, audience, title, subhead, old_way_body })),
     story: item.story
       ? {
           quote: item.story.quote,

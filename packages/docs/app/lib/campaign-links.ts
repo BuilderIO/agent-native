@@ -23,6 +23,9 @@ export function buildCampaignCtaUrl(
     for (const value of incoming.getAll(key))
       url.searchParams.append(key, value);
   }
+  if (incoming.has("angle")) {
+    url.searchParams.set("angle", incoming.get("angle")!);
+  }
   url.searchParams.set("job", jobId);
   if (!incoming.has("utm_content")) {
     url.searchParams.set("utm_content", jobId);

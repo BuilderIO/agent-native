@@ -62,3 +62,37 @@ internal:
   basis: "hypothesis (fits the startup-raising persona Shawn described)"
   replaces_source: "Analytics page: open-source alternative to Amplitude, Mixpanel and Looker. Analytics README: alternative to Amplitude and FullStory."
   verify: "Which connectors work reliably today. Steve noted people still hit 'chat stopped' errors in the apps. 'Free' is stated on the apps index, not on the Analytics page itself."
+frequency: weekly
+how_often_label: "Weekly"
+roles: [founders, product, finance]
+connects_to: ["Stripe", "HubSpot", "BigQuery", "PostHog", "Mixpanel", "Amplitude"]
+next_jobs: [find-where-users-drop-off, startup-pitch-deck]
+recipes:
+  - id: revenue-question
+    title: "Ask about revenue"
+    when: "Someone asks how revenue is trending."
+    do: "Connect Stripe, then ask in plain English."
+    prompt: "What's our MRR this month, and how did it change from last month?"
+    you_get: "A chart or metric, with the SQL the agent wrote."
+    save: "Your Stripe connection stays in place for the next question."
+    how_often: "Weekly"
+  - id: why-it-moved
+    title: "Ask why a metric moved"
+    when: "A number jumps or drops."
+    do: "Ask the agent why."
+    prompt: "Why did activation climb this week?"
+    you_get: "An answer you can check against the SQL and the metric definition."
+    how_often: "When numbers move"
+  - id: weekly-dashboard
+    title: "Save a weekly dashboard"
+    when: "You keep asking the same questions."
+    do: "Save the answers as a dashboard with filters and saved views, and share it."
+    you_get: "One place the team checks every week."
+    save: "The dashboard keeps its filters and views."
+    how_often: "Weekly"
+angles:
+  - id: finance
+    audience: "Finance and founders"
+    title: "Revenue questions answered from Stripe, in plain English"
+    subhead: "Connect Stripe, ask about MRR, churn, and subscriptions, and keep the answers as dashboards."
+    old_way_body: "Every month someone exports from billing into a spreadsheet and rebuilds the same report."

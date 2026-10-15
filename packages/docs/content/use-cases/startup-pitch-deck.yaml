@@ -58,3 +58,28 @@ internal:
   basis: "search signal (ai pitch deck maker converts); hypothesis for recurrence"
   note: "Side test, GTM. Steve ranks Slides lowest of the apps, so this is the one Slides page in Wave 1."
   verify: "Pitch decks are episodic, not recurring. Treat as acquisition into Slides."
+frequency: occasional
+how_often_label: "Every fundraise"
+roles: [founders]
+connects_to: ["PowerPoint (PPTX export)", "Google Slides (import the PPTX)"]
+next_jobs: [startup-kpi-dashboard, landing-page-prototypes]
+recipes:
+  - id: draft-deck
+    title: "Draft the deck from your brief"
+    when: "You're starting a raise."
+    do: "Attach your brief, notes, or last deck as reference material, and apply your design system."
+    you_get: "An on-brand draft you can edit slide by slide."
+    save: "Your design system carries over to every deck after this."
+    how_often: "Every fundraise"
+  - id: revise-after-meeting
+    title: "Revise after an investor meeting"
+    when: "A meeting raised a question the deck should answer."
+    do: "Edit the slide directly, or select text and ask the agent to revise it."
+    you_get: "An updated deck without rebuilding it."
+    how_often: "After investor meetings"
+  - id: send-deck
+    title: "Send it as a link or a PowerPoint"
+    when: "An investor asks for the deck."
+    do: "Share a viewing link, or export a PPTX file."
+    you_get: "A deck they can open. Open the export once before sending, since fonts can render differently."
+    how_often: "Every send"

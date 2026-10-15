@@ -52,3 +52,28 @@ internal:
   target_terms: "claude code review (US 2,500/mo, KD 10) has unclear intent. Check the results page before writing for it. what is a pull request (1,700) is generic and low intent."
   basis: "hypothesis (recurs on every PR)"
   verify: "Command name and install steps against the Plans page. Search intent for 'claude code review'."
+frequency: per-project
+how_often_label: "Every pull request"
+roles: [engineering]
+connects_to: ["Claude Code", "Codex"]
+next_jobs: [bug-reports-with-console-logs, see-what-your-coding-agent-plans]
+recipes:
+  - id: recap-pr
+    title: "Recap a pull request before you review it"
+    when: "Your agent opened a pull request."
+    do: "Run the visual recap command on the pull request."
+    prompt: "/visual-recap [pull request link]"
+    you_get: "A walkthrough of the behavior that changed, the files it touched, and annotated code."
+    how_often: "Every pull request"
+  - id: share-recap
+    title: "Share the recap with a reviewer"
+    when: "Someone else needs to review the change."
+    do: "Share the recap. Teammates review it in the browser, and commenting requires an account."
+    you_get: "A reviewer who knows where to look first."
+    how_often: "Every pull request"
+  - id: recap-branch
+    title: "Recap a branch before you merge"
+    when: "A branch has grown over several sessions."
+    do: "Run the visual recap command on the branch or a diff."
+    you_get: "One explanation of everything that changed, to guide your review of the code and tests."
+    how_often: "Before merges"

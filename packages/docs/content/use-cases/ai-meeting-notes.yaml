@@ -60,3 +60,34 @@ internal:
   basis: "hypothesis (high volume, low difficulty, recurs)"
   replaces_source: "Clips README: alternative to Loom, Granola, and Wispr Flow."
   verify: "Exact outputs of a recorded meeting, whether meetings need connected storage, and the default visibility of a meeting recording. Do not target Zoom searches until Zoom capture is confirmed."
+frequency: daily
+how_often_label: "Every meeting"
+roles: [everyone, revops, product]
+connects_to: ["Google Calendar"]
+next_jobs: [crm-and-call-questions, dictate-instead-of-typing]
+recipes:
+  - id: record-meeting
+    title: "Record your next meeting"
+    when: "A meeting is coming up on your calendar."
+    do: "Connect Google Calendar in Clips, then hit record on the meeting."
+    you_get: "A transcript, an AI summary, notes, and action items."
+    save: "Your calendar stays connected, so every meeting after this is one click."
+    how_often: "Every meeting"
+  - id: find-decision
+    title: "Find what was decided"
+    when: "Someone asks who agreed to what."
+    do: "Ask the agent to find the meeting where you discussed it, like a rollout plan."
+    you_get: "The meeting, with a transcript you can click through to the moment."
+    how_often: "Weekly"
+  - id: recap-from-actions
+    title: "Write the recap from the action items"
+    when: "The meeting just ended."
+    do: "Copy the action items into your recap email or tracker, then check names and dates against the transcript."
+    you_get: "A recap with owners and dates, without rewriting it from memory."
+    how_often: "Every meeting"
+angles:
+  - id: revops
+    audience: "RevOps and sales"
+    title: "Call notes your team can search, without taking them"
+    subhead: "Record calls from your calendar and get a transcript, summary, and action items, in a library your whole team can search."
+    old_way_body: "Reps type notes during the call or skip them, the CRM gets a one-line summary, and the details live in someone's head."

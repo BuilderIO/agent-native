@@ -16,6 +16,7 @@ export function loader({ params }: LoaderFunctionArgs) {
   if (!item) throw new Response(null, { status: 404 });
   return {
     item: publicUseCase(item),
+    useCases: content.useCases.filter((candidate) => item.next_jobs?.includes(candidate.slug)).map(publicUseCase),
     articles: newestArticles(
       content.articles.filter((article) => article.use_case === item.slug),
     ).map(publicArticle),

@@ -54,3 +54,32 @@ internal:
   target_terms: "ai landing page builder (US 2,200/mo, KD 50); ai landing page generator (600, KD 43); ai generated landing page (200, KD 0); landing page copywriting template (150). Cluster about 4,750/mo."
   basis: "hypothesis (Design retains best of the apps; paid for Design launched Oct 13)"
   verify: "Design does not publish pages. Keep that in every claim."
+frequency: per-project
+how_often_label: "Every launch"
+roles: [marketing, founders, engineering]
+next_jobs: [design-brief-to-prototype, weekly-marketing-report]
+recipes:
+  - id: launch-versions
+    title: "Draft versions for a launch"
+    when: "A launch needs a page."
+    do: "Paste the offer, the audience, and the call to action, then ask for a few versions."
+    you_get: "Landing page prototypes side by side, in desktop and mobile frames."
+    save: "Link your design system once, so every launch page starts on brand."
+    how_often: "Every launch"
+  - id: review-on-page
+    title: "Review the page, not a screenshot"
+    when: "You need sign-off."
+    do: "Share the design and have reviewers pin comments to the elements they're talking about."
+    you_get: "Feedback on the page itself, instead of a list of comments about spacing."
+    how_often: "Every launch"
+  - id: export-page
+    title: "Export it for deployment"
+    when: "The page is approved."
+    do: "Export HTML or a ZIP of the files."
+    you_get: "Files to deploy. Publishing is still a separate step."
+    how_often: "Every launch"
+angles:
+  - id: marketing
+    audience: "Marketing"
+    title: "Campaign landing pages you can compare before anyone builds them"
+    subhead: "Turn a campaign brief into interactive landing page versions, review them side by side, and export the HTML."

@@ -52,3 +52,29 @@ internal:
   target_terms: "technical design document (US 350/mo, KD 5); technical design document template (200); technical design document example (90); architecture diagram examples (200). About 900/mo, so this page is about the audience more than the keywords."
   basis: "hypothesis (the clearest fit for technical builders)"
   verify: "Install command and supported clients against the Plans page. Check what 'claude code plan' searchers mean before targeting it (its parent topic is Claude pricing)."
+frequency: per-project
+how_often_label: "Every feature"
+roles: [engineering]
+connects_to: ["Claude Code", "Codex"]
+next_jobs: [understand-what-your-coding-agent-changed, spec-your-coding-agent-builds-from]
+recipes:
+  - id: install-once
+    title: "Add the planning skills once"
+    when: "Before your first plan."
+    do: "Run the install command from the Plans page in your coding agent, then complete the authentication step for your client."
+    you_get: "Visual plans and recaps available in your agent."
+    save: "It stays installed, so every plan after this is one command."
+    how_often: "Once"
+  - id: plan-a-feature
+    title: "Ask for a visual plan before a feature"
+    when: "You're about to have your agent build something."
+    do: "Ask your agent for a visual plan of the feature."
+    prompt: "/visual-plan [describe the feature]"
+    you_get: "Diagrams, wireframes, and annotated code you can review before any code changes."
+    how_often: "Every feature"
+  - id: send-feedback
+    title: "Send your feedback back to the agent"
+    when: "Something in the plan is wrong."
+    do: "Comment on the text or pin feedback to a visual, then ask the agent to read the comments and revise the plan."
+    you_get: "A revised plan, with replies in the review threads."
+    how_often: "Every feature"
