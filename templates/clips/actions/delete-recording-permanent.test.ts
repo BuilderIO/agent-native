@@ -266,12 +266,15 @@ describe("delete-recording-permanent", () => {
     expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
   });
 
-  it("deletes hosted media before the row so a retry can still find it", async () => {
+  it("deletes hosted media after the footage trash and before the row so a retry can still find it", async () => {
     mockExistingRecording.storageMode = "hosted";
 
     await deleteRecordingPermanent.run({ id: "rec_1" });
 
     expect(mockDeleteRecordingMediaObjects).toHaveBeenCalledTimes(1);
+    expect(mockTrashContextFootage.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDeleteRecordingMediaObjects.mock.invocationCallOrder[0],
+    );
     expect(
       mockDeleteRecordingMediaObjects.mock.invocationCallOrder[0],
     ).toBeLessThan(mockDbDelete.mock.invocationCallOrder[0]);
@@ -333,6 +336,21 @@ describe("delete-recording-permanent", () => {
       "trash unavailable",
     );
     expect(mockDb.transaction).not.toHaveBeenCalled();
+    expect(mockDeleteRecordingMediaObjects).not.toHaveBeenCalled();
+  });
+
+  it("keeps hosted media when trashing the footage fails on a hosted Clip", async () => {
+    mockExistingRecording.storageMode = "hosted";
+    mockContextItemsWhere.mockResolvedValueOnce([
+      { mediaRecordingId: "media_1", pendingMediaRecordingId: null },
+    ]);
+    mockTrashContextFootage.mockRejectedValueOnce(
+      new Error("trash unavailable"),
+    );
+
+    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
+      "trash unavailable",
+    );
     expect(mockDeleteRecordingMediaObjects).not.toHaveBeenCalled();
   });
 

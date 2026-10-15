@@ -1173,6 +1173,118 @@ describe("Loom imports", () => {
     ).toBeGreaterThanOrEqual(WAITING_STORAGE_LEASE_MS);
   });
 
+  describe("retrying a failed hosted Loom import in place", () => {
+    const sourceUrl = "https://www.loom.com/share/abcDEF_123456";
+    const staleUrl = "https://clips.example.com/rec_loom_retry.mp4";
+
+    async function retryFailedHostedLoom(failureCode: string) {
+      const updates: Array<Record<string, unknown>> = [];
+      const existing = {
+        id: "rec_loom_retry",
+        organizationId: "org-1",
+        ownerEmail: "owner@example.com",
+        status: "failed",
+        storageMode: "hosted",
+        videoUrl: staleUrl,
+        videoSizeBytes: 4,
+        failureCode,
+        failureReason: "Hosted Clips media size does not match.",
+        sourceAppName: "Loom",
+        sourceWindowTitle: sourceUrl,
+        thumbnailUrl: null,
+        editsJson: "{}",
+        title: "Loom import",
+        titleSource: "upload",
+        spaceIds: "[]",
+        visibility: "private",
+        folderId: null,
+        description: "",
+        createdAt: "2026-09-30T00:00:00.000Z",
+      };
+      mocks.getDb.mockReturnValue({
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn().mockResolvedValueOnce([existing]),
+          })),
+        })),
+        update: vi.fn(() => ({
+          set: (values: Record<string, unknown>) => {
+            updates.push(values);
+            return {
+              where: vi.fn(() => ({
+                returning: vi.fn(async () => [{ id: "updated-recording" }]),
+              })),
+            };
+          },
+        })),
+      } as any);
+      mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+      mocks.requireOrganizationAccess.mockResolvedValue({
+        organizationId: "org-1",
+      });
+      mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+      mocks.parseSpaceIds.mockReturnValue([]);
+      mocks.stringifySpaceIds.mockReturnValue("[]");
+      mocks.resolveClipsVideoStorage.mockResolvedValue({
+        mode: "hosted",
+        provider: { id: "clips-hosted", upload: mocks.hostedUpload },
+        hostedRemaining: 0,
+        hostedLimit: 3,
+        maxClipBytes: 100,
+        maxClipDurationMs: 60_000,
+      });
+      mocks.ssrfSafeFetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            type: "video",
+            html: "<iframe></iframe>",
+            title: "Demo",
+            duration: 5,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const result = await importLoomRecording.run({
+        url: sourceUrl,
+        recordingId: existing.id,
+      });
+      return {
+        result,
+        processingUpdate: updates.find((u) => u.status === "processing"),
+      };
+    }
+
+    it("deletes an object that failed verification and unlinks it so the job downloads and verifies afresh", async () => {
+      const { result, processingUpdate } = await retryFailedHostedLoom(
+        "media_verification_failed",
+      );
+
+      expect(result).toMatchObject({ status: "processing" });
+      expect(mocks.deleteS3ObjectByUrl).toHaveBeenCalledWith(staleUrl, {
+        storageMode: "hosted",
+        recordingId: "rec_loom_retry",
+      });
+      expect(processingUpdate).toMatchObject({ videoUrl: null });
+    });
+
+    it("keeps a failed retry loud and the row untouched when the stale object cannot be deleted", async () => {
+      mocks.deleteS3ObjectByUrl.mockResolvedValueOnce(false);
+
+      await expect(
+        retryFailedHostedLoom("media_verification_failed"),
+      ).rejects.toThrow(/could not be deleted/);
+      expect(mocks.dispatchPostFinalizeJob).not.toHaveBeenCalled();
+    });
+
+    it("still reuses a verified object after an unrelated failure", async () => {
+      const { processingUpdate } =
+        await retryFailedHostedLoom("loom_import_failed");
+
+      expect(mocks.deleteS3ObjectByUrl).not.toHaveBeenCalled();
+      expect(processingUpdate).toMatchObject({ videoUrl: staleUrl });
+    });
+  });
+
   it("restarts an expired waiting Loom import in place once storage is connected", async () => {
     const sourceUrl = "https://www.loom.com/share/abcDEF_123456";
     const updateValues = vi.fn();

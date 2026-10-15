@@ -5,6 +5,11 @@ const mockResolveBuilderRequestAuthorization = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
 const mockObjectSize = vi.hoisted(() => vi.fn());
 const mockSubtractBytes = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
 
 vi.mock("./s3-upload-provider.js", () => ({
   deleteS3ObjectByUrl: (...args: unknown[]) => mockDeleteS3ObjectByUrl(...args),
@@ -216,7 +221,9 @@ describe("recording-media-cleanup", () => {
     it("keeps the ledger high rather than guessing when the size is unreadable", async () => {
       mockDeleteS3ObjectByUrl.mockResolvedValue(true);
       mockObjectSize.mockRejectedValue(new Error("network"));
-      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const errorLog = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
 
       const result = await deleteRecordingMediaObjects({
         id: "rec_1",
@@ -226,6 +233,14 @@ describe("recording-media-cleanup", () => {
 
       expect(result.deleted).toBe(1);
       expect(mockSubtractBytes).not.toHaveBeenCalled();
+      expect(errorLog).toHaveBeenCalledOnce();
+      expect(mockTrack).toHaveBeenCalledWith(
+        "clips_hosted_byte_accounting_failed",
+        expect.objectContaining({
+          recording_id: "rec_1",
+          reason: "size_unreadable",
+        }),
+      );
     });
 
     it("still reports the object deleted when the ledger write fails, and says so loudly", async () => {
@@ -247,6 +262,27 @@ describe("recording-media-cleanup", () => {
         expect.stringContaining("retained bytes not reduced"),
         expect.objectContaining({ recordingId: "rec_1" }),
       );
+      expect(mockTrack).toHaveBeenCalledWith(
+        "clips_hosted_byte_accounting_failed",
+        expect.objectContaining({
+          recording_id: "rec_1",
+          reason: "ledger_update_failed",
+        }),
+      );
+      expect(JSON.stringify(mockTrack.mock.calls)).not.toContain(filmstripUrl);
+    });
+
+    it("does not report accounting failure when the delete and ledger update succeed", async () => {
+      mockDeleteS3ObjectByUrl.mockResolvedValue(true);
+      mockObjectSize.mockResolvedValue(10);
+
+      await deleteRecordingMediaObjects({
+        id: "rec_1",
+        storageMode: "hosted",
+        filmstripUrl,
+      });
+
+      expect(mockTrack).not.toHaveBeenCalled();
     });
   });
 

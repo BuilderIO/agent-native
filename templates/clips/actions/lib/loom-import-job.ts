@@ -274,6 +274,7 @@ export async function runLoomImportJob({
   let media: Awaited<ReturnType<typeof downloadLoomVideo>> | null = null;
   let upload: Awaited<ReturnType<typeof uploadFile>> | null = null;
   let resolvedStorageMode = recording.storageMode;
+  let uploadVerified = false;
 
   // An upload that never reached recordings.videoUrl is invisible to the
   // reaper, which would leave the object stored and the reservation held.
@@ -470,6 +471,7 @@ export async function runLoomImportJob({
             );
           }
           videoSizeBytes = verifiedBytes;
+          uploadVerified = true;
           const [persisted] = await db
             .update(schema.recordings)
             .set({
@@ -715,16 +717,22 @@ export async function runLoomImportJob({
     return { status: "ready" };
   } catch (err) {
     await lease.stop();
-    if (!(await linkUnlinkedHostedUpload())) {
+    const linked = await linkUnlinkedHostedUpload();
+    if (!linked) {
       await cleanupUnlinkedHostedUploadAfterTakedown();
     }
     if (lease.failureReason) {
       return { status: "failed", failureReason: lease.failureReason };
     }
+    // An object that never matched the downloaded bytes must not be reused by
+    // an in-place retry; the distinct code is how the retry tells it apart.
     return failLoomImport(
       recordingId,
       err instanceof Error ? err.message : String(err),
       claimId,
+      linked && !uploadVerified
+        ? "media_verification_failed"
+        : "loom_import_failed",
     );
   } finally {
     await lease.stop();

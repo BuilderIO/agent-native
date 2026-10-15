@@ -471,11 +471,30 @@ export default defineAction({
     }
 
     if (isLoom) {
-      const reusableHostedLoomUrl =
+      const failedHostedUrl =
         existingRecording?.status === "failed" &&
         existingRecording.storageMode === "hosted"
           ? existingRecording.videoUrl
           : null;
+      // An object that failed verification against its download is never
+      // promoted: delete it, then let the job download and verify afresh.
+      const staleUnverifiedUrl =
+        existingRecording?.failureCode === "media_verification_failed"
+          ? failedHostedUrl
+          : null;
+      const reusableHostedLoomUrl = staleUnverifiedUrl ? null : failedHostedUrl;
+      if (staleUnverifiedUrl) {
+        const deleted = await deleteS3ObjectByUrl(staleUnverifiedUrl, {
+          storageMode: "hosted",
+          recordingId: id,
+        });
+        if (!deleted) {
+          fail(
+            "The earlier unverified upload for this Loom import could not be deleted. Try again shortly.",
+            { errorCode: "stale_hosted_media_cleanup_failed", statusCode: 502 },
+          );
+        }
+      }
       const recordingValues = {
         ...buildRecordingValues(existingRecording?.videoSizeBytes ?? 0),
         uploadLeaseExpiresAt: uploadLeaseExpiry(),

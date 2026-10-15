@@ -2,6 +2,7 @@ import {
   BUILDER_ASSETS_WRITE_SCOPE,
   resolveBuilderRequestAuthorization,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 
 import { isImageRecording } from "../../shared/recording-kind.js";
 import { subtractHostedClipRetainedBytes } from "./hosted-clip-allowance.js";
@@ -138,16 +139,44 @@ async function deleteBuilderAssetByUrl(
 }
 
 /**
+ * The object is gone but the ledger still holds its bytes, and nothing retries
+ * the subtraction, so the over-count has to be visible to someone.
+ */
+function reportHostedByteAccountingFailure(
+  recordingId: string,
+  reason: "size_unreadable" | "ledger_update_failed",
+  error: unknown,
+): void {
+  console.error("[clips] hosted retained bytes not reduced after delete", {
+    recordingId,
+    reason,
+    error: error instanceof Error ? error.message : String(error),
+  });
+  try {
+    track("clips_hosted_byte_accounting_failed", {
+      app_name: "clips",
+      template_name: "clips",
+      recording_id: recordingId,
+      reason,
+    });
+  } catch {
+    // coercion-ok: analytics is best-effort; the error log above already carries the failure.
+  }
+}
+
+/**
  * Deletes one hosted object and, once the provider confirms, lowers the
  * recording's retained bytes by what it held. An object whose size cannot be
  * read is still deleted and leaves the ledger high: bytes over-counted until
- * the clip is removed beat bytes under-counted against the global cap.
+ * the clip is removed beat bytes under-counted against the global cap. Either
+ * accounting failure is reported, since the deletion result stays `true`.
  */
 async function deleteHostedMediaObject(
   url: string,
   recordingId: string | undefined,
 ): Promise<boolean> {
   let sizeBytes: number | null = null;
+  let sizeError: unknown = null;
   if (recordingId) {
     try {
       sizeBytes = await s3ObjectSizeBytesByUrl(url, {
@@ -155,28 +184,33 @@ async function deleteHostedMediaObject(
         storageMode: "hosted",
       });
     } catch (error) {
-      console.warn("[clips] hosted object size unreadable before delete", {
-        recordingId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      sizeError = error;
     }
   }
   const deleted = await deleteS3ObjectByUrl(url, {
     storageMode: "hosted",
     recordingId,
   });
-  if (deleted && recordingId && sizeBytes) {
-    try {
-      await subtractHostedClipRetainedBytes({
+  if (deleted && recordingId) {
+    if (sizeError) {
+      reportHostedByteAccountingFailure(
         recordingId,
-        deletedBytes: sizeBytes,
-      });
-    } catch (error) {
-      console.error("[clips] hosted retained bytes not reduced after delete", {
-        recordingId,
-        sizeBytes,
-        error: error instanceof Error ? error.message : String(error),
-      });
+        "size_unreadable",
+        sizeError,
+      );
+    } else if (sizeBytes) {
+      try {
+        await subtractHostedClipRetainedBytes({
+          recordingId,
+          deletedBytes: sizeBytes,
+        });
+      } catch (error) {
+        reportHostedByteAccountingFailure(
+          recordingId,
+          "ledger_update_failed",
+          error,
+        );
+      }
     }
   }
   return deleted;

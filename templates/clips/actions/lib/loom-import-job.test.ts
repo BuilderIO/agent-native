@@ -354,6 +354,13 @@ describe("runLoomImportJob", () => {
     );
     expect(linkOrder).toBeGreaterThanOrEqual(0);
     expect(failOrder).toBeGreaterThan(linkOrder);
+    // The distinct code keeps an in-place retry from reusing this object.
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "media_verification_failed",
+      }),
+    );
     expect(mockConsumeHostedClipRecording).not.toHaveBeenCalled();
     expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
   });

@@ -211,9 +211,28 @@ export default defineAction({
       }
     }
 
-    // Hosted media goes before the row: once the row is gone nothing can find
-    // the objects or the allowance, so an unconfirmed delete would strand both.
-    // Deleting an already-deleted object succeeds, so a retry finishes it.
+    // Footage is trashed before the context rows that name it are deleted, so a
+    // failed trash leaves the Clip and its context in place for a retry.
+    const contextItems = await db
+      .select({
+        mediaRecordingId: schema.recordingContextItems.mediaRecordingId,
+        pendingMediaRecordingId:
+          schema.recordingContextItems.pendingMediaRecordingId,
+      })
+      .from(schema.recordingContextItems)
+      .where(eq(schema.recordingContextItems.recordingId, args.id));
+    await trashRecordingContextFootage(
+      contextItems.flatMap((item) => [
+        item.mediaRecordingId,
+        item.pendingMediaRecordingId,
+      ]),
+    );
+
+    // Hosted media goes after every other fallible step and just before the
+    // row: once the row is gone nothing can find the objects or the allowance,
+    // so an unconfirmed delete would strand both, while an earlier delete
+    // would leave a surviving row pointing at deleted objects. Deleting an
+    // already-deleted object succeeds, so a retry finishes it.
     const cleanupProtectedUrls = new Set([...protectedUrls, ...alreadyDeleted]);
     let hostedMediaCleanup: Awaited<
       ReturnType<typeof deleteRecordingMediaObjects>
@@ -232,23 +251,6 @@ export default defineAction({
         );
       }
     }
-
-    // Footage is trashed before the context rows that name it are deleted, so a
-    // failed trash leaves the Clip and its context in place for a retry.
-    const contextItems = await db
-      .select({
-        mediaRecordingId: schema.recordingContextItems.mediaRecordingId,
-        pendingMediaRecordingId:
-          schema.recordingContextItems.pendingMediaRecordingId,
-      })
-      .from(schema.recordingContextItems)
-      .where(eq(schema.recordingContextItems.recordingId, args.id));
-    await trashRecordingContextFootage(
-      contextItems.flatMap((item) => [
-        item.mediaRecordingId,
-        item.pendingMediaRecordingId,
-      ]),
-    );
 
     await db.transaction(async (tx) => {
       // Cascade delete every related row before deleting remote objects. If any
