@@ -2079,6 +2079,135 @@ describe("clipboard source placement", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
+  it("keeps multiple natural-flow roots in flow when repeating a relatively positioned clone", async () => {
+    const roots = [
+      '<section data-agent-native-node-id="flow-one" style="position:static">One</section>',
+      '<section data-agent-native-node-id="flow-two" style="position:static">Two</section>',
+    ];
+    const { args, runtimeInsertRequests } = harness({
+      files: [designFile("live", "live.html", "https://example.com/live")],
+      activeFileId: "live",
+      entries: roots.map((html, index) => ({
+        html,
+        rootNodeId: index === 0 ? "flow-one" : "flow-two",
+        sourceFileId: "home",
+      })),
+    });
+    args.viewModeRef.current = "single";
+    await runPasteSelection(args, { x: 200, y: 220 });
+    const firstId = new DOMParser()
+      .parseFromString(runtimeInsertRequests[0]!.html, "text/html")
+      .body.firstElementChild!.getAttribute("data-agent-native-node-id")!;
+    const selector = `[data-agent-native-node-id="${firstId}"]`;
+    args.selectedElement = {
+      ...selected(firstId),
+      runtimeSourceId: firstId,
+      runtimeSelector: selector,
+      inlineStyles: { position: "relative", left: "200px", top: "220px" },
+    };
+    args.selectedCanvasSelector = selector;
+    await runPasteSelection(args);
+    expect(runtimeInsertRequests).toHaveLength(2);
+    const repeat = runtimeInsertRequests[1]!;
+    const repeatedRoots = [repeat.html, ...(repeat.additionalHtml ?? [])].map(
+      (html) =>
+        new DOMParser().parseFromString(html, "text/html").body
+          .firstElementChild as HTMLElement,
+    );
+    expect(
+      repeatedRoots.map((root) => [
+        root.textContent,
+        root.style.position,
+        root.style.left,
+        root.style.top,
+      ]),
+    ).toEqual([
+      ["One", "", "", ""],
+      ["Two", "", "", ""],
+    ]);
+    expect(repeat.anchor?.selector).toBe(selector);
+    expect(repeat.placement).toBe("after");
+  });
+
+  it("keeps multiple HTML flow roots in flow after a pasted clone gains relative offsets", async () => {
+    const roots = [
+      '<section data-agent-native-node-id="flow-one" style="position:static">One</section>',
+      '<section data-agent-native-node-id="flow-two" style="position:static">Two</section>',
+    ];
+    const { args, writes, contentByFileId } = harness({
+      files: [
+        designFile(
+          "home",
+          "index.html",
+          `<!doctype html><html><body><main data-agent-native-node-id="flow-parent">${roots.join("")}</main></body></html>`,
+        ),
+      ],
+      activeFileId: "home",
+      entries: roots.map((html, index) => ({
+        html,
+        rootNodeId: index === 0 ? "flow-one" : "flow-two",
+        sourceFileId: "home",
+      })),
+      selectedElement: selected("flow-one"),
+    });
+    args.selectedCanvasSelector = args.selectedElement!.selector!;
+    await runPasteSelection(args);
+    const doc = new DOMParser().parseFromString(
+      writes[0]!.content,
+      "text/html",
+    );
+    const firstCopies = pastedCopies(writes[0]!.content).filter(
+      (node) => node.tagName === "SECTION",
+    );
+    expect(firstCopies).toHaveLength(2);
+    const firstId = firstCopies[0]!.getAttribute("data-agent-native-node-id")!;
+    const clone = doc.querySelector<HTMLElement>(
+      `[data-agent-native-node-id="${firstId}"]`,
+    )!;
+    clone.style.position = "relative";
+    clone.style.left = "200px";
+    clone.style.top = "220px";
+    contentByFileId.set("home", doc.documentElement.outerHTML);
+    args.selectedElement = selected(firstId);
+    args.selectedCanvasSelector = args.selectedElement.selector!;
+    await runPasteSelection(args);
+    expect(writes).toHaveLength(2);
+    const firstIds = new Set(
+      firstCopies.map((node) => node.getAttribute("data-agent-native-node-id")),
+    );
+    const repeated = pastedCopies(writes[1]!.content).filter(
+      (node) =>
+        node.tagName === "SECTION" &&
+        !firstIds.has(node.getAttribute("data-agent-native-node-id")),
+    );
+    expect(
+      repeated.map((node) => [
+        node.textContent,
+        node.style.position,
+        node.style.left,
+        node.style.top,
+      ]),
+    ).toEqual([
+      ["One", "static", "", ""],
+      ["Two", "static", "", ""],
+    ]);
+    expect(
+      repeated.map((node) =>
+        node.parentElement?.getAttribute("data-agent-native-node-id"),
+      ),
+    ).toEqual(["flow-parent", "flow-parent"]);
+    expect(
+      repeated[0]!.previousElementSibling?.getAttribute(
+        "data-agent-native-node-id",
+      ),
+    ).toBe(firstId);
+    expect(
+      repeated[1]!.previousElementSibling?.getAttribute(
+        "data-agent-native-node-id",
+      ),
+    ).toBe(repeated[0]!.getAttribute("data-agent-native-node-id"));
+  });
+
   it("repeats an explicitly placed flow copy from its selected position", async () => {
     const flowCard =
       '<section data-agent-native-node-id="flow-card">Flow card</section>';

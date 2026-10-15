@@ -393,6 +393,7 @@ export interface MotionDockProps {
   canvasIframeRef?: React.RefObject<HTMLIFrameElement | null>;
   applying?: boolean;
   readOnly?: boolean;
+  sourceReadUnavailableReason?: string | null;
   autoKeyframe?: boolean;
   onAutoKeyframeChange?: (enabled: boolean) => void;
   playhead?: number;
@@ -428,6 +429,7 @@ export function MotionDock({
   canvasIframeRef,
   applying = false,
   readOnly = false,
+  sourceReadUnavailableReason,
   autoKeyframe: autoKeyframeProp,
   onAutoKeyframeChange,
   playhead: playheadProp,
@@ -2287,6 +2289,16 @@ export function MotionDock({
             </div>
           </div>
         </div>
+
+        {sourceReadUnavailableReason ? (
+          <div
+            data-motion-source-read-unavailable
+            role="status"
+            className="shrink-0 border-b border-border px-3 py-1.5 text-xs text-muted-foreground"
+          >
+            {sourceReadUnavailableReason}
+          </div>
+        ) : null}
 
         {/* Dock body */}
         <div className="flex flex-1 overflow-hidden">

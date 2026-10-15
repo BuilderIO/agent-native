@@ -1155,6 +1155,7 @@ export default {
       timelineDescription:
         "關鍵影格時間軸。{{tracks}} 個軌道，{{keyframes}} 個關鍵影格。使用方向鍵或按住空白鍵拖曳來捲動，捏合或使用 Cmd/Ctrl + 滾輪來縮放，拖曳關鍵影格以移動，使用 Shift/Cmd 多選，按兩下以新增關鍵影格。",
       size: "大小",
+      sourceReadUnavailable: "Motion 無法在不改變其行為的情況下讀取此動畫。",
       sourceWriteUnavailable: "目前，Motion 程式碼只能寫入內嵌 HTML 設計。",
       dockLabel: "動態面板",
       collapseDock: "收起動態面板",

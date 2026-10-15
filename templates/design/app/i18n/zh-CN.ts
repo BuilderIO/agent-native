@@ -1018,6 +1018,7 @@ export default {
       timelineDescription:
         "关键帧时间轴。{{tracks}} 个轨道，{{keyframes}} 个关键帧。使用方向键或按住空格拖动来滚动，捏合或使用 Cmd/Ctrl + 滚轮来缩放，拖动关键帧以移动，使用 Shift/Cmd 多选，双击以添加关键帧。",
       size: "大小",
+      sourceReadUnavailable: "Motion 无法在不改变其行为的情况下读取此动画。",
       sourceWriteUnavailable: "目前，Motion 代码只能写入内嵌 HTML 设计。",
       dockLabel: "运动面板",
       collapseDock: "收起运动面板",

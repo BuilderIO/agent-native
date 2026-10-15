@@ -57,6 +57,26 @@ type MarqueeMessage = {
   payload?: Array<{ sourceId?: string }>;
 };
 
+async function waitForFinalMarqueeMessage(
+  finalMessage: Promise<void>,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      finalMessage,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(new Error("Timed out waiting for final marquee message")),
+          5_000,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 async function marqueeSelectedIds(
   page: import("@playwright/test").Page,
   from: { x: number; y: number },
@@ -65,12 +85,19 @@ async function marqueeSelectedIds(
 ): Promise<{ intent?: MarqueeIntent; selected: string[] }> {
   const selected: string[] = [];
   let finalIntent: MarqueeIntent | undefined;
+  let resolveFinalMessage!: () => void;
+  const finalMessage = new Promise<void>((resolve) => {
+    resolveFinalMessage = resolve;
+  });
   await page.exposeFunction("__pushMarquee", (message: MarqueeMessage) => {
     selected.length = 0;
     selected.push(
       ...(message.payload ?? []).map((item) => item.sourceId ?? ""),
     );
-    if (message.intent?.final) finalIntent = message.intent;
+    if (message.intent?.final) {
+      finalIntent = message.intent;
+      resolveFinalMessage();
+    }
   });
   await page.evaluate(() => {
     window.addEventListener("message", (e: MessageEvent) => {
@@ -86,12 +113,11 @@ async function marqueeSelectedIds(
   if (modifiers.shiftKey) await page.keyboard.down("Shift");
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 8 });
-  await page.waitForTimeout(30);
   await page.mouse.up();
   if (modifiers.shiftKey) await page.keyboard.up("Shift");
   if (modifiers.ctrlKey) await page.keyboard.up("Control");
   if (modifiers.metaKey) await page.keyboard.up("Meta");
-  await page.waitForTimeout(30);
+  await waitForFinalMarqueeMessage(finalMessage);
   return { intent: finalIntent, selected };
 }
 
@@ -228,10 +254,33 @@ describe("marquee selects at the current container level", () => {
         }>;
         intent?: { final?: boolean };
       }> = [];
+      let resolveFinalMessage!: () => void;
+      const finalMessage = new Promise<void>((resolve) => {
+        resolveFinalMessage = resolve;
+      });
       await page.exposeFunction("__captureMarquee", (message: unknown) => {
-        messages.push(message as (typeof messages)[number]);
+        const captured = message as (typeof messages)[number];
+        messages.push(captured);
+        if (captured.intent?.final) resolveFinalMessage();
       });
       await page.setContent(FIXTURE);
+      await page.evaluate(() => {
+        const originalPostMessage = window.postMessage.bind(window);
+        window.postMessage = ((message: unknown) => {
+          const data = message as {
+            intent?: { final?: boolean };
+            type?: string;
+          };
+          if (
+            data?.type === "agent-native:layer-marquee-selection" &&
+            data.intent?.final
+          ) {
+            window.setTimeout(() => originalPostMessage(message, "*"), 50);
+            return;
+          }
+          originalPostMessage(message, "*");
+        }) as typeof window.postMessage;
+      });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.evaluate(() => {
         window.addEventListener("message", (event) => {
@@ -247,7 +296,7 @@ describe("marquee selects at the current container level", () => {
       await page.mouse.move(341, 391);
       await page.mouse.move(342, 392);
       await page.mouse.up();
-      await page.waitForTimeout(30);
+      await waitForFinalMarqueeMessage(finalMessage);
 
       expect(messages).toHaveLength(2);
       expect(messages[0]?.intent?.final).toBe(false);

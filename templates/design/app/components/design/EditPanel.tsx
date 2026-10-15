@@ -555,6 +555,7 @@ interface EditPanelProps {
   motionAudioDurationMs?: number;
   onMotionAudioDurationChange?: (durationMs: number) => void;
   motionWriteUnavailable?: boolean;
+  motionWriteUnavailableReason?: string;
   breakpointContext?: {
     breakpointWidths: readonly number[];
     baseWidthPx: number;
@@ -2281,6 +2282,7 @@ export const EditPanel = memo(function EditPanel({
   motionAudioDurationMs = 1000,
   onMotionAudioDurationChange,
   motionWriteUnavailable = false,
+  motionWriteUnavailableReason,
   breakpointContext,
 }: EditPanelProps) {
   const recentFillColorRef = useRef<string | undefined>(undefined);
@@ -3161,9 +3163,10 @@ export const EditPanel = memo(function EditPanel({
                                 }
                                 disabledReason={
                                   motionWriteUnavailable
-                                    ? t(
+                                    ? (motionWriteUnavailableReason ??
+                                      t(
                                         "designEditor.motion.sourceWriteUnavailable",
-                                      )
+                                      ))
                                     : undefined
                                 }
                                 onCreateTrack={

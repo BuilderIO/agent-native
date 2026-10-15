@@ -296,6 +296,9 @@ function positionsFromSelectedClipboardClone(
   const naturalFlowRoots = sourceLayouts.map(
     (layout) => layout.kind === "flow",
   );
+  if (naturalFlowRoots.every(Boolean) && selectedCloneLayout.kind === "flow") {
+    return undefined;
+  }
   const selectedClonePosition = selectedCloneLayout.position;
   const selectedSourcePosition = sourcePositions[selectedEntryIndex];
   if (sourcePositions.every((source) => source === null)) {
