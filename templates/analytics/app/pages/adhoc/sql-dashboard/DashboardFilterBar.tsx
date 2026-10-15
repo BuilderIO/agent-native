@@ -44,10 +44,10 @@ import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import {
   FILTER_PARAM_PREFIX,
   isDateRangePresetFilter,
-  isFilterPreset,
   MULTI_SELECT_EMPTY,
   resolveDefault,
   resolveFilterVars,
+  usableFilterPresets,
 } from "./filter-vars";
 import type { DashboardFilter, FilterPreset } from "./types";
 
@@ -424,11 +424,7 @@ function MultiSelectFilter({
       options.find((option) => option.value === selectedValue)?.label ??
       selectedValue,
   );
-  // Saves reject a malformed preset, but a config edited through the shared
-  // document reaches this render unchecked; skip the bad preset, not the page.
-  const presets = Array.isArray(filter.presets)
-    ? filter.presets.filter(isFilterPreset)
-    : [];
+  const presets = usableFilterPresets(filter.presets, seenOptionValues);
   const presetSelected = (preset: FilterPreset) =>
     new Set(preset.values).size === selectedSet.size &&
     preset.values.every((presetValue) => selectedSet.has(presetValue));

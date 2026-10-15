@@ -75,6 +75,48 @@ export function isFilterPreset(value: unknown): value is FilterPreset {
   );
 }
 
+// The one usability check for presets, aligned with the input: null for a
+// usable preset, else why not. Saves reject the first issue. The filter bar
+// skips each unusable preset, because a config edited through the shared
+// document reaches it unchecked and isDashboardFilter stays structural so it
+// never drops the whole filter set.
+export function filterPresetIssues(
+  presets: readonly unknown[],
+  optionValues: ReadonlySet<string>,
+): (string | null)[] {
+  const labels = new Set<string>();
+  return presets.map((preset) => {
+    if (
+      !isFilterPreset(preset) ||
+      preset.label.trim() === "" ||
+      preset.values.length === 0
+    ) {
+      return "must be an object with a non-empty label and a non-empty values array";
+    }
+    if (labels.has(preset.label)) {
+      return `label "${preset.label}" repeats an earlier preset`;
+    }
+    // A value with no checkbox would be applied to SQL unseen, as with the default.
+    const unknown = preset.values.find((value) => !optionValues.has(value));
+    if (unknown !== undefined) {
+      return `names "${unknown}", which is not one of its options`;
+    }
+    labels.add(preset.label);
+    return null;
+  });
+}
+
+export function usableFilterPresets(
+  presets: unknown,
+  optionValues: ReadonlySet<string>,
+): FilterPreset[] {
+  if (!Array.isArray(presets)) return [];
+  const issues = filterPresetIssues(presets, optionValues);
+  return presets.filter(
+    (preset, index): preset is FilterPreset => issues[index] === null,
+  );
+}
+
 export function isDateRangePresetFilter(filter: DashboardFilter): boolean {
   if (filter.type !== "select" || !filter.options?.length) return false;
   const isRange = (value: string) => /^\d+d$/.test(value);

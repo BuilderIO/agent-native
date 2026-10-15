@@ -376,6 +376,30 @@ describe("multi-select dashboard filter", () => {
       );
     });
 
+    it("skips presets a save would reject, so none applies values without checkboxes", () => {
+      const unusable = [
+        {
+          ...filters[0],
+          presets: [
+            { label: "Nothing", values: [] },
+            { label: "Ghost", values: ["free", "legacy"] },
+            { label: "Paid", values: ["self_serve", "enterprise"] },
+            { label: "Paid", values: ["free"] },
+          ],
+        },
+      ] as unknown as DashboardFilter[];
+      render("/dashboards/test?f_plan=__empty__", unusable);
+      expect(trigger().textContent).not.toContain("Nothing");
+
+      act(() => trigger().click());
+      const group = popover().querySelector('[role="group"]');
+      expect(
+        [...(group?.querySelectorAll("button") ?? [])].map(
+          (button) => button.textContent,
+        ),
+      ).toEqual(["Paid"]);
+    });
+
     it("renders no presets when the presets field is not a list", () => {
       const malformed = [
         { ...filters[0], presets: "Paid" },

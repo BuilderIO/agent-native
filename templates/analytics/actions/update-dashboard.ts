@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import {
   FILTER_TYPES,
+  filterPresetIssues,
   MULTI_SELECT_EMPTY,
   normalizeMultiSelectValue,
 } from "../app/pages/adhoc/sql-dashboard/filter-vars";
@@ -378,40 +379,12 @@ function collectDashboardConfigIssues(
         const optionValues = new Set(
           options.map((option) => (option as { value: string }).value),
         );
-        const labels = new Set<string>();
-        for (let j = 0; j < f.presets.length; j++) {
-          const preset = f.presets[j] as {
-            label?: unknown;
-            values?: unknown;
-          } | null;
-          if (
-            !preset ||
-            typeof preset !== "object" ||
-            typeof preset.label !== "string" ||
-            preset.label.trim() === "" ||
-            !Array.isArray(preset.values) ||
-            preset.values.length === 0 ||
-            !preset.values.every((value) => typeof value === "string")
-          ) {
-            return dashboardIssue(
-              `config.filters[${i}].presets[${j}] must be an object with a non-empty label and a non-empty values array`,
-            );
-          }
-          if (labels.has(preset.label)) {
-            return dashboardIssue(
-              `config.filters[${i}].presets[${j}].label "${preset.label}" repeats an earlier preset`,
-            );
-          }
-          labels.add(preset.label);
-          // A value with no checkbox would be applied to SQL unseen, as with the default.
-          const unknown = (preset.values as string[]).find(
-            (value) => !optionValues.has(value),
+        const issues = filterPresetIssues(f.presets, optionValues);
+        const j = issues.findIndex((issue) => issue !== null);
+        if (j !== -1) {
+          return dashboardIssue(
+            `config.filters[${i}].presets[${j}] ${issues[j]}`,
           );
-          if (unknown !== undefined) {
-            return dashboardIssue(
-              `config.filters[${i}].presets[${j}] names "${unknown}", which is not one of its options`,
-            );
-          }
         }
       }
       if (seen.has(id)) continue;
