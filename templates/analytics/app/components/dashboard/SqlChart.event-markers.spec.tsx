@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
-  keyDateSets: [] as unknown[],
+  /** Undefined until a load succeeds; a failed refresh keeps the last list. */
+  keyDateSets: [] as unknown[] | undefined,
   dataNotes: [] as unknown[],
   keyDatesFailed: false,
   dataNotesFailed: false,
+  dataNotesRefetchFailed: false,
   t: (key: string) => key,
   toastError: vi.fn(),
 }));
@@ -17,13 +19,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) =>
     name === "list-key-dates"
-      ? mocks.keyDatesFailed
-        ? { data: undefined, isError: true }
-        : { data: { sets: mocks.keyDateSets }, isError: false }
+      ? {
+          data: mocks.keyDateSets && { sets: mocks.keyDateSets },
+          isError: mocks.keyDatesFailed,
+        }
       : name === "list-data-notes"
         ? mocks.dataNotesFailed
           ? { data: undefined, isError: true }
-          : { data: { notes: mocks.dataNotes }, isError: false }
+          : {
+              data: { notes: mocks.dataNotes },
+              isError: mocks.dataNotesRefetchFailed,
+            }
         : { data: undefined, isError: false },
   useDemoModeStatus: () => ({
     enabled: false,
@@ -136,6 +142,7 @@ describe("SqlChart key-date markers", () => {
     mocks.dataNotes = [];
     mocks.keyDatesFailed = false;
     mocks.dataNotesFailed = false;
+    mocks.dataNotesRefetchFailed = false;
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
@@ -260,6 +267,7 @@ describe("SqlChart key-date markers", () => {
     });
 
     it("says once that key dates failed to load, and keeps each chart's own markers", async () => {
+      mocks.keyDateSets = undefined;
       mocks.keyDatesFailed = true;
       await act(async () => {
         root.render(
@@ -274,6 +282,24 @@ describe("SqlChart key-date markers", () => {
         "dashboard.keyDatesUnavailable",
         { id: "key-dates-unavailable" },
       );
+      expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(4);
+    });
+
+    it("says a refresh failed, and keeps the key dates it already drew", async () => {
+      mocks.keyDatesFailed = true;
+      await act(async () => {
+        root.render(
+          <DashboardAnnotationsProvider>
+            <SqlChart panel={panel("line")} />
+          </DashboardAnnotationsProvider>,
+        );
+      });
+      expect(mocks.toastError).toHaveBeenCalledTimes(1);
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "dashboard.keyDatesUnavailable",
+        { id: "key-dates-unavailable" },
+      );
+      // The panel's Oct 12 and Oct 14 markers, plus the cached Oct 11 and Oct 13 key dates.
       expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(4);
     });
 
@@ -562,6 +588,22 @@ describe("SqlChart key-date markers", () => {
       }
     });
 
+    it("writes a note that falls between the rows' dates under the chart, shading none of them", async () => {
+      // Days with no failures have no row: Oct 10–12 sit between Oct 8 and Oct 13.
+      mocks.rows = [
+        { day: "2026-10-08", people: 3 },
+        { day: "2026-10-13", people: 40 },
+      ];
+      mocks.dataNotes = [
+        { ...SETUP_INCIDENT, startDate: "2026-10-10", endDate: "2026-10-12" },
+      ];
+      await renderInDashboard(failures("line"));
+      expect(container.querySelector("[data-data-note-band]")).toBeNull();
+      expect(
+        container.querySelector("[data-data-note-lines]")?.textContent,
+      ).toContain(SETUP_INCIDENT.title);
+    });
+
     it("writes the note under a chart whose x-axis is not dates", async () => {
       mocks.rows = [
         { day: "Signup", people: 120 },
@@ -590,6 +632,18 @@ describe("SqlChart key-date markers", () => {
         { id: "data-notes-unavailable" },
       );
       expect(container.querySelector("[data-data-note-band]")).toBeNull();
+    });
+
+    it("says data notes failed to refresh, and keeps drawing the ones it has", async () => {
+      mocks.dataNotesRefetchFailed = true;
+      await renderInDashboard(failures("line"));
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "dashboard.dataNotesUnavailable",
+        { id: "data-notes-unavailable" },
+      );
+      expect(container.querySelectorAll("[data-data-note-band]")).toHaveLength(
+        1,
+      );
     });
   });
 });

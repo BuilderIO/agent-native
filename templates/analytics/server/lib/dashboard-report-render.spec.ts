@@ -1114,6 +1114,19 @@ describe("renderReportEmail data notes", () => {
     expect(email.text).toContain("! Builder.io account setup failures (Oct 9");
   });
 
+  it("writes a note that falls between the chart's dates under it, without a band", async () => {
+    // The rows skip Oct 10–12, so no x value stands for those days.
+    const email = await render("line", [
+      { ...SETUP_INCIDENT, startDate: "2026-10-10", endDate: "2026-10-12" },
+    ]);
+    expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({
+      bands: [],
+    });
+    expect(email.html).toContain(
+      "<strong>Builder.io account setup failures</strong>",
+    );
+  });
+
   it("leaves off a note whose dates are outside the chart", async () => {
     const email = await render("line", [SKIPS_UNTRACKED]);
     expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({

@@ -174,6 +174,22 @@ function containingBucket(points: readonly number[], target: number): number {
   return best;
 }
 
+/** The earliest row written on `day`, or -1 when no row is. */
+function firstRowOfDay(
+  rows: readonly { instant: number; day: number }[],
+  day: number,
+): number {
+  let best = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (
+      rows[i].day === day &&
+      (best < 0 || rows[i].instant < rows[best].instant)
+    )
+      best = i;
+  }
+  return best;
+}
+
 /**
  * The calendar day an x value is written on, as UTC ms. A zoned timestamp
  * keeps its own date: local midnight east of UTC is the previous UTC day.
@@ -184,47 +200,113 @@ function xDay(value: unknown, instant: number): number {
     : Math.floor(instant / DAY_MS) * DAY_MS;
 }
 
+/** A row whose x is a date: the instant it names and the calendar day it is written on. */
+export interface XDatePoint {
+  row: number;
+  instant: number;
+  day: number;
+}
+
+/** The rows whose x `toInstant` reads as a date, skipping a null bucket or a total row. */
+export function xDatePoints(
+  xValues: readonly unknown[],
+  toInstant: (value: unknown) => number | null = xInstant,
+): XDatePoint[] {
+  return xValues.flatMap((x, row) => {
+    const instant = toInstant(x);
+    return instant === null ? [] : [{ row, instant, day: xDay(x, instant) }];
+  });
+}
+
+/**
+ * How much time each x value stands for: the shortest step between points
+ * on an axis with several a day, otherwise whole calendar days or months.
+ */
+export type XCadence =
+  | { unit: "time"; step: number }
+  | { unit: "days" | "months"; count: number };
+
+/**
+ * Cadence comes from the calendar dates the points fall on, not the gaps
+ * between them: local midnights 23 or 25 hours apart across a daylight-saving
+ * change are still one point a day, and days a query returned no row for do
+ * not stretch the points either side. Points all on the first of a month step
+ * by months (quarters or years when they all start one), points all on one
+ * weekday by weeks, and anything else, or a lone point, by days.
+ */
+export function xCadence(points: readonly XDatePoint[]): XCadence {
+  const days = [...new Set(points.map((point) => point.day))];
+  if (new Set(points.map((point) => point.instant)).size > days.length) {
+    const instants = points.map((point) => point.instant);
+    const gaps = instants
+      .slice(1)
+      .map((instant, index) => Math.abs(instant - instants[index]))
+      .filter((gap) => gap > 0);
+    return { unit: "time", step: Math.min(...gaps) };
+  }
+  if (days.length < 2) return { unit: "days", count: 1 };
+  const dates = days.map((day) => new Date(day));
+  if (dates.every((date) => date.getUTCDate() === 1)) {
+    const months = dates.map((date) => date.getUTCMonth());
+    const count = months.every((month) => month === 0)
+      ? 12
+      : months.every((month) => month % 3 === 0)
+        ? 3
+        : 1;
+    return { unit: "months", count };
+  }
+  const weekday = dates[0].getUTCDay();
+  const weekly = dates.every((date) => date.getUTCDay() === weekday);
+  return { unit: "days", count: weekly ? 7 : 1 };
+}
+
+/** Where the bucket starting at `start` ends, exclusive. */
+export function xBucketEnd(cadence: XCadence, start: number): number {
+  if (cadence.unit === "time") return start + cadence.step;
+  if (cadence.unit === "days") return start + cadence.count * DAY_MS;
+  const date = new Date(start);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + cadence.count, 1);
+}
+
 /**
  * Snaps each event to the nearest x value. Daily axes match on the event's
- * date; an axis with several points per day matches on its time of day too.
- * Rows whose x is not a date (a null bucket, a total row) are skipped; events
- * outside the x range, and x axes with no dates at all, resolve to nothing.
+ * date. On an axis with several points per day, a timed event marks the
+ * bucket its instant falls in, and an untimed one the first row written on
+ * its date, or nothing when no row is. Rows whose x is not a date (a null
+ * bucket, a total row) are skipped; events outside the x range, and x axes
+ * with no dates at all, resolve to nothing.
  */
 export function resolvePanelEvents(
   events: unknown,
   xValues: readonly unknown[],
 ): ResolvedPanelEvent[] {
   if (!Array.isArray(events)) return [];
-  const rows = xValues.flatMap((x, row) => {
-    const instant = xInstant(x);
-    return instant === null ? [] : [{ row, instant, day: xDay(x, instant) }];
-  });
+  const rows = xDatePoints(xValues);
   if (rows.length === 0) return [];
-  // Cadence comes from calendar dates, not gaps: local midnights 23 or 25
-  // hours apart across a daylight-saving change are still one point a day.
-  const subDaily =
-    new Set(rows.map((entry) => entry.instant)).size >
-    new Set(rows.map((entry) => entry.day)).size;
+  const cadence = xCadence(rows);
+  const subDaily = cadence.unit === "time";
   const points = rows.map((entry) => (subDaily ? entry.instant : entry.day));
   const min = Math.min(...points);
   const max = Math.max(...points);
-  const step = subDaily
-    ? Math.min(
-        ...points
-          .slice(1)
-          .map((point, index) => Math.abs(point - points[index]))
-          .filter((gap) => gap > 0),
-      )
-    : 0;
+  const step = subDaily ? cadence.step : 0;
+
+  const rowFor = (event: PanelEvent): number => {
+    // Not UTC midnight: on offset rows that is an hour of another day, and in
+    // a window that starts later in the day it is before the first row.
+    if (subDaily && !event.time) {
+      return firstRowOfDay(rows, Date.parse(event.date));
+    }
+    const target = subDaily ? panelEventInstant(event) : Date.parse(event.date);
+    if (target < min || target >= max + Math.max(step, 1)) return -1;
+    return subDaily
+      ? containingBucket(points, target)
+      : nearestPoint(points, target);
+  };
 
   const resolved: ResolvedPanelEvent[] = [];
   for (const event of events) {
     if (!isValidPanelEvent(event)) continue;
-    const target = subDaily ? panelEventInstant(event) : Date.parse(event.date);
-    if (target < min || target >= max + Math.max(step, 1)) continue;
-    const best = subDaily
-      ? containingBucket(points, target)
-      : nearestPoint(points, target);
+    const best = rowFor(event);
     if (best < 0) continue;
     const { row } = rows[best];
     resolved.push({

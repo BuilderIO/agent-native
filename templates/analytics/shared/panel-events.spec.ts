@@ -184,6 +184,49 @@ describe("event time of day", () => {
     ]);
   });
 
+  it("puts an untimed event on the first hour written on its date when the hours carry an offset", () => {
+    const pacific = ["2026-10-14", "2026-10-15"].flatMap((date) =>
+      Array.from(
+        { length: 24 },
+        (_, hour) => `${date}T${String(hour).padStart(2, "0")}:00:00-07:00`,
+      ),
+    );
+    const marked = (date: string) =>
+      resolvePanelEvents([{ date, label: date }], pacific).map(
+        (event) => event.x,
+      );
+    // UTC midnight on Oct 14 is 5 PM the day before, ahead of the first row.
+    expect(marked("2026-10-14")).toEqual(["2026-10-14T00:00:00-07:00"]);
+    // UTC midnight on Oct 15 and 16 is 5 PM on the 14th and 15th here.
+    expect(marked("2026-10-15")).toEqual(["2026-10-15T00:00:00-07:00"]);
+    expect(marked("2026-10-16")).toEqual([]);
+  });
+
+  it("puts an untimed event on the first visible hour of a window that starts later in its day", () => {
+    const workday = [
+      null,
+      ...Array.from(
+        { length: 9 },
+        (_, hour) => `2026-10-14 ${String(hour + 9).padStart(2, "0")}:00:00`,
+      ),
+    ];
+    const resolved = resolvePanelEvents(
+      [{ date: "2026-10-14", label: "Launch" }, productHunt, launchPosts],
+      workday,
+    );
+    // Product Hunt went live at 07:01 UTC, before the window opens.
+    expect(
+      resolved.map(({ index, x, label }) => ({ index, x, label })),
+    ).toEqual([
+      { index: 1, x: "2026-10-14 09:00:00", label: "Launch" },
+      {
+        index: 8,
+        x: "2026-10-14 16:00:00",
+        label: "Launch posts on X, LinkedIn",
+      },
+    ]);
+  });
+
   it("ignores a time zone without a time, and unknown zones", () => {
     expect(
       resolvePanelEvents(
