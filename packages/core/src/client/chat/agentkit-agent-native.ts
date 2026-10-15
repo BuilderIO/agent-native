@@ -1,4 +1,7 @@
-import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
+import {
+  AgentKitCapabilityError,
+  AgentKitRunSlotBusyError,
+} from "@agent-native/agentkit/client";
 import type {
   AgentAnnotation,
   AgentAnnotationSnapshot,
@@ -4352,24 +4355,41 @@ export function createAgentNativeAgentKitTransport(
           })();
       let supported = false;
       if (serverBackedCapabilities) {
-        const response = await fetcher(capabilitiesUrl, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-          credentials: "same-origin",
-          cache: "no-store",
-          ...(context?.signal ? { signal: context.signal } : {}),
-        });
+        const unavailableError = () =>
+          new AgentKitCapabilityError(
+            capability,
+            "unavailable",
+            "We couldn't check prompt recovery support right now. Try again shortly.",
+            true,
+          );
+        let response: Response;
+        try {
+          response = await fetcher(capabilitiesUrl, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            credentials: "same-origin",
+            cache: "no-store",
+            ...(context?.signal ? { signal: context.signal } : {}),
+          });
+        } catch (error) {
+          if (context?.signal?.aborted) throw error;
+          throw unavailableError();
+        }
         if (
           !response.ok &&
           response.status !== 404 &&
           response.status !== 405
         ) {
-          throw new Error(
-            `Could not check server capability support (${response.status}).`,
-          );
+          throw unavailableError();
         }
         if (response.ok) {
-          const serverCapabilities = asRecord(await response.json());
+          let serverCapabilities: Record<string, unknown> | undefined;
+          try {
+            serverCapabilities = asRecord(await response.json());
+          } catch (error) {
+            if (context?.signal?.aborted) throw error;
+            throw unavailableError();
+          }
           supported = serverCapabilities?.[capability] === true;
         }
       }
