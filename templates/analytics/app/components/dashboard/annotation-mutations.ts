@@ -1,35 +1,101 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import type { DataNote } from "@shared/data-notes";
 import type { KeyDate, KeyDateSet } from "@shared/key-dates";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
-const DATA_NOTES_KEY = ["action", "list-data-notes", undefined];
-const KEY_DATES_KEY = ["action", "list-key-dates", undefined];
-
-type NotesData = { notes: DataNote[] };
-type SetsData = { sets: KeyDateSet[] };
-type Snapshot<T> = { previous: T | undefined };
-
-const PENDING_ID = "pending";
-
-async function snapshot<T>(
-  client: QueryClient,
-  key: readonly unknown[],
-  update: (data: T) => T,
-): Promise<Snapshot<T>> {
-  await client.cancelQueries({ queryKey: key });
-  const previous = client.getQueryData<T>(key);
-  if (previous) client.setQueryData<T>(key, update(previous));
-  return { previous };
+/** An annotation list query and how to reach the items in its result. */
+interface AnnotationList<Data, Item> {
+  action: "list-data-notes" | "list-key-dates";
+  items(data: Data): Item[];
+  with(data: Data, items: Item[]): Data;
 }
 
-function restore<T>(
-  client: QueryClient,
-  key: readonly unknown[],
-  context: unknown,
+const DATA_NOTES: AnnotationList<{ notes: DataNote[] }, DataNote> = {
+  action: "list-data-notes",
+  items: (data) => data.notes,
+  with: (data, notes) => ({ ...data, notes }),
+};
+
+const KEY_DATE_SETS: AnnotationList<{ sets: KeyDateSet[] }, KeyDateSet> = {
+  action: "list-key-dates",
+  items: (data) => data.sets,
+  with: (data, sets) => ({ ...data, sets }),
+};
+
+/** An optimistic edit, and how to take back only that edit. */
+type Change<T> = { next: T; revert: (current: T) => T };
+
+let pendingCount = 0;
+/** Unique, so a failed add takes back its own placeholder and no other. */
+const pendingId = () => `pending-${++pendingCount}`;
+
+function insertAt<T>(items: readonly T[], index: number, item: T): T[] {
+  return [...items.slice(0, index), item, ...items.slice(index)];
+}
+
+function removeItem<T extends { id: string }>(
+  items: T[],
+  id: string,
+): Change<T[]> {
+  const index = items.findIndex((item) => item.id === id);
+  const removed = items[index];
+  return {
+    next: items.filter((item) => item.id !== id),
+    revert: (current) =>
+      !removed || current.some((item) => item.id === id)
+        ? current
+        : insertAt(current, index, removed),
+  };
+}
+
+/**
+ * Writes an annotation list optimistically. Failures toast here rather than
+ * through `mutate`'s per-call callbacks: those never run once the dialog that
+ * called `mutate` has closed. A failure reverts only its own change, since
+ * restoring a snapshot would also erase other writes still in flight, and the
+ * list refetches once the last overlapping write settles.
+ */
+function useAnnotationWrite<TInput, Data, Item>(
+  action: string,
+  list: AnnotationList<Data, Item>,
+  failure: "annotations.saveFailed" | "annotations.deleteFailed",
+  change: (items: Item[], input: TInput) => Change<Item[]>,
 ) {
-  const previous = (context as Snapshot<T> | undefined)?.previous;
-  if (previous) client.setQueryData<T>(key, previous);
+  const client = useQueryClient();
+  const t = useT();
+  const queryKey = ["action", list.action, undefined];
+  const mutationKey = ["annotation-write", list.action];
+  return useActionMutation<unknown, TInput>(action, {
+    mutationKey,
+    skipActionQueryInvalidation: true,
+    onMutate: async (input) => {
+      await client.cancelQueries({ queryKey });
+      const data = client.getQueryData<Data>(queryKey);
+      if (!data) return undefined;
+      const { next, revert } = change(list.items(data), input as TInput);
+      client.setQueryData<Data>(queryKey, list.with(data, next));
+      return { revert };
+    },
+    onError: (error, _input, context) => {
+      const revert = (context as Pick<Change<Item[]>, "revert"> | undefined)
+        ?.revert;
+      if (revert) {
+        client.setQueryData<Data>(
+          queryKey,
+          (current) =>
+            current && list.with(current, revert(list.items(current))),
+        );
+      }
+      toast.error(t(failure, { message: error.message }));
+    },
+    onSettled: () => {
+      // The settling write still counts as pending here.
+      if (client.isMutating({ mutationKey }) > 1) return;
+      void client.invalidateQueries({ queryKey: ["action", list.action] });
+    },
+  });
 }
 
 export type DataNoteInput = Partial<
@@ -56,48 +122,49 @@ function patchNote(note: DataNote, input: DataNoteInput): DataNote {
 
 /** Saves a data note, showing the change before the server confirms it. */
 export function useSaveDataNote() {
-  const client = useQueryClient();
-  return useActionMutation<DataNote, DataNoteInput>("save-data-note", {
-    onMutate: (input) =>
-      snapshot<NotesData>(client, DATA_NOTES_KEY, (data) => ({
-        notes: input.id
-          ? data.notes.map((note) =>
-              note.id === input.id ? patchNote(note, input) : note,
-            )
-          : [
-              patchNote(
-                {
-                  id: PENDING_ID,
-                  kind: "data",
-                  title: "",
-                  note: "",
-                  status: "open",
-                  matchEvents: [],
-                  unlessEvents: [],
-                  panels: [],
-                  addedBy: "",
-                  updatedAt: new Date().toISOString(),
-                },
-                input,
-              ),
-              ...data.notes,
-            ],
-      })),
-    onError: (_error, _input, context) =>
-      restore<NotesData>(client, DATA_NOTES_KEY, context),
-  });
+  return useAnnotationWrite(
+    "save-data-note",
+    DATA_NOTES,
+    "annotations.saveFailed",
+    (notes, input: DataNoteInput): Change<DataNote[]> => {
+      const { id } = input;
+      if (!id) {
+        const added = pendingId();
+        const blank: DataNote = {
+          id: added,
+          kind: "data",
+          title: "",
+          note: "",
+          status: "open",
+          matchEvents: [],
+          unlessEvents: [],
+          panels: [],
+          addedBy: "",
+          updatedAt: new Date().toISOString(),
+        };
+        return {
+          next: [patchNote(blank, input), ...notes],
+          revert: (current) => current.filter((note) => note.id !== added),
+        };
+      }
+      const before = notes.find((note) => note.id === id);
+      const replace = (current: DataNote[], note: DataNote) =>
+        current.map((other) => (other.id === id ? note : other));
+      return {
+        next: before ? replace(notes, patchNote(before, input)) : notes,
+        revert: (current) => (before ? replace(current, before) : current),
+      };
+    },
+  );
 }
 
 export function useDeleteDataNote() {
-  const client = useQueryClient();
-  return useActionMutation<{ id: string }, { id: string }>("delete-data-note", {
-    onMutate: ({ id }) =>
-      snapshot<NotesData>(client, DATA_NOTES_KEY, (data) => ({
-        notes: data.notes.filter((note) => note.id !== id),
-      })),
-    onError: (_error, _input, context) =>
-      restore<NotesData>(client, DATA_NOTES_KEY, context),
-  });
+  return useAnnotationWrite(
+    "delete-data-note",
+    DATA_NOTES,
+    "annotations.deleteFailed",
+    (notes, { id }: { id: string }) => removeItem(notes, id),
+  );
 }
 
 export type KeyDateInput = {
@@ -110,32 +177,58 @@ export type KeyDateInput = {
   label: string;
 };
 
-function withKeyDate(sets: KeyDateSet[], input: KeyDateInput): KeyDateSet[] {
-  const { id, setId, setName, ...fields } = input;
+type PlacedKeyDate = { date: KeyDate; index: number };
+
+function findKeyDate(
+  sets: readonly KeyDateSet[],
+  id: string,
+): PlacedKeyDate | undefined {
+  for (const set of sets) {
+    const index = set.dates.findIndex((date) => date.id === id);
+    if (index >= 0) return { date: set.dates[index], index };
+  }
+  return undefined;
+}
+
+const withoutKeyDate = (sets: KeyDateSet[], id: string) =>
+  sets.map((set) =>
+    set.dates.some((date) => date.id === id)
+      ? { ...set, dates: set.dates.filter((date) => date.id !== id) }
+      : set,
+  );
+
+/** Puts a key date back where it was, unless its set is gone or has it again. */
+const withKeyDateBack = (sets: KeyDateSet[], { date, index }: PlacedKeyDate) =>
+  sets.map((set) =>
+    set.id === date.setId && !set.dates.some((other) => other.id === date.id)
+      ? { ...set, dates: insertAt(set.dates, index, date) }
+      : set,
+  );
+
+function withKeyDate(
+  sets: KeyDateSet[],
+  input: KeyDateInput,
+  ids: { date: string; newSet: string },
+): KeyDateSet[] {
+  const { id: _id, setId, setName, ...fields } = input;
   const target =
     sets.find((set) => set.id === setId) ??
     sets.find(
       (set) => set.name.toLowerCase() === setName?.trim().toLowerCase(),
     );
-  const existing = sets
-    .flatMap((set) => set.dates)
-    .find((date) => id && date.id === id);
   const date: KeyDate = {
-    id: id ?? PENDING_ID,
-    setId: target?.id ?? PENDING_ID,
-    addedBy: existing?.addedBy ?? "",
+    id: ids.date,
+    setId: target?.id ?? ids.newSet,
+    addedBy: findKeyDate(sets, ids.date)?.date.addedBy ?? "",
     updatedAt: new Date().toISOString(),
     ...fields,
   };
-  const without = sets.map((set) => ({
-    ...set,
-    dates: set.dates.filter((other) => other.id !== id),
-  }));
+  const without = withoutKeyDate(sets, ids.date);
   if (!target) {
     return [
       ...without,
       {
-        id: PENDING_ID,
+        id: ids.newSet,
         name: setName?.trim() ?? "",
         createdBy: "",
         updatedAt: date.updatedAt,
@@ -150,57 +243,66 @@ function withKeyDate(sets: KeyDateSet[], input: KeyDateInput): KeyDateSet[] {
 
 /** Saves a key date, showing it on charts before the server confirms it. */
 export function useSaveKeyDate() {
-  const client = useQueryClient();
-  return useActionMutation<KeyDate, KeyDateInput>("save-key-date", {
-    onMutate: (input) =>
-      snapshot<SetsData>(client, KEY_DATES_KEY, (data) => ({
-        sets: withKeyDate(data.sets, input),
-      })),
-    onError: (_error, _input, context) =>
-      restore<SetsData>(client, KEY_DATES_KEY, context),
-  });
+  return useAnnotationWrite(
+    "save-key-date",
+    KEY_DATE_SETS,
+    "annotations.saveFailed",
+    (sets, input: KeyDateInput): Change<KeyDateSet[]> => {
+      const ids = { date: input.id ?? pendingId(), newSet: pendingId() };
+      const before = input.id ? findKeyDate(sets, input.id) : undefined;
+      return {
+        next: withKeyDate(sets, input, ids),
+        revert: (current) => {
+          const reverted = withoutKeyDate(
+            current.filter((set) => set.id !== ids.newSet),
+            ids.date,
+          );
+          return before ? withKeyDateBack(reverted, before) : reverted;
+        },
+      };
+    },
+  );
 }
 
 export function useDeleteKeyDate() {
-  const client = useQueryClient();
-  return useActionMutation<{ id: string }, { id: string }>("delete-key-date", {
-    onMutate: ({ id }) =>
-      snapshot<SetsData>(client, KEY_DATES_KEY, (data) => ({
-        sets: data.sets.map((set) => ({
-          ...set,
-          dates: set.dates.filter((date) => date.id !== id),
-        })),
-      })),
-    onError: (_error, _input, context) =>
-      restore<SetsData>(client, KEY_DATES_KEY, context),
-  });
+  return useAnnotationWrite(
+    "delete-key-date",
+    KEY_DATE_SETS,
+    "annotations.deleteFailed",
+    (sets, { id }: { id: string }): Change<KeyDateSet[]> => {
+      const before = findKeyDate(sets, id);
+      return {
+        next: withoutKeyDate(sets, id),
+        revert: (current) =>
+          before ? withKeyDateBack(current, before) : current,
+      };
+    },
+  );
 }
 
 export function useRenameKeyDateSet() {
-  const client = useQueryClient();
-  return useActionMutation<unknown, { id: string; name: string }>(
+  return useAnnotationWrite(
     "save-key-date-set",
-    {
-      onMutate: ({ id, name }) =>
-        snapshot<SetsData>(client, KEY_DATES_KEY, (data) => ({
-          sets: data.sets.map((set) =>
-            set.id === id ? { ...set, name } : set,
-          ),
-        })),
-      onError: (_error, _input, context) =>
-        restore<SetsData>(client, KEY_DATES_KEY, context),
+    KEY_DATE_SETS,
+    "annotations.saveFailed",
+    (sets, { id, name }: { id: string; name: string }) => {
+      const before = sets.find((set) => set.id === id)?.name;
+      const rename = (current: KeyDateSet[], to: string) =>
+        current.map((set) => (set.id === id ? { ...set, name: to } : set));
+      return {
+        next: rename(sets, name),
+        revert: (current) =>
+          before === undefined ? current : rename(current, before),
+      };
     },
   );
 }
 
 export function useDeleteKeyDateSet() {
-  const client = useQueryClient();
-  return useActionMutation<unknown, { id: string }>("delete-key-date-set", {
-    onMutate: ({ id }) =>
-      snapshot<SetsData>(client, KEY_DATES_KEY, (data) => ({
-        sets: data.sets.filter((set) => set.id !== id),
-      })),
-    onError: (_error, _input, context) =>
-      restore<SetsData>(client, KEY_DATES_KEY, context),
-  });
+  return useAnnotationWrite(
+    "delete-key-date-set",
+    KEY_DATE_SETS,
+    "annotations.deleteFailed",
+    (sets, { id }: { id: string }) => removeItem(sets, id),
+  );
 }

@@ -8,7 +8,6 @@ import {
 } from "@shared/panel-events";
 import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import {
   useDeleteKeyDate,
@@ -48,13 +47,7 @@ function SetName({ set }: { set: KeyDateSet }) {
     const next = name?.trim();
     setName(null);
     if (!next || next === set.name) return;
-    rename.mutate(
-      { id: set.id, name: next },
-      {
-        onError: (error) =>
-          toast.error(t("annotations.saveFailed", { message: error.message })),
-      },
-    );
+    rename.mutate({ id: set.id, name: next });
   };
 
   if (name !== null) {
@@ -123,19 +116,7 @@ function DateRow({
             aria-label={t("annotations.deleteKeyDate", {
               label: keyDate.label,
             })}
-            onClick={() =>
-              deleteKeyDate.mutate(
-                { id: keyDate.id },
-                {
-                  onError: (error) =>
-                    toast.error(
-                      t("annotations.deleteFailed", {
-                        message: error.message,
-                      }),
-                    ),
-                },
-              )
-            }
+            onClick={() => deleteKeyDate.mutate({ id: keyDate.id })}
           >
             <IconTrash className="size-3.5" />
           </Button>
@@ -172,15 +153,7 @@ export function KeyDateSetsDialog({
     if (!deleteTarget) return;
     const { id } = deleteTarget;
     setDeleteTarget(null);
-    deleteSet.mutate(
-      { id },
-      {
-        onError: (error) =>
-          toast.error(
-            t("annotations.deleteFailed", { message: error.message }),
-          ),
-      },
-    );
+    deleteSet.mutate({ id });
   };
 
   return (

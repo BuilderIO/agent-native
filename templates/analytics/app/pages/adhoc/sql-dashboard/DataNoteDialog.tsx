@@ -7,7 +7,6 @@ import {
 } from "@shared/data-notes";
 import { IconX } from "@tabler/icons-react";
 import { useId, useMemo, useState } from "react";
-import { toast } from "sonner";
 
 import {
   useDeleteDataNote,
@@ -221,25 +220,14 @@ function DataNoteForm({
       panels: form.panels,
     };
     onClose();
-    saveNote.mutate(input, {
-      onError: (error) =>
-        toast.error(t("annotations.saveFailed", { message: error.message })),
-    });
+    saveNote.mutate(input);
   };
 
   const handleDelete = () => {
     if (!existing) return;
     setConfirmDelete(false);
     onClose();
-    deleteNote.mutate(
-      { id: existing.id },
-      {
-        onError: (error) =>
-          toast.error(
-            t("annotations.deleteFailed", { message: error.message }),
-          ),
-      },
-    );
+    deleteNote.mutate({ id: existing.id });
   };
 
   const showAgain = () => {

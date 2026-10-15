@@ -135,21 +135,20 @@ describe("DataNoteDialog", () => {
     act(() => button("Save").click());
 
     expect(onClose).toHaveBeenCalled();
-    expect(mocks.save).toHaveBeenCalledWith(
-      {
-        kind: "incident",
-        title: "Signup form outage",
-        note: "The signup form failed to load for most visitors.",
-        startDate: null,
-        endDate: null,
-        status: "open",
-        fix: null,
-        matchEvents: [],
-        unlessEvents: [],
-        panels: [{ dashboardId: "dash", panelId: "signups" }],
-      },
-      expect.anything(),
-    );
+    // Only the input: the save hook reports failures, since per-call callbacks
+    // never run once this dialog has closed.
+    expect(mocks.save).toHaveBeenCalledWith({
+      kind: "incident",
+      title: "Signup form outage",
+      note: "The signup form failed to load for most visitors.",
+      startDate: null,
+      endDate: null,
+      status: "open",
+      fix: null,
+      matchEvents: [],
+      unlessEvents: [],
+      panels: [{ dashboardId: "dash", panelId: "signups" }],
+    });
   });
 
   it("counts the charts here that a note's events reach", () => {
@@ -185,7 +184,6 @@ describe("DataNoteDialog", () => {
         matchEvents: CONNECT_UNDERCOUNT.matchEvents,
         unlessEvents: CONNECT_UNDERCOUNT.unlessEvents,
       }),
-      expect.anything(),
     );
   });
 
@@ -225,9 +223,6 @@ describe("DataNoteDialog", () => {
       ),
     ].find((el) => el.textContent === "Delete")!;
     act(() => confirm.click());
-    expect(mocks.remove).toHaveBeenCalledWith(
-      { id: SETUP_INCIDENT.id },
-      expect.anything(),
-    );
+    expect(mocks.remove).toHaveBeenCalledWith({ id: SETUP_INCIDENT.id });
   });
 });

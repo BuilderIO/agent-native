@@ -2,7 +2,6 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { KeyDate } from "@shared/key-dates";
 import { useId, useMemo, useState } from "react";
-import { toast } from "sonner";
 
 import {
   useDeleteKeyDate,
@@ -46,9 +45,14 @@ const COMMON_TIME_ZONES = [
   "Australia/Sydney",
 ];
 
+const viewerTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 function timeZoneOptions(current: string): string[] {
-  const own = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return [...new Set([current, own, ...COMMON_TIME_ZONES].filter(Boolean))];
+  return [
+    ...new Set(
+      [current, viewerTimeZone(), ...COMMON_TIME_ZONES].filter(Boolean),
+    ),
+  ];
 }
 
 interface KeyDateDialogProps {
@@ -81,8 +85,10 @@ function KeyDateForm({
   const [label, setLabel] = useState(existing?.label ?? "");
   const [date, setDate] = useState(existing?.date ?? "");
   const [time, setTime] = useState(existing?.time ?? "");
-  const [timeZone, setTimeZone] = useState(
-    existing?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+  // A saved time without a zone is UTC; only a time added here starts in the
+  // viewer's zone.
+  const [timeZone, setTimeZone] = useState(() =>
+    existing?.time ? (existing.timeZone ?? "UTC") : viewerTimeZone(),
   );
 
   const newSet = setId === NEW_SET || !sets.some((set) => set.id === setId);
@@ -99,24 +105,13 @@ function KeyDateForm({
       ...(time ? { time, timeZone } : {}),
     };
     onClose();
-    saveKeyDate.mutate(input, {
-      onError: (error) =>
-        toast.error(t("annotations.saveFailed", { message: error.message })),
-    });
+    saveKeyDate.mutate(input);
   };
 
   const handleDelete = () => {
     if (!existing) return;
     onClose();
-    deleteKeyDate.mutate(
-      { id: existing.id },
-      {
-        onError: (error) =>
-          toast.error(
-            t("annotations.deleteFailed", { message: error.message }),
-          ),
-      },
-    );
+    deleteKeyDate.mutate({ id: existing.id });
   };
 
   return (
