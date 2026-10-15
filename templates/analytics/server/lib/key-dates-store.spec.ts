@@ -226,6 +226,24 @@ describe("key-dates store", () => {
     expect(await store.listKeyDateSets(alice)).toEqual([]);
   });
 
+  it("says why it rejects a time the clocks skip for daylight saving", async () => {
+    await expect(
+      store.saveKeyDate(alice, {
+        ...productHunt,
+        date: "2026-03-08",
+        time: "02:30",
+        timeZone: "America/New_York",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      errorCode: "invalid_key_date",
+      message: expect.stringContaining(
+        "time 02:30 does not exist on 2026-03-08 in America/New_York",
+      ),
+    });
+    expect(queries).toEqual([]);
+  });
+
   it("keeps an edited date in its set when no set is named", async () => {
     const saved = await store.saveKeyDate(alice, productHunt);
 
