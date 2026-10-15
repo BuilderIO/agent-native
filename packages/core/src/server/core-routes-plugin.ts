@@ -312,6 +312,7 @@ import {
   isAllowedUploadMimeType,
 } from "./h3-helpers.js";
 import { handleIdentitySso } from "./identity-sso.js";
+import { isDirectLoopbackRequest, isLoopbackRequest } from "./loopback.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import {
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
@@ -5902,11 +5903,25 @@ export function createCoreRoutesPlugin(
             const statusStartedAt = Date.now();
             const { userEmail, orgId } =
               await resolveAgentEngineStatusIdentity(event);
+            const directLoopbackRequest = isDirectLoopbackRequest(event);
+            const requestOrigin = directLoopbackRequest
+              ? `http://${getHeader(event, "host")}`
+              : undefined;
             const status = await memoizeAgentEngineStatus(
-              { userEmail, orgId },
+              {
+                userEmail,
+                orgId,
+                isDirectLoopbackRequest: directLoopbackRequest,
+              },
               async () =>
                 await runWithRequestContext(
-                  { userEmail, orgId },
+                  {
+                    userEmail,
+                    orgId,
+                    isLoopbackRequest: isLoopbackRequest(event),
+                    isDirectLoopbackRequest: directLoopbackRequest,
+                    ...(requestOrigin ? { requestOrigin } : {}),
+                  },
                   async (): Promise<AgentEngineStatusResponse> => {
                     const deps = requestAgentEngineStatusDeps();
                     const engineStatus = await resolveAgentEngineStatus(deps);

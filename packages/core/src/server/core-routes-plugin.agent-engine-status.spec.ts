@@ -127,8 +127,12 @@ describe("agent-engine/status route failure handling", () => {
     expect(body).toContain("setResponseStatus(event, 503)");
     expect(body).toContain("memoizeAgentEngineStatus(");
     expect(body).not.toContain("getForwardedRequestOrigin(event)");
-    expect(body).not.toContain("requestOrigin");
-    expect(body).not.toContain("isDirectLoopbackRequest(event)");
+    expect(body).toContain(
+      "const directLoopbackRequest = isDirectLoopbackRequest(event)",
+    );
+    expect(body).toContain('`http://${getHeader(event, "host")}`');
+    expect(body).toContain("isLoopbackRequest: isLoopbackRequest(event)");
+    expect(body).toContain("isDirectLoopbackRequest: directLoopbackRequest");
     expect(body).not.toContain("shareAgentEngineStatusLookup");
     expect(body).not.toMatch(
       /catch\s*(\([^)]*\))?\s*\{[^}]*\}\s*return\s*\{\s*configured:\s*false/,

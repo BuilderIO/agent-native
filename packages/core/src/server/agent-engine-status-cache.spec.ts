@@ -18,26 +18,45 @@ describe("memoizeAgentEngineStatus", () => {
     vi.useRealTimers();
   });
 
-  it("shares a short-lived status answer only for the matching user and org", async () => {
-    const load = vi.fn(async () => ({ chatEligible: true }));
-    const identity = { userEmail: "STEVE@example.test", orgId: "org-1" };
+  it("shares status only for the matching user, org, and loopback context", async () => {
+    let calls = 0;
+    const load = vi.fn(async () => ({ chatEligible: ++calls === 2 }));
+    const identity = {
+      userEmail: "STEVE@example.test",
+      orgId: "org-1",
+      isDirectLoopbackRequest: false,
+    };
 
     await expect(memoizeAgentEngineStatus(identity, load)).resolves.toEqual({
-      chatEligible: true,
+      chatEligible: false,
     });
     await expect(
       memoizeAgentEngineStatus(
         { userEmail: "steve@example.test", orgId: "org-1" },
         load,
       ),
-    ).resolves.toEqual({ chatEligible: true });
+    ).resolves.toEqual({ chatEligible: false });
     await expect(
       memoizeAgentEngineStatus(
-        { userEmail: "steve@example.test", orgId: "org-2" },
+        {
+          userEmail: "steve@example.test",
+          orgId: "org-1",
+          isDirectLoopbackRequest: true,
+        },
         load,
       ),
     ).resolves.toEqual({ chatEligible: true });
-    expect(load).toHaveBeenCalledTimes(2);
+    await expect(
+      memoizeAgentEngineStatus(
+        {
+          userEmail: "steve@example.test",
+          orgId: "org-2",
+          isDirectLoopbackRequest: false,
+        },
+        load,
+      ),
+    ).resolves.toEqual({ chatEligible: false });
+    expect(load).toHaveBeenCalledTimes(3);
   });
 
   it("expires the answer after one second and clears it after a credential change", async () => {
@@ -91,6 +110,7 @@ describe("memoizeAgentEngineStatus", () => {
       getMemoizedAgentEngineStatus({
         userEmail: "steve@example.test",
         orgId: "org-1",
+        isDirectLoopbackRequest: false,
       }),
     ).toBeUndefined();
     expect(getAgentEngineStatusCacheSizeForTests()).toBe(0);
@@ -113,6 +133,7 @@ describe("memoizeAgentEngineStatus", () => {
       getMemoizedAgentEngineStatus({
         userEmail: "inactive@example.test",
         orgId: "org-1",
+        isDirectLoopbackRequest: false,
       }),
     ).toBeUndefined();
     expect(getAgentEngineStatusCacheSizeForTests()).toBe(1);
@@ -120,7 +141,11 @@ describe("memoizeAgentEngineStatus", () => {
 
   it("lets the server gate reuse the same live identity snapshot", async () => {
     const load = vi.fn(async () => ({ chatEligible: true }));
-    const identity = { userEmail: "steve@example.test", orgId: "org-1" };
+    const identity = {
+      userEmail: "steve@example.test",
+      orgId: "org-1",
+      isDirectLoopbackRequest: false,
+    };
 
     await memoizeAgentEngineStatus(identity, load);
     await expect(getMemoizedAgentEngineStatus(identity)).resolves.toEqual({
