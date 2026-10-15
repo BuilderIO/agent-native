@@ -9,10 +9,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   rename: vi.fn(),
   sets: [] as KeyDateSet[],
+  list: "loaded" as "loaded" | "loading" | "failed",
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: () => ({ data: { sets: mocks.sets } }),
+  useActionQuery: () => ({
+    data: mocks.list === "loaded" ? { sets: mocks.sets } : undefined,
+    isError: mocks.list === "failed",
+  }),
 }));
 
 vi.mock("@/components/dashboard/annotation-mutations", async (actual) => ({
@@ -96,6 +100,7 @@ describe("KeyDateSetsDialog", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.sets = [LAUNCHES];
+    mocks.list = "loaded";
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -107,6 +112,26 @@ describe("KeyDateSetsDialog", () => {
     document.body.innerHTML = "";
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("says no key dates only once the list has loaded empty", () => {
+    const text = () => document.body.textContent ?? "";
+
+    mocks.list = "loading";
+    render();
+    expect(document.querySelector(".skeleton-shimmer")).not.toBeNull();
+    expect(text()).not.toContain("No key dates yet");
+
+    mocks.list = "failed";
+    render();
+    expect(text()).toContain("Couldn't load key dates");
+    expect(text()).not.toContain("No key dates yet");
+
+    mocks.list = "loaded";
+    mocks.sets = [];
+    render();
+    expect(document.querySelector(".skeleton-shimmer")).toBeNull();
+    expect(text()).toContain("No key dates yet");
   });
 
   it("takes Escape back from a rename without closing; the next one closes", () => {
