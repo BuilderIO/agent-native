@@ -1106,7 +1106,7 @@ function NativeTextStaggerDetails({
           <Checkbox
             id={`${id}-ignore-spaces`}
             aria-label={t("designEditor.motion.nativeTextStagger.ignoreSpaces")}
-            checked={booleanValue(instance.props.ignoreSpaces, false)}
+            checked={booleanValue(instance.props.ignoreSpaces, true)}
             disabled={disabled}
             onCheckedChange={(checked) =>
               onUpdateProp(instance, identity, "ignoreSpaces", checked === true)

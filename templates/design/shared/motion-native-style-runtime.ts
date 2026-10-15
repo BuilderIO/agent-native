@@ -732,6 +732,19 @@ function textStaggerAnimations(
   const durationMs = Math.round(style.duration * 1000);
   const staggerMs = Math.round((durationMs * (100 - overlap)) / 100);
   const ignoreSpaces = booleanProp(props.ignoreSpaces, true, "ignoreSpaces");
+  const hasExplicitSpaceBehavior = Object.prototype.hasOwnProperty.call(
+    props,
+    "ignoreSpaces",
+  );
+  const textOptions: Pick<
+    MotionTextAnimation,
+    "animationDirection" | "order" | "overlapPercent" | "ignoreSpaces"
+  > = {
+    animationDirection,
+    order,
+    ...(hasExplicitSpaceBehavior ? { overlapPercent: overlap } : {}),
+    ignoreSpaces,
+  };
   const delayMs = Math.round(
     (style.timelineOffset + numeric(props.delay, 0)) * 1000,
   );
@@ -751,7 +764,7 @@ function textStaggerAnimations(
         "filter",
         [`blur(${amount}px)`, "blur(0px)"],
         ease,
-        { animationDirection, order, overlapPercent: overlap, ignoreSpaces },
+        textOptions,
       ),
     );
   }
@@ -787,7 +800,7 @@ function textStaggerAnimations(
         "translate",
         [`${vector[0] * distance}px ${vector[1] * distance}px`, "0px 0px"],
         ease,
-        { animationDirection, order, overlapPercent: overlap, ignoreSpaces },
+        textOptions,
       ),
     );
   }
@@ -815,7 +828,7 @@ function textStaggerAnimations(
         "rotate",
         [`${signed}deg`, "0deg"],
         ease,
-        { animationDirection, order, overlapPercent: overlap, ignoreSpaces },
+        textOptions,
       ),
     );
   }
@@ -832,7 +845,7 @@ function textStaggerAnimations(
         "scale",
         [String(amount), "1"],
         ease,
-        { animationDirection, order, overlapPercent: overlap, ignoreSpaces },
+        textOptions,
       ),
     );
   }
@@ -849,7 +862,7 @@ function textStaggerAnimations(
         "opacity",
         [String(amount), "1"],
         ease,
-        { animationDirection, order, overlapPercent: overlap, ignoreSpaces },
+        textOptions,
       ),
     );
   }

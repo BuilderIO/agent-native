@@ -244,76 +244,72 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   ).toBeVisible();
   await captureMotionStep(page, "motion-01-empty-dock");
 
-  const figmaComparableTimeline = await postAction(
-    request,
-    "apply-motion-edit",
-    {
-      designId,
-      fileId,
-      sourceRef: fileId,
-      durationMs: 3601,
-      playbackMode: "once",
-      defaultEase: "ease",
-      tracks: [
-        {
-          targetNodeId: "e2e-alpha-button",
-          property: "translate",
-          keyframes: [
-            { t: 1200 / 3601, value: "0px 0px", ease: "linear" },
-            {
-              t: 1603 / 3601,
-              value: "0px -20px",
-              ease: "cubic-bezier(0, 0.9971093535, 1, 1)",
-            },
-            {
-              t: 1999 / 3601,
-              value: "0px 20px",
-              ease: "cubic-bezier(1, 0, 1, 1)",
-            },
-            {
-              t: 2398 / 3601,
-              value: "0px -20px",
-              ease: "cubic-bezier(0, 0.9971093535, 1, 1)",
-            },
-            {
-              t: 2804 / 3601,
-              value: "0px -20px",
-              ease: "cubic-bezier(1, 0, 1, 1)",
-            },
-            {
-              t: 3202 / 3601,
-              value: "0px 20px",
-              ease: "cubic-bezier(1, 0, 1, 1)",
-            },
-            {
-              t: 1,
-              value: "0px -20px",
-              ease: "cubic-bezier(0, 0.9971093535, 1, 1)",
-            },
-          ],
-        },
-        {
-          targetNodeId: "e2e-alpha-button",
-          property: "scale",
-          durationMs: 1000,
-          keyframes: [
-            {
-              t: 0,
-              value: "0.1",
-              ease: "cubic-bezier(0.5, 0, 0.5, 1)",
-            },
-            { t: 1, value: "1" },
-          ],
-        },
-      ],
-    },
-  );
-  expect(figmaComparableTimeline.persisted).toBe(true);
-  const importedFigmaMotion = await getAction(request, "get-motion-timeline", {
+  const roundTripTimeline = await postAction(request, "apply-motion-edit", {
+    designId,
+    fileId,
+    sourceRef: fileId,
+    durationMs: 3601,
+    playbackMode: "once",
+    defaultEase: "ease",
+    tracks: [
+      {
+        targetNodeId: "e2e-alpha-button",
+        property: "translate",
+        keyframes: [
+          { t: 1200 / 3601, value: "0px 0px", ease: "linear" },
+          {
+            t: 1603 / 3601,
+            value: "0px -20px",
+            ease: "cubic-bezier(0, 0.9971093535, 1, 1)",
+          },
+          {
+            t: 1999 / 3601,
+            value: "0px 20px",
+            ease: "cubic-bezier(1, 0, 1, 1)",
+          },
+          {
+            t: 2398 / 3601,
+            value: "0px -20px",
+            ease: "cubic-bezier(0, 0.9971093535, 1, 1)",
+          },
+          {
+            t: 2804 / 3601,
+            value: "0px -20px",
+            ease: "cubic-bezier(1, 0, 1, 1)",
+          },
+          {
+            t: 3202 / 3601,
+            value: "0px 20px",
+            ease: "cubic-bezier(1, 0, 1, 1)",
+          },
+          {
+            t: 1,
+            value: "0px -20px",
+            ease: "cubic-bezier(0, 0.9971093535, 1, 1)",
+          },
+        ],
+      },
+      {
+        targetNodeId: "e2e-alpha-button",
+        property: "scale",
+        durationMs: 1000,
+        keyframes: [
+          {
+            t: 0,
+            value: "0.1",
+            ease: "cubic-bezier(0.5, 0, 0.5, 1)",
+          },
+          { t: 1, value: "1" },
+        ],
+      },
+    ],
+  });
+  expect(roundTripTimeline.persisted).toBe(true);
+  const importedTimeline = await getAction(request, "get-motion-timeline", {
     designId,
     sourceRef: fileId,
   });
-  const importedTracks = importedFigmaMotion.timelines?.[0]?.tracks ?? [];
+  const importedTracks = importedTimeline.timelines?.[0]?.tracks ?? [];
   const importedPosition = importedTracks.find(
     (track: { targetNodeId: string; property: string }) =>
       track.targetNodeId === "e2e-alpha-button" &&
@@ -374,7 +370,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await expect(
     referenceRows.nth(1).getByLabel("Keyframe at 1000ms"),
   ).toBeVisible();
-  await captureMotionStep(page, "motion-figma-comparable");
+  await captureMotionStep(page, "motion-imported-timeline");
 
   const animationStyleTrigger = page.getByRole("button", {
     name: "Animations",
@@ -480,7 +476,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   );
   const referenceTimelineId = savedReferenceTimeline.timelines?.[0]?.id;
   if (!referenceTimelineId) {
-    throw new Error("The Figma-comparable Motion timeline was not persisted.");
+    throw new Error("The imported Motion timeline was not persisted.");
   }
   await postAction(request, "remove-motion-timeline", {
     designId,
@@ -710,7 +706,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     .toBe("Play loop");
   const compareViewport = page.viewportSize();
   await page.setViewportSize({ width: 1728, height: 941 });
-  await captureMotionStep(page, "motion-figma-reference-equivalent");
+  await captureMotionStep(page, "motion-native-position-preset-equivalent");
   if (compareViewport) await page.setViewportSize(compareViewport);
   const pingPongModeSave = page.waitForResponse(
     (response) =>

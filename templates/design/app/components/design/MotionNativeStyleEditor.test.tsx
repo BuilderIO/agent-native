@@ -325,7 +325,7 @@ describe("MotionNativeStyleEditor", () => {
     });
     const style = {
       ...base,
-      sourceInstanceId: "figma-text-instance",
+      sourceInstanceId: "native-text-instance",
       props: { ...base.props, futureTextProp: { keep: true } },
     };
     const onChange = vi.fn();
@@ -354,7 +354,7 @@ describe("MotionNativeStyleEditor", () => {
     await act(async () => positionSwitch!.click());
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        sourceInstanceId: "figma-text-instance",
+        sourceInstanceId: "native-text-instance",
         props: expect.objectContaining({
           positionEnabled: false,
           futureTextProp: { keep: true },
@@ -376,7 +376,7 @@ describe("MotionNativeStyleEditor", () => {
     );
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        sourceInstanceId: "figma-text-instance",
+        sourceInstanceId: "native-text-instance",
         props: expect.objectContaining({
           textDelayGrouping: "WORD",
           futureTextProp: { keep: true },
@@ -388,7 +388,7 @@ describe("MotionNativeStyleEditor", () => {
     await act(async () => ignoreSpaces!.click());
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        sourceInstanceId: "figma-text-instance",
+        sourceInstanceId: "native-text-instance",
         props: expect.objectContaining({ ignoreSpaces: true }),
       }),
       expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
@@ -403,8 +403,32 @@ describe("MotionNativeStyleEditor", () => {
     );
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        sourceInstanceId: "figma-text-instance",
+        sourceInstanceId: "native-text-instance",
         props: expect.objectContaining({ textDelayOrder: "RANDOM" }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+  });
+
+  it("shows the legacy whitespace default for TextStagger styles", async () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "target-1",
+    });
+    const { ignoreSpaces: _ignoreSpaces, ...legacyProps } = base.props;
+    const style = { ...base, props: legacyProps };
+    const onChange = vi.fn();
+    await render({ styles: [style], onChange });
+    await openStyleDetails();
+
+    const ignoreSpaces = document.body.querySelector<HTMLButtonElement>(
+      '[role="checkbox"][aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+    );
+    expect(ignoreSpaces?.getAttribute("aria-checked")).toBe("true");
+    await act(async () => ignoreSpaces!.click());
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({ ignoreSpaces: false }),
       }),
       expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
     );

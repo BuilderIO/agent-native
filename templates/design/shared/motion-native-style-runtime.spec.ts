@@ -15,6 +15,7 @@ import {
   motionTextDocumentWithoutNativeStyles,
   switchMotionNativeStyleKey,
 } from "./motion-native-style-runtime";
+import { decodeMotionTextDocument } from "./motion-text-code";
 import type { MotionTextDocument } from "./motion-text-code";
 import type { MotionPathSegmentV1, MotionTimeline } from "./motion-timeline";
 
@@ -103,8 +104,51 @@ describe("native Figma Motion runtime adapter", () => {
 
     expect(style.props.ignoreSpaces).toBe(false);
     expect(motionNativeStylesToTextAnimations([legacyStyle])).toMatchObject([
-      { ignoreSpaces: true },
+      { ignoreSpaces: true, staggerMs: 250, durationMs: 500 },
     ]);
+    expect(
+      motionNativeStylesToTextAnimations([legacyStyle])[0],
+    ).not.toHaveProperty("overlapPercent");
+  });
+
+  it("removes a normalized v1 TextStagger projection from authored text tracks", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const legacyStyle = {
+      ...style,
+      props: Object.fromEntries(
+        Object.entries(style.props).filter(([key]) => key !== "ignoreSpaces"),
+      ),
+    };
+    const legacyDocument = decodeMotionTextDocument(
+      JSON.stringify({
+        version: 1,
+        animations: [
+          {
+            targetNodeId: "hero",
+            unit: "character",
+            direction: "forward",
+            staggerMs: 250,
+            property: "translate",
+            durationMs: 500,
+            keyframes: [
+              { t: 0, value: "0px -40px", ease: "ease-out" },
+              { t: 1, value: "0px 0px" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(legacyDocument.status).toBe("valid");
+    if (legacyDocument.status !== "valid") return;
+    expect(
+      motionTextDocumentWithoutNativeStyles(legacyDocument.document, [
+        legacyStyle,
+      ]),
+    ).toBeNull();
   });
 
   it("projects native Path trim endpoints and preserves opaque source props on edits", () => {

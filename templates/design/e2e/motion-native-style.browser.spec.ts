@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
+import { MOTION_NATIVE_STYLE_INSTANCE_TYPE } from "../shared/motion-native-style";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
 import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
@@ -13,15 +14,15 @@ let fileId: string;
 let baseURLForActions: string;
 let restoreMotionLab: (() => Promise<void>) | null = null;
 
-const REFERENCE_FIXTURE_HTML = FIXTURE_HTML.replace(
+const MOTION_FIXTURE_HTML = FIXTURE_HTML.replace(
   '      <p style="font-size:18px;line-height:1.6;margin:0;color:#a1a1aa">Second fixture paragraph for selection tests.</p>',
   `      <p style="font-size:18px;line-height:1.6;margin:0;color:#a1a1aa">Second fixture paragraph for selection tests.</p>
       <script src="./alpinejs.js" defer></script>
       <main id="e2e-motion-text-alpine-root" x-data="{ visible: true }">
         <h2 id="e2e-motion-text-alpine" data-agent-native-node-id="e2e-motion-text-alpine">Alpine Motion Text</h2>
       </main>
-      <div data-agent-native-node-id="e2e-motion-reference-rectangle" data-agent-native-layer-name="Rectangle" style="width:100px;height:100px;padding:0;border:0;background:#7F0EFF;color:transparent;font-size:0;line-height:0">Reference Rectangle</div>
-      <div data-agent-native-node-id="e2e-motion-reference-rectangle-2" data-agent-native-layer-name="Rectangle 2" style="width:100px;height:100px;padding:0;border:0;background:#FF7A00;color:transparent;font-size:0;line-height:0">Reference Rectangle Two</div>`,
+      <div data-agent-native-node-id="e2e-motion-style-rectangle" data-agent-native-layer-name="Rectangle" style="width:100px;height:100px;padding:0;border:0;background:#7F0EFF;color:transparent;font-size:0;line-height:0">Motion Rectangle</div>
+      <div data-agent-native-node-id="e2e-motion-style-rectangle-2" data-agent-native-layer-name="Rectangle 2" style="width:100px;height:100px;padding:0;border:0;background:#FF7A00;color:transparent;font-size:0;line-height:0">Motion Rectangle Two</div>`,
 );
 
 async function postAction(
@@ -62,7 +63,7 @@ async function getAction(
   return response.json();
 }
 
-async function captureReferenceState(
+async function captureMotionState(
   page: import("@playwright/test").Page,
   stepId: string,
 ): Promise<void> {
@@ -124,7 +125,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
   baseURLForActions =
     (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
   const created = await postAction(request, "create-design", {
-    title: "Motion Figma Reference",
+    title: "Motion Native Style",
     projectType: "prototype",
   });
   designId = created?.id ?? created?.data?.id ?? created?.design?.id;
@@ -132,7 +133,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
   const file = await postAction(request, "create-file", {
     designId,
     filename: "index.html",
-    content: REFERENCE_FIXTURE_HTML,
+    content: MOTION_FIXTURE_HTML,
     fileType: "html",
   });
   fileId = file.id;
@@ -153,7 +154,7 @@ test.afterAll(async ({ request }) => {
   if (designId) await postAction(request, "delete-design", { id: designId });
 });
 
-test("Figma reference states match Motion inspector and timeline structure", async ({
+test("native style states persist with the Motion inspector and timeline", async ({
   page,
   request,
 }) => {
@@ -168,7 +169,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   await expect(canvasZoom).toBeVisible();
   await canvasZoom.click();
   await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
-  await selectByText(page, "Reference Rectangle", {
+  await selectByText(page, "Motion Rectangle", {
     screenId: fileId,
     deep: false,
   });
@@ -177,7 +178,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
     await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
   }
   await expect(canvasZoom).toHaveText(/100%/);
-  await captureReferenceState(page, "motion-figma-reference-before-selection");
+  await captureMotionState(page, "motion-native-style-before-selection");
 
   const launchMotion = page.getByRole("button", {
     name: "Motion dock",
@@ -199,7 +200,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   );
   await addAnimation.click();
   await expect(page.getByRole("menuitem", { name: "Position" })).toBeVisible();
-  await captureReferenceState(page, "motion-figma-reference-add-menu");
+  await captureMotionState(page, "motion-native-style-add-menu");
   await page.getByRole("menuitem", { name: "Position", exact: true }).click();
   const appliedResponse = await applied;
   expect(appliedResponse.ok(), await appliedResponse.text()).toBe(true);
@@ -242,7 +243,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   await expect(
     dock.locator("[data-motion-playhead][data-motion-auto-keyframe]"),
   ).toHaveCount(2);
-  await captureReferenceState(page, "motion-figma-reference-auto-keyframe");
+  await captureMotionState(page, "motion-native-style-auto-keyframe");
   await autoKeyframe.click();
   await expect(
     dock.locator("[data-motion-playhead][data-motion-auto-keyframe]"),
@@ -256,14 +257,14 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   expect(saved.timelines?.[0]?.nativeStyles).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        type: "FIGMA",
+        type: MOTION_NATIVE_STYLE_INSTANCE_TYPE,
         styleKey: "Position",
-        targetNodeId: "e2e-motion-reference-rectangle",
+        targetNodeId: "e2e-motion-style-rectangle",
       }),
     ]),
   );
 
-  await captureReferenceState(page, "motion-figma-reference-position");
+  await captureMotionState(page, "motion-native-style-position");
 
   await addAnimation.click();
   for (const label of ["Position", "Scale", "Rotation", "Size", "Opacity"]) {
@@ -275,7 +276,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
     page.getByRole("menuitem", { name: "Text Stagger", exact: true }),
   ).toHaveCount(0);
   await expect(page.getByRole("menuitem")).toHaveCount(5);
-  await captureReferenceState(page, "motion-figma-reference-add-menu");
+  await captureMotionState(page, "motion-native-style-add-menu");
   await page.keyboard.press("Escape");
 
   const origin = page.getByRole("button", { name: "Origin", exact: true });
@@ -294,12 +295,12 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   await expect(originMarker).toBeVisible();
   const originProxy = page.locator("[data-motion-origin-proxy]");
   await expect(originProxy).toBeVisible();
-  await captureReferenceState(page, "motion-figma-reference-origin");
+  await captureMotionState(page, "motion-native-style-origin");
 
-  const referenceRectangle = designFrame(page, fileId).locator(
-    '[data-agent-native-node-id="e2e-motion-reference-rectangle"]',
+  const motionRectangle = designFrame(page, fileId).locator(
+    '[data-agent-native-node-id="e2e-motion-style-rectangle"]',
   );
-  const initialTransformOrigin = await referenceRectangle.evaluate(
+  const initialTransformOrigin = await motionRectangle.evaluate(
     (element) => getComputedStyle(element).transformOrigin,
   );
   const sourceBeforeOriginDrag = await getAction(request, "read-source-file", {
@@ -332,7 +333,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   await expect
     .poll(() =>
       designFrame(page, fileId)
-        .locator('[data-agent-native-node-id="e2e-motion-reference-rectangle"]')
+        .locator('[data-agent-native-node-id="e2e-motion-style-rectangle"]')
         .evaluate((element) => getComputedStyle(element).transformOrigin),
     )
     .not.toBe(initialTransformOrigin);
@@ -356,7 +357,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
     ).toBeVisible();
   }
   await expect(page.getByRole("menuitem")).toHaveCount(6);
-  await captureReferenceState(page, "motion-figma-reference-text-add-menu");
+  await captureMotionState(page, "motion-native-style-text-add-menu");
   const textStyleSave = page.waitForResponse(
     (response) =>
       response.url().includes("/_agent-native/actions/apply-motion-edit") &&
@@ -416,7 +417,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   );
   const ignoreSpaces = page.getByRole("checkbox", { name: "Ignore spaces" });
   await expect(ignoreSpaces).not.toBeChecked();
-  await captureReferenceState(page, "motion-text-preset-defaults");
+  await captureMotionState(page, "motion-text-preset-defaults");
 
   const ignoreSpacesSave = page.waitForResponse(
     (response) =>
@@ -454,6 +455,82 @@ test("Figma reference states match Motion inspector and timeline structure", asy
     path: "index.html",
   });
   expect(sourceWithIgnoreSpaces.content).toContain('"ignoreSpaces":true');
+
+  const timelineBeforeLegacyEdit = await getAction(
+    request,
+    "get-motion-timeline",
+    { designId, sourceRef: fileId },
+  );
+  const currentTimeline = timelineBeforeLegacyEdit.timelines?.[0];
+  if (!currentTimeline) throw new Error("The Motion timeline was not saved.");
+  let matchedTextStyle = false;
+  const legacyNativeStyles = currentTimeline.nativeStyles.map(
+    (style: Record<string, any>) => {
+      if (style.styleKey !== "TextStagger" || matchedTextStyle) return style;
+      matchedTextStyle = true;
+      return {
+        ...style,
+        props: Object.fromEntries(
+          Object.entries(style.props).filter(([key]) => key !== "ignoreSpaces"),
+        ),
+      };
+    },
+  );
+  expect(matchedTextStyle).toBe(true);
+  const legacySave = await postAction(request, "apply-motion-edit", {
+    designId,
+    fileId,
+    sourceRef: fileId,
+    tracks: currentTimeline.tracks,
+    nativeStyles: legacyNativeStyles,
+    durationMs: currentTimeline.durationMs,
+    playbackMode: currentTimeline.playbackMode,
+    defaultEase: currentTimeline.defaultEase,
+  });
+  expect(legacySave.persisted).toBe(true);
+  const persistedLegacyTimeline = await getAction(
+    request,
+    "get-motion-timeline",
+    { designId, sourceRef: fileId },
+  );
+  const persistedLegacyStyle =
+    persistedLegacyTimeline.timelines?.[0]?.nativeStyles?.find(
+      (style: Record<string, any>) => style.styleKey === "TextStagger",
+    );
+  expect(persistedLegacyStyle).toBeDefined();
+  expect(
+    Object.prototype.hasOwnProperty.call(
+      persistedLegacyStyle.props,
+      "ignoreSpaces",
+    ),
+  ).toBe(false);
+
+  await gotoEditor(page, designId);
+  await selectByText(page, "Second fixture paragraph for selection tests.", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+  });
+  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
+  await page.locator('[aria-label="Animations"] li > button').first().click();
+  const legacyIgnoreSpaces = page.getByRole("checkbox", {
+    name: "Ignore spaces",
+  });
+  await expect(legacyIgnoreSpaces).toBeChecked();
+  await captureMotionState(page, "motion-native-style-legacy-ignore-spaces");
+
+  const legacyIgnoreSpacesSave = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await legacyIgnoreSpaces.uncheck();
+  const legacyIgnoreSpacesResponse = await legacyIgnoreSpacesSave;
+  expect(
+    legacyIgnoreSpacesResponse.ok(),
+    await legacyIgnoreSpacesResponse.text(),
+  ).toBe(true);
+  await expect(legacyIgnoreSpaces).not.toBeChecked();
 });
 
 test("HTML Text source round trips through Alpine markup and runs in a browser", async ({
@@ -535,12 +612,12 @@ test("a new motion preset applies to every selected target", async ({
   await page.setViewportSize({ width: 1728, height: 941 });
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await gotoEditor(page, designId);
-  await selectByText(page, "Reference Rectangle", {
+  await selectByText(page, "Motion Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
     deep: false,
   });
-  await selectByText(page, "Reference Rectangle Two", {
+  await selectByText(page, "Motion Rectangle Two", {
     screenId: fileId,
     additive: true,
   });
@@ -570,7 +647,7 @@ test("a new motion preset applies to every selected target", async ({
     .map((style: { targetNodeId: string }) => style.targetNodeId)
     .sort();
   expect(scaleTargetIds).toEqual([
-    "e2e-motion-reference-rectangle",
-    "e2e-motion-reference-rectangle-2",
+    "e2e-motion-style-rectangle",
+    "e2e-motion-style-rectangle-2",
   ]);
 });

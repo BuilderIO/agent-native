@@ -32,7 +32,10 @@ import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import { motionNativeStylesToTracks } from "@shared/motion-native-style-runtime";
-import type { MotionTextDocument } from "@shared/motion-text-code";
+import {
+  MOTION_TEXT_SOURCE_VERSION,
+  type MotionTextDocument,
+} from "@shared/motion-text-code";
 import type { MotionPlaybackMode } from "@shared/motion-timeline";
 import { MOTION_TIMELINE_DEFAULT_DURATION_MS } from "@shared/motion-timeline";
 import { normalizeDesignSourceType } from "@shared/source-mode";
@@ -1337,7 +1340,7 @@ export function useEditorLiveEditsAndPresence({
         }));
       if (clonedTextAnimations.length > 0) {
         setMotionTextDocument((current) => ({
-          version: 1,
+          version: MOTION_TEXT_SOURCE_VERSION,
           animations: [...(current?.animations ?? []), ...clonedTextAnimations],
         }));
       }
