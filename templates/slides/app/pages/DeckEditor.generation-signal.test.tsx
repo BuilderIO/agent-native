@@ -1738,6 +1738,7 @@ describe("DeckEditor generation signal wiring", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false);
+
   });
 
   it("recovers legacy retry journals and keeps unrelated query parameters", async () => {
@@ -2330,6 +2331,25 @@ describe("DeckEditor generation signal wiring", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false);
+
+    const firstRetryAttemptId =
+      mocks.deck.generationContext.generationAttemptId;
+    expect(firstRetryAttemptId).not.toBe("attempt-1");
+
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+
+    expect(mocks.submitAndConfirm).toHaveBeenCalledTimes(2);
+    expect(mocks.submitAndConfirm).toHaveBeenNthCalledWith(
+      2,
+      originalPrompt,
+      expect.stringContaining("Continue the original deck generation"),
+      expect.objectContaining({ generationOutputId: "deck-1" }),
+    );
+    expect(mocks.deck.generationContext.generationAttemptId).not.toBe(
+      firstRetryAttemptId,
+    );
   });
 
   it("keeps the original request visible and reusable after a retry fails", async () => {
