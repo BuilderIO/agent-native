@@ -116,10 +116,9 @@ function LookbackEditForm({
     const timer = window.setTimeout(() => {
       const previousTask = previewTaskRef.current;
       const task = (async () => {
-        await previousTask?.catch(() => {});
-        if (cancelled) return;
-
         try {
+          await previousTask;
+          if (cancelled) return;
           const result = await loadRewindPreview(value, invoke);
           if (cancelled) {
             await discardQuietly(result.path, invoke);
