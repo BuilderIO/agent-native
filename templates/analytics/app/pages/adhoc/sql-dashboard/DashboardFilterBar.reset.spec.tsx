@@ -97,6 +97,12 @@ function resetButton(): HTMLButtonElement | undefined {
   );
 }
 
+function saveViewButton(): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll("button")].find(
+    (button) => button.textContent?.trim() === "Save view",
+  );
+}
+
 function onlyYouLabel(): HTMLElement | undefined {
   return [...container.querySelectorAll<HTMLElement>("[tabindex]")].find(
     (el) => el.textContent?.trim() === "Only you see these filters",
@@ -243,6 +249,24 @@ describe("resetting dashboard filters", () => {
         },
       );
       expect(resetButton()).toBeUndefined();
+    });
+
+    it("offers Save view with the only-you label after an open view is edited to match the default view", () => {
+      render(
+        "/dashboards/v3?view=enterprise&f_timeRange=7d&f_emailFilter=all",
+        { views, canSaveViews: true },
+      );
+      expect(onlyYouLabel()).toBeDefined();
+      expect(saveViewButton()).toBeDefined();
+    });
+
+    it("hides Save view while the filters match the open view", () => {
+      render(
+        "/dashboards/v3?view=enterprise&f_timeRange=90d&f_plan=enterprise",
+        { views, canSaveViews: true },
+      );
+      expect(onlyYouLabel()).toBeUndefined();
+      expect(saveViewButton()).toBeUndefined();
     });
 
     it("falls back to the default view when the URL names a view that no longer exists", () => {

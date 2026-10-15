@@ -380,7 +380,7 @@ Filters auto-apply on change — there is no Apply button. Each filter change wr
 
 **Reset filters** in the filter bar returns to the saved view that is open: the one named by `view`, which filter edits keep. With no view open, it returns to what a fresh load shows: the default saved view when the dashboard has one, otherwise each filter's own `default`. It shows only while a filter's resolved value differs from that target, so `f_timeRange=30d` on a 30d-default filter counts as reset. To reset for the user with `set-search-params`, set the target view's params and `view=<id>`, or, when there is no target view, remove every `f_` param and `view`.
 
-Filter changes are personal: they live in the URL and in the user's own `dashboard-filters:<id>` pref, never in the dashboard. While a filter differs from the Reset target, the bar says "Only you see these filters". To share filters, save a view (shared with everyone who can open the dashboard) or send the link. The pref also remembers the open `view`, so a dashboard with no default view reopens on it, as long as that view still exists. A default view still wins over the pref on a fresh load.
+Filter changes are personal: they live in the URL and in the user's own `dashboard-filters:<id>` pref, never in the dashboard. While a filter differs from the Reset target, the bar says "Only you see these filters", and people who can edit the dashboard get Save view on hover. To share filters, save a view (shared with everyone who can open the dashboard) or send the link. The pref also remembers the open `view`, so a dashboard with no default view reopens on it, as long as that view still exists. A default view still wins over the pref on a fresh load.
 
 ## Modifying A Dashboard
 

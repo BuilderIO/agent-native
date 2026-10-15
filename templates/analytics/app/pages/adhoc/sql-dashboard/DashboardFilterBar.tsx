@@ -250,18 +250,15 @@ export function DashboardFilterBar({
     [uniqueFilters, getParam],
   );
 
-  const canReset =
+  // Reset, the only-you label and Save view share this one test: the label's
+  // tooltip offers saving a view, so the button must show whenever it does.
+  const filtersChanged =
     views !== null &&
     !filtersMatchView(
       uniqueFilters,
       searchParams,
       resetTargetView(views, searchParams),
     );
-  const filtersChanged = !filtersMatchView(
-    uniqueFilters,
-    searchParams,
-    views?.find((view) => view.isDefault),
-  );
 
   return (
     <>
@@ -326,7 +323,7 @@ export function DashboardFilterBar({
               </CollapsibleTrigger>
             </div>
             {/* Outside the hover group on purpose: hidden until hover, people missed it. */}
-            {canReset && (
+            {filtersChanged && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span
@@ -348,7 +345,7 @@ export function DashboardFilterBar({
                 </TooltipContent>
               </Tooltip>
             )}
-            {canReset && (
+            {filtersChanged && (
               <Button
                 variant="ghost"
                 size="sm"
