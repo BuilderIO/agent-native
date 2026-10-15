@@ -1947,6 +1947,7 @@ it("accepts Firefox's retired-session warning when the request finished during t
     responseStatus: 200,
     requestFinishedSuccessfully: true,
     requestStartedDuringNavigation: true,
+    requestStartedBeforeReloadCommit: true,
     outgoingNavigationAbort: false,
     outgoingRequestKind: "poll" as const,
     requestSessionId: "retired-session-id",
@@ -1970,15 +1971,38 @@ it("accepts Firefox's retired-session warning when the request finished during t
 
   expect(expected(pollWarning, [finishedClaim])).toBe(true);
   expect(expected(heartbeatWarning, [finishedRegistration])).toBe(true);
+  // Boundaries: the status range and the settle window are half-open.
+  for (const override of [
+    { responseStatus: 200 },
+    { responseStatus: 299 },
+    { settledAgeMs: 0 },
+    { settledAgeMs: 999 },
+  ]) {
+    expect(
+      expected(pollWarning, [{ ...finishedClaim, ...override }]),
+      JSON.stringify(override),
+    ).toBe(true);
+  }
 
   expect(expected(pollWarning, [finishedClaim], "step 12")).toBe(false);
   expect(expected(pollWarning, [finishedRegistration])).toBe(false);
+  expect(expected(heartbeatWarning, [finishedClaim])).toBe(false);
   for (const override of [
     { requestSessionId: "new-session-id" },
+    { requestSessionId: null, retiredSessionId: null },
     { requestStartedDuringNavigation: false },
+    // A tab that keeps its session id across the reload: the new document's
+    // request carries the retired id but started after the commit.
+    { requestStartedBeforeReloadCommit: false },
+    { requestStartedBeforeReloadCommit: undefined },
     { requestFinishedSuccessfully: false },
     { sameOrigin: false },
+    { responseStatus: undefined },
+    { responseStatus: 199 },
+    { responseStatus: 300 },
     { responseStatus: 500 },
+    { settledAgeMs: -1 },
+    { settledAgeMs: undefined },
     { settledAgeMs: 1_000 },
     { competingSameTypeRequest: true },
   ]) {
@@ -1987,7 +2011,62 @@ it("accepts Firefox's retired-session warning when the request finished during t
       JSON.stringify(override),
     ).toBe(false);
   }
-  expect(expected(pollWarning, [finishedClaim, finishedClaim])).toBe(false);
+
+  // The retired page polls every 500 ms until the reloaded document commits, so
+  // a slow commit leaves several finished requests; any one excuses the warning.
+  const earlierFinishedClaim = {
+    ...finishedClaim,
+    ageMs: 540,
+    settledAgeMs: 539,
+  };
+  expect(expected(pollWarning, [earlierFinishedClaim, finishedClaim])).toBe(
+    true,
+  );
+  // A request that was already in flight when the reload began cannot belong to
+  // the reloaded document, so it needs no commit-time flag.
+  const pendingAtReload = {
+    ...finishedClaim,
+    requestWasPendingAtNavigation: true,
+    requestStartedDuringNavigation: false,
+    requestStartedBeforeReloadCommit: false,
+  };
+  expect(expected(pollWarning, [pendingAtReload])).toBe(true);
+  expect(
+    expected(pollWarning, [
+      { ...pendingAtReload, requestFinishedSuccessfully: false },
+    ]),
+  ).toBe(false);
+  // Other traffic in the map (the failing run also had a stuck module GET) is
+  // not mistaken for the request, and does not hide it.
+  const pendingModuleGet = {
+    url: "http://localhost/@fs/repo/packages/core/src/demo/redact.ts",
+    pathname: "/@fs/repo/packages/core/src/demo/redact.ts",
+    method: "GET",
+    ageMs: 207_243,
+    sameOrigin: true,
+    requestWasPendingAtNavigation: true,
+    outgoingNavigationAbort: false,
+  };
+  expect(expected(pollWarning, [pendingModuleGet, finishedClaim])).toBe(true);
+  expect(expected(pollWarning, [pendingModuleGet])).toBe(false);
+  expect(expected(pollWarning, [])).toBe(false);
+
+  // Failed requests stay attributed one-to-one: a single one is authoritative
+  // and two are ambiguous, whatever finished alongside them.
+  const abortedClaim = {
+    ...finishedClaim,
+    requestFinishedSuccessfully: false,
+    settledAgeMs: undefined,
+    responseStatus: undefined,
+    outgoingNavigationAbort: true,
+    outgoingAbortWarningAgeMs: 150,
+  };
+  expect(expected(pollWarning, [abortedClaim])).toBe(true);
+  expect(expected(pollWarning, [abortedClaim, finishedClaim])).toBe(true);
+  expect(expected(pollWarning, [abortedClaim, abortedClaim])).toBe(false);
+  expect(
+    expected(pollWarning, [abortedClaim, abortedClaim, finishedClaim]),
+  ).toBe(false);
 });
 
 it("correlates Firefox reload warnings whether request failure arrives first or second", async () => {
