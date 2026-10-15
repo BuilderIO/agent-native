@@ -274,7 +274,6 @@ describe("MotionTextAnimationEditor", () => {
         delayMs: 0,
         animationDirection: "in",
         order: "left-to-right",
-        overlapPercent: 93,
         ignoreSpaces: true,
         keyframes: [
           { t: 0, value: "0px", ease: "ease-out" },
@@ -293,6 +292,125 @@ describe("MotionTextAnimationEditor", () => {
     expect(removeTranslateButton).not.toBeNull();
     await act(async () => removeTranslateButton!.click());
     expect(onChange).toHaveBeenLastCalledWith([opacityAnimation]);
+  });
+
+  it("retains an explicit overlap value when adding a property track", async () => {
+    const animation = { ...opacityAnimation, overlapPercent: 25 };
+    const onChange = vi.fn();
+    await render({ animations: [animation], onChange });
+
+    const addButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.motion.textAnimation.addPropertyTrack"]',
+    )!;
+    await act(async () =>
+      addButton.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+    const translateMenuItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) =>
+      item.textContent?.includes(
+        "designEditor.motion.textAnimation.properties.translate",
+      ),
+    );
+    expect(translateMenuItem).toBeDefined();
+    await act(async () => translateMenuItem!.click());
+
+    expect(onChange).toHaveBeenLastCalledWith([
+      animation,
+      expect.objectContaining({
+        property: "translate",
+        overlapPercent: 25,
+      }),
+    ]);
+  });
+
+  it.each(["line", "paragraph"] as const)(
+    "offers vertical ordering for %s text",
+    async (unit) => {
+      await render({ animations: [{ ...opacityAnimation, unit }] });
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+          )!
+          .click(),
+      );
+
+      expect(document.body.textContent).toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
+      );
+      expect(document.body.textContent).toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
+      );
+      await selectOption(
+        container.querySelector<HTMLButtonElement>(
+          '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+        )!,
+        "designEditor.motion.nativeTextStagger.orderOptions.leftToRight",
+      );
+    },
+  );
+
+  it.each(["character", "word"] as const)(
+    "hides vertical ordering for %s text",
+    async (unit) => {
+      await render({ animations: [{ ...opacityAnimation, unit }] });
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+          )!
+          .click(),
+      );
+
+      expect(document.body.textContent).not.toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
+      );
+      expect(document.body.textContent).not.toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
+      );
+      await selectOption(
+        container.querySelector<HTMLButtonElement>(
+          '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+        )!,
+        "designEditor.motion.nativeTextStagger.orderOptions.leftToRight",
+      );
+    },
+  );
+
+  it("resets vertical order when text grouping changes to word", async () => {
+    const onChange = vi.fn();
+    await render({
+      animations: [
+        {
+          ...opacityAnimation,
+          unit: "line",
+          order: "top-to-bottom",
+        },
+      ],
+      onChange,
+    });
+
+    await selectOption(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="designEditor.motion.textAnimation.unit"]',
+      )!,
+      "designEditor.motion.textAnimation.units.word",
+    );
+
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        unit: "word",
+        order: "left-to-right",
+        direction: "forward",
+      }),
+    ]);
   });
 
   it("disables controls while a source update is unavailable", async () => {

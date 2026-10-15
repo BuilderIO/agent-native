@@ -77,6 +77,7 @@ import {
   MOTION_TEXT_ORDERS,
   MOTION_TEXT_UNITS,
   MOTION_TEXT_SOURCE_VERSION,
+  MAX_MOTION_TEXT_STAGGER_MS,
   encodeMotionTextDocument,
   MotionTextSourceError,
   readMotionTextDocument,
@@ -132,7 +133,7 @@ const motionTextDocumentSchema = z
             targetNodeId: z.string(),
             unit: z.enum(MOTION_TEXT_UNITS),
             direction: z.enum(["forward", "reverse"]),
-            staggerMs: z.number().min(0).max(5000),
+            staggerMs: z.number().min(0).max(MAX_MOTION_DURATION_MS),
             animationDirection: z.enum(["in", "out"]).optional(),
             order: z.enum(MOTION_TEXT_ORDERS).optional(),
             overlapPercent: z.number().min(0).max(100).optional(),
@@ -142,7 +143,19 @@ const motionTextDocumentSchema = z
             durationMs: z.number().positive().max(MAX_MOTION_DURATION_MS),
             keyframes: z.array(motionTextKeyframeSchema).min(2).max(128),
           })
-          .strict(),
+          .strict()
+          .superRefine((animation, context) => {
+            if (
+              animation.overlapPercent === undefined &&
+              animation.staggerMs > MAX_MOTION_TEXT_STAGGER_MS
+            ) {
+              context.addIssue({
+                code: "custom",
+                path: ["staggerMs"],
+                message: `staggerMs must be at most ${MAX_MOTION_TEXT_STAGGER_MS} when overlapPercent is absent.`,
+              });
+            }
+          }),
       )
       .min(1)
       .max(64),

@@ -10,6 +10,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Text motion presets now include editable direction, grouping, order, overlap, and space handling.
 - Show Figma fidelity warnings in Home URL imports
 
+### Fixed
+
+- Text animation edits preserve collapsed whitespace and reset ordering when grouping changes
+
 ## 2026-10-13
 
 ### Added

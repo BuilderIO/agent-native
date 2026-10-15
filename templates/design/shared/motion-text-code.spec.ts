@@ -347,6 +347,56 @@ describe("Motion Text source and runtime", () => {
     ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
   });
 
+  it("allows duration-derived stagger values when overlap controls timing", () => {
+    const firstTrack: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      order: "left-to-right",
+      overlapPercent: 0,
+      staggerMs: 6000,
+      durationMs: 6000,
+    };
+    const secondTrack: MotionTextAnimation = {
+      ...firstTrack,
+      property: "translate",
+      staggerMs: 3000,
+      durationMs: 3000,
+      keyframes: [
+        { t: 0, value: "0px" },
+        { t: 1, value: "12px" },
+      ],
+    };
+
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({
+          version: 2,
+          animations: [firstTrack, secondTrack],
+        }),
+      ),
+    ).toMatchObject({ status: "valid" });
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({
+          version: 2,
+          animations: [
+            { ...firstTrack, overlapPercent: undefined, staggerMs: 40 },
+            { ...secondTrack, overlapPercent: undefined, staggerMs: 80 },
+          ],
+        }),
+      ),
+    ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({
+          version: 2,
+          animations: [{ ...firstTrack, staggerMs: 120_001 }],
+        }),
+      ),
+    ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
+  });
+
   it.each([
     "cubic-bezier(0, 0.9971093535, 1, 1)",
     "spring(0.674)",
@@ -495,9 +545,14 @@ describe("Motion Text source and runtime", () => {
         child.getAttribute("data-agent-native-motion-text-unit") !== null,
     );
     expect(units.map((unit) => unit.textContent)).toEqual(["A", " ", "B"]);
+    expect(units.map((unit) => unit.style.display)).toEqual([
+      "inline-block",
+      "inline",
+      "inline-block",
+    ]);
     expect(units.map((unit) => unit.style.whiteSpace)).toEqual([
       undefined,
-      "pre",
+      undefined,
       undefined,
     ]);
     expect(units.map((unit) => unit.animations[0]?.options)).toEqual([

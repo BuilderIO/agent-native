@@ -14,6 +14,7 @@ import { createServer, type ViteDevServer } from "vite";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { MOTION_CODE_METADATA_VERSION } from "../shared/motion-code";
+import { injectMotionTextRuntime } from "../shared/motion-text-code";
 import { e2eBaseURL } from "./base-url";
 import { appPath, enableLab, gotoEditor, selectByText } from "./helpers";
 
@@ -482,4 +483,77 @@ test.describe.serial("React Motion source browser writeback", () => {
     });
     expect(renderedAtQuarterTime).toBe("6px");
   });
+});
+
+test("keeps collapsed text layout when whitespace units animate", async ({
+  page,
+}) => {
+  const authored = [
+    "<!doctype html>",
+    "<html><head><style>",
+    "#whitespace-target { width: 32px; margin: 0; font: 16px/20px monospace; white-space: normal; }",
+    "</style></head><body>",
+    '<p id="whitespace-target" data-agent-native-node-id="whitespace-target">A  B\n C</p>',
+    "</body></html>",
+  ].join("\n");
+  const textDocument = {
+    version: 2 as const,
+    animations: [
+      {
+        targetNodeId: "whitespace-target",
+        unit: "character" as const,
+        direction: "forward" as const,
+        staggerMs: 0,
+        animationDirection: "in" as const,
+        order: "left-to-right" as const,
+        overlapPercent: 0,
+        ignoreSpaces: false,
+        property: "opacity" as const,
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ],
+  };
+
+  await page.setContent(authored);
+  async function measureLayout() {
+    return page.locator("#whitespace-target").evaluate((target) => {
+      const letters: Record<string, number[][]> = { A: [], B: [], C: [] };
+      const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        const text = node.textContent ?? "";
+        for (let index = 0; index < text.length; index += 1) {
+          const letter = text[index];
+          if (!(letter in letters)) continue;
+          const range = document.createRange();
+          range.setStart(node, index);
+          range.setEnd(node, index + 1);
+          const rect = range.getBoundingClientRect();
+          letters[letter]!.push(
+            [rect.x, rect.y].map((value) => Math.round(value * 10) / 10),
+          );
+        }
+        node = walker.nextNode();
+      }
+      const rect = target.getBoundingClientRect();
+      return {
+        text: target.textContent,
+        bounds: [rect.x, rect.y, rect.width, rect.height].map(
+          (value) => Math.round(value * 100) / 100,
+        ),
+        letters,
+      };
+    });
+  }
+
+  const before = await measureLayout();
+  await page.setContent(injectMotionTextRuntime(authored, textDocument));
+  await expect(
+    page.locator("#whitespace-target [data-agent-native-motion-text-unit]"),
+  ).toHaveCount(7);
+  expect(await measureLayout()).toEqual(before);
 });

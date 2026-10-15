@@ -96,7 +96,7 @@ export type MotionTextReadResult =
 const MAX_TEXT_ANIMATIONS = 64;
 const MAX_TEXT_KEYFRAMES = 128;
 const MAX_TEXT_DURATION_MS = 120_000;
-const MAX_TEXT_STAGGER_MS = 5_000;
+export const MAX_MOTION_TEXT_STAGGER_MS = 5_000;
 const MAX_RUNTIME_UNITS = 512;
 const PARAGRAPH_TAGS = new Set([
   "blockquote",
@@ -338,11 +338,22 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       );
     }
     const property = raw.property as MotionTextProperty;
-    const staggerMs = finiteNumber(raw.staggerMs, `${field}.staggerMs`);
-    if (staggerMs < 0 || staggerMs > MAX_TEXT_STAGGER_MS) {
+    const durationMs = finiteNumber(raw.durationMs, `${field}.durationMs`);
+    if (durationMs <= 0 || durationMs > MAX_TEXT_DURATION_MS) {
       sourceError(
         "invalid-document",
-        `${field}.staggerMs must be between 0 and ${MAX_TEXT_STAGGER_MS}.`,
+        `${field}.durationMs must be between 1 and ${MAX_TEXT_DURATION_MS}.`,
+      );
+    }
+    const staggerMs = finiteNumber(raw.staggerMs, `${field}.staggerMs`);
+    const maxStaggerMs =
+      overlapPercent === undefined
+        ? MAX_MOTION_TEXT_STAGGER_MS
+        : MAX_TEXT_DURATION_MS;
+    if (staggerMs < 0 || staggerMs > maxStaggerMs) {
+      sourceError(
+        "invalid-document",
+        `${field}.staggerMs must be between 0 and ${maxStaggerMs}.`,
       );
     }
     const targetTrack = targetTracks.get(targetNodeId);
@@ -350,7 +361,7 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       if (
         targetTrack.unit !== unit ||
         targetTrack.direction !== direction ||
-        targetTrack.staggerMs !== staggerMs ||
+        (overlapPercent === undefined && targetTrack.staggerMs !== staggerMs) ||
         targetTrack.animationDirection !== animationDirection ||
         targetTrack.order !== order ||
         targetTrack.overlapPercent !== overlapPercent ||
@@ -358,7 +369,7 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       ) {
         sourceError(
           "invalid-document",
-          `Text animations for node "${targetNodeId}" must use the same unit, direction, and stagger.`,
+          `Text animations for node "${targetNodeId}" must use the same unit, direction, and timing settings.`,
         );
       }
       if (targetTrack.properties.has(property)) {
@@ -390,14 +401,6 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
         `${field}.delayMs must be between 0 and 120000.`,
       );
     }
-    const durationMs = finiteNumber(raw.durationMs, `${field}.durationMs`);
-    if (durationMs <= 0 || durationMs > MAX_TEXT_DURATION_MS) {
-      sourceError(
-        "invalid-document",
-        `${field}.durationMs must be between 1 and ${MAX_TEXT_DURATION_MS}.`,
-      );
-    }
-
     if (
       !Array.isArray(raw.keyframes) ||
       raw.keyframes.length < 2 ||
@@ -912,8 +915,7 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         var unit = units[unitIndex];
         var span = document.createElement("span");
         span.setAttribute("data-agent-native-motion-text-unit", String(unit.index));
-        span.style.display = "inline-block";
-        if (/^\s+$/u.test(part)) span.style.whiteSpace = "pre";
+        span.style.display = /^\s+$/u.test(part) ? "inline" : "inline-block";
         span.appendChild(document.createTextNode(part));
         fragment.appendChild(span);
         unit.fragments.push(span);

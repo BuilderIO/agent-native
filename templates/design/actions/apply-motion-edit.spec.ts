@@ -14,6 +14,45 @@ import action, {
   resolveMotionTimelineInsertOwnership,
 } from "./apply-motion-edit.js";
 
+describe("apply-motion-edit Text stagger validation", () => {
+  const animation = {
+    targetNodeId: "target-1",
+    unit: "character",
+    direction: "forward",
+    staggerMs: 6000,
+    animationDirection: "in",
+    order: "left-to-right",
+    overlapPercent: 0,
+    ignoreSpaces: false,
+    property: "opacity",
+    durationMs: 6000,
+    keyframes: [
+      { t: 0, value: "0" },
+      { t: 1, value: "1" },
+    ],
+  };
+  const input = {
+    designId: "design-1",
+    tracks: [],
+    textDocument: { version: 2, animations: [animation] },
+  };
+
+  it("accepts duration-derived stagger when overlap is explicit", () => {
+    expect(action.schema.safeParse(input).success).toBe(true);
+  });
+
+  it("keeps legacy absolute stagger bounded at 5000ms", () => {
+    const { overlapPercent: _overlapPercent, ...legacyAnimation } = animation;
+
+    expect(
+      action.schema.safeParse({
+        ...input,
+        textDocument: { version: 2, animations: [legacyAnimation] },
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("assertSafeCssProperty (Issue 1 — CSS injection via track.property)", () => {
   it("FAILS before fix: injection payload containing colon is accepted — MUST throw after fix", () => {
     expect(() =>

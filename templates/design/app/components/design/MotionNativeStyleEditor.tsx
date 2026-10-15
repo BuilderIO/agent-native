@@ -149,6 +149,10 @@ const TEXT_STAGGER_ORDER_OPTIONS = [
   { value: "CENTER_OUT", labelKey: "centerOut" },
   { value: "RANDOM", labelKey: "random" },
 ];
+const TEXT_STAGGER_VERTICAL_ORDER_OPTIONS = [
+  { value: "TOP_BOTTOM", labelKey: "topToBottom" },
+  { value: "BOTTOM_TOP", labelKey: "bottomToTop" },
+];
 
 const TEXT_STAGGER_ANIMATION_DIRECTION_OPTIONS = [
   { value: "in", labelKey: "enter" },
@@ -992,7 +996,10 @@ function NativeTextStaggerDetails({
     value: option.value,
     labelKey: option.labelKey,
   }));
-  const orderOptions = TEXT_STAGGER_ORDER_OPTIONS;
+  const supportsVerticalOrder = grouping === "LINE" || grouping === "PARAGRAPH";
+  const orderOptions = supportsVerticalOrder
+    ? [...TEXT_STAGGER_ORDER_OPTIONS, ...TEXT_STAGGER_VERTICAL_ORDER_OPTIONS]
+    : TEXT_STAGGER_ORDER_OPTIONS;
   const order = stringValue(
     instance.props.textDelayOrder,
     orderOptions[0]?.value ?? "LEFT_RIGHT",
@@ -1049,7 +1056,18 @@ function NativeTextStaggerDetails({
           labelBase="designEditor.motion.textAnimation.units"
           t={t}
           onChange={(value) => {
-            onUpdateProp(instance, identity, "textDelayGrouping", value);
+            const supportsVertical = value === "LINE" || value === "PARAGRAPH";
+            const isVerticalOrder =
+              order === "TOP_BOTTOM" || order === "BOTTOM_TOP";
+            onUpdateTopLevel(instance, identity, {
+              props: {
+                ...instance.props,
+                textDelayGrouping: value,
+                ...(!supportsVertical && isVerticalOrder
+                  ? { textDelayOrder: "LEFT_RIGHT" }
+                  : {}),
+              },
+            });
           }}
         />
       </Field>

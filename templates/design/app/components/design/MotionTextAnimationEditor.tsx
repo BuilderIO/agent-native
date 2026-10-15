@@ -35,6 +35,10 @@ const TEXT_ORDERS: MotionTextOrder[] = [
   "center-out",
   "random",
 ];
+const TEXT_VERTICAL_ORDERS: MotionTextOrder[] = [
+  "top-to-bottom",
+  "bottom-to-top",
+];
 const TEXT_ORDER_TRANSLATION_KEYS: Record<MotionTextOrder, string> = {
   "left-to-right": "leftToRight",
   "right-to-left": "rightToLeft",
@@ -88,6 +92,11 @@ export function MotionTextAnimationEditor({
       ),
     );
   const ignoreSpaces = shared.ignoreSpaces ?? true;
+  const supportsVerticalOrder =
+    shared.unit === "line" || shared.unit === "paragraph";
+  const orderOptions = supportsVerticalOrder
+    ? [...TEXT_ORDERS, ...TEXT_VERTICAL_ORDERS]
+    : TEXT_ORDERS;
   const availableProperties = TEXT_PROPERTIES.filter(
     (property) => !usedProperties.has(property),
   );
@@ -169,7 +178,6 @@ export function MotionTextAnimationEditor({
         delayMs: shared.delayMs ?? 0,
         animationDirection,
         order,
-        overlapPercent,
         ignoreSpaces,
         durationMs: shared.durationMs,
         keyframes,
@@ -219,9 +227,17 @@ export function MotionTextAnimationEditor({
           <Select
             value={shared.unit}
             disabled={disabled}
-            onValueChange={(unit) =>
-              updateShared({ unit: unit as MotionTextUnit })
-            }
+            onValueChange={(unit) => {
+              const nextUnit = unit as MotionTextUnit;
+              updateShared({
+                unit: nextUnit,
+                ...(order === "top-to-bottom" || order === "bottom-to-top"
+                  ? nextUnit === "line" || nextUnit === "paragraph"
+                    ? {}
+                    : { order: "left-to-right", direction: "forward" }
+                  : {}),
+              });
+            }}
           >
             <SelectTrigger
               id={`${id}-unit`}
@@ -300,7 +316,7 @@ export function MotionTextAnimationEditor({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {TEXT_ORDERS.map((value) => (
+              {orderOptions.map((value) => (
                 <SelectItem key={value} value={value}>
                   {t(
                     `designEditor.motion.nativeTextStagger.orderOptions.${TEXT_ORDER_TRANSLATION_KEYS[value]}`,

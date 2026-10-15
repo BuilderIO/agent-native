@@ -410,6 +410,120 @@ describe("MotionNativeStyleEditor", () => {
     );
   });
 
+  it.each(["LINE", "PARAGRAPH"] as const)(
+    "offers vertical TextStagger order for %s grouping",
+    async (grouping) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "target-1",
+      });
+      const style = {
+        ...base,
+        props: {
+          ...base.props,
+          textDelayGrouping: grouping,
+          textDelayOrder: "TOP_BOTTOM",
+        },
+      };
+      await render({ styles: [style] });
+      await openStyleDetails();
+      await act(async () =>
+        document
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="designEditor.motion.nativeTextStagger.order"]',
+          )!
+          .click(),
+      );
+
+      expect(document.body.textContent).toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
+      );
+      expect(document.body.textContent).toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
+      );
+      await selectOption(
+        document.querySelector<HTMLButtonElement>(
+          'button[aria-label="designEditor.motion.nativeTextStagger.order"]',
+        )!,
+        "designEditor.motion.nativeTextStagger.orderOptions.leftToRight",
+      );
+    },
+  );
+
+  it.each(["CHARACTER", "WORD"] as const)(
+    "hides vertical TextStagger order for %s grouping",
+    async (grouping) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "target-1",
+      });
+      const style = {
+        ...base,
+        props: {
+          ...base.props,
+          textDelayGrouping: grouping,
+          textDelayOrder: "LEFT_RIGHT",
+        },
+      };
+      await render({ styles: [style] });
+      await openStyleDetails();
+      await act(async () =>
+        document
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="designEditor.motion.nativeTextStagger.order"]',
+          )!
+          .click(),
+      );
+
+      expect(document.body.textContent).not.toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
+      );
+      expect(document.body.textContent).not.toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
+      );
+      await selectOption(
+        document.querySelector<HTMLButtonElement>(
+          'button[aria-label="designEditor.motion.nativeTextStagger.order"]',
+        )!,
+        "designEditor.motion.nativeTextStagger.orderOptions.leftToRight",
+      );
+    },
+  );
+
+  it("resets vertical TextStagger order when grouping changes to word", async () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "target-1",
+    });
+    const style = {
+      ...base,
+      props: {
+        ...base.props,
+        textDelayGrouping: "LINE",
+        textDelayOrder: "TOP_BOTTOM",
+      },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [style], onChange });
+    await openStyleDetails();
+    await selectOption(
+      document.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.nativeTextStagger.grouping"]',
+      )!,
+      "designEditor.motion.textAnimation.units.word",
+    );
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({
+          textDelayGrouping: "WORD",
+          textDelayOrder: "LEFT_RIGHT",
+        }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+  });
+
   it("keeps unknown native properties while editing known fields", async () => {
     const onChange = vi.fn();
     await render({ onChange });

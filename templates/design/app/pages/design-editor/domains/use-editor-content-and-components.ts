@@ -572,7 +572,10 @@ export function useEditorContentAndComponents({
       if (remainingTextAnimations.length !== textAnimations.length) {
         setMotionTextDocument(
           remainingTextAnimations.length > 0
-            ? { version: 1, animations: remainingTextAnimations }
+            ? {
+                version: MOTION_TEXT_SOURCE_VERSION,
+                animations: remainingTextAnimations,
+              }
             : null,
         );
         markMotionTracksDirty();
@@ -610,7 +613,10 @@ export function useEditorContentAndComponents({
       );
       const nextDocument =
         nextAnimations.length > 0
-          ? { version: 1 as const, animations: nextAnimations }
+          ? {
+              version: MOTION_TEXT_SOURCE_VERSION,
+              animations: nextAnimations,
+            }
           : null;
       if (JSON.stringify(nextDocument) !== JSON.stringify(motionTextDocument)) {
         setMotionTextDocument(nextDocument);
