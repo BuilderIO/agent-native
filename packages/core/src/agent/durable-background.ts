@@ -162,7 +162,7 @@ export const AGENT_CHAT_BACKGROUND_RUN_FIELD = "__backgroundRun";
 export const AGENT_CHAT_BROWSER_SESSION_ID_FIELD =
   "__agentNativeBrowserSessionId";
 
-/** Server-captured origin proof restored only from the authenticated run payload. */
+/** Captured turn origin; durable workers do not restore loopback trust from this payload. */
 export const AGENT_CHAT_REQUEST_CONTEXT_FIELD = "__agentChatRequestContext";
 
 export function isHostedRuntimeForDurableBackground(): boolean {

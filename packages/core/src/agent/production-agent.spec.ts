@@ -48,7 +48,10 @@ import * as settingsStore from "../settings/store.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { warnAgent } from "./action-warnings.js";
 import { approvalKeyForHistory } from "./approval-key.js";
-import { AGENT_CHAT_BACKGROUND_RUN_FIELD } from "./durable-background.js";
+import {
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+} from "./durable-background.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import type {
   AgentEngine,
@@ -5181,6 +5184,9 @@ describe("createProductionAgentHandler", () => {
         {
           userEmail: "alice@example.com",
           browserSessionId: "origin-session",
+          requestOrigin: "http://127.0.0.1:8080",
+          isLoopbackRequest: true,
+          isDirectLoopbackRequest: true,
           run: {},
         },
         () => handler(event),
@@ -5201,6 +5207,13 @@ describe("createProductionAgentHandler", () => {
       expect(JSON.parse(dispatchPayload).__agentNativeBrowserSessionId).toBe(
         "origin-session",
       );
+      expect(
+        JSON.parse(dispatchPayload)[AGENT_CHAT_REQUEST_CONTEXT_FIELD],
+      ).toEqual({
+        requestOrigin: "http://127.0.0.1:8080",
+        isLoopbackRequest: false,
+        isDirectLoopbackRequest: false,
+      });
     } finally {
       preUpload.mockRestore();
       if (previousDurableFlag === undefined) {

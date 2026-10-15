@@ -342,20 +342,6 @@ export async function resolveAgentRunRequestContext(options: {
       "string"
       ? (durableRequestContext as Record<string, string>).requestOrigin
       : undefined;
-  const durableLoopback = Boolean(
-    durableRequestContext &&
-    typeof durableRequestContext === "object" &&
-    !Array.isArray(durableRequestContext) &&
-    (durableRequestContext as Record<string, unknown>).isLoopbackRequest ===
-      true,
-  );
-  const durableDirectLoopback = Boolean(
-    durableRequestContext &&
-    typeof durableRequestContext === "object" &&
-    !Array.isArray(durableRequestContext) &&
-    (durableRequestContext as Record<string, unknown>)
-      .isDirectLoopbackRequest === true,
-  );
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
     ...(waitUntil ? { waitUntil } : {}),
@@ -386,10 +372,10 @@ export async function resolveAgentRunRequestContext(options: {
       ? durableOrigin
       : getForwardedRequestOrigin(options.event),
     isLoopbackRequest: options.isBackgroundWorker
-      ? durableLoopback
+      ? false
       : isLoopbackRequest(options.event),
     isDirectLoopbackRequest: options.isBackgroundWorker
-      ? durableDirectLoopback
+      ? false
       : isDirectLoopbackRequest(options.event),
     ...(browserTabId ? { run: { ...run, browserTabId } } : {}),
     ...(!browserTabId && Object.keys(run).length > 0 ? { run } : {}),

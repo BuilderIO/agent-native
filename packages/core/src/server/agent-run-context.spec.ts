@@ -292,7 +292,7 @@ describe("server/agent-run-context", () => {
     expect(requestContext.browserSessionId).toBe("origin-session");
   });
 
-  it("restores loopback eligibility only from the authenticated durable payload", async () => {
+  it("does not restore loopback eligibility from a durable payload", async () => {
     const event = makeEvent();
     event.context.__agentChatBackgroundBody = {
       [AGENT_CHAT_REQUEST_CONTEXT_FIELD]: {
@@ -311,8 +311,8 @@ describe("server/agent-run-context", () => {
       }),
     ).resolves.toMatchObject({
       requestOrigin: "http://127.0.0.1:8080",
-      isLoopbackRequest: true,
-      isDirectLoopbackRequest: true,
+      isLoopbackRequest: false,
+      isDirectLoopbackRequest: false,
     });
     expect(isLoopbackRequestMock).not.toHaveBeenCalled();
     expect(isDirectLoopbackRequestMock).not.toHaveBeenCalled();

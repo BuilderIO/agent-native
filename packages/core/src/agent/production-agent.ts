@@ -11124,8 +11124,10 @@ export function createProductionAgentHandler(
       const requestContext = getRequestContext();
       mutableBody[AGENT_CHAT_REQUEST_CONTEXT_FIELD] = {
         requestOrigin: requestContext?.requestOrigin ?? null,
-        isLoopbackRequest: requestContext?.isLoopbackRequest === true,
+        isLoopbackRequest:
+          !dispatchToBackground && requestContext?.isLoopbackRequest === true,
         isDirectLoopbackRequest:
+          !dispatchToBackground &&
           requestContext?.isDirectLoopbackRequest === true,
       };
       delete mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD];

@@ -55,6 +55,26 @@ describe("ChatGPT subscription OAuth contract", () => {
     expect(mocks.getUserLabEnabled).toHaveBeenCalledTimes(2);
   });
 
+  it("does not grant local ChatGPT credentials to a durable worker", async () => {
+    mocks.getUserLabEnabled.mockResolvedValue(true);
+
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        isDirectLoopbackRequest: true,
+        requestOrigin: "http://127.0.0.1:1455",
+        run: { isBackgroundWorker: true },
+      },
+      async () => {
+        await expect(
+          hasChatGPTSubscriptionCredential("alice@example.com"),
+        ).resolves.toBe(false);
+      },
+    );
+
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+  });
+
   it("surfaces lab preference read failures instead of treating them as off", async () => {
     const error = new Error("settings unavailable");
     mocks.getUserLabEnabled.mockRejectedValue(error);

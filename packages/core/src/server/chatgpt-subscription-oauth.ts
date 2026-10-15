@@ -53,7 +53,7 @@ import {
 import { getSession, redirectWithStagedCookies } from "./auth.js";
 import { oauthErrorPage } from "./google-oauth.js";
 import { isDirectLoopbackRequest } from "./loopback.js";
-import { getRequestContext } from "./request-context.js";
+import { getRequestContext, getRequestRunContext } from "./request-context.js";
 
 export const CHATGPT_SUBSCRIPTION_OAUTH_PROVIDER =
   CHATGPT_SUBSCRIPTION_PROVIDER;
@@ -331,6 +331,7 @@ function callbackUriForEvent(event: H3Event): string | null {
 }
 
 function currentRequestIsLocalLoopback(): boolean {
+  if (getRequestRunContext()?.isBackgroundWorker === true) return false;
   const context = getRequestContext();
   if (
     !context?.isLoopbackRequest ||
