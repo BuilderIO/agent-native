@@ -279,13 +279,11 @@ test("Motion inspector states match the editable timeline", async ({
   });
   expect(catalogGeometry.popover.width).toBe(240);
   expect(catalogGeometry.popover.height).toBe(485);
+  expect(catalogGeometry.trigger.width).toBe(24);
   expect(
-    Math.abs(
-      catalogGeometry.popover.x +
-        catalogGeometry.popover.width -
-        catalogGeometry.inspector.x,
-    ),
-  ).toBeLessThanOrEqual(1);
+    catalogGeometry.inspector.x -
+      (catalogGeometry.popover.x + catalogGeometry.popover.width),
+  ).toBe(2);
   expect(
     Math.abs(catalogGeometry.popover.y - catalogGeometry.trigger.y),
   ).toBeLessThanOrEqual(1);
@@ -327,6 +325,7 @@ test("Motion inspector states match the editable timeline", async ({
       ),
     ).find((button) => button.getBoundingClientRect().width > 0);
     return {
+      viewportWidth: innerWidth,
       menu: bounds(document.querySelector('[role="menu"]')),
       trigger: bounds(trigger ?? null),
     };
@@ -336,6 +335,10 @@ test("Motion inspector states match the editable timeline", async ({
   }
   expect(menuGeometry.menu.width).toBe(120);
   expect(menuGeometry.menu.height).toBe(136);
+  expect(menuGeometry.trigger.width).toBe(24);
+  expect(menuGeometry.trigger.x + menuGeometry.trigger.width).toBe(
+    menuGeometry.viewportWidth - 8,
+  );
   expect(
     Math.abs(
       menuGeometry.menu.x +

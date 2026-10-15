@@ -2635,7 +2635,7 @@ export function AddTrackMenu({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
         <DropdownMenuContent
-          align="start"
+          align="end"
           className="w-[7.5rem] min-w-[7.5rem] p-[7px]"
         >
           <DropdownMenuLabel className="sr-only">

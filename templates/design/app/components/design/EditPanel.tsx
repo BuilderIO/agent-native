@@ -3096,7 +3096,7 @@ export const EditPanel = memo(function EditPanel({
                         title={t("designEditor.motion.animations")}
                         actions={
                           motionSelectedTarget ? (
-                            <div className="flex items-center gap-1">
+                            <div className="flex -translate-x-[11px] items-center gap-1">
                               <Popover
                                 open={animationStyleBrowserOpen}
                                 onOpenChange={setAnimationStyleBrowserOpen}
@@ -3106,7 +3106,7 @@ export const EditPanel = memo(function EditPanel({
                                     type="button"
                                     size="sm"
                                     variant="ghost"
-                                    className="h-6 px-2 text-[11px]"
+                                    className="h-6 w-6 px-0 text-[11px]"
                                     aria-label={t(
                                       "designEditor.motion.animationStyles.title",
                                     )}
@@ -3122,7 +3122,7 @@ export const EditPanel = memo(function EditPanel({
                                 <PopoverContent
                                   align="start"
                                   side="left"
-                                  sideOffset={184}
+                                  sideOffset={181}
                                   className="w-[240px] p-0"
                                 >
                                   <div className="h-[min(483px,calc(100dvh-4rem))]">
