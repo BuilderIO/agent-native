@@ -262,8 +262,11 @@ test("Motion inspector states match the editable timeline", async ({
   );
   const catalogGeometry = await animationCatalog.evaluate((popover) => {
     const rect = popover.getBoundingClientRect();
-    const rightPanel = document.querySelector<HTMLElement>(
-      '[data-design-chrome-region="right-panel"]',
+    const inspectorHeading = document.querySelector<HTMLElement>(
+      'h3[aria-label="Animations"]',
+    );
+    const rightPanel = inspectorHeading?.closest<HTMLElement>(
+      "[data-design-inspector-section]",
     );
     const trigger = rightPanel?.querySelector<HTMLElement>(
       'button[aria-label="Animations"]',
@@ -286,6 +289,7 @@ test("Motion inspector states match the editable timeline", async ({
         (catalogGeometry.popover.x + catalogGeometry.popover.width) -
         2,
     ),
+    JSON.stringify(catalogGeometry),
   ).toBeLessThanOrEqual(1);
   expect(
     Math.abs(catalogGeometry.popover.y - catalogGeometry.trigger.y),

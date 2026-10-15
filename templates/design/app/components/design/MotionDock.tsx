@@ -451,6 +451,14 @@ export function MotionDock({
     storedDurationMs,
     ...Object.values(previewContentDurationsMs),
   );
+  const commitTracksChange = useCallback(
+    (nextTracks: MotionDockTrack[]) => {
+      if (!onTracksChange) return;
+      if (durationMs > storedDurationMs) onDurationChange?.(durationMs);
+      onTracksChange(nextTracks);
+    },
+    [durationMs, onDurationChange, onTracksChange, storedDurationMs],
+  );
   const setOpen = useCallback(
     (v: boolean) => {
       setOpenInternal(v);
@@ -564,9 +572,16 @@ export function MotionDock({
     setPlaybackModeInternal(next);
     onPlaybackModeChange?.(next);
     if (onTracksChange && tracks.length > 0) {
-      onTracksChange(withTimelinePlaybackMode(tracks, next));
+      commitTracksChange(withTimelinePlaybackMode(tracks, next));
     }
-  }, [onPlaybackModeChange, onTracksChange, playbackMode, readOnly, tracks]);
+  }, [
+    commitTracksChange,
+    onPlaybackModeChange,
+    onTracksChange,
+    playbackMode,
+    readOnly,
+    tracks,
+  ]);
 
   const [selectedTrackKey, setSelectedTrackKey] = useState<string | null>(() =>
     tracks.length > 0 ? trackKey(tracks[tracks.length - 1]) : null,
@@ -1349,7 +1364,7 @@ export function MotionDock({
       updater: (track: MotionDockTrack) => MotionDockTrack,
     ) => {
       if (readOnly || !onTracksChange) return;
-      onTracksChange(
+      commitTracksChange(
         tracks.map((tr) =>
           tr.targetNodeId === nodeId && tr.property === property
             ? updater(tr)
@@ -1357,7 +1372,7 @@ export function MotionDock({
         ),
       );
     },
-    [onTracksChange, readOnly, tracks],
+    [commitTracksChange, onTracksChange, readOnly, tracks],
   );
 
   const updateTrackTiming = useCallback(
@@ -1391,9 +1406,9 @@ export function MotionDock({
         }
         return candidate;
       });
-      if (changed) onTracksChange(nextTracks);
+      if (changed) commitTracksChange(nextTracks);
     },
-    [durationMs, onTracksChange, readOnly, tracks],
+    [commitTracksChange, durationMs, onTracksChange, readOnly, tracks],
   );
 
   const updateTrackEase = useCallback(
@@ -1443,13 +1458,13 @@ export function MotionDock({
         changed = true;
         return keyframes.length > 0 ? [{ ...track, keyframes }] : [];
       });
-      if (changed) onTracksChange(nextTracks);
+      if (changed) commitTracksChange(nextTracks);
       setSelectedKeyframeKeys((current) => {
         const next = new Set([...current].filter((key) => !selection.has(key)));
         return next.size === current.size ? current : next;
       });
     },
-    [onTracksChange, readOnly, tracks],
+    [commitTracksChange, onTracksChange, readOnly, tracks],
   );
 
   const deleteKeyframe = useCallback(
@@ -1523,7 +1538,7 @@ export function MotionDock({
           keyframeSelectionKey(track, keyframe.t),
         ),
       );
-      onTracksChange(
+      commitTracksChange(
         tracks.filter((candidate) => trackKey(candidate) !== removedKey),
       );
       setSelectedTrackKey((current) =>
@@ -1536,7 +1551,7 @@ export function MotionDock({
         return next.size === current.size ? current : next;
       });
     },
-    [onTracksChange, readOnly, tracks],
+    [commitTracksChange, onTracksChange, readOnly, tracks],
   );
 
   const moveKeyframes = useCallback(
@@ -1642,9 +1657,16 @@ export function MotionDock({
         return { ...track, keyframes };
       });
       setSelectedKeyframeKeys(nextSelection);
-      if (changed) onTracksChange(nextTracks);
+      if (changed) commitTracksChange(nextTracks);
     },
-    [durationMs, onTracksChange, playhead, readOnly, tracks],
+    [
+      commitTracksChange,
+      durationMs,
+      onTracksChange,
+      playhead,
+      readOnly,
+      tracks,
+    ],
   );
 
   const moveKeyframesEnd = useCallback(
@@ -1653,7 +1675,7 @@ export function MotionDock({
       const affectedTrackKeys = new Set(
         targets.map((target) => target.trackKey),
       );
-      onTracksChange(
+      commitTracksChange(
         tracks.map((track) =>
           affectedTrackKeys.has(trackKey(track))
             ? { ...track, keyframes: sortMotionKeyframes(track.keyframes) }
@@ -1661,7 +1683,7 @@ export function MotionDock({
         ),
       );
     },
-    [onTracksChange, tracks],
+    [commitTracksChange, onTracksChange, tracks],
   );
 
   const easeKeyframe = useCallback(
@@ -1694,7 +1716,7 @@ export function MotionDock({
       const spanEnd = Math.max(...timings.map((t) => t.endMs));
       const spanDur = Math.max(1, spanEnd - spanStart);
       const factor = Math.max(0.01, nextSpan.durationMs / spanDur);
-      onTracksChange(
+      commitTracksChange(
         tracks.map((tr) => {
           const timing = timingsByKey.get(trackKey(tr));
           if (!timing) return tr;
@@ -1714,7 +1736,7 @@ export function MotionDock({
         }),
       );
     },
-    [durationMs, onTracksChange, readOnly, tracks],
+    [commitTracksChange, durationMs, onTracksChange, readOnly, tracks],
   );
 
   const commitTimeDraft = useCallback(() => {

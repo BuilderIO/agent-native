@@ -397,6 +397,57 @@ describe("MotionDock audio preview bridge", () => {
 });
 
 describe("MotionDock text preview timeline", () => {
+  it("persists the preview-expanded timebase with timeline track edits", async () => {
+    const contentWindow = { postMessage: vi.fn() };
+    const canvasIframeRef = {
+      current: {
+        contentWindow,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      } as unknown as HTMLIFrameElement,
+    };
+    const onDurationChange = vi.fn();
+    const onTracksChange = vi.fn();
+    const track: MotionDockTrack = {
+      targetNodeId: "hero",
+      property: "opacity",
+      label: "Hero",
+      keyframes: [
+        { t: 0, value: "0" },
+        { t: 1, value: "1" },
+      ],
+    };
+    await renderInteractive({
+      canvasIframeRef,
+      durationMs: 2000,
+      onDurationChange,
+      onTracksChange,
+      playhead: 0.5,
+      tracks: [track],
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "motion-preview-span", key: "html", durationMs: 4250 },
+          source: contentWindow as unknown as Window,
+        }),
+      );
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Add or remove keyframe"]',
+        )!
+        .click();
+    });
+
+    expect(onDurationChange).toHaveBeenCalledExactlyOnceWith(4250);
+    expect(onTracksChange.mock.lastCall?.[0][0]?.keyframes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ t: 0.5 })]),
+    );
+  });
+
   it("extends the shared timeline to the reported HTML text stagger span", async () => {
     const postMessage = vi.fn();
     const contentWindow = { postMessage };
@@ -550,14 +601,11 @@ describe("Motion animation style menu", () => {
     });
   }
 
-  it("adds the text preset before property animations for text layers", async () => {
+  it("adds Text before property animations for text layers", async () => {
     await renderMenu(true, vi.fn());
     await openMenu("Add animation");
 
-    const menuItems = Array.from(
-      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    );
-    expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
+    expect(menuItemLabels()).toEqual([
       "Text",
       "Position",
       "Scale",
@@ -565,7 +613,11 @@ describe("Motion animation style menu", () => {
       "Size",
       "Opacity",
     ]);
-    expect(menuItems.every((item) => item.querySelector("svg"))).toBe(true);
+    expect(
+      Array.from(
+        document.body.querySelectorAll<HTMLElement>("[role='menuitem']"),
+      ).every((item) => item.querySelector("svg")),
+    ).toBe(true);
     expect(
       Array.from(document.body.querySelectorAll(".sr-only")).some((element) =>
         element.textContent?.includes('Animate "Heading"'),
@@ -576,6 +628,9 @@ describe("Motion animation style menu", () => {
         .querySelector('[role="menu"]')
         ?.classList.contains("w-[7.5rem]"),
     ).toBe(true);
+    expect(container.querySelector('button[aria-label="More Motion"]')).toBe(
+      null,
+    );
   });
 
   it("creates a composite Size style through one style callback", async () => {
@@ -686,7 +741,6 @@ describe("Motion animation style menu", () => {
       "Size",
       "Opacity",
     ]);
-
     await selectMenuItem("Text");
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("TextStagger");
     expect(container.querySelector('button[aria-label="More Motion"]')).toBe(
@@ -708,7 +762,6 @@ describe("Motion animation style menu", () => {
       "Size",
       "Opacity",
     ]);
-
     await selectMenuItem("Text");
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("TextStagger");
     expect(onCreateText).not.toHaveBeenCalled();
@@ -736,7 +789,7 @@ describe("Motion animation style menu", () => {
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("Path");
   });
 
-  it("offers and creates Text from the primary menu only for text layers", async () => {
+  it("offers Text in Add animation only for text layers", async () => {
     const onCreateText = vi.fn();
     await renderMenu(true, onCreateText);
     await openMenu("Add animation");

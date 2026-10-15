@@ -146,6 +146,16 @@ const INLINE_TEXT_TAGS = new Set([
 const TEXT_PROPERTY_ALLOWLIST = new Set<MotionTextProperty>(
   MOTION_TEXT_PROPERTIES,
 );
+type MotionTextSegmenter = new (
+  locales: string | string[] | undefined,
+  options: { granularity: "word" | "grapheme" },
+) => {
+  segment(value: string): Iterable<{ segment: string; isWordLike?: boolean }>;
+};
+
+function motionTextSegmenter(): MotionTextSegmenter | undefined {
+  return (Intl as unknown as { Segmenter?: MotionTextSegmenter }).Segmenter;
+}
 
 type HtmlNode = {
   nodeName?: string;
@@ -557,6 +567,133 @@ function textContent(node: HtmlNode): string {
   return (node.childNodes ?? []).map(textContent).join("");
 }
 
+function wordUnitCount(value: string): number {
+  const Segmenter = motionTextSegmenter();
+  const chunks = Segmenter
+    ? Array.from(
+        new Segmenter(undefined, { granularity: "word" }).segment(value),
+        (part) => ({ value: part.segment, word: Boolean(part.isWordLike) }),
+      )
+    : (value.match(/\s+|[^\s]+/gu) ?? []).map((part) => ({
+        value: part,
+        word: !/^\s+$/u.test(part),
+      }));
+  let count = 0;
+  let lastTokenAnimatedText = false;
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index]!;
+    if (/^\s+$/u.test(chunk.value)) {
+      lastTokenAnimatedText = false;
+      continue;
+    }
+    if (chunk.word) {
+      count += 1;
+      lastTokenAnimatedText = true;
+      continue;
+    }
+    if (lastTokenAnimatedText) continue;
+    if (chunks.slice(index + 1).some((candidate) => candidate.word)) {
+      count += 1;
+      while (
+        index + 1 < chunks.length &&
+        !chunks[index + 1]!.word &&
+        !/^\s+$/u.test(chunks[index + 1]!.value)
+      ) {
+        index += 1;
+      }
+      lastTokenAnimatedText = true;
+    } else {
+      lastTokenAnimatedText = false;
+    }
+  }
+  return count;
+}
+
+function staticTextUnitCount(
+  target: HtmlNode,
+  animation: MotionTextAnimation,
+): number | null {
+  if (animation.unit === "line") {
+    const fragmentCount = wordUnitCount(textContent(target));
+    if (fragmentCount === 0) {
+      sourceError(
+        "unsupported-target",
+        `Motion text target "${animation.targetNodeId}" has no animatable text units.`,
+      );
+    }
+    if (fragmentCount > MAX_RUNTIME_UNITS) {
+      sourceError(
+        "unsupported-target",
+        `Motion text target "${animation.targetNodeId}" exceeds the ${MAX_RUNTIME_UNITS}-unit runtime limit.`,
+      );
+    }
+    return null;
+  }
+  if (animation.unit === "paragraph") {
+    if (PARAGRAPH_TAGS.has(target.tagName ?? "")) return 1;
+    const children = (target.childNodes ?? []).filter(
+      (node) => node.tagName !== undefined,
+    );
+    return children.length > 0 &&
+      children.every((node) => PARAGRAPH_TAGS.has(node.tagName!))
+      ? children.length
+      : 1;
+  }
+
+  const value = textContent(target);
+  if (animation.unit === "word") return wordUnitCount(value);
+  const Segmenter = motionTextSegmenter();
+  const characters = Segmenter
+    ? Array.from(
+        new Segmenter(undefined, { granularity: "grapheme" }).segment(value),
+        (part) => part.segment,
+      )
+    : Array.from(value);
+  return animation.ignoreSpaces === false
+    ? characters.length
+    : characters.filter((character) => !/^\s+$/u.test(character)).length;
+}
+
+function assertSupportedStaticTextSpan(
+  target: HtmlNode,
+  animation: MotionTextAnimation,
+): void {
+  const unitCount = staticTextUnitCount(target, animation);
+  if (unitCount === null) return;
+  if (unitCount === 0) {
+    sourceError(
+      "unsupported-target",
+      `Motion text target "${animation.targetNodeId}" has no animatable text units.`,
+    );
+  }
+  if (unitCount > MAX_RUNTIME_UNITS) {
+    sourceError(
+      "unsupported-target",
+      `Motion text target "${animation.targetNodeId}" exceeds the ${MAX_RUNTIME_UNITS}-unit runtime limit.`,
+    );
+  }
+  const overlap = animation.overlapPercent;
+  const unitDuration =
+    overlap === undefined
+      ? animation.durationMs
+      : animation.durationMs / (1 + (unitCount - 1) * (1 - overlap / 100));
+  const staggerMs =
+    overlap === undefined
+      ? animation.staggerMs
+      : unitDuration * (1 - overlap / 100);
+  const animationSpanMs =
+    (animation.delayMs ?? 0) + (unitCount - 1) * staggerMs + unitDuration;
+  if (
+    !Number.isFinite(animationSpanMs) ||
+    animationSpanMs > MAX_TEXT_DURATION_MS
+  ) {
+    sourceError(
+      "unsupported-target",
+      `Motion text target "${animation.targetNodeId}" resolves to ${unitCount} ${animation.unit} units whose animation span exceeds the ${MAX_TEXT_DURATION_MS}ms runtime limit.`,
+    );
+  }
+}
+
 function parseHtml(html: string): {
   root: HtmlNode;
   nodes: HtmlNode[];
@@ -817,6 +954,7 @@ function assertSupportedMotionTextTargets(
           `Paragraph Text animation requires a paragraph element, direct paragraph children, or a plain text element.`,
         );
       }
+      assertSupportedStaticTextSpan(target, animation);
       continue;
     }
     if (!hasStaticInlineTextContent(target)) {
@@ -825,6 +963,7 @@ function assertSupportedMotionTextTargets(
         `Character, word, and line Text animations require static text with supported inline formatting; block, dynamic, and identity-bearing descendants are not supported.`,
       );
     }
+    assertSupportedStaticTextSpan(target, animation);
   }
 }
 
@@ -984,7 +1123,6 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     if (paragraphTags[tag]) return [target];
     var children = Array.prototype.slice.call(target.children || []);
     if (children.length && children.every(function (child) { return paragraphTags[String(child.tagName || "").toLowerCase()]; })) return children;
-    if (children.length) throw new Error("Paragraph Text animation found unsupported nested elements.");
     return [target];
   }
   function lineGroups(units) {
@@ -1081,7 +1219,6 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         : fragments.map(function (unit) { return { unit: unit, index: Number(unit.getAttribute("data-agent-native-motion-text-unit")) }; });
     }
     var groupCount = entries.reduce(function (count, entry) { return Math.max(count, entry.index + 1); }, 0);
-    if (typeof animation.overlapPercent !== "number" && (groupCount - 1) * animation.staggerMs > 120000) throw new Error("Motion text stagger exceeds the 120000ms runtime limit.");
     var order = animation.order || (animation.direction === "reverse" ? "right-to-left" : "left-to-right");
     var orderRanks = textOrderRanks(groupCount, order, targetGroup.targetNodeId + "|" + target.textContent);
     targetGroup.animations.forEach(function (track) {
@@ -1092,6 +1229,8 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         unitDuration = track.durationMs / (1 + Math.max(0, groupCount - 1) * (1 - overlap));
         staggerMs = unitDuration * (1 - overlap);
       }
+      var animationSpanMs = track.delayMs + Math.max(0, groupCount - 1) * staggerMs + unitDuration;
+      if (entries.length && (!Number.isFinite(animationSpanMs) || animationSpanMs > 120000)) throw new Error("Motion text animation span exceeds the 120000ms runtime limit.");
       entries.forEach(function (entry) {
         if (typeof entry.unit.animate !== "function") throw new Error("Motion text requires the Web Animations API.");
         var delayIndex = orderRanks[entry.index] === undefined ? entry.index : orderRanks[entry.index];

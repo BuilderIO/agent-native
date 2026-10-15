@@ -1129,6 +1129,110 @@ describe("Motion Text source and runtime", () => {
     ]);
   });
 
+  it("runs paragraph motion on accepted static inline markup", () => {
+    const paragraphDocument: MotionTextDocument = {
+      ...document,
+      animations: [
+        {
+          ...document.animations[0]!,
+          unit: "paragraph",
+          direction: "forward",
+          order: "left-to-right",
+        },
+      ],
+    };
+    const authored =
+      '<div data-agent-native-node-id="headline"><strong>Title</strong></div>';
+
+    expect(() =>
+      injectMotionTextRuntime(authored, paragraphDocument),
+    ).not.toThrow();
+    const target = new FakeElement("div");
+    target.setAttribute("data-agent-native-node-id", "headline");
+    const strong = new FakeElement("strong");
+    strong.appendChild(new FakeTextNode("Title"));
+    target.replaceChildren(strong);
+
+    executeRuntime(compileMotionTextRuntime(paragraphDocument), target);
+
+    expect(target.textContent).toBe("Title");
+    expect(target.animations).toHaveLength(1);
+    expect(target.animations[0]?.options).toEqual({
+      duration: 320,
+      delay: 0,
+      fill: "both",
+    });
+  });
+
+  it("rejects statically known text spans before source write and guards runtime spans", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      order: "left-to-right",
+      ignoreSpaces: false,
+      staggerMs: 59_740,
+      delayMs: 200,
+      durationMs: 320,
+    };
+    const atLimit: MotionTextDocument = {
+      version: 2,
+      animations: [animation],
+    };
+    expect(decodeMotionTextDocument(JSON.stringify(atLimit))).toMatchObject({
+      status: "valid",
+    });
+    const target = textTarget("ABC");
+    executeRuntime(compileMotionTextRuntime(atLimit), target, true);
+    const units = target.children.filter(
+      (child) =>
+        child.getAttribute("data-agent-native-motion-text-unit") !== null,
+    );
+    const lastUnitAnimation = units[2]?.animations[0]?.options as
+      | { delay: number; duration: number }
+      | undefined;
+    expect(
+      Number(lastUnitAnimation?.delay) + Number(lastUnitAnimation?.duration),
+    ).toBe(120_000);
+
+    const longStaggerDocument: MotionTextDocument = {
+      version: 2,
+      animations: [{ ...animation, staggerMs: 9_600, delayMs: 0 }],
+    };
+    const thirteenCharacters =
+      '<div data-agent-native-node-id="headline">ABCDEFGHIJKLM</div>';
+    const fourteenCharacters =
+      '<div data-agent-native-node-id="headline">ABCDEFGHIJKLMN</div>';
+    expect(() =>
+      injectMotionTextRuntime(thirteenCharacters, longStaggerDocument),
+    ).not.toThrow();
+    expect(() =>
+      injectMotionTextRuntime(fourteenCharacters, longStaggerDocument),
+    ).toThrow(
+      'Motion text target "headline" resolves to 14 character units whose animation span exceeds the 120000ms runtime limit.',
+    );
+    const compiledLongStagger = compileMotionTextRuntime(longStaggerDocument);
+    expect(
+      readMotionTextDocument(
+        `${fourteenCharacters}${compiledLongStagger.sourceMarkup}\n${compiledLongStagger.runtimeMarkup}`,
+      ),
+    ).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+
+    const overLimit: MotionTextDocument = {
+      version: 2,
+      animations: [{ ...animation, staggerMs: 60_000 }],
+    };
+    expect(decodeMotionTextDocument(JSON.stringify(overLimit))).toMatchObject({
+      status: "valid",
+    });
+    expect(() =>
+      executeRuntime(compileMotionTextRuntime(overLimit), textTarget("ABC")),
+    ).toThrow("Motion text animation span exceeds the 120000ms runtime limit.");
+  });
+
   it("groups line units by rendered line while keeping text content intact", () => {
     const lineDocument: MotionTextDocument = {
       ...document,

@@ -337,8 +337,10 @@ function motionTextSharedProfileKey(
   });
 }
 
-function authoredTextSharedProfileKey(animation: MotionTextAnimation): string {
-  return motionTextSharedProfileKey({
+function motionTextAnimationSettings(
+  animation: MotionTextAnimation,
+): MotionTextAnimationSettings {
+  return {
     unit: animation.unit,
     direction: animation.direction,
     staggerMs: animation.staggerMs,
@@ -351,7 +353,11 @@ function authoredTextSharedProfileKey(animation: MotionTextAnimation): string {
       (animation.direction === "reverse" ? "right-to-left" : "left-to-right"),
     ignoreSpaces:
       animation.unit === "character" ? (animation.ignoreSpaces ?? true) : true,
-  });
+  };
+}
+
+function authoredTextSharedProfileKey(animation: MotionTextAnimation): string {
+  return motionTextSharedProfileKey(motionTextAnimationSettings(animation));
 }
 
 /** Aligns only whitespace when a new TextStagger otherwise matches authored text. */
@@ -367,10 +373,13 @@ export function motionNativeStyleWithMatchingAuthoredTextWhitespace(
   if (settings.ignoreSpaces === authoredIgnoreSpaces) return style;
 
   if (
-    motionTextSharedProfileKey({
-      ...settings,
-      ignoreSpaces: authoredIgnoreSpaces,
-    }) !== authoredTextSharedProfileKey(animation)
+    !textAnimationSettingsMatch(
+      motionTextAnimationSettings({
+        ...animation,
+        ignoreSpaces: settings.ignoreSpaces,
+      }),
+      { ...settings, ignoreSpaces: settings.ignoreSpaces },
+    )
   ) {
     return style;
   }
@@ -618,7 +627,10 @@ export function motionTextDocumentWithNativeStyles(
       authoredAnimations.some(
         (authored) =>
           authored.targetNodeId === animation.targetNodeId &&
-          !textAnimationSettingsMatch(authored, animation),
+          !textAnimationSettingsMatch(
+            motionTextAnimationSettings(authored),
+            motionTextAnimationSettings(animation),
+          ),
       )
     ) {
       throw new MotionNativeStyleRuntimeError(
@@ -1328,8 +1340,8 @@ function legacyTextProjectionKeys(animation: MotionTextAnimation): string[] {
 }
 
 function textAnimationSettingsMatch(
-  authored: MotionTextAnimation,
-  native: MotionTextAnimation,
+  authored: MotionTextAnimationSettings,
+  native: MotionTextAnimationSettings,
 ): boolean {
   const authoredSettings = {
     unit: authored.unit,

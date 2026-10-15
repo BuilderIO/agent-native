@@ -9,6 +9,7 @@ import {
   motionNativeStyleEndTimeMs,
   motionNativeStyleWithPathTrimTrack,
   motionNativeStyleWithPositionTrack,
+  motionNativeStyleWithMatchingAuthoredTextWhitespace,
   motionNativeStyleWithTextAnimationSettings,
   motionNativeTextAnimationSettings,
   motionNativeStylesToTracks,
@@ -1119,6 +1120,51 @@ describe("native Figma Motion runtime adapter", () => {
         [style],
       ),
     ).toThrow("their grouping or timing settings differ");
+  });
+
+  it("aligns TextStagger whitespace across floating-point projection noise", () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const style = {
+      ...base,
+      props: {
+        ...base.props,
+        presetStaggerOverlap: 88.4,
+        textDelayTimingMode: "fixed-stagger",
+        ignoreSpaces: true,
+      },
+    };
+    const authored: MotionTextDocument["animations"][number] = {
+      targetNodeId: "hero",
+      unit: "character",
+      direction: "forward",
+      staggerMs: 58,
+      animationDirection: "in",
+      order: "left-to-right",
+      ignoreSpaces: false,
+      property: "opacity",
+      durationMs: 500,
+      keyframes: [
+        { t: 0, value: "0" },
+        { t: 1, value: "1" },
+      ],
+    };
+
+    const aligned = motionNativeStyleWithMatchingAuthoredTextWhitespace(
+      style,
+      authored,
+    );
+
+    expect(aligned.props.ignoreSpaces).toBe(false);
+    expect(aligned.props.presetStaggerOverlap).toBe(88.4);
+    expect(
+      motionNativeStyleWithMatchingAuthoredTextWhitespace(style, {
+        ...authored,
+        staggerMs: 58.001,
+      }),
+    ).toBe(style);
   });
 
   it("keeps divergent authored text profiles intact when a native effect-only setting changes", () => {

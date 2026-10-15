@@ -354,9 +354,6 @@ test("native style states persist with the Motion inspector and timeline", async
       page.getByRole("menuitem", { name: label, exact: true }),
     ).toBeVisible();
   }
-  await expect(
-    page.getByRole("menuitem", { name: "Text animation", exact: true }),
-  ).toHaveCount(0);
   await expect(page.getByRole("menuitem")).toHaveCount(6);
   await captureMotionState(page, "motion-native-style-text-add-menu");
   const textStyleSave = page.waitForResponse(
@@ -889,6 +886,59 @@ test("HTML Text source round trips through Alpine markup and runs in a browser",
       ),
     )
     .toBe(3);
+});
+
+test("paragraph Text runs on a host with static inline markup", async ({
+  page,
+}) => {
+  const document: MotionTextDocument = {
+    version: 2,
+    animations: [
+      {
+        targetNodeId: "rich-paragraph",
+        unit: "paragraph",
+        direction: "forward",
+        staggerMs: 0,
+        animationDirection: "in",
+        order: "left-to-right",
+        ignoreSpaces: true,
+        property: "opacity",
+        durationMs: 320,
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ],
+  };
+  const html = injectMotionTextRuntime(
+    '<!doctype html><html><body><div id="rich-paragraph" data-agent-native-node-id="rich-paragraph"><strong>Title</strong></div></body></html>',
+    document,
+  );
+  await page.setContent(html);
+
+  const target = page.locator("#rich-paragraph");
+  await expect(target).toHaveText("Title");
+  await expect
+    .poll(() => target.evaluate((element) => element.getAnimations().length))
+    .toBe(1);
+  const midpoint = await target.evaluate(async (element) => {
+    const animation = element.getAnimations()[0];
+    if (!animation) throw new Error("Paragraph animation is missing");
+    animation.pause();
+    await animation.ready;
+    animation.currentTime = 160;
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => resolve()),
+    );
+    return {
+      text: element.textContent,
+      opacity: getComputedStyle(element).opacity,
+    };
+  });
+  expect(midpoint.text).toBe("Title");
+  expect(Number(midpoint.opacity)).toBeGreaterThan(0);
+  expect(Number(midpoint.opacity)).toBeLessThan(1);
 });
 
 test("HTML Text preview extends the shared scrub span through fixed-stagger tails", async ({

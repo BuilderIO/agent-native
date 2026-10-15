@@ -685,6 +685,57 @@ test.describe.serial("React Motion source browser writeback", () => {
       "data-agent-native-motion-source-hash",
       editorUpdatedSourceHash,
     );
+    const renderedTextUnits = renderedTarget.locator(
+      "[data-agent-native-motion-text-unit]",
+    );
+    await expect(renderedTextUnits).toHaveCount(2);
+    await expect
+      .poll(() =>
+        renderedTextUnits.evaluateAll((units) =>
+          units.map((unit) => unit.getAnimations().length),
+        ),
+      )
+      .toEqual([1, 1]);
+    const textAtMidpoint = await renderedTextUnits.evaluateAll(
+      async (units) => {
+        const values = units.map((unit) => {
+          const animation = unit
+            .getAnimations()
+            .find((candidate) =>
+              (candidate.effect as KeyframeEffect | null)
+                ?.getKeyframes()
+                .some((keyframe) => "opacity" in keyframe),
+            );
+          if (!animation?.effect) {
+            throw new Error("React Text opacity animation is missing");
+          }
+          animation.pause();
+          return { unit, animation };
+        });
+        await Promise.all(values.map(({ animation }) => animation.ready));
+        for (const { animation } of values) {
+          const timing = animation.effect!.getComputedTiming();
+          animation.currentTime =
+            Number(timing.delay) + Number(timing.duration) / 2;
+        }
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+        return values.map(({ unit }) => ({
+          text: unit.textContent,
+          opacity: getComputedStyle(unit).opacity,
+        }));
+      },
+    );
+    expect(textAtMidpoint.map((unit) => unit.text)).toEqual([
+      "Motion",
+      "target",
+    ]);
+    expect(
+      textAtMidpoint.every(
+        ({ opacity }) => Number(opacity) > 0 && Number(opacity) < 1,
+      ),
+    ).toBe(true);
     await expect(
       page.locator("style[data-agent-native-motion]"),
     ).toHaveAttribute("data-agent-native-motion", "true");
