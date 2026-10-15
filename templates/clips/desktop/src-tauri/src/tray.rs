@@ -132,7 +132,7 @@ fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) 
     let _ = tray.set_title(Some(if active {
         title.unwrap_or_default()
     } else {
-        String::new()
+        "Clips".to_string()
     }));
     #[cfg(not(target_os = "macos"))]
     let _ = title;
