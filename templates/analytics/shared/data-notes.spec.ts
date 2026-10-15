@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CONNECT_UNDERCOUNT,
@@ -156,6 +156,29 @@ describe("sqlCountsEvent", () => {
 });
 
 describe("dataNoteAppliesTo", () => {
+  it("parses each chart's SQL once however many notes check it", () => {
+    const panels = ["signup", "connect", "publish"].map((event) => ({
+      id: event,
+      sql: `SELECT day, count(*) FROM events WHERE event_name = '${event}' -- parse once`,
+    }));
+    const notes = Array.from({ length: 200 }, (_, index) => ({
+      matchEvents: [["signup", "connect", "publish", "other"][index % 4]],
+      unlessEvents: [],
+      panels: [],
+    }));
+    const matchAll = vi.spyOn(String.prototype, "matchAll");
+    try {
+      const placed = notes.flatMap((note) =>
+        panels.filter((panel) => dataNoteAppliesTo(note, "dash", panel)),
+      );
+      const parses = matchAll.mock.calls.length;
+      expect(placed).toHaveLength(150);
+      expect(parses).toBe(panels.length);
+    } finally {
+      matchAll.mockRestore();
+    }
+  });
+
   it("shows on charts counting the event unless they also count its replacement", () => {
     const old = panel("p1", "where event = 'builder connect clicked'");
     const both = panel(
