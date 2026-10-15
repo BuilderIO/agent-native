@@ -100,25 +100,71 @@ const PREDICATE_END = new Set([
   "UNION",
 ]);
 
-interface SqlFilters {
-  values: Set<string>;
-  patterns: RegExp[];
+type LikeToken = "%" | "_" | { char: string };
+
+/** A LIKE pattern: % is any run, _ one character, \ escapes. */
+interface LikePattern {
+  tokens: LikeToken[];
+  ignoreCase: boolean;
 }
 
-/** A LIKE pattern as a regular expression: % is any run, _ one character, \ escapes. */
-function likePattern(pattern: string, ignoreCase: boolean): RegExp {
-  let source = "";
-  for (let i = 0; i < pattern.length; i++) {
-    const char = pattern[i];
-    if (char === "%") source += "[\\s\\S]*";
-    else if (char === "_") source += "[\\s\\S]";
-    else {
+interface SqlFilters {
+  values: Set<string>;
+  patterns: LikePattern[];
+}
+
+function likePattern(pattern: string, ignoreCase: boolean): LikePattern {
+  const source = ignoreCase ? pattern.toLowerCase() : pattern;
+  const tokens: LikeToken[] = [];
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i];
+    if (char === "%") {
+      if (tokens[tokens.length - 1] !== "%") tokens.push("%");
+    } else if (char === "_") {
+      tokens.push("_");
+    } else {
       const literal =
-        char === "\\" && i + 1 < pattern.length ? pattern[++i] : char;
-      source += literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        char === "\\" && i + 1 < source.length ? source[++i] : char;
+      tokens.push({ char: literal });
     }
   }
-  return new RegExp(`^${source}$`, ignoreCase ? "i" : "");
+  return { tokens, ignoreCase };
+}
+
+/**
+ * Whether a LIKE pattern matches all of `value`, in at most pattern × value
+ * steps: a mismatch retries only from the last %. A regular expression of
+ * `.*` runs backtracks exponentially, for minutes on a pattern the SQL sets.
+ */
+function likeMatches(
+  { tokens, ignoreCase }: LikePattern,
+  value: string,
+): boolean {
+  const text = ignoreCase ? value.toLowerCase() : value;
+  let p = 0;
+  let t = 0;
+  let star = -1;
+  let resume = 0;
+  while (t < text.length) {
+    const token = tokens[p];
+    if (token === "%") {
+      star = p++;
+      resume = t;
+    } else if (
+      token !== undefined &&
+      (token === "_" || token.char === text[t])
+    ) {
+      p++;
+      t++;
+    } else if (star >= 0) {
+      p = star + 1;
+      t = ++resume;
+    } else {
+      return false;
+    }
+  }
+  while (tokens[p] === "%") p++;
+  return p === tokens.length;
 }
 
 interface SqlScope {
@@ -186,7 +232,7 @@ function filtersOn(filters: SqlFilters, event: string): boolean {
   return (
     name !== "" &&
     (filters.values.has(name) ||
-      filters.patterns.some((pattern) => pattern.test(name)))
+      filters.patterns.some((pattern) => likeMatches(pattern, name)))
   );
 }
 

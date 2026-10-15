@@ -139,6 +139,20 @@ describe("sqlCountsEvent", () => {
     expect(sqlCountsEvent("WHERE event LIKE 'signup%'", failed)).toBe(false);
     expect(sqlCountsEvent("WHERE e LIKE 'a+b%'", "aab")).toBe(false);
   });
+
+  it("matches a LIKE pattern of many wildcards without backtracking for ever", () => {
+    const pattern = `${"%a".repeat(24)}%b`;
+    const name = "a".repeat(80);
+    expect(sqlCountsEvent(`WHERE event LIKE '${pattern}'`, name)).toBe(false);
+    expect(sqlCountsEvent(`WHERE event LIKE '${pattern}'`, `${name}b`)).toBe(
+      true,
+    );
+    expect(sqlCountsEvent("WHERE event LIKE '%%_failed%'", "x_failed")).toBe(
+      true,
+    );
+    expect(sqlCountsEvent("WHERE event LIKE 'a%b%'", "ab")).toBe(true);
+    expect(sqlCountsEvent("WHERE event LIKE 'a%b'", "abc")).toBe(false);
+  });
 });
 
 describe("dataNoteAppliesTo", () => {
@@ -391,6 +405,18 @@ describe("resolveDataNoteBands", () => {
     expect(
       resolveDataNoteBands(SETUP_INCIDENT, ["2025-01-01", "2026-01-01"]),
     ).toEqual([{ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true }]);
+    // Years and quarters needn't start in January.
+    expect(
+      resolveDataNoteBands(september, ["2025-04-01", "2026-04-01"]),
+    ).toEqual([{ startIndex: 1, endIndex: 1, startEdge: true, endEdge: true }]);
+    const june = {
+      ...september,
+      startDate: "2026-06-10",
+      endDate: "2026-06-12",
+    };
+    expect(resolveDataNoteBands(june, ["2026-02-01", "2026-05-01"])).toEqual([
+      { startIndex: 1, endIndex: 1, startEdge: true, endEdge: true },
+    ]);
   });
 
   it("places nothing outside the chart or on an axis that is not dates", () => {
