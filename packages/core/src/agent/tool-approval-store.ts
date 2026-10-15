@@ -195,9 +195,10 @@ async function readApprovalRevision(
 ): Promise<string | null> {
   await ensureAgentToolApprovalTable();
   const result = await getDbExec().execute({
+    // Approval rows keep the request's email casing; policies lowercase it.
     sql: `SELECT tool_revision FROM agent_tool_approvals
       WHERE id = ?
-        AND owner_email = ?
+        AND LOWER(owner_email) = ?
         AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
         AND tool_name = ?`,
     args: [

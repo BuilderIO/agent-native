@@ -171,6 +171,17 @@ describe("tool approvals bound to a revision", () => {
     await expect(allowed()).resolves.toBe(false);
   });
 
+  it("finds the clicked approval when the request email had capitals", async () => {
+    const clicked = await createAgentToolApproval({
+      ...call,
+      ownerEmail: "Owner@Example.com",
+      toolRevision: "r1",
+    });
+    await alwaysAllow(clicked);
+
+    await expect(allowed("r1")).resolves.toBe(true);
+  });
+
   it("is not captured by another approval for the same tool", async () => {
     const clicked = await createAgentToolApproval({
       ...call,
