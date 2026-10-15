@@ -272,7 +272,7 @@ describe("StorageSetupCard", () => {
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).toContain(CONSENT);
+    expect(document.body.textContent).not.toContain(CONSENT);
     expect(document.body.textContent).toContain(
       "agentChat.onboarding.builderActivationUnavailable",
     );
@@ -297,7 +297,7 @@ describe("StorageSetupCard", () => {
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).toContain(CONSENT);
+    expect(document.body.textContent).not.toContain(CONSENT);
     expect(document.body.textContent).toContain(
       "agentChat.onboarding.builderActivationChecking",
     );
@@ -308,18 +308,21 @@ describe("StorageSetupCard", () => {
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
-  it("keeps the same two-choice popover when activation finds an existing account", async () => {
+  it("offers only sign-in when activation finds an existing account", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ accountExists: true }),
     );
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).toContain(CONSENT);
+    expect(document.body.textContent).not.toContain(CONSENT);
+    expect(document.body.textContent).toContain(
+      "agentChat.onboarding.builderAccountExistsTitle",
+    );
     expect(document.body.textContent).toContain(
       "agentChat.onboarding.builderIncludedFree",
     );
-    expect(bodyButton(CREATE)).toBeDefined();
+    expect(bodyButton(CREATE)).toBeUndefined();
     expect(bodyButton(EXISTING_ACCOUNT)).toBeDefined();
     await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
@@ -328,18 +331,21 @@ describe("StorageSetupCard", () => {
     });
   });
 
-  it("keeps the same two-choice popover for an existing Builder credential", async () => {
+  it("offers only sign-in for an existing Builder credential", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ configured: true, credentialSource: "user" }),
     );
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).toContain(CONSENT);
+    expect(document.body.textContent).not.toContain(CONSENT);
+    expect(document.body.textContent).toContain(
+      "agentChat.onboarding.builderAccountExistsTitle",
+    );
     expect(document.body.textContent).toContain(
       "agentChat.onboarding.builderIncludedFree",
     );
-    expect(bodyButton(CREATE)).toBeDefined();
+    expect(bodyButton(CREATE)).toBeUndefined();
     expect(bodyButton(EXISTING_ACCOUNT)).toBeDefined();
 
     await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
@@ -892,6 +898,51 @@ describe("StorageSetupCard", () => {
             step_id: "file-storage",
             flow: "clips_record_storage_setup_card",
             step_view_id: "view-1",
+          },
+        ],
+      ]);
+    });
+
+    it("ties every step event to the recording waiting on storage", async () => {
+      const onSkip = vi.fn();
+      await act(async () => {
+        root.render(
+          <StorageSetupCard
+            onConfigured={vi.fn()}
+            onSkip={onSkip}
+            connectSource="clips_record_after_stop"
+            recordingAttemptId="local-7"
+          />,
+        );
+      });
+      act(() => bodyButton("agentChat.onboarding.skipForNow")?.click());
+
+      await act(async () => {
+        root.render(
+          <StorageSetupCard
+            onConfigured={vi.fn()}
+            connectSource="clips_recording_page_storage_setup_card"
+            outputId="rec-9"
+          />,
+        );
+      });
+
+      expect(storageEvents()).toEqual([
+        [
+          "onboarding_step_viewed",
+          expect.objectContaining({ recording_attempt_id: "local-7" }),
+        ],
+        [
+          "onboarding_step_skipped",
+          expect.objectContaining({ recording_attempt_id: "local-7" }),
+        ],
+        [
+          "onboarding_step_viewed",
+          {
+            step_id: "file-storage",
+            flow: "clips_recording_page_storage_setup_card",
+            step_view_id: "view-1",
+            output_id: "rec-9",
           },
         ],
       ]);

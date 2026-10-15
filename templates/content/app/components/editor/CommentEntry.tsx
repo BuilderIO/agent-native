@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
+import { commentMentionsForText } from "@shared/comment-mentions";
 import { IconDots, IconExternalLink } from "@tabler/icons-react";
 import { useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -18,15 +19,15 @@ import {
   useReactToComment,
   type Comment,
 } from "@/hooks/use-comments";
-import type { MentionMember } from "@/hooks/use-mention-members";
 
 import {
   AgentAvatar,
   agentDisplayName,
   modelDisplayName,
 } from "./agent-identity";
-import { useCommentDraft } from "./comment-drafts";
-import { CommentComposer, type MentionEntry } from "./CommentComposer";
+import { draftMention, useCommentDraft } from "./comment-drafts";
+import { CommentComposer } from "./CommentComposer";
+import type { CommentIdentity } from "./CommentIdentity";
 import { AddReactionButton, CommentReactionChips } from "./CommentReactions";
 import {
   CommentAgentBadge,
@@ -36,18 +37,6 @@ import {
   renderCommentBody,
   useCommentTimestamp,
 } from "./CommentRow";
-
-function mentionsJsonFor(
-  text: string,
-  mentions: MentionEntry[],
-): string | undefined {
-  const present = mentions.filter((m) => text.includes(`@${m.name}`));
-  const seen = new Set<string>();
-  const deduped = present.filter((m) =>
-    seen.has(m.email) ? false : (seen.add(m.email), true),
-  );
-  return deduped.length ? JSON.stringify(deduped) : undefined;
-}
 
 export function getAiCommentSource(
   submissionSource: string | null | undefined,
@@ -101,7 +90,6 @@ export function CommentEntry({
   documentId,
   currentUserEmail,
   canComment,
-  members,
   headerActions,
   revealActions = "always",
   replyAction,
@@ -114,7 +102,6 @@ export function CommentEntry({
   documentId: string;
   currentUserEmail?: string;
   canComment: boolean;
-  members: MentionMember[];
   /** Thread-level actions (resolve, accept) shown after this row's menu. */
   headerActions?: ReactNode;
   revealActions?: "always" | "hover";
@@ -152,11 +139,29 @@ export function CommentEntry({
   const pending = comment.mutation?.status === "pending";
   const showMutationStatus =
     comment.mutation?.kind !== "resolve" || !comment.parent_id;
-  const aiSource = getAiCommentSource(comment.submission_source);
-  const aiAuthored = Boolean(aiSource && comment.author_model);
+  const aiAuthored = comment.actorKind === "agent" && !!comment.author_model;
   const visibleAuthor = aiAuthored
     ? agentDisplayName(comment.author_model)
     : (comment.author_name ?? comment.author_email.split("@")[0]);
+  const identity: CommentIdentity = aiAuthored
+    ? {
+        kind: "agent",
+        model: comment.author_model ?? null,
+        run: {
+          effort: comment.author_effort ?? null,
+          ranAt: comment.created_at,
+          threadId: comment.submission_thread_id ?? null,
+          canOpen:
+            !!currentUserEmail &&
+            currentUserEmail.toLowerCase() ===
+              comment.author_email.toLowerCase(),
+        },
+      }
+    : {
+        kind: "person",
+        email: comment.author_email,
+        name: comment.author_name ?? comment.author_email.split("@")[0],
+      };
   const canEdit =
     canComment &&
     !!currentUserEmail &&
@@ -241,7 +246,10 @@ export function CommentEntry({
             documentId,
             content: submitted.text.trim(),
             mentions:
-              mentionsJsonFor(submitted.text, submitted.mentions) ?? "[]",
+              commentMentionsForText(
+                submitted.text,
+                submitted.mentions.map(draftMention),
+              ) ?? "[]",
           },
           {
             onSuccess: close,
@@ -385,6 +393,7 @@ export function CommentEntry({
         )
       }
       name={visibleAuthor}
+      identity={identity}
       badge={<CommentAttributionBadge comment={comment} />}
       timestamp={{ ...time, dateTime: comment.created_at }}
       actions={
@@ -433,10 +442,8 @@ export function CommentEntry({
             ariaLabel={t("comments.edit")}
             value={draft.draft.text}
             onChange={draft.setText}
-            members={members}
-            onMentionAdd={(mention) =>
-              draft.setMentions((previous) => [...previous, mention])
-            }
+            mentions={draft.draft.mentions}
+            onMentionsChange={draft.setMentions}
             onSubmit={save}
             onEscape={close}
             autoFocus

@@ -32,7 +32,7 @@ import {
   ensureTableExists,
   runGuardedDdl,
 } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 
 export const RESOURCE_CHANGES_TABLE = "app_resource_changes";
 export const RESOURCE_CHANGE_CONSUMERS_TABLE = "app_resource_change_consumers";
@@ -108,7 +108,10 @@ const RESOURCE_CHANGED_FUNCTION_SQL = `
   $an_resource_changed$
 `;
 
-let ensured: Promise<void> | undefined;
+export const resourceChangesStore = defineStore({
+  id: "app_resource_changes",
+  migrations: [{ name: "baseline", run: () => ensureAll() }],
+});
 
 /**
  * Creates the feed's tables, sequence, and producer function. Listed in
@@ -119,13 +122,7 @@ export function ensureResourceChangeTables(
   injectedClient?: DbExec,
 ): Promise<void> {
   if (injectedClient) return ensureAll(injectedClient);
-  ensured ??= retainRequestDbPoolScope(
-    ensureAll().catch((error) => {
-      ensured = undefined;
-      throw error;
-    }),
-  );
-  return ensured;
+  return resourceChangesStore.ready();
 }
 
 async function ensureAll(injectedClient?: DbExec): Promise<void> {
@@ -278,6 +275,7 @@ export function resourceChangeTriggerSql(
   const changed = (row: string, reason: string) =>
     `${RESOURCE_CHANGED_FUNCTION}('${app}', '${type}', ${row}."${id}"::text, '${reason}')`;
   return [
+    // guard:allow-destructive-ddl — the trigger reacts to TRUNCATE; it never truncates
     `CREATE OR REPLACE FUNCTION "${names.function}"() RETURNS trigger LANGUAGE plpgsql AS $an_rc$
 BEGIN
   IF TG_OP = 'TRUNCATE' THEN
@@ -297,6 +295,7 @@ END
 $an_rc$`,
     `CREATE OR REPLACE TRIGGER "${names.insertDeleteTrigger}" AFTER INSERT OR DELETE ON "${table}" FOR EACH ROW EXECUTE FUNCTION "${names.function}"()`,
     `CREATE OR REPLACE TRIGGER "${names.updateTrigger}" AFTER UPDATE ON "${table}" FOR EACH ROW WHEN (OLD *<> NEW) EXECUTE FUNCTION "${names.function}"()`,
+    // guard:allow-destructive-ddl — fires on TRUNCATE; it never truncates
     `CREATE OR REPLACE TRIGGER "${names.truncateTrigger}" BEFORE TRUNCATE ON "${table}" FOR EACH STATEMENT EXECUTE FUNCTION "${names.function}"()`,
   ];
 }

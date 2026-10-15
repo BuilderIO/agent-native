@@ -41,6 +41,21 @@ const mockContextItemsTable = vi.hoisted(() => ({
   mediaRecordingId: "recordingContextItems.mediaRecordingId",
   pendingMediaRecordingId: "recordingContextItems.pendingMediaRecordingId",
 }));
+const mockDiagnosticsTable = vi.hoisted(() => ({
+  recordingId: "recordingBrowserDiagnostics.recordingId",
+  appActivityBlobJson: "recordingBrowserDiagnostics.appActivityBlobJson",
+}));
+const mockDiagnosticsWhere = vi.hoisted(() => vi.fn());
+const mockDeleteAppActivityBlob = vi.hoisted(() =>
+  vi.fn(
+    async (
+      _blobJson: string,
+      _recordingId: string,
+    ): Promise<{ deleted: true } | { deleted: false; error: string }> => ({
+      deleted: true,
+    }),
+  ),
+);
 const mockTrashContextFootage = vi.hoisted(() =>
   vi.fn(async (_mediaRecordingIds: Array<string | null>) => undefined),
 );
@@ -74,7 +89,9 @@ const mockDb = vi.hoisted(() => ({
       where:
         table === mockContextItemsTable
           ? mockContextItemsWhere
-          : mockSelectWhere,
+          : table === mockDiagnosticsTable
+            ? mockDiagnosticsWhere
+            : mockSelectWhere,
     })),
   })),
   delete: mockDbDelete,
@@ -132,15 +149,18 @@ vi.mock("../server/db/index.js", () => ({
     recordingTranscripts: {
       recordingId: "recordingTranscripts.recordingId",
     },
-    recordingBrowserDiagnostics: {
-      recordingId: "recordingBrowserDiagnostics.recordingId",
-    },
+    recordingBrowserDiagnostics: mockDiagnosticsTable,
     recordingBugReports: { recordingId: "recordingBugReports.recordingId" },
     recordingTags: { recordingId: "recordingTags.recordingId" },
     recordingCtas: { recordingId: "recordingCtas.recordingId" },
     recordingShares: { resourceId: "recordingShares.resourceId" },
     recordingContextItems: mockContextItemsTable,
   },
+}));
+
+vi.mock("../server/lib/app-activity.js", () => ({
+  deleteAppActivityBlob: (blobJson: string, recordingId: string) =>
+    mockDeleteAppActivityBlob(blobJson, recordingId),
 }));
 
 vi.mock("./remove-recording-context.js", () => ({
@@ -174,6 +194,41 @@ describe("delete-recording-permanent", () => {
       .mockResolvedValueOnce([mockExistingRecording])
       .mockResolvedValueOnce([]);
     mockContextItemsWhere.mockResolvedValue([]);
+    mockDiagnosticsWhere.mockResolvedValue([]);
+  });
+
+  it("deletes the app activity blob once the recording rows are gone", async () => {
+    mockDiagnosticsWhere.mockResolvedValueOnce([
+      { appActivityBlobJson: '{"id":"blob_1"}' },
+    ]);
+
+    const result = await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(mockDeleteAppActivityBlob).toHaveBeenCalledWith(
+      '{"id":"blob_1"}',
+      "rec_1",
+    );
+    expect(mockDb.transaction.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDeleteAppActivityBlob.mock.invocationCallOrder[0],
+    );
+    expect(result.appActivityCleanup).toEqual({ deleted: true });
+  });
+
+  it("reports an app activity blob it could not delete instead of hiding it", async () => {
+    mockDiagnosticsWhere.mockResolvedValueOnce([
+      { appActivityBlobJson: '{"id":"blob_1"}' },
+    ]);
+    mockDeleteAppActivityBlob.mockResolvedValueOnce({
+      deleted: false,
+      error: "storage unavailable",
+    });
+
+    const result = await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(result).toMatchObject({
+      success: true,
+      appActivityCleanup: { deleted: false, error: "storage unavailable" },
+    });
   });
 
   it("deletes provider media after permanently deleting recording rows", async () => {
@@ -199,6 +254,7 @@ describe("delete-recording-permanent", () => {
         skipped: 0,
         errors: [],
       },
+      appActivityCleanup: null,
     });
   });
 

@@ -2955,7 +2955,7 @@ describe("mountActionRoutes", () => {
     vi.resetModules();
     const workspaceAccess = vi.fn(async () => false);
     vi.doMock("../org/workspace-app-access.js", () => ({
-      isWorkspaceAppAccessAllowed: workspaceAccess,
+      checkWorkspaceAppAccess: workspaceAccess,
       WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
       WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
         "Workspace app access is temporarily unavailable.",
@@ -3042,11 +3042,17 @@ describe("mountActionRoutes", () => {
         access === "denied"
           ? false
           : access === "unavailable"
-            ? "unavailable"
+            ? {
+                status: "unavailable",
+                reason: "registry-http-error",
+                upstreamStatus: 401,
+                audience: "https://slides.agent-native.test/dispatch",
+                detail: "Unauthorized",
+              }
             : true,
       );
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: workspaceAccess,
+        checkWorkspaceAppAccess: workspaceAccess,
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3154,6 +3160,10 @@ describe("mountActionRoutes", () => {
       expect(event._status).toBe(503);
       expect(result).toEqual({
         error: "Workspace app access is temporarily unavailable.",
+        code: "registry-http-error",
+        upstreamStatus: 401,
+        audience: "https://slides.agent-native.test/dispatch",
+        detail: "Unauthorized",
       });
       expect(run).not.toHaveBeenCalled();
     });
@@ -3174,7 +3184,7 @@ describe("mountActionRoutes", () => {
     vi.resetModules();
     const workspaceAccess = vi.fn(async () => false);
     vi.doMock("../org/workspace-app-access.js", () => ({
-      isWorkspaceAppAccessAllowed: workspaceAccess,
+      checkWorkspaceAppAccess: workspaceAccess,
       WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
       WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
         "Workspace app access is temporarily unavailable.",

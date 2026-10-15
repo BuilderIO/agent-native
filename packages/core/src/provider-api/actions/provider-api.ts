@@ -295,7 +295,12 @@ type ProviderRequestActionArgs = StagingRequestArgs & {
 const STAGED_DATASET_CAP_ERROR = /Staged dataset (?:byte )?cap exceeded/i;
 
 function rethrowStagingError(error: unknown): never {
-  if (error instanceof Error && STAGED_DATASET_CAP_ERROR.test(error.message)) {
+  if (
+    error instanceof Error &&
+    STAGED_DATASET_CAP_ERROR.test(error.message) &&
+    // A single dataset over the whole cap is not fixed by deleting others.
+    !/this dataset alone/i.test(error.message)
+  ) {
     throw new Error(
       `${error.message} Recover by deleting older staged datasets with list-staged-datasets/delete-staged-dataset, or switch this request to saveToFile / a smaller staged result before trying again.`,
       { cause: error },
@@ -324,6 +329,11 @@ export interface CreateProviderApiRequestActionOptions<
         args: z.output<TSchema>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * `false` keeps a per-tool "always allow" from standing in for the
+   * `needsApproval` decision, for gates that decide per request.
+   */
+  allowPersistentApproval?: boolean;
 }
 
 export function createProviderApiRequestAction<
@@ -354,6 +364,9 @@ export function createProviderApiRequestAction<
                 ctx?: ActionRunContext,
               ) => boolean | Promise<boolean>),
         }),
+    ...(options.allowPersistentApproval === undefined
+      ? {}
+      : { allowPersistentApproval: options.allowPersistentApproval }),
     planMode: {
       effect: (args) => {
         const request = args as ProviderRequestActionArgs;
@@ -366,6 +379,15 @@ export function createProviderApiRequestAction<
       omittedProperties: ["stageAs", "saveToFile"],
       description:
         "Plan mode allows GET and HEAD provider reads that do not stage data or save files.",
+    },
+    // A GET or HEAD only reads the provider, and re-staging under the same name
+    // replaces the result. A cap or validation error from stageAs must not stop
+    // the run for every later provider call. saveToFile writes a workspace file
+    // with no version fence, so a replay could overwrite an edit made since.
+    retrySafe: (args) => {
+      const request = args as ProviderRequestActionArgs;
+      const method = String(request.method ?? "GET").toUpperCase();
+      return (method === "GET" || method === "HEAD") && !request.saveToFile;
     },
     audit: {
       recordInputs: false,

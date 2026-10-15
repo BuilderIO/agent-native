@@ -6,6 +6,7 @@ const messages = {
     includeLast: "Incluir os últimos",
     whatIsThis: "O que é isto?",
     off: "Desativado",
+    none: "Nenhum",
     custom: "Personalizado…",
     customLabel: "Duração personalizada",
     customAmount: "Duração",
@@ -17,6 +18,25 @@ const messages = {
     customErrorInvalid: "Informe um número inteiro de segundos ou minutos.",
     customErrorTooLong: "Use no máximo 5 min.",
     turnOnRewind: "Ativar o Rewind",
+    turnOffRewind: "Desativar",
+    turnOffRewindFailed:
+      "Não foi possível desativar o Rewind. Pare a gravação e tente novamente.",
+    turnOnRewindFailed: "Não foi possível ativar o Rewind. Tente novamente.",
+    turnOnRewindPermissionFailed:
+      "Permita que o Clips grave a tela em Ajustes do Sistema > Privacidade e Segurança > Gravação de Tela e Áudio do Sistema. Depois, reinicie o Clips e tente novamente.",
+    turnOnRewindUnsupported:
+      "A captura de tela do Rewind está disponível somente no macOS.",
+    turnOnRewindNoSpace:
+      "Não há espaço em disco suficiente para iniciar o Rewind. Libere espaço e tente novamente.",
+    turnOnRewindStopClip: "Pare o Clip atual antes de ativar o Rewind.",
+    turnOnRewindStorageFailed:
+      "Não foi possível acessar o armazenamento do Rewind. Confira o espaço em disco e as permissões da pasta e tente novamente.",
+    rewindConsentTitle: "Ativar o Rewind?",
+    rewindConsentBody:
+      "O Clips gravará sua tela continuamente e a manterá neste dispositivo. Os agentes recebem trechos de texto, e o vídeo só é compartilhado quando você aprova.",
+    rewindConsentCancel: "Agora não",
+    rewindConsentConfirm: "Ativar o Rewind",
+    rewindConsentBusy: "Ativando o Rewind…",
     rewindOffTitle: "Ativar o Rewind",
     rewindOffBody:
       "Desativado por padrão. O histórico da tela fica neste dispositivo até você incluí-lo em uma gravação ou aprovar uma solicitação para compartilhá-lo.",
@@ -2288,9 +2308,15 @@ const messages = {
     issues: "Problemas",
     consoleSource: "Console",
     networkSource: "Rede",
+    appSource: "Atividade do app",
+    appEvent: "Evento",
+    appData: "Dados",
+    appFailureSummary: "{{count}} falhas do app",
+    appUnavailable: "Não foi possível carregar a atividade do app.",
     consoleCount: "Console {{count}}",
     networkCount: "Rede {{count}}",
     afterRecording: "Após a gravação",
+    beforeRecording: "Antes da gravação",
     seekToTime: "Ir para {{time}}",
     occurrences: "Ocorrências",
     message: "Mensagem",
@@ -2302,6 +2328,7 @@ const messages = {
     noIssuesTitle: "Nenhum problema do navegador detectado",
     noConsoleTitle: "Nenhum evento de console",
     noNetworkTitle: "Nenhuma solicitação de rede",
+    noAppTitle: "Nenhuma atividade do app",
     capturedDescription: "Os diagnósticos foram capturados para esta gravação.",
   },
   timeline: { clipStartedHere: "O clipe começou aqui" },

@@ -25,6 +25,17 @@ export default {
     templateCatalog: "टेम्पलेट कैटलॉग",
     semanticLayer: "सिमेंटिक लेयर",
   },
+  dashboardMode: {
+    label: "डैशबोर्ड मोड",
+    view: "देखें",
+    edit: "संपादित करें",
+    viewHint:
+      "बिना कुछ बदले देखें। आप जो कॉलम चौड़ाई खींचते हैं, वह सिर्फ़ आपके लिए रहती है।",
+    editHint: "बदलाव सभी के लिए सहेजे जाते हैं",
+    columnResizePersonal:
+      "सिर्फ़ अपने लिए आकार बदलने को खींचें। रीसेट करने के लिए डबल-क्लिक करें।",
+    columnResizeShared: "सभी के लिए आकार बदलने को खींचें",
+  },
   dashboardHeader: {
     updated: "{{date}} को अपडेट किया गया",
     created: "{{date}} को बनाया गया",
@@ -49,16 +60,42 @@ export default {
     moveDashboard: "डैशबोर्ड को स्थानांतरित करें",
     folderCreateFailed: "फ़ोल्डर नहीं बनाया जा सका",
     moveFailed: "डैशबोर्ड स्थानांतरित नहीं किया जा सका",
-    previewSigma: "Sigma का पूर्वावलोकन",
+    importFromSigma: "Sigma से आयात करें",
     sigmaConnection: "Sigma कनेक्शन",
     sigmaConnectedTo: "{{name}} से कनेक्ट है",
     sigmaChooseConnection: "Sigma कनेक्शन",
     sigmaChooseConnectionPlaceholder: "कनेक्शन चुनें",
     sigmaChooseConnectionDescription: "वर्कबुक देखने के लिए Sigma वर्कस्पेस चुनें।",
     sigmaNoConnection: "Sigma कनेक्ट नहीं है",
+    sigmaClientId: "क्लाइंट ID",
+    sigmaClientSecret: "क्लाइंट सीक्रेट",
+    sigmaBaseUrl: "API बेस URL (वैकल्पिक)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Sigma कनेक्ट करें",
+    sigmaConnecting: "Sigma से कनेक्ट हो रहा है…",
+    sigmaConnectFailed:
+      "इस Sigma कनेक्शन की पुष्टि नहीं हो सकी। क्रेडेंशियल और API क्षेत्र जाँचें, फिर दोबारा कोशिश करें।",
+    sigmaCredentialStageFailed:
+      "अस्थायी Sigma क्रेडेंशियल सेव नहीं हो सके। Vault का ऐक्सेस जाँचें और फिर कोशिश करें।",
+    sigmaCredentialsRequired: "पहले Sigma क्लाइंट ID और क्लाइंट सीक्रेट सेव करें।",
+    sigmaBaseUrlInvalid:
+      "sigmacomputing.com डोमेन पर HTTPS Sigma API URL इस्तेमाल करें।",
+    sigmaPersistenceUnavailable:
+      "Analytics अभी Sigma कनेक्शन को सुरक्षित रूप से सेव नहीं कर सकता। फिर कोशिश करें।",
+    sigmaPolicyInvalid:
+      "मौजूदा Analytics Sigma कनेक्शन की ऐक्सेस नीति अनपेक्षित है। फिर कोशिश करने से पहले Dispatch में इसे दोबारा कनेक्ट करें।",
+    sigmaSaveFailed:
+      "Sigma क्रेडेंशियल सत्यापित हो गए, लेकिन Analytics उन्हें सेव नहीं कर सका। पिछला कनेक्शन अपरिवर्तित है। फिर कोशिश करें।",
+    sigmaCleanupPending: "क्लीनअप सफल होने तक अस्थायी Sigma सेटअप क्रेडेंशियल बने रहेंगे।",
+    sigmaCleanupFailed:
+      "अस्थायी Sigma क्रेडेंशियल हटाए नहीं जा सके। क्लीनअप फिर से आज़माएँ।",
+    sigmaRetryCleanup: "क्लीनअप फिर से आज़माएँ",
+    sigmaDirectCredentialsUnavailable:
+      "Analytics में सेव किए गए Sigma क्रेडेंशियल पढ़े नहीं जा सके। संगठन एडमिन Dispatch में फिर से कनेक्ट कर सकता है या Analytics में क्रेडेंशियल दोबारा दर्ज कर सकता है।",
     sigmaNoConnectionDescription:
-      "Dispatch खोलें और उससे Sigma को Analytics से कनेक्ट करने के लिए कहें। क्रेडेंशियल Vault में ही रहते हैं।",
-    sigmaOpenDispatch: "Dispatch में सेट अप करें",
+      "Analytics-only कनेक्शन बनाने के लिए यहाँ क्रेडेंशियल दर्ज करें। Dispatch में Analytics के लिए अधिकृत Sigma कनेक्शन यहाँ अपने-आप दिखते हैं; केवल संगठन के एडमिन सीधे क्रेडेंशियल सेव कर सकते हैं।",
+    sigmaOpenDispatch: "Dispatch में कनेक्ट करें",
+    sigmaOpenVault: "Vault खोलें",
     sigmaWorkbooksLoadFailed: "Sigma वर्कबुक लोड नहीं हो सकीं",
     sigmaRetryConnection: "कनेक्शन जाँचें और फिर कोशिश करें।",
     sigmaRetry: "फिर कोशिश करें",
@@ -70,7 +107,7 @@ export default {
     sigmaStatusImported: "आयात किया गया",
     sigmaStatusFailed: "आयात विफल हुआ",
     sigmaArchived: "संग्रहीत",
-    sigmaPreviewTitle: "वर्कबुक पूर्वावलोकन",
+    sigmaPreviewTitle: "वर्कबुक की सामग्री",
     sigmaPreviewFailed: "इस वर्कबुक का पूर्वावलोकन नहीं हो सका",
     sigmaRetryPreview: "वर्कबुक पूर्वावलोकन लोड करने के लिए फिर कोशिश करें।",
     sigmaImportableCount: "{{count}} आयात योग्य",
@@ -1217,6 +1254,7 @@ export default {
     selectAll: "सभी चुनें",
     selectOnly: "केवल",
     selectOnlyValue: "केवल {{value}}",
+    presets: "प्रीसेट",
     untitledDashboard: "शीर्षक रहित डैशबोर्ड",
     dashboardFallback: "डैशबोर्ड",
     viewOnly: "आपके पास इस डैशबोर्ड तक केवल देखने की पहुंच है।",
@@ -1259,6 +1297,7 @@ export default {
     saveViewFailed: "दृश्य सहेजा नहीं जा सका",
     saveViewFailedWithMessage: "दृश्य सहेजा नहीं जा सका: {{message}}",
     clearAll: "सब साफ़ करें",
+    resetFilters: "फ़िल्टर रीसेट करें",
     collapseFilters: "फ़िल्टर संक्षिप्त करें",
     expandFilters: "फ़िल्टर का विस्तार करें",
     filterSeries: "Filter",

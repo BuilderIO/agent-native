@@ -1,6 +1,20 @@
-import { sanitizeBrowserDiagnosticNavigationUrl } from "@shared/browser-diagnostics";
+import type { AppActivity } from "@shared/app-activity";
+import {
+  BROWSER_DIAGNOSTIC_LOOKBACK_MS,
+  sanitizeBrowserDiagnosticNavigationUrl,
+} from "@shared/browser-diagnostics";
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
+import {
+  type AppActivityRead,
+  buildAppActivity,
+  type DiagnosticsClock,
+  MAX_RECORDER_REPORT_CHARS,
+  parseRecorderReportResult,
+  readRecorderReport,
+  stopReadSeconds,
+  withReadTimeout,
+} from "./app-activity";
 import {
   cdpTimestampMs,
   cdpWallTimeMs,
@@ -203,6 +217,7 @@ type NativeRecording = {
   error: string | null;
   diagnosticsPausedAtMs?: number;
   diagnosticsPausedDurationMs?: number;
+  diagnosticsPauses?: Array<{ startedAtMs: number; endedAtMs: number }>;
   savedToDisk?: boolean;
   savedFilename?: string;
   mimeType?: string;
@@ -286,6 +301,12 @@ type CaptureSession = {
   diagnosticsPausedAtMs: number | null;
   diagnosticsPausedDurationMs: number;
   pendingNetworkRequests: Map<string, PendingNetworkRequest>;
+  appActivityStartRead: Promise<AppActivityRead | null> | null;
+};
+
+type NativeDiagnostics = {
+  diagnostics: BrowserDiagnosticsData | null;
+  appActivity: Promise<AppActivity | null> | null;
 };
 
 type StoredAuth = {
@@ -1344,6 +1365,7 @@ function createSession(
     lookbackConsoleLogs: [],
     lookbackNetworkRequests: [],
     lookbackNetworkKeys: new Set(),
+    appActivityStartRead: null,
   };
   sessions.set(sessionId, session);
   tabToSession.set(session.targetTabId, sessionId);
@@ -1726,10 +1748,17 @@ async function markRecordingStarted() {
   if (session) {
     await refreshLookbackNetwork(session);
     beginSessionCapture(session, overlayBaseEpochMs);
+    if (session.includeDeveloperLogs) {
+      session.appActivityStartRead = readAppActivity(
+        session.targetTabId,
+        BROWSER_DIAGNOSTIC_LOOKBACK_MS / 1000,
+      );
+    }
   }
   if (activeNativeRecording) {
     delete activeNativeRecording.diagnosticsPausedAtMs;
     delete activeNativeRecording.diagnosticsPausedDurationMs;
+    delete activeNativeRecording.diagnosticsPauses;
     activeNativeRecording.startedAtMs = overlayBaseEpochMs;
     activeNativeRecording.startedAt = new Date(
       overlayBaseEpochMs,
@@ -1794,6 +1823,10 @@ function handleOverlayResume() {
       activeNativeRecording.diagnosticsPausedDurationMs =
         (activeNativeRecording.diagnosticsPausedDurationMs ?? 0) +
         pausedDurationMs;
+      (activeNativeRecording.diagnosticsPauses ??= []).push({
+        startedAtMs: pausedAtMs,
+        endedAtMs: resumedAtMs,
+      });
       delete activeNativeRecording.diagnosticsPausedAtMs;
     }
   }
@@ -1953,8 +1986,8 @@ async function stopRecording() {
   setActionPopup("");
   overlayPhase = "saving";
   countdownEndsAtMs = 0;
-  const diagnostics = await stopNativeDiagnostics(recording);
-  const diagnosticsSave = saveNativeDiagnostics(recording, diagnostics);
+  const captured = await stopNativeDiagnostics(recording);
+  const diagnosticsSave = saveNativeDiagnostics(recording, captured);
   await saveActiveNativeRecording();
   await broadcastMount();
   broadcastOverlayState();
@@ -2033,16 +2066,16 @@ async function cancelRecording(force = false) {
 
 async function saveNativeDiagnostics(
   recording: NativeRecording,
-  diagnostics?: BrowserDiagnosticsData | null,
+  captured: NativeDiagnostics | null,
 ): Promise<void> {
   if (!recording.includeDeveloperLogs) return;
   const session = sessions.get(recording.sessionId);
-  const snapshot = diagnostics ?? (session ? snapshotSession(session) : null);
+  const snapshot =
+    captured?.diagnostics ?? (session ? snapshotSession(session) : null);
   if (!snapshot) return;
-  await postAction(
-    settingsFromRecording(recording),
-    "save-browser-diagnostics",
-    {
+  const settings = settingsFromRecording(recording);
+  try {
+    await postAction(settings, "save-browser-diagnostics", {
       recordingId: recording.recordingId,
       sessionId: recording.sessionId,
       source: "extension",
@@ -2054,24 +2087,65 @@ async function saveNativeDiagnostics(
       consoleLogs: snapshot.consoleLogs,
       networkRequests: snapshot.networkRequests,
       interactionEvents: snapshot.interactionEvents,
-    },
-  ).catch((err) => {
+    });
+  } catch (err) {
     console.warn("[clips-extension] diagnostics save failed:", err);
+    return;
+  }
+  // App activity is attached to the diagnostics row, so it is saved second.
+  const appActivity = await captured?.appActivity;
+  if (!appActivity) return;
+  await postAction(settings, "save-recording-app-activity", {
+    recordingId: recording.recordingId,
+    ...appActivity,
+  }).catch((err) => {
+    console.warn("[clips-extension] app activity save failed:", err);
   });
 }
 
 async function stopNativeDiagnostics(
   recording: NativeRecording,
-): Promise<BrowserDiagnosticsData | null> {
+): Promise<NativeDiagnostics | null> {
   const session = sessions.get(recording.sessionId);
   if (!session) return null;
   const diagnostics = recording.includeDeveloperLogs
     ? snapshotSession(session)
     : null;
+  const appActivity = recording.includeDeveloperLogs
+    ? collectAppActivity(session, recording).catch((err) => {
+        console.warn("[clips-extension] app activity dropped:", err);
+        return null;
+      })
+    : null;
   await deleteSession(recording.sessionId).catch((err) => {
     console.warn("[clips-extension] diagnostics detach failed:", err);
   });
-  return diagnostics;
+  return { diagnostics, appActivity };
+}
+
+function diagnosticsClockOf(recording: NativeRecording): DiagnosticsClock {
+  return {
+    startedAtMs: recording.startedAtMs,
+    pauses: [
+      ...(recording.diagnosticsPauses ?? []),
+      ...(typeof recording.diagnosticsPausedAtMs === "number"
+        ? [{ startedAtMs: recording.diagnosticsPausedAtMs, endedAtMs: null }]
+        : []),
+    ],
+  };
+}
+
+async function collectAppActivity(
+  session: CaptureSession,
+  recording: NativeRecording,
+): Promise<AppActivity | null> {
+  const clock = diagnosticsClockOf(recording);
+  const startRead = await session.appActivityStartRead;
+  const stopRead = await readAppActivity(
+    session.targetTabId,
+    stopReadSeconds(clock.startedAtMs, nowMs(), startRead !== null),
+  );
+  return buildAppActivity({ start: startRead, stop: stopRead }, clock);
 }
 
 async function clearNativeRecording(): Promise<void> {
@@ -2464,6 +2538,34 @@ async function readLookbackNetwork(
       session.lookbackNetworkRequests.length - MAX_NETWORK_REQUESTS,
     );
   }
+}
+
+// Pages without the agent-native recorder are the common case and are skipped
+// silently.
+async function readAppActivity(
+  tabId: number,
+  seconds: number,
+): Promise<AppActivityRead | null> {
+  let result: unknown;
+  try {
+    const [injection] = await withReadTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: readRecorderReport,
+        args: [seconds, MAX_RECORDER_REPORT_CHARS],
+      }),
+    );
+    result = injection?.result;
+  } catch (err) {
+    console.warn("[clips-bg] no app activity for tab", tabId, err);
+    return null;
+  }
+  const parsed = parseRecorderReportResult(result, nowMs());
+  if (parsed.status === "failed") {
+    console.warn("[clips-bg] unreadable app activity", tabId, parsed.reason);
+  }
+  return parsed.status === "ok" ? parsed.read : null;
 }
 
 async function refreshLookbackNetwork(session: CaptureSession): Promise<void> {

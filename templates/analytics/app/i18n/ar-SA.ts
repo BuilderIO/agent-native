@@ -25,6 +25,16 @@ export default {
     templateCatalog: "كتالوج القوالب",
     semanticLayer: "الطبقة الدلالية",
   },
+  dashboardMode: {
+    label: "وضع لوحة المعلومات",
+    view: "عرض",
+    edit: "تحرير",
+    viewHint: "تصفّح دون تغيير أي شيء. عروض الأعمدة التي تسحبها تبقى لك وحدك.",
+    editHint: "تُحفظ التغييرات للجميع",
+    columnResizePersonal:
+      "اسحب لتغيير الحجم لك وحدك. انقر نقرًا مزدوجًا لإعادة التعيين.",
+    columnResizeShared: "اسحب لتغيير الحجم للجميع",
+  },
   dashboardHeader: {
     updated: "تم التحديث في {{date}}",
     created: "تم الإنشاء في {{date}}",
@@ -52,16 +62,43 @@ export default {
     moveDashboard: "نقل لوحة المعلومات",
     folderCreateFailed: "تعذر إنشاء المجلد",
     moveFailed: "تعذر نقل لوحة المعلومات",
-    previewSigma: "معاينة Sigma",
+    importFromSigma: "استيراد من Sigma",
     sigmaConnection: "اتصال Sigma",
     sigmaConnectedTo: "متصل بـ {{name}}",
     sigmaChooseConnection: "اتصال Sigma",
     sigmaChooseConnectionPlaceholder: "اختر اتصالًا",
     sigmaChooseConnectionDescription: "اختر مساحة عمل Sigma لتصفح مصنفاتها.",
     sigmaNoConnection: "Sigma غير متصل",
+    sigmaClientId: "معرّف العميل",
+    sigmaClientSecret: "سر العميل",
+    sigmaBaseUrl: "عنوان URL الأساسي لواجهة API (اختياري)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "ربط Sigma",
+    sigmaConnecting: "جارٍ الاتصال بـ Sigma…",
+    sigmaConnectFailed:
+      "تعذر التحقق من اتصال Sigma هذا. تحقق من بيانات الاعتماد ومنطقة API، ثم حاول مرة أخرى.",
+    sigmaCredentialStageFailed:
+      "تعذر تخزين بيانات اعتماد Sigma المؤقتة. تحقق من إمكانية الوصول إلى Vault ثم حاول مرة أخرى.",
+    sigmaCredentialsRequired: "احفظ معرّف عميل Sigma وسر العميل أولًا.",
+    sigmaBaseUrlInvalid:
+      "استخدم عنوان HTTPS لواجهة Sigma API ضمن نطاق sigmacomputing.com.",
+    sigmaPersistenceUnavailable:
+      "لا يمكن لـ Analytics حفظ اتصال Sigma بأمان حاليًا. حاول مرة أخرى.",
+    sigmaPolicyInvalid:
+      "تتضمن سياسة الوصول لاتصال Sigma الحالي في Analytics إعدادًا غير متوقع. أعد الاتصال به في Dispatch قبل المحاولة مرة أخرى.",
+    sigmaSaveFailed:
+      "تم التحقق من بيانات اعتماد Sigma، لكن تعذر على Analytics حفظها. لم يتغير الاتصال السابق. حاول مرة أخرى.",
+    sigmaCleanupPending:
+      "ستظل بيانات اعتماد إعداد Sigma المؤقتة موجودة حتى تكتمل عملية التنظيف بنجاح.",
+    sigmaCleanupFailed:
+      "تعذر مسح بيانات اعتماد Sigma المؤقتة. أعد محاولة التنظيف.",
+    sigmaRetryCleanup: "إعادة محاولة التنظيف",
+    sigmaDirectCredentialsUnavailable:
+      "تعذرت قراءة بيانات اعتماد Sigma المحفوظة في Analytics. يمكن لمسؤول المؤسسة إعادة الاتصال عبر Dispatch أو إدخال بيانات الاعتماد مجددًا في Analytics.",
     sigmaNoConnectionDescription:
-      "افتح Dispatch واطلب منه ربط Sigma بـ Analytics. تبقى بيانات الاعتماد في Vault.",
-    sigmaOpenDispatch: "الإعداد في Dispatch",
+      "أدخل بيانات الاعتماد هنا لإنشاء اتصال مخصص لـ Analytics. تظهر هنا تلقائيًا اتصالات Sigma الممنوحة لـ Analytics في Dispatch؛ ولا يمكن حفظ بيانات الاعتماد مباشرةً إلا لمسؤولي المؤسسة.",
+    sigmaOpenDispatch: "الاتصال عبر Dispatch",
+    sigmaOpenVault: "فتح Vault",
     sigmaWorkbooksLoadFailed: "تعذر تحميل مصنفات Sigma",
     sigmaRetryConnection: "تحقق من الاتصال وحاول مرة أخرى.",
     sigmaRetry: "إعادة المحاولة",
@@ -73,7 +110,7 @@ export default {
     sigmaStatusImported: "تم الاستيراد",
     sigmaStatusFailed: "فشل الاستيراد",
     sigmaArchived: "مؤرشف",
-    sigmaPreviewTitle: "معاينة المصنف",
+    sigmaPreviewTitle: "محتويات المصنف",
     sigmaPreviewFailed: "تعذرت معاينة هذا المصنف",
     sigmaRetryPreview: "حاول مرة أخرى لتحميل معاينة المصنف.",
     sigmaImportableCount: "{{count}} قابل للاستيراد",
@@ -1228,6 +1265,7 @@ export default {
     selectAll: "تحديد الكل",
     selectOnly: "فقط",
     selectOnlyValue: "فقط {{value}}",
+    presets: "إعدادات مسبقة",
     untitledDashboard: "لوحة تحكم بلا عنوان",
     dashboardFallback: "لوحة المعلومات",
     viewOnly: "لديك حق الوصول للعرض فقط إلى لوحة المعلومات هذه.",
@@ -1270,6 +1308,7 @@ export default {
     saveViewFailed: "تعذر حفظ العرض",
     saveViewFailedWithMessage: "تعذر حفظ العرض: {{message}}",
     clearAll: "مسح الكل",
+    resetFilters: "إعادة تعيين عوامل التصفية",
     collapseFilters: "طي عوامل التصفية",
     expandFilters: "قم بتوسيع عوامل التصفية",
     filterSeries: "Filter",

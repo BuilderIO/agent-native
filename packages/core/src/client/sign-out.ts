@@ -27,6 +27,7 @@ import {
  */
 import { clearActionQueryCache } from "./action-query-cache.js";
 import { agentNativePath } from "./api-path.js";
+import { clearRecorder } from "./recorder.js";
 import { buildSignInReturnHref } from "./sign-in-return.js";
 import { beginSignOut, completeSignOut } from "./use-session.js";
 
@@ -89,6 +90,7 @@ export function signOut(options: SignOutOptions = {}): Promise<void> {
 async function signOutFlow(options: SignOutOptions): Promise<void> {
   setBetaRedirectSignOutSignal();
   beginSignOut();
+  clearRecorder();
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),

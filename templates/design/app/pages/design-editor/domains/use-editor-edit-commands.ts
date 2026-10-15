@@ -20,6 +20,7 @@ import {
   preferredCodeLayerSelector,
 } from "../code-layer-state";
 import { runChangeSelectedZIndex } from "../commands/change-selected-z-index";
+import { copyVisualProperties } from "../commands/copy-properties";
 import { releaseCrossScreenDropAdmission } from "../commands/cross-screen-element-drop";
 import {
   cancelCrossScreenRollbackTimeout,
@@ -685,22 +686,7 @@ export function useEditorEditCommands({
 
   const handleCopyProps = useCallback(() => {
     if (!selectedElement) return;
-    copiedStylePropsRef.current = {
-      color: selectedElement.computedStyles.color,
-      backgroundColor: selectedElement.computedStyles.backgroundColor,
-      borderColor: selectedElement.computedStyles.borderColor,
-      borderStyle: selectedElement.computedStyles.borderStyle,
-      borderWidth: selectedElement.computedStyles.borderWidth,
-      borderRadius: selectedElement.computedStyles.borderRadius,
-      boxShadow: selectedElement.computedStyles.boxShadow,
-      opacity: selectedElement.computedStyles.opacity,
-      fontFamily: selectedElement.computedStyles.fontFamily,
-      fontSize: selectedElement.computedStyles.fontSize,
-      fontWeight: selectedElement.computedStyles.fontWeight,
-      lineHeight: selectedElement.computedStyles.lineHeight,
-      letterSpacing: selectedElement.computedStyles.letterSpacing,
-      textAlign: selectedElement.computedStyles.textAlign,
-    };
+    copiedStylePropsRef.current = copyVisualProperties(selectedElement);
     setHasPropsClipboard(true);
   }, [selectedElement]);
 

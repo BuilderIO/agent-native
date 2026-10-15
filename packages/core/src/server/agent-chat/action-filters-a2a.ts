@@ -28,7 +28,9 @@ import {
   isAutoReadExcludedActionName,
 } from "../../mcp/build-server.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
+import { ensureRequestRunContext } from "../request-context.js";
 import type { AgentChatPluginOptions } from "./plugin-options.js";
 
 export function filterReadOnlyActions(
@@ -504,6 +506,19 @@ async function runDelegatedAgentLoop(
           : delegatedHardToolResultCap,
     },
     finalResponseGuard: pluginOptions.finalResponseGuard,
+    // Actions this run calls record the model and effort from the run
+    // context, which a rate-limit fallback or an effort step-down changes.
+    onModelSettings: (
+      model: string,
+      reasoningEffort: ReasoningEffort | undefined,
+    ) => {
+      runOptions.onModelSettings?.(model, reasoningEffort);
+      const runContext = ensureRequestRunContext();
+      if (runContext) {
+        runContext.model = model;
+        runContext.reasoningEffort = reasoningEffort;
+      }
+    },
   };
   const execute = (loopOptions = resolvedRunOptions) =>
     runner(loopOptions, pluginOptions.runSoftTimeoutMs, timeoutOptions);

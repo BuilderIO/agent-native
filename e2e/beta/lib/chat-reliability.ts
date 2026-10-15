@@ -13,6 +13,7 @@ import {
   type Locator,
   type Page,
   type Request,
+  type Response,
 } from "@playwright/test";
 
 import { signedInContext } from "./authed";
@@ -41,6 +42,12 @@ import {
   type TrafficEntry,
 } from "./chat-reliability-core";
 import { authenticatedEntryPath, originFor, type BetaSite } from "./fleet";
+import {
+  matchesRecoveryThreadResponse,
+  RECOVERY_TIMELINE_BODY_LIMIT,
+  RecoveryThreadTimeline,
+  type RecoveryTimelinePhase,
+} from "./recovery-thread-timeline";
 import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./test-traffic";
 
 const API_HEADERS = {
@@ -341,6 +348,15 @@ export class ChatReliabilitySession {
   private readonly notes: string[] = [];
   private readonly startedAt = Date.now();
   private failed = false;
+  private recoveryTimeline: RecoveryThreadTimeline | null = null;
+  private recoveryTimelinePhase: RecoveryTimelinePhase = "before-first-reload";
+  private readonly recoveryTimelineBoundaries: {
+    phase: RecoveryTimelinePhase;
+    at: number;
+  }[] = [];
+  private recoveryResponseListener: ((response: Response) => void) | null =
+    null;
+  private readonly recoveryCaptureReads = new Set<Promise<void>>();
 
   private constructor(
     readonly site: BetaSite,
@@ -403,11 +419,118 @@ export class ChatReliabilitySession {
   }
 
   async close(): Promise<void> {
+    if (this.recoveryResponseListener)
+      this.page.off("response", this.recoveryResponseListener);
+    this.recoveryResponseListener = null;
     try {
       if (!this.failed) await this.deleteCreatedThreads();
     } finally {
-      await this.context.close();
+      let cleanupFailed = false;
+      try {
+        await this.context.close();
+      } catch (error) {
+        cleanupFailed = true;
+        throw error;
+      } finally {
+        if (!cleanupFailed) await Promise.all([...this.recoveryCaptureReads]);
+        if (this.recoveryTimeline) {
+          const summary = {
+            app: this.site.id,
+            timeline: this.recoveryTimeline.summary(cleanupFailed),
+          };
+          this.recoveryTimeline = null;
+          await test.info().attach("recovery-thread-timeline.json", {
+            body: Buffer.from(JSON.stringify(summary), "utf8"),
+            contentType: "application/json",
+          });
+        }
+      }
     }
+  }
+
+  startRefreshTimeline(): void {
+    if (
+      !["content", "dispatch"].includes(this.site.id) ||
+      this.recoveryTimeline
+    )
+      return;
+    const timeline = new RecoveryThreadTimeline();
+    const threadId = this.currentThreadId();
+    this.recoveryTimeline = timeline;
+    this.recoveryTimelineBoundaries.push({
+      phase: "before-first-reload",
+      at: Date.now(),
+    });
+    this.recoveryResponseListener = (response) => {
+      if (
+        this.currentThreadId() !== threadId ||
+        !matchesRecoveryThreadResponse(
+          this.origin,
+          response.url(),
+          response.request().method(),
+          threadId,
+        )
+      )
+        return;
+      const startedAt = response.request().timing().startTime;
+      const boundary = Number.isFinite(startedAt)
+        ? this.recoveryTimelineBoundaries.findLast(
+            (entry) => startedAt >= entry.at,
+          )
+        : undefined;
+      const ordinal = timeline.begin(
+        boundary?.phase ?? this.recoveryTimelinePhase,
+      );
+      if (ordinal === null) return;
+      if (!boundary || boundary.phase !== this.recoveryTimelinePhase) {
+        timeline.reject(ordinal, "unreadable");
+        return;
+      }
+      if (response.status() !== 200) {
+        timeline.reject(ordinal, "unreadable");
+        return;
+      }
+      const headers = response.headers();
+      const length = headers["content-length"];
+      if (
+        length !== undefined &&
+        (!/^\d+$/.test(length) || !Number.isSafeInteger(Number(length)))
+      ) {
+        timeline.reject(ordinal, "unreadable");
+        return;
+      }
+      if (
+        length !== undefined &&
+        Number(length) > RECOVERY_TIMELINE_BODY_LIMIT
+      ) {
+        timeline.reject(ordinal, "oversized");
+        return;
+      }
+      const read = (async () => {
+        try {
+          const body = await response.body();
+          if (body.byteLength > RECOVERY_TIMELINE_BODY_LIMIT)
+            timeline.reject(ordinal, "oversized");
+          else
+            timeline.accept(
+              ordinal,
+              new TextDecoder("utf-8", { fatal: true }).decode(body),
+            );
+        } catch {
+          timeline.reject(ordinal, "unreadable");
+        }
+      })();
+      this.recoveryCaptureReads.add(read);
+      void read.then(() => this.recoveryCaptureReads.delete(read));
+    };
+    this.page.on("response", this.recoveryResponseListener);
+  }
+
+  markRefreshTimeline(phase: RecoveryTimelinePhase): void {
+    if (!this.recoveryTimeline || this.recoveryTimelineBoundaries.length >= 3)
+      return;
+    this.recoveryTimelinePhase = phase;
+    this.recoveryTimelineBoundaries.push({ phase, at: Date.now() });
   }
 
   // ---- opening and navigating ----------------------------------------

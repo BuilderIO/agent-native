@@ -80,6 +80,13 @@ change with "+N more".
 Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.
 
+Dashboards open in View mode. An editor switches the header toggle to Edit
+before drags, renames, and column edits on the page save for everyone; the chat
+context reports the current mode. A table column width dragged in View mode is
+stored only in that person's browser, so "widen this column for me" is a drag
+in View mode, not a dashboard change. `config.columns[].width` is the shared
+width everyone sees; set it only when asked to change the dashboard itself.
+
 Never use `db-patch`, raw SQL, or settings-key edits to create or modify a
 dashboard config. Those bypass the dashboard action's access checks, SQL
 validation, collab sync, and verification. If a dashboard action fails
@@ -253,20 +260,26 @@ catalog template. Existing dashboards remain readable while the native
 replacement is validated. Bespoke interaction flows, arbitrary layouts, and
 visualizations outside these contracts may remain Custom Blocks.
 
-## Sigma workbook preview
+## Sigma workbook import
 
-The Sigma workbook flow is preview-only until Analytics can verify the source
-project mapping. The current Sigma connection API reports provider type and
-metadata but does not expose a BigQuery project identifier, so inspection blocks
-all Sigma BigQuery SQL and the import action stays hidden from the agent and
-disabled in the UI. Do not call `migrate-sigma-workbook` or treat an Analytics
-BigQuery credential as proof that it targets the Sigma project. Users can list
-workbooks with `list-sigma-workbooks` and preview one with
+The dashboard menu opens the Sigma import flow, where users can browse and
+preview workbooks. Imports remain disabled for elements whose source project
+Analytics cannot verify: Sigma's connection API reports provider type and
+metadata but does not expose a BigQuery project identifier. Do not call
+`migrate-sigma-workbook` for an unverified source or treat an Analytics
+BigQuery credential as proof that it targets Sigma's project. Users can list
+workbooks with `list-sigma-workbooks` and inspect one with
 `inspect-sigma-workbook`. The feature is controlled by
-`analytics.sigma-dashboard-migration` and requires a granted Sigma connection.
-The Dispatch setup link can create a Sigma workspace connection from
-Vault-backed client ID and client secret references and grant Analytics access;
-never copy their values into Analytics settings.
+`analytics.sigma-dashboard-migration` and requires a Sigma connection granted
+to Analytics.
+
+Use an existing Dispatch Sigma connection when it is granted to Analytics; the
+import flow discovers accessible connections without copying their Vault
+values. If direct setup is needed, an organization owner or admin can enter
+Sigma client credentials in the Analytics dialog. Analytics saves those values
+under Analytics-specific encrypted organization secrets and links them to an
+Analytics-only connection. Credential values must never pass through agent chat,
+action arguments, logs, source, or screenshots.
 
 If Sigma adds verifiable source mapping in the future, the planned import will
 create a private snapshot in the user's personal `Sigma` folder. Other source
@@ -394,7 +407,11 @@ Use conditional blocks for optional filters:
 
 An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
 
+To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter.
+
 Filters auto-apply on change — there is no Apply button. Each filter change writes to the URL and re-runs the affected panels. Other filters are preserved (the URL update is functional, not destructive). If you see a filter "reset" itself when another filter changes, look for a duplicate `id` first.
+
+**Reset filters** in the filter bar returns the dashboard to what a fresh load shows: the default saved view when the dashboard has one, otherwise each filter's own `default`. It shows only while a filter's resolved value differs from that, so `f_timeRange=30d` on a 30d-default filter counts as reset. To reset for the user with `set-search-params`, remove every `f_` param and `view`, or set the default view's params and `view=<id>`.
 
 ## Modifying A Dashboard
 

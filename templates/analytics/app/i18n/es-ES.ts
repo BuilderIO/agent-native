@@ -25,6 +25,17 @@ export default {
     templateCatalog: "Catálogo",
     semanticLayer: "Capa semántica",
   },
+  dashboardMode: {
+    label: "Modo del panel",
+    view: "Ver",
+    edit: "Editar",
+    viewHint:
+      "Consulte sin cambiar nada. Los anchos de columna que arrastre son solo para usted.",
+    editHint: "Los cambios se guardan para todos",
+    columnResizePersonal:
+      "Arrastre para cambiar el tamaño solo para usted. Doble clic para restablecer.",
+    columnResizeShared: "Arrastre para cambiar el tamaño para todos",
+  },
   dashboardHeader: {
     updated: "Actualizado el {{date}}",
     created: "Creado el {{date}}",
@@ -51,7 +62,7 @@ export default {
     moveDashboard: "Mover panel",
     folderCreateFailed: "No se ha podido crear la carpeta",
     moveFailed: "No se ha podido mover el panel",
-    previewSigma: "Vista previa de Sigma",
+    importFromSigma: "Importar desde Sigma",
     sigmaConnection: "Conexión de Sigma",
     sigmaConnectedTo: "Conectado a {{name}}",
     sigmaChooseConnection: "Conexión de Sigma",
@@ -59,9 +70,37 @@ export default {
     sigmaChooseConnectionDescription:
       "Elige el espacio de trabajo de Sigma para ver sus libros de trabajo.",
     sigmaNoConnection: "Sigma no está conectado",
+    sigmaClientId: "ID de cliente",
+    sigmaClientSecret: "Secreto de cliente",
+    sigmaBaseUrl: "URL base de la API (opcional)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Conectar Sigma",
+    sigmaConnecting: "Conectando a Sigma…",
+    sigmaConnectFailed:
+      "No se ha podido verificar esta conexión de Sigma. Comprueba las credenciales y la región de la API y vuelve a intentarlo.",
+    sigmaCredentialStageFailed:
+      "No se pudieron guardar las credenciales temporales de Sigma. Comprueba el acceso a Vault y vuelve a intentarlo.",
+    sigmaCredentialsRequired:
+      "Guarda primero el ID de cliente y el secreto de cliente de Sigma.",
+    sigmaBaseUrlInvalid:
+      "Usa una URL HTTPS de la API de Sigma en un dominio sigmacomputing.com.",
+    sigmaPersistenceUnavailable:
+      "Analytics no puede guardar la conexión de Sigma de forma segura ahora mismo. Inténtalo de nuevo.",
+    sigmaPolicyInvalid:
+      "La conexión existente de Sigma para Analytics tiene una política de acceso inesperada. Vuelve a conectarla en Dispatch antes de intentarlo de nuevo.",
+    sigmaSaveFailed:
+      "Las credenciales de Sigma se verificaron, pero Analytics no pudo guardarlas. La conexión anterior no ha cambiado. Inténtalo de nuevo.",
+    sigmaCleanupPending:
+      "Las credenciales temporales de configuración de Sigma permanecerán hasta que la limpieza se complete correctamente.",
+    sigmaCleanupFailed:
+      "No se pudieron borrar las credenciales temporales de Sigma. Vuelve a intentar la limpieza.",
+    sigmaRetryCleanup: "Reintentar limpieza",
+    sigmaDirectCredentialsUnavailable:
+      "No se pudieron leer las credenciales de Sigma guardadas en Analytics. Un administrador de la organización puede volver a conectarlo en Dispatch o introducirlas de nuevo en Analytics.",
     sigmaNoConnectionDescription:
-      "Abre Dispatch y pídele que conecte Sigma con Analytics. Las credenciales permanecen en Vault.",
-    sigmaOpenDispatch: "Configurar en Dispatch",
+      "Introduce aquí las credenciales para crear una conexión exclusiva de Analytics. Las conexiones de Sigma autorizadas para Analytics en Dispatch aparecen aquí automáticamente; solo los administradores de la organización pueden guardar credenciales directamente.",
+    sigmaOpenDispatch: "Conectar en Dispatch",
+    sigmaOpenVault: "Abrir Vault",
     sigmaWorkbooksLoadFailed:
       "No se han podido cargar los libros de trabajo de Sigma",
     sigmaRetryConnection: "Comprueba la conexión e inténtalo de nuevo.",
@@ -74,7 +113,7 @@ export default {
     sigmaStatusImported: "Importado",
     sigmaStatusFailed: "Error al importar",
     sigmaArchived: "Archivado",
-    sigmaPreviewTitle: "Vista previa del libro de trabajo",
+    sigmaPreviewTitle: "Contenido del libro de trabajo",
     sigmaPreviewFailed: "No se ha podido previsualizar este libro de trabajo",
     sigmaRetryPreview: "Vuelve a intentar cargar la vista previa.",
     sigmaImportableCount: "{{count}} importables",
@@ -1271,6 +1310,7 @@ export default {
     selectAll: "Seleccionar todo",
     selectOnly: "Solo",
     selectOnlyValue: "Solo {{value}}",
+    presets: "Ajustes predefinidos",
     untitledDashboard: "Panel de control sin título",
     dashboardFallback: "panel",
     viewOnly: "Tiene acceso de solo lectura a este panel.",
@@ -1313,6 +1353,7 @@ export default {
     saveViewFailed: "No se pudo guardar la vista",
     saveViewFailedWithMessage: "No se pudo guardar la vista: {{message}}",
     clearAll: "Borrar todo",
+    resetFilters: "Restablecer filtros",
     collapseFilters: "Contraer filtros",
     expandFilters: "Ampliar filtros",
     filterSeries: "Filter",

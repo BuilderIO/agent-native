@@ -1122,10 +1122,23 @@ export function RecordingPill() {
   useEffect(() => {
     if (!hasTauri) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const observer = new ResizeObserver(() => {
-      if (Date.now() < animatingUntilRef.current) return;
+    const scheduleSync = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => syncWindowToContent(), 120);
+      const guardRemaining = animatingUntilRef.current - Date.now();
+      timer = setTimeout(
+        () => {
+          if (Date.now() < animatingUntilRef.current) {
+            scheduleSync();
+            return;
+          }
+          timer = null;
+          syncWindowToContent();
+        },
+        Math.max(120, guardRemaining + 120),
+      );
+    };
+    const observer = new ResizeObserver(() => {
+      scheduleSync();
     });
     const el = mode === "done" ? cardRef.current : null;
     if (el) observer.observe(el);

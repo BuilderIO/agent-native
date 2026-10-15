@@ -289,6 +289,36 @@ describe("MotionNativeStyleEditor", () => {
     expect(
       directionOptions.map((option) => option.textContent?.trim()),
     ).toEqual([
+      "designEditor.motion.animationStyles.fromLeft",
+      "designEditor.motion.animationStyles.fromRight",
+      "designEditor.motion.animationStyles.fromTop",
+      "designEditor.motion.animationStyles.fromBottom",
+      "designEditor.motion.animationStyles.fromTopLeft",
+      "designEditor.motion.animationStyles.fromTopRight",
+      "designEditor.motion.animationStyles.fromBottomLeft",
+      "designEditor.motion.animationStyles.fromBottomRight",
+    ]);
+    await act(async () => directionOptions[0]?.click());
+
+    await render({
+      styles: [
+        {
+          ...positionStyle,
+          props: { ...positionStyle.props, type: "slide_out" },
+        },
+      ],
+    });
+    const slideOutDirectionSelect =
+      document.body.querySelector<HTMLButtonElement>(
+        '[aria-label="designEditor.motion.textAnimation.direction"]',
+      )!;
+    await act(async () => slideOutDirectionSelect.click());
+    const slideOutDirections = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="option"]'),
+    );
+    expect(
+      slideOutDirections.map((option) => option.textContent?.trim()),
+    ).toEqual([
       "designEditor.motion.animationStyles.toLeft",
       "designEditor.motion.animationStyles.toRight",
       "designEditor.motion.animationStyles.toTop",
@@ -298,7 +328,6 @@ describe("MotionNativeStyleEditor", () => {
       "designEditor.motion.animationStyles.toBottomLeft",
       "designEditor.motion.animationStyles.toBottomRight",
     ]);
-    await act(async () => directionOptions[0]?.click());
 
     const curveToggle = document.body.querySelector<HTMLButtonElement>(
       'button[aria-label="designEditor.motion.animationStyles.showEasingCurveEditor"]',
@@ -392,7 +421,7 @@ describe("MotionNativeStyleEditor", () => {
     )!;
     await selectOption(
       directionSelect,
-      "designEditor.motion.animationStyles.toTop",
+      "designEditor.motion.animationStyles.fromTop",
     );
     expect(onChange).toHaveBeenLastCalledWith(
       {

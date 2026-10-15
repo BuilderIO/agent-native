@@ -5,6 +5,7 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
+import { ReportProblemButton } from "@agent-native/toolkit/app/feedback";
 import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
@@ -567,7 +568,16 @@ export function Sidebar({
         <ChatThreadsSection collapsed={collapsed} />
       </nav>
 
-      <div className="mt-auto shrink-0 border-t border-sidebar-border p-2">
+      <div
+        className={cn(
+          "mt-auto shrink-0 px-2 pb-1",
+          collapsed && "flex justify-center",
+        )}
+      >
+        <ReportProblemButton variant={collapsed ? "icon" : "sidebar"} />
+      </div>
+
+      <div className="shrink-0 border-t border-sidebar-border p-2">
         <div
           className={cn(
             collapsed

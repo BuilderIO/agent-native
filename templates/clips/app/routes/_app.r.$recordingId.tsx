@@ -28,6 +28,10 @@ import type {
   ClipsAiRequestStatus,
 } from "@shared/ai-request-status";
 import {
+  type AppActivityEvent,
+  MAX_APP_ACTIVITY_EVENTS,
+} from "@shared/app-activity";
+import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
@@ -82,6 +86,7 @@ import {
 } from "@/components/library/page-header";
 import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import {
+  type AppActivityEventsState,
   BrowserDiagnosticsPanel,
   isFullBrowserDiagnostics,
 } from "@/components/player/browser-diagnostics-panel";
@@ -1158,6 +1163,20 @@ export default function RecordingPage() {
     canEdit && isFullBrowserDiagnostics(browserDiagnosticsCandidate)
       ? browserDiagnosticsCandidate
       : null;
+  const appActivityQ = useActionQuery<{ events: AppActivityEvent[] }>(
+    "get-recording-app-activity",
+    { recordingId: recordingId ?? "", maxEvents: MAX_APP_ACTIVITY_EVENTS },
+    {
+      enabled: Boolean(
+        recordingId && browserDiagnostics?.appActivity && panel === "debug",
+      ),
+    },
+  );
+  const appActivityEvents: AppActivityEventsState = appActivityQ.data
+    ? { status: "ready", events: appActivityQ.data.events }
+    : appActivityQ.isError
+      ? { status: "failed" }
+      : { status: "loading" };
   const browserDiagnosticsDurationMs =
     recordingId === VIEWER_REDESIGN_PREVIEW_ID
       ? VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS
@@ -2276,6 +2295,8 @@ export default function RecordingPage() {
               ) : (
                 <StorageSetupCard
                   connectSource="clips_recording_page_storage_setup_card"
+                  key={recordingId}
+                  outputId={recordingId}
                   title={
                     loomStorageSetupFailure
                       ? t("recordingPage.connectStorageImportLoomTitle")
@@ -2459,6 +2480,7 @@ export default function RecordingPage() {
           className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
         >
           <RecordingContextSection
+            canManage={role === "owner"}
             recordingId={
               recordingId === VIEWER_REDESIGN_PREVIEW_ID
                 ? undefined
@@ -2531,6 +2553,7 @@ export default function RecordingPage() {
           >
             <BrowserDiagnosticsPanel
               diagnostics={browserDiagnostics}
+              appActivityEvents={appActivityEvents}
               durationMs={browserDiagnosticsDurationMs}
               onSeek={(ms) => playerRef.current?.seek(ms)}
             />

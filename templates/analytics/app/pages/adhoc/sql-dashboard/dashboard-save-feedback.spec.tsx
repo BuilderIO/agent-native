@@ -284,6 +284,26 @@ describe("useDashboardSaveFeedback", () => {
     expect(toastMock.success).toHaveBeenCalledOnce();
   });
 
+  it("closes the toast when the page stops passing a dashboard, as on leaving edit mode", async () => {
+    render(<FeedbackProbe shared otherViewers={0} onUndo={vi.fn()} />);
+    const save = deferred<SaveOutcome>();
+    act(() => {
+      void track(save.promise);
+    });
+    await act(async () => save.resolve(WROTE));
+    expect(toastMock.success).toHaveBeenCalledOnce();
+
+    render(
+      <FeedbackProbe
+        dashboardId={undefined}
+        shared
+        otherViewers={0}
+        onUndo={vi.fn()}
+      />,
+    );
+    expect(toastMock.dismiss).toHaveBeenCalledWith("dashboard-save:d1");
+  });
+
   it("closes the toast on leaving its dashboard and ignores saves that land later", async () => {
     const onUndo = vi.fn();
     render(
