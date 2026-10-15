@@ -173,6 +173,7 @@ import {
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
+  releaseDashboardAdoptionHold,
   shouldShowDashboardLoadError,
   shouldAdoptDashboardQueryResult,
   type DashboardAdoptionHold,
@@ -865,9 +866,11 @@ function SqlDashboardPageContent({
 
   // handleUndo is declared below the saves that offer it, so the save toast's
   // Undo goes through this ref.
-  const handleUndoRef = useRef<(() => Promise<void>) | null>(null);
-  const undoLatestSave = useCallback(() => {
-    void handleUndoRef.current?.();
+  const handleUndoRef = useRef<
+    ((savedUpdatedAt?: string) => Promise<void>) | null
+  >(null);
+  const undoLatestSave = useCallback((savedUpdatedAt: string) => {
+    void handleUndoRef.current?.(savedUpdatedAt);
   }, []);
   const dashboardShared =
     dashboardVisibility === "org" || dashboardVisibility === "public";
@@ -1274,7 +1277,7 @@ function SqlDashboardPageContent({
             dashboardUpdatedAtRef.current = result.updatedAt;
           }
         }
-        return { changed: result.changed };
+        return { changed: result.changed, updatedAt: result.updatedAt };
       },
     );
     dashboardSaveQueuesRef.current.set(id, queue);
@@ -1316,7 +1319,10 @@ function SqlDashboardPageContent({
           // A newer queued save sends the whole config again and reports its
           // own outcome, so this one no longer says what the dashboard holds.
           if (queue.pending() > 0) return;
-          pendingConfigRef.current = null;
+          pendingConfigRef.current = releaseDashboardAdoptionHold(
+            pendingConfigRef.current,
+            dashboardId,
+          );
           void queryClient.invalidateQueries({
             queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
           });
@@ -1351,16 +1357,21 @@ function SqlDashboardPageContent({
       }
       resetRevisionNavigation();
       holdDashboardConfig();
+      const queue = dashboardSaveQueue(dashboardId);
       let isLatest: boolean;
       try {
-        ({ isLatest } = await trackSave(
-          dashboardSaveQueue(dashboardId).enqueue(updated),
-        ));
+        ({ isLatest } = await trackSave(queue.enqueue(updated)));
       } catch (err) {
-        pendingConfigRef.current = null;
-        void queryClient.invalidateQueries({
-          queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
-        });
+        // A newer queued save still needs the hold and sends the whole config.
+        if (queue.pending() === 0) {
+          pendingConfigRef.current = releaseDashboardAdoptionHold(
+            pendingConfigRef.current,
+            dashboardId,
+          );
+          void queryClient.invalidateQueries({
+            queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
+          });
+        }
         throw err;
       }
       if (!isLatest) return;
@@ -1396,61 +1407,67 @@ function SqlDashboardPageContent({
     ],
   );
 
-  const handleUndo = useCallback(async () => {
-    if (
-      !dashboardId ||
-      !canEdit ||
-      restoreDashboardRevision.isPending ||
-      revisionRestoreInFlightRef.current
-    ) {
-      return;
-    }
+  // The save toast passes the version its save left, so a newer save by
+  // someone else makes the restore fail rather than taking their change back.
+  const handleUndo = useCallback(
+    async (savedUpdatedAt?: string) => {
+      if (
+        !dashboardId ||
+        !canEdit ||
+        restoreDashboardRevision.isPending ||
+        revisionRestoreInFlightRef.current
+      ) {
+        return;
+      }
 
-    revisionRestoreInFlightRef.current = true;
-    try {
-      const revisions =
-        dashboardRevisions ?? (await refetchDashboardRevisions()).data;
-      if (!revisions?.length) return;
-      const targetIndex =
-        undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
-      const targetRevision = revisions[targetIndex];
-      if (!targetRevision) return;
+      revisionRestoreInFlightRef.current = true;
+      try {
+        const revisions =
+          dashboardRevisions ?? (await refetchDashboardRevisions()).data;
+        if (!revisions?.length) return;
+        const targetIndex =
+          undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
+        const targetRevision = revisions[targetIndex];
+        if (!targetRevision) return;
 
-      holdDashboardConfig();
-      const restored = await restoreDashboardRevision.mutateAsync({
-        dashboardId,
-        revisionId: targetRevision.id,
-        expectedUpdatedAt: dashboardUpdatedAtRef.current ?? undefined,
-      });
-      setUndoRevisionId(targetRevision.id);
-      setRedoRevisionIds((current) => [
-        ...current,
-        restored.snapshotRevisionId,
-      ]);
-      if (restored?.updatedAt) setDashboardUpdatedAt(restored.updatedAt);
-      toast.success(t("dashboard.undoSuccess"));
-    } catch (error) {
-      resetRevisionNavigation();
-      toast.error(
-        error instanceof Error
-          ? t("dashboard.undoFailedWithMessage", { message: error.message })
-          : t("dashboard.undoFailed"),
-      );
-    } finally {
-      revisionRestoreInFlightRef.current = false;
-    }
-  }, [
-    canEdit,
-    dashboardId,
-    dashboardRevisions,
-    holdDashboardConfig,
-    restoreDashboardRevision,
-    refetchDashboardRevisions,
-    resetRevisionNavigation,
-    t,
-    undoRevisionId,
-    undoRevisionIndex,
-  ]);
+        holdDashboardConfig();
+        const restored = await restoreDashboardRevision.mutateAsync({
+          dashboardId,
+          revisionId: targetRevision.id,
+          expectedUpdatedAt:
+            savedUpdatedAt ?? dashboardUpdatedAtRef.current ?? undefined,
+        });
+        setUndoRevisionId(targetRevision.id);
+        setRedoRevisionIds((current) => [
+          ...current,
+          restored.snapshotRevisionId,
+        ]);
+        if (restored?.updatedAt) setDashboardUpdatedAt(restored.updatedAt);
+        toast.success(t("dashboard.undoSuccess"));
+      } catch (error) {
+        resetRevisionNavigation();
+        toast.error(
+          error instanceof Error
+            ? t("dashboard.undoFailedWithMessage", { message: error.message })
+            : t("dashboard.undoFailed"),
+        );
+      } finally {
+        revisionRestoreInFlightRef.current = false;
+      }
+    },
+    [
+      canEdit,
+      dashboardId,
+      dashboardRevisions,
+      holdDashboardConfig,
+      restoreDashboardRevision,
+      refetchDashboardRevisions,
+      resetRevisionNavigation,
+      t,
+      undoRevisionId,
+      undoRevisionIndex,
+    ],
+  );
   useEffect(() => {
     handleUndoRef.current = handleUndo;
   }, [handleUndo]);

@@ -2,6 +2,8 @@ export type DashboardSaveResult = {
   isLatest: boolean;
   /** False when the dashboard already matched and the server wrote nothing. */
   changed: boolean;
+  /** The dashboard's version after the save, when the server reported it. */
+  updatedAt?: string;
 };
 
 export type DashboardSaveQueue<T> = {
@@ -11,7 +13,7 @@ export type DashboardSaveQueue<T> = {
 };
 
 export function createDashboardSaveQueue<T>(
-  save: (config: T) => Promise<{ changed: boolean }>,
+  save: (config: T) => Promise<{ changed: boolean; updatedAt?: string }>,
 ): DashboardSaveQueue<T> {
   let pendingCount = 0;
   let tail: Promise<void> = Promise.resolve();
@@ -21,8 +23,8 @@ export function createDashboardSaveQueue<T>(
       pendingCount += 1;
       const saveResult = tail.then(async () => {
         try {
-          const { changed } = await save(config);
-          return { isLatest: pendingCount === 1, changed };
+          const { changed, updatedAt } = await save(config);
+          return { isLatest: pendingCount === 1, changed, updatedAt };
         } finally {
           pendingCount -= 1;
         }
