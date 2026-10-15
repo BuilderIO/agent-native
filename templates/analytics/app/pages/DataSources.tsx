@@ -96,6 +96,7 @@ import {
   getOptionalCredentialKeys,
   getSharedConnectionStatus,
   getGoogleSheetsConnection,
+  hasExistingWorkspaceConnection,
   isWorkspaceOAuthSource,
   isSourceReady,
   isSourceLocallyConfigured,
@@ -1411,10 +1412,7 @@ function DataSourceDetail({
         <WorkspaceOAuthView
           provider={source.id}
           label={source.name}
-          connected={
-            sharedConnectionStatus?.connection?.grantState === "connected" ||
-            sharedConnectionStatus?.kind === "needs_grant"
-          }
+          connected={hasExistingWorkspaceConnection(sharedConnectionStatus)}
           returnPath={oauthReturnPath}
           scope={source.id === "bigquery" ? "user" : "organization"}
           showDescription={source.id !== "bigquery"}

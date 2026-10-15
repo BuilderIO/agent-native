@@ -895,6 +895,14 @@ export default {
         toTopRight: "To top right",
         toBottomLeft: "To bottom left",
         toBottomRight: "To bottom right",
+        fromLeft: "From left",
+        fromRight: "From right",
+        fromTop: "From top",
+        fromBottom: "From bottom",
+        fromTopLeft: "From top left",
+        fromTopRight: "From top right",
+        fromBottomLeft: "From bottom left",
+        fromBottomRight: "From bottom right",
         clockwise: "Clockwise",
         counterclockwise: "Counterclockwise",
         easingPresets: {
@@ -944,6 +952,8 @@ export default {
         save: "Save style",
         createDescription:
           "Save the selected target’s motion tracks as a reusable style.",
+        unsupportedSequence:
+          "This style cannot be applied because same-property segments overlap or do not connect.",
         tooMany: "A style can include up to 24 animations.",
         limit: "This design has reached the 64-style limit.",
       },
@@ -1079,6 +1089,9 @@ export default {
       size: "Size",
       sourceWriteUnavailable:
         "Motion code can currently be written only to inline HTML designs.",
+      sourceConflict:
+        "Motion source changed while this timeline had unsaved edits. Reload from code to discard those edits and use the current source.",
+      reloadFromSource: "Reload from code",
       selectElementFirst: "Select an element on the canvas first",
       animateLayer: 'Animate "{{label}}"',
       more: "More",
@@ -1111,17 +1124,15 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "Import tokens",
-      importTitle: "Import tokens",
-      importHint:
-        "Use design.md, CSS, theme files, or the current design before adding tokens by hand.",
-      files: "Files",
-      folder: "Folder",
-      current: "Current",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "Import pasted tokens",
+      importDtcg: "DTCG file…",
+      importCssOrTailwind: "CSS or Tailwind file…",
+      importClipboard: "Paste from clipboard",
+      importFromDesign: "Generate from design",
+      importFailed: "Couldn't import tokens: {{message}}",
+      clipboardBlocked:
+        "Couldn't read the clipboard. Allow clipboard access and try again.",
+      clipboardEmpty: "The clipboard is empty",
       importedCount: "Imported {{count}} tokens",
       importing: "Importing tokens…",
       importedWithSkipped:
@@ -1140,6 +1151,21 @@ export default {
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "Couldn't add token: {{message}}",
+      types: {
+        color: "Color",
+        fontFamily: "Font family",
+        fontWeight: "Font weight",
+        fontSize: "Font size",
+        lineHeight: "Line height",
+        letterSpacing: "Letter spacing",
+        spacing: "Spacing",
+        container: "Container",
+        breakpoint: "Breakpoint",
+        radius: "Radius",
+        shadow: "Shadow",
+        opacity: "Opacity",
+      },
       editColor: "Edit color for {{name}}",
     },
     import: {
@@ -1220,7 +1246,7 @@ export default {
       figUploadProcessing: "Converting…",
       figImportWarningTitle: "Large .fig import",
       figImportWarningDescription:
-        "This file contains {{frames}} frames and {{nodes}} layers. Importing everything may slow the editor. Choose the frames you need.",
+        "This file contains {{frames}} frames and {{nodes}} layers. Importing everything may slow the editor. Choose the pages you need.",
       figImportFrameCount: "{{selected}} of {{total}} frames selected",
       figImportSelectAll: "Select all",
       figImportClearAll: "Clear all",
@@ -1229,6 +1255,11 @@ export default {
       figImportAll: "Import all",
       figImportAnalyzing: "Analyzing…",
       figImportSaving: "Saving {{saved}} of {{total}} frames",
+      figImportFrameLimit:
+        "Choose pages with {{max}} frames or fewer in total.",
+      figImportFramesSkippedWarning:
+        "Skipped {{count}} frames that were too complex to import: {{names}}",
+      figUploadLimits: "Up to {{size}} GB · {{frames}} frames per import",
       figUploadDescriptionShort:
         "Local import — no Figma API quota used. Supported embedded images are included.",
       figUploadImagesSkippedWarning:
@@ -2162,6 +2193,7 @@ export default {
     figmaLink: "Figma link",
     importFromFigma: "Import from Figma",
     figmaFile: "Figma file (.fig)",
+    figmaFileMaxSize: "Up to {{max}} GB",
     openImport: "Open import",
     importSelectedFile: "Import selected file",
     starterSaasPrompt:

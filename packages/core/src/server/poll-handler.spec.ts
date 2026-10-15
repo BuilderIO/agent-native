@@ -29,6 +29,8 @@ vi.mock("../db/client.js", () => ({
 
 vi.mock("../db/migration-policy.js", () => ({
   appMigratesAtRelease: mockAppMigratesAtRelease,
+  schemaEnsureSkipRequested: () => false,
+  schemaIsBorrowed: () => false,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({

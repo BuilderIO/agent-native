@@ -18,6 +18,14 @@ registerDataProgramsShareable();
 
 registerIdentityColumns([
   {
+    table: "bi_migration_external_dashboards",
+    column: "original_migrator_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "The original migrator identity preserves provenance and gates remigration of an imported external dashboard.",
+  },
+  {
     table: "session_recordings",
     column: "session_id",
     emailChange: "retain",

@@ -289,4 +289,43 @@ describe("pointer gesture behavior", () => {
       await browser.close();
     }
   }, 60_000);
+
+  it.each([1, 8])(
+    "moves a dragged layer by the full pointer delta from pointerdown when the drag takes %i pointer move(s)",
+    async (steps) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage({
+          viewport: { width: 800, height: 600 },
+        });
+        await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="target" data-agent-native-node-id="target" style="position:absolute;left:30px;top:280px;width:120px;height:80px;background:#334155"></div>
+      </body></html>`);
+        await page.addScriptTag({ content: hydratedBridge() });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await page.evaluate(() => {
+          (window as any).__commits = [];
+          window.addEventListener("message", (event) => {
+            if (event.data?.type === "visual-style-change") {
+              (window as any).__commits.push(event.data.styles);
+            }
+          });
+        });
+
+        await page.mouse.move(90, 320);
+        await page.mouse.down();
+        await page.mouse.move(290, 420, { steps });
+        await page.mouse.up();
+        await page.waitForFunction(() => (window as any).__commits.length > 0);
+
+        const commits = await page.evaluate(() => (window as any).__commits);
+        expect(commits).toEqual([
+          { position: "absolute", left: "230px", top: "380px" },
+        ]);
+      } finally {
+        await browser.close();
+      }
+    },
+    60_000,
+  );
 });

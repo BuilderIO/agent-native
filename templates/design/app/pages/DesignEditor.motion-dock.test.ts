@@ -87,9 +87,9 @@ describe("DesignEditor motion dock transition", () => {
     expect(source).toContain("editorLiveEditsAndPresence.motionLabEnabled ? (");
   });
 
-  it("switches the inspector to Motion while the dock is open, with no tab to pick", () => {
+  it("switches the inspector to Motion while the dock is open for a selected layer", () => {
     expect(source).toContain(
-      "motionInspector:\n      editorLiveEditsAndPresence.motionLabEnabled &&\n      motionDockOpen &&\n      Boolean(activeFile?.id),",
+      "motionInspector:\n      editorLiveEditsAndPresence.motionLabEnabled &&\n      motionDockOpen &&\n      Boolean(activeFile?.id) &&\n      selectedInspectorElements.length > 0,",
     );
     expect(source).not.toContain("setActiveInspectorTab");
   });

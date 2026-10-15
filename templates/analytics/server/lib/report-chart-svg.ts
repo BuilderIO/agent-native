@@ -1,7 +1,15 @@
 import { OG_FONT_FAMILY } from "@agent-native/core/server";
 
+import {
+  estimateTextWidth,
+  isCategoryAxis,
+  planCategoryAxis,
+  trimToWidth,
+} from "../../shared/chart-axis-labels";
 import type { DashboardFunnelItem } from "../../shared/dashboard-funnel";
 import { formatDollars } from "../../shared/format-dollars";
+
+export { estimateTextWidth };
 
 export type ReportChartType = "bar" | "line" | "area" | "pie" | "funnel";
 
@@ -119,39 +127,6 @@ function formatCoord(value: number): string {
 
 function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 2).trimEnd()}...` : value;
-}
-
-export function estimateTextWidth(value: string, fontSize: number): number {
-  let units = 0;
-  for (const char of value) {
-    if (char === " ") {
-      units += 0.28;
-    } else if (/[MW@#%&]/.test(char)) {
-      units += 0.86;
-    } else if (/[A-Z]/.test(char)) {
-      units += 0.64;
-    } else if (/[ilI.,:;|!']/u.test(char)) {
-      units += 0.26;
-    } else if (/[0-9]/.test(char)) {
-      units += 0.56;
-    } else {
-      units += 0.54;
-    }
-  }
-  return units * fontSize;
-}
-
-function trimToWidth(
-  value: string,
-  fontSize: number,
-  maxWidth: number,
-): string {
-  if (estimateTextWidth(value, fontSize) <= maxWidth) return value;
-  let trimmed = value;
-  while (trimmed && estimateTextWidth(`${trimmed}...`, fontSize) > maxWidth) {
-    trimmed = trimmed.slice(0, -1).trimEnd();
-  }
-  return trimmed ? `${trimmed}...` : "";
 }
 
 function wrapToWidth(
@@ -408,8 +383,16 @@ function renderCartesianChartSvg({
   const dualAxis = rightAxisIndexes.length > 0 && leftAxisIndexes.length > 0;
   const chartLeft = 58;
   const chartRight = safeWidth - (dualAxis ? 62 : 28);
-  const chartBottom = safeHeight - 48;
   const plotWidth = Math.max(1, chartRight - chartLeft);
+  // Bars over named categories label every bar; dates and numbers thin out.
+  const categoryAxis =
+    type === "bar" && isCategoryAxis(labels)
+      ? planCategoryAxis(labels, plotWidth, chartLeft, 11)
+      : null;
+  const chartBottom =
+    categoryAxis && categoryAxis.angle !== 0
+      ? safeHeight - categoryAxis.height - 6
+      : safeHeight - 48;
 
   const header = renderChartHeader({
     title,
@@ -505,24 +488,40 @@ function renderCartesianChartSvg({
   }).join("");
 
   const centerFor = (index: number) => chartLeft + slot * index + slot / 2;
-  const xLabels = fit
-    ? layoutXLabels(
-        labels.map((label) => truncate(label, 14)),
-        centerFor,
-        labelStep,
-        safeWidth,
-      )
-        .map(
-          ({ text, x }) =>
-            `<text x="${x.toFixed(1)}" y="${safeHeight - 18}" text-anchor="middle" font-size="11" fill="${theme.tickColor}">${escapeXml(text)}</text>`,
-        )
-        .join("")
-    : labels
+  const xLabels = categoryAxis
+    ? labels
         .map((label, index) => {
-          if (index % labelStep !== 0 && index !== labels.length - 1) return "";
-          return `<text x="${centerFor(index).toFixed(1)}" y="${safeHeight - 18}" text-anchor="middle" font-size="11" fill="${theme.tickColor}">${escapeXml(truncate(label, 14))}</text>`;
+          if (index % (categoryAxis.interval + 1) !== 0) return "";
+          const text = escapeXml(
+            trimToWidth(label, 11, categoryAxis.labelWidth),
+          );
+          const x = centerFor(index).toFixed(1);
+          if (categoryAxis.angle === 0) {
+            return `<text x="${x}" y="${safeHeight - 18}" text-anchor="middle" font-size="11" fill="${theme.tickColor}">${text}</text>`;
+          }
+          const y = (chartBottom + 12).toFixed(1);
+          return `<text x="${x}" y="${y}" dy="0.35em" text-anchor="end" transform="rotate(${categoryAxis.angle} ${x} ${y})" font-size="11" fill="${theme.tickColor}">${text}</text>`;
         })
-        .join("");
+        .join("")
+    : fit
+      ? layoutXLabels(
+          labels.map((label) => truncate(label, 14)),
+          centerFor,
+          labelStep,
+          safeWidth,
+        )
+          .map(
+            ({ text, x }) =>
+              `<text x="${x.toFixed(1)}" y="${safeHeight - 18}" text-anchor="middle" font-size="11" fill="${theme.tickColor}">${escapeXml(text)}</text>`,
+          )
+          .join("")
+      : labels
+          .map((label, index) => {
+            if (index % labelStep !== 0 && index !== labels.length - 1)
+              return "";
+            return `<text x="${centerFor(index).toFixed(1)}" y="${safeHeight - 18}" text-anchor="middle" font-size="11" fill="${theme.tickColor}">${escapeXml(truncate(label, 14))}</text>`;
+          })
+          .join("");
 
   let marks = "";
   if (stackedBars) {

@@ -196,6 +196,75 @@ herdam a mesma superfície. Ferramentas shell confiáveis são automaticamente
 reduzidas ao sandbox filtrado por solicitação, pois um shell irrestrito não
 consegue impor uma fronteira rígida de ações.
 
+### Ações adicionais por solicitação
+
+Use `resolveAdditionalActions` quando as ações que quem chama pode usar só são
+conhecidas no momento da solicitação, como ferramentas que um usuário registra
+enquanto o servidor está em execução. O callback roda uma vez por execução de
+chat interativa autenticada (produção e desenvolvimento), antes de `tool-search`
+e `resolveActionSurface`, de modo que ambos veem as entradas retornadas. Elas
+entram no registro desse chamador somente para aquela execução. Tarefas A2A e
+chamadas `ask_app` do MCP só as recebem quando você lista essas superfícies em
+`additionalActionSurfaces`; `surface` informa ao callback qual delas está
+pedindo.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+Trate as entradas retornadas como entrada não confiável. O framework ignora uma
+entrada, e registra um aviso uma única vez, quando seu nome não tem de 1 a 64
+letras, dígitos, `_` ou `-`; quando o nome pertence a qualquer ação de template,
+do framework, de desenvolvimento ou do MCP, inclusive ações ocultas do agente;
+quando é um nome `mcp__` que o chamador não pode ver; ou quando a definição da
+ferramenta é inutilizável. As descrições perdem caracteres de controle ocultos e
+têm tamanho limitado. `parameters` deve ser um esquema limitado de dados JSON
+simples com raiz `object`, usando apenas palavras-chave comuns de validação e de
+anotação. Palavras-chave desconhecidas, `pattern`, `patternProperties`,
+`uniqueItems`, `$async`, `$id`, âncoras e qualquer `$ref` que seja recursivo ou
+aponte para fora do esquema são recusados. O modelo vê a cópia verificada do
+esquema, e uma chamada cujos argumentos sejam grandes demais para validar com
+ele é recusada. Flags como `readOnly`
+e `access` são declarações do próprio app, nas quais o framework confia assim
+como confia em `run`: defina-as com base no que seu código faz, nunca a partir
+de metadados que um usuário registrou.
+
+Cada entrada fica vinculada ao chamador para o qual foi resolvida. Toda chamada,
+qualquer que seja o despachante que a faça, se recusa a executar para outro
+usuário ou organização, aplica a política `access` da entrada e valida os
+argumentos contra o esquema dela sem coerção de tipos.
+
+Os nomes só são fixados quando um turno de chat hospedado continua como uma
+execução durável em segundo plano. O callback roda novamente, e o turno mantém
+seus nomes originais tanto para essas entradas quanto para as ferramentas MCP de
+quem chama: entradas novas ficam de fora, um nome que desapareceu retorna um
+erro quando chamado, e um nome que permanece executa sua definição atual. Toda
+outra requisição é resolvida de novo, incluindo cada continuação em um sidecar
+local, e um stream interrompido que se reconecta à sua execução não resolve
+nada.
+
+Coloque a identidade do vínculo no nome, como um id de janela ou um escopo
+(`notes_window_42_insert`), para que um novo vínculo seja lido como uma
+ferramenta saindo e outra aparecendo. As aprovações de "Sempre permitir" seguem
+o nome da ferramenta, então continuam valendo quando o mesmo nome passa a
+significar algo novo.
+
+Essas entradas são ferramentas nativas apenas para o loop do agente. Como as
+ferramentas MCP de quem chama, elas não são acessíveis a partir de `run-code` ou
+`tool-orchestration`.
+
+`event` é definido para `chat` e `a2a`; chamadas `ask_app` não o têm. O callback
+não é chamado para solicitações anônimas, jobs agendados, automações ou
+subagentes de equipes de agentes. Um erro lançado pelo callback faz a
+solicitação falhar.
+
 ## UI inline nativa {#native-inline-ui}
 
 Use isso quando suas actions retornam dados estruturados — uma lista de registros, um conjunto de dados de gráfico, um resumo de status — que devem ser renderizados como um componente de UI real dentro da thread do chat, em vez de uma descrição em texto simples. Você define um renderizador `chatUI` na action, e o Agent-Native o renderiza como um componente React de primeira linha: sem iframes, sem caminho de renderização separado.

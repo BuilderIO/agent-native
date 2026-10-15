@@ -15,6 +15,36 @@ export interface DiscoveredStore {
   file: string;
 }
 
+const DEFINE_STORE_CALL_RE = /\bdefineStore\s*\(/g;
+
+/**
+ * Every `defineStore(` call the discovery pattern cannot read. A store the
+ * generator skips silently is never migrated, so an unreadable declaration is
+ * a failure, not a skip.
+ */
+export function findUndiscoverableStores(coreDir: string): string[] {
+  const files: string[] = [];
+  for (const file of walk(path.join(coreDir, "src"))) {
+    if (!SOURCE_EXTENSIONS.test(file) || TEST_FILE.test(file)) continue;
+    const rel = relPosix(coreDir, file);
+    if (rel === STORE_REGISTRY_FILE || rel.startsWith("src/templates/")) {
+      continue;
+    }
+    if (rel === "src/db/store-registry.ts" || rel.startsWith("src/guards/")) {
+      continue;
+    }
+    const source = readFileSafe(file);
+    if (source === null || !source.includes("defineStore(")) continue;
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+    const calls = code.match(DEFINE_STORE_CALL_RE)?.length ?? 0;
+    const readable = [...source.matchAll(DEFINE_STORE_RE)].length;
+    if (calls !== readable) files.push(rel);
+  }
+  return files.sort();
+}
+
 export function discoverStores(coreDir: string): DiscoveredStore[] {
   const stores: DiscoveredStore[] = [];
   for (const file of walk(path.join(coreDir, "src"))) {
@@ -23,6 +53,7 @@ export function discoverStores(coreDir: string): DiscoveredStore[] {
     if (rel === STORE_REGISTRY_FILE || rel.startsWith("src/templates/")) {
       continue;
     }
+    if (rel.startsWith("src/guards/")) continue;
     const source = readFileSafe(file);
     if (source === null || !source.includes("defineStore(")) continue;
     for (const match of source.matchAll(DEFINE_STORE_RE)) {

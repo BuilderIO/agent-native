@@ -338,6 +338,11 @@ correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
 at their boundary; record external, deployment, or unclear issues without
 inventing a fix.
 
+### Chat run health
+
+Run outcomes never reach Sentry; follow
+[`chat-run-health.md`](references/chat-run-health.md).
+
 ### Deployment, release, and publish failures
 
 Scan app/template, desktop, and package lanes every sweep, even without linked

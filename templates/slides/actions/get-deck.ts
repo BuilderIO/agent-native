@@ -294,6 +294,8 @@ export default defineAction({
       }
     }),
   readOnly: false, // GET repairs duplicate slide IDs.
+  // The only write is that repair, and a replay finds no duplicates left to fix.
+  retrySafe: true,
   http: { method: "GET" },
   mcpApp: {
     compactCatalog: true,

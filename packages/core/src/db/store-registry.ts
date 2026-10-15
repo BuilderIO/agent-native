@@ -13,24 +13,34 @@
  * kept only for that.
  */
 
-import { getDbExec, isLocalDatabase, type DbExec } from "./client.js";
-import { appMigratesAtRelease } from "./migration-policy.js";
+import { getDbExec, type DbExec } from "./client.js";
+import {
+  appMigratesAtRelease,
+  schemaEnsureSkipRequested,
+  schemaIsBorrowed,
+} from "./migration-policy.js";
 import {
   isHostedFunctionInvocationRuntime,
   isMigrationAuthorizedRuntime,
-  isMigrationExecutingRuntime,
   isProductionServerlessFunctionRuntime,
   withMigrationExecutionRuntime,
 } from "./migration-runtime.js";
 import { retainRequestDbPoolScope } from "./request-pool-context.js";
-import { retryOnDdlRace } from "./runtime-facts.js";
+import { dbClientGeneration, retryOnDdlRace } from "./runtime-facts.js";
 
 export const STORE_MIGRATIONS_TABLE = "_an_store_migrations";
 
+// checksum, kind, source and core_version are written now because Phase 2
+// (snapshot installs, checksum enforcement) needs them for rows that already
+// exist; they cannot be backfilled later.
 const LEDGER_DDL = `CREATE TABLE IF NOT EXISTS ${STORE_MIGRATIONS_TABLE} (
   store_id TEXT NOT NULL,
   name TEXT NOT NULL,
   applied_at BIGINT NOT NULL,
+  checksum TEXT,
+  kind TEXT,
+  source TEXT,
+  core_version TEXT,
   PRIMARY KEY (store_id, name)
 )`;
 
@@ -40,13 +50,22 @@ const MIGRATION_NAME = /^[a-z0-9][a-z0-9_-]*$/;
 export interface StoreMigration {
   /** Stable, never renamed: the ledger records it. */
   readonly name: string;
+  /**
+   * `data` for backfills and seeds. A schema snapshot cannot stand in for a
+   * data migration, so Phase 2 snapshot installs still run these.
+   */
+  readonly kind?: "schema" | "data";
   readonly sql?: string | readonly string[];
   readonly run?: (exec: DbExec) => Promise<void>;
 }
 
 export interface StoreDefinition {
   readonly id: string;
-  /** Append-only. Every entry must be idempotent: first runs can race. */
+  /**
+   * Append-only. Every entry must be idempotent: first runs can race. A
+   * migration may only touch this store's own tables: stores apply in registry
+   * order, which is by id, not by dependency.
+   */
   readonly migrations: readonly StoreMigration[];
 }
 
@@ -72,7 +91,7 @@ export class SchemaNotMigratedError extends Error {
   }
 }
 
-type Readiness = "apply" | "hosted-apply" | "verify" | "replay";
+type Readiness = "apply" | "verify" | "replay" | "hosted-replay" | "skip";
 
 function isHostedRuntime(): boolean {
   return (
@@ -82,32 +101,55 @@ function isHostedRuntime(): boolean {
 }
 
 /**
- * A deployment that declared release-owned migrations never issues DDL from a
- * request. A local database always self-provisions.
+ * Hosted functions of an app that migrates at release never issue DDL. Same
+ * predicate `ddl-guard` uses, so the runner and the guards cannot disagree.
  */
 export function schemaIsReleaseOwned(): boolean {
-  if (!appMigratesAtRelease()) return false;
-  return isHostedRuntime() || !isLocalDatabase();
+  return appMigratesAtRelease() && isHostedRuntime();
 }
 
+/**
+ * Only the release step writes the ledger. Requests never do: PR previews
+ * share the production database, and a request's writes can roll back with
+ * the caller's transaction, so a ledger row written there could claim a
+ * migration that production never kept.
+ */
 function readiness(): Readiness {
-  if (
-    isMigrationExecutingRuntime() ||
-    (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime())
-  ) {
+  if (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime()) {
     return "apply";
   }
   if (schemaIsReleaseOwned()) return "verify";
-  // Hosted apps that never declared release migrations still provision from
-  // the request path, as `ddl-guard` allows; the ledger keeps that to one read
-  // per cold start once the schema exists.
-  if (isHostedRuntime()) return "hosted-apply";
-  return "replay";
+  if (schemaEnsureSkipRequested()) return "skip";
+  return isHostedRuntime() ? "hosted-replay" : "replay";
 }
 
 function statementsOf(migration: StoreMigration): readonly string[] {
   if (migration.sql === undefined) return [];
   return typeof migration.sql === "string" ? [migration.sql] : migration.sql;
+}
+
+/** Stable across bundlers; `run` bodies are not hashed because minifiers rewrite them. */
+export function migrationChecksum(migration: StoreMigration): string | null {
+  const statements = statementsOf(migration);
+  if (statements.length === 0) return null;
+  const text = statements.join("\n;\n");
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 =
+    Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^
+    Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 =
+    Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^
+    Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (
+    (h2 >>> 0).toString(16).padStart(8, "0") +
+    (h1 >>> 0).toString(16).padStart(8, "0")
+  );
 }
 
 async function runMigration(
@@ -122,23 +164,14 @@ async function runMigration(
 
 async function applyWithLedger(store: StoreDefinition): Promise<void> {
   const exec = getDbExec();
-  // A failed statement aborts the caller's transaction (stores are often first
-  // touched inside one), so a missing ledger must be detected, not caught.
-  const known = (await ledgerExists(exec))
-    ? await readLedgerSnapshot()
-    : undefined;
-  const recorded = known?.get(store.id);
-  if (recorded && store.migrations.every((m) => recorded.has(m.name))) return;
-
   if (!ledgerPresent) {
     await retryOnDdlRace(() => exec.execute(LEDGER_DDL));
     ledgerPresent = true;
   }
-  const { rows } = await exec.execute({
-    sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
-    args: [store.id],
-  });
-  const applied = new Set(rows.map((row) => String(row.name)));
+  const recorded = (await readLedgerSnapshot()).get(store.id);
+  if (recorded && store.migrations.every((m) => recorded.has(m.name))) return;
+
+  const applied = new Set(recorded);
   for (const migration of store.migrations) {
     if (applied.has(migration.name)) continue;
     try {
@@ -152,12 +185,17 @@ async function applyWithLedger(store: StoreDefinition): Promise<void> {
       );
     }
     await exec.execute({
-      sql: `INSERT INTO ${STORE_MIGRATIONS_TABLE} (store_id, name, applied_at) VALUES (?, ?, ?) ON CONFLICT (store_id, name) DO NOTHING`,
-      args: [store.id, migration.name, Date.now()],
+      sql: `INSERT INTO ${STORE_MIGRATIONS_TABLE} (store_id, name, applied_at, checksum, kind, source) VALUES (?, ?, ?, ?, ?, 'step') ON CONFLICT (store_id, name) DO NOTHING`,
+      args: [
+        store.id,
+        migration.name,
+        Date.now(),
+        migrationChecksum(migration),
+        migration.kind ?? "schema",
+      ],
     });
     applied.add(migration.name);
   }
-  // A snapshot taken before this store applied would fail a later verify.
   ledgerSnapshot = undefined;
 }
 
@@ -169,12 +207,31 @@ async function replay(store: StoreDefinition): Promise<void> {
 }
 
 let ledgerSnapshot: Promise<Map<string, Set<string>>> | undefined;
+let ledgerPresent = false;
+const allPending = new Set<Map<Readiness, Promise<void>>>();
+let stateGeneration: number | undefined;
+
+/**
+ * Ledger state and every store's memo describe one database. Closing the
+ * database clients (tests, dev reloads, a process that migrates several
+ * databases) may point the next query at another, so start over.
+ */
+function syncWithDatabaseGeneration(): void {
+  const generation = dbClientGeneration();
+  if (stateGeneration === generation) return;
+  stateGeneration = generation;
+  ledgerSnapshot = undefined;
+  ledgerPresent = false;
+  for (const pending of allPending) pending.clear();
+}
 
 function isMissingRelation(err: unknown): boolean {
-  const e = err as { code?: string; message?: string } | undefined;
-  return (
-    e?.code === "42P01" || /relation .* does not exist/i.test(e?.message ?? "")
-  );
+  for (let e = err as any, depth = 0; e && depth < 4; e = e.cause, depth++) {
+    if (e.code === "42P01") return true;
+    if (/relation .* does not exist/i.test(String(e.message ?? "")))
+      return true;
+  }
+  return false;
 }
 
 async function loadLedger(): Promise<Map<string, Set<string>>> {
@@ -192,20 +249,28 @@ async function loadLedger(): Promise<Map<string, Set<string>>> {
   return ledger;
 }
 
-let ledgerPresent = false;
-
-async function ledgerExists(exec: DbExec): Promise<boolean> {
-  if (ledgerPresent) return true;
-  const { rows } = await exec.execute(
-    `SELECT to_regclass('public.${STORE_MIGRATIONS_TABLE}') IS NOT NULL AS present`,
-  );
-  const present = rows[0]?.present;
-  ledgerPresent = present === true || present === "t";
-  return ledgerPresent;
+function readLedgerSnapshot(): Promise<Map<string, Set<string>>> {
+  const snapshot = (ledgerSnapshot ??= loadLedger());
+  snapshot.catch(() => {
+    if (ledgerSnapshot === snapshot) ledgerSnapshot = undefined;
+  });
+  return snapshot;
 }
 
-function readLedgerSnapshot(): Promise<Map<string, Set<string>>> {
-  return (ledgerSnapshot ??= loadLedger());
+const warnedBorrowed = new Set<string>();
+
+/**
+ * A beta that borrows production's schema runs ahead of it by design until the
+ * next promotion, so a missing migration there is reported, not fatal. A
+ * deploy that owns its schema fails loudly.
+ */
+function reportUnmigrated(error: SchemaNotMigratedError): void {
+  if (!schemaIsBorrowed()) throw error;
+  if (warnedBorrowed.has(error.storeId)) return;
+  warnedBorrowed.add(error.storeId);
+  console.warn(
+    `[db] ${error.message} Serving from the borrowed production schema until it is migrated.`,
+  );
 }
 
 async function verify(store: StoreDefinition): Promise<void> {
@@ -213,15 +278,14 @@ async function verify(store: StoreDefinition): Promise<void> {
   try {
     ledger = await readLedgerSnapshot();
   } catch (err) {
-    ledgerSnapshot = undefined;
-    if (isMissingRelation(err)) {
-      throw new SchemaNotMigratedError(
+    if (!isMissingRelation(err)) throw err;
+    return reportUnmigrated(
+      new SchemaNotMigratedError(
         store.id,
         store.migrations.map((m) => m.name),
         `${STORE_MIGRATIONS_TABLE} does not exist`,
-      );
-    }
-    throw err;
+      ),
+    );
   }
   const applied = ledger.get(store.id);
   const missing = store.migrations
@@ -230,10 +294,12 @@ async function verify(store: StoreDefinition): Promise<void> {
   if (missing.length > 0) {
     // Re-read next time so a release that lands mid-process is picked up.
     ledgerSnapshot = undefined;
-    throw new SchemaNotMigratedError(
-      store.id,
-      missing,
-      `missing ${missing.join(", ")}`,
+    reportUnmigrated(
+      new SchemaNotMigratedError(
+        store.id,
+        missing,
+        `missing ${missing.join(", ")}`,
+      ),
     );
   }
 }
@@ -264,21 +330,25 @@ export function defineStore(definition: StoreDefinition): Store {
   }
 
   const pending = new Map<Readiness, Promise<void>>();
+  allPending.add(pending);
   const store: Store = {
     id,
     migrations,
     ready() {
+      syncWithDatabaseGeneration();
       const mode = readiness();
       const existing = pending.get(mode);
       if (existing) return existing;
       const run =
         mode === "apply"
           ? applyWithLedger(store)
-          : mode === "hosted-apply"
-            ? withMigrationExecutionRuntime(() => applyWithLedger(store))
-            : mode === "verify"
-              ? verify(store)
-              : replay(store);
+          : mode === "verify"
+            ? verify(store)
+            : mode === "hosted-replay"
+              ? withMigrationExecutionRuntime(() => replay(store))
+              : mode === "replay"
+                ? replay(store)
+                : Promise.resolve();
       // The memo outlives the request that started it; on Workers that
       // request's pool must stay open until the work settles.
       const tracked = retainRequestDbPoolScope(
@@ -300,4 +370,5 @@ export function defineStore(definition: StoreDefinition): Store {
 export function __resetStoreLedgerSnapshotForTests(): void {
   ledgerSnapshot = undefined;
   ledgerPresent = false;
+  warnedBorrowed.clear();
 }

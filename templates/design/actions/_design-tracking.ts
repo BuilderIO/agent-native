@@ -6,28 +6,6 @@ import {
   type DesignCreationMethod,
 } from "../server/lib/design-tracking.js";
 
-export const DESIGN_CREATION_METHODS = [
-  "blank",
-  "prompt",
-  "template",
-  "duplicate",
-  "import_figma",
-  "import_url",
-  "import_document",
-  "import_code",
-  "import_project",
-  "import_analytics",
-  "agent",
-] as const satisfies readonly DesignCreationMethod[];
-
-// Fails to compile when DesignCreationMethod gains a value this list misses,
-// which would otherwise make create-design reject a valid method.
-const _everyCreationMethodListed: Record<
-  Exclude<DesignCreationMethod, (typeof DESIGN_CREATION_METHODS)[number]>,
-  never
-> = {};
-void _everyCreationMethodListed;
-
 /**
  * An unlabelled create from the Design UI is the blank-canvas path; any other
  * caller (agent tool call, MCP, A2A, automation) counts as the agent.

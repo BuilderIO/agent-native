@@ -49,7 +49,7 @@ describe("DesignImportPanel", () => {
     expect(source).toContain("prepared.dispose()");
     expect(source).not.toContain("prepared.decoded");
     expect(source).toContain('t("designEditor.import.figImportSaving"');
-    expect(source).toContain("const FigImportFrameRow = memo(");
+    expect(source).toContain("const FigImportPageRow = memo(");
   });
 
   it("imports a Figma frame URL through the shared action surface", () => {

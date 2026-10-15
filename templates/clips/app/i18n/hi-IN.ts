@@ -4,6 +4,7 @@ const messages = {
     includeLast: "पिछले शामिल करें",
     whatIsThis: "यह क्या है?",
     off: "बंद",
+    none: "कोई नहीं",
     custom: "कस्टम…",
     customLabel: "कस्टम अवधि",
     customAmount: "अवधि",
@@ -15,6 +16,9 @@ const messages = {
     customErrorInvalid: "सेकंड या मिनट में पूरी संख्या दर्ज करें।",
     customErrorTooLong: "5 मिनट या उससे कम रखें।",
     turnOnRewind: "Rewind चालू करें",
+    turnOffRewind: "बंद करें",
+    turnOffRewindFailed:
+      "Rewind बंद नहीं किया जा सका। रिकॉर्डिंग रोकें और फिर से प्रयास करें।",
     rewindOffTitle: "Rewind चालू करें",
     rewindOffBody:
       "डिफ़ॉल्ट रूप से बंद। स्क्रीन इतिहास इसी डिवाइस पर रहता है, जब तक आप उसे रिकॉर्डिंग में शामिल न करें या साझा करने का अनुरोध मंज़ूर न करें।",
@@ -200,9 +204,12 @@ const messages = {
     expandSidebar: "साइडबार फैलाएँ",
     collapseSidebar: "साइडबार समेटें",
     agentEmptyState: "आपकी रिकॉर्डिंग में मैं कैसे मदद कर सकता हूँ?",
-    agentSuggestionSummary: "मेरी पिछली रिकॉर्डिंग का सारांश दें",
-    agentSuggestionPricing: "जहाँ मैंने कीमतों का ज़िक्र किया है वह ढूँढें",
-    agentSuggestionFiller: "इस क्लिप से फिलर शब्द हटाएँ",
+    agentSuggestionSummary: "रिकॉर्डिंग का सारांश दें",
+    agentSuggestionPricing: "कीमत के उल्लेख खोजें",
+    agentSuggestionFiller: "फ़िलर शब्द हटाएँ",
+    agentScreenshotSuggestionSummary: "स्क्रीनशॉट का सारांश दें",
+    agentScreenshotSuggestionText: "स्क्रीनशॉट में टेक्स्ट खोजें",
+    agentScreenshotSuggestionCompare: "स्क्रीनशॉट की तुलना करें",
     createFolderError: "बनाने में विफल",
     folderCreated: "फ़ोल्डर बन गया",
     folderNamePlaceholder: "फ़ोल्डर का नाम",
@@ -1833,6 +1840,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (स्थानीयकृत)",
     recordingDownloadStarted: "Recording download started (स्थानीयकृत)",
+    partialLocalCopyDownloadStarted:
+      "स्थानीय कॉपी अधूरी हो सकती है। उपलब्ध रिकॉर्डिंग डेटा डाउनलोड हो रहा है।",
     backToLibrary: "Back to library (स्थानीयकृत)",
     clipsRecorder: "Clips recorder (स्थानीयकृत)",
     preparingSources: "Preparing sources… (स्थानीयकृत)",
@@ -1993,6 +2002,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (स्थानीयकृत)",
     cleanupComplete: "डिक्टेशन साफ़ किया गया",
     cleanupFailed: "डिक्टेशन साफ़ नहीं किया जा सका",
+    undoCleanup: "पूर्ववत करें",
+    restoreOriginal: "मूल वापस लाएँ",
+    cleanupRestored: "मूल डिक्टेशन बहाल किया गया",
+    cleanupRestoreFailed: "मूल डिक्टेशन बहाल नहीं किया जा सका",
     startFirst: "अपने विचारों को टेक्स्ट में बदलें",
     recordOnDesktop: "डेस्कटॉप पर रिकॉर्ड करें",
     emptyDesktopDescription:

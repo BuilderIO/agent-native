@@ -16,6 +16,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/popover";
 import {
   MAX_BROWSER_FIG_BYTES,
+  MAX_BROWSER_FIG_GB,
   MAX_BROWSER_FIG_MB,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
@@ -177,6 +179,11 @@ export function HomeImportButton() {
                 <DropdownMenuGroup>
                   <DropdownMenuItem onSelect={pickFile}>
                     {t("home.figmaFile")}
+                    <DropdownMenuShortcut>
+                      {t("home.figmaFileMaxSize", {
+                        max: formatters.formatNumber(MAX_BROWSER_FIG_GB),
+                      })}
+                    </DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -215,9 +222,29 @@ export function HomeImportButton() {
                   throw new Error(
                     t("designEditor.import.errors.figmaImportFailed"),
                   );
+                const fidelityWarnings: string[] = [];
+                const imageFallbackCount =
+                  result.fidelityReport?.imageFallbacks.length;
+                if (imageFallbackCount) {
+                  fidelityWarnings.push(
+                    t("designEditor.import.figmaImageFallbackWarning", {
+                      count: formatters.formatNumber(imageFallbackCount),
+                    }),
+                  );
+                }
+                const approximatedCount =
+                  result.fidelityReport?.approximated.length;
+                if (approximatedCount) {
+                  fidelityWarnings.push(
+                    t("designEditor.import.figmaApproximationWarning", {
+                      count: formatters.formatNumber(approximatedCount),
+                    }),
+                  );
+                }
                 const notification = importResultNotification(
                   result,
                   t("designEditor.import.figmaUrlSuccess"),
+                  { fidelityWarnings },
                 );
                 toast[notification.variant](notification.title, {
                   description: notification.description,

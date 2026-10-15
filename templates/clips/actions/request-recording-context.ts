@@ -3,7 +3,6 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { isPrivateClip } from "../app/lib/rewind-visibility.js";
 import { getDb, schema } from "../server/db/index.js";
 import { findActiveRecordingContextItem } from "../server/lib/recording-context.js";
 import { nanoid } from "../server/lib/recordings.js";
@@ -13,12 +12,6 @@ import {
   SCREEN_HISTORY_MIN_SECONDS,
   screenHistoryWindowBefore,
 } from "../shared/screen-history-context.js";
-import makeRecordingPrivateForRewind, {
-  assertNoDirectRecordingShares,
-  DIRECT_SHARE_REWIND_ERROR,
-  hasDirectRecordingShare,
-} from "./make-recording-private-for-rewind.js";
-import { trashRecordingContextFootage } from "./remove-recording-context.js";
 
 // The Clip row is created before native setup and the recording countdown.
 const MAX_STARTUP_DELAY_MS = 10 * 60 * 1000;
@@ -26,7 +19,7 @@ const CLIENT_CLOCK_SKEW_TOLERANCE_MS = 120 * 1000;
 
 export default defineAction({
   description:
-    "Ask for the last N seconds of screen history before an owned Clip started. The Clip becomes private, and the context is saved as passive metadata that never changes the Clip's video. Returns the existing active item when there is one.",
+    "Ask for the last N seconds of screen history before an owned Clip started. The context is saved as passive metadata that never changes the Clip's video, and it is shared with the Clip under the Clip's own share rules. Returns the existing active item when there is one.",
   schema: z.object({
     recordingId: z.string(),
     seconds: z
@@ -53,10 +46,7 @@ export default defineAction({
     await assertAccess("recording", recordingId, "owner");
 
     const [recording] = await getDb()
-      .select({
-        visibility: schema.recordings.visibility,
-        createdAt: schema.recordings.createdAt,
-      })
+      .select({ createdAt: schema.recordings.createdAt })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, recordingId));
     if (!recording) {
@@ -79,12 +69,6 @@ export default defineAction({
         },
       );
     }
-    if (isPrivateClip(recording.visibility)) {
-      await assertNoDirectRecordingShares(recordingId);
-    } else {
-      await makeRecordingPrivateForRewind.run({ recordingId });
-    }
-
     const active = await findActiveRecordingContextItem(recordingId);
     if (active) return active;
 
@@ -114,39 +98,7 @@ export default defineAction({
       })
       .onConflictDoNothing()
       .returning();
-    if (inserted) {
-      // Re-checked after the insert commits. Each check is its own autocommit
-      // read, so a share or visibility write that commits before it is seen
-      // here, and one that commits later runs its own post-write check against
-      // this insert.
-      const [current] = await getDb()
-        .select({ visibility: schema.recordings.visibility })
-        .from(schema.recordings)
-        .where(eq(schema.recordings.id, recordingId));
-      if (
-        !current ||
-        !isPrivateClip(current.visibility) ||
-        (await hasDirectRecordingShare(recordingId))
-      ) {
-        const removed = await getDb()
-          .update(schema.recordingContextItems)
-          .set({ status: "removed", updatedAt: new Date().toISOString() })
-          .where(eq(schema.recordingContextItems.id, inserted.id))
-          .returning({
-            mediaRecordingId: schema.recordingContextItems.mediaRecordingId,
-            pendingMediaRecordingId:
-              schema.recordingContextItems.pendingMediaRecordingId,
-          });
-        await trashRecordingContextFootage(
-          removed.flatMap((item) => [
-            item.mediaRecordingId,
-            item.pendingMediaRecordingId,
-          ]),
-        );
-        throw new Error(DIRECT_SHARE_REWIND_ERROR);
-      }
-      return inserted;
-    }
+    if (inserted) return inserted;
 
     // A conflict here can only come from the partial unique index, so the
     // winner is already committed and visible to this read.

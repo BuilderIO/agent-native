@@ -52,6 +52,102 @@ export default {
     moveDashboard: "نقل لوحة المعلومات",
     folderCreateFailed: "تعذر إنشاء المجلد",
     moveFailed: "تعذر نقل لوحة المعلومات",
+    importFromSigma: "استيراد من Sigma",
+    sigmaConnection: "اتصال Sigma",
+    sigmaConnectedTo: "متصل بـ {{name}}",
+    sigmaChooseConnection: "اتصال Sigma",
+    sigmaChooseConnectionPlaceholder: "اختر اتصالًا",
+    sigmaChooseConnectionDescription: "اختر مساحة عمل Sigma لتصفح مصنفاتها.",
+    sigmaNoConnection: "Sigma غير متصل",
+    sigmaClientId: "معرّف العميل",
+    sigmaClientSecret: "سر العميل",
+    sigmaBaseUrl: "عنوان URL الأساسي لواجهة API (اختياري)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "ربط Sigma",
+    sigmaConnecting: "جارٍ الاتصال بـ Sigma…",
+    sigmaConnectFailed:
+      "تعذر التحقق من اتصال Sigma هذا. تحقق من بيانات الاعتماد ومنطقة API، ثم حاول مرة أخرى.",
+    sigmaCredentialStageFailed:
+      "تعذر تخزين بيانات اعتماد Sigma المؤقتة. تحقق من إمكانية الوصول إلى Vault ثم حاول مرة أخرى.",
+    sigmaCredentialsRequired: "احفظ معرّف عميل Sigma وسر العميل أولًا.",
+    sigmaBaseUrlInvalid:
+      "استخدم عنوان HTTPS لواجهة Sigma API ضمن نطاق sigmacomputing.com.",
+    sigmaPersistenceUnavailable:
+      "لا يمكن لـ Analytics حفظ اتصال Sigma بأمان حاليًا. حاول مرة أخرى.",
+    sigmaPolicyInvalid:
+      "تتضمن سياسة الوصول لاتصال Sigma الحالي في Analytics إعدادًا غير متوقع. أعد الاتصال به في Dispatch قبل المحاولة مرة أخرى.",
+    sigmaSaveFailed:
+      "تم التحقق من بيانات اعتماد Sigma، لكن تعذر على Analytics حفظها. لم يتغير الاتصال السابق. حاول مرة أخرى.",
+    sigmaCleanupPending:
+      "ستظل بيانات اعتماد إعداد Sigma المؤقتة موجودة حتى تكتمل عملية التنظيف بنجاح.",
+    sigmaCleanupFailed:
+      "تعذر مسح بيانات اعتماد Sigma المؤقتة. أعد محاولة التنظيف.",
+    sigmaRetryCleanup: "إعادة محاولة التنظيف",
+    sigmaDirectCredentialsUnavailable:
+      "تعذرت قراءة بيانات اعتماد Sigma المحفوظة في Analytics. يمكن لمسؤول المؤسسة إعادة الاتصال عبر Dispatch أو إدخال بيانات الاعتماد مجددًا في Analytics.",
+    sigmaNoConnectionDescription:
+      "أدخل بيانات الاعتماد هنا لإنشاء اتصال مخصص لـ Analytics. تظهر هنا تلقائيًا اتصالات Sigma الممنوحة لـ Analytics في Dispatch؛ ولا يمكن حفظ بيانات الاعتماد مباشرةً إلا لمسؤولي المؤسسة.",
+    sigmaOpenDispatch: "الاتصال عبر Dispatch",
+    sigmaOpenVault: "فتح Vault",
+    sigmaWorkbooksLoadFailed: "تعذر تحميل مصنفات Sigma",
+    sigmaRetryConnection: "تحقق من الاتصال وحاول مرة أخرى.",
+    sigmaRetry: "إعادة المحاولة",
+    sigmaNoWorkbooks: "لا توجد مصنفات Sigma متاحة.",
+    sigmaWorkbook: "المصنف",
+    sigmaChooseWorkbook: "اختر مصنفًا",
+    sigmaStatusNotImported: "لم يتم الاستيراد",
+    sigmaStatusImporting: "جارٍ الاستيراد",
+    sigmaStatusImported: "تم الاستيراد",
+    sigmaStatusFailed: "فشل الاستيراد",
+    sigmaArchived: "مؤرشف",
+    sigmaPreviewTitle: "محتويات المصنف",
+    sigmaPreviewFailed: "تعذرت معاينة هذا المصنف",
+    sigmaRetryPreview: "حاول مرة أخرى لتحميل معاينة المصنف.",
+    sigmaImportableCount: "{{count}} قابل للاستيراد",
+    sigmaUnsupportedCount: "{{count}} غير مدعوم",
+    sigmaImportable: "قابل للاستيراد",
+    sigmaUnsupported: "غير مدعوم",
+    sigmaNoElements: "لم يتم العثور على عناصر في المصنف.",
+    sigmaPreviewOnly:
+      "المعاينة فقط حاليًا: لا تكشف Sigma عن تعيين لمشروع BigQuery يمكن لـ Analytics التحقق منه، لذا يظل الاستيراد معطّلًا حتى يتوفر هذا التعيين.",
+    sigmaPreviewTruncated: "يتم عرض {{shown}} من {{total}} عنصرًا.",
+    sigmaImportWorkbook: "استيراد المصنف",
+    sigmaImporting: "جارٍ استيراد المصنف…",
+    sigmaImportInProgress: "هناك عملية استيراد لهذا المصنف قيد التنفيذ بالفعل.",
+    sigmaMigrationFailed: "تعذر استيراد هذا المصنف. حاول مرة أخرى.",
+    sigmaMigrationResultInvalid:
+      "كانت استجابة الاستيراد غير مكتملة. أعد تحميل قائمة المصنفات للتحقق من حالتها.",
+    sigmaImportComplete: "تم إنشاء لوحة المعلومات",
+    sigmaImportSummary:
+      "تم استيراد {{imported}} عنصرًا، مع الاحتفاظ بـ {{unsupported}} عنصرًا غير مدعوم كتنبيهات للمراجعة.",
+    sigmaAlreadyImported: "تم استيراد هذا المصنف من قبل.",
+    sigmaImportedNoDashboard:
+      "تم استيراد لوحة المعلومات، لكن لا يمكن فتحها من هذا الحساب.",
+    sigmaReviewRequiredCount: "{{count}} بحاجة إلى مراجعة",
+    sigmaBetaRepresentationWarning:
+      "قد يعرض هذا الاستيراد التجريبي بعض التصورات بطريقة مختلفة عن Sigma.",
+    sigmaReasonUnsupportedElement: "نوع هذا العنصر غير مدعوم للاستيراد.",
+    sigmaReasonUnsupportedSource: "يستخدم هذا العنصر مصدرًا غير مدعوم للاستيراد.",
+    sigmaReasonSourceMappingRequired:
+      "لا تعرض Sigma ربطًا بمشروع BigQuery يمكن لـ Analytics التحقق منه، لذلك لا يمكن استيراد SQL هذا بعد.",
+    sigmaReasonSourceUnavailable:
+      "لم تسمح Sigma بالوصول إلى اتصال المصدر هذا. تحقق من أذوناته.",
+    sigmaReasonQueryUnavailable:
+      "لم تُرجع Sigma استعلامًا قابلًا للاستيراد لهذا العنصر.",
+    sigmaReasonUnsafeSql: "لا يمكن استيراد نمط هذا الاستعلام بأمان.",
+    sigmaReasonVisualizationReview:
+      "يمكن استيراد البيانات، لكن تحقّق من التصور بعد الاستيراد.",
+    sigmaRetryOwnerOnly: "يمكن لمن بدأ هذا الاستيراد وحده إعادة المحاولة.",
+    sigmaImportedByTeammate: "استورده أحد الزملاء",
+    sigmaFlaggedCount: "{{count}} معلّم للمراجعة",
+    sigmaMoreWorkbooksFailed: "تعذّر تحميل مزيد من المصنفات",
+    sigmaLoadingMore: "جارٍ تحميل المصنفات…",
+    sigmaLoadMore: "تحميل مزيد من المصنفات",
+    sigmaOpenDashboard: "فتح لوحة المعلومات",
+    sigmaReviewWithAgent: "مراجعة مع الوكيل",
+    sigmaReviewContext: "لوحة معلومات مستوردة من Sigma",
+    sigmaReviewPrompt:
+      "راجع لوحة معلومات Sigma المستوردة {{name}}. تحقق من اللوحات المستوردة والعناصر غير المدعومة، ثم اقترح أي تصحيحات.",
   },
   sidebar: {
     collapseSidebar: "طي الشريط الجانبي",
@@ -515,6 +611,7 @@ export default {
   },
   dataStatus: {
     connected: "متصل",
+    configuredUnverified: "تم الإعداد · غير متحقق",
     notConnected: "غير متصل",
     needsReauth: "يلزم إعادة المصادقة",
     error: "خطأ",
@@ -1160,6 +1257,7 @@ export default {
     saveViewFailed: "تعذر حفظ العرض",
     saveViewFailedWithMessage: "تعذر حفظ العرض: {{message}}",
     clearAll: "مسح الكل",
+    resetFilters: "إعادة تعيين عوامل التصفية",
     collapseFilters: "طي عوامل التصفية",
     expandFilters: "قم بتوسيع عوامل التصفية",
     filterSeries: "Filter",
@@ -1191,6 +1289,9 @@ export default {
     downloadCsv: "تحميل CSV",
     copyTable: "نسخ الجدول",
     multiColumnSortHelp: "انقر للفرز. انقر مع الضغط على Shift لإضافة فرز آخر.",
+    chartPointLimitNewest: "عرض أحدث {{shown}} من أصل {{total}} نقطة",
+    chartPointLimitFirst: "عرض أول {{shown}} من أصل {{total}} نقطة",
+    chartPointLimitLast: "عرض آخر {{shown}} من أصل {{total}} نقطة",
     exportToGoogleSheets: "تصدير إلى Google Sheets",
     exportingToGoogleSheets: "جارٍ التصدير إلى Google Sheets...",
     googleSheetsExported: "تم التصدير إلى Google Sheets",

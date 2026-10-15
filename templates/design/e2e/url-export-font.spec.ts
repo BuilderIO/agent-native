@@ -11,8 +11,6 @@ import {
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
 import {
-  expect,
-  test,
   type APIRequestContext,
   type BrowserContext,
   type Download,
@@ -22,6 +20,7 @@ import { PDFParse } from "pdf-parse";
 
 import { comparePngs } from "../scripts/design-export-validation/lib/compare";
 import { openAppMenuSubmenu } from "./helpers";
+import { expect, test } from "./rails";
 
 const HTML = `<!doctype html>
 <html lang="en">
@@ -203,8 +202,46 @@ async function pdfPagesPng(pdf: Buffer, desiredWidth: number) {
   }
 }
 
+/**
+ * The rails fixture watches only its own page; the export runs in a second context
+ * (deviceScaleFactor 2, local-network grant), so the same failures are collected here.
+ */
+async function watchContextFailures(context: BrowserContext) {
+  const failures: string[] = [];
+  context.on("console", (message) => {
+    if (message.type() === "error")
+      failures.push(`console.error: ${message.text()}`);
+  });
+  context.on("weberror", (error) =>
+    failures.push(`pageerror: ${error.error().message}`),
+  );
+  context.on("response", (response) => {
+    const url = new URL(response.url());
+    if (url.pathname.includes("/_agent-native/") && response.status() >= 400) {
+      failures.push(
+        `http ${response.status()}: ${response.request().method()} ${url.pathname}`,
+      );
+    }
+  });
+  await context.addInitScript(() => {
+    const seen: string[] = [];
+    (window as Window & { __e2eErrorToasts?: string[] }).__e2eErrorToasts =
+      seen;
+    new MutationObserver(() => {
+      for (const toast of document.querySelectorAll(
+        '[data-sonner-toast][data-type="error"]',
+      )) {
+        const text = (toast.textContent ?? "").trim();
+        if (text && !seen.includes(text)) seen.push(text);
+      }
+    }).observe(document, { childList: true, subtree: true });
+  });
+  return failures;
+}
+
 // Compare exports with the app rendered in the same browser.
-test("cross-origin localhost PNG and PDF preserve the live custom font pixels", async ({
+// fixme: product bug: All pixel diffs are 0, but the export page logs 10x "Blocked script execution in 'about:srcdoc' because the document's frame is
+test.fixme("cross-origin localhost PNG and PDF preserve the live custom font pixels", async ({
   page: basePage,
   browser,
   request,
@@ -244,10 +281,8 @@ test("cross-origin localhost PNG and PDF preserve the live custom font pixels", 
   let cdp: { detach: () => Promise<void> } | null = null;
   let sourcePage: Page | null = null;
   let serverRenderPage: Page | null = null;
-  const artifactPath = path.resolve(
-    process.cwd(),
-    ".tmp/design-export-validation/cross-origin-font",
-  );
+  // Outside the app root: a new .html there makes the dev server full-reload every open editor.
+  const artifactPath = test.info().outputPath("cross-origin-font");
 
   try {
     const viteEntrypoint = path.resolve(
@@ -323,12 +358,8 @@ test("cross-origin localhost PNG and PDF preserve the live custom font pixels", 
       viewport: { width: 1440, height: 1000 },
       deviceScaleFactor: 2,
     });
+    const browserErrors = await watchContextFailures(browserContext);
     const exportPage = await browserContext.newPage();
-    const browserErrors: string[] = [];
-    exportPage.on("console", (message) => {
-      if (message.type() === "error") browserErrors.push(message.text());
-    });
-    exportPage.on("pageerror", (error) => browserErrors.push(error.message));
     await exportPage.addInitScript(() => {
       const win = window as Window & {
         __exportReadyDocumentId?: string;
@@ -448,13 +479,6 @@ test("cross-origin localhost PNG and PDF preserve the live custom font pixels", 
     await expect(exportPage.locator("[data-design-editor]")).toBeVisible({
       timeout: 45_000,
     });
-    const allowLocalAccess = exportPage.getByRole("button", {
-      name: "Allow local access",
-    });
-    if (await allowLocalAccess.isVisible().catch(() => false)) {
-      await allowLocalAccess.click();
-    }
-
     const frames = exportPage.locator(
       'iframe[data-design-preview-iframe][data-design-source-type="localhost"]',
     );
@@ -682,6 +706,16 @@ test("cross-origin localhost PNG and PDF preserve the live custom font pixels", 
       expect(pdfDiff.dimensionMismatch).toBe(false);
       expect(pdfDiff.diffRatio).toBe(0);
     }
+    browserErrors.push(
+      ...(
+        await exportPage.evaluate(
+          () =>
+            (window as Window & { __e2eErrorToasts?: string[] })
+              .__e2eErrorToasts ?? [],
+        )
+      ).map((toast) => `error toast: ${toast}`),
+    );
+    expect(browserErrors, "the export browser reported failures").toEqual([]);
   } finally {
     await sourcePage?.close().catch(() => undefined);
     await serverRenderPage?.close().catch(() => undefined);

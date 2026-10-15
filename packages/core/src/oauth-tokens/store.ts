@@ -80,6 +80,7 @@ export const oauthTokensStore = defineStore({
     },
     {
       name: "backfill-owner",
+      kind: "data",
       run: async (exec) => {
         await exec.execute(
           `UPDATE ${oauthTokensTable()} SET owner = account_id WHERE owner IS NULL`,
@@ -88,6 +89,7 @@ export const oauthTokensStore = defineStore({
     },
     {
       name: "backfill-revision",
+      kind: "data",
       run: async (exec) => {
         await exec.execute(
           `UPDATE ${oauthTokensTable()} SET revision = updated_at WHERE revision IS NULL`,

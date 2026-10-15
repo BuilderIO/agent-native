@@ -275,6 +275,7 @@ export function resourceChangeTriggerSql(
   const changed = (row: string, reason: string) =>
     `${RESOURCE_CHANGED_FUNCTION}('${app}', '${type}', ${row}."${id}"::text, '${reason}')`;
   return [
+    // guard:allow-destructive-ddl — the trigger reacts to TRUNCATE; it never truncates
     `CREATE OR REPLACE FUNCTION "${names.function}"() RETURNS trigger LANGUAGE plpgsql AS $an_rc$
 BEGIN
   IF TG_OP = 'TRUNCATE' THEN
@@ -294,6 +295,7 @@ END
 $an_rc$`,
     `CREATE OR REPLACE TRIGGER "${names.insertDeleteTrigger}" AFTER INSERT OR DELETE ON "${table}" FOR EACH ROW EXECUTE FUNCTION "${names.function}"()`,
     `CREATE OR REPLACE TRIGGER "${names.updateTrigger}" AFTER UPDATE ON "${table}" FOR EACH ROW WHEN (OLD *<> NEW) EXECUTE FUNCTION "${names.function}"()`,
+    // guard:allow-destructive-ddl — fires on TRUNCATE; it never truncates
     `CREATE OR REPLACE TRIGGER "${names.truncateTrigger}" BEFORE TRUNCATE ON "${table}" FOR EACH STATEMENT EXECUTE FUNCTION "${names.function}"()`,
   ];
 }

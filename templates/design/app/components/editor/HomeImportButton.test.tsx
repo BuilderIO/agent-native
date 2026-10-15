@@ -70,6 +70,8 @@ vi.mock("@/components/ui/input", () => ({
 
 let root: Root;
 let container: HTMLDivElement;
+// The .fig item shows its size limit beside the label.
+const FIG_MENU_ITEM = "home.figmaFilehome.figmaFileMaxSize";
 const figmaUrl =
   "https://www.figma.com/design/example-file/Example?node-id=1-2";
 async function click(text: string) {
@@ -188,7 +190,7 @@ describe("home Figma import", () => {
     await openMenu();
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
     expect(picker).not.toHaveBeenCalled();
-    await click("home.figmaFile");
+    await click(FIG_MENU_ITEM);
     expect(picker).toHaveBeenCalledOnce();
     expect(input.accept).toBe(".fig");
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -208,13 +210,13 @@ describe("home Figma import", () => {
         document.querySelectorAll('[role="menuitem"]'),
         (item) => item.textContent,
       ),
-    ).toEqual(["home.figmaFile", "home.figmaLink"]);
+    ).toEqual([FIG_MENU_ITEM, "home.figmaLink"]);
     expect(
       Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).every((item) => !item.querySelector("svg")),
     ).toBe(true);
-    await click("home.figmaFile");
+    await click(FIG_MENU_ITEM);
     expect(picker).toHaveBeenCalledOnce();
     expect(document.querySelector('input[type="url"]')).toBeNull();
   });
@@ -234,7 +236,7 @@ describe("home Figma import", () => {
         "click",
       );
       await openMenu();
-      await click("home.figmaFile");
+      await click(FIG_MENU_ITEM);
       return fallback;
     }
 
@@ -313,6 +315,35 @@ describe("home Figma import", () => {
         files: [{ id: "screen", filename: "frame.html" }],
       }),
     );
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/imported-design");
+  });
+  it("warns when a URL import contains rasterized or approximated layers", async () => {
+    mocks.importFrame.mockResolvedValue({
+      designId: "imported-design",
+      files: [{ id: "screen", filename: "frame.html" }],
+      fidelityReport: {
+        exactCount: 0,
+        imageFallbacks: [
+          { nodeId: "1:2", nodeType: "VECTOR", notes: ["Rendered as PNG."] },
+        ],
+        approximated: [
+          { nodeId: "1:3", nodeType: "TEXT", notes: ["Style approximated."] },
+        ],
+      },
+    });
+
+    await openLink();
+    await typeUrl();
+    await submit();
+
+    expect(mocks.warning).toHaveBeenCalledExactlyOnceWith(
+      "Imported frame.html.",
+      {
+        description:
+          "designEditor.import.figmaImageFallbackWarning\ndesignEditor.import.figmaApproximationWarning",
+      },
+    );
+    expect(mocks.success).not.toHaveBeenCalled();
     expect(mocks.navigate).toHaveBeenCalledWith("/design/imported-design");
   });
   it("retains the URL and readable provider failure for retry and offers existing settings", async () => {

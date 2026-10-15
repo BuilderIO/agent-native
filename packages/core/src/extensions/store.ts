@@ -83,6 +83,7 @@ export const extensionsStore = defineStore({
     },
     {
       name: "migrate-misnamed-extensions-table",
+      kind: "data",
       run: (exec) => migrateMisnamedExtensionsTable(exec),
     },
     {
@@ -101,6 +102,7 @@ export const extensionsStore = defineStore({
     },
     {
       name: "backfill-tool-data-scope-key",
+      kind: "data",
       sql:
         // guard:allow-localhost-fallback — one-time backfill migration replacing dev-mode default scope_key with the row's real owner_email
         `UPDATE tool_data SET scope_key = owner_email WHERE scope_key = 'local@localhost' AND owner_email != 'local@localhost'`,

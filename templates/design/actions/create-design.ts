@@ -14,9 +14,9 @@ import {
   resolveDefaultDesignSystemId,
   resolveDesignSystemIdByTitle,
 } from "../server/lib/design-system-defaults.js";
+import { DESIGN_CREATION_METHODS } from "../server/lib/design-tracking.js";
 import {
   defaultCreationMethod,
-  DESIGN_CREATION_METHODS,
   trackDesignCreated,
 } from "./_design-tracking.js";
 import getDesignSystem from "./get-design-system.js";

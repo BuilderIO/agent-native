@@ -1,5 +1,18 @@
 # @agent-native/scheduling
 
+## 0.2.28
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [fadfb1b]
+- Updated dependencies [7407dca]
+- Updated dependencies [980bd9f]
+- Updated dependencies [7407dca]
+- Updated dependencies
+- Updated dependencies [d6a3ea3]
+  - @agent-native/toolkit@0.209.0
+
 ## 0.2.27
 
 ### Patch Changes
@@ -1080,11 +1093,5 @@
 ### Patch Changes
 
 - 79a0eb9: Align local Drizzle peer resolution with the framework's Postgres driver version.
-
-## 0.1.4
-
-### Patch Changes
-
-- 97ca0db: Fix "Cannot read properties of null (reading 'value')" crash in `BookingLinkCreateDialog` when typing into the slug input. React nulls `e.currentTarget` once the synthetic event finishes synchronous propagation; reading it inside the `setForm` updater closure happened after that point. Capture the value before calling `setForm`.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

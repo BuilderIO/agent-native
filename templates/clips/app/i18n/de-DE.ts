@@ -4,6 +4,7 @@ const messages = {
     includeLast: "Letzte einbeziehen",
     whatIsThis: "Was ist das?",
     off: "Aus",
+    none: "Keine",
     custom: "Benutzerdefiniert…",
     customLabel: "Benutzerdefinierte Dauer",
     customAmount: "Dauer",
@@ -15,6 +16,9 @@ const messages = {
     customErrorInvalid: "Gib eine ganze Zahl in Sekunden oder Minuten ein.",
     customErrorTooLong: "Höchstens 5 Min.",
     turnOnRewind: "Rewind aktivieren",
+    turnOffRewind: "Ausschalten",
+    turnOffRewindFailed:
+      "Rewind konnte nicht deaktiviert werden. Beende die Aufnahme und versuche es erneut.",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
       "Standardmäßig deaktiviert. Der Bildschirmverlauf bleibt auf diesem Gerät, bis du ihn einer Aufnahme hinzufügst oder eine Freigabeanfrage bestätigst.",
@@ -212,9 +216,12 @@ const messages = {
     expandSidebar: "Seitenleiste erweitern",
     collapseSidebar: "Seitenleiste einklappen",
     agentEmptyState: "Wie kann ich dir mit deinen Aufnahmen helfen?",
-    agentSuggestionSummary: "Fasse meine letzte Aufnahme zusammen",
-    agentSuggestionPricing: "Finde, wo ich Preise erwähnt habe",
-    agentSuggestionFiller: "Entferne Füllwörter aus diesem Clip",
+    agentSuggestionSummary: "Aufnahme zusammenfassen",
+    agentSuggestionPricing: "Preiserwähnungen finden",
+    agentSuggestionFiller: "Füllwörter entfernen",
+    agentScreenshotSuggestionSummary: "Screenshots zusammenfassen",
+    agentScreenshotSuggestionText: "Text in Screenshots finden",
+    agentScreenshotSuggestionCompare: "Screenshots vergleichen",
     createFolderError: "Erstellen fehlgeschlagen",
     folderCreated: "Ordner erstellt",
     folderNamePlaceholder: "Ordnername",
@@ -1909,6 +1916,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (Lokalisiert)",
     recordingDownloadStarted: "Recording download started (Lokalisiert)",
+    partialLocalCopyDownloadStarted:
+      "Die lokale Kopie ist möglicherweise unvollständig. Die verfügbaren Aufnahmedaten werden heruntergeladen.",
     backToLibrary: "Back to library (Lokalisiert)",
     clipsRecorder: "Clips recorder (Lokalisiert)",
     preparingSources: "Preparing sources… (Lokalisiert)",
@@ -2074,6 +2083,11 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (Lokalisiert)",
     cleanupComplete: "Diktat bereinigt",
     cleanupFailed: "Diktat konnte nicht bereinigt werden",
+    undoCleanup: "Rückgängig",
+    restoreOriginal: "Original wiederherstellen",
+    cleanupRestored: "Ursprüngliches Diktat wiederhergestellt",
+    cleanupRestoreFailed:
+      "Ursprüngliches Diktat konnte nicht wiederhergestellt werden",
     startFirst: "Verwandle deine Gedanken in Text",
     recordOnDesktop: "Auf dem Desktop aufnehmen",
     emptyDesktopDescription:

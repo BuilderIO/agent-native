@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
+import {
+  STORE_MIGRATIONS_LOCK_FILE,
+  buildStoreMigrationsLock,
+  renderStoreMigrationsLock,
+} from "../packages/core/src/guards/store-migrations-lock.js";
 import {
   STORE_REGISTRY_FILE,
   discoverStores,
@@ -22,4 +28,20 @@ fs.writeFileSync(
   renderStoreRegistry(stores),
   "utf8",
 );
-console.log(`Wrote ${STORE_REGISTRY_FILE} (${stores.length} stores).`);
+
+const loaded = await Promise.all(
+  stores.map(async (store) => {
+    const mod = await import(
+      pathToFileURL(path.join(coreDir, store.file)).href
+    );
+    return mod[store.exportName];
+  }),
+);
+fs.writeFileSync(
+  path.join(coreDir, STORE_MIGRATIONS_LOCK_FILE),
+  renderStoreMigrationsLock(buildStoreMigrationsLock(loaded)),
+  "utf8",
+);
+console.log(
+  `Wrote ${STORE_REGISTRY_FILE} and ${STORE_MIGRATIONS_LOCK_FILE} (${stores.length} stores).`,
+);

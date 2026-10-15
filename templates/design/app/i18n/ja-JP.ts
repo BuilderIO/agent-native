@@ -971,6 +971,14 @@ export default {
         toTopRight: "右上へ",
         toBottomLeft: "左下へ",
         toBottomRight: "右下へ",
+        fromLeft: "左から",
+        fromRight: "右から",
+        fromTop: "上から",
+        fromBottom: "下から",
+        fromTopLeft: "左上から",
+        fromTopRight: "右上から",
+        fromBottomLeft: "左下から",
+        fromBottomRight: "右下から",
         clockwise: "時計回り",
         counterclockwise: "反時計回り",
         easingPresets: {
@@ -1020,6 +1028,8 @@ export default {
         save: "スタイルを保存",
         createDescription:
           "選択した対象のモーショントラックを再利用可能なスタイルとして保存します。",
+        unsupportedSequence:
+          "同じプロパティのセグメントが重なるか、値がつながらないため、このスタイルは適用できません。",
         tooMany: "スタイルには最大24個のアニメーションを含められます。",
         limit: "このデザインはアニメーションスタイルの上限64件に達しています。",
       },
@@ -1054,6 +1064,9 @@ export default {
       size: "サイズ",
       sourceWriteUnavailable:
         "現在、Motion のコードを書き込めるのはインライン HTML デザインのみです。",
+      sourceConflict:
+        "タイムラインに未保存の変更がある間に Motion のソースが変更されました。コードを再読み込みすると、これらの変更を破棄して最新のソースを使用します。",
+      reloadFromSource: "コードを再読み込み",
       dockLabel: "モーションドック",
       collapseDock: "モーションドックを閉じる",
       expandAllTracks: "すべてのトラックを展開",
@@ -1188,17 +1201,15 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "トークンをインポート",
-      importTitle: "トークンをインポート",
-      importHint:
-        "手入力の前に design.md、CSS、テーマファイル、または現在のデザインを使います。",
-      files: "ファイル",
-      folder: "フォルダー",
-      current: "現在",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "貼り付けたトークンをインポート",
+      importDtcg: "DTCG ファイル…",
+      importCssOrTailwind: "CSS または Tailwind ファイル…",
+      importClipboard: "クリップボードから貼り付け",
+      importFromDesign: "デザインから生成",
+      importFailed: "トークンをインポートできませんでした: {{message}}",
+      clipboardBlocked:
+        "クリップボードを読み取れませんでした。アクセスを許可してもう一度お試しください。",
+      clipboardEmpty: "クリップボードは空です",
       importedCount: "{{count}} 個のトークンをインポートしました",
       importing: "トークンをインポートしています…",
       importedWithSkipped:
@@ -1217,6 +1228,21 @@ export default {
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "トークンを追加できませんでした: {{message}}",
+      types: {
+        color: "カラー",
+        fontFamily: "フォントファミリー",
+        fontWeight: "フォントの太さ",
+        fontSize: "フォントサイズ",
+        lineHeight: "行の高さ",
+        letterSpacing: "文字間隔",
+        spacing: "スペーシング",
+        container: "コンテナ",
+        breakpoint: "ブレークポイント",
+        radius: "角丸",
+        shadow: "シャドウ",
+        opacity: "不透明度",
+      },
       editColor: "{{name}} のカラーを編集",
     },
     import: {
@@ -1298,7 +1324,7 @@ export default {
       figUploadProcessing: "変換中…",
       figImportWarningTitle: "大規模な .fig のインポート",
       figImportWarningDescription:
-        "このファイルには {{frames}} 個のフレームと {{nodes}} 個のレイヤーがあります。すべてをインポートするとエディターが遅くなる可能性があります。必要なフレームを選択してください。",
+        "このファイルには {{frames}} 個のフレームと {{nodes}} 個のレイヤーがあります。すべてをインポートするとエディターが遅くなる可能性があります。必要なページを選択してください。",
       figImportFrameCount: "{{total}} 個中 {{selected}} 個のフレームを選択",
       figImportSelectAll: "すべて選択",
       figImportClearAll: "すべて解除",
@@ -1307,6 +1333,12 @@ export default {
       figImportAll: "すべてインポート",
       figImportAnalyzing: "分析中…",
       figImportSaving: "{{total}} 個中 {{saved}} 個のフレームを保存中",
+      figImportFrameLimit:
+        "フレームの合計が {{max}} 個以下になるようにページを選択してください。",
+      figImportFramesSkippedWarning:
+        "複雑すぎてインポートできない {{count}} 個のフレームをスキップしました：{{names}}",
+      figUploadLimits:
+        "最大 {{size}} GB · 1 回のインポートで {{frames}} フレームまで",
       figUploadDescriptionShort:
         "ローカルインポート — Figma API の割り当てを使用しません。対応する埋め込み画像が含まれます。",
       figUploadImagesSkippedWarning:
@@ -2252,6 +2284,7 @@ export default {
     figmaLink: "Figmaリンク",
     importFromFigma: "Figma からインポート",
     figmaFile: "Figma ファイル (.fig)",
+    figmaFileMaxSize: "最大 {{max}} GB",
     openImport: "インポートを開く",
     importSelectedFile: "選択したファイルをインポート",
     starterSaasPrompt:

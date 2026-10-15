@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { CORE_ACTION_GROUPS } from "../../framework-tools.js";
 import {
+  getRequestRunContext,
+  runWithRequestContext,
+} from "../request-context.js";
+import {
   assembleA2AFinalResponse,
   buildAuthenticatedAgentA2ASkills,
   buildPublicAgentA2ASkills,
@@ -10,6 +14,8 @@ import {
   filterDirectA2AActions,
   filterMcpOnlyActions,
   resolveInitialToolNames,
+  runA2AAgentLoop,
+  runMCPAgentLoop,
 } from "./action-filters-a2a.js";
 
 function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
@@ -27,6 +33,45 @@ function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
     ...overrides,
   };
 }
+
+describe("delegated agent loops", () => {
+  it.each([
+    ["A2A", runA2AAgentLoop],
+    ["ask_app", runMCPAgentLoop],
+  ])(
+    "keep the %s run context on the model and effort each call uses",
+    async (_name, runLoop) => {
+      const seen: unknown[] = [];
+      await runWithRequestContext(
+        { userEmail: "owner@example.test", run: { model: "claude-haiku-4-5" } },
+        () =>
+          runLoop(
+            {
+              model: "claude-haiku-4-5",
+              reasoningEffort: "high",
+              onModelSettings: (model, effort) => seen.push([model, effort]),
+            } as Parameters<typeof runLoop>[0],
+            {},
+            undefined,
+            {
+              runner: (async (loopOptions: Parameters<typeof runLoop>[0]) => {
+                loopOptions.onModelSettings?.("claude-haiku-4-5", "high");
+                loopOptions.onModelSettings?.("claude-sonnet-5", "medium");
+                const run = getRequestRunContext();
+                seen.push([run?.model, run?.reasoningEffort]);
+              }) as never,
+            },
+          ),
+      );
+
+      expect(seen).toEqual([
+        ["claude-haiku-4-5", "high"],
+        ["claude-sonnet-5", "medium"],
+        ["claude-sonnet-5", "medium"],
+      ]);
+    },
+  );
+});
 
 describe("assembleA2AFinalResponse", () => {
   it("preserves the agent loop error code as structured terminal data", () => {

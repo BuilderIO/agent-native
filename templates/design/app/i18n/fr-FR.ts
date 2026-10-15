@@ -978,6 +978,14 @@ export default {
         toTopRight: "Vers le haut à droite",
         toBottomLeft: "Vers le bas à gauche",
         toBottomRight: "Vers le bas à droite",
+        fromLeft: "Depuis la gauche",
+        fromRight: "Depuis la droite",
+        fromTop: "Depuis le haut",
+        fromBottom: "Depuis le bas",
+        fromTopLeft: "Depuis le coin supérieur gauche",
+        fromTopRight: "Depuis le coin supérieur droit",
+        fromBottomLeft: "Depuis le coin inférieur gauche",
+        fromBottomRight: "Depuis le coin inférieur droit",
         clockwise: "Sens horaire",
         counterclockwise: "Sens antihoraire",
         easingPresets: {
@@ -1027,6 +1035,8 @@ export default {
         save: "Enregistrer le style",
         createDescription:
           "Enregistrer les pistes de mouvement de la cible sélectionnée comme style réutilisable.",
+        unsupportedSequence:
+          "Ce style ne peut pas être appliqué, car des segments de même propriété se chevauchent ou ne se rejoignent pas.",
         tooMany: "Un style peut inclure jusqu’à 24 animations.",
         limit: "Cette conception a atteint la limite de 64 styles d’animation.",
       },
@@ -1061,6 +1071,9 @@ export default {
       size: "Taille",
       sourceWriteUnavailable:
         "Pour le moment, le code Motion ne peut être écrit que dans des designs HTML intégrés.",
+      sourceConflict:
+        "La source Motion a changé alors que cette timeline contenait des modifications non enregistrées. Rechargez le code pour les abandonner et utiliser la source actuelle.",
+      reloadFromSource: "Recharger le code",
       dockLabel: "Panneau de mouvement",
       collapseDock: "Réduire le panneau de mouvement",
       expandAllTracks: "Développer toutes les pistes",
@@ -1196,17 +1209,15 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "Importer des jetons",
-      importTitle: "Importer des jetons",
-      importHint:
-        "Utilisez design.md, CSS, les fichiers de thème ou le design actuel avant d'ajouter des jetons à la main.",
-      files: "Fichiers",
-      folder: "Dossier",
-      current: "Actuel",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "Importer les jetons collés",
+      importDtcg: "Fichier DTCG…",
+      importCssOrTailwind: "Fichier CSS ou Tailwind…",
+      importClipboard: "Coller depuis le presse-papiers",
+      importFromDesign: "Générer depuis le design",
+      importFailed: "Impossible d’importer les tokens : {{message}}",
+      clipboardBlocked:
+        "Impossible de lire le presse-papiers. Autorisez l’accès et réessayez.",
+      clipboardEmpty: "Le presse-papiers est vide",
       importedCount: "{{count}} jetons importés",
       importing: "Importation des jetons…",
       importedWithSkipped:
@@ -1225,6 +1236,21 @@ export default {
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "Impossible d’ajouter le token : {{message}}",
+      types: {
+        color: "Couleur",
+        fontFamily: "Famille de police",
+        fontWeight: "Graisse",
+        fontSize: "Taille de police",
+        lineHeight: "Hauteur de ligne",
+        letterSpacing: "Espacement des lettres",
+        spacing: "Espacement",
+        container: "Conteneur",
+        breakpoint: "Point de rupture",
+        radius: "Rayon",
+        shadow: "Ombre",
+        opacity: "Opacité",
+      },
       editColor: "Modifier la couleur de {{name}}",
     },
     import: {
@@ -1306,7 +1332,7 @@ export default {
       figUploadProcessing: "Conversion…",
       figImportWarningTitle: "Importation .fig volumineuse",
       figImportWarningDescription:
-        "Ce fichier contient {{frames}} cadres et {{nodes}} calques. Tout importer peut ralentir l’éditeur. Choisissez les cadres nécessaires.",
+        "Ce fichier contient {{frames}} cadres et {{nodes}} calques. Tout importer peut ralentir l’éditeur. Choisissez les pages nécessaires.",
       figImportFrameCount: "{{selected}} cadres sur {{total}} sélectionnés",
       figImportSelectAll: "Tout sélectionner",
       figImportClearAll: "Tout effacer",
@@ -1315,6 +1341,12 @@ export default {
       figImportAll: "Tout importer",
       figImportAnalyzing: "Analyse…",
       figImportSaving: "Enregistrement de {{saved}} cadres sur {{total}}",
+      figImportFrameLimit:
+        "Choisissez des pages totalisant {{max}} cadres au maximum.",
+      figImportFramesSkippedWarning:
+        "{{count}} cadres trop complexes ont été ignorés : {{names}}",
+      figUploadLimits:
+        "Jusqu’à {{size}} Go · {{frames}} cadres par importation",
       figUploadDescriptionShort:
         "Importation locale — sans quota de l’API Figma. Les images intégrées compatibles sont incluses.",
       figUploadImagesSkippedWarning:
@@ -2269,6 +2301,7 @@ export default {
     figmaLink: "Lien Figma",
     importFromFigma: "Importer depuis Figma",
     figmaFile: "Fichier Figma (.fig)",
+    figmaFileMaxSize: "Jusqu’à {{max}} Go",
     openImport: "Ouvrir l’importation",
     importSelectedFile: "Importer le fichier sélectionné",
     starterSaasPrompt:

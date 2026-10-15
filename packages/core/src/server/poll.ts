@@ -1962,6 +1962,7 @@ export const syncEventsStore = defineStore({
     },
     {
       name: "seed-sync-version",
+      kind: "data",
       run: (exec) => seedSyncVersion(exec, true),
     },
   ],

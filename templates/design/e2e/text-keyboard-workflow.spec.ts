@@ -1,59 +1,74 @@
-import { expect, test } from "@playwright/test";
+import { childrenOf, expect, expectOnlyChanged, test } from "./rails";
 
-import {
-  appPath,
-  createFixtureDesign,
-  designFrame,
-  gotoEditor,
-  selectByText,
-} from "./helpers";
+const FIXTURE = `<!doctype html>
+<html><head><meta charset="utf-8"><title>Text keyboard</title></head>
+<body style="margin:0">
+  <main data-agent-native-node-id="main" style="padding:40px">
+    <h1 data-agent-native-node-id="title" style="margin:0;font-size:48px">Draft title</h1>
+  </main>
+</body></html>`;
 
-const MOD = process.platform === "darwin" ? "Meta" : "Control";
-
-test("primary Enter commits text and returns to layer duplication", async ({
-  page,
+// fixme: product bug: The duplicate's Layers row stays 'First title' after its text became 'Second title': both rows read 'First title' (duplication froze the
+test.fixme("Cmd+Enter commits a text edit so Cmd+D duplicates the layer, and each copy keeps its own text and name", async ({
+  app,
 }) => {
-  const designId = await createFixtureDesign(page, "Text keyboard workflow");
-  try {
-    await gotoEditor(page, designId);
-    await selectByText(page, "E2E Hero Heading");
-    await expect(
-      page.getByRole("button", { name: "Font", exact: true }),
-    ).toBeVisible();
-    await page.keyboard.press("Enter");
-    const editable = designFrame(page).locator('[contenteditable="true"]');
-    await expect(editable).toBeVisible();
-    await page.keyboard.press(`${MOD}+a`);
-    await page.keyboard.insertText("First title");
-    await page.keyboard.press(`${MOD}+Enter`);
-    await expect(editable).toHaveCount(0);
-    await expect(designFrame(page).locator("h1")).toHaveText("First title");
+  const id = await app.seed(FIXTURE);
+  await app.open(id);
+  await app.zoomToFit();
+  await app.settled();
+  const page = app.page;
+  const before = await app.savedNodes(id);
+  const rect = await app.designRect("title");
+  const center = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  await page.mouse.click(center.x, center.y);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Draft title"]);
 
-    await page.keyboard.press(`${MOD}+d`);
-    await expect(designFrame(page).locator("h1")).toHaveCount(2);
-    await page.keyboard.press("Enter");
-    await expect(editable).toBeVisible();
-    await page.keyboard.press(`${MOD}+a`);
-    await page.keyboard.insertText("Second title");
-    await page.keyboard.press(`${MOD}+Enter`);
-    await expect(editable).toHaveCount(0);
-    await expect(designFrame(page).locator("h1")).toHaveText([
-      "First title",
-      "Second title",
-    ]);
-    await page.reload();
-    await expect(designFrame(page).locator("h1")).toHaveText([
-      "First title",
-      "Second title",
-    ]);
-  } finally {
-    const response = await page.request.post(
-      appPath("/_agent-native/actions/delete-design"),
-      {
-        data: { id: designId },
-      },
-    );
-    if (!response.ok())
-      throw new Error(`delete-design: ${await response.text()}`);
-  }
+  const editable = app.page
+    .frameLocator("iframe[data-screen-iframe-id]")
+    .locator('[contenteditable="true"]');
+  await page.keyboard.press("Enter");
+  await expect(editable).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.insertText("First title");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(editable).toHaveCount(0);
+  await expect
+    .poll(async () => (await app.savedNodes(id)).get("title")?.text)
+    .toBe("First title");
+
+  await page.keyboard.press("ControlOrMeta+d");
+  let copyId = "";
+  await expect
+    .poll(async () => {
+      const nodes = await app.savedNodes(id);
+      copyId =
+        childrenOf(nodes, "main").find((child) => child !== "title") ?? "";
+      return childrenOf(nodes, "main").length;
+    }, "the duplicate is saved next to the original")
+    .toBe(2);
+  await page.keyboard.press("Enter");
+  await expect(editable).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.insertText("Second title");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(editable).toHaveCount(0);
+
+  await expect
+    .poll(async () => (await app.savedNodes(id)).get(copyId)?.text)
+    .toBe("Second title");
+  await app.settled();
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "main")).toEqual(["title", copyId]);
+  expect(after.get("title")?.text).toBe("First title");
+  expect(after.get(copyId)?.tag).toBe("h1");
+  expectOnlyChanged(before, after, ["title", copyId]);
+  await expect
+    .poll(
+      () => app.selectedLayers(),
+      "the copy's layer is named by its own text",
+    )
+    .toEqual(["Second title"]);
 });

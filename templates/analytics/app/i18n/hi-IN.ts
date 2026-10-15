@@ -49,6 +49,103 @@ export default {
     moveDashboard: "डैशबोर्ड को स्थानांतरित करें",
     folderCreateFailed: "फ़ोल्डर नहीं बनाया जा सका",
     moveFailed: "डैशबोर्ड स्थानांतरित नहीं किया जा सका",
+    importFromSigma: "Sigma से आयात करें",
+    sigmaConnection: "Sigma कनेक्शन",
+    sigmaConnectedTo: "{{name}} से कनेक्ट है",
+    sigmaChooseConnection: "Sigma कनेक्शन",
+    sigmaChooseConnectionPlaceholder: "कनेक्शन चुनें",
+    sigmaChooseConnectionDescription: "वर्कबुक देखने के लिए Sigma वर्कस्पेस चुनें।",
+    sigmaNoConnection: "Sigma कनेक्ट नहीं है",
+    sigmaClientId: "क्लाइंट ID",
+    sigmaClientSecret: "क्लाइंट सीक्रेट",
+    sigmaBaseUrl: "API बेस URL (वैकल्पिक)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Sigma कनेक्ट करें",
+    sigmaConnecting: "Sigma से कनेक्ट हो रहा है…",
+    sigmaConnectFailed:
+      "इस Sigma कनेक्शन की पुष्टि नहीं हो सकी। क्रेडेंशियल और API क्षेत्र जाँचें, फिर दोबारा कोशिश करें।",
+    sigmaCredentialStageFailed:
+      "अस्थायी Sigma क्रेडेंशियल सेव नहीं हो सके। Vault का ऐक्सेस जाँचें और फिर कोशिश करें।",
+    sigmaCredentialsRequired: "पहले Sigma क्लाइंट ID और क्लाइंट सीक्रेट सेव करें।",
+    sigmaBaseUrlInvalid:
+      "sigmacomputing.com डोमेन पर HTTPS Sigma API URL इस्तेमाल करें।",
+    sigmaPersistenceUnavailable:
+      "Analytics अभी Sigma कनेक्शन को सुरक्षित रूप से सेव नहीं कर सकता। फिर कोशिश करें।",
+    sigmaPolicyInvalid:
+      "मौजूदा Analytics Sigma कनेक्शन की ऐक्सेस नीति अनपेक्षित है। फिर कोशिश करने से पहले Dispatch में इसे दोबारा कनेक्ट करें।",
+    sigmaSaveFailed:
+      "Sigma क्रेडेंशियल सत्यापित हो गए, लेकिन Analytics उन्हें सेव नहीं कर सका। पिछला कनेक्शन अपरिवर्तित है। फिर कोशिश करें।",
+    sigmaCleanupPending: "क्लीनअप सफल होने तक अस्थायी Sigma सेटअप क्रेडेंशियल बने रहेंगे।",
+    sigmaCleanupFailed:
+      "अस्थायी Sigma क्रेडेंशियल हटाए नहीं जा सके। क्लीनअप फिर से आज़माएँ।",
+    sigmaRetryCleanup: "क्लीनअप फिर से आज़माएँ",
+    sigmaDirectCredentialsUnavailable:
+      "Analytics में सेव किए गए Sigma क्रेडेंशियल पढ़े नहीं जा सके। संगठन एडमिन Dispatch में फिर से कनेक्ट कर सकता है या Analytics में क्रेडेंशियल दोबारा दर्ज कर सकता है।",
+    sigmaNoConnectionDescription:
+      "Analytics-only कनेक्शन बनाने के लिए यहाँ क्रेडेंशियल दर्ज करें। Dispatch में Analytics के लिए अधिकृत Sigma कनेक्शन यहाँ अपने-आप दिखते हैं; केवल संगठन के एडमिन सीधे क्रेडेंशियल सेव कर सकते हैं।",
+    sigmaOpenDispatch: "Dispatch में कनेक्ट करें",
+    sigmaOpenVault: "Vault खोलें",
+    sigmaWorkbooksLoadFailed: "Sigma वर्कबुक लोड नहीं हो सकीं",
+    sigmaRetryConnection: "कनेक्शन जाँचें और फिर कोशिश करें।",
+    sigmaRetry: "फिर कोशिश करें",
+    sigmaNoWorkbooks: "कोई Sigma वर्कबुक उपलब्ध नहीं है।",
+    sigmaWorkbook: "वर्कबुक",
+    sigmaChooseWorkbook: "वर्कबुक चुनें",
+    sigmaStatusNotImported: "आयात नहीं किया गया",
+    sigmaStatusImporting: "आयात हो रहा है",
+    sigmaStatusImported: "आयात किया गया",
+    sigmaStatusFailed: "आयात विफल हुआ",
+    sigmaArchived: "संग्रहीत",
+    sigmaPreviewTitle: "वर्कबुक की सामग्री",
+    sigmaPreviewFailed: "इस वर्कबुक का पूर्वावलोकन नहीं हो सका",
+    sigmaRetryPreview: "वर्कबुक पूर्वावलोकन लोड करने के लिए फिर कोशिश करें।",
+    sigmaImportableCount: "{{count}} आयात योग्य",
+    sigmaUnsupportedCount: "{{count}} असमर्थित",
+    sigmaImportable: "आयात योग्य",
+    sigmaUnsupported: "असमर्थित",
+    sigmaNoElements: "वर्कबुक में कोई एलिमेंट नहीं मिला।",
+    sigmaPreviewOnly:
+      "अभी केवल पूर्वावलोकन: Sigma ऐसा BigQuery प्रोजेक्ट मैपिंग नहीं देता जिसे Analytics सत्यापित कर सके। यह मैपिंग उपलब्ध होने तक आयात बंद रहेगा।",
+    sigmaPreviewTruncated: "{{total}} में से {{shown}} एलिमेंट दिखाए गए हैं।",
+    sigmaImportWorkbook: "वर्कबुक आयात करें",
+    sigmaImporting: "वर्कबुक आयात हो रही है…",
+    sigmaImportInProgress: "इस वर्कबुक का आयात पहले से चल रहा है।",
+    sigmaMigrationFailed: "वर्कबुक आयात नहीं हो सकी। फिर कोशिश करें।",
+    sigmaMigrationResultInvalid:
+      "आयात का जवाब अधूरा था। स्थिति देखने के लिए वर्कबुक सूची फिर से लोड करें।",
+    sigmaImportComplete: "डैशबोर्ड बनाया गया",
+    sigmaImportSummary:
+      "{{imported}} एलिमेंट आयात किए गए; {{unsupported}} असमर्थित एलिमेंट समीक्षा कॉलआउट के रूप में रखे गए।",
+    sigmaAlreadyImported: "यह वर्कबुक पहले ही आयात की जा चुकी है।",
+    sigmaImportedNoDashboard:
+      "डैशबोर्ड आयात किया गया, लेकिन इसे इस खाते से खोला नहीं जा सकता।",
+    sigmaReviewRequiredCount: "{{count}} की समीक्षा ज़रूरी है",
+    sigmaBetaRepresentationWarning:
+      "इस बीटा आयात में कुछ विज़ुअलाइज़ेशन Sigma से अलग दिख सकते हैं।",
+    sigmaReasonUnsupportedElement: "यह एलिमेंट प्रकार आयात के लिए समर्थित नहीं है।",
+    sigmaReasonUnsupportedSource:
+      "यह एलिमेंट ऐसे स्रोत का उपयोग करता है जो आयात के लिए समर्थित नहीं है।",
+    sigmaReasonSourceMappingRequired:
+      "Sigma ऐसा BigQuery प्रोजेक्ट मैपिंग नहीं देता जिसे Analytics सत्यापित कर सके, इसलिए यह SQL अभी आयात नहीं हो सकता।",
+    sigmaReasonSourceUnavailable:
+      "Sigma ने इस स्रोत कनेक्शन तक पहुँच की अनुमति नहीं दी। इसकी अनुमतियाँ जाँचें।",
+    sigmaReasonQueryUnavailable:
+      "Sigma ने इस एलिमेंट के लिए आयात योग्य क्वेरी नहीं दी।",
+    sigmaReasonUnsafeSql: "इस क्वेरी पैटर्न को सुरक्षित रूप से आयात नहीं किया जा सकता।",
+    sigmaReasonVisualizationReview:
+      "डेटा आयात किया जा सकता है, लेकिन बाद में विज़ुअलाइज़ेशन जाँचें।",
+    sigmaRetryOwnerOnly:
+      "केवल इस आयात को शुरू करने वाला व्यक्ति इसे फिर से आज़मा सकता है।",
+    sigmaImportedByTeammate: "टीम के किसी सदस्य ने आयात किया",
+    sigmaFlaggedCount: "{{count}} समीक्षा के लिए चिह्नित",
+    sigmaMoreWorkbooksFailed: "और वर्कबुक लोड नहीं हो सकीं",
+    sigmaLoadingMore: "वर्कबुक लोड हो रही हैं…",
+    sigmaLoadMore: "और वर्कबुक लोड करें",
+    sigmaOpenDashboard: "डैशबोर्ड खोलें",
+    sigmaReviewWithAgent: "एजेंट से समीक्षा कराएँ",
+    sigmaReviewContext: "आयात किया गया Sigma डैशबोर्ड",
+    sigmaReviewPrompt:
+      "आयात किए गए Sigma डैशबोर्ड {{name}} की समीक्षा करें। आयात किए गए पैनल और असमर्थित एलिमेंट जाँचें, फिर सुधार सुझाएँ।",
   },
   sidebar: {
     collapseSidebar: "साइडबार समेटें",
@@ -511,6 +608,7 @@ export default {
   },
   dataStatus: {
     connected: "जुड़ा हुआ",
+    configuredUnverified: "कॉन्फ़िगर किया गया · सत्यापित नहीं",
     notConnected: "कनेक्ट नहीं है",
     needsReauth: "पुनः प्रमाणीकरण आवश्यक है",
     error: "त्रुटि",
@@ -1147,6 +1245,7 @@ export default {
     saveViewFailed: "दृश्य सहेजा नहीं जा सका",
     saveViewFailedWithMessage: "दृश्य सहेजा नहीं जा सका: {{message}}",
     clearAll: "सब साफ़ करें",
+    resetFilters: "फ़िल्टर रीसेट करें",
     collapseFilters: "फ़िल्टर संक्षिप्त करें",
     expandFilters: "फ़िल्टर का विस्तार करें",
     filterSeries: "Filter",
@@ -1179,6 +1278,9 @@ export default {
     copyTable: "तालिका कॉपी करें",
     multiColumnSortHelp:
       "क्रमित करने के लिए क्लिक करें। एक और क्रम जोड़ने के लिए Shift-क्लिक करें।",
+    chartPointLimitNewest: "{{total}} में से नवीनतम {{shown}} बिंदु दिखाए जा रहे हैं",
+    chartPointLimitFirst: "{{total}} में से पहले {{shown}} बिंदु दिखाए जा रहे हैं",
+    chartPointLimitLast: "{{total}} में से अंतिम {{shown}} बिंदु दिखाए जा रहे हैं",
     exportToGoogleSheets: "Google Sheets में निर्यात करें",
     exportingToGoogleSheets: "Google Sheets में निर्यात किया जा रहा है...",
     googleSheetsExported: "Google Sheets में निर्यात किया गया",

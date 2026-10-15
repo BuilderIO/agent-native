@@ -2285,9 +2285,16 @@ export function MultiTabAssistantChat({
           continue;
         }
         if (!chatRefs.current.has(threadId)) continue;
+        if (delivery.modelOverride) {
+          threadModelRef.current.set(threadId, delivery.modelOverride);
+          delete delivery.modelOverride;
+          bumpModelSelectionVersion();
+          // The tab's handle still holds the previous selection and send gate
+          // until it re-renders; the version bump re-runs this flush after that.
+          continue;
+        }
         if (
           delivery.send.submit &&
-          !delivery.modelOverride &&
           !hostManagedModels &&
           modelListLoading &&
           !resolveThreadModelSelection(threadId)
@@ -2306,10 +2313,6 @@ export function MultiTabAssistantChat({
           if (deliveryLanes.current.get(threadId) === lane)
             deliveryLanes.current.delete(threadId);
           continue;
-        }
-        if (delivery.modelOverride) {
-          threadModelRef.current.set(threadId, delivery.modelOverride);
-          bumpModelSelectionVersion();
         }
         const deliver = () => {
           if (deliveryLanes.current.get(threadId) !== lane) return;

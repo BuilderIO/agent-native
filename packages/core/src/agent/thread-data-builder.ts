@@ -25,6 +25,11 @@ import {
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
+import {
+  toolInputFingerprint,
+  toolInputsMatch,
+} from "../shared/tool-inputs.js";
+import { approvalKeyForHistory } from "./approval-key.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import {
   INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
@@ -49,6 +54,8 @@ interface ContentPart {
   args?: Record<string, unknown>;
   result?: string;
   isError?: boolean;
+  approvalPause?: true;
+  approvalAskId?: string;
   outcome?: "unknown";
   completedSideEffect?: boolean;
   artifacts?: ArtifactReceipt[];
@@ -280,6 +287,7 @@ export function buildAssistantMessage(
 } | null {
   const content: ContentPart[] = [];
   const explicitUnknownOutcomes = new Set<ContentPart>();
+  const approvalPauseCandidates = new Set<ContentPart>();
   let toolCallCounter = 0;
   let runError: {
     message: string;
@@ -364,17 +372,19 @@ export function buildAssistantMessage(
         content,
         event.tool ?? "unknown",
         event.toolCallId,
+        event.input,
       );
 
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
         part.approval = {
-          approvalKey: event.approvalKey,
+          approvalKey: approvalKeyForHistory(event.approvalKey),
           ...(event.askId ? { askId: event.askId } : {}),
           ...(event.allowPersistentApproval === false
             ? { allowPersistentApproval: false }
             : {}),
         };
+        approvalPauseCandidates.add(part);
       }
       continue;
     }
@@ -414,6 +424,17 @@ export function buildAssistantMessage(
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
         part.result = event.result ?? "";
+        // Older journals have approval_required but no pause marker on tool_done.
+        const inferredLegacyPause =
+          event.approvalPause === undefined &&
+          approvalPauseCandidates.has(part);
+        if (event.approvalPause === true || inferredLegacyPause) {
+          part.approvalPause = true;
+        } else {
+          delete part.approvalPause;
+          delete part.approval;
+        }
+        approvalPauseCandidates.delete(part);
         if (event.isError !== undefined) part.isError = event.isError;
         if (event.outcomeUnknown === true) {
           part.outcome = "unknown";
@@ -682,6 +703,7 @@ function findApprovalToolCallIndex(
   content: ContentPart[],
   toolName: string,
   toolCallId?: string,
+  approvalInput?: unknown,
 ): number {
   if (toolCallId) {
     for (let i = content.length - 1; i >= 0; i--) {
@@ -703,7 +725,8 @@ function findApprovalToolCallIndex(
         part.toolName === toolName &&
         part.result === undefined &&
         typeof part.toolCallId === "string" &&
-        /^tc_\d+$/.test(part.toolCallId)
+        /(?:^|:)tc_\d+$/.test(part.toolCallId) &&
+        toolInputsMatch(part.args, approvalInput)
       ) {
         readerLocalCandidates.push(i);
       }
@@ -711,17 +734,21 @@ function findApprovalToolCallIndex(
     return readerLocalCandidates.length === 1 ? readerLocalCandidates[0]! : -1;
   }
 
-  for (let i = content.length - 1; i >= 0; i--) {
+  const matchingInputCandidates: number[] = [];
+  for (let i = 0; i < content.length; i += 1) {
     const part = content[i];
     if (
       part.type === "tool-call" &&
       part.toolName === toolName &&
-      part.result === undefined
+      part.result === undefined &&
+      toolInputsMatch(part.args, approvalInput)
     ) {
-      return i;
+      matchingInputCandidates.push(i);
     }
   }
-  return -1;
+  return matchingInputCandidates.length === 1
+    ? matchingInputCandidates[0]!
+    : -1;
 }
 
 function normalizeContentForFingerprint(content: unknown): unknown {
@@ -1132,6 +1159,12 @@ function assistantReplayContent(
       toolName: name,
       toolInput: stringifyToolUseInputForGateway(input),
       ...result,
+      ...(part.approvalPause === true ? { approvalPause: true } : {}),
+      ...(typeof part.approval?.askId === "string"
+        ? { approvalAskId: part.approval.askId }
+        : typeof part.approvalAskId === "string"
+          ? { approvalAskId: part.approvalAskId }
+          : {}),
       ...(part.isError === true || result.outcome === "unknown"
         ? { isError: true }
         : {}),
@@ -1937,10 +1970,176 @@ function removeSupersededAgentKitMessagePrefixes(
       });
 }
 
+function isApprovalPauseToolCall(toolCall: any): boolean {
+  if (toolCall?.metadata?.approvalPause === true) return true;
+  return (
+    typeof toolCall?.output === "string" &&
+    toolCall.output.startsWith("Awaiting") &&
+    toolCall.output.includes("did NOT execute")
+  );
+}
+
+function toolCallHasCompletedSideEffect(toolCall: any): boolean {
+  return toolCall?.metadata?.completedSideEffect === true;
+}
+
+function toolCallInputValuesMatch(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) =>
+        toolCallInputValuesMatch(value, right[index]),
+      )
+    );
+  }
+  return toolInputsMatch(left, right);
+}
+
+function toolCallInputsMatch(existing: any, incoming: any): boolean {
+  const existingInput = existing?.input;
+  const incomingInput = incoming?.input;
+  if (existingInput !== undefined && incomingInput !== undefined) {
+    return toolCallInputValuesMatch(existingInput, incomingInput);
+  }
+  const existingSnapshot = existing?.metadata?.agentKitSnapshot;
+  const incomingSnapshot = incoming?.metadata?.agentKitSnapshot;
+  const existingFingerprint =
+    typeof existingSnapshot?.inputFingerprint === "string"
+      ? existingSnapshot.inputFingerprint
+      : existingInput === undefined
+        ? undefined
+        : toolInputFingerprint(existingInput);
+  const incomingFingerprint =
+    typeof incomingSnapshot?.inputFingerprint === "string"
+      ? incomingSnapshot.inputFingerprint
+      : incomingInput === undefined
+        ? undefined
+        : toolInputFingerprint(incomingInput);
+  if (existingFingerprint || incomingFingerprint) {
+    return (
+      typeof existingFingerprint === "string" &&
+      existingFingerprint === incomingFingerprint
+    );
+  }
+  return existingInput === undefined && incomingInput === undefined;
+}
+
+function toolCallIdentityMatches(existing: any, incoming: any): boolean {
+  return (
+    typeof existing?.id === "string" &&
+    existing.id === incoming?.id &&
+    typeof existing?.name === "string" &&
+    existing.name === incoming?.name &&
+    toolCallInputsMatch(existing, incoming)
+  );
+}
+
+function toolCallsMatch(existing: any, incoming: any): boolean {
+  return (
+    existing?.status === "completed" &&
+    incoming?.status === "completed" &&
+    toolCallIdentityMatches(existing, incoming)
+  );
+}
+
+function isIncomingToolCallRunNewer(
+  existing: any,
+  incoming: any,
+  existingRuns: unknown,
+  incomingRuns: unknown,
+): boolean {
+  const existingRunId = existing?.runId;
+  const incomingRunId = incoming?.runId;
+  if (typeof incomingRunId !== "string") return false;
+  if (typeof existingRunId !== "string") return true;
+
+  const findRun = (runs: unknown, runId: string): any =>
+    Array.isArray(runs) ? runs.find((run) => run?.id === runId) : undefined;
+  const existingRun = findRun(existingRuns, existingRunId);
+  const incomingRun = findRun(incomingRuns, incomingRunId);
+  if (existingRunId === incomingRunId) {
+    return (
+      Number.isSafeInteger(existingRun?.lastSequence) &&
+      Number.isSafeInteger(incomingRun?.lastSequence) &&
+      incomingRun.lastSequence > existingRun.lastSequence
+    );
+  }
+
+  const existingStartedAt = Date.parse(existingRun?.startedAt ?? "");
+  const incomingStartedAt = Date.parse(incomingRun?.startedAt ?? "");
+  return (
+    Number.isFinite(existingStartedAt) &&
+    Number.isFinite(incomingStartedAt) &&
+    incomingStartedAt > existingStartedAt
+  );
+}
+
+function prefersApprovalReplaySnapshot(
+  existing: any,
+  incoming: any,
+  existingRuns: unknown,
+  incomingRuns: unknown,
+): boolean {
+  if (!toolCallsMatch(existing, incoming)) return false;
+  const incomingIsNewer = isIncomingToolCallRunNewer(
+    existing,
+    incoming,
+    existingRuns,
+    incomingRuns,
+  );
+  return (
+    (isApprovalPauseToolCall(existing) &&
+      toolCallHasCompletedSideEffect(incoming) &&
+      incomingIsNewer) ||
+    (toolCallHasCompletedSideEffect(existing) &&
+      isApprovalPauseToolCall(incoming) &&
+      incomingIsNewer)
+  );
+}
+
+function incomingRunIsNotProvenNewer(
+  existing: any,
+  incoming: any,
+  existingRuns: unknown,
+  incomingRuns: unknown,
+): boolean {
+  const existingRunId = existing?.runId;
+  const incomingRunId = incoming?.runId;
+  if (typeof existingRunId !== "string" && typeof incomingRunId !== "string") {
+    return false;
+  }
+  if (typeof existingRunId !== "string" || typeof incomingRunId !== "string") {
+    return true;
+  }
+  const findRun = (runs: unknown, runId: string): any =>
+    Array.isArray(runs) ? runs.find((run) => run?.id === runId) : undefined;
+  const existingRun = findRun(existingRuns, existingRunId);
+  const incomingRun = findRun(incomingRuns, incomingRunId);
+  if (existingRunId === incomingRunId) {
+    return !(
+      Number.isSafeInteger(existingRun?.lastSequence) &&
+      Number.isSafeInteger(incomingRun?.lastSequence) &&
+      incomingRun.lastSequence > existingRun.lastSequence
+    );
+  }
+  const existingStartedAt = Date.parse(existingRun?.startedAt ?? "");
+  const incomingStartedAt = Date.parse(incomingRun?.startedAt ?? "");
+  return (
+    !Number.isFinite(existingStartedAt) ||
+    !Number.isFinite(incomingStartedAt) ||
+    incomingStartedAt <= existingStartedAt
+  );
+}
+
 function preferIncomingSnapshotEntry(
   kind: "message" | "toolCall" | "widget",
   existing: any,
   incoming: any,
+  existingRuns: unknown,
+  incomingRuns: unknown,
 ): boolean {
   if (kind === "message") {
     const rank = (message: any) =>
@@ -1961,6 +2160,18 @@ function preferIncomingSnapshotEntry(
     return textLength(incoming) > textLength(existing);
   }
   if (kind === "toolCall") {
+    if (
+      existing.status === "running" &&
+      incoming.status !== "running" &&
+      incomingRunIsNotProvenNewer(
+        existing,
+        incoming,
+        existingRuns,
+        incomingRuns,
+      )
+    ) {
+      return false;
+    }
     return existing.status === "running" && incoming.status !== "running";
   }
   return (
@@ -1993,6 +2204,8 @@ function mergeAgentKitHistoryArray(
   existingMessageRunIds: Map<string, string>,
   incomingMessageRunIds: Map<string, string>,
   promptRunIds: Map<string, string>,
+  existingRuns: unknown,
+  incomingRuns: unknown,
 ): unknown[] | undefined {
   if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
   const merged = Array.isArray(existing) ? [...existing] : [];
@@ -2036,12 +2249,28 @@ function mergeAgentKitHistoryArray(
         kind,
         merged[index],
         entry,
+        existingRuns,
+        incomingRuns,
       );
+      const preferApprovedReplay =
+        kind === "toolCall" &&
+        prefersApprovalReplaySnapshot(
+          merged[index],
+          entry,
+          existingRuns,
+          incomingRuns,
+        );
       const preferCurrentMessageId =
         kind === "message" &&
         textIndex !== undefined &&
-        !preferIncomingSnapshotEntry(kind, entry, merged[index]);
-      if (preferIncoming || preferCurrentMessageId) {
+        !preferIncomingSnapshotEntry(
+          kind,
+          entry,
+          merged[index],
+          incomingRuns,
+          existingRuns,
+        );
+      if (preferIncoming || preferApprovedReplay || preferCurrentMessageId) {
         merged[index] =
           kind === "toolCall"
             ? withToolCallMessageIdFallback(entry, merged[index])
@@ -3438,6 +3667,8 @@ function mergeAgentKitHistory(
       existingMessageRunIds,
       incomingMessageRunIds,
       promptRunIds,
+      previous.runs,
+      next.runs,
     );
     if (entries) merged[key] = entries;
   }
@@ -4237,6 +4468,27 @@ function assistantContentWeight(content: unknown): number {
 function appendFoldedContent(existing: any[], incoming: any[]): any[] {
   const merged = existing.map((p) => ({ ...p }));
   for (const part of incoming) {
+    if (part?.type === "tool-call" && part.result !== undefined) {
+      let pausedCallIndex = -1;
+      for (let index = merged.length - 1; index >= 0; index -= 1) {
+        const candidate = merged[index];
+        if (
+          candidate?.type === "tool-call" &&
+          candidate.approvalPause === true &&
+          candidate.toolCallId === part.toolCallId &&
+          candidate.toolName === part.toolName &&
+          toolInputsMatch(candidate.args, part.args)
+        ) {
+          pausedCallIndex = index;
+          break;
+        }
+      }
+      if (pausedCallIndex !== -1) {
+        merged[pausedCallIndex] = { ...part };
+        continue;
+      }
+    }
+
     const last = merged[merged.length - 1];
     if (
       part?.type === "text" &&

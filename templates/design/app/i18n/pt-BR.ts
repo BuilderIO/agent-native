@@ -969,6 +969,14 @@ export default {
         toTopRight: "Para o alto à direita",
         toBottomLeft: "Para baixo à esquerda",
         toBottomRight: "Para baixo à direita",
+        fromLeft: "Da esquerda",
+        fromRight: "Da direita",
+        fromTop: "De cima",
+        fromBottom: "De baixo",
+        fromTopLeft: "Do canto superior esquerdo",
+        fromTopRight: "Do canto superior direito",
+        fromBottomLeft: "Do canto inferior esquerdo",
+        fromBottomRight: "Do canto inferior direito",
         clockwise: "Sentido horário",
         counterclockwise: "Sentido anti-horário",
         easingPresets: {
@@ -1018,6 +1026,8 @@ export default {
         save: "Salvar estilo",
         createDescription:
           "Salve as trilhas de movimento do alvo selecionado como um estilo reutilizável.",
+        unsupportedSequence:
+          "Não é possível aplicar este estilo porque segmentos da mesma propriedade se sobrepõem ou não se conectam.",
         tooMany: "Um estilo pode incluir até 24 animações.",
         limit: "Este design atingiu o limite de 64 estilos de animação.",
       },
@@ -1052,6 +1062,9 @@ export default {
       size: "Tamanho",
       sourceWriteUnavailable:
         "No momento, o código de movimento só pode ser gravado em designs HTML inline.",
+      sourceConflict:
+        "O código do Motion mudou enquanto esta linha do tempo tinha alterações não salvas. Recarregue o código para descartá-las e usar a fonte atual.",
+      reloadFromSource: "Recarregar código",
       dockLabel: "Painel de movimento",
       collapseDock: "Recolher painel de movimento",
       expandAllTracks: "Expandir todas as faixas",
@@ -1186,17 +1199,15 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "Importar tokens",
-      importTitle: "Importar tokens",
-      importHint:
-        "Use design.md, CSS, arquivos de tema ou o design atual antes de adicionar tokens manualmente.",
-      files: "Arquivos",
-      folder: "Pasta",
-      current: "Atual",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "Importar tokens colados",
+      importDtcg: "Arquivo DTCG…",
+      importCssOrTailwind: "Arquivo CSS ou Tailwind…",
+      importClipboard: "Colar da área de transferência",
+      importFromDesign: "Gerar a partir do design",
+      importFailed: "Não foi possível importar os tokens: {{message}}",
+      clipboardBlocked:
+        "Não foi possível ler a área de transferência. Permita o acesso e tente novamente.",
+      clipboardEmpty: "A área de transferência está vazia",
       importedCount: "{{count}} tokens importados",
       importing: "Importando tokens…",
       importedWithSkipped:
@@ -1215,6 +1226,21 @@ export default {
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "Não foi possível adicionar o token: {{message}}",
+      types: {
+        color: "Cor",
+        fontFamily: "Família da fonte",
+        fontWeight: "Peso da fonte",
+        fontSize: "Tamanho da fonte",
+        lineHeight: "Altura da linha",
+        letterSpacing: "Espaçamento entre letras",
+        spacing: "Espaçamento",
+        container: "Contêiner",
+        breakpoint: "Breakpoint",
+        radius: "Raio",
+        shadow: "Sombra",
+        opacity: "Opacidade",
+      },
       editColor: "Editar a cor de {{name}}",
     },
     import: {
@@ -1296,7 +1322,7 @@ export default {
       figUploadProcessing: "Convertendo…",
       figImportWarningTitle: "Importação de .fig grande",
       figImportWarningDescription:
-        "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha os quadros necessários.",
+        "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha as páginas necessárias.",
       figImportFrameCount: "{{selected}} de {{total}} quadros selecionados",
       figImportSelectAll: "Selecionar tudo",
       figImportClearAll: "Limpar tudo",
@@ -1305,6 +1331,11 @@ export default {
       figImportAll: "Importar tudo",
       figImportAnalyzing: "Analisando…",
       figImportSaving: "Salvando {{saved}} de {{total}} quadros",
+      figImportFrameLimit:
+        "Escolha páginas com {{max}} quadros ou menos no total.",
+      figImportFramesSkippedWarning:
+        "{{count}} quadros complexos demais para importar foram ignorados: {{names}}",
+      figUploadLimits: "Até {{size}} GB · {{frames}} quadros por importação",
       figUploadDescriptionShort:
         "Importação local — sem cota da API do Figma. As imagens incorporadas compatíveis são incluídas.",
       figUploadImagesSkippedWarning:
@@ -2250,6 +2281,7 @@ export default {
     figmaLink: "Link do Figma",
     importFromFigma: "Importar do Figma",
     figmaFile: "Arquivo do Figma (.fig)",
+    figmaFileMaxSize: "Até {{max}} GB",
     openImport: "Abrir importação",
     importSelectedFile: "Importar arquivo selecionado",
     starterSaasPrompt:

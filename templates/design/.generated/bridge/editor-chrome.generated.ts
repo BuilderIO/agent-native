@@ -18644,9 +18644,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       bridgeMoveController.pointerDown({
         kind: "move",
         objectIds: [getSelector(gestureEl)],
-        pointer: bridgeGesturePointer(
-          duplicatedForDrag && pointerStartParam ? { ...e, ...pointerStartParam } : e
-        ),
+        pointer: { ...bridgeGesturePointer(e), x: startX, y: startY },
         viewport: gestureViewport,
         canvas: { width: gestureViewport.width, height: gestureViewport.height }
       });
@@ -19301,6 +19299,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(events.up, onUp, true);
       document.addEventListener("keydown", onMoveKeyDown, true);
       setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
+      if (pointerStartParam) onMove(e);
     }
     var KSCALE_LENGTH_PROPERTIES = [
       "width",

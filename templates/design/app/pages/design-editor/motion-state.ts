@@ -37,7 +37,15 @@ export interface MotionTimelineRow {
   defaultEase: string;
   compiledHash: string | null;
   cssHash?: string | null;
-  source?: "stored" | "recovered-css" | "stored-css-drift";
+  sourceVersionHash?: string | null;
+  source?:
+    | "stored"
+    | "recovered-css"
+    | "stored-css-drift"
+    | "recovered-react"
+    | "stored-react-drift"
+    | "recovered-html"
+    | "stored-html-drift";
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -92,6 +100,24 @@ export interface MotionSourceWriteCapabilitySnapshot {
   targetNodeIds: string[];
   code?: string;
   reason?: string;
+}
+
+export interface MotionSourceVersionBaseline {
+  captured: boolean;
+  versionHash: string | null;
+}
+
+export function captureMotionSourceVersionBaseline(
+  baseline: MotionSourceVersionBaseline,
+  previewVersionHash: string | null | undefined,
+): MotionSourceVersionBaseline {
+  if (baseline.captured) return baseline;
+  const versionHash = baseline.versionHash ?? previewVersionHash ?? null;
+  if (!versionHash) return baseline;
+  return {
+    captured: true,
+    versionHash,
+  };
 }
 
 interface MotionTargetInspectorElement {
@@ -614,7 +640,11 @@ export function applyMotionAnimationStyleToTargets(args: {
   targets: readonly { nodeId: string; label: string }[];
   currentTimeMs: number;
   timelineDurationMs: number;
-}): { tracks: MotionDockTrack[]; timelineDurationMs: number } {
+}): {
+  tracks: MotionDockTrack[];
+  timelineDurationMs: number;
+  unsupportedSequenceProperty?: string;
+} {
   const nextTracks: MotionDockTrack[] = [];
   let timelineDurationMs = Math.min(
     MOTION_TIMELINE_MAX_DURATION_MS,
@@ -629,37 +659,158 @@ export function applyMotionAnimationStyleToTargets(args: {
   const baseTimelineDurationMs = timelineDurationMs;
 
   for (const target of args.targets) {
+    const tracksByProperty = new Map<string, typeof args.style.tracks>();
     for (const styleTrack of args.style.tracks) {
       if (styleTrack.enabled === false) continue;
-      const identity = `${target.nodeId}\u0000${styleTrack.property}`;
+      const propertyTracks = tracksByProperty.get(styleTrack.property) ?? [];
+      tracksByProperty.set(styleTrack.property, [
+        ...propertyTracks,
+        styleTrack,
+      ]);
+    }
+
+    for (const [property, styleTracks] of tracksByProperty) {
+      const identity = `${target.nodeId}\u0000${property}`;
       if (existingProperties.has(identity)) continue;
-      const startMs = playheadMs + (styleTrack.delayMs ?? 0);
-      if (startMs >= MOTION_TIMELINE_MAX_DURATION_MS) continue;
-      const requestedDuration =
-        styleTrack.durationMs ?? Math.max(50, baseTimelineDurationMs - startMs);
-      const durationMs = Math.min(
-        requestedDuration,
-        MOTION_TIMELINE_MAX_DURATION_MS - startMs,
+      const segments = styleTracks
+        .map((styleTrack, order) => {
+          const startMs = playheadMs + (styleTrack.delayMs ?? 0);
+          if (startMs >= MOTION_TIMELINE_MAX_DURATION_MS) return null;
+          const requestedDuration =
+            styleTrack.durationMs ??
+            Math.max(50, baseTimelineDurationMs - startMs);
+          const durationMs = Math.min(
+            requestedDuration,
+            MOTION_TIMELINE_MAX_DURATION_MS - startMs,
+          );
+          return durationMs > 0
+            ? { styleTrack, startMs, durationMs, order }
+            : null;
+        })
+        .filter(
+          (segment): segment is NonNullable<typeof segment> => segment !== null,
+        );
+      if (segments.length === 0) continue;
+
+      const keyframes =
+        segments.length === 1
+          ? segments[0]!.styleTrack.keyframes.map((keyframe) => ({
+              ...keyframe,
+            }))
+          : sequenceStyleTrackSegments(segments);
+      if (!keyframes) {
+        return {
+          tracks: [],
+          timelineDurationMs: args.timelineDurationMs,
+          unsupportedSequenceProperty: property,
+        };
+      }
+
+      const startMs = Math.min(...segments.map((segment) => segment.startMs));
+      const endMs = Math.max(
+        ...segments.map((segment) => segment.startMs + segment.durationMs),
       );
+      const durationMs = endMs - startMs;
+      const hasExplicitDuration =
+        segments.length > 1 || segments[0]!.styleTrack.durationMs !== undefined;
       if (durationMs <= 0) continue;
 
       nextTracks.push({
         targetNodeId: target.nodeId,
         label: target.label,
-        property: styleTrack.property,
-        keyframes: styleTrack.keyframes.map((keyframe) => ({ ...keyframe })),
+        property,
+        keyframes,
         ...(startMs > 0 ? { delayMs: startMs } : {}),
-        ...(styleTrack.durationMs !== undefined ||
+        ...(hasExplicitDuration ||
         durationMs !== baseTimelineDurationMs - startMs
           ? { durationMs }
           : {}),
       });
       existingProperties.add(identity);
-      timelineDurationMs = Math.max(timelineDurationMs, startMs + durationMs);
+      timelineDurationMs = Math.max(timelineDurationMs, endMs);
     }
   }
 
   return { tracks: nextTracks, timelineDurationMs };
+}
+
+function sequenceStyleTrackSegments(
+  segments: Array<{
+    styleTrack: MotionAnimationStyleDefinition["tracks"][number];
+    startMs: number;
+    durationMs: number;
+    order: number;
+  }>,
+): MotionTrack["keyframes"] | null {
+  const sortedSegments = [...segments].sort(
+    (left, right) => left.startMs - right.startMs || left.order - right.order,
+  );
+  if (
+    sortedSegments.some((segment) =>
+      segment.styleTrack.keyframes.some((keyframe) => keyframe.motionPath),
+    )
+  ) {
+    return null;
+  }
+
+  const timedKeyframes: Array<{
+    timeMs: number;
+    order: number;
+    keyframe: MotionTrack["keyframes"][number];
+  }> = [];
+  let previousEndMs = -1;
+  let previousEndValue: string | undefined;
+  for (const segment of sortedSegments) {
+    const keyframes = [...segment.styleTrack.keyframes].sort(
+      (left, right) => left.t - right.t,
+    );
+    const first = keyframes[0];
+    const last = keyframes[keyframes.length - 1];
+    const endMs = segment.startMs + segment.durationMs;
+    if (
+      !first ||
+      !last ||
+      first.t !== 0 ||
+      last.t !== 1 ||
+      segment.startMs < previousEndMs ||
+      (previousEndMs >= 0 && previousEndValue !== first.value)
+    ) {
+      return null;
+    }
+
+    for (const [index, keyframe] of keyframes.entries()) {
+      timedKeyframes.push({
+        timeMs: segment.startMs + segment.durationMs * keyframe.t,
+        order: segment.order * 1_000 + index,
+        keyframe: { ...keyframe },
+      });
+    }
+    previousEndMs = endMs;
+    previousEndValue = last.value;
+  }
+
+  const startMs = sortedSegments[0]!.startMs;
+  const endMs = Math.max(
+    ...sortedSegments.map((segment) => segment.startMs + segment.durationMs),
+  );
+  const durationMs = endMs - startMs;
+  const keyframes: MotionTrack["keyframes"] = [];
+  for (const entry of timedKeyframes.sort(
+    (left, right) => left.timeMs - right.timeMs || left.order - right.order,
+  )) {
+    const normalized = {
+      ...entry.keyframe,
+      t: (entry.timeMs - startMs) / durationMs,
+    };
+    const previous = keyframes[keyframes.length - 1];
+    if (previous?.t === normalized.t) {
+      if (previous.value !== normalized.value) return null;
+      keyframes[keyframes.length - 1] = normalized;
+    } else {
+      keyframes.push(normalized);
+    }
+  }
+  return keyframes.length >= 2 ? keyframes : null;
 }
 
 export function motionTimelineFingerprint(
@@ -673,6 +824,7 @@ export function motionTimelineFingerprint(
     timeline.updatedAt ?? "no-updated-at",
     timeline.compiledHash ?? "no-compiled-hash",
     timeline.cssHash ?? "no-css-hash",
+    timeline.sourceVersionHash ?? "no-source-version-hash",
     timeline.playbackMode ?? "once",
     timeline.source ?? "stored",
     JSON.stringify(timeline.tracks),

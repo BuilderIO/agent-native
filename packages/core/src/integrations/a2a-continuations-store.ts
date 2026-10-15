@@ -151,10 +151,12 @@ export const a2aContinuationsStore = defineStore({
     },
     {
       name: "backfill-legacy-completed-deliveries",
+      kind: "data",
       run: backfillLegacyCompletedDeliveries,
     },
     {
       name: "backfill-progress-ref-owners",
+      kind: "data",
       run: backfillProgressRefOwners,
     },
     {

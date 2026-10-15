@@ -1,29 +1,31 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
-import {
-  appPath,
-  createFixtureDesign,
-  gotoEditor,
-  pickFrameMode,
-} from "./helpers";
+import { appPath, pickFrameMode } from "./helpers";
+import { expect, expectOnlyChanged, test, type App } from "./rails";
 
-type DesignRecord = {
-  data?: string | Record<string, unknown>;
-  files?: Array<{ id: string; filename?: string; content?: string }>;
-};
+const HOME_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Home</title></head><body style="margin:0;background:#fff"><main data-agent-native-node-id="main" style="padding:40px">Home</main></body></html>`;
+const HOME_FRAME = { x: 0, y: 0, width: 1440, height: 1024 };
 
-async function readDesign(page: Page, designId: string): Promise<DesignRecord> {
-  const response = await page.request.get(
-    appPath(`/_agent-native/actions/get-design?id=${designId}`),
-  );
-  if (!response.ok()) throw new Error(await response.text());
-  return (await response.json()) as DesignRecord;
-}
+type Frame = { x: number; y: number; width: number; height: number };
 
-function dataOf(record: DesignRecord): Record<string, any> {
-  return typeof record.data === "string"
-    ? JSON.parse(record.data || "{}")
-    : (record.data ?? {});
+async function designData(app: App, designId: string) {
+  const record = await (
+    await app.page.request.get(
+      appPath(`/_agent-native/actions/get-design?id=${designId}`),
+    )
+  ).json();
+  const data =
+    typeof record.data === "string"
+      ? JSON.parse(record.data || "{}")
+      : (record.data ?? {});
+  return {
+    files: record.files as { id: string; filename: string }[],
+    canvasFrames: (data.canvasFrames ?? {}) as Record<string, Frame>,
+    screenMetadata: (data.screenMetadata ?? {}) as Record<
+      string,
+      { width: number; height: number }
+    >,
+  };
 }
 
 async function emptyBoardPoint(page: Page) {
@@ -58,32 +60,36 @@ async function emptyBoardPoint(page: Page) {
   return point;
 }
 
-async function renderedWorldScale(page: Page) {
-  return page
-    .locator("[data-multi-screen-canvas-world]")
-    .evaluate((element) => {
-      const transform = getComputedStyle(element).transform;
-      const matrix =
-        transform === "none"
-          ? new DOMMatrixReadOnly()
-          : new DOMMatrixReadOnly(transform);
-      return { transform, scaleX: matrix.a, scaleY: matrix.d };
-    });
-}
-
-test("new Screen geometry accepts immediate width and height commits", async ({
-  page,
+test("a newly drawn Screen takes immediate W and H commits without moving or reverting", async ({
+  app,
 }) => {
-  const designId = await createFixtureDesign(
-    page,
-    `Screen geometry rapid diagnostic ${Date.now()}`,
+  const id = await app.seed(HOME_HTML);
+  const homeId = (await designData(app, id)).files[0]!.id;
+  const seeded = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id,
+        dataOperations: [
+          { op: "set", path: ["canvasFrames", homeId], value: HOME_FRAME },
+        ],
+      },
+    },
   );
-  await gotoEditor(page, designId);
-  const before = await readDesign(page, designId);
-  const existingFiles = new Set(before.files?.map((file) => file.id));
+  expect(seeded.ok()).toBe(true);
+  await app.open(id);
+  await app.settled();
+  const page = app.page;
+  const before = await app.savedNodes(id);
+
   await pickFrameMode(page, "Screen");
   const start = await emptyBoardPoint(page);
-  const drawScale = await renderedWorldScale(page);
+  // The Home screen's iframe origin is world 0,0, so it maps page px to world px.
+  const origin = await app.pagePoint(0, 0);
+  const pressed = {
+    x: (start.x - origin.x) / origin.scale,
+    y: (start.y - origin.y) / origin.scale,
+  };
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   await page.mouse.move(start.x + 190, start.y + 150, { steps: 16 });
@@ -92,78 +98,57 @@ test("new Screen geometry accepts immediate width and height commits", async ({
   let screenId = "";
   await expect
     .poll(async () => {
-      const record = await readDesign(page, designId);
-      const file = record.files?.find(
-        (candidate) => !existingFiles.has(candidate.id),
-      );
-      if (!file || file.filename === "__board__.html") return null;
-      screenId = file.id;
-      return file.id;
-    })
-    .not.toBeNull();
-  const createdRecord = await readDesign(page, designId);
-  await test.info().attach("rapid-screen-identities", {
-    body: JSON.stringify(
-      {
-        designId,
-        screenId,
-        drawScale,
-        geometryAtFileCreation: dataOf(createdRecord).canvasFrames?.[screenId],
-        metadataAtFileCreation:
-          dataOf(createdRecord).screenMetadata?.[screenId],
-      },
-      null,
-      2,
-    ),
-    contentType: "application/json",
-  });
+      const { files, canvasFrames } = await designData(app, id);
+      screenId =
+        files.find(
+          (file) => file.id !== homeId && file.filename !== "__board__.html",
+        )?.id ?? "";
+      return Boolean(screenId && canvasFrames[screenId]);
+    }, "the drawn Screen is saved with a frame")
+    .toBe(true);
+  await app.settled();
+  const drawn = (await designData(app, id)).canvasFrames[screenId]!;
+  expect(Math.abs(drawn.x - pressed.x)).toBeLessThanOrEqual(1.5);
+  expect(Math.abs(drawn.y - pressed.y)).toBeLessThanOrEqual(1.5);
+  expect(Math.abs(drawn.width - 190 / origin.scale)).toBeLessThan(1);
+  expect(Math.abs(drawn.height - 150 / origin.scale)).toBeLessThan(1);
 
   await page
     .locator(
       `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
     )
     .click();
-  const writes: Array<{ at: number; url: string; body: string | null }> = [];
-  page.on("request", (request) => {
-    if (request.url().includes("/_agent-native/actions/update-design")) {
-      writes.push({
-        at: Date.now(),
-        url: request.url(),
-        body: request.postData(),
-      });
-    }
-  });
   const width = page.getByRole("textbox", { name: /^W(?: size in pixels)?$/ });
   const height = page.getByRole("textbox", { name: /^H(?: size in pixels)?$/ });
-  const drawnWidth = Number.parseFloat(await width.inputValue());
-  const drawnHeight = Number.parseFloat(await height.inputValue());
-  expect(Math.abs(drawnWidth - 190 / drawScale.scaleX)).toBeLessThan(1);
-  expect(Math.abs(drawnHeight - 150 / drawScale.scaleY)).toBeLessThan(1);
   await width.fill("1440");
   await width.press("Enter");
   await height.fill("1024");
   await height.press("Enter");
-  const afterBurstRecord = await readDesign(page, designId);
-  const afterBurstData = dataOf(afterBurstRecord);
-  const afterBurst = {
-    designId,
-    screenId,
-    widthInput: await width.inputValue(),
-    heightInput: await height.inputValue(),
-    canvasFrame: afterBurstData.canvasFrames?.[screenId],
-    metadata: afterBurstData.screenMetadata?.[screenId],
-  };
-  console.log("screen-geometry-after-immediate-WH", { ...afterBurst, writes });
-  await test.info().attach("rapid-screen-after-width-height", {
-    body: JSON.stringify({ ...afterBurst, writes }, null, 2),
-    contentType: "application/json",
-  });
+
   await expect
     .poll(async () => {
-      const data = dataOf(await readDesign(page, designId));
-      const frame = data.canvasFrames?.[screenId];
-      const metadata = data.screenMetadata?.[screenId];
-      return [frame?.width, frame?.height, metadata?.width, metadata?.height];
+      const { canvasFrames, screenMetadata } = await designData(app, id);
+      return {
+        frame: canvasFrames[screenId],
+        metadata: {
+          width: screenMetadata[screenId]?.width,
+          height: screenMetadata[screenId]?.height,
+        },
+      };
     })
-    .toEqual([1440, 1024, 1440, 1024]);
+    .toEqual({
+      frame: expect.objectContaining({
+        x: drawn.x,
+        y: drawn.y,
+        width: 1440,
+        height: 1024,
+      }),
+      metadata: { width: 1440, height: 1024 },
+    });
+  await app.settled();
+  const after = await designData(app, id);
+  expect(after.canvasFrames[homeId], "Home did not move").toEqual(
+    expect.objectContaining(HOME_FRAME),
+  );
+  expectOnlyChanged(before, await app.savedNodes(id), []);
 });

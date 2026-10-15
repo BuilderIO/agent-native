@@ -15,13 +15,13 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - Use one bounded SQL or server-side `run-code` call for lists, filters, counts, or cohorts. If the catalog misses, call `find-data` once, then inspect exact metadata with `search-bigquery-schema` or provider status only when needed; do not fan out per item or add unasked breakdowns.
 - For an exact owner-defined dbt metric, use `query-dbt-semantic-metric` when a dbt workspace connection is available. dbt defines metric meaning and grain; Sigma and Amplitude are examples and cross-checks. Do not infer an owner-approved metric from a model name or dashboard.
 - Answer shape: when a saved or certified dashboard answers, open with one line naming and linking it (`[Title](/dashboards/<id>)`) and how to read it there, then answer. Add a short "How it's computed" note (source, window, filters, sample size, caveats) only when it changes how to read the number. Show SQL, tables, or schema only when asked, when the user writes SQL or asks about tables or columns, or when no dashboard matches. Label figures “Unverified” if no live query ran; never cite the public `demo` source as real evidence unless asked.
-- Create or change saved artifacts only when asked. For named accounts, use `account-deep-dive`; for health, read `account-health`. When challenged on coverage, rerun from the source cohort and provide the updated answer.
+- Create or change saved artifacts only when asked. For a named account, use `run-gong-native-insight` for Gong and `account-deep-dive` for HubSpot context; for health, read `account-health`. When challenged on coverage, rerun from the source cohort and provide the updated answer.
 
 ## Core rules
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Sibling apps delegate metrics and product questions over A2A in natural language, never SQL. Analytics owns schema, source selection, and stable shaped reads.
-- Use actions for data and sharing; respect ownable access checks. Provider actions are shortcuts: for broad/absence-sensitive Gong work stage and reduce raw data with `query-staged-dataset` or a Data Program.
+- Use actions for data and sharing; respect ownable access checks. Provider actions are shortcuts; stage broad Gong scans with `query-staged-dataset` or a Data Program.
 - Reports/alerts use SQL actions and cap at five recipients. Store large payloads in file/blob storage, not SQL or app state.
 - Never invent data or source semantics. For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - For MCP, use allowlisted cataloged actions; use `ask_app` for interpretation, source selection, multi-step, or unsupported actions.

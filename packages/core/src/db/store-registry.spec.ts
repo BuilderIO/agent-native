@@ -199,7 +199,7 @@ describe("verify (hosted request runtime)", () => {
 });
 
 describe("hosted runtime without release migrations", () => {
-  it("provisions once and records the ledger", async () => {
+  it("provisions from the request but never writes the ledger", async () => {
     const { table, store } = widgetStore();
     simulateHostedFunction({ releaseMigrations: false });
 
@@ -207,38 +207,90 @@ describe("hosted runtime without release migrations", () => {
 
     expect(await tableExists(table)).toBe(true);
     const { rows } = await getDbExec().execute({
-      sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
-      args: [table],
+      sql: `SELECT to_regclass('${STORE_MIGRATIONS_TABLE}') IS NOT NULL AS present`,
     });
-    expect(rows.map((row) => row.name)).toEqual(["baseline"]);
+    if (rows[0]?.present) {
+      const recorded = await getDbExec().execute({
+        sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+        args: [table],
+      });
+      expect(recorded.rows).toEqual([]);
+    }
   });
 
-  it("answers a provisioned store from the shared ledger read", async () => {
-    const a = widgetStore();
-    const b = widgetStore();
-    await withMigrationRuntime(async () => {
-      await a.store.ready();
-      await b.store.ready();
-    });
-
-    __resetStoreLedgerSnapshotForTests();
+  it("honors AGENT_NATIVE_SKIP_ENSURE_TABLES", async () => {
+    const { table, store } = widgetStore();
     simulateHostedFunction({ releaseMigrations: false });
-    const execute = vi.fn(getDbExec().execute);
-    const { withDbExec } = await import("./client.js");
-    await withDbExec({ execute }, async () => {
-      await defineStore({
-        id: a.table,
-        migrations: a.store.migrations,
-      }).ready();
-      await defineStore({
-        id: b.table,
-        migrations: b.store.migrations,
-      }).ready();
+    vi.stubEnv("AGENT_NATIVE_SKIP_ENSURE_TABLES", "1");
+
+    await store.ready();
+
+    expect(await tableExists(table)).toBe(false);
+  });
+});
+
+describe("borrowed schema (beta serving from production's database)", () => {
+  it("warns about missing migrations instead of failing", async () => {
+    const { table, store } = widgetStore();
+    await withMigrationRuntime(() => store.ready());
+
+    simulateHostedFunction();
+    vi.stubEnv("AGENT_NATIVE_BETA_SCHEMA_OWNER", "production");
+    resetAppConfigForTests();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ahead = defineStore({
+      id: table,
+      migrations: [...store.migrations, { name: "next", sql: "SELECT 1" }],
     });
 
-    // An existence check, then the shared read: neither can abort a caller's
-    // open transaction.
-    expect(execute).toHaveBeenCalledTimes(2);
+    await expect(ahead.ready()).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/missing next/));
+    warn.mockRestore();
+  });
+});
+
+describe("ledger rows", () => {
+  it("records checksum, kind and source for each applied migration", async () => {
+    const table = `widgets_${++seq}`;
+    const store = defineStore({
+      id: table,
+      migrations: [
+        {
+          name: "baseline",
+          sql: `CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY)`,
+        },
+        { name: "seed", kind: "data", run: async () => {} },
+      ],
+    });
+
+    await withMigrationRuntime(() => store.ready());
+
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT name, checksum, kind, source FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ? ORDER BY name`,
+      args: [table],
+    });
+    expect(rows).toEqual([
+      {
+        name: "baseline",
+        checksum: expect.stringMatching(/^[0-9a-f]{16}$/),
+        kind: "schema",
+        source: "step",
+      },
+      { name: "seed", checksum: null, kind: "data", source: "step" },
+    ]);
+  });
+});
+
+describe("database switch", () => {
+  it("re-checks readiness after the database clients close", async () => {
+    const { table, store } = widgetStore();
+    await store.ready();
+    await getDbExec().execute(`DROP TABLE ${table}`);
+
+    await closeDbExec();
+    await store.ready();
+
+    expect(await tableExists(table)).toBe(true);
   });
 });
 

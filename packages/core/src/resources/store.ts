@@ -1225,6 +1225,7 @@ export const resourcesStore = defineStore({
     },
     {
       name: "seed-default-resources",
+      kind: "data",
       run: (exec) => seedDefaultResources(exec),
     },
     {

@@ -1,171 +1,165 @@
+import { appPath, selectTool } from "./helpers";
 import {
   expect,
+  expectOnlyChanged,
+  styleOf,
   test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+  type App,
+  type SavedNode,
+} from "./rails";
 
-import { e2eBaseURL } from "./base-url";
-import { appPath, selectTool } from "./helpers";
+test.use({ viewport: { width: 1440, height: 1000 } });
 
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Screen</title></head>
-<body style="margin:0;min-height:900px">
-<main data-agent-native-node-id="main" style="position:relative;min-height:900px">
-  <h1 data-agent-native-node-id="hero" style="position:absolute;left:40px;top:48px">Hero</h1>
-  <p data-agent-native-node-id="copy" style="position:absolute;left:40px;top:220px">Copy</p>
-</main></body></html>`;
+<body data-agent-native-node-id="page" style="margin:0;width:800px;height:600px;background:#ffffff">
+  <h1 data-agent-native-node-id="hero" data-agent-native-layer-name="Hero" style="position:absolute;left:40px;top:40px;margin:0;font:600 32px system-ui">Hero</h1>
+  <p data-agent-native-node-id="copy" data-agent-native-layer-name="Copy" style="position:absolute;left:40px;top:160px;margin:0;font:16px system-ui">Copy</p>
+</body></html>`;
 
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await request.post(
-    `${BASE_URL}/_agent-native/actions/${name}`,
-    { data: input },
+async function openScreen(app: App) {
+  const id = await app.seed(SCREEN_HTML);
+  const { files } = await app.savedRecord(id);
+  const screenId = files.find((file) => file.filename === "index.html")!.id;
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id,
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", screenId],
+            value: { sourceType: "inline", width: 800, height: 600 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", screenId],
+            value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
+          },
+        ],
+      },
+    },
   );
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
+  expect(response.ok(), `update-design ${response.status()}`).toBe(true);
+  await app.open(id);
+  await app.zoomToFit();
+  await app.settled();
+  return id;
 }
 
-async function createDesign(request: APIRequestContext) {
-  const created = await action(request, "create-design", {
-    title: `Tool persistence QA ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const file = await action(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const fileId = file.id ?? file.data?.id;
-  if (!fileId) throw new Error("create-file returned no id");
-  await action(request, "update-design", {
-    id: designId,
-    dataOperations: [
-      {
-        op: "set",
-        path: ["screenMetadata", fileId],
-        value: { sourceType: "inline", width: 1280, height: 900 },
-      },
-      {
-        op: "set",
-        path: ["canvasFrames", fileId],
-        value: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
-      },
-    ],
-  });
-  return { designId, fileId };
+async function drawBox(
+  app: App,
+  box: { x: number; y: number; width: number; height: number },
+) {
+  const start = await app.pagePoint(box.x, box.y);
+  const end = await app.pagePoint(box.x + box.width, box.y + box.height);
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(end.x, end.y, { steps: 10 });
+  await app.page.mouse.up();
+  await app.settled();
 }
 
-async function openOverview(page: Page, designId: string) {
-  await page.goto(appPath(`/design/${designId}?view=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect
-    .poll(async () => page.locator("[data-screen-shell]").count(), {
-      timeout: 40_000,
-    })
-    .toBeGreaterThan(0);
-  await page.waitForTimeout(2500);
+async function clickCentre(app: App, nodeId: string) {
+  const rect = await app.designRect(nodeId);
+  const point = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  await app.page.mouse.click(point.x, point.y);
 }
 
-async function drawShape(page: Page, offset: number) {
-  const box = (await page.locator("[data-screen-card]").first().boundingBox())!;
-  const x = Math.max(box.x, 0) + 60 + offset;
-  const y = Math.max(box.y, 0) + 320;
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.mouse.move(x + 90, y + 70, { steps: 10 });
-  await page.mouse.up();
-  await page.waitForTimeout(2000);
+function added(before: Map<string, SavedNode>, after: Map<string, SavedNode>) {
+  return [...after.values()].filter(
+    (node) =>
+      !before.has(node.id) && node.tag !== "html" && node.tag !== "body",
+  );
 }
 
-async function drawnEllipseRadii(page: Page) {
-  return page.evaluate(() => {
-    const frame = document.querySelector<HTMLIFrameElement>(
-      "iframe[data-screen-iframe-id]",
-    );
-    const doc = frame?.contentDocument;
-    if (!doc) return [] as string[];
-    return [
-      ...doc.querySelectorAll<HTMLElement>(
-        '[data-agent-native-layer-name="Ellipse"]',
-      ),
-    ].map((el) => el.style.borderRadius);
-  });
+/** Pointer input lands on whole page pixels, so a dragged edge can be off by one page pixel in design px. */
+async function expectSavedBox(app: App, node: SavedNode, expected: number[]) {
+  const style = styleOf(node);
+  const actual = ["left", "top", "width", "height"].map((key) =>
+    Number.parseFloat(style[key]!),
+  );
+  const tolerance = Math.max(
+    1,
+    Math.ceil(1 / (await app.pagePoint(0, 0)).scale),
+  );
+  const off = actual.filter(
+    (value, index) => Math.abs(value - expected[index]!) > tolerance,
+  );
+  expect(
+    off,
+    `${node.id}: got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)} ±${tolerance}`,
+  ).toEqual([]);
 }
 
 // oracle: none — verifies which shape the Shapes button keeps arming, not parity with a design reference.
-test("the Shapes button keeps drawing the shape it was last set to", async ({
-  page,
-  request,
+test("after choosing Ellipse in the Shapes menu, the Shapes button draws ellipses again on its next use", async ({
+  app,
 }) => {
-  const { designId } = await createDesign(request);
-  try {
-    await openOverview(page, designId);
+  const id = await openScreen(app);
+  const before = await app.savedNodes(id);
+  const toolbar = app.page.locator("[data-design-bottom-toolbar]");
 
-    const toolbar = page.locator("[data-design-bottom-toolbar]");
-    await selectTool(page, "Ellipse");
-    await drawShape(page, 0);
+  await selectTool(app.page, "Ellipse");
+  await drawBox(app, { x: 300, y: 300, width: 90, height: 70 });
+  const first = await app.savedNodes(id);
+  expect(
+    added(before, first).map((node) => node.attrs["data-an-primitive"]),
+  ).toEqual(["ellipse"]);
 
-    const shapeButton = toolbar.getByRole("button", {
-      name: "Ellipse",
-      exact: true,
-    });
-    await expect(shapeButton).toBeVisible();
-    // Drawing hands the pointer back to Move, but the button still offers an Ellipse.
-    await expect(shapeButton).toHaveAttribute("aria-pressed", "false");
+  const shapeButton = toolbar.getByRole("button", {
+    name: "Ellipse",
+    exact: true,
+  });
+  // Drawing hands the pointer back to Move, but the button still offers an Ellipse.
+  await expect(shapeButton).toHaveAttribute("aria-pressed", "false");
+  await shapeButton.click();
+  await expect(shapeButton).toHaveAttribute("aria-pressed", "true");
+  await drawBox(app, { x: 500, y: 300, width: 90, height: 70 });
 
-    await shapeButton.click();
-    await expect(shapeButton).toHaveAttribute("aria-pressed", "true");
-    await drawShape(page, 200);
-
-    const radii = await drawnEllipseRadii(page);
-    expect(radii).toHaveLength(2);
-    expect(radii.every((radius) => radius === "50%")).toBe(true);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  const after = await app.savedNodes(id);
+  const ellipses = added(before, after);
+  expect(
+    ellipses.map((node) => [
+      node.attrs["data-an-primitive"],
+      styleOf(node)["border-radius"],
+    ]),
+  ).toEqual([
+    ["ellipse", "50%"],
+    ["ellipse", "50%"],
+  ]);
+  await expectSavedBox(app, ellipses[0]!, [300, 300, 90, 70]);
+  await expectSavedBox(app, ellipses[1]!, [500, 300, 90, 70]);
+  expectOnlyChanged(
+    before,
+    after,
+    ellipses.map((node) => node.id),
+  );
 });
 
-test("the scale tool stays armed when the selection changes", async ({
-  page,
-  request,
+test("the Scale tool stays armed when a canvas click changes the selection, and the click edits nothing", async ({
+  app,
 }) => {
-  const { designId } = await createDesign(request);
-  try {
-    await openOverview(page, designId);
+  const id = await openScreen(app);
+  await clickCentre(app, "hero");
+  await expect.poll(() => app.selectedLayers()).toEqual(["Hero"]);
+  const before = await app.savedNodes(id);
+  const toolbar = app.page.locator("[data-design-bottom-toolbar]");
 
-    const canvasFrame = page.frameLocator("iframe[data-screen-iframe-id]");
-    await canvasFrame
-      .locator('[data-agent-native-node-id="hero"]')
-      .click({ force: true });
-    await page.waitForTimeout(800);
+  await app.page.keyboard.press("k");
+  await expect(
+    toolbar.getByRole("button", { name: "Scale", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await clickCentre(app, "copy");
 
-    const toolbar = page.locator("[data-design-bottom-toolbar]");
-    await toolbar.getByRole("button", { name: "Move", exact: true }).click();
-    await page.keyboard.press("k");
-    await expect(
-      toolbar.getByRole("button", { name: "Scale", exact: true }),
-    ).toBeVisible();
-
-    await canvasFrame
-      .locator('[data-agent-native-node-id="copy"]')
-      .click({ force: true });
-    await page.waitForTimeout(1200);
-
-    await expect(
-      toolbar.getByRole("button", { name: "Scale", exact: true }),
-    ).toBeVisible();
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await expect.poll(() => app.selectedLayers()).toEqual(["Copy"]);
+  await expect(
+    toolbar.getByRole("button", { name: "Scale", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(id), []);
 });

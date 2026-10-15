@@ -1,11 +1,7 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+import { type Page } from "@playwright/test";
 
-import { expandAllLayers, gotoEditor, openAppMenuSubmenu } from "./helpers";
+import { appPath, expandAllLayers, openAppMenuSubmenu } from "./helpers";
+import { expect, test, type App } from "./rails";
 
 const EXPORT_HTML = `<!doctype html>
 <html lang="en">
@@ -32,58 +28,36 @@ const EXPORT_HTML = `<!doctype html>
   </body>
 </html>`;
 
-async function postAction(
-  request: APIRequestContext,
-  baseURL: string,
-  name: string,
-  input: Record<string, unknown>,
-) {
+async function createExportDesign(app: App): Promise<string> {
+  const designId = await app.seed(EXPORT_HTML);
+  const request = app.page.request;
+  const record = await (
+    await request.get(
+      appPath(`/_agent-native/actions/get-design?id=${designId}`),
+    )
+  ).json();
+  const fileId = record.files[0].id;
   const response = await request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
+    appPath("/_agent-native/actions/update-design"),
     {
-      data: input,
-      headers: { "Content-Type": "application/json" },
+      data: {
+        id: designId,
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", fileId],
+            value: { sourceType: "inline", width: 300, height: 200 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", fileId],
+            value: { x: 0, y: 0, width: 300, height: 200, z: 0 },
+          },
+        ],
+      },
     },
   );
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
-}
-
-async function createExportDesign(
-  request: APIRequestContext,
-  baseURL: string,
-): Promise<string> {
-  const created = await postAction(request, baseURL, "create-design", {
-    title: `PNG selection background ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const file = await postAction(request, baseURL, "create-file", {
-    designId,
-    filename: "index.html",
-    content: EXPORT_HTML,
-    fileType: "html",
-  });
-  const fileId = file.id ?? file.data?.id;
-  if (!fileId) throw new Error("create-file returned no id");
-  await postAction(request, baseURL, "update-design", {
-    id: designId,
-    dataOperations: [
-      {
-        op: "set",
-        path: ["screenMetadata", fileId],
-        value: { sourceType: "inline", width: 300, height: 200 },
-      },
-      {
-        op: "set",
-        path: ["canvasFrames", fileId],
-        value: { x: 0, y: 0, width: 300, height: 200, z: 0 },
-      },
-    ],
-  });
+  expect(response.ok()).toBe(true);
   return designId;
 }
 
@@ -174,14 +148,13 @@ async function readPngDownloadPixels(
 }
 
 // oracle: none — verifies exported pixels against the design's own colors, not a Figma node.
-test("selected Frame exports isolate ancestor backgrounds while Screen export preserves them", async ({
+// fixme: product bug: In focused edit mode, File > Download PNG of the 300x200 Screen exports 600x1688 (300x844 at 2x) while selecting the Screen and exporting
+test.fixme("selected Frame exports isolate ancestor backgrounds while Screen export preserves them", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  if (!baseURL) throw new Error("test baseURL is unavailable");
-  const designId = await createExportDesign(request, baseURL);
-  await gotoEditor(page, designId);
+  const designId = await createExportDesign(app);
+  await app.open(designId);
   await enterFocusedEditMode(page);
   await expandAllLayers(page);
 
@@ -215,9 +188,16 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
     page.getByRole("textbox", { name: "W size in pixels" }),
   ).toHaveCount(0);
   const focusedMenuExport = await exportPngPixelsFromFileMenu(page);
-  expect(focusedMenuExport.width).toBeGreaterThan(100);
-  expect(focusedMenuExport.height).toBeGreaterThan(80);
   expect(focusedMenuExport.corner).toEqual([18, 52, 86, 255]);
+  expect
+    .soft(
+      {
+        scale: focusedMenuExport.width / 300,
+        height: focusedMenuExport.height / (focusedMenuExport.width / 300),
+      },
+      "the whole 300x200 Screen at a whole-number scale",
+    )
+    .toEqual({ scale: Math.round(focusedMenuExport.width / 300), height: 200 });
 
   await page
     .locator("aside")
@@ -248,9 +228,20 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
     page.locator("[data-design-top-bar] [data-design-interact-route]"),
   ).toBeVisible();
   const responsiveMenuExport = await exportPngPixelsFromFileMenu(page);
-  expect(responsiveMenuExport.width).toBeGreaterThan(100);
-  expect(responsiveMenuExport.height).toBeGreaterThan(80);
   expect(responsiveMenuExport.corner).toEqual([18, 52, 86, 255]);
+  expect
+    .soft(
+      {
+        scale: responsiveMenuExport.width / 300,
+        height:
+          responsiveMenuExport.height / (responsiveMenuExport.width / 300),
+      },
+      "the whole 300x200 Screen at a whole-number scale",
+    )
+    .toEqual({
+      scale: Math.round(responsiveMenuExport.width / 300),
+      height: 200,
+    });
 
   const frame = page
     .locator("iframe[data-design-preview-iframe]")

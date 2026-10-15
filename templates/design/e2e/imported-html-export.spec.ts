@@ -8,8 +8,6 @@ import {
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
 import {
-  expect,
-  test,
   type Browser,
   type APIRequestContext,
   type Locator,
@@ -22,6 +20,7 @@ import { PDFParse } from "pdf-parse";
 import { comparePngs } from "../scripts/design-export-validation/lib/compare";
 import { redactExportDiagnostic } from "../scripts/design-export-validation/lib/redact-diagnostic";
 import { openAppMenuSubmenu } from "./helpers";
+import { expect, test } from "./rails";
 
 // PNG preparation and rendering can take about 74s. The two PDF pages can each
 // use about 124s of bounded readiness and rendering waits, plus PDF assembly.
@@ -642,12 +641,9 @@ async function runStaticDesignExportCase(
     entry,
     filename: entry.name,
   }));
-  fs.mkdirSync(path.join(REPO_ROOT, "templates/design/.tmp"), {
-    recursive: true,
-  });
-  const siteRoot = fs.mkdtempSync(
-    path.join(REPO_ROOT, "templates/design/.tmp/design-export-corpus-site-"),
-  );
+  // Outside the app root: the dev server reloads every open editor when HTML appears under its watched tree.
+  const siteRoot = testInfo.outputPath("source-site");
+  fs.mkdirSync(siteRoot, { recursive: true });
   const sourcesByPath = new Map<string, string>();
   try {
     for (const { entry, filename } of sources) {
@@ -1456,42 +1452,41 @@ const selectedFixtures = caseFilter
   : STATIC_EXPORT_FIXTURES;
 
 if (selectedFixtures.length === 0) {
-  test("requested imported HTML corpus case is available", () => {
-    throw new Error("requested imported HTML corpus case is unavailable");
-  });
-} else {
-  for (const entry of selectedFixtures) {
-    test(`static Design document ${entry.name} retains its rendered pixels through PNG export`, async ({
-      page,
-      browser,
-      request,
-      baseURL,
-    }, testInfo) => {
-      await runStaticDesignExportCase(
-        { page, browser, request, baseURL },
-        testInfo,
-        entry,
-        "png",
-      );
-    });
-  }
-
-  const pdfEntry = selectedFixtures.find(
-    (entry) => entry.name === "effects-transforms",
+  throw new Error(
+    `DESIGN_EXPORT_CORPUS_CASE=${caseFilter} names no imported HTML corpus case`,
   );
-  if (pdfEntry) {
-    test(`static Design document ${pdfEntry.name} retains its rendered pixels through all-screens PDF export`, async ({
-      page,
-      browser,
-      request,
-      baseURL,
-    }, testInfo) => {
-      await runStaticDesignExportCase(
-        { page, browser, request, baseURL },
-        testInfo,
-        pdfEntry,
-        "pdf",
-      );
-    });
-  }
+}
+for (const entry of selectedFixtures) {
+  test(`static Design document ${entry.name} retains its rendered pixels through PNG export`, async ({
+    page,
+    browser,
+    request,
+    baseURL,
+  }, testInfo) => {
+    await runStaticDesignExportCase(
+      { page, browser, request, baseURL },
+      testInfo,
+      entry,
+      "png",
+    );
+  });
+}
+
+const pdfEntry = selectedFixtures.find(
+  (entry) => entry.name === "effects-transforms",
+);
+if (pdfEntry) {
+  test(`static Design document ${pdfEntry.name} retains its rendered pixels through all-screens PDF export`, async ({
+    page,
+    browser,
+    request,
+    baseURL,
+  }, testInfo) => {
+    await runStaticDesignExportCase(
+      { page, browser, request, baseURL },
+      testInfo,
+      pdfEntry,
+      "pdf",
+    );
+  });
 }

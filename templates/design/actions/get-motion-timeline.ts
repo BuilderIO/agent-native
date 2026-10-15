@@ -16,6 +16,7 @@ import {
 import type { MotionAnimationStyleDefinition } from "../shared/motion-animation-styles.js";
 import {
   decodeMotionCodeMetadata,
+  reconcileMotionCodeDocument,
   type MotionCodeDocument,
   type MotionAudioClip,
 } from "../shared/motion-code.js";
@@ -31,7 +32,9 @@ import {
 import type { MotionEasingVariable } from "../shared/motion-easing.js";
 import {
   inspectMotionHtmlSourceWriteCapability,
+  removeUnversionedManagedMotionStyle,
   readMotionHtmlSource,
+  MotionHtmlSourceError,
   type MotionHtmlSourceWriteCapability,
 } from "../shared/motion-html-source.js";
 import { motionTextDocumentWithoutNativeStyles } from "../shared/motion-native-style-runtime.js";
@@ -209,6 +212,7 @@ async function readManagedCssFromFile(
   file: SourceWorkspaceFile,
 ): Promise<ManagedCssSource | null> {
   const { content } = await readLiveSourceFile(file);
+  let recoveredAuthoredHtmlDocument: MotionCodeDocument | null = null;
   const textRead =
     file.fileType === "html" && /\.html?$/i.test(file.filename)
       ? readMotionTextDocument(content)
@@ -220,6 +224,70 @@ async function readManagedCssFromFile(
     );
   }
   const textDocument = textRead.status === "valid" ? textRead.document : null;
+  if (file.fileType === "html" && /\.html?$/i.test(file.filename)) {
+    const htmlRead = readMotionHtmlSource(content, file.filename);
+    if (htmlRead.status === "invalid") {
+      const legacyCss =
+        htmlRead.error.code === "invalid-managed-style"
+          ? extractManagedMotionCss(content)
+          : null;
+      if (
+        !legacyCss ||
+        decodeMotionCodeMetadata(legacyCss).status !== "absent"
+      ) {
+        throw invalidManagedSource(
+          `motion_html_source_${htmlRead.error.code.replace(/-/g, "_")}`,
+          htmlRead.error,
+        );
+      }
+      let sourceWithoutLegacyBlock: string;
+      try {
+        sourceWithoutLegacyBlock = removeUnversionedManagedMotionStyle(content);
+      } catch (error) {
+        throw invalidManagedSource(
+          error instanceof MotionHtmlSourceError
+            ? `motion_html_source_${error.code.replace(/-/g, "_")}`
+            : "motion_html_source_invalid_managed_style",
+          error instanceof Error ? error : htmlRead.error,
+        );
+      }
+      const authoredHtmlRead = readMotionHtmlSource(
+        sourceWithoutLegacyBlock,
+        file.filename,
+      );
+      if (authoredHtmlRead.status === "invalid") {
+        throw invalidManagedSource(
+          `motion_html_source_${authoredHtmlRead.error.code.replace(/-/g, "_")}`,
+          authoredHtmlRead.error,
+        );
+      }
+      if (authoredHtmlRead.status === "valid") {
+        recoveredAuthoredHtmlDocument = authoredHtmlRead.document;
+      }
+    } else if (htmlRead.status === "absent") {
+      return null;
+    } else {
+      const document = htmlRead.document;
+      const nativeStyles = document?.nativeStyles ?? [];
+      const css = htmlRead.css.trim();
+      return {
+        css,
+        hash: css ? hashCss(css) : null,
+        tracks: document?.tracks ?? [],
+        animationStyles: document?.animationStyles ?? [],
+        nativeStyles,
+        easingVariables: document?.easingVariables ?? [],
+        audioClips: document?.audioClips ?? [],
+        textDocument: motionTextDocumentWithoutNativeStyles(
+          htmlRead.textDocument,
+          nativeStyles,
+        ),
+        durationMs: document?.durationMs ?? null,
+        playbackMode: htmlRead.playbackMode,
+        defaultEase: document?.defaultEase ?? null,
+      };
+    }
+  }
   const css = extractManagedMotionCss(content);
   if (!css) {
     return textDocument
@@ -247,26 +315,47 @@ async function readManagedCssFromFile(
     );
   }
 
-  const tracks =
-    metadata.status === "valid"
-      ? metadata.document.tracks
-      : parseLegacyMotionCss(css);
+  let document: MotionCodeDocument | null = null;
+  if (metadata.status === "valid") {
+    try {
+      document = reconcileMotionCodeDocument(css, metadata.document);
+    } catch (error) {
+      throw invalidManagedSource(
+        "motion_source_css_unreadable",
+        error instanceof Error ? error : "Managed Motion CSS is unreadable.",
+      );
+    }
+  }
+  const legacyTracks = document ? [] : parseLegacyMotionCss(css);
+  const authoredTracks = recoveredAuthoredHtmlDocument?.tracks ?? [];
+  const tracks = document?.tracks ?? [...legacyTracks, ...authoredTracks];
+  const trackKeys = new Set<string>();
+  for (const track of tracks) {
+    const key = `${track.targetNodeId}:${track.property}`;
+    if (trackKeys.has(key)) {
+      throw invalidManagedSource(
+        "motion_html_source_unsupported_authored_motion",
+        "Legacy managed HTML Motion and authored CSS both animate the same target property.",
+      );
+    }
+    trackKeys.add(key);
+  }
   const animationStyles =
-    metadata.status === "valid"
-      ? (metadata.document.animationStyles ?? [])
-      : [];
+    document?.animationStyles ??
+    recoveredAuthoredHtmlDocument?.animationStyles ??
+    [];
   const nativeStyles =
-    metadata.status === "valid" ? (metadata.document.nativeStyles ?? []) : [];
+    document?.nativeStyles ?? recoveredAuthoredHtmlDocument?.nativeStyles ?? [];
   const authoredTextDocument = motionTextDocumentWithoutNativeStyles(
     textDocument,
     nativeStyles,
   );
   const easingVariables =
-    metadata.status === "valid"
-      ? (metadata.document.easingVariables ?? [])
-      : [];
+    document?.easingVariables ??
+    recoveredAuthoredHtmlDocument?.easingVariables ??
+    [];
   const audioClips =
-    metadata.status === "valid" ? (metadata.document.audioClips ?? []) : [];
+    document?.audioClips ?? recoveredAuthoredHtmlDocument?.audioClips ?? [];
   if (
     tracks.length === 0 &&
     !authoredTextDocument &&
@@ -287,18 +376,23 @@ async function readManagedCssFromFile(
     easingVariables,
     audioClips,
     textDocument: authoredTextDocument,
-    durationMs:
-      metadata.status === "valid"
-        ? metadata.document.durationMs
-        : (parseTimelineSpanMs(css) ?? parseFirstAnimationDurationMs(css)),
-    playbackMode:
-      metadata.status === "valid"
-        ? (metadata.document.playbackMode ??
-          readTimelinePlaybackMode(metadata.document.tracks) ??
-          parsePlaybackMode(css))
-        : parsePlaybackMode(css),
+    durationMs: document
+      ? document.durationMs
+      : Math.max(
+          parseTimelineSpanMs(css) ?? parseFirstAnimationDurationMs(css) ?? 0,
+          recoveredAuthoredHtmlDocument?.durationMs ?? 0,
+        ) || null,
+    playbackMode: document
+      ? (document.playbackMode ??
+        readTimelinePlaybackMode(document.tracks) ??
+        parsePlaybackMode(css))
+      : (parsePlaybackMode(css) ??
+        recoveredAuthoredHtmlDocument?.playbackMode ??
+        null),
     defaultEase:
-      metadata.status === "valid" ? metadata.document.defaultEase : null,
+      document?.defaultEase ??
+      recoveredAuthoredHtmlDocument?.defaultEase ??
+      null,
   };
 }
 
@@ -505,7 +599,7 @@ async function readManagedReactForSource(args: {
       statusCode: 502,
     });
   }
-  const read = readMotionReactSource(live.content);
+  const read = readMotionReactSource(live.content, args.location.filePath);
   if (read.status === "invalid") {
     fail(read.error.message, {
       errorCode: `motion_react_source_${read.error.code.replace(/-/g, "_")}`,
@@ -609,7 +703,7 @@ async function readManagedHtmlForSource(args: {
     });
   }
 
-  const read = readMotionHtmlSource(live.content);
+  const read = readMotionHtmlSource(live.content, args.location.filePath);
   if (read.status === "invalid") {
     const stale =
       read.error.code === "stale-source" || read.error.code === "stale-preview";
@@ -683,24 +777,30 @@ async function readManagedHtmlForSource(args: {
 
 export default defineAction({
   description:
-    "Read one or all motion timelines for a design. " +
-    "Reads managed CSS from inline HTML or the verified live React/HTML source " +
-    "for an editable localhost screen; viewers receive stored source marked " +
-    "unverified. Returns timeline metadata (id, sourceRef, filePath, durationMs, " +
-    "playbackMode [loop|once|ping-pong], defaultEase, compiledHash) and the " +
-    "full tracks array (each track has targetNodeId, property, keyframes " +
-    "with per-segment easing incl. spring(...)/linear(...), and optional " +
-    "delayMs/durationMs start-offset timing). If sourceRef points at a " +
-    "design file and the metadata is missing or stale, recovers editable " +
-    "tracks (incl. offsets and playback mode) from the managed " +
-    "<style data-agent-native-motion> block. Also returns the versioned " +
-    "textDocument source for static HTML/JSX Text animations and source-backed " +
-    "audioClips containing hosted URLs and clip timing. Versioned source metadata is " +
-    "read losslessly; legacy CSS remains parseable. An all-design inline " +
-    "listing returns malformed unindexed HTML sources in recoveryErrors with " +
-    "sourceRef, errorCode, and message; an explicitly selected invalid source " +
-    "returns its validation error. Editors read live localhost React/HTML " +
-    "source; viewers receive stored source marked unverified. Read-only.",
+    "Read one or all motion timelines for a design. Reads managed CSS from " +
+    "inline HTML or verified live React/HTML source. Inline HTML <style> and " +
+    "React JSX <style> elements also import the supported static CSS Animation " +
+    "subset: one top-level animation rule per uniquely resolved simple selector, " +
+    "a matching top-level @keyframes rule, fixed timing, supported easing, and " +
+    "static keyframes. React requires one static id selector and one matching " +
+    "static JSX host; this relies on document-unique HTML ids because JSX " +
+    "<style> CSS is global. React also requires one lossless JSX text or " +
+    "string/template literal with no substitutions. Dynamic style elements, " +
+    "unresolved style props, shorthand, conditional or ambiguous CSS, " +
+    "external stylesheets, " +
+    "JSX style-prop animations/transitions, JavaScript runtime animations, " +
+    "GSAP, Web Animations API calls, and Alpine x-transition directives are " +
+    "outside this importer. Detected but " +
+    "unrepresentable inline CSS animations return a validation error instead " +
+    "of an empty timeline. Returns timeline metadata (id, sourceRef, filePath, " +
+    "durationMs, playbackMode [loop|once|ping-pong], defaultEase, compiledHash), " +
+    "tracks with targetNodeId, property, keyframes, per-segment easing " +
+    "including spring(...)/linear(...), optional delayMs/durationMs, versioned " +
+    "Text source, and source-backed audio clips with hosted URLs and timing. " +
+    "Versioned metadata is read losslessly and legacy managed CSS remains " +
+    "parseable. Inline listings report source recovery errors; selected invalid " +
+    "sources return their validation error. Editors read live localhost source; " +
+    "viewers receive stored source marked unverified. Read-only.",
   readOnly: true,
   http: { method: "GET" },
   schema: z.object({

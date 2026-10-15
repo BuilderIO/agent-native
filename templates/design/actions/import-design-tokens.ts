@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import type { BrandKitTokenType } from "@agent-native/core/brand-kit";
+import {
+  friendlyTokenName,
+  isColorTokenValue,
+} from "@agent-native/core/brand-kit";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   analyzeCodeFile,
@@ -27,24 +30,34 @@ import {
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  parseDtcgFiles,
+  toKebab,
+  withoutDanglingReferences,
+} from "../server/lib/dtcg-tokens.js";
+import {
   DESIGN_TOKEN_IMPORT_MAX_BODY_BYTES,
   DESIGN_TOKEN_IMPORT_MAX_FILES,
   DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS,
   DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
 } from "../shared/design-token-import-limits.js";
 import {
+  guessTokenType,
+  isMotionValue,
+  readTokenTypes,
+  tokenGroupForType,
+  type DesignTokenType,
+} from "../shared/design-token-types.js";
+import {
   isSafeCssTokenValue,
   isSafeCssVarName,
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
 
-type ImportedTokenType = BrandKitTokenType;
-
 interface ImportedDesignToken {
   name: string;
   cssVar: string;
   value: string;
-  type: ImportedTokenType;
+  type: DesignTokenType;
   source: string;
 }
 
@@ -161,109 +174,10 @@ function designDeepLink(designId: string): string {
   });
 }
 
-function isMotionValue(value: string): boolean {
-  const v = value.trim().toLowerCase();
-  return (
-    /^-?\d*\.?\d+m?s$/.test(v) ||
-    /^(cubic-bezier|steps|linear)\s*\(/.test(v) ||
-    /^(linear|ease|ease-in|ease-out|ease-in-out|step-start|step-end)$/.test(v)
-  );
-}
-
 function isShadowValue(value: string): boolean {
   const v = value.trim().toLowerCase();
   if (v === "none") return true;
   return /\d/.test(v) && /(px|rem|em)\b/.test(v);
-}
-
-function classifyVar(name: string, value: string): ImportedTokenType {
-  const n = name.toLowerCase();
-  if (isColorValue(value)) return "color";
-  if (/radius|rounded/i.test(n)) return "radius";
-  if (/font|size|leading|tracking|weight|heading|body|type/i.test(n)) {
-    return "typography";
-  }
-  if (/spacing|gap|padding|margin|space/i.test(n)) return "spacing";
-  if (/shadow|blur|drop|elevation/i.test(n)) return "shadow";
-  if (/duration|easing|ease|transition|animation|motion|delay/i.test(n)) {
-    return "motion";
-  }
-  if (
-    /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground|fill|stroke/i.test(
-      n,
-    ) &&
-    !/^-?\d*\.?\d+(px|rem|em|ex|ch|%|vh|vw|vmin|vmax|pt|pc|cm|mm|in|s|ms|deg|fr)?$/i.test(
-      value.trim(),
-    )
-  ) {
-    return "color";
-  }
-  return "other";
-}
-
-function isColorValue(value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  if (
-    /^(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\(|color\()/i.test(normalized)
-  ) {
-    return true;
-  }
-  return [
-    "red",
-    "blue",
-    "green",
-    "yellow",
-    "orange",
-    "purple",
-    "pink",
-    "cyan",
-    "magenta",
-    "teal",
-    "navy",
-    "maroon",
-    "coral",
-    "salmon",
-    "gold",
-    "silver",
-    "gray",
-    "grey",
-    "indigo",
-    "violet",
-    "lime",
-    "olive",
-    "aqua",
-    "fuchsia",
-    "crimson",
-    "turquoise",
-    "ivory",
-    "beige",
-    "lavender",
-    "tan",
-    "khaki",
-    "plum",
-    "orchid",
-    "sienna",
-  ].includes(normalized);
-}
-
-function toKebab(value: string): string {
-  return (
-    value
-      .trim()
-      .replace(/^--/, "")
-      .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48) || "token"
-  );
-}
-
-function friendlyName(cssVar: string): string {
-  return cssVar
-    .replace(/^--/, "")
-    .replace(/[-_]/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function normalizeValue(value: string): string {
@@ -331,10 +245,10 @@ function addCssCustomProperty(
   const value = normalizeCssCustomPropertyWhitespace(rawValue);
   const normalized = normalizeValue(value);
   const token: ImportedDesignToken = {
-    name: friendlyName(cssVar),
+    name: friendlyTokenName(cssVar),
     cssVar,
     value: normalized,
-    type: classifyVar(cssVar, normalized),
+    type: guessTokenType(cssVar, normalized),
     source: "CSS variables",
   };
   if (!isValidImportedToken(token)) return false;
@@ -500,7 +414,7 @@ function parseNamedLines(
       const lower = label.toLowerCase();
       let cssVar: string | null = null;
       if (
-        isColorValue(value) ||
+        isColorTokenValue(value) ||
         /color|background|surface|accent|brand/.test(lower)
       ) {
         cssVar = tokenVar("color", label.replace(/\bcolor\b/gi, ""));
@@ -521,10 +435,10 @@ function parseNamedLines(
 
       if (!cssVar) continue;
       tokens.push({
-        name: friendlyName(cssVar),
+        name: friendlyTokenName(cssVar),
         cssVar,
         value,
-        type: classifyVar(cssVar, value),
+        type: guessTokenType(cssVar, value),
         source: file.filename,
       });
     }
@@ -2814,6 +2728,26 @@ function isUnsafeCssImageSource(node: csstree.CssNode): boolean {
   return unsafe;
 }
 
+/**
+ * Value validation below checks against coarse CSS grammars, not the finer
+ * token types: font types share typography rules, container and breakpoint
+ * share spacing rules, and opacity (a plain number) is not checked.
+ */
+type ImportValidationKind =
+  | "color"
+  | "typography"
+  | "spacing"
+  | "radius"
+  | "shadow"
+  | "motion"
+  | "other";
+
+function validationKind(type: DesignTokenType): ImportValidationKind {
+  if (type === "motion") return "motion";
+  if (type === "opacity") return "other";
+  return tokenGroupForType(type);
+}
+
 function importedTokenGrammars(
   token: ImportedDesignToken,
 ): { kind: "property" | "type"; name: string }[] | null {
@@ -2821,14 +2755,15 @@ function importedTokenGrammars(
   const properties = (...names: string[]) =>
     names.map((property) => ({ kind: "property" as const, name: property }));
 
-  if (token.type === "radius") return properties("border-radius");
-  if (token.type === "spacing") {
+  if (validationKind(token.type) === "radius")
+    return properties("border-radius");
+  if (validationKind(token.type) === "spacing") {
     if (/gap/.test(name)) return properties("gap");
     if (/margin/.test(name)) return properties("margin");
     if (/padding/.test(name)) return properties("padding");
     return [{ kind: "type", name: "length-percentage" }];
   }
-  if (token.type === "typography") {
+  if (validationKind(token.type) === "typography") {
     if (/font[-_]?family/.test(name)) return properties("font-family");
     if (/weight/.test(name)) return properties("font-weight");
     if (/line[-_]?height|leading/.test(name)) return properties("line-height");
@@ -2845,10 +2780,10 @@ function importedTokenGrammars(
       "letter-spacing",
     );
   }
-  if (token.type === "shadow") {
+  if (validationKind(token.type) === "shadow") {
     return properties(/text/.test(name) ? "text-shadow" : "box-shadow");
   }
-  if (token.type === "motion") {
+  if (validationKind(token.type) === "motion") {
     if (/duration/.test(name)) {
       return properties("animation-duration", "transition-duration");
     }
@@ -2877,10 +2812,13 @@ function importedTokenMathDimensions(
   token: ImportedDesignToken,
 ): ReadonlySet<CssMathDimension> | null {
   const name = token.cssVar.slice(2).toLowerCase();
-  if (token.type === "spacing" || token.type === "radius") {
+  if (
+    validationKind(token.type) === "spacing" ||
+    validationKind(token.type) === "radius"
+  ) {
     return new Set(["length", "length-percentage", "percentage", "unknown"]);
   }
-  if (token.type === "typography") {
+  if (validationKind(token.type) === "typography") {
     if (/weight/.test(name)) return new Set(["number", "unknown"]);
     if (/font[-_]?family/.test(name)) return new Set();
     if (/size|text/.test(name)) {
@@ -2906,7 +2844,7 @@ function importedTokenMathDimensions(
       "unknown",
     ]);
   }
-  if (token.type === "motion") {
+  if (validationKind(token.type) === "motion") {
     if (/duration|delay/.test(name)) return new Set(["time", "unknown"]);
     if (/easing|ease|timing/.test(name)) {
       return new Set(["number", "percentage", "unknown"]);
@@ -2920,10 +2858,13 @@ function importedTokenAttrTypes(
   token: ImportedDesignToken,
 ): ReadonlySet<string> | null {
   const name = token.cssVar.slice(2).toLowerCase();
-  if (token.type === "spacing" || token.type === "radius") {
+  if (
+    validationKind(token.type) === "spacing" ||
+    validationKind(token.type) === "radius"
+  ) {
     return new Set(["length", "length-percentage", "percentage"]);
   }
-  if (token.type === "typography") {
+  if (validationKind(token.type) === "typography") {
     if (/weight/.test(name)) return new Set(["integer", "number"]);
     if (/font[-_]?family/.test(name)) {
       return new Set(["custom-ident", "string"]);
@@ -2951,7 +2892,7 @@ function importedTokenAttrTypes(
       "string",
     ]);
   }
-  if (token.type === "motion") {
+  if (validationKind(token.type) === "motion") {
     if (/duration|delay/.test(name)) return new Set(["time"]);
     if (/easing|ease|timing/.test(name)) {
       return new Set(["integer", "number", "percentage"]);
@@ -3050,8 +2991,12 @@ function matchesImportedTokenGrammar(
 
 function cssSubstitutionPlaceholders(token: ImportedDesignToken): string[] {
   const name = token.cssVar.slice(2).toLowerCase();
-  if (token.type === "radius" || token.type === "spacing") return ["1px"];
-  if (token.type === "typography") {
+  if (
+    validationKind(token.type) === "radius" ||
+    validationKind(token.type) === "spacing"
+  )
+    return ["1px"];
+  if (validationKind(token.type) === "typography") {
     if (/font[-_]?family/.test(name)) return ["serif"];
     if (/weight/.test(name)) return ["400"];
     if (/line[-_]?height|leading/.test(name)) return ["1.5"];
@@ -3059,8 +3004,9 @@ function cssSubstitutionPlaceholders(token: ImportedDesignToken): string[] {
     if (/size|text/.test(name)) return ["1rem"];
     return ["400", "1rem", "serif", "normal 400 1rem/1.5 serif"];
   }
-  if (token.type === "shadow") return ["1px", "black", "0 0 1px black"];
-  if (token.type === "motion") {
+  if (validationKind(token.type) === "shadow")
+    return ["1px", "black", "0 0 1px black"];
+  if (validationKind(token.type) === "motion") {
     if (/duration|delay/.test(name)) return ["1s"];
     if (/easing|ease|timing/.test(name)) return ["ease"];
     return ["1s", "ease", "fade-in", "opacity 1s ease"];
@@ -3198,8 +3144,9 @@ function isValidImportedToken(token: ImportedDesignToken): boolean {
   ) {
     return false;
   }
-  if (token.type === "color") return isValidCssColor(token.value);
-  if (token.type === "other") return true;
+  if (validationKind(token.type) === "color")
+    return isValidCssColor(token.value);
+  if (validationKind(token.type) === "other") return true;
   return isValidTypedCssTokenValue(token, token.value);
 }
 
@@ -3226,33 +3173,58 @@ function tokensFromFiles(
     accepted.push(file);
   }
 
+  // DTCG files are parsed together on their raw content: references can cross
+  // files, and the line sanitizing below would mangle their JSON.
+  const tokens: ImportedDesignToken[] = [];
+  const declared = new Map<ImportedDesignToken, DesignTokenType>();
+  const references = new Map<ImportedDesignToken, string[]>();
+  const dtcg = parseDtcgFiles(accepted);
+  for (const token of dtcg.tokens) {
+    const imported: ImportedDesignToken = {
+      name: friendlyTokenName(token.cssVar),
+      cssVar: token.cssVar,
+      value: token.value,
+      type: token.type ?? guessTokenType(token.cssVar, token.value),
+      source: token.source,
+    };
+    tokens.push(imported);
+    if (token.type) declared.set(imported, token.type);
+    if (token.references) references.set(imported, token.references);
+  }
+  const dtcgFiles = accepted.filter((file) =>
+    dtcg.dtcgFiles.has(file.filename),
+  );
+
   let malformedNamedLineCount = 0;
   const cssCustomPropertyImportance = new Map<string, boolean>();
-  const validFiles = accepted.filter(isValidImportFile).map((file) => {
-    let content = /\.(scss|less)$/i.test(file.filename)
-      ? stripScssLessLineComments(file.content)
-      : file.content;
-    const isHtml = /\.html?$/i.test(file.filename);
-    const htmlImport = isHtml ? prepareHtmlImport(content) : null;
-    if (htmlImport) {
-      content = htmlImport.proseContent;
-      malformedNamedLineCount += htmlImport.rejectedStylesheetCount;
-    }
-    const isStylesheet = /\.(css|scss|less)$/i.test(file.filename);
-    const isPastedStylesheet =
-      file.filename.toLowerCase() === "pasted-tokens.txt" &&
-      looksLikePastedCss(content);
-    const sanitized =
-      isStylesheet || isPastedStylesheet
-        ? { content, rejectedCount: 0 }
-        : removeMalformedNamedLines(content);
-    malformedNamedLineCount += sanitized.rejectedCount;
-    return {
-      ...file,
-      content: sanitized.content,
-      embeddedStylesheets: htmlImport?.stylesheets ?? [],
-    };
-  });
+  const validFiles = accepted
+    .filter((file) => !dtcg.dtcgFiles.has(file.filename))
+    .filter(isValidImportFile)
+    .map((file) => {
+      let content = /\.(scss|less)$/i.test(file.filename)
+        ? stripScssLessLineComments(file.content)
+        : file.content;
+      const isHtml = /\.html?$/i.test(file.filename);
+      const htmlImport = isHtml ? prepareHtmlImport(content) : null;
+      if (htmlImport) {
+        content = htmlImport.proseContent;
+        malformedNamedLineCount += htmlImport.rejectedStylesheetCount;
+      }
+      const isStylesheet = /\.(css|scss|less)$/i.test(file.filename);
+      const isPastedStylesheet =
+        file.filename.toLowerCase() === "pasted-tokens.txt" &&
+        looksLikePastedCss(content);
+      const sanitized =
+        isStylesheet || isPastedStylesheet
+          ? { content, rejectedCount: 0 }
+          : removeMalformedNamedLines(content);
+      malformedNamedLineCount += sanitized.rejectedCount;
+      return {
+        ...file,
+        content: sanitized.content,
+        embeddedStylesheets: htmlImport?.stylesheets ?? [],
+      };
+    });
   const state = createCodeAnalysisState();
   for (const file of validFiles) {
     const analysisFilename =
@@ -3331,15 +3303,15 @@ function tokensFromFiles(
     }
   }
 
-  const tokens: ImportedDesignToken[] = parseNamedLines(validFiles);
+  tokens.push(...parseNamedLines(validFiles));
 
   for (const [cssVar, value] of Object.entries(state.cssCustomProperties)) {
     const normalized = normalizeValue(value);
     tokens.push({
-      name: friendlyName(cssVar),
+      name: friendlyTokenName(cssVar),
       cssVar,
       value: normalized,
-      type: classifyVar(cssVar, normalized),
+      type: guessTokenType(cssVar, normalized),
       source: "CSS variables",
     });
   }
@@ -3353,7 +3325,7 @@ function tokensFromFiles(
         ? `--color-imported-${importedColorIndex++}`
         : tokenVar("color", key);
     tokens.push({
-      name: friendlyName(cssVar),
+      name: friendlyTokenName(cssVar),
       cssVar,
       value: normalized,
       type: "color",
@@ -3365,7 +3337,7 @@ function tokensFromFiles(
     if (key.startsWith("--")) continue;
     const cssVar = tokenVar("spacing", key);
     tokens.push({
-      name: friendlyName(cssVar),
+      name: friendlyTokenName(cssVar),
       cssVar,
       value: normalizeValue(value),
       type: "spacing",
@@ -3377,7 +3349,7 @@ function tokensFromFiles(
     if (key.startsWith("--")) continue;
     const cssVar = tokenVar("radius", key);
     tokens.push({
-      name: friendlyName(cssVar),
+      name: friendlyTokenName(cssVar),
       cssVar,
       value: normalizeValue(value),
       type: "radius",
@@ -3393,29 +3365,42 @@ function tokensFromFiles(
           ? "--font-body"
           : tokenVar("font", font.family);
     tokens.push({
-      name: friendlyName(cssVar),
+      name: friendlyTokenName(cssVar),
       cssVar,
       value: font.family,
-      type: "typography",
+      type: "font-family",
       source: font.source ?? "Fonts",
     });
   });
 
   const rejectedCount =
+    dtcg.skippedCount +
     malformedNamedLineCount +
     tokens.filter((token) => !isValidImportedToken(token)).length;
   const candidates = uniqueTokenList(tokens.filter(isValidImportedToken));
-  const imported: ImportedDesignToken[] = [];
+  const capped: ImportedDesignToken[] = [];
   for (const token of candidates) {
-    if (imported.length === 120) break;
-    imported.push(token);
+    if (capped.length === 120) break;
+    capped.push(token);
+  }
+  // The cap and filters can drop a DTCG reference's target, so prune again.
+  const imported = withoutDanglingReferences(capped, (token) =>
+    references.get(token),
+  );
+  // Only a type the file declared (DTCG `$type`) is saved; guessed types are
+  // recomputed on read so a better guess later still applies.
+  const declaredTypes: Record<string, DesignTokenType> = {};
+  for (const token of imported) {
+    const type = declared.get(token);
+    if (type) declaredTypes[token.cssVar] = type;
   }
 
   return {
-    filesAnalyzed: validFiles.map((file) => file.filename),
+    filesAnalyzed: [...dtcgFiles, ...validFiles].map((file) => file.filename),
     tokens: imported,
+    declaredTypes,
     rejectedCount,
-    skippedCount: accepted.length - validFiles.length,
+    skippedCount: accepted.length - dtcgFiles.length - validFiles.length,
     omittedFileCount,
     omittedTokenCount: candidates.length - imported.length,
   };
@@ -3425,8 +3410,10 @@ export default defineAction({
   description:
     "Import design tokens into a design from pasted text, uploaded token/code files, " +
     "or the current design files. Parses CSS variables, design.md-style notes, " +
-    "Tailwind/theme JSON, hard-coded colors, spacing, radii, and fonts, then " +
-    "persists the imported values through the same CSS-var tweak bridge used by " +
+    "Tailwind/theme JSON, DTCG (W3C design tokens) JSON, hard-coded colors, " +
+    "spacing, radii, and fonts. A DTCG `$type` is saved as the token's type; " +
+    "other tokens get a type guessed from their name. Persists the imported values " +
+    "through the same CSS-var tweak bridge used by " +
     "apply-design-token-edit. For Figma/.fig and full local-code indexing, use " +
     "the Builder-backed design-system import flow.",
   schema: tokenImportSchema,
@@ -3658,6 +3645,7 @@ export default defineAction({
     const {
       filesAnalyzed,
       tokens,
+      declaredTypes,
       rejectedCount,
       skippedCount,
       omittedFileCount,
@@ -3731,9 +3719,16 @@ export default defineAction({
               },
             ];
 
+        const tokenTypes = readTokenTypes(prevData);
+        for (const token of safeTokens) {
+          const declaredType = declaredTypes[token.cssVar];
+          if (declaredType) tokenTypes[token.cssVar] = declaredType;
+        }
+
         return {
           ...prevData,
           tweakSelections: nextSelections,
+          tokenTypes,
           tokenImportSources,
           tokenImports,
           tweaksAppliedAt: updatedAt,
@@ -3742,6 +3737,7 @@ export default defineAction({
       isApplied: (data) => {
         const tweaks = readTweaks(data);
         const selections = readSelections(data);
+        const types = readTokenTypes(data);
         const sources =
           data.tokenImportSources &&
           typeof data.tokenImportSources === "object" &&
@@ -3756,6 +3752,8 @@ export default defineAction({
             (token) =>
               selections[selectionKeyForCssVar(tweaks, token.cssVar)] ===
                 token.value &&
+              (!declaredTypes[token.cssVar] ||
+                types[token.cssVar] === declaredTypes[token.cssVar]) &&
               sources[token.cssVar] === tokenSourceLabel(token, sourceLabel),
           ) &&
           imports.some(

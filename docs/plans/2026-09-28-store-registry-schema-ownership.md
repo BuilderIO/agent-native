@@ -23,12 +23,14 @@ This proposal makes schema a **release artifact** instead of a runtime concern:
 - A generated registry lists every store. The release step applies pending
   migrations once per database and records them in a ledger table,
   `_an_store_migrations`.
-- Hosted request runtimes never issue DDL. The first time a process touches any
-  store, it reads the ledger with **one query**, shared by every store, and
-  fails loudly with `SchemaNotMigratedError` if the deploy's migrations were not
-  applied.
-- Local development and self-hosted servers keep today's self-provisioning
-  behavior through the same migration definitions.
+- Hosted functions of an app that migrates at release never issue DDL. The
+  first time a process touches any store, it reads the ledger with **one
+  query**, shared by every store, and fails loudly with
+  `SchemaNotMigratedError` if the deploy's migrations were not applied.
+- Only the release step writes the ledger. Hosted apps that do not migrate at
+  release (the default), local development and self-hosted servers keep
+  today's self-provisioning behavior through the same migration definitions,
+  without touching the ledger.
 
 ### Roadmap
 
@@ -52,7 +54,7 @@ and [Future work](#future-work-not-scheduled).
 flowchart LR
   subgraph before["Before: the request path owns schema"]
     direction TB
-    B1["Cold start"] --> B2["68 ensure*Table() calls"]
+    B1["Cold start"] --> B2["70 ensure*Table() calls"]
     B2 --> B3["Catalog probes<br/>~150 queries"]
     B2 --> B4["Backfills, ALTER TYPE,<br/>raw CREATE INDEX"]
     B3 --> DB1[("Postgres")]
@@ -62,7 +64,7 @@ flowchart LR
     direction TB
     A0["Release step"] --> A1["Apply pending migrations<br/>once per database"]
     A1 --> DB2[("_an_store_migrations")]
-    A3["Cold start"] --> A4["Read ledger once<br/>1 query, shared by all stores"]
+    A3["Cold start"] --> A4["Release-owned apps: read ledger once<br/>1 query, shared by all stores"]
     A4 --> DB2
   end
   before ~~~ after
@@ -89,7 +91,7 @@ export async function ensureTable(): Promise<void> {
 }
 ```
 
-Core had **68 stores** written this way and **664 `await ensure*()` call
+Core has **70 stores** written this way and about **1,100 `await ensure*()` call
 sites**. This is what the first call to each store did on a cold start:
 
 ```mermaid
@@ -249,7 +251,7 @@ it ran.
   agent runs, chat threads, oauth tokens, org, and others). They keep running in
   the release step after the store pass. Consolidation is an open question.
 - Changing how templates own their tables in `server/plugins/db.ts`.
-- Removing the 664 `await ensure*()` call sites in this change. They now cost a
+- Removing the ~1,100 `await ensure*()` call sites in this change. They now cost a
   resolved promise; removing them is a mechanical follow-up.
 - Reducing the cost of a fresh install. That is Phase 2.
 
@@ -264,7 +266,7 @@ flowchart LR
   subgraph src["Source (build time)"]
     M1["settings/store.ts<br/>settingsStore = defineStore(...)"]
     M2["resources/store.ts<br/>resourcesStore = defineStore(...)"]
-    M3["... 68 stores"]
+    M3["... 70 stores"]
   end
   GEN["pnpm gen:store-registry"]
   REG["store-registry.generated.ts<br/>lazy import() per store"]
@@ -382,48 +384,74 @@ stateDiagram-v2
 `store.ready()` is memoized per process and per mode. The mode is decided by
 who owns the schema, not by which platform we think we are on:
 
-| Mode             | When                                                                                                                   | What `ready()` does                                                                                                                                  |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **apply**        | Inside `withMigrationRuntime()` (the release step) or `withMigrationExecutionRuntime()`                                | Skips the store if the shared ledger snapshot already lists every migration; otherwise applies pending migrations and records each.                 |
-| **verify**       | The app migrates at release (`appMigratesAtRelease()`) and this is a hosted function or a non-local database           | Reads the ledger once per process (shared by all stores). Throws `SchemaNotMigratedError` naming missing migrations.                                 |
-| **hosted-apply** | A hosted function for an app that does **not** migrate at release (the default: `releaseMigrations` defaults to false) | `apply`, inside `withMigrationExecutionRuntime()`, matching what `ddl-guard` already permits for these apps. Steady state is the one shared read. |
-| **replay**       | Everything else: local dev, tests, self-hosted Node without a release step                                             | Runs every migration in order, as the old ensure body did. Idempotent.                                                                               |
+| Mode              | When                                                                                                       | What `ready()` does                                                                                                                                                   |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **apply**         | Inside `withMigrationRuntime()` outside a hosted function: the release step                                | Creates the ledger once, skips the store if the shared ledger snapshot lists every migration, otherwise applies pending migrations and records each. The only writer. |
+| **verify**        | A hosted function of an app that migrates at release (`appMigratesAtRelease()`)                            | Reads the ledger once per process (shared by all stores). Throws `SchemaNotMigratedError` naming missing migrations; warns instead on a borrowed schema (below).       |
+| **hosted-replay** | A hosted function of an app that does **not** migrate at release (the default)                            | `replay`, inside `withMigrationExecutionRuntime()`, exactly what `ddl-guard` already does for these apps on main. Never writes the ledger.                              |
+| **replay**        | Everything else: local dev (including against a remote database), tests, self-hosted Node                  | Runs every migration in order, as the old ensure body did. Idempotent. Never writes the ledger.                                                                        |
+| **skip**          | `AGENT_NATIVE_SKIP_ENSURE_TABLES` is set and the runtime is not the release step                           | Nothing, the operator opt-out `ddl-guard` already honors.                                                                                                              |
 
 ```mermaid
 flowchart TD
-  A["store.ready()"] --> B{"Migration runtime?"}
-  B -->|yes| APPLY["apply<br/>skip if ledger snapshot covers it,<br/>else run pending + record"]
-  B -->|no| C{"appMigratesAtRelease() and<br/>(hosted or non-local DB)?"}
+  A["store.ready()"] --> B{"Release step?"}
+  B -->|yes| APPLY["apply<br/>skip if ledger covers it,<br/>else run pending + record"]
+  B -->|no| C{"Hosted function and<br/>appMigratesAtRelease()?"}
   C -->|yes| VERIFY["verify<br/>1 shared ledger read, no DDL"]
   C -->|no| H{"Hosted function?"}
-  H -->|yes| HAPPLY["hosted-apply<br/>apply inside<br/>withMigrationExecutionRuntime"]
-  H -->|no| REPLAY["replay<br/>run every migration,<br/>idempotent, like before"]
+  H -->|yes| HREPLAY["hosted-replay<br/>as main does today,<br/>no ledger writes"]
+  H -->|no| REPLAY["replay<br/>no ledger writes"]
   VERIFY --> E{"All of this store's<br/>migrations in the ledger?"}
   E -->|yes| OK["resolve, memoized"]
-  E -->|no| ERR["throw SchemaNotMigratedError"]
+  E -->|"no, schema borrowed"| WARN["warn once, serve"]
+  E -->|"no, schema owned"| ERR["throw SchemaNotMigratedError"]
   classDef release fill:#e8f0ff,stroke:#36c
   classDef hosted fill:#e9f7ef,stroke:#2a7
   classDef local fill:#fff7e0,stroke:#c90
   classDef gap fill:#fdecec,stroke:#c33,color:#600
-  class APPLY,HAPPLY release
-  class VERIFY,OK hosted
-  class REPLAY local
+  class APPLY release
+  class VERIFY,OK,WARN hosted
+  class REPLAY,HREPLAY local
   class ERR gap
 ```
 
-The mode follows `appMigratesAtRelease()` (`db/migration-policy.ts`), the same
-predicate `ddl-guard` and `assertSchemaMutationAllowed` use, so the store runner
-cannot disagree with the guards about who owns the schema. An earlier draft
-forced `verify` on every production serverless function on the theory that DDL
-was forbidden there anyway; main has since made hosted self-provisioning an
-explicit, supported path (`withMigrationExecutionRuntime`, #6256) for apps that
-never declared release migrations, so that draft would have failed every such
-app with `SchemaNotMigratedError`.
+**Only the release step writes the ledger.** A request can never record a
+migration, for two reasons found in review. PR previews deploy without release
+migrations and point at the production database, so a request-written row
+would record a PR's unmerged migration by name in production's ledger. And a
+store is often first touched inside a caller's transaction (Better Auth
+sign-up), so anything a request writes can roll back while the process
+believes it happened. With the ledger written only at release, neither can
+happen. Hosted apps that do not migrate at release therefore pay what they pay
+on main today, not the one-query cost.
 
-The memoized `ready()` promise is wrapped in `retainRequestDbPoolScope()` once,
-in the runner. Main added that wrapper by hand to every store's `_initPromise`
-(#7320) so a Cloudflare request pool outlives a shared initialization; the
-runner now owns it, and no store repeats it.
+**Who owns the schema.** The mode follows `appMigratesAtRelease()`
+(`db/migration-policy.ts`) and the same hosted-runtime predicates as
+`ddl-guard` and `assertSchemaMutationAllowed`, so the runner and the guards
+cannot disagree. A local process with `releaseMigrations` set and a remote
+`DATABASE_URL` replays, as `ddl-guard` provisions there on main.
+
+**Borrowed schema.** A beta built with `AGENT_NATIVE_BETA_SCHEMA_OWNER=production`
+serves from production's database, which is only migrated on a manual
+promotion, so it runs ahead of that schema by design. There `verify` logs one
+warning per store naming the missing migrations and serves, as main does. A
+deploy that owns its schema still fails loudly.
+
+**Per-database state.** The ledger snapshot and every store's memo are keyed
+to the database client generation (`dbClientGeneration()`), which
+`closeDbExec()` and dev reloads bump, as is the `ddl-guard` catalog snapshot.
+Without that, a process that reconnected to another database (tests, a script
+migrating several databases) served stale readiness and could write a ledger
+row for a table the new database never got.
+
+**Pool scope.** The memoized `ready()` promise is wrapped in
+`retainRequestDbPoolScope()` once, in the runner. Main added that wrapper by
+hand to every store's `_initPromise` (#7320) so a Cloudflare request pool
+outlives a shared initialization; the runner now owns it, and no store repeats
+it.
+
+**Apply order.** The release step applies stores in registry order, which is
+by store id. A migration may therefore only touch its own store's tables.
 
 ### The registry is generated, not a side effect
 
@@ -441,9 +469,22 @@ runner now owns it, and no store repeats it.
 - **Why codegen and not a glob:** core builds with `tsc`, which has no
   `import.meta.glob`.
 
-`guard:release-schema-complete` now fails when the generated file is stale,
-when two stores share an id, or when any module executes DDL without being
-reachable from the registry or `release-migrations.ts`.
+`guard:release-schema-complete` fails when:
+
+- `store-registry.generated.ts` or `store-migrations.lock.json` is stale;
+- two stores share an id, or a `defineStore()` call is written in a form the
+  generator cannot read (it would otherwise be skipped silently);
+- a module creates tables without being reachable from the registry or
+  `release-migrations.ts`, or calls `ensureColumnExists` / `ensureIndexExists`
+  outside a registered store (two reviewed exceptions carry
+  `guard:allow-unreleased-schema`: `sharing/indexes.ts` and
+  `triggers/event-queue.ts`, which Phase 2 step 2 folds in);
+- **an existing store migration was edited, renamed, reordered or deleted**,
+  compared against the base branch's `store-migrations.lock.json`. The lock
+  records every migration's name in order and a checksum of each `sql`
+  migration (`run` bodies are not hashed; minifiers rewrite them).
+
+`guard:additive-migrations` also scans every store module for destructive DDL.
 
 ```mermaid
 flowchart LR
@@ -468,7 +509,7 @@ sequenceDiagram
   participant CI as Deploy build
   participant MP as migrate-production.ts
   participant RS as runFrameworkSchemaEnsures
-  participant ST as Each store (68)
+  participant ST as Each store (70)
   participant DB as Postgres
   CI->>MP: run release step
   MP->>RS: inside withMigrationRuntime()
@@ -550,17 +591,33 @@ flowchart LR
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `db/store-registry.ts` (new)          | `defineStore`, readiness modes, ledger, `SchemaNotMigratedError`, `schemaIsReleaseOwned()`                                                                                                                               |
 | `db/runtime-facts.ts` (new)           | `retryOnDdlRace` moved out of `client.ts` (re-exported from there) so the runner does not couple to every `vi.mock("../db/client.js")`; runtime predicates come from main's `migration-runtime.ts`                                       |
-| `db/store-registry.generated.ts` (new) | 68 stores                                                                                                                                                                                                                |
+| `db/store-registry.generated.ts` (new) | 70 stores                                                                                                                                                                                                                |
 | `guards/store-registry-codegen.ts` (new), `scripts/gen-store-registry.ts` (new) | Discovery and rendering, shared by the generator and the guard                                                                                                                                                           |
 | `guards/release-schema-complete.ts`   | Checks against the generated registry, plus staleness and duplicate ids                                                                                                                                                  |
 | `server/release-schema.ts`            | Hand-kept list of 68 entries replaced by the generated registry; asserts migration runtime                                                                                                                              |
 | `db/client.ts`                        | `getDbExec()` returns the cached guarded proxy                                                                                                                                                                           |
-| 68 store modules                      | `_initPromise` bodies became `defineStore` migrations; `ensure*()` names and signatures kept and delegate to `ready()`. Backfills, `ALTER TYPE`, and legacy index drops split into their own named migrations, in order |
+| 70 store modules                      | `_initPromise` bodies became `defineStore` migrations; `ensure*()` names and signatures kept and delegate to `ready()`. Backfills, `ALTER TYPE`, and legacy index drops split into their own named migrations, in order |
 | `corpus-jobs-store`, `staged-datasets-store` | 15 unconditional `ALTER COLUMN TYPE` replaced by `widenIntColumnsToBigInt`, which only alters columns that are still `integer`                                                                                     |
 | `identity-sso-store`, `workspace-connections/groups` | Env-sniffing early returns removed; the runner owns that decision                                                                                                                                           |
 | Dead code                             | Unreachable legacy DDL after `return;` removed from several stores                                                                                                                                                       |
+| `db/store-migrations.lock.json` (new), `guards/store-migrations-lock.ts` (new) | Every store's migration names in order plus `sql` checksums; `guard:release-schema-complete` fails on an edit, rename, reorder or delete against the base branch |
+| Ledger columns                        | `checksum`, `kind` (`schema` / `data`) and `source` (`step`, later `snapshot`) are written from the first release, because Phase 2 cannot backfill them; `core_version` is created now and left null until the release step knows its package version |
+| `guard:additive-migrations`           | Also scans store modules for destructive DDL                                                                                                                                                                             |
 
 ---
+
+## Why a new ledger instead of extending `runMigrations`
+
+`runMigrations` already has named, append-only entries and a run-once ledger,
+so extending it with a verify mode was the obvious alternative. It was not
+chosen for Phase 1 because its unit is a list, not a store: each list owns a
+bookkeeping table (eight exist), lists are registered by hand in
+`release-migrations.ts`, and nothing maps a module's DDL to the list that owns
+it, which is the property the generated registry and its guard provide. The
+cost is a ninth ledger until Phase 2 step 2 folds the lists in. If the working
+group prefers one ledger first, the migration path is the same in reverse:
+give `runMigrations` lists a store id and record them in
+`_an_store_migrations`.
 
 ## Rollout
 
@@ -579,21 +636,29 @@ sequenceDiagram
   New->>DB: 1 ledger read per cold start
 ```
 
-1. **First deploy with this change.** The release step creates
-   `_an_store_migrations` and runs every store's migrations. On an existing
-   database each baseline is a no-op (every statement is `IF NOT EXISTS` or
-   probe-guarded), backfills touch only rows that still need them, and the
-   ledger is filled. Functions are published only after the release step, so no
-   new function ever sees an empty ledger.
-2. **Old functions still serving during the deploy** never read the ledger and
+1. **Release must run before the new functions serve.** On a release-owned
+   deploy, `verify` throws `SchemaNotMigratedError` until a release step running
+   this code has filled `_an_store_migrations`. Where main silently skipped
+   DDL, that is now a loud failure: desktop SSO fails closed
+   (`consumeOneTimeJti` treats the error as a replay), workspace groups throw,
+   and durable sync events turn off. Every deploy workflow in this repo
+   publishes functions only after the release step; an app that publishes
+   first gets the typed error until it runs.
+2. **First release with this change.** It creates the ledger and runs every
+   store's migrations. On an existing database each baseline is a no-op
+   (every statement is `IF NOT EXISTS` or probe-guarded), backfills touch only
+   rows that still need them, and the ledger is filled.
+3. **Old functions still serving during the deploy** never read the ledger and
    keep working, because every migration is additive.
-3. **Beta.** The beta publish step runs the same `runFrameworkReleaseMigrations`,
-   so the beta database gets its ledger the same way.
-4. **Local and self-hosted.** Replay mode keeps today's behavior. Nothing to do.
-5. **A deploy whose release step did not run** (misconfigured app) now gets a
+4. **Beta.** Betas that own their schema run the same release step. Betas that
+   borrow production's schema warn and serve until production is promoted.
+5. **Hosted apps without release migrations, local and self-hosted.** Replay
+   keeps today's behavior and writes no ledger. Nothing to do.
+6. **A release-owned deploy whose release step did not run** gets a
    `SchemaNotMigratedError` naming the store and missing migrations on first
-   use, instead of `relation does not exist` somewhere else or, worse, a
-   `CREATE TABLE` that only succeeds depending on query order.
+   use, instead of `relation does not exist` somewhere else.
+7. **Rolling back to an older core** after a release with this change is safe:
+   older code ignores `_an_store_migrations`, and every migration was additive.
 
 ---
 
@@ -693,7 +758,11 @@ Phase 1 makes a fresh install slightly **more** expensive. Its baselines are
 the old ensure bodies and still probe through `ddl-guard` so they converge old
 tables, and every migration now writes a ledger row. Its payoff is everything
 after the first install: a second release drops from 279 calls to 62, and a
-hosted cold start drops to one query.
+release-owned hosted cold start drops to one query. Two costs remain outside
+the store runner until Phase 2: plugin boot still reads the versioned lists'
+ledgers (org, context-xray, observational-memory, Better Auth) unless the app
+migrates at release, and `resources` runs its learn-shared content migration
+once per process.
 
 Local development is where a new user meets this first: `agent-native create`,
 then `pnpm dev` on a fresh `pglite:` database. There, Phase 1 keeps `replay`, so
@@ -711,7 +780,7 @@ step by step, which is why Phase 1's baselines must still converge old tables.
 
 ```mermaid
 flowchart TD
-  A["Release step, hosted-apply, or dev apply"] --> B{"Ledger exists, or any<br/>snapshot table exists?"}
+  A["Release step, or dev apply after step 1"] --> B{"Ledger exists, or any<br/>snapshot table exists?"}
   B -->|"no: fresh database"| C["In one transaction: run schema snapshot,<br/>insert every ledger row it covers"]
   B -->|"yes: existing database"| D["Run pending migrations step by step"]
   C --> E["Run migrations added after the snapshot"]
@@ -722,6 +791,13 @@ flowchart TD
 The fresh check has to look at tables, not only the ledger. A database
 created before the ledger existed has framework tables and no ledger rows, and
 must take the step-by-step path so its baselines can add missing columns.
+Several apps can share one database (Design and Slides do), so "fresh" means no
+framework table and no ledger row from any app, not just this one.
+
+A snapshot is schema only. Migrations marked `kind: "data"` (backfills and
+seeds such as `seed-default-resources` and `seed-sync-version`) are recorded
+in the ledger with their kind already, and a snapshot install still runs
+them; marking them applied would leave fresh installs without default rows.
 
 ### Steps, in order
 
@@ -733,14 +809,17 @@ must take the step-by-step path so its baselines can add missing columns.
 2. **One ledger (Q6).** Move the 112 versioned entries (`ORG_MIGRATIONS`,
    `AGENT_RUN_MIGRATIONS` and the rest) into store migrations, so one runner and
    one ledger cover all framework schema. Without this, a snapshot has to fill
-   seven different bookkeeping tables in sync. *Exit:* `release-migrations.ts`
-   calls one runner.
+   eight different bookkeeping tables in sync. Existing databases need their
+   rows copied from those tables into `_an_store_migrations` first, or the
+   moved entries re-run. *Exit:* `release-migrations.ts` calls one runner.
 3. **Upgrade convergence test (Q9).** In CI, compare the catalog (tables,
    columns, types, indexes) of a database created fresh against one upgraded
    from a checked-in old dump. This is what proves step 4's snapshot matches
    the step-by-step path. The `notified_at` gap this proposal found by hand
    reached production before #7505 fixed it; this test is what catches that.
-   *Exit:* the test runs on every PR that touches a store.
+   The known fresh-side drift (`context_directives` timestamp columns are
+   `INTEGER` on fresh databases) needs a fixing migration first, or the test
+   fails on day one. *Exit:* the test runs on every PR that touches a store.
 4. **Framework snapshot.** `pnpm gen:schema-snapshot` runs the release step on
    an empty PGlite database and writes two checked-in files: the resulting
    schema as SQL, and the ledger rows it implies. The generator backs a
@@ -750,7 +829,10 @@ must take the step-by-step path so its baselines can add missing columns.
    statements instead of ~2,400 calls, and the convergence test also compares
    snapshot-fresh against step-by-step-fresh.
 5. **Templates (Q7).** Generate the same snapshot for each template's own
-   tables once templates declare them with `defineStore`. This matters most
+   tables once templates declare them with `defineStore`. Generated apps
+   already use managed Drizzle migrations (`db/drizzle-migrations.ts`); this
+   step has to choose between moving those onto the store runner and teaching
+   the snapshot to cover Drizzle's journal. This matters most
    for analytics (160) and content (126). *Exit:* `agent-native create` with
    any public template, then first `pnpm dev`, applies snapshots only.
 
@@ -777,7 +859,9 @@ Steps 1 to 3 are each useful on their own and can ship separately. Steps 4 and
 | Risk                                                                                | Mitigation                                                                                                                                                                                                                                                                          |
 | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Someone edits an already-applied migration instead of appending one                 | Names are validated but contents are not yet checksummed. Existing databases will not see the edit. Open question below proposes a checksum column.                                                                                                                                 |
-| A hosted app that never runs a release step                                         | If it never declared release migrations it self-provisions through `hosted-apply`, as main already allows. If it declared them and skipped the step, it gets a typed `SchemaNotMigratedError` naming the store instead of a missing relation.                                        |
+| A hosted app that never runs a release step                                         | If it never declared release migrations it replays from requests, as main does. If it declared them and skipped the step, it gets a typed `SchemaNotMigratedError` naming the store instead of a missing relation.                                                                   |
+| A store first touched inside a caller's transaction that rolls back                 | No ledger write can happen outside the release step. The per-process memo can still believe a rolled-back replay succeeded, exactly as main's `_initPromise` memo does; not made worse here, and a follow-up.                                                                        |
+| PR previews share the production database                                           | Previews never write the ledger (they do not migrate at release), so an unmerged migration cannot be recorded in production by name.                                                                                                                                                 |
 | Ledger read fails (database unreachable)                                            | Throws the underlying error and drops the snapshot, so the next request retries. Never coerced into "migrated".                                                                                                                                                                     |
 | `workspace-connections/groups` in a hosted runtime used to return silently when unmigrated | Now throws `SchemaNotMigratedError`. This is intended: a silent return hid a missing table.                                                                                                                                                                                  |
 | `sync_version` (`poll.ts`) used to be created only when hosted realtime transport was on | Now created and seeded unconditionally by the `sync_events` store, because the release step's environment may not match the functions'. It is one small additive table, and the allocator already reseeds a missing row. |
@@ -797,7 +881,7 @@ Each question names the phase that has to answer it.
 
 ```mermaid
 flowchart LR
-  P1["Phase 1, this change<br/>defineStore, registry, ledger,<br/>68 stores converted, client guard fix"]
+  P1["Phase 1, this change<br/>defineStore, registry, ledger,<br/>70 stores converted, client guard fix"]
   P2["Phase 2, next: first-time install<br/>ledger in dev (Q1), one ledger (Q6),<br/>upgrade test (Q9), snapshot,<br/>templates (Q7)"]
   P3["Later<br/>remove ensure call sites (Q2),<br/>declarative baselines, checksums (Q3, Q4)"]
   P1 --> P2 --> P3
@@ -813,7 +897,7 @@ flowchart LR
    mock `getDbExec` unchanged, and avoids a ledger table in unit-test fakes. Using
    the ledger locally would make backfills run once per database everywhere, at
    the cost of one more query per store per dev process and broader test churn.
-2. **Remove the 664 call sites.** *(Later.)* Options: keep `await ensure*()` (now a
+2. **Remove the ~1,100 call sites.** *(Later.)* Options: keep `await ensure*()` (now a
    resolved promise), or codemod to a store-scoped handle such as
    `await installationsStore.db()` that returns the executor after `ready()`.
    The handle would make "which tables does this code touch" answerable from

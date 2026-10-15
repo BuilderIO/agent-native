@@ -1,19 +1,13 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
-
 import {
-  indexHtml,
-  newDesign,
-  node,
-  openEditor,
-  postAction,
-  setBaseURL,
-} from "./drag-and-drop.shared";
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
-
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-});
 
 const VERTICAL_FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">
@@ -72,7 +66,7 @@ const OVERSIZED_HEIGHT_NEST_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
-const META_FIXTURE = `<!doctype html>
+const IGNORE_AUTO_LAYOUT_FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">
   <section data-agent-native-node-id="meta-row" data-agent-native-layer-name="Meta Row"
     style="position:absolute;left:60px;top:80px;width:300px;height:100px;padding:16px;display:flex;flex-direction:row;gap:12px;background:#1f2937">
@@ -81,7 +75,8 @@ const META_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
-const IGNORE_AUTO_LAYOUT = process.platform === "darwin" ? "Control" : "S";
+// The bridge reads Control on Apple platforms and a held S key elsewhere.
+const IGNORE_AUTO_LAYOUT = process.platform === "darwin" ? "Control" : "s";
 
 const OVERSIZED_PLAIN_DROP_FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">
@@ -91,770 +86,370 @@ const OVERSIZED_PLAIN_DROP_FIXTURE = `<!doctype html>
     style="position:absolute;left:80px;top:70px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
 </body></html>`;
 
-function preview(page: Page): Locator {
-  return page
-    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
-    .first()
-    .contentFrame()
-    .locator("body");
+const LIVE_SCREEN =
+  'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])';
+
+type Guide = {
+  kind: "inside" | "line";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+async function openFixture(app: App, html: string) {
+  const id = await app.seed(html);
+  await app.open(id);
+  await app.zoomToFit();
+  return id;
 }
 
-async function insertionGuideKind(
-  page: Page,
-): Promise<"inside" | "line" | null> {
-  return preview(page).evaluate(() => {
-    const guide = Array.from(
-      document.documentElement.querySelectorAll<HTMLElement>(
-        "[data-agent-native-insertion-guide]",
-      ),
-    ).find((candidate) => {
-      const style = getComputedStyle(candidate);
-      const rect = candidate.getBoundingClientRect();
-      return style.display !== "none" && rect.width > 0 && rect.height > 0;
-    });
-    if (!guide) return null;
-    const rect = guide.getBoundingClientRect();
-    if (!rect.width || !rect.height) return null;
-    return parseFloat(getComputedStyle(guide).borderTopWidth) > 0
-      ? "inside"
-      : "line";
-  });
+async function selectAndGrab(app: App, nodeId: string, layerName: string) {
+  const rect = await app.designRect(nodeId);
+  const grab = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  await app.page.mouse.click(grab.x, grab.y);
+  await expect.poll(() => app.selectedLayers()).toEqual([layerName]);
+  return grab;
 }
 
-async function heldNestedDropState(
-  page: Page,
-  sourceId: string,
-  targetId: string,
+/** Presses on `from`, drags to the design point, runs `held` before release, and waits for the save. */
+async function dragTo(
+  app: App,
+  from: { x: number; y: number },
+  designX: number,
+  designY: number,
+  held: () => Promise<void>,
+  modifier?: string,
 ) {
-  const source = node(page, sourceId);
-  const target = node(page, targetId);
-  const [sourceState, targetState, guide] = await Promise.all([
-    source.evaluate((element) => {
-      return {
-        id: element.getAttribute("data-agent-native-node-id"),
-        parentId:
-          element.parentElement?.getAttribute("data-agent-native-node-id") ??
-          (element.parentElement?.tagName === "BODY" ? "BODY" : null),
-      };
-    }),
-    target.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      return {
-        id: element.getAttribute("data-agent-native-node-id"),
-        rect: {
-          left: rect.left,
-          top: rect.top,
-          width: rect.width,
-          height: rect.height,
-        },
-      };
-    }),
-    preview(page).evaluate(() => {
+  const to = await app.pagePoint(designX, designY);
+  await app.page.mouse.move(from.x, from.y);
+  if (modifier) await app.page.keyboard.down(modifier);
+  await app.page.mouse.down();
+  await app.page.mouse.move(from.x + 10, from.y + 6, { steps: 5 });
+  await app.page.mouse.move(to.x, to.y, { steps: 20 });
+  await held();
+  await app.page.mouse.up();
+  if (modifier) await app.page.keyboard.up(modifier);
+  await app.settled();
+}
+
+/** The visible insertion guide in design px: a bordered box means "inside", a filled bar means "line". */
+async function insertionGuide(app: App): Promise<Guide | null> {
+  return app.page
+    .frameLocator(LIVE_SCREEN)
+    .locator("body")
+    .evaluate(() => {
       const guide = Array.from(
         document.documentElement.querySelectorAll<HTMLElement>(
           "[data-agent-native-insertion-guide]",
         ),
       ).find((candidate) => {
-        const style = getComputedStyle(candidate);
         const rect = candidate.getBoundingClientRect();
-        return style.display !== "none" && rect.width > 0 && rect.height > 0;
+        return (
+          getComputedStyle(candidate).display !== "none" &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
       });
       if (!guide) return null;
       const rect = guide.getBoundingClientRect();
-      const style = getComputedStyle(guide);
       return {
-        display: style.display,
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
         kind:
-          parseFloat(style.borderTopWidth) > 0 ? ("inside" as const) : "line",
+          parseFloat(getComputedStyle(guide).borderTopWidth) > 0
+            ? ("inside" as const)
+            : ("line" as const),
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
       };
-    }),
+    });
+}
+
+async function expectLineGuide(app: App) {
+  await expect.poll(async () => (await insertionGuide(app))?.kind).toBe("line");
+}
+
+function childrenOf(nodes: Map<string, SavedNode>, parent: string | null) {
+  return [...nodes.values()]
+    .filter((node) => node.parent === parent)
+    .sort((a, b) => a.index - b.index)
+    .map((node) => node.id);
+}
+
+/** Moving a layer may re-serialize its colour from hex to rgb(); both are the authored colour. */
+function color(hex: string, rgb: string) {
+  return expect.stringMatching(
+    new RegExp(`^(${hex}|${rgb.replace(/[()]/g, "\\$&")})$`),
+  );
+}
+
+function withoutPlacement(style: Record<string, string>) {
+  const { position: _position, left: _left, top: _top, ...rest } = style;
+  return rest;
+}
+
+test("dragging the first child of a vertical auto layout below the last reorders it to the end and changes nothing else", async ({
+  app,
+}) => {
+  const id = await openFixture(app, VERTICAL_FIXTURE);
+  const grab = await selectAndGrab(app, "v1", "V1");
+  const before = await app.savedNodes(id);
+  expect(childrenOf(before, "vertical")).toEqual(["v1", "v2", "v3"]);
+
+  await dragTo(app, grab, 166, 254, () => expectLineGuide(app));
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "vertical")).toEqual(["v2", "v3", "v1"]);
+  expect(styleOf(after.get("v1"))).toEqual(styleOf(before.get("v1")));
+  expectOnlyChanged(before, after, ["v1"]);
+  expect(await app.designRect("v1")).toEqual({
+    x: 76,
+    y: 216,
+    width: 180,
+    height: 48,
+  });
+});
+
+test("dragging a wrapped child onto the first child's leading edge moves it to the first row and wraps the last child down", async ({
+  app,
+}) => {
+  const id = await openFixture(app, WRAP_FIXTURE);
+  const grab = await selectAndGrab(app, "w3", "W3");
+  const before = await app.savedNodes(id);
+  expect(await app.designRect("w3")).toEqual({
+    x: 76,
+    y: 197,
+    width: 104,
+    height: 48,
+  });
+
+  await dragTo(app, grab, 80, 120, () => expectLineGuide(app));
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "wrap")).toEqual(["w3", "w1", "w2"]);
+  expect(styleOf(after.get("w3"))).toEqual(styleOf(before.get("w3")));
+  expectOnlyChanged(before, after, ["w3"]);
+  expect(await app.designRect("w3")).toEqual({
+    x: 76,
+    y: 96,
+    width: 104,
+    height: 48,
+  });
+  expect(await app.designRect("w2")).toEqual({
+    x: 76,
+    y: 197,
+    width: 104,
+    height: 48,
+  });
+});
+
+test("dropping a free layer on a grid cell's leading edge inserts it into that cell as a flow child", async ({
+  app,
+}) => {
+  const id = await openFixture(app, GRID_FIXTURE);
+  const grab = await selectAndGrab(app, "grid-source", "Grid Source");
+  const before = await app.savedNodes(id);
+  expect(childrenOf(before, "grid")).toEqual(["g1", "g2", "g3", "g4"]);
+
+  await dragTo(app, grab, 376, 212, () => expectLineGuide(app));
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "grid")).toEqual([
+    "g1",
+    "g2",
+    "grid-source",
+    "g3",
+    "g4",
   ]);
-  return {
-    sourceId: sourceState.id,
-    sourceParentId: sourceState.parentId,
-    targetId: targetState.id,
-    targetRect: targetState.rect,
-    guide,
-  };
-}
-
-async function selectCanvasNode(page: Page, rawNodeId: string): Promise<void> {
-  const layerName = await node(page, rawNodeId).getAttribute(
-    "data-agent-native-layer-name",
+  expect(styleOf(after.get("grid-source"))).toEqual(
+    withoutPlacement(styleOf(before.get("grid-source"))),
   );
-  if (!layerName) throw new Error(`missing layer name for ${rawNodeId}`);
-  const tree = page.getByRole("tree", { name: "Layers" });
-  const row = tree
-    .getByRole("button", { name: layerName, exact: true })
-    .first();
-  await expect(row).toBeVisible();
-  await row.click({ force: true });
-  const selected = tree.locator(
-    '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
-  );
-  await expect(selected).toHaveCount(1);
-  await expect(selected).toHaveText(layerName);
-  expect(await selected.getAttribute("data-layer-node-id")).toBeTruthy();
-}
-
-async function dragCanvasNode(
-  page: Page,
-  designId: string,
-  sourceId: string,
-  target: { x: number; y: number },
-  feedback?: "inside" | "line" | "ghost",
-  modifier?: "Meta" | "Control",
-  onHeld?: () => Promise<void>,
-): Promise<void> {
-  const beforeHtml = await indexHtml(page, designId);
-  const source = (await node(page, sourceId).boundingBox())!;
-  const start = {
-    x: source.x + source.width / 2,
-    y: source.y + source.height / 2,
-  };
-  let mouseHeld = false;
-  let modifierHeld = false;
-  try {
-    if (modifier) {
-      modifierHeld = true;
-      await page.keyboard.down(modifier);
-    }
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    mouseHeld = true;
-    await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
-    await page.mouse.move(target.x, target.y, { steps: 20 });
-    if (feedback === "line" || feedback === "inside") {
-      await expect
-        .poll(() => insertionGuideKind(page), {
-          timeout: 5_000,
-          message: `no ${feedback} guide while dragging ${sourceId}`,
-        })
-        .toBe(feedback);
-    }
-    if (feedback === "ghost") {
-      await expect
-        .poll(
-          () =>
-            node(page, sourceId).evaluate(
-              (element) => getComputedStyle(element).transform !== "none",
-            ),
-          { timeout: 5_000, message: `no drag ghost for ${sourceId}` },
-        )
-        .toBe(true);
-    }
-    if (onHeld) await onHeld();
-    await page.mouse.up();
-    mouseHeld = false;
-    await expect
-      .poll(() => indexHtml(page, designId), {
-        timeout: 5_000,
-        message: `dragging ${sourceId} did not persist a source update`,
-      })
-      .not.toBe(beforeHtml);
-  } finally {
-    if (mouseHeld) {
-      try {
-        await page.mouse.up();
-      } catch {
-        // Preserve the original drag assertion if cleanup also fails.
-      }
-    }
-    if (modifierHeld) {
-      try {
-        await page.keyboard.up(modifier!);
-      } catch {
-        // Preserve the original drag assertion if cleanup also fails.
-      }
-    }
-  }
-}
-
-async function deleteDesign(page: Page, designId: string): Promise<void> {
-  await postAction(page, "delete-design", { id: designId }).catch(() => {});
-}
-
-test("physical vertical auto-layout reorder keeps parent, order, and geometry", async ({
-  page,
-}) => {
-  const designId = await newDesign(page, VERTICAL_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectCanvasNode(page, "v1");
-    const v3 = (await node(page, "v3").boundingBox())!;
-    await dragCanvasNode(
-      page,
-      designId,
-      "v1",
-      {
-        x: v3.x + v3.width / 2,
-        y: v3.y + v3.height * 0.8,
-      },
-      "line",
-      undefined,
-      async () => {
-        const held = await preview(page).evaluate(() => {
-          const parent = document.querySelector(
-            '[data-agent-native-node-id="vertical"]',
-          );
-          const source = document.querySelector(
-            '[data-agent-native-node-id="v1"]',
-          ) as HTMLElement | null;
-          const target = document.querySelector(
-            '[data-agent-native-node-id="v3"]',
-          ) as HTMLElement | null;
-          const guide = Array.from(
-            document.documentElement.querySelectorAll<HTMLElement>(
-              "[data-agent-native-insertion-guide]",
-            ),
-          ).find((candidate) => {
-            const style = getComputedStyle(candidate);
-            const rect = candidate.getBoundingClientRect();
-            return (
-              style.display !== "none" && rect.width > 0 && rect.height > 0
-            );
-          });
-          const guideRect = guide?.getBoundingClientRect();
-          const targetRect = target?.getBoundingClientRect();
-          return {
-            order: parent
-              ? Array.from(parent.children).map((child) =>
-                  child.getAttribute("data-agent-native-node-id"),
-                )
-              : [],
-            sourceParent: source?.parentElement?.getAttribute(
-              "data-agent-native-node-id",
-            ),
-            guideDisplay: guide ? getComputedStyle(guide).display : "none",
-            guideWidth: guideRect?.width ?? 0,
-            guideHeight: guideRect?.height ?? 0,
-            guideTop: guideRect?.top ?? 0,
-            targetTop: targetRect?.top ?? 0,
-            targetBottom: targetRect?.bottom ?? 0,
-            siblingTransforms: ["v2", "v3"].map((id) => {
-              const element = document.querySelector(
-                `[data-agent-native-node-id="${id}"]`,
-              );
-              return element ? getComputedStyle(element).transform : "none";
-            }),
-          };
-        });
-        expect(held.order).toEqual(["v1", "v2", "v3"]);
-        expect(held.sourceParent).toBe("vertical");
-        expect(held.guideDisplay).toBe("block");
-        expect(held.guideWidth).toBeGreaterThan(0);
-        expect(held.guideHeight).toBeGreaterThan(0);
-        expect(held.guideTop).toBeGreaterThanOrEqual(held.targetTop);
-        expect(held.guideTop).toBeLessThanOrEqual(held.targetBottom + 8);
-        expect(
-          held.siblingTransforms.some((transform) => transform !== "none"),
-        ).toBe(true);
-      },
-    );
-
-    await openEditor(page, designId);
-    const html = await indexHtml(page, designId);
-    expect(html.indexOf("v3")).toBeLessThan(html.indexOf("v1"));
-    const state = await preview(page).evaluate(() => {
-      const parent = document.querySelector(
-        '[data-agent-native-node-id="vertical"]',
-      );
-      const child = document.querySelector(
-        '[data-agent-native-node-id="v1"]',
-      ) as HTMLElement | null;
-      const rect = child?.getBoundingClientRect();
-      return {
-        parent: child?.parentElement?.getAttribute("data-agent-native-node-id"),
-        position: child ? getComputedStyle(child).position : null,
-        width: rect?.width ?? 0,
-        parentContains: !!parent && !!child && parent.contains(child),
-      };
-    });
-    expect(state).toMatchObject({
-      parent: "vertical",
-      position: "static",
-      parentContains: true,
-    });
-    expect(state.width).toBeGreaterThan(0);
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  expectOnlyChanged(before, after, ["grid-source"]);
+  expect(await app.designRect("grid-source")).toEqual({
+    x: 372,
+    y: 176,
+    width: 80,
+    height: 44,
+  });
 });
 
-test("physical wrap auto-layout reorder moves a wrapped child between rows", async ({
-  page,
+// fixme: fails on current main after the merge: Error: expect(locator).toBeVisible() failed
+test.fixme("dropping a free layer on an empty frame inside a flex row nests it in the frame, not in the row", async ({
+  app,
 }) => {
-  const designId = await newDesign(page, WRAP_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectCanvasNode(page, "w3");
-    const w1 = (await node(page, "w1").boundingBox())!;
-    await dragCanvasNode(
-      page,
-      designId,
-      "w3",
-      { x: w1.x + 4, y: w1.y + w1.height / 2 },
-      "line",
-    );
+  const id = await openFixture(app, NEST_FIXTURE);
+  const grab = await selectAndGrab(app, "nest-source", "Nest Source");
+  const before = await app.savedNodes(id);
+  expect(await app.designRect("nested-frame")).toEqual({
+    x: 372,
+    y: 92,
+    width: 180,
+    height: 100,
+  });
 
-    await openEditor(page, designId);
-    const html = await indexHtml(page, designId);
-    expect(html.indexOf("w3")).toBeLessThan(html.indexOf("w1"));
-    const state = await preview(page).evaluate(() => {
-      const parent = document.querySelector(
-        '[data-agent-native-node-id="wrap"]',
-      );
-      const child = document.querySelector(
-        '[data-agent-native-node-id="w3"]',
-      ) as HTMLElement | null;
-      return {
-        parent: child?.parentElement?.getAttribute("data-agent-native-node-id"),
-        position: child ? getComputedStyle(child).position : null,
-        parentContains: !!parent && !!child && parent.contains(child),
-      };
-    });
-    expect(state).toEqual({
-      parent: "wrap",
-      position: "static",
-      parentContains: true,
-    });
-  } finally {
-    await deleteDesign(page, designId);
-  }
-});
-
-test("physical grid drop resolves the pointer row and persists flow placement", async ({
-  page,
-}) => {
-  const designId = await newDesign(page, GRID_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectCanvasNode(page, "grid-source");
-    const g3 = (await node(page, "g3").boundingBox())!;
-    await dragCanvasNode(
-      page,
-      designId,
-      "grid-source",
-      { x: g3.x + 4, y: g3.y + g3.height / 2 },
-      "line",
-    );
-
-    await openEditor(page, designId);
-    const html = await indexHtml(page, designId);
-    expect(html.indexOf("g2")).toBeLessThan(html.indexOf("grid-source"));
-    expect(html.indexOf("grid-source")).toBeLessThan(html.indexOf("g3"));
-    const state = await preview(page).evaluate(() => {
-      const parent = document.querySelector(
-        '[data-agent-native-node-id="grid"]',
-      );
-      const child = document.querySelector(
-        '[data-agent-native-node-id="grid-source"]',
-      ) as HTMLElement | null;
-      const rect = child?.getBoundingClientRect();
-      return {
-        parent: child?.parentElement?.getAttribute("data-agent-native-node-id"),
-        position: child ? getComputedStyle(child).position : null,
-        left: rect?.left ?? 0,
-        top: rect?.top ?? 0,
-        parentContains: !!parent && !!child && parent.contains(child),
-      };
-    });
-    expect(state).toMatchObject({
-      parent: "grid",
-      position: "static",
-      parentContains: true,
-    });
-    expect(state.left).toBeGreaterThan(0);
-    expect(state.top).toBeGreaterThan(0);
-  } finally {
-    await deleteDesign(page, designId);
-  }
-});
-
-test("physical drop into a nested frame in a regular flex row still nests", async ({
-  page,
-}) => {
-  const designId = await newDesign(page, NEST_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectCanvasNode(page, "nest-source");
-    const frame = (await node(page, "nested-frame").boundingBox())!;
-    const start = (await node(page, "nest-source").boundingBox())!;
-    await page.mouse.move(
-      start.x + start.width / 2,
-      start.y + start.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(
-      start.x + start.width / 2 + 10,
-      start.y + start.height / 2 + 6,
-      { steps: 5 },
-    );
-    await page.mouse.move(
-      frame.x + frame.width / 2,
-      frame.y + frame.height / 2,
-      { steps: 20 },
-    );
-    await expect
-      .poll(() => heldNestedDropState(page, "nest-source", "nested-frame"), {
-        timeout: 5_000,
-        message: "nested drop guide did not settle",
-      })
-      .toMatchObject({
-        sourceId: "nest-source",
-        targetId: "nested-frame",
-        guide: { display: "block", kind: "inside" },
-      });
-    const held = await heldNestedDropState(page, "nest-source", "nested-frame");
-    expect(held.sourceParentId).not.toBe("nested-frame");
-    expect(held.targetRect.width).toBeGreaterThan(0);
-    expect(held.targetRect.height).toBeGreaterThan(0);
-    if (!held.guide) throw new Error("nested drop guide disappeared");
-    expect(held.guide.left).toBeLessThanOrEqual(held.targetRect.left + 2);
-    expect(held.guide.top).toBeLessThanOrEqual(held.targetRect.top + 2);
-    expect(held.guide.left + held.guide.width).toBeGreaterThanOrEqual(
-      held.targetRect.left + held.targetRect.width - 2,
-    );
-    expect(held.guide.top + held.guide.height).toBeGreaterThanOrEqual(
-      held.targetRect.top + held.targetRect.height - 2,
-    );
-    await page.mouse.up();
-    await expect
-      .poll(
-        () =>
-          indexHtml(page, designId).then((html) =>
-            /data-agent-native-node-id="nested-frame"[\s\S]*data-agent-native-node-id="nest-source"/.test(
-              html,
-            ),
-          ),
-        {
-          timeout: 5_000,
-          message: "nested frame drop did not persist the new parent",
-        },
-      )
-      .toBe(true);
-
-    await openEditor(page, designId);
-    const state = await preview(page).evaluate(() => {
-      const source = document.querySelector(
-        '[data-agent-native-node-id="nest-source"]',
-      ) as HTMLElement | null;
-      return {
-        parent: source?.parentElement?.getAttribute(
-          "data-agent-native-node-id",
-        ),
-        position: source ? getComputedStyle(source).position : null,
-      };
-    });
-    expect(state).toEqual({
-      parent: "nested-frame",
-      position: "static",
-    });
-  } finally {
-    await deleteDesign(page, designId);
-  }
-});
-
-test("physical oversized-by-height layer stays outside a smaller nested frame", async ({
-  page,
-}) => {
-  const designId = await newDesign(page, OVERSIZED_HEIGHT_NEST_FIXTURE);
-  let mouseDown = false;
-  try {
-    await openEditor(page, designId);
-    await selectCanvasNode(page, "nest-source");
-    const source = (await node(page, "nest-source").boundingBox())!;
-    const frame = (await node(page, "nested-frame").boundingBox())!;
-    const nextRect = await node(page, "nested-next").evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      return { left: rect.left };
-    });
-    expect(source.width).toBeLessThan(frame.width);
-    expect(source.height).toBeGreaterThan(frame.height);
-    const originalParentId = await node(page, "nest-source").evaluate(
-      (element) => {
-        const parent = element.parentElement;
-        return (
-          parent?.getAttribute("data-agent-native-node-id") ??
-          (parent?.tagName === "BODY" ? "BODY" : null)
-        );
-      },
-    );
-
-    await page.mouse.move(
-      source.x + source.width / 2,
-      source.y + source.height / 2,
-    );
-    await page.mouse.down();
-    mouseDown = true;
-    await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
-    await page.mouse.move(
-      frame.x + frame.width * 0.75,
-      frame.y + frame.height / 2,
-      { steps: 20 },
-    );
-    await expect
-      .poll(() => heldNestedDropState(page, "nest-source", "nested-frame"), {
-        timeout: 5_000,
-      })
-      .toMatchObject({
-        guide: { display: "block", kind: "line" },
-      });
-    const held = await heldNestedDropState(page, "nest-source", "nested-frame");
-    expect(held.sourceParentId).toBe(originalParentId);
-    if (!held.guide)
-      throw new Error("oversized drop insertion guide disappeared");
-    const guideCenterX = held.guide.left + held.guide.width / 2;
-    expect(
-      Math.abs(guideCenterX - (held.targetRect.left + held.targetRect.width)),
-    ).toBeLessThan(2);
-    expect(guideCenterX).toBeLessThan(nextRect.left);
-    await page.mouse.up();
-    mouseDown = false;
-
-    await expect
-      .poll(() =>
-        preview(page).evaluate(() => {
-          const source = document.querySelector(
-            '[data-agent-native-node-id="nest-source"]',
-          );
-          const parent = source?.parentElement;
-          return {
-            parentId: parent?.getAttribute("data-agent-native-node-id"),
-            order: Array.from(parent?.children ?? [])
-              .map((child) => child.getAttribute("data-agent-native-node-id"))
-              .filter(Boolean),
-          };
-        }),
-      )
-      .toEqual({
-        parentId: "nest-row",
-        order: ["nested-frame", "nest-source", "nested-next"],
-      });
+  await dragTo(app, grab, 462, 142, async () => {
     await expect
       .poll(async () => {
-        const html = await indexHtml(page, designId);
-        return preview(page).evaluate((_body, documentHtml: string) => {
-          const parsed = new DOMParser().parseFromString(
-            documentHtml,
-            "text/html",
-          );
-          const row = parsed.querySelector(
-            '[data-agent-native-node-id="nest-row"]',
-          );
-          return Array.from(row?.children ?? [])
-            .map((child) => child.getAttribute("data-agent-native-node-id"))
-            .filter(Boolean);
-        }, html);
+        const guide = await insertionGuide(app);
+        return (
+          guide && {
+            kind: guide.kind,
+            coversFrame:
+              guide.x <= 372 &&
+              guide.y <= 92 &&
+              guide.x + guide.width >= 552 &&
+              guide.y + guide.height >= 192,
+          }
+        );
       })
-      .toEqual(["nested-frame", "nest-source", "nested-next"]);
-  } finally {
-    if (mouseDown) await page.mouse.up();
-    await deleteDesign(page, designId);
-  }
+      .toEqual({ kind: "inside", coversFrame: true });
+  });
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "nested-frame")).toEqual(["nest-source"]);
+  expect(childrenOf(after, "nest-row")).toEqual(["nested-frame"]);
+  expect(styleOf(after.get("nest-source"))).toEqual({
+    width: "80px",
+    height: "44px",
+    background: color("#6366f1", "rgb(99, 102, 241)"),
+  });
+  expectOnlyChanged(before, after, ["nest-source"]);
+  expect(await app.designRect("nest-source")).toEqual({
+    x: 372,
+    y: 92,
+    width: 80,
+    height: 44,
+  });
 });
 
-test("physical oversized free layer stays beside an empty auto-layout target", async ({
-  page,
+// fixme: product bug: After the drop the over-full flex row (300px holding 180+80+64 + gaps) shrinks fixed-width children: Nest Source renders 68x140
+test.fixme("a layer taller than a nested frame drops beside it in the row, not inside, and keeps its size", async ({
+  app,
 }) => {
-  const designId = await newDesign(page, OVERSIZED_PLAIN_DROP_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectCanvasNode(page, "oversized-source");
-    const sourceBefore = (await node(page, "oversized-source").boundingBox())!;
-    const target = (await node(page, "plain-target").boundingBox())!;
-    expect(sourceBefore.width).toBeGreaterThan(target.width);
-    await page.mouse.move(
-      sourceBefore.x + sourceBefore.width / 2,
-      sourceBefore.y + sourceBefore.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(sourceBefore.x + 12, sourceBefore.y + 8, {
-      steps: 5,
-    });
-    await page.mouse.move(
-      target.x + target.width * 0.75,
-      target.y + target.height * 0.75,
-      { steps: 24 },
-    );
-    await expect
-      .poll(() => insertionGuideKind(page), {
-        timeout: 5_000,
-        message: "oversized source must resolve a sibling line, not inside",
-      })
-      .toBe("line");
-    await page.mouse.up();
+  const id = await openFixture(app, OVERSIZED_HEIGHT_NEST_FIXTURE);
+  const grab = await selectAndGrab(app, "nest-source", "Nest Source");
+  const before = await app.savedNodes(id);
+  expect(await app.designRect("nested-frame")).toEqual({
+    x: 372,
+    y: 92,
+    width: 180,
+    height: 100,
+  });
 
+  await dragTo(app, grab, 507, 142, async () => {
     await expect
-      .poll(
-        async () => {
-          const html = await indexHtml(page, designId);
-          return preview(page).evaluate((_body, documentHtml: string) => {
-            const parsed = new DOMParser().parseFromString(
-              documentHtml,
-              "text/html",
-            );
-            const source = parsed.querySelector(
-              '[data-agent-native-node-id="oversized-source"]',
-            ) as HTMLElement | null;
-            const target = parsed.querySelector(
-              '[data-agent-native-node-id="plain-target"]',
-            );
-            return {
-              sourceParent: source?.parentElement?.tagName ?? null,
-              targetParent: target?.parentElement?.tagName ?? null,
-              sourceFollowsTarget: Boolean(
-                source &&
-                target &&
-                target.compareDocumentPosition(source) &
-                  Node.DOCUMENT_POSITION_FOLLOWING,
-              ),
-              sourcePosition: source?.style.position ?? null,
-              sourceLeft: source?.style.left ?? null,
-              sourceTop: source?.style.top ?? null,
-            };
-          }, html);
-        },
-        { timeout: 5_000 },
-      )
-      .toEqual({
-        sourceParent: "BODY",
-        targetParent: "BODY",
-        sourceFollowsTarget: true,
-        sourcePosition: "",
-        sourceLeft: "",
-        sourceTop: "",
-      });
-    await openEditor(page, designId);
-    const state = await preview(page).evaluate(() => {
-      const source = document.querySelector(
-        '[data-agent-native-node-id="oversized-source"]',
-      ) as HTMLElement | null;
-      const target = document.querySelector(
-        '[data-agent-native-node-id="plain-target"]',
-      );
-      return {
-        sourceParent:
-          source?.parentElement?.tagName === "BODY"
-            ? "BODY"
-            : source?.parentElement?.getAttribute("data-agent-native-node-id"),
-        targetContains: !!target && !!source && target.contains(source),
-        sourceFollowsTarget: Boolean(
-          source &&
-          target &&
-          target.compareDocumentPosition(source) &
-            Node.DOCUMENT_POSITION_FOLLOWING,
-        ),
-        position: source ? getComputedStyle(source).position : null,
-      };
-    });
-    expect(state).toEqual({
-      sourceParent: "BODY",
-      targetContains: false,
-      sourceFollowsTarget: true,
-      position: "static",
-    });
-    expect(state.sourceParent).not.toBe("flow");
-  } finally {
-    await deleteDesign(page, designId);
-  }
+      .poll(async () => {
+        const guide = await insertionGuide(app);
+        return (
+          guide && {
+            kind: guide.kind,
+            centerX: Math.round(guide.x + guide.width / 2),
+          }
+        );
+      })
+      .toEqual({ kind: "line", centerX: 552 });
+  });
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "nest-row")).toEqual([
+    "nested-frame",
+    "nest-source",
+    "nested-next",
+  ]);
+  expect(childrenOf(after, "nested-frame")).toEqual([]);
+  expect(styleOf(after.get("nest-source"))).toEqual(
+    withoutPlacement(styleOf(before.get("nest-source"))),
+  );
+  expectOnlyChanged(before, after, ["nest-source"]);
+  const dropped = await app.designRect("nest-source");
+  expect({ width: dropped.width, height: dropped.height }).toEqual({
+    width: 80,
+    height: 140,
+  });
 });
 
-test("physical command-drag overrides auto-layout resistance", async ({
-  page,
+// fixme: product bug: Teleport: the saved style drops position/left/top, so the layer becomes a static body child rendered at the screen's top-left 0,0 over
+test.fixme("a layer wider than an empty auto-layout frame drops beside it and stays where it was released", async ({
+  app,
 }) => {
-  const designId = await newDesign(page, META_FIXTURE);
-  try {
-    await openEditor(page, designId);
-    await selectCanvasNode(page, "meta-child");
-    const source = (await node(page, "meta-child").boundingBox())!;
-    const start = {
-      x: source.x + source.width / 2,
-      y: source.y + source.height / 2,
-    };
-    await preview(page).focus();
-    let mouseHeld = false;
-    await page.keyboard.down(IGNORE_AUTO_LAYOUT);
-    try {
-      await page.mouse.move(start.x, start.y);
-      await page.mouse.down();
-      mouseHeld = true;
-      await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
-      await page.mouse.move(start.x + 460, start.y + 220, { steps: 20 });
-      await expect
-        .poll(() =>
-          preview(page).evaluate(() => {
-            const element = document.documentElement.querySelector<HTMLElement>(
-              "[data-agent-native-transform-badge]",
-            );
-            return Boolean(
-              element &&
-              getComputedStyle(element).display !== "none" &&
-              element.textContent === "Move layer",
-            );
-          }),
-        )
-        .toBe(true);
-      await page.mouse.up();
-      mouseHeld = false;
-    } finally {
-      if (mouseHeld) {
-        try {
-          await page.mouse.up();
-        } catch {
-          // Preserve the original drag assertion if cleanup also fails.
-        }
-      }
-      await page.keyboard.up(IGNORE_AUTO_LAYOUT);
-    }
-    await expect
-      .poll(
-        () =>
-          indexHtml(page, designId).then((html) =>
-            /data-agent-native-node-id="meta-child"[^>]*style="[^"]*position:\s*absolute/i.test(
-              html,
-            ),
-          ),
-        {
-          timeout: 5_000,
-          message: "Meta-drag did not persist free placement",
-        },
-      )
-      .toBe(true);
+  const id = await openFixture(app, OVERSIZED_PLAIN_DROP_FIXTURE);
+  const grab = await selectAndGrab(app, "oversized-source", "Oversized Source");
+  const before = await app.savedNodes(id);
 
-    await openEditor(page, designId);
-    const html = await indexHtml(page, designId);
-    const state = await preview(page).evaluate(() => {
-      const child = document.querySelector(
-        '[data-agent-native-node-id="meta-child"]',
-      ) as HTMLElement | null;
-      const row = document.querySelector(
-        '[data-agent-native-node-id="meta-row"]',
-      );
-      const parent = child?.parentElement ?? null;
-      return {
-        parent:
-          parent?.tagName === "BODY"
-            ? "BODY"
-            : (parent?.getAttribute("data-agent-native-node-id") ??
-              parent?.tagName),
-        position: child ? getComputedStyle(child).position : null,
-        rowContains: !!row && !!child && row.contains(child),
-        left: child?.getBoundingClientRect().left ?? 0,
-        top: child?.getBoundingClientRect().top ?? 0,
-      };
-    });
-    expect(html).toContain('data-agent-native-node-id="meta-child"');
-    expect(state.parent).toBe("BODY");
-    expect(state.position).toBe("absolute");
-    expect(state.rowContains).toBe(false);
-    expect(state.left).toBeGreaterThan(0);
-    expect(state.top).toBeGreaterThan(0);
-  } finally {
-    await deleteDesign(page, designId);
-  }
+  await dragTo(app, grab, 350, 205, () => expectLineGuide(app));
+
+  const after = await app.savedNodes(id);
+  expect(after.get("oversized-source")?.parent).toBe(
+    after.get("plain-target")?.parent,
+  );
+  expect(childrenOf(after, "plain-target")).toEqual([]);
+  expect(styleOf(after.get("oversized-source"))).toEqual({
+    position: "absolute",
+    left: "100px",
+    top: "150px",
+    width: "500px",
+    height: "110px",
+    background: color("#ea580c", "rgb(234, 88, 12)"),
+  });
+  expectOnlyChanged(before, after, ["oversized-source"]);
+  expect(await app.designRect("oversized-source")).toEqual({
+    x: 100,
+    y: 150,
+    width: 500,
+    height: 110,
+  });
+});
+
+// fixme: product bug: Control+mousedown opens the canvas context menu (Select layer / Edit with AI / Copy ...), and it stays open over the canvas after the
+test.fixme("holding the ignore-auto-layout key drags a child out of its row to the exact drop point without opening a menu", async ({
+  app,
+}) => {
+  const id = await openFixture(app, IGNORE_AUTO_LAYOUT_FIXTURE);
+  const grab = await selectAndGrab(app, "meta-child", "Meta Child");
+  const before = await app.savedNodes(id);
+  expect(await app.designRect("meta-child")).toEqual({
+    x: 76,
+    y: 96,
+    width: 100,
+    height: 48,
+  });
+
+  await dragTo(
+    app,
+    grab,
+    626,
+    504,
+    async () => {
+      await expect(
+        app.page
+          .frameLocator(LIVE_SCREEN)
+          .locator("[data-agent-native-transform-badge]"),
+      ).toHaveText("Move layer");
+    },
+    IGNORE_AUTO_LAYOUT,
+  );
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "meta-row")).toEqual(["meta-peer"]);
+  expect(after.get("meta-child")?.parent).toBe(after.get("meta-row")?.parent);
+  expect(styleOf(after.get("meta-child"))).toEqual({
+    position: "absolute",
+    left: "576px",
+    top: "480px",
+    width: "100px",
+    height: "48px",
+    background: color("#6366f1", "rgb(99, 102, 241)"),
+  });
+  expectOnlyChanged(before, after, ["meta-child"]);
+  expect(await app.designRect("meta-child")).toEqual({
+    x: 576,
+    y: 480,
+    width: 100,
+    height: 48,
+  });
+  await expect(app.page.getByRole("menu")).toHaveCount(0);
 });

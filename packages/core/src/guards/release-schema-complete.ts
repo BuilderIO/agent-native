@@ -16,6 +16,7 @@ import {
   STORE_REGISTRY_FILE,
   discoverStores,
   findDuplicateStoreIds,
+  findUndiscoverableStores,
   normalizeGenerated,
   renderStoreRegistry,
 } from "./store-registry-codegen.js";
@@ -27,6 +28,7 @@ const CREATE_TABLE_RE = /\bCREATE\s+TABLE\b/i;
 const DDL_CONST_RE =
   /\b[A-Z][A-Z0-9_]*_(?:CREATE|TABLE|INDEX)_SQL(?:_[A-Z0-9]+)?\b/;
 
+const ALTERS_SCHEMA_RE = /\bensure(?:Column|Index)Exists\s*\(/;
 const definesSchema = (code: string) =>
   ENSURE_TABLE_RE.test(code) ||
   (EXECUTES_RE.test(code) &&
@@ -88,6 +90,15 @@ export function scanReleaseSchemaCoverage(
   }
 
   const stores = discoverStores(coreDir);
+  for (const file of findUndiscoverableStores(coreDir)) {
+    findings.push({
+      file,
+      line: 1,
+      message:
+        'calls defineStore() in a form the registry generator cannot read; write it as `export const xStore = defineStore({ id: "literal", ... })`.',
+    });
+  }
+  const storeFiles = new Set(stores.map((store) => store.file));
   for (const id of findDuplicateStoreIds(stores)) {
     findings.push({
       file: STORE_REGISTRY_FILE,
@@ -127,9 +138,20 @@ export function scanReleaseSchemaCoverage(
     const source = readFileSafe(file);
     if (source === null) continue;
     const code = stripComments(source);
+    if (ALLOW_MARKER_RE.test(source)) continue;
+    if (!storeFiles.has(rel) && ALTERS_SCHEMA_RE.test(code)) {
+      const lines = code.split("\n");
+      const line = lines.findIndex((text) => ALTERS_SCHEMA_RE.test(text)) + 1;
+      findings.push({
+        file: rel,
+        line: line > 0 ? line : 1,
+        message:
+          "alters schema outside a defineStore() migration. Move it into the owning store's migrations so the release step applies and records it.",
+      });
+      continue;
+    }
     if (!definesSchema(code)) continue;
     if (covered.has(rel)) continue;
-    if (ALLOW_MARKER_RE.test(source)) continue;
 
     const lines = code.split("\n");
     const line = lines.findIndex((text) => definesSchema(text)) + 1;

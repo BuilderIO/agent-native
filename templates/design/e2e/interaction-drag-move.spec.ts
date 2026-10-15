@@ -1,628 +1,400 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Locator,
-  type Page,
-} from "@playwright/test";
+import { type Page } from "@playwright/test";
 
-import { e2eBaseURL } from "./base-url";
-import {
-  setBaseURL,
-  MOD,
-  newDesign,
-  geom,
-  node,
-  openEditor,
-  selectViaTree,
-  dragBy,
-  activeOverlays,
-  toolbar,
-} from "./drag-and-drop.shared";
 import { appPath } from "./helpers";
+import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-});
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+const LIVE_SCREEN =
+  'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])';
 
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
-const SCREEN_W = 1280;
-const SCREEN_H = 900;
-const SCREEN_HTML = `<!doctype html>
-<html>
-  <head><meta charset="utf-8" /><title>Board move</title></head>
-  <body style="margin:0;min-height:${SCREEN_H}px;background:#0f1115;color:#fff"></body>
+const SHAPES = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Move</title></head>
+  <body data-agent-native-node-id="page" style="margin:0;min-height:900px;background:#0f1115">
+    <div data-agent-native-node-id="box-a" data-agent-native-layer-name="Box A" data-an-primitive="rectangle"
+         style="position:absolute;left:100px;top:100px;width:120px;height:80px;background:#3b82f6"></div>
+    <div data-agent-native-node-id="box-b" data-agent-native-layer-name="Box B" data-an-primitive="rectangle"
+         style="position:absolute;left:400px;top:300px;width:120px;height:80px;background:#22c55e"></div>
+  </body>
 </html>`;
 
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const res = await request.post(`${BASE_URL}/_agent-native/actions/${name}`, {
-    data: input,
-  });
-  if (!res.ok())
-    throw new Error(`${name}: ${res.status()} ${await res.text()}`);
-  return res.json();
+const SCREEN = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Board move</title></head>
+  <body style="margin:0;min-height:900px;background:#0f1115"></body>
+</html>`;
+
+async function openShapes(app: App) {
+  const id = await app.seed(SHAPES);
+  await app.open(id);
+  await app.zoomToFit();
+  return id;
 }
 
-async function createFrameDesign(
-  request: APIRequestContext,
-  frames: { x: number; y: number }[],
-) {
-  const created = await action(request, "create-design", {
-    title: `Move interaction ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const fileIds: string[] = [];
-  for (let i = 0; i < frames.length; i += 1) {
-    const file = await action(request, "create-file", {
-      designId,
-      filename: i === 0 ? "index.html" : `screen-${i + 1}.html`,
-      content: SCREEN_HTML,
-      fileType: "html",
-    });
-    fileIds.push(file.id ?? file.data?.id);
-  }
-  await action(request, "update-design", {
-    id: designId,
-    dataOperations: fileIds.flatMap((fileId, i) => [
-      {
-        op: "set",
-        path: ["screenMetadata", fileId],
-        value: { sourceType: "inline", width: SCREEN_W, height: SCREEN_H },
-      },
-      {
-        op: "set",
-        path: ["canvasFrames", fileId],
-        value: {
-          x: frames[i]!.x,
-          y: frames[i]!.y,
-          width: SCREEN_W,
-          height: SCREEN_H,
-          z: i,
-        },
-      },
-    ]),
-  });
-  return { designId, fileIds };
+async function clickCentre(app: App, nodeId: string) {
+  const rect = await app.designRect(nodeId);
+  const point = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  await app.page.mouse.click(point.x, point.y);
+  return point;
 }
 
-async function openOverview(page: Page, designId: string, screens: number) {
-  await page.goto(appPath(`/design/${designId}?view=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, {
-    timeout: 30_000,
-  });
-  const firstCard = page.locator("[data-screen-card]").first();
-  await expect(firstCard).toBeVisible();
-  let lastBox: { x: number; y: number } | null = null;
+/** Presses a node's centre, drags by a design-px delta and returns its rendered box while still held. */
+async function pressAndDrag(app: App, nodeId: string, dx: number, dy: number) {
+  const resting = await app.designRect(nodeId);
+  const from = await app.pagePoint(
+    resting.x + resting.width / 2,
+    resting.y + resting.height / 2,
+  );
+  await app.page.mouse.move(from.x, from.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(
+    from.x + dx * from.scale,
+    from.y + dy * from.scale,
+    {
+      steps: 16,
+    },
+  );
   await expect
-    .poll(
-      async () => {
-        const box = await firstCard.boundingBox();
-        const stable =
-          box !== null &&
-          lastBox !== null &&
-          Math.abs(box.x - lastBox.x) < 1 &&
-          Math.abs(box.y - lastBox.y) < 1;
-        lastBox = box;
-        return stable;
-      },
-      { timeout: 10_000 },
-    )
-    .toBe(true);
+    .poll(() => app.designRect(nodeId), {
+      message: `precondition: ${nodeId} follows the pointer`,
+    })
+    .not.toEqual(resting);
+  return app.designRect(nodeId);
 }
 
-async function canvasScale(page: Page): Promise<number> {
-  const card = (await page
-    .locator("[data-screen-card]")
-    .first()
-    .boundingBox())!;
-  return card.width / SCREEN_W;
+/** Visible snap guides and measurements inside the live screen. */
+function guideCount(page: Page) {
+  return page
+    .frameLocator(LIVE_SCREEN)
+    .locator("body")
+    .evaluate(
+      () =>
+        Array.from(
+          document.querySelectorAll("[data-agent-native-edit-overlay]"),
+        ).filter((element) => {
+          const kind =
+            element.getAttribute("data-agent-native-edit-overlay") ?? "";
+          const rect = element.getBoundingClientRect();
+          return (
+            /snap-guide|measurement/.test(kind) &&
+            (rect.width > 0 || rect.height > 0)
+          );
+        }).length,
+    );
 }
 
-async function visibleCentre(page: Page, locator: Locator) {
-  const box = (await locator.boundingBox())!;
-  const view = page.viewportSize()!;
+type Frame = { x: number; y: number; width: number; height: number };
+
+async function designRecord(app: App, id: string) {
+  const response = await app.page.request.get(
+    appPath(`/_agent-native/actions/get-design?id=${id}`),
+  );
+  expect(response.ok(), `get-design ${response.status()}`).toBe(true);
+  const record = await response.json();
+  const fileIds: Record<string, string> = Object.fromEntries(
+    record.files.map((file: { filename: string; id: string }) => [
+      file.filename,
+      file.id,
+    ]),
+  );
+  const data =
+    typeof record.data === "string" ? JSON.parse(record.data) : record.data;
+  return { data, fileIds };
+}
+
+async function savedFrames(app: App, id: string) {
+  const { data, fileIds } = await designRecord(app, id);
   return {
-    x: (Math.max(box.x, 0) + Math.min(box.x + box.width, view.width)) / 2,
-    y: (Math.max(box.y, 0) + Math.min(box.y + box.height, view.height)) / 2,
+    first: data.canvasFrames[fileIds["index.html"]] as Frame,
+    second: data.canvasFrames[fileIds["screen-2.html"]] as Frame,
   };
 }
 
-async function frameOffsets(page: Page) {
-  return page.evaluate(() =>
-    Object.fromEntries(
-      Array.from(document.querySelectorAll<HTMLElement>("[data-frame-id]")).map(
-        (n) => [
-          n.getAttribute("data-frame-id")!,
+/** Two 1280x900 screens far apart on the board, the second selected by its name label. */
+async function selectSecondScreen(app: App) {
+  const id = await app.seed(SCREEN, { files: { "screen-2.html": SCREEN } });
+  const { fileIds: files } = await designRecord(app, id);
+  const placed = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id,
+        dataOperations: [
+          [files["index.html"], 0],
+          [files["screen-2.html"], 3000],
+        ].flatMap(([fileId, at], z) => [
           {
-            left: Number.parseFloat(n.style.left),
-            top: Number.parseFloat(n.style.top),
+            op: "set",
+            path: ["screenMetadata", fileId],
+            value: { sourceType: "inline", width: 1280, height: 900 },
           },
-        ],
-      ),
-    ),
+          {
+            op: "set",
+            path: ["canvasFrames", fileId],
+            value: { x: at, y: at, width: 1280, height: 900, z },
+          },
+        ]),
+      },
+    },
   );
-}
-
-async function selectFrame(page: Page, index: number) {
-  await page.locator("[data-frame-label]").nth(index).click();
-  await expect(page.locator("[data-frame-drag-surface]")).toBeVisible();
-}
-
-async function zoomOut(page: Page, times = 4) {
-  for (let i = 0; i < times; i += 1) {
-    await page.keyboard.press(`${MOD}+-`);
-    await page.waitForTimeout(150);
-  }
-  await page.waitForTimeout(300);
-}
-
-test("in-screen: a drag moves the element by exactly the pointer delta at the current zoom", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await zoomOut(page, 1);
-  await selectViaTree(page, "Box A");
-  const before = await geom(page, id, "box-a");
-  await dragBy(page, (await node(page, "box-a").boundingBox())!, 300, 150, {
-    settle: false,
+  expect(placed.ok(), `update-design ${placed.status()}`).toBe(true);
+  await app.page.goto(appPath(`/design/${id}?view=overview`), {
+    waitUntil: "domcontentloaded",
   });
-  await expect
-    .poll(async () => (await geom(page, id, "box-a")).left)
-    .not.toBe(before.left);
-  const after = await geom(page, id, "box-a");
-  const contentDx = after.left - before.left;
-  const contentDy = after.top - before.top;
-  expect(
-    [contentDx / 300, contentDy / 150],
-    `at a zoomed-out canvas, requested a (300,150) content-px move; got (${contentDx},${contentDy}) — the pointer delta was not applied 1:1 in content space`,
-  ).toEqual([expect.closeTo(1, 0.15), expect.closeTo(1, 0.15)]);
-});
-
-test("overview: dragging a screen frame moves it by exactly the pointer delta at the current zoom", async ({
-  page,
-  request,
-}) => {
-  const { designId, fileIds } = await createFrameDesign(request, [
-    { x: 0, y: 0 },
-    { x: 3000, y: 3000 },
-  ]);
-  try {
-    await openOverview(page, designId, 2);
-    await page.keyboard.press(`${MOD}+-`);
-    await page.keyboard.press(`${MOD}+-`);
-    await page.waitForTimeout(300);
-    await selectFrame(page, 1);
-    const scale = await canvasScale(page);
-    const before = await frameOffsets(page);
-    const start = await visibleCentre(
-      page,
-      page.locator("[data-frame-drag-surface]"),
-    );
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    await page.mouse.move(start.x + 240, start.y + 120, { steps: 20 });
-    await page.waitForTimeout(400);
-    await page.mouse.up();
-    await page.waitForTimeout(800);
-    const after = await frameOffsets(page);
-    const dx = after[fileIds[1]!]!.left - before[fileIds[1]!]!.left;
-    const dy = after[fileIds[1]!]!.top - before[fileIds[1]!]!.top;
-    const expectedDx = 240 / scale;
-    const expectedDy = 120 / scale;
-    expect(
-      [dx / expectedDx, dy / expectedDy],
-      `at canvas scale ${scale.toFixed(3)}, expected canvas delta ~(${expectedDx.toFixed(1)},${expectedDy.toFixed(1)}), got (${dx},${dy})`,
-    ).toEqual([expect.closeTo(1, 0.15), expect.closeTo(1, 0.15)]);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
-});
-
-test("overview: Shift+drag constrains a screen frame move to one axis", async ({
-  page,
-  request,
-}) => {
-  const { designId, fileIds } = await createFrameDesign(request, [
-    { x: 0, y: 0 },
-    { x: 3000, y: 3000 },
-  ]);
-  try {
-    await openOverview(page, designId, 2);
-    await selectFrame(page, 1);
-    const before = await frameOffsets(page);
-    const start = await visibleCentre(
-      page,
-      page.locator("[data-frame-drag-surface]"),
-    );
-    await page.keyboard.down("Shift");
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    await page.mouse.move(start.x + 260, start.y + 20, { steps: 20 });
-    await page.waitForTimeout(400);
-    await page.mouse.up();
-    await page.keyboard.up("Shift");
-    await page.waitForTimeout(800);
-    const after = await frameOffsets(page);
-    const dx = after[fileIds[1]!]!.left - before[fileIds[1]!]!.left;
-    expect(dx, "the free axis should still have moved").toBeGreaterThan(60);
-    expect(
-      after[fileIds[1]!]!.top,
-      `Shift+drag was mostly horizontal but top changed ${before[fileIds[1]!]!.top} -> ${after[fileIds[1]!]!.top}`,
-    ).toBe(before[fileIds[1]!]!.top);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
-});
-
-test("in-screen: Escape mid-drag cancels the move and restores the exact original position", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  const before = await geom(page, id, "box-a");
-  await dragBy(page, (await node(page, "box-a").boundingBox())!, 200, 100, {
-    cancel: true,
+  await expect(app.page.locator("[data-screen-shell]")).toHaveCount(2, {
+    timeout: 30_000,
   });
-  const after = await geom(page, id, "box-a");
-  if (after.left !== before.left || after.top !== before.top) {
-    const trace = await page
-      .evaluate(() => (window as any).__designTrace?.dump?.())
-      .catch(() => undefined);
-    console.log(
-      "designTrace after failed Escape-cancel:",
-      JSON.stringify(trace)?.slice(0, 2000),
-    );
-  }
-  expect(
-    [after.left, after.top],
-    `Escape mid-drag must restore the start position (${before.left},${before.top}); got (${after.left},${after.top})`,
-  ).toEqual([before.left, before.top]);
-});
-
-test("in-screen: Escape after a completed drag does NOT revert it (host focus and iframe focus)", async ({
-  page,
-}) => {
-  // expected behavior: Escape only cancels a drag while it is live; once the pointer
-  // releases, the move is committed and a later Escape (even 1ms later) must
-  // leave it alone. A prior fix made a *late-arriving* cancel message from an
-  // Escape that predates the mouseup still win the postMessage race — but
-  // that same 200ms grace window would also wrongly revert an Escape a user
-  // genuinely presses after the drag is already done, unless the pending
-  // revert is ordered by when Escape was actually pressed, not by when its
-  // message shows up. Cover both routes a real Escape can take from here:
-  // iframe focus (the bridge's own local keydown listener) and host focus
-  // (the async "agent-native:cancel-active-drag" postMessage).
-  const id = await newDesign(page);
-  await openEditor(page, id);
-
-  await selectViaTree(page, "Box A");
-  const beforeA = await geom(page, id, "box-a");
-  const boxA = (await node(page, "box-a").boundingBox())!;
-  await page.mouse.move(boxA.x + boxA.width / 2, boxA.y + boxA.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(
-    boxA.x + boxA.width / 2 + 200,
-    boxA.y + boxA.height / 2 + 100,
-    { steps: 16 },
-  );
-  await page.waitForTimeout(350);
-  await page.mouse.up();
-  await page.waitForTimeout(50);
-  await page.keyboard.press("Escape");
-  await page.waitForTimeout(300);
-  const afterA = await geom(page, id, "box-a");
-  expect(
-    [afterA.left, afterA.top],
-    `iframe-focus Escape after release must not revert Box A from (${afterA.left},${afterA.top}) back to (${beforeA.left},${beforeA.top})`,
-  ).not.toEqual([beforeA.left, beforeA.top]);
-
-  await selectViaTree(page, "Box B");
-  const beforeB = await geom(page, id, "box-b");
-  const boxB = (await node(page, "box-b").boundingBox())!;
-  await page.mouse.move(boxB.x + boxB.width / 2, boxB.y + boxB.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(
-    boxB.x + boxB.width / 2 + 200,
-    boxB.y + boxB.height / 2 + 100,
-    { steps: 16 },
-  );
-  await page.waitForTimeout(350);
-  await page.mouse.up();
-  await toolbar(page).locator('button[aria-label="Move"]').click();
-  await page.keyboard.press("Escape");
-  await page.waitForTimeout(300);
-  const afterB = await geom(page, id, "box-b");
-  expect(
-    [afterB.left, afterB.top],
-    `host-focus Escape after release must not revert Box B from (${afterB.left},${afterB.top}) back to (${beforeB.left},${beforeB.top})`,
-  ).not.toEqual([beforeB.left, beforeB.top]);
-});
-
-test("in-screen drag: a delayed cancel for gesture A does not cancel gesture B once B has started", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-
-  await selectViaTree(page, "Box A");
-  const beforeA = await geom(page, id, "box-a");
-  const boxA = (await node(page, "box-a").boundingBox())!;
-  await page.mouse.move(boxA.x + boxA.width / 2, boxA.y + boxA.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(
-    boxA.x + boxA.width / 2 + 200,
-    boxA.y + boxA.height / 2 + 100,
-    { steps: 16 },
-  );
-  await page.waitForTimeout(350);
-  const stalePressedAt = await page.evaluate(() => Date.now());
-  await page.mouse.up();
-  await expect
-    .poll(() => geom(page, id, "box-a"), {
-      timeout: 15_000,
-      message: "gesture A must have moved and committed",
-    })
-    .not.toEqual(beforeA);
-  const afterA = await geom(page, id, "box-a");
-
-  await selectViaTree(page, "Box B");
-  const beforeB = await geom(page, id, "box-b");
-  const boxB = (await node(page, "box-b").boundingBox())!;
-  await page.mouse.move(boxB.x + boxB.width / 2, boxB.y + boxB.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(
-    boxB.x + boxB.width / 2 + 200,
-    boxB.y + boxB.height / 2 + 100,
-    { steps: 16 },
-  );
-  await page.waitForTimeout(350);
-
-  await page.evaluate((pressedAt) => {
-    document
-      .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
-      .forEach((iframe) => {
-        iframe.contentWindow?.postMessage(
-          { type: "agent-native:cancel-active-drag", pressedAt },
-          "*",
-        );
-      });
-  }, stalePressedAt);
-  await page.waitForTimeout(100);
-
-  await page.mouse.up();
-  await expect
-    .poll(() => geom(page, id, "box-b"), {
-      timeout: 15_000,
-      message:
-        "B must have moved and committed; A's stale cancel must not have cancelled B",
-    })
-    .not.toEqual(beforeB);
-  const afterAFinal = await geom(page, id, "box-a");
-  expect(
-    afterAFinal,
-    "A must remain exactly where its own drag committed it",
-  ).toEqual(afterA);
-});
-
-test("overview: Escape mid-drag cancels a screen-frame drag and restores its original position", async ({
-  page,
-  request,
-}) => {
-  const { designId, fileIds } = await createFrameDesign(request, [
-    { x: 0, y: 0 },
-    { x: 3000, y: 3000 },
-  ]);
-  try {
-    await openOverview(page, designId, 2);
-    await selectFrame(page, 1);
-    const before = await frameOffsets(page);
-    const start = await visibleCentre(
-      page,
-      page.locator("[data-frame-drag-surface]"),
-    );
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    await page.mouse.move(start.x + 240, start.y + 120, { steps: 20 });
-    await page.waitForTimeout(300);
-    await page.keyboard.press("Escape");
-    await page.mouse.up();
-    await page.waitForTimeout(800);
-    const after = await frameOffsets(page);
-    expect(
-      [after[fileIds[1]!]!.left, after[fileIds[1]!]!.top],
-      `Escape mid-drag must restore the original frame position (${before[fileIds[1]!]!.left},${before[fileIds[1]!]!.top}); got (${after[fileIds[1]!]!.left},${after[fileIds[1]!]!.top})`,
-    ).toEqual([before[fileIds[1]!]!.left, before[fileIds[1]!]!.top]);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
-});
-
-test("in-screen: smart guides disappear once the drop commits", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  const a = (await node(page, "box-a").boundingBox())!;
-  const b = (await node(page, "box-b").boundingBox())!;
-  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(a.x + a.width / 2, b.y - a.height, { steps: 18 });
-  await page.waitForTimeout(900);
-  const duringDrag = (await activeOverlays(page)).filter((k) =>
-    /snap-guide|measurement/.test(k),
-  ).length;
-  await page.mouse.up();
+  await app.page.locator("[data-frame-label]").nth(1).click();
+  const surface = app.page.locator("[data-frame-drag-surface]");
+  await expect(surface).toBeVisible();
+  const card = app.page.locator("[data-screen-card]").nth(1);
+  let previous = "";
   await expect
     .poll(
-      async () =>
-        (await activeOverlays(page)).filter((k) =>
-          /snap-guide|measurement/.test(k),
-        ).length,
-      { timeout: 10_000 },
+      async () => {
+        const now = JSON.stringify(await card.boundingBox());
+        const stable = now === previous;
+        previous = now;
+        return stable;
+      },
+      { intervals: [150], message: "the camera never settled on the screen" },
     )
-    .toBe(0);
-  const afterDrop = (await activeOverlays(page)).filter((k) =>
-    /snap-guide|measurement/.test(k),
-  ).length;
-  expect(
-    duringDrag,
-    "the drag itself never produced a guide to test disappearance of",
-  ).toBeGreaterThan(0);
-  expect(
-    afterDrop,
-    `guide overlays stayed painted after mouseup (count=${afterDrop}); they must clear on drop`,
-  ).toBe(0);
-});
-
-async function dragContentPx(
-  page: Page,
-  nodeId: string,
-  contentDx: number,
-  contentDy: number,
-): Promise<{ left: string; top: string }> {
-  const frame = page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame();
-  return frame.locator("body").evaluate(
-    (_body, { nodeId: id, contentDx, contentDy }) => {
-      const box = document.querySelector<HTMLElement>(
-        `[data-agent-native-node-id="${id}"]`,
-      );
-      if (!box) throw new Error(`${id} not found in this frame`);
-      const dx = contentDx;
-      const dy = contentDy;
-      const rect = box.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      const fire = (kind: "down" | "move" | "up", x: number, y: number) => {
-        const init = {
-          bubbles: true,
-          cancelable: true,
-          clientX: x,
-          clientY: y,
-          button: 0,
-          buttons: kind === "up" ? 0 : 1,
-          pointerId: 1,
-          isPrimary: true,
-          pointerType: "mouse",
-        };
-        const target = document.elementFromPoint(x, y) ?? document.body;
-        target.dispatchEvent(new PointerEvent(`pointer${kind}`, init));
-        target.dispatchEvent(
-          new MouseEvent(
-            kind === "down"
-              ? "mousedown"
-              : kind === "move"
-                ? "mousemove"
-                : "mouseup",
-            init,
-          ),
-        );
-      };
-      const prime = 3.5;
-      fire("down", cx, cy);
-      fire(
-        "move",
-        cx + Math.sign(dx || 1) * prime,
-        cy + Math.sign(dy || 1) * prime,
-      );
-      fire("move", cx + dx, cy + dy);
-      fire("up", cx + dx, cy + dy);
-      return { left: box.style.left, top: box.style.top };
-    },
-    { nodeId, contentDx, contentDy },
-  );
+    .toBe(true);
+  await app.settled();
+  const before = await savedFrames(app, id);
+  const box = (await surface.boundingBox())!;
+  const view = app.page.viewportSize()!;
+  const start = {
+    x: (Math.max(box.x, 0) + Math.min(box.x + box.width, view.width)) / 2,
+    y: (Math.max(box.y, 0) + Math.min(box.y + box.height, view.height)) / 2,
+  };
+  const scale = (await card.boundingBox())!.width / 1280;
+  return { id, before, start, scale };
 }
 
-test("in-screen: an offset inside the snap threshold lands exactly on the aligned edge", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  const before = await geom(page, id, "box-a");
-  const result = await dragContentPx(page, "box-a", 3, 40);
-  expect(result.top, "the element never moved").not.toBe(`${before.top}px`);
-  expect(
-    result.left,
-    `a 3px-off nudge should have snapped back onto the shared left edge (30px); landed at ${result.left}`,
-  ).toBe("30px");
-});
+test.describe("in-screen moves", () => {
+  test("in-screen drag: a delayed cancel for gesture A does not cancel gesture B once B has started", async ({
+    app,
+    page,
+  }) => {
+    const id = await openShapes(app);
+    const start = await app.savedNodes(id);
+    await clickCentre(app, "box-a");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    const heldA = await pressAndDrag(app, "box-a", 200, 100);
+    const stalePressedAt = await page.evaluate(() => Date.now());
+    await page.mouse.up();
+    await app.settled();
+    const afterA = await app.savedNodes(id);
+    expect(styleOf(afterA.get("box-a")), "precondition: A committed").toEqual({
+      ...styleOf(start.get("box-a")),
+      left: `${heldA.x}px`,
+      top: `${heldA.y}px`,
+    });
 
-test("in-screen: an offset beyond the snap threshold does not jump onto a distant edge", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  const before = await geom(page, id, "box-a");
-  const result = await dragContentPx(page, "box-a", 60, 40);
-  const landedLeft = Number.parseFloat(result.left);
-  expect(result.top, "the element never moved").not.toBe(`${before.top}px`);
-  expect(
-    Math.abs(landedLeft - (before.left + 60)),
-    `dropped 60px off the aligned edge but landed at left=${result.left} — snapped past the documented 6px threshold onto a distant edge`,
-  ).toBeLessThanOrEqual(5);
-});
+    await clickCentre(app, "box-b");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box B"]);
+    const heldB = await pressAndDrag(app, "box-b", 200, 100);
+    await page.evaluate((pressedAt) => {
+      document
+        .querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )
+        .forEach((iframe) => {
+          iframe.contentWindow?.postMessage(
+            { type: "agent-native:cancel-active-drag", pressedAt },
+            "*",
+          );
+        });
+    }, stalePressedAt);
+    await expect
+      .poll(() => app.designRect("box-b"), {
+        message: "A's stale cancel must not snap B back mid-drag",
+      })
+      .toEqual(heldB);
+    await page.mouse.up();
+    await app.settled();
 
-test("in-screen: arrow-nudge after a drag continues from the dropped position", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  const before = await geom(page, id, "box-a");
-  await dragBy(page, (await node(page, "box-a").boundingBox())!, 90, 55, {
-    settle: false,
+    const end = await app.savedNodes(id);
+    expect(styleOf(end.get("box-b"))).toEqual({
+      ...styleOf(start.get("box-b")),
+      left: `${heldB.x}px`,
+      top: `${heldB.y}px`,
+    });
+    expectOnlyChanged(afterA, end, ["box-b"]);
+    expect(await app.designRect("box-b")).toEqual(heldB);
   });
-  await expect
-    .poll(async () => (await geom(page, id, "box-a")).left)
-    .not.toBe(before.left);
-  const dropped = await geom(page, id, "box-a");
-  await page.keyboard.press("ArrowRight");
-  await page.waitForTimeout(500);
-  const nudged = await geom(page, id, "box-a");
-  expect(
-    nudged.top,
-    "a horizontal nudge should not move the vertical axis the drag already set",
-  ).toBe(dropped.top);
-  expect(
-    nudged.left,
-    `arrow-nudge should continue from the dropped left (${dropped.left}), not the pre-drag left (${before.left})`,
-  ).toBe(dropped.left + 1);
+
+  test("in-screen: smart guides disappear once the drop commits", async ({
+    app,
+    page,
+  }) => {
+    const id = await openShapes(app);
+    const grab = await clickCentre(app, "box-a");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    const before = await app.savedNodes(id);
+    const nearlyFlush = await app.pagePoint(402 + 60, 218 + 40);
+
+    await page.mouse.move(grab.x, grab.y);
+    await page.mouse.down();
+    await page.mouse.move(nearlyFlush.x, nearlyFlush.y, {
+      steps: Math.ceil(
+        Math.hypot(nearlyFlush.x - grab.x, nearlyFlush.y - grab.y) / 3,
+      ),
+    });
+    await expect
+      .poll(() => guideCount(page), {
+        message: "precondition: the held drag shows a guide",
+      })
+      .toBeGreaterThan(0);
+    await page.mouse.up();
+    await app.settled();
+
+    expect(await guideCount(page)).toBe(0);
+    const after = await app.savedNodes(id);
+    expect(styleOf(after.get("box-a"))).toEqual({
+      ...styleOf(before.get("box-a")),
+      left: "400px",
+      top: "220px",
+    });
+    expectOnlyChanged(before, after, ["box-a"]);
+  });
+
+  test("in-screen: arrow-nudge after a drag continues from the dropped position", async ({
+    app,
+    page,
+  }) => {
+    const id = await openShapes(app);
+    await clickCentre(app, "box-a");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    const before = await app.savedNodes(id);
+    const held = await pressAndDrag(app, "box-a", 90, 55);
+    await page.mouse.up();
+    await app.settled();
+    const dropped = await app.savedNodes(id);
+    expect(
+      styleOf(dropped.get("box-a")),
+      "precondition: the drop committed",
+    ).toEqual({
+      ...styleOf(before.get("box-a")),
+      left: `${held.x}px`,
+      top: `${held.y}px`,
+    });
+
+    await page.keyboard.press("ArrowRight");
+    await app.settled();
+
+    const nudged = await app.savedNodes(id);
+    expect(styleOf(nudged.get("box-a"))).toEqual({
+      ...styleOf(dropped.get("box-a")),
+      left: `${held.x + 1}px`,
+    });
+    expectOnlyChanged(dropped, nudged, ["box-a"]);
+    expect(await app.designRect("box-a")).toEqual({ ...held, x: held.x + 1 });
+  });
+
+  test("in-screen: one plain drag is exactly one undo step", async ({
+    app,
+    page,
+  }) => {
+    const id = await openShapes(app);
+    await clickCentre(app, "box-a");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    const original = await app.savedHtml(id);
+    const held = await pressAndDrag(app, "box-a", 150, 90);
+    await page.mouse.up();
+    await app.settled();
+    const dropped = await app.savedHtml(id);
+    expect(dropped, "precondition: the drop committed").not.toBe(original);
+
+    await page.keyboard.press(`${MOD}+z`);
+    await app.settled();
+    expect(await app.savedHtml(id)).toBe(original);
+    expect(await app.designRect("box-a")).toEqual({
+      x: 100,
+      y: 100,
+      width: 120,
+      height: 80,
+    });
+
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await app.settled();
+    expect(await app.savedHtml(id)).toBe(dropped);
+    expect(await app.designRect("box-a")).toEqual(held);
+  });
 });
 
-test("in-screen: one plain drag is exactly one undo step", async ({ page }) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  const before = await geom(page, id, "box-a");
-  await dragBy(page, (await node(page, "box-a").boundingBox())!, 150, 90, {
-    settle: false,
+test.describe("overview screen-frame moves", () => {
+  test("overview: dragging a screen frame moves it by exactly the pointer delta at the current zoom", async ({
+    app,
+    page,
+  }) => {
+    const { id, before, start, scale } = await selectSecondScreen(app);
+
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 240, start.y + 120, { steps: 20 });
+    await page.mouse.up();
+    await app.settled();
+
+    const after = await savedFrames(app, id);
+    expect(after.second).toEqual({
+      ...before.second,
+      x: before.second.x + Math.round(240 / scale),
+      y: before.second.y + Math.round(120 / scale),
+    });
+    expect(after.first).toEqual(before.first);
   });
-  await expect
-    .poll(async () => (await geom(page, id, "box-a")).left)
-    .not.toBe(before.left);
-  const dropped = await geom(page, id, "box-a");
-  await page.keyboard.press(`${MOD}+z`);
-  await page.waitForTimeout(700);
-  const undone = await geom(page, id, "box-a");
-  expect(
-    [undone.left, undone.top],
-    `one Cmd/Ctrl+Z after one drag (dropped at ${dropped.left},${dropped.top}) should fully restore the pre-drag position (${before.left},${before.top}); got (${undone.left},${undone.top})`,
-  ).toEqual([before.left, before.top]);
+
+  test("overview: Shift+drag constrains a screen frame move to one axis", async ({
+    app,
+    page,
+  }) => {
+    const { id, before, start, scale } = await selectSecondScreen(app);
+
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 20, start.y + 2, { steps: 4 });
+    await page.keyboard.down("Shift");
+    await page.mouse.move(start.x + 260, start.y + 20, { steps: 20 });
+    await page.mouse.up();
+    await page.keyboard.up("Shift");
+    await app.settled();
+
+    const after = await savedFrames(app, id);
+    expect(after.second).toEqual({
+      ...before.second,
+      x: before.second.x + Math.round(260 / scale),
+    });
+    expect(after.first).toEqual(before.first);
+  });
+
+  test("overview: Escape mid-drag cancels a screen-frame drag and restores its original position", async ({
+    app,
+    page,
+  }) => {
+    const { id, before, start } = await selectSecondScreen(app);
+    const surface = page.locator("[data-frame-drag-surface]");
+    const resting = await surface.boundingBox();
+
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 240, start.y + 120, { steps: 20 });
+    await expect
+      .poll(() => surface.boundingBox(), {
+        message: "precondition: the screen follows the pointer",
+      })
+      .not.toEqual(resting);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await app.settled();
+
+    expect(await savedFrames(app, id)).toEqual(before);
+    await expect.poll(() => surface.boundingBox()).toEqual(resting);
+  });
 });

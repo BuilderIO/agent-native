@@ -37,6 +37,7 @@ import {
   assertNoInlineImageBytes,
   stripInlineBytes,
 } from "../../shared/inline-bytes.js";
+import { toolInputFingerprint } from "../../shared/tool-inputs.js";
 import {
   agentEngineStatusUrlForChatApi,
   requireAgentEngineConfiguredForDispatch,
@@ -2036,6 +2037,17 @@ function persistedToolCalls(toolCalls: AgentToolCall[] = []): AgentToolCall[] {
     ) {
       return [JSON.parse(serialized) as AgentToolCall];
     }
+    const metadata = asRecord(toolCall.metadata);
+    const agentKitSnapshot = asRecord(metadata?.agentKitSnapshot);
+    const inputFingerprint =
+      toolCall.input === undefined
+        ? agentKitSnapshot?.inputFingerprint
+        : toolInputFingerprint(toolCall.input);
+    const approvalAskId =
+      typeof metadata?.approvalAskId === "string" &&
+      metadata.approvalAskId.length <= 512
+        ? metadata.approvalAskId
+        : undefined;
     return [
       {
         id: toolCall.id,
@@ -2044,9 +2056,17 @@ function persistedToolCalls(toolCalls: AgentToolCall[] = []): AgentToolCall[] {
         ...(toolCall.runId ? { runId: toolCall.runId } : {}),
         ...(toolCall.messageId ? { messageId: toolCall.messageId } : {}),
         metadata: {
+          ...(metadata?.approvalPause === true ? { approvalPause: true } : {}),
+          ...(metadata?.completedSideEffect === true
+            ? { completedSideEffect: true }
+            : {}),
+          ...(approvalAskId ? { approvalAskId } : {}),
           agentKitSnapshot: {
             toolCallResult: "omitted",
             reason: serialized ? "size_limit" : "not_json",
+            ...(typeof inputFingerprint === "string"
+              ? { inputFingerprint }
+              : {}),
           },
         },
       },

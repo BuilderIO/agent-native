@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
+import { toolInputFingerprint } from "../shared/tool-inputs.js";
+import { approvalKeyForHistory } from "./approval-key.js";
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import {
   buildAssistantMessage,
@@ -1065,6 +1067,7 @@ describe("buildAssistantMessage", () => {
             result:
               'Awaiting human approval to run "create-builder-branch". ' +
               "This action did NOT execute.",
+            approvalPause: true,
           },
         },
       ],
@@ -1075,12 +1078,144 @@ describe("buildAssistantMessage", () => {
       expect.objectContaining({
         type: "tool-call",
         toolName: "create-builder-branch",
+        approvalPause: true,
         result:
           'Awaiting human approval to run "create-builder-branch". ' +
           "This action did NOT execute.",
-        approval: { approvalKey: "create-builder-branch:approval" },
+        approval: {
+          approvalKey: approvalKeyForHistory("create-builder-branch:approval"),
+        },
       }),
     ]);
+  });
+
+  it("reconstructs the approval pause from legacy journals", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "send-email-call",
+            tool: "send-email",
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "send-email-call",
+            approvalKey: 'send-email:{"to":"first@example.test"}',
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: "send-email-call",
+            tool: "send-email",
+            result: "Awaiting human approval.",
+          },
+        },
+      ],
+      "run-legacy-send-email-approval",
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "send-email",
+        approvalPause: true,
+        approval: {
+          approvalKey: approvalKeyForHistory(
+            'send-email:{"to":"first@example.test"}',
+          ),
+        },
+      }),
+    ]);
+  });
+
+  it("keeps an explicit completion marker authoritative over approval_required", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "send-email-call",
+            tool: "send-email",
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "send-email-call",
+            approvalKey: 'send-email:{"to":"first@example.test"}',
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: "send-email-call",
+            tool: "send-email",
+            result: "The call completed after replay.",
+            approvalPause: false,
+          },
+        },
+      ],
+      "run-replayed-send-email",
+    );
+
+    const [part] = message?.content ?? [];
+    expect(part).toMatchObject({
+      type: "tool-call",
+      toolName: "send-email",
+      result: "The call completed after replay.",
+    });
+    expect(part).not.toHaveProperty("approvalPause");
+    expect(part).not.toHaveProperty("approval");
+  });
+
+  it("does not attach a reader-local approval to a call with different input", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            tool: "send-email",
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "server-call-1",
+            approvalKey: "send-email:second",
+            input: { to: "second@example.test" },
+          },
+        },
+      ],
+      "run-reader-local-approval",
+    );
+
+    expect(message?.content).toHaveLength(1);
+    expect(message?.content[0]).toMatchObject({
+      type: "tool-call",
+      toolCallId: "run-reader-local-approval:tc_1",
+      toolName: "send-email",
+    });
+    expect(message?.content[0]?.approval).toBeUndefined();
   });
 
   it("persists per-call-only approval policy when rebuilding thread history", () => {
@@ -1114,7 +1249,7 @@ describe("buildAssistantMessage", () => {
         type: "tool-call",
         toolName: "send-email",
         approval: {
-          approvalKey: "send-email:approval",
+          approvalKey: approvalKeyForHistory("send-email:approval"),
           allowPersistentApproval: false,
         },
       }),
@@ -1868,6 +2003,232 @@ describe("buildAssistantMessage", () => {
     ).toBe(55_000);
   });
 
+  it("replaces a paused tool call when its approved replay completes", () => {
+    const toolCallId = "approved-release-call";
+    const turnId = "turn-approved-release";
+    const paused = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            input: { release: "agentkit-acceptance" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "accept-agentkit-release",
+            toolCallId,
+            approvalKey: "accept-agentkit-release:approval",
+            askId: "approval-1",
+            input: { release: "agentkit-acceptance" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            result: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+          },
+        },
+      ],
+      "run-approval-pause",
+      { turnId },
+    );
+    const completed = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            input: { release: "agentkit-acceptance" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            result: "Release accepted.",
+            approvalPause: false,
+            completedSideEffect: true,
+          },
+        },
+        { seq: 2, event: { type: "done" } },
+      ],
+      "run-approved-replay",
+      { turnId },
+    );
+
+    expect(paused).not.toBeNull();
+    expect(completed).not.toBeNull();
+    let repo = foldAssistantTurn({ messages: [] }, paused!, {
+      turnId,
+      runId: "run-approval-pause",
+    });
+    repo = foldAssistantTurn(repo, completed!, {
+      turnId,
+      runId: "run-approved-replay",
+    });
+
+    const toolCalls = repo.messages[0].message.content.filter(
+      (part: any) => part.type === "tool-call",
+    );
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolCallId,
+      toolName: "accept-agentkit-release",
+      args: { release: "agentkit-acceptance" },
+      result: "Release accepted.",
+      completedSideEffect: true,
+    });
+    expect(toolCalls[0]).not.toHaveProperty("approvalPause");
+    expect(toolCalls[0]).not.toHaveProperty("approval");
+
+    const differentCall = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            input: { release: "different-release" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            result: "Different release accepted.",
+            approvalPause: false,
+          },
+        },
+        { seq: 2, event: { type: "done" } },
+      ],
+      "run-different-release",
+      { turnId },
+    );
+    const pausedRepo = foldAssistantTurn({ messages: [] }, paused!, {
+      turnId,
+      runId: "run-approval-pause",
+    });
+    const mismatchRepo = foldAssistantTurn(pausedRepo, differentCall!, {
+      turnId,
+      runId: "run-different-release",
+    });
+    const mismatchCalls = mismatchRepo.messages[0].message.content.filter(
+      (part: any) => part.type === "tool-call",
+    );
+
+    expect(mismatchCalls).toHaveLength(2);
+    expect(mismatchCalls[0]).toMatchObject({
+      toolCallId,
+      args: { release: "agentkit-acceptance" },
+      approvalPause: true,
+    });
+    expect(mismatchCalls[1]).toMatchObject({
+      toolCallId: `${toolCallId}__dedup_2`,
+      args: { release: "different-release" },
+      result: "Different release accepted.",
+    });
+  });
+
+  it("replaces a paused call with its renewed approval pause", () => {
+    const toolCallId = "approved-release-call";
+    const turnId = "turn-approved-release";
+    const input = { release: "agentkit-acceptance" };
+    const makePausedMessage = (
+      runId: string,
+      askId: string,
+      approvalKey: string,
+    ) =>
+      buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: toolCallId,
+              tool: "accept-agentkit-release",
+              input,
+            },
+          },
+          {
+            seq: 1,
+            event: {
+              type: "approval_required",
+              tool: "accept-agentkit-release",
+              toolCallId,
+              approvalKey,
+              askId,
+              input,
+            },
+          },
+          {
+            seq: 2,
+            event: {
+              type: "tool_done",
+              id: toolCallId,
+              tool: "accept-agentkit-release",
+              result: "Awaiting human approval. This action did NOT execute.",
+              approvalPause: true,
+            },
+          },
+        ],
+        runId,
+        { turnId },
+      );
+    const firstPause = makePausedMessage(
+      "run-first-approval",
+      "approval-first",
+      "accept-agentkit-release:first-approval",
+    );
+    const renewedPause = makePausedMessage(
+      "run-renewed-approval",
+      "approval-renewed",
+      "accept-agentkit-release:renewed-approval",
+    );
+
+    expect(firstPause).not.toBeNull();
+    expect(renewedPause).not.toBeNull();
+    const firstRepo = foldAssistantTurn({ messages: [] }, firstPause!, {
+      turnId,
+      runId: "run-first-approval",
+    });
+    const renewedRepo = foldAssistantTurn(firstRepo, renewedPause!, {
+      turnId,
+      runId: "run-renewed-approval",
+    });
+    const toolCalls = renewedRepo.messages[0].message.content.filter(
+      (part: any) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolCallId,
+      approvalPause: true,
+      approval: {
+        askId: "approval-renewed",
+        approvalKey: approvalKeyForHistory(
+          "accept-agentkit-release:renewed-approval",
+        ),
+      },
+    });
+  });
+
   it("keeps an AgentKit approval continuation out of the legacy placeholder", () => {
     const approvedToolCallId = "accept-release-call";
     const releaseMessage = buildAssistantMessage(
@@ -2319,6 +2680,407 @@ describe("mergeThreadDataForClientSave", () => {
 
     expect(merged.agentKit.toolCalls).toEqual([
       expect.objectContaining({ id: "call-1", messageId: "assistant-1" }),
+    ]);
+  });
+
+  it("replaces a persisted approval pause with its matching replay result", () => {
+    const input = { path: "skills/example.md" };
+    const pausedRun = {
+      id: "run-paused",
+      startedAt: "2026-10-13T10:00:00.000Z",
+      lastSequence: 4,
+    };
+    const replayRun = {
+      id: "run-replay",
+      startedAt: "2026-10-13T10:01:00.000Z",
+      lastSequence: 3,
+    };
+    const existing = {
+      id: "call-1",
+      name: "write",
+      input,
+      output: "Awaiting human approval. This action did NOT execute.",
+      status: "completed",
+      runId: "run-paused",
+      messageId: "assistant-paused",
+    };
+    const incoming = {
+      ...existing,
+      output: "saved",
+      runId: "run-replay",
+      messageId: "assistant-replay",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: { runs: [pausedRun], toolCalls: [existing] },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [replayRun],
+          toolCalls: [incoming],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        output: "saved",
+        status: "completed",
+        runId: "run-replay",
+        messageId: "assistant-replay",
+        metadata: { completedSideEffect: true },
+      }),
+    ]);
+  });
+
+  it("matches an oversized persisted approval input by its fingerprint", () => {
+    const input = { payload: "x".repeat(70_000) };
+    const existing = {
+      id: "call-1",
+      name: "write",
+      output: "Awaiting human approval. This action did NOT execute.",
+      status: "completed",
+      runId: "run-paused",
+      metadata: {
+        approvalPause: true,
+        agentKitSnapshot: {
+          toolCallResult: "omitted",
+          reason: "size_limit",
+          inputFingerprint: toolInputFingerprint(input),
+        },
+      },
+    };
+    const incoming = {
+      ...existing,
+      input,
+      output: "saved",
+      runId: "run-replay",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          runs: [
+            {
+              id: "run-paused",
+              startedAt: "2026-10-13T10:00:00.000Z",
+              lastSequence: 4,
+            },
+          ],
+          toolCalls: [existing],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [
+            {
+              id: "run-replay",
+              startedAt: "2026-10-13T10:01:00.000Z",
+              lastSequence: 3,
+            },
+          ],
+          toolCalls: [incoming],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        output: "saved",
+        runId: "run-replay",
+        metadata: { completedSideEffect: true },
+      }),
+    ]);
+  });
+
+  it.each([
+    {
+      label: "a different tool",
+      incomingName: "write-other",
+      incomingInput: { path: "skills/example.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: { completedSideEffect: true },
+      incomingRunStartedAt: "2026-10-13T10:01:00.000Z",
+    },
+    {
+      label: "different input",
+      incomingName: "write",
+      incomingInput: { path: "other.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: { completedSideEffect: true },
+      incomingRunStartedAt: "2026-10-13T10:01:00.000Z",
+    },
+    {
+      label: "no completed-side-effect proof",
+      incomingName: "write",
+      incomingInput: { path: "skills/example.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: undefined,
+      incomingRunStartedAt: "2026-10-13T10:01:00.000Z",
+    },
+    {
+      label: "an older replay run",
+      incomingName: "write",
+      incomingInput: { path: "skills/example.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: { completedSideEffect: true },
+      incomingRunStartedAt: "2026-10-13T09:59:00.000Z",
+    },
+  ])(
+    "preserves a persisted approval pause when the incoming call has $label",
+    (options) => {
+      const input = { path: "skills/example.md" };
+      const existing = {
+        id: "call-1",
+        name: "write",
+        input,
+        output: "Awaiting human approval. This action did NOT execute.",
+        status: "completed",
+        runId: "run-paused",
+        messageId: "assistant-paused",
+      };
+      const incoming = {
+        ...existing,
+        name: options.incomingName,
+        input: options.incomingInput,
+        output: "saved",
+        runId: options.incomingRunId,
+        messageId: "assistant-replay",
+        ...(options.incomingMetadata
+          ? { metadata: options.incomingMetadata }
+          : {}),
+      };
+      const runs = [
+        {
+          id: "run-replay",
+          startedAt: options.incomingRunStartedAt,
+          lastSequence: 3,
+        },
+      ];
+
+      const merged = mergeThreadDataForClientSave(
+        {
+          agentKit: {
+            runs: [
+              {
+                id: "run-paused",
+                startedAt: "2026-10-13T10:00:00.000Z",
+                lastSequence: 4,
+              },
+            ],
+            toolCalls: [existing],
+          },
+        },
+        {
+          agentKit: {
+            _snapshotDelta: true,
+            runs,
+            toolCalls: [incoming],
+          },
+        },
+      );
+
+      expect(merged.agentKit.toolCalls).toEqual([
+        expect.objectContaining({
+          id: "call-1",
+          output: existing.output,
+          status: "completed",
+          runId: "run-paused",
+          messageId: "assistant-paused",
+        }),
+      ]);
+    },
+  );
+
+  it("keeps a newer approval pause over a stale replay result", () => {
+    const input = { path: "skills/example.md" };
+    const currentPause = {
+      id: "call-1",
+      name: "write",
+      input,
+      output: "Awaiting human approval. This action did NOT execute.",
+      status: "completed",
+      runId: "run-reapproval",
+      messageId: "assistant-reapproval",
+      metadata: { approvalPause: true, approvalAskId: "approval-2" },
+    };
+    const staleReplay = {
+      ...currentPause,
+      output: "saved by the first replay",
+      runId: "run-replay",
+      messageId: "assistant-replay",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          runs: [
+            {
+              id: "run-reapproval",
+              startedAt: "2026-10-13T10:02:00.000Z",
+              lastSequence: 4,
+            },
+          ],
+          toolCalls: [currentPause],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [
+            {
+              id: "run-replay",
+              startedAt: "2026-10-13T10:01:00.000Z",
+              lastSequence: 3,
+            },
+          ],
+          toolCalls: [staleReplay],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        output: currentPause.output,
+        status: "completed",
+        runId: "run-reapproval",
+        messageId: "assistant-reapproval",
+        metadata: { approvalPause: true, approvalAskId: "approval-2" },
+      }),
+    ]);
+  });
+
+  it("keeps a newer running tool call over an older completed replay", () => {
+    const currentRun = {
+      id: "run-current",
+      startedAt: "2026-10-13T10:02:00.000Z",
+      lastSequence: 2,
+    };
+    const staleRun = {
+      id: "run-stale",
+      startedAt: "2026-10-13T10:01:00.000Z",
+      lastSequence: 4,
+    };
+    const current = {
+      id: "call-1",
+      name: "write",
+      input: { path: "skills/example.md" },
+      status: "running",
+      runId: "run-current",
+    };
+    const staleReplay = {
+      ...current,
+      output: "saved by old replay",
+      status: "completed",
+      runId: "run-stale",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: { runs: [currentRun], toolCalls: [current] },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [staleRun],
+          toolCalls: [staleReplay],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        status: "running",
+        runId: "run-current",
+      }),
+    ]);
+  });
+
+  it.each([
+    {
+      label: "a same-run snapshot with missing sequences",
+      currentRun: { id: "run-current" },
+      staleRun: { id: "run-current" },
+      incomingRunId: "run-current",
+    },
+    {
+      label: "different runs with missing start times",
+      currentRun: { id: "run-current" },
+      staleRun: { id: "run-stale" },
+      incomingRunId: "run-stale",
+    },
+    {
+      label: "an incoming run missing from its snapshot",
+      currentRun: {
+        id: "run-current",
+        startedAt: "2026-10-13T10:02:00.000Z",
+      },
+      staleRun: undefined,
+      incomingRunId: "run-stale",
+    },
+    {
+      label: "an incoming call missing its run ID",
+      currentRun: {
+        id: "run-current",
+        startedAt: "2026-10-13T10:02:00.000Z",
+      },
+      staleRun: {
+        id: "run-stale",
+        startedAt: "2026-10-13T10:01:00.000Z",
+      },
+      incomingRunId: undefined,
+    },
+  ])("preserves a running call with $label", (options) => {
+    const current = {
+      id: "call-1",
+      name: "write",
+      input: { path: "skills/example.md" },
+      status: "running",
+      runId: "run-current",
+    };
+    const staleReplay = {
+      ...current,
+      output: "saved by incomplete replay",
+      status: "completed",
+      ...(options.incomingRunId
+        ? { runId: options.incomingRunId }
+        : { runId: undefined }),
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          runs: [options.currentRun],
+          toolCalls: [current],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: options.staleRun ? [options.staleRun] : [],
+          toolCalls: [staleReplay],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        status: "running",
+        runId: "run-current",
+      }),
     ]);
   });
 

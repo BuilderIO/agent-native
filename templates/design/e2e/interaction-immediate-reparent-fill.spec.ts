@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 import {
@@ -8,6 +8,7 @@ import {
   expandAllLayers,
   gotoEditor,
 } from "./helpers";
+import { expect, test } from "./rails";
 
 const WORKSPACE_ID = "reparent-workspace";
 const MAIN_CONTENT_ID = "reparent-main-content";
@@ -74,24 +75,6 @@ async function postAction(
   return response.json();
 }
 
-async function createReproDesign(page: Page): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: `Immediate reparent Fill ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created?.id ?? created?.data?.id ?? created?.design?.id;
-  if (typeof designId !== "string") {
-    throw new Error(`create-design returned no id: ${JSON.stringify(created)}`);
-  }
-  await postAction(page, "create-file", {
-    designId,
-    filename: "index.html",
-    content: REPRO_HTML,
-    fileType: "html",
-  });
-  return designId;
-}
-
 async function readDesign(page: Page, designId: string) {
   const response = await page.request.get(
     appPath(`/_agent-native/actions/get-design?id=${designId}`),
@@ -153,10 +136,13 @@ async function previewNode(page: Page, nodeId: string) {
 }
 
 test("immediate layer reparent preserves one node and applies Fill to its new flex parent", async ({
+  app,
   page,
 }) => {
   test.setTimeout(120_000);
-  const designId = await createReproDesign(page);
+  const designId = await app.seed(REPRO_HTML, {
+    title: "Immediate reparent Fill",
+  });
   await gotoEditor(page, designId);
   await expandAllLayers(page);
 
@@ -232,6 +218,14 @@ test("immediate layer reparent preserves one node and applies Fill to its new fl
     workspaceChildren: childNodeIds(final.source, WORKSPACE_ID),
     previewNodes: final.nodes,
   });
+  expect(
+    (
+      final.source.match(
+        /data-agent-native-node-id="reparent-main-content"/g,
+      ) ?? []
+    ).length,
+    "the saved source holds exactly one Main Content",
+  ).toBe(1);
   expect(final.nodes).toHaveLength(1);
   expect(final.nodes[0]).toMatchObject({
     id: MAIN_CONTENT_ID,

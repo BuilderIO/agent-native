@@ -4,6 +4,7 @@ const messages = {
     includeLast: "마지막 구간 포함",
     whatIsThis: "이것은 무엇입니까?",
     off: "끔",
+    none: "없음",
     custom: "사용자 지정…",
     customLabel: "사용자 지정 길이",
     customAmount: "길이",
@@ -15,6 +16,9 @@ const messages = {
     customErrorInvalid: "초 또는 분 단위의 정수를 입력하세요.",
     customErrorTooLong: "5분 이하로 입력하세요.",
     turnOnRewind: "Rewind 켜기",
+    turnOffRewind: "끄기",
+    turnOffRewindFailed:
+      "Rewind를 끌 수 없습니다. 녹화를 중지한 후 다시 시도하세요.",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
       "기본적으로 꺼져 있습니다. 화면 기록은 녹화에 포함하거나 공유 요청을 승인할 때까지 이 기기에 보관됩니다.",
@@ -203,9 +207,12 @@ const messages = {
     expandSidebar: "사이드바 펼치기",
     collapseSidebar: "사이드바 접기",
     agentEmptyState: "녹화와 관련해 무엇을 도와드릴까요?",
-    agentSuggestionSummary: "마지막 녹화를 요약해 줘",
-    agentSuggestionPricing: "가격을 언급한 위치를 찾아 줘",
-    agentSuggestionFiller: "이 클립에서 군더더기 표현을 제거해 줘",
+    agentSuggestionSummary: "녹화 요약하기",
+    agentSuggestionPricing: "가격 언급 찾기",
+    agentSuggestionFiller: "군더더기 표현 제거",
+    agentScreenshotSuggestionSummary: "스크린샷 요약하기",
+    agentScreenshotSuggestionText: "스크린샷에서 텍스트 찾기",
+    agentScreenshotSuggestionCompare: "스크린샷 비교하기",
     createFolderError: "만들기 실패",
     folderCreated: "폴더가 생성됨",
     folderNamePlaceholder: "폴더 이름",
@@ -1857,6 +1864,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (현지화됨)",
     recordingDownloadStarted: "Recording download started (현지화됨)",
+    partialLocalCopyDownloadStarted:
+      "로컬 사본이 불완전할 수 있습니다. 사용 가능한 녹화 데이터를 다운로드하고 있습니다.",
     backToLibrary: "Back to library (현지화됨)",
     clipsRecorder: "Clips recorder (현지화됨)",
     preparingSources: "Preparing sources… (현지화됨)",
@@ -2016,6 +2025,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (현지화됨)",
     cleanupComplete: "받아쓰기를 정리했습니다",
     cleanupFailed: "받아쓰기를 정리하지 못했습니다",
+    undoCleanup: "실행 취소",
+    restoreOriginal: "원본 복원",
+    cleanupRestored: "원본 받아쓰기를 복원했습니다",
+    cleanupRestoreFailed: "원본 받아쓰기를 복원하지 못했습니다",
     startFirst: "생각을 텍스트로 바꿔 보세요",
     recordOnDesktop: "데스크톱에서 녹음",
     emptyDesktopDescription:

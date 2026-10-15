@@ -30,3 +30,15 @@ function isPgCatalogRace(e: any): boolean {
     /relation .* already exists/i.test(msg)
   );
 }
+
+/**
+ * Bumped by `closeDbExec()` and dev reloads. State cached per database (schema
+ * snapshots, store readiness) compares against it instead of importing the
+ * client, so modules that mock `./client.js` keep working.
+ */
+export function dbClientGeneration(): number {
+  const proc = (globalThis as { process?: unknown }).process as
+    | { __agentNativePgliteClientGeneration?: number }
+    | undefined;
+  return proc?.__agentNativePgliteClientGeneration ?? 0;
+}
