@@ -40,6 +40,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export const MAX_FILTER_OPTIONS = 100;
+// Each preset is a button in the dropdown, so a filter offers a short list.
+export const MAX_FILTER_PRESETS = 20;
+
 export function isDashboardFilter(value: unknown): value is DashboardFilter {
   if (
     !isRecord(value) ||
@@ -54,7 +58,7 @@ export function isDashboardFilter(value: unknown): value is DashboardFilter {
   return (
     (value.options === undefined ||
       (Array.isArray(value.options) &&
-        value.options.length <= 100 &&
+        value.options.length <= MAX_FILTER_OPTIONS &&
         value.options.every(
           (option) =>
             isRecord(option) &&
@@ -85,7 +89,10 @@ export function filterPresetIssues(
   optionValues: ReadonlySet<string>,
 ): (string | null)[] {
   const labels = new Set<string>();
-  return presets.map((preset) => {
+  return presets.map((preset, index) => {
+    if (index >= MAX_FILTER_PRESETS) {
+      return `is past the limit of ${MAX_FILTER_PRESETS} presets`;
+    }
     if (
       !isFilterPreset(preset) ||
       preset.label.trim() === "" ||
@@ -95,6 +102,9 @@ export function filterPresetIssues(
     }
     if (labels.has(preset.label)) {
       return `label "${preset.label}" repeats an earlier preset`;
+    }
+    if (preset.values.length > MAX_FILTER_OPTIONS) {
+      return `has more than ${MAX_FILTER_OPTIONS} values`;
     }
     // A value with no checkbox would be applied to SQL unseen, as with the default.
     const unknown = preset.values.find((value) => !optionValues.has(value));

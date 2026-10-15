@@ -400,6 +400,24 @@ describe("multi-select dashboard filter", () => {
       ).toEqual(["Paid"]);
     });
 
+    it("renders at most 20 presets, so an oversized list cannot flood the dropdown", () => {
+      const oversized = [
+        {
+          ...filters[0],
+          presets: Array.from({ length: 25 }, (_, n) => ({
+            label: `Group ${n}`,
+            values: ["free"],
+          })),
+        },
+      ] as DashboardFilter[];
+      render("/dashboards/test", oversized);
+      act(() => trigger().click());
+
+      expect(
+        popover().querySelector('[role="group"]')?.querySelectorAll("button"),
+      ).toHaveLength(20);
+    });
+
     it("renders no presets when the presets field is not a list", () => {
       const malformed = [
         { ...filters[0], presets: "Paid" },
