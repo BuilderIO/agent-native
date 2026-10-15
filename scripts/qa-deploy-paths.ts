@@ -141,7 +141,17 @@ interface StepResult {
 
 const steps: StepResult[] = [];
 
+let interruptedBy: NodeJS.Signals | null = null;
+
+// Checked wherever the run starts work. A cancellation can arrive between two
+// commands, and anything the run started after the stop snapshot would outlive
+// cleanup: commands run detached, so exiting does not take them along.
+function assertNotInterrupted(): void {
+  if (interruptedBy) throw new Error(`interrupted by ${interruptedBy}`);
+}
+
 async function step<T>(name: string, fn: () => Promise<T> | T): Promise<T> {
+  assertNotInterrupted();
   const started = Date.now();
   log(`▶ ${name}`);
   try {
@@ -267,6 +277,7 @@ async function runLive(
   args: string[],
   options: RunOptions,
 ): Promise<string> {
+  assertNotInterrupted();
   log(`${options.label}: ${cmd} ${args.join(" ")}`);
   const child = spawn(cmd, args, {
     cwd: options.cwd,
@@ -1051,7 +1062,6 @@ function writeResult(failure: string | null, leaked: string[]): void {
   );
 }
 
-let interruptedBy: NodeJS.Signals | null = null;
 let finishing: Promise<never> | undefined;
 
 // Ends the run once, whichever gets here first: the run's own failure or a
