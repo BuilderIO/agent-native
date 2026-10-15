@@ -45,11 +45,18 @@ export function TranscriptImportButton({
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [replacement, setReplacement] = useState<{
     fileName: string;
     text: string;
   } | null>(null);
   const label = t("transcriptImport.addFile");
+
+  // aria-disabled, not disabled: a disabled button cannot take the focus the
+  // replace dialog hands back while the import is still saving.
+  function openPicker() {
+    if (!isImporting) inputRef.current?.click();
+  }
 
   async function handleFile(file: File) {
     const text = await file.text();
@@ -90,11 +97,12 @@ export function TranscriptImportButton({
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
+              ref={triggerRef}
               variant="ghost"
               size="icon"
               aria-label={label}
-              disabled={isImporting}
-              onClick={() => inputRef.current?.click()}
+              aria-disabled={isImporting}
+              onClick={openPicker}
             >
               {icon}
             </Button>
@@ -103,10 +111,11 @@ export function TranscriptImportButton({
         </Tooltip>
       ) : (
         <Button
+          ref={triggerRef}
           size="sm"
           variant="outline"
-          disabled={isImporting}
-          onClick={() => inputRef.current?.click()}
+          aria-disabled={isImporting}
+          onClick={openPicker}
         >
           {icon}
           {label}
@@ -118,7 +127,14 @@ export function TranscriptImportButton({
           if (!open) setReplacement(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          // The dialog opens from a file pick, not a trigger, so Radix has
+          // nowhere to return focus and would drop it on the page body.
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            triggerRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("transcriptImport.replaceTitle")}

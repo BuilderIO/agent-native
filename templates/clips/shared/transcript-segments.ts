@@ -86,6 +86,22 @@ export function buildCaptionSegmentsFromText(
   });
 }
 
+/**
+ * The first time after `ms` at which a different segment becomes current:
+ * the next start, or the moment just past a segment's (inclusive) end.
+ */
+export function nextTranscriptBoundaryMs(
+  segments: Pick<TranscriptSegment, "startMs" | "endMs">[],
+  ms: number,
+): number {
+  let next = Number.POSITIVE_INFINITY;
+  for (const segment of segments) {
+    if (segment.startMs > ms) next = Math.min(next, segment.startMs);
+    if (segment.endMs + 1 > ms) next = Math.min(next, segment.endMs + 1);
+  }
+  return next;
+}
+
 export function normalizeTranscriptSegments({
   segments,
   fullText,

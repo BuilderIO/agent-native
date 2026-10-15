@@ -4,7 +4,7 @@ export const TRANSCRIPT_IMPORT_FORMATS = ["vtt", "srt", "text"] as const;
 export type TranscriptImportFormat = (typeof TRANSCRIPT_IMPORT_FORMATS)[number];
 
 export const TRANSCRIPT_IMPORT_ACCEPT = ".vtt,.srt,.txt,.md";
-export const IMPORTED_TRANSCRIPT_SOURCE = "imported";
+export const IMPORTED_TRANSCRIPT_SOURCE = "imported" as const;
 export const MAX_TRANSCRIPT_IMPORT_CHARS = 2_000_000;
 
 // A start this far past the recorded duration means the file belongs to a

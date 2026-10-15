@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCaptionSegmentsFromText,
+  nextTranscriptBoundaryMs,
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "./transcript-segments.js";
@@ -116,5 +117,30 @@ describe("buildCaptionSegmentsFromText", () => {
       expect(segment.source).toBeUndefined();
       expect(segment.speaker).toBeUndefined();
     }
+  });
+});
+
+describe("nextTranscriptBoundaryMs", () => {
+  const segments = [
+    { startMs: 350, endMs: 6040 },
+    { startMs: 6040, endMs: 9000 },
+    { startMs: 11_250, endMs: 17_010 },
+  ];
+
+  it("returns the next start while a segment is showing", () => {
+    expect(nextTranscriptBoundaryMs(segments, 0)).toBe(350);
+    expect(nextTranscriptBoundaryMs(segments, 2000)).toBe(6040);
+  });
+
+  it("returns the moment just past an end when a gap follows", () => {
+    expect(nextTranscriptBoundaryMs(segments, 8000)).toBe(9001);
+    expect(nextTranscriptBoundaryMs(segments, 9001)).toBe(11_250);
+  });
+
+  it("returns infinity after the last segment", () => {
+    expect(nextTranscriptBoundaryMs(segments, 17_010)).toBe(17_011);
+    expect(nextTranscriptBoundaryMs(segments, 17_011)).toBe(
+      Number.POSITIVE_INFINITY,
+    );
   });
 });
