@@ -4744,7 +4744,7 @@ describe("in-place text session: review fixes", () => {
     );
   });
 
-  it("strips pasted links from mixed rich blocks inside an existing link", () => {
+  it("keeps pasted links outside an existing link for mixed rich blocks", () => {
     const el = mount(
       '<div id="t"><p><a href="https://example.com/original">Intro</a></p></div>',
     );
@@ -4757,13 +4757,17 @@ describe("in-place text session: review fixes", () => {
     });
     session.end();
 
-    expect(el.querySelectorAll("a")).toHaveLength(1);
-    expect(el.querySelector("a")?.textContent).toBe("Intro");
+    const anchors = Array.from(el.querySelectorAll("a"));
+    expect(anchors.map((a) => a.textContent)).toEqual([
+      "Intro",
+      "Docs list item",
+    ]);
+    expect(anchors[0].href.endsWith("/original")).toBe(true);
     expect(el.querySelectorAll("a a")).toHaveLength(0);
-    expect(el.textContent).toContain("Docs list item");
+    expect(el.textContent).toContain("Docs paragraph");
   });
 
-  it("pastes a list into a paragraph as lines, since a paragraph cannot hold one", () => {
+  it("pastes a list into a paragraph as a list, since a paragraph cannot hold one", () => {
     const el = mount('<p id="t">Intro</p>');
     session = startInPlaceTextSession(el);
     caret(textOf(el, "Intro"), 5);
@@ -4771,8 +4775,12 @@ describe("in-place text session: review fixes", () => {
       "text/html": "<ul><li>One</li><li>Two</li></ul>",
       "text/plain": "One\nTwo",
     });
+    const root = session.element;
     session.end();
-    expect(el.innerHTML).toBe("IntroOne<br>Two");
+    expect(root.querySelector("p")?.textContent).toBe("Intro");
+    expect(
+      Array.from(root.querySelectorAll("ul > li"), (item) => item.textContent),
+    ).toEqual(["One", "Two"]);
   });
 });
 

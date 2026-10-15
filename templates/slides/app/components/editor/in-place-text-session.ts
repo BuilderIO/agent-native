@@ -215,6 +215,9 @@ const PASTE_STYLE_PROPERTY =
   /^(color|font(-.+)?|text-decoration(-.+)?|letter-spacing|word-spacing|text-transform|vertical-align)$/;
 const FOREIGN_PASTE_STYLE_PROPERTY =
   /^(color|font(?:-.+)?|letter-spacing|word-spacing|text-transform)$/;
+const BOLD_RUN_STYLE =
+  /(?:^|;)\s*font-weight\s*:\s*(?:bold|bolder|[6-9]00)\s*(?:!important\s*)?(?:;|$)/i;
+const ITALIC_RUN_STYLE = /(?:^|;)\s*font-style\s*:\s*(?:italic|oblique)\b/i;
 const SLIDE_CLIPBOARD_TYPE = "application/x-agent-native-slide-text";
 const TEXT_LOOK_PROPERTIES = [
   "color",
@@ -525,6 +528,17 @@ function hasRenderedContent(node: Node): boolean {
   return (
     (node instanceof Element || node instanceof DocumentFragment) &&
     node.querySelector(RENDERED_ELEMENTS) !== null
+  );
+}
+
+/** A block with nothing on it: placeholders, or the lone `<br>` that holds it open. */
+function isBlankBlock(block: Element): boolean {
+  if (!hasRenderedContent(block)) return true;
+  const rendered = block.querySelectorAll(RENDERED_ELEMENTS);
+  return (
+    rendered.length === 1 &&
+    rendered[0].tagName === "BR" &&
+    !block.textContent?.replaceAll(ZERO_WIDTH_SPACE, "").trim()
   );
 }
 
@@ -1086,8 +1100,38 @@ function appendPastedNode(
     if (node.tagName === "A" && href && SAFE_LINK.test(href.trim())) {
       copy.setAttribute("href", href);
     }
-    target.appendChild(copy);
-    into = copy;
+    // Docs and Word express bold and italic as styles on spans, not tags. A
+    // `font` shorthand is read as foreign paint like the rest of the font.
+    const marks: string[] = [];
+    const declared = node.getAttribute("style") ?? "";
+    const within = (selector: string) =>
+      target instanceof Element && target.closest(selector) !== null;
+    const bold =
+      !preserveSlideStyles &&
+      BOLD_RUN_STYLE.test(declared) &&
+      node.tagName !== "B" &&
+      node.tagName !== "STRONG";
+    const italic =
+      !preserveSlideStyles &&
+      ITALIC_RUN_STYLE.test(declared) &&
+      node.tagName !== "I" &&
+      node.tagName !== "EM";
+    if (bold && !within("b, strong")) marks.push("B");
+    if (italic && !within("i, em")) marks.push("I");
+    // A span that only carried the weight or slant is replaced by its mark.
+    if (
+      node.tagName !== "SPAN" ||
+      copy.hasAttribute("style") ||
+      !(bold || italic)
+    ) {
+      target.appendChild(copy);
+      into = copy;
+    }
+    for (const tag of marks) {
+      const mark = document.createElement(tag);
+      into.appendChild(mark);
+      into = mark;
+    }
   }
   for (const child of Array.from(node.childNodes)) {
     appendPastedNode(child, into, preserveSlideStyles);
@@ -1165,6 +1209,72 @@ function pastedHtmlLines(
     }
   }
   return lines;
+}
+
+const URL_CLOSERS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+
+/** A URL without the sentence punctuation after it; a closer it opened stays. */
+function trimUrlEnd(url: string): string {
+  let end = url;
+  while (end) {
+    const last = end[end.length - 1];
+    const opener = URL_CLOSERS[last];
+    if (
+      opener
+        ? end.split(last).length <= end.split(opener).length
+        : !".,!?;:'\"\u2019\u201d".includes(last)
+    ) {
+      break;
+    }
+    end = end.slice(0, -1);
+  }
+  return end;
+}
+
+/** Bare http(s) URLs in pasted text become links, as a typed one does. */
+function linkifyPastedUrls(fragment: DocumentFragment) {
+  const walker = document.createTreeWalker(fragment, NodeFilter.SHOW_TEXT);
+  const texts: Text[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.parentElement?.closest("a, code")) texts.push(node as Text);
+  }
+  for (const text of texts) {
+    const parts: (string | HTMLAnchorElement)[] = [];
+    let cursor = 0;
+    for (const match of text.data.matchAll(/\bhttps?:\/\/[^\s<>]+/gi)) {
+      const url = trimUrlEnd(match[0]);
+      if (!URL.canParse(url)) continue;
+      parts.push(text.data.slice(cursor, match.index));
+      const anchor = document.createElement("a");
+      anchor.setAttribute("href", url);
+      anchor.textContent = url;
+      parts.push(anchor);
+      cursor = match.index + url.length;
+    }
+    if (parts.length === 0) continue;
+    parts.push(text.data.slice(cursor));
+    text.replaceWith(...parts.filter((part) => part !== ""));
+  }
+}
+
+/** The link a lone address pasted over a selection makes of that selection. */
+function pastedAddressHref(text: string): string | null {
+  const value = text.trim();
+  if (!value || /\s/.test(value)) return null;
+  const href = /^(?:https?:\/\/|mailto:)/i.test(value)
+    ? value
+    : /^www\.[^.]+\.\S+$/i.test(value)
+      ? `http://${value}`
+      : /^[^@<>:/]+@[^@<>.]+(?:\.[^@<>.]+)*\.(?!(?:png|jpe?g|gif|svg|webp|avif|ico|bmp)$)[a-z]{2,}$/i.test(
+            value,
+          )
+        ? `mailto:${value}`
+        : null;
+  if (!href || !URL.canParse(href)) return null;
+  const url = new URL(href);
+  if (!SAFE_LINK.test(url.protocol)) return null;
+  // `URL` adds a root slash the author did not type.
+  return url.href === `${href}/` ? href : url.href;
 }
 
 function plainTextLines(text: string): PastedLine[] {
@@ -1335,6 +1445,18 @@ function pastedLists(lines: PastedLine[]): DocumentFragment {
       block.append(fragment);
       item.append(block);
     } else {
+      // Each line of an item is its own line: the item holds them with no
+      // break between unless one is put there.
+      const held = item.lastChild;
+      if (
+        held &&
+        !(
+          held instanceof Element &&
+          (BLOCK_TAGS.has(held.tagName) || held.tagName === "HR")
+        )
+      ) {
+        item.append(document.createElement("br"));
+      }
       item.append(fragment);
     }
   }
@@ -4040,7 +4162,7 @@ export function startInPlaceTextSession(
     }
   }
 
-  function insertFragment(fragment: DocumentFragment) {
+  function insertFragment(fragment: DocumentFragment, endsPaste: boolean) {
     const caret = selectionRange();
     const last = fragment.lastChild;
     if (!caret || !last) return;
@@ -4053,13 +4175,46 @@ export function startInPlaceTextSession(
       placeCaret(last, last.length);
       return;
     }
+    // Typing after a pasted mark continues it, as it does after a typed one;
+    // a following pasted line must not land inside it.
+    let tail: Node = last;
+    while (tail.lastChild) tail = tail.lastChild;
+    if (
+      endsPaste &&
+      tail instanceof Text &&
+      tail.length > 0 &&
+      !tail.parentElement?.closest("a")
+    ) {
+      placeCaret(tail, tail.length);
+      return;
+    }
     const after = document.createRange();
     after.setStartAfter(last);
     placeCaret(after.startContainer, after.startOffset);
   }
 
-  function insertBlockClipboard(lines: PastedLine[], at: Range) {
-    if (!at.collapsed) deleteRange(at);
+  /** A paste at a link's last character lands after it, as typing does. */
+  function leaveLinkEnd() {
+    const caret = selectionRange();
+    if (!caret?.collapsed) return;
+    const container = caret.startContainer;
+    const link = (
+      container instanceof Element ? container : container.parentElement
+    )?.closest("a");
+    if (!link || link === el || !el.contains(link)) return;
+    // An emptied link takes the paste as its new text.
+    if (!hasRenderedContent(link)) return;
+    const tail = document.createRange();
+    tail.setStart(container, caret.startOffset);
+    tail.setEnd(link, link.childNodes.length);
+    if (hasRenderedContent(tail.cloneContents())) return;
+    placeCaret(
+      link.parentNode!,
+      Array.from(link.parentNode!.childNodes).indexOf(link) + 1,
+    );
+  }
+
+  function insertBlockClipboard(lines: PastedLine[]) {
     let caret = selectionRange();
     if (!caret) return false;
 
@@ -4096,13 +4251,13 @@ export function startInPlaceTextSession(
     }
 
     if (block === el) {
-      if (!hasRenderedContent(el)) {
+      if (isBlankBlock(el)) {
         if (el.tagName !== "DIV") retagRoot("DIV");
         el.replaceChildren(blocks);
         placeCaret(el, el.childNodes.length);
         return true;
       }
-      if (caret.startContainer === el) {
+      if (caret.startContainer === el && el.tagName === "DIV") {
         caret.insertNode(blocks);
         placeCaret(el, Array.from(el.childNodes).indexOf(last) + 1);
         return true;
@@ -4122,9 +4277,10 @@ export function startInPlaceTextSession(
       after.append(suffix);
       keepTextLook(before, look);
       keepTextLook(after, look);
-      const continuation = hasRenderedContent(after) ? after : null;
+      const headBlock = hasRenderedContent(before) ? before : null;
+      const continuation = isBlankBlock(after) ? null : after;
       el.replaceChildren(
-        ...(hasRenderedContent(before) ? [before] : []),
+        ...(headBlock ? [headBlock] : []),
         blocks,
         ...(continuation ? [continuation] : []),
       );
@@ -4142,6 +4298,7 @@ export function startInPlaceTextSession(
       return true;
     }
 
+    const blankLine = isBlankBlock(block);
     splitBlock(block, caret);
     const continuation = block.nextElementSibling;
     if (!(continuation instanceof HTMLElement)) {
@@ -4149,8 +4306,22 @@ export function startInPlaceTextSession(
         "in-place text session: block paste lost its continuation",
       );
     }
+    // A lone `<br>` before the caret is an authored empty line unless the
+    // whole block was only that placeholder.
+    const prefix = !blankLine && hasRenderedContent(block) ? block : null;
+    const suffix = isBlankBlock(continuation) ? null : continuation;
+    // Nothing before the caret: the original block, with the identity the
+    // split stripped from its copy, keeps the text and follows the paste.
+    if (!prefix && suffix) {
+      block.replaceChildren(...Array.from(continuation.childNodes));
+      continuation.remove();
+      block.before(blocks);
+      placeCaret(...textPoint(block, 0));
+      return true;
+    }
     continuation.before(blocks);
-    if (hasRenderedContent(continuation)) {
+    if (!prefix) block.remove();
+    if (suffix) {
       placeCaret(...textPoint(continuation, 0));
     } else {
       continuation.remove();
@@ -4160,10 +4331,9 @@ export function startInPlaceTextSession(
   }
 
   /**
-   * Pasted list items stay list items where the caret can hold them: in a
-   * list item they become items at their own depth, and in a container that
-   * may hold a list they arrive as one. A paragraph or heading cannot hold a
-   * list, so there they are lines like any other paste. A paste with nothing
+   * Pasted list items stay list items: in a list item they become items at
+   * their own depth, in a container that may hold a list they arrive as one,
+   * and a paragraph or heading is split around them. A paste with nothing
    * left to insert (an image the allowlist drops) changes nothing, not even
    * the selection it would have replaced.
    */
@@ -4184,56 +4354,71 @@ export function startInPlaceTextSession(
     ) {
       return false;
     }
-    const pastedUrl = text.trim();
-    if (at && !at.collapsed && /^(?:https?:\/\/|mailto:)/i.test(pastedUrl)) {
-      if (URL.canParse(pastedUrl)) {
-        const url = new URL(pastedUrl);
-        if (SAFE_LINK.test(url.protocol)) {
-          const selection = window.getSelection();
-          selection?.removeAllRanges();
-          selection?.addRange(at);
-          return setInlineTextLink(el, url.href).scope === "selection";
+    const href = at.collapsed ? null : pastedAddressHref(text);
+    if (href) {
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(at);
+      return setInlineTextLink(el, href).scope === "selection";
+    }
+    if (!preserveSlideStyles) {
+      for (const { fragment } of lines) linkifyPastedUrls(fragment);
+    }
+    if (!at.collapsed) {
+      deleteRange(at);
+    } else {
+      placeCaret(at.startContainer, at.startOffset);
+      leaveLinkEnd();
+    }
+    const start = selectionRange()?.startContainer;
+    const host = start instanceof Element ? start : start?.parentElement;
+    // A mark inside the same mark changes nothing, and a link inside a link
+    // is split in two when the slide is parsed again. Pasted blocks land
+    // outside the caret's marks, so only text that lands inside them is
+    // unwrapped.
+    const unwrapMarksAround = (selector: string, pasted: PastedLine[]) => {
+      const around = host?.closest(selector);
+      if (!around || around === el || !el.contains(around)) return;
+      for (const { fragment } of pasted) {
+        for (const inner of Array.from(fragment.querySelectorAll(selector))) {
+          inner.replaceWith(...Array.from(inner.childNodes));
         }
       }
-    }
-    const start = at.startContainer;
-    const link = (
-      start instanceof Element ? start : start.parentElement
-    )?.closest("a");
-    if (link && el.contains(link)) {
-      // A link inside a link is split in two when the slide is parsed again.
-      for (const { fragment } of lines) {
-        for (const anchor of Array.from(fragment.querySelectorAll("a"))) {
-          anchor.replaceWith(...Array.from(anchor.childNodes));
-        }
-      }
-    }
-    if (markdown) return insertBlockClipboard(lines, at);
-    if (
-      normalized !== null &&
-      (lines.some(({ blockTag }) => blockTag) ||
-        (lines.some(({ lists }) => lists.length > 0) &&
-          lines.some(({ lists }) => lists.length === 0)))
-    ) {
-      return insertBlockClipboard(lines, at);
-    }
-    if (!at.collapsed) deleteRange(at);
-    else placeCaret(at.startContainer, at.startOffset);
+    };
+    const unwrapMarks = (pasted: PastedLine[]) => {
+      unwrapMarksAround("b, strong", pasted);
+      unwrapMarksAround("i, em", pasted);
+    };
     const caret = selectionRange();
-    if (
-      caret &&
-      lines.length > 0 &&
-      lines.every(({ lists }) => lists.length > 0) &&
-      !listItemAt(caret.startContainer) &&
-      !legacyRowAt(caret.startContainer) &&
-      LIST_HOLDER_TAGS.has(nearestBlock(caret.startContainer, el).tagName)
-    ) {
+    const inItem =
+      !!caret &&
+      (!!listItemAt(caret.startContainer) ||
+        !!legacyRowAt(caret.startContainer));
+    const listOnly =
+      lines.length > 0 && lines.every(({ lists }) => lists.length > 0);
+    // Bare text in a root container that may hold a list stays bare around it;
+    // inside a nested block a list is split out like any other block.
+    const holdsList =
+      !!caret &&
+      LIST_HOLDER_TAGS.has(el.tagName) &&
+      nearestBlock(caret.startContainer, el) === el;
+    const asBlocks =
+      markdown !== null ||
+      (normalized !== null &&
+        (lines.some(({ blockTag }) => blockTag) ||
+          (lines.some(({ lists }) => lists.length > 0) && !listOnly))) ||
+      (listOnly && !!caret && !inItem && !holdsList);
+    if (!asBlocks || inItem) unwrapMarksAround("a", lines);
+    if (asBlocks) return insertBlockClipboard(lines);
+    if (caret && listOnly && !inItem) {
+      unwrapMarks(lines);
       const lists = pastedLists(lines);
       const last = lists.lastChild!;
       caret.insertNode(lists);
       placeCaret(...textPoint(last, Infinity));
       return true;
     }
+    unwrapMarks(lines);
     let depth = lines[0]?.lists.length ?? 0;
     lines.forEach((line, index) => {
       const caret = selectionRange();
@@ -4262,7 +4447,7 @@ export function startInPlaceTextSession(
           }
         }
       }
-      insertFragment(line.fragment);
+      insertFragment(line.fragment, index === lines.length - 1);
     });
     return true;
   }
@@ -5033,9 +5218,8 @@ export function startInPlaceTextSession(
     const typed = raw
       .replaceAll(ZERO_WIDTH_SPACE, "")
       .replaceAll("\u00a0", " ");
-    const url = /(?:^|\s)(https?:\/\/[^\s<>]+)\s$/
-      .exec(typed)?.[1]
-      ?.replace(/[.,!?;:)\]}]+$/, "");
+    const typedUrl = /(?:^|\s)(https?:\/\/[^\s<>]+)\s$/.exec(typed)?.[1];
+    const url = typedUrl && trimUrlEnd(typedUrl);
     const caretParent =
       caret.startContainer instanceof Element
         ? caret.startContainer
