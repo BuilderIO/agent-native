@@ -1788,6 +1788,12 @@ export async function createDashboardRevisionSnapshot(
 export interface DashboardUpsertOutcome {
   dashboard: DashboardRecord;
   didWrite: boolean;
+  /**
+   * The revision holding the dashboard as it was before this write; restoring
+   * it undoes the write. Absent when nothing was written or the write created
+   * the dashboard.
+   */
+  revisionId?: string;
 }
 
 async function upsertDashboardWithOutcome(
@@ -1825,6 +1831,7 @@ async function upsertDashboardWithOutcome(
     stableStringify(existing.config) !== configJson;
   if (existing && !changed) return { dashboard: existing, didWrite: false };
   let persistedDashboard: DashboardRecord | undefined;
+  let revisionId: string | undefined;
   const nameChanged =
     !existing ||
     normalizeDashboardName(existing.title) !== normalizeDashboardName(title);
@@ -1864,7 +1871,7 @@ async function upsertDashboardWithOutcome(
         }
         persistedDashboard = rowToDashboard(row);
         if (changed)
-          await snapshotDashboardRevision(
+          revisionId = await snapshotDashboardRevision(
             writeDb,
             existing,
             ctx,
@@ -1873,7 +1880,7 @@ async function upsertDashboardWithOutcome(
           );
       } else {
         if (changed)
-          await snapshotDashboardRevision(
+          revisionId = await snapshotDashboardRevision(
             writeDb,
             existing,
             ctx,
@@ -1938,7 +1945,7 @@ async function upsertDashboardWithOutcome(
     dashboard.orgId,
     dashboard.visibility,
   );
-  return { dashboard, didWrite: true };
+  return { dashboard, didWrite: true, revisionId };
 }
 
 export async function upsertDashboardOutcome(

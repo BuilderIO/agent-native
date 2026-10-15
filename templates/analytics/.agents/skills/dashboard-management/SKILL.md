@@ -69,11 +69,13 @@ can't tell what those changed rather than treating them as empty.
 
 On the page, each of an editor's own saves shows a toast that names the change,
 says "Saved for everyone" (org or public visibility; "Saved" when private),
-counts the others who have the dashboard open, and offers Undo. That Undo, like
-"undo my last change" in chat, restores the newest revision from
-`list-dashboard-revisions`, but only while the dashboard is as that save left
+counts the others who have the dashboard open, and offers Undo. That Undo
+restores the revision its save left (a full-config `update-dashboard` save
+returns it as `revisionId`), but only while the dashboard is as that save left
 it: once someone else has saved, it fails rather than taking their change back.
-The History panel shows each revision's first change with "+N more".
+For "undo my last change" in chat, restore the newest revision from
+`list-dashboard-revisions`. The History panel shows each revision's first
+change with "+N more".
 
 Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.

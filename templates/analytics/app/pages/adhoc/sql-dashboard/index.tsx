@@ -166,9 +166,11 @@ import {
 import {
   otherViewerCount,
   useDashboardSaveFeedback,
+  type DashboardSaveUndo,
 } from "./dashboard-save-feedback";
 import {
   createDashboardSaveQueue,
+  type DashboardSaveOutcome,
   type DashboardSaveQueue,
 } from "./dashboard-save-queue";
 import {
@@ -620,7 +622,7 @@ async function saveDashboard(
   dashboardId: string,
   data: SqlDashboardConfig,
   expectedUpdatedAt?: string,
-): Promise<{ updatedAt?: string; changed: boolean }> {
+): Promise<DashboardSaveOutcome> {
   return await callAction("update-dashboard", {
     dashboardId,
     config: data as unknown as Record<string, unknown>,
@@ -873,10 +875,10 @@ function SqlDashboardPageContent({
   // handleUndo is declared below the saves that offer it, so the save toast's
   // Undo goes through this ref.
   const handleUndoRef = useRef<
-    ((savedUpdatedAt?: string) => Promise<void>) | null
+    ((write?: DashboardSaveUndo) => Promise<void>) | null
   >(null);
-  const undoLatestSave = useCallback((savedUpdatedAt: string) => {
-    void handleUndoRef.current?.(savedUpdatedAt);
+  const undoLatestSave = useCallback((write: DashboardSaveUndo) => {
+    void handleUndoRef.current?.(write);
   }, []);
   const dashboardShared =
     dashboardVisibility === "org" || dashboardVisibility === "public";
@@ -1263,27 +1265,20 @@ function SqlDashboardPageContent({
   const dashboardSaveQueue = useCallback((id: string) => {
     const existing = dashboardSaveQueuesRef.current.get(id);
     if (existing) return existing;
-    // Saves still queued after the page moves to another dashboard must send
-    // this dashboard's concurrency token, not the open one's.
-    let expectedUpdatedAt = dashboardUpdatedAtRef.current;
     const queue = createDashboardSaveQueue<SqlDashboardConfig>(
-      async (config) => {
-        // While it's open, undo and adopted remote edits move the token too.
-        if (openDashboardIdRef.current === id) {
-          expectedUpdatedAt = dashboardUpdatedAtRef.current;
+      async (config, expectedUpdatedAt) => {
+        const result = await saveDashboard(id, config, expectedUpdatedAt);
+        if (
+          typeof result.updatedAt === "string" &&
+          openDashboardIdRef.current === id
+        ) {
+          dashboardUpdatedAtRef.current = result.updatedAt;
         }
-        const result = await saveDashboard(
-          id,
-          config,
-          expectedUpdatedAt ?? undefined,
-        );
-        if (typeof result.updatedAt === "string") {
-          expectedUpdatedAt = result.updatedAt;
-          if (openDashboardIdRef.current === id) {
-            dashboardUpdatedAtRef.current = result.updatedAt;
-          }
-        }
-        return { changed: result.changed, updatedAt: result.updatedAt };
+        return {
+          changed: result.changed,
+          updatedAt: result.updatedAt,
+          revisionId: result.revisionId,
+        };
       },
     );
     dashboardSaveQueuesRef.current.set(id, queue);
@@ -1305,7 +1300,10 @@ function SqlDashboardPageContent({
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
       const queue = dashboardSaveQueue(dashboardId);
-      void trackSave(queue.enqueue(updated), changes)
+      void trackSave(
+        queue.enqueue(updated, dashboardUpdatedAtRef.current),
+        changes,
+      )
         .then(({ isLatest }) => {
           if (!isLatest) return;
           queryClient.removeQueries({
@@ -1372,7 +1370,10 @@ function SqlDashboardPageContent({
       const queue = dashboardSaveQueue(dashboardId);
       let isLatest: boolean;
       try {
-        ({ isLatest } = await trackSave(queue.enqueue(updated), changes));
+        ({ isLatest } = await trackSave(
+          queue.enqueue(updated, dashboardUpdatedAtRef.current),
+          changes,
+        ));
       } catch (err) {
         // A newer queued save still needs the hold and sends the whole config.
         if (queue.pending() === 0) {
@@ -1419,10 +1420,11 @@ function SqlDashboardPageContent({
     ],
   );
 
-  // The save toast passes the version its save left, so a newer save by
-  // someone else makes the restore fail rather than taking their change back.
+  // The save toast passes its write, so Undo restores exactly the revision
+  // that write left, and a newer save by someone else makes the restore fail
+  // rather than taking their change back.
   const handleUndo = useCallback(
-    async (savedUpdatedAt?: string) => {
+    async (write?: DashboardSaveUndo) => {
       if (
         !dashboardId ||
         !canEdit ||
@@ -1434,22 +1436,30 @@ function SqlDashboardPageContent({
 
       revisionRestoreInFlightRef.current = true;
       try {
-        const revisions =
-          dashboardRevisions ?? (await refetchDashboardRevisions()).data;
-        if (!revisions?.length) return;
-        const targetIndex =
-          undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
-        const targetRevision = revisions[targetIndex];
-        if (!targetRevision) return;
+        let revisionId = write?.revisionId;
+        if (!revisionId) {
+          // Fetched now: a list held from before the latest save would point
+          // Undo at an older revision. A failed fetch throws, so Undo reports
+          // it didn't run instead of passing for an empty history.
+          const { data: revisions } = await refetchDashboardRevisions({
+            throwOnError: true,
+          });
+          const undoneIndex =
+            revisions?.findIndex(
+              (revision) => revision.id === undoRevisionId,
+            ) ?? -1;
+          revisionId = revisions?.[undoneIndex + 1]?.id;
+          if (!revisionId) return;
+        }
 
         holdDashboardConfig();
         const restored = await restoreDashboardRevision.mutateAsync({
           dashboardId,
-          revisionId: targetRevision.id,
+          revisionId,
           expectedUpdatedAt:
-            savedUpdatedAt ?? dashboardUpdatedAtRef.current ?? undefined,
+            write?.updatedAt ?? dashboardUpdatedAtRef.current ?? undefined,
         });
-        setUndoRevisionId(targetRevision.id);
+        setUndoRevisionId(revisionId);
         setRedoRevisionIds((current) => [
           ...current,
           restored.snapshotRevisionId,
@@ -1470,14 +1480,12 @@ function SqlDashboardPageContent({
     [
       canEdit,
       dashboardId,
-      dashboardRevisions,
       holdDashboardConfig,
       restoreDashboardRevision,
       refetchDashboardRevisions,
       resetRevisionNavigation,
       t,
       undoRevisionId,
-      undoRevisionIndex,
     ],
   );
   useEffect(() => {
