@@ -311,6 +311,32 @@ describe("annotation writes", () => {
     expect(sets()).toEqual([{ ...LAUNCHES, name: "Releases" }, CHANGES]);
   });
 
+  it("shows an edit keeping the time it leaves out, and clearing it with null", async () => {
+    const timed = { ...LAUNCH, time: "00:01", timeZone: "America/Los_Angeles" };
+    client.setQueryData(SETS_KEY, {
+      sets: [{ ...LAUNCHES, dates: [timed, PRICING] }, CHANGES],
+    });
+    const launch = () =>
+      sets()
+        ?.flatMap((set) => set.dates)
+        .find((date) => date.id === LAUNCH.id);
+    const edit = { id: LAUNCH.id, setId: LAUNCHES.id, date: LAUNCH.date };
+
+    await owner(useSaveKeyDate, { ...edit, label: "Product Hunt live" });
+    expect(launch()).toMatchObject({
+      label: "Product Hunt live",
+      time: "00:01",
+      timeZone: "America/Los_Angeles",
+    });
+
+    await owner(useSaveKeyDate, { ...edit, label: "Launch", time: null });
+    expect(launch()).toEqual({
+      ...LAUNCH,
+      label: "Launch",
+      updatedAt: expect.any(String),
+    });
+  });
+
   it("marks what it adds as pending until the server's ids arrive", async () => {
     await owner(useSaveDataNote, {
       kind: "incident",

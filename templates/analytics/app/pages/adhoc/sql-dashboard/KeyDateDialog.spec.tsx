@@ -202,6 +202,15 @@ describe("KeyDateDialog", () => {
     );
   });
 
+  it("sends null to clear a time taken off a key date, and its zone with it", () => {
+    render({ keyDate: keyDate({ time: "00:01", timeZone: "Asia/Tokyo" }) });
+    typeTime("");
+    save();
+    expect(mocks.save).toHaveBeenCalledWith(
+      expect.objectContaining({ time: null, timeZone: null }),
+    );
+  });
+
   it("starts a new key date's time in the viewer's zone", () => {
     render({ setId: LAUNCHES.id });
     typeTime("00:01");

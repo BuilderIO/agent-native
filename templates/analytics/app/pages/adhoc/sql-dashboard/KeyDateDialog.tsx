@@ -119,7 +119,9 @@ function KeyDateForm({
       ...(newSet ? { setName: setName.trim() } : { setId }),
       date,
       label: label.trim(),
-      ...(time ? { time, timeZone } : {}),
+      // An edit keeps a time it leaves out, so a cleared time is sent as null.
+      time: time || null,
+      timeZone: time ? timeZone : null,
     };
     onClose();
     saveKeyDate.mutate(input);

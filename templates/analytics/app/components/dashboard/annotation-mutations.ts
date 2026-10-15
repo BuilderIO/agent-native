@@ -181,8 +181,9 @@ export type KeyDateInput = {
   setId?: string;
   setName?: string;
   date: string;
-  time?: string;
-  timeZone?: string;
+  /** Omitted on an edit keeps the saved time; null clears it and its zone. */
+  time?: string | null;
+  timeZone?: string | null;
   label: string;
 };
 
@@ -219,7 +220,14 @@ function withKeyDate(
   input: KeyDateInput,
   ids: { date: string; newSet: string },
 ): KeyDateSet[] {
-  const { id: _id, setId, setName, ...fields } = input;
+  const { id: _id, setId, setName, time, timeZone, ...fields } = input;
+  const saved = findKeyDate(sets, ids.date)?.date;
+  // The server's rules, so the optimistic date matches what it will save.
+  const keptTime = time === undefined ? saved?.time : (time ?? undefined);
+  const keptZone =
+    timeZone !== undefined || time === null
+      ? (timeZone ?? undefined)
+      : saved?.timeZone;
   const target =
     sets.find((set) => set.id === setId) ??
     sets.find(
@@ -228,9 +236,11 @@ function withKeyDate(
   const date: KeyDate = {
     id: ids.date,
     setId: target?.id ?? ids.newSet,
-    addedBy: findKeyDate(sets, ids.date)?.date.addedBy ?? "",
+    addedBy: saved?.addedBy ?? "",
     updatedAt: new Date().toISOString(),
     ...fields,
+    ...(keptTime === undefined ? {} : { time: keptTime }),
+    ...(keptZone === undefined ? {} : { timeZone: keptZone }),
   };
   const without = withoutKeyDate(sets, ids.date);
   if (!target) {
