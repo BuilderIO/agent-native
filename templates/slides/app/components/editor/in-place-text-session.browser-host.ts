@@ -21,30 +21,29 @@ const APP_CSS = `
 .slide-content h1,.slide-content h2,.slide-content h3,.slide-content p,.slide-content blockquote,
 .slide-content ul,.slide-content ol{margin:0}
 .slide-content ul,.slide-content ol{padding:0}
-.slide-content{font-family:var(--ds-body-font,"Inter",sans-serif);color:var(--ds-text,#1f2933)}
+.slide-content{font-family:var(--ds-body-font,"Inter",sans-serif)}
 .slide-content [data-slide-text-block="true"],.slide-content [data-editing-block="true"]{cursor:text}
-.slide-content h1{font-size:3rem;line-height:1.25;font-weight:700;margin-bottom:1.5rem;letter-spacing:-.025em;color:var(--ds-text,#1f2933)}
-.slide-content h2{font-size:1.875rem;line-height:1.375;font-weight:600;margin-bottom:1rem;letter-spacing:-.025em;color:var(--ds-text,#1f2933)}
-.slide-content h3{font-size:1.5rem;line-height:1.3333;font-weight:500;margin-bottom:.75rem;color:var(--ds-text,#1f2933)}
-.slide-content p{font-size:1.25rem;line-height:1.625;margin-bottom:1rem;color:var(--ds-text-muted,#667085)}
-.slide-content ul,.slide-content ol{font-size:1.125rem;line-height:1.5556;list-style-position:inside;color:var(--ds-text-muted,#667085)}
+.slide-content h1{font-size:3rem;line-height:1.25;font-weight:700;margin-bottom:1.5rem;letter-spacing:-.025em}
+.slide-content h2{font-size:1.875rem;line-height:1.375;font-weight:600;margin-bottom:1rem;letter-spacing:-.025em}
+.slide-content h3{font-size:1.5rem;line-height:1.3333;font-weight:500;margin-bottom:.75rem}
+.slide-content p{font-size:1.25rem;line-height:1.625;margin-bottom:1rem}
+.slide-content ul,.slide-content ol{font-size:1.125rem;line-height:1.5556;list-style-position:inside}
 .slide-content ul{list-style-type:disc}
 .slide-content ol{list-style-type:decimal}
 .slide-content ul>:not(:last-child),.slide-content ol>:not(:last-child){margin-bottom:.75rem}
-.slide-content code{background:rgba(255,255,255,.1);padding:.125rem .5rem;border-radius:.25rem;font-size:1rem;font-family:ui-monospace,monospace}
-.slide-content blockquote{border-left:4px solid #609ff8;padding-left:1rem;font-style:italic;font-size:1.25rem;line-height:1.75;opacity:.8}
-.slide-content strong{font-weight:700;color:var(--ds-text,#1f2933)}
-.slide-content em{font-style:italic;color:#609ff8}
-.slide-content a{text-decoration:underline;color:#609ff8}
+.slide-content code{padding:.125rem .5rem;border-radius:.25rem;font-size:1rem;font-family:ui-monospace,monospace}
+.slide-content blockquote{border-left:4px solid;padding-left:1rem;font-style:italic;font-size:1.25rem;line-height:1.75;opacity:.8}
+.slide-content strong{font-weight:700}
+.slide-content em{font-style:italic}
+.slide-content a{text-decoration:underline}
 .fmd-slide{position:relative;width:100%;height:100%;display:flex;flex-direction:column;padding:64px 80px;
-color:var(--ds-text,#1f2933);background:var(--ds-bg,#f5f2ea);font-family:var(--ds-body-font,"Inter",sans-serif);
+font-family:var(--ds-body-font,"Inter",sans-serif);
 box-sizing:border-box;overflow:hidden}
 `;
 
 // The slide wrapper authored per .agents/skills/create-deck/SKILL.md.
 const FMD_SLIDE_STYLE =
-  "--deck-bg: #fbfaf6; --deck-ink: #1f2933; --deck-muted: #52606d; --deck-accent: #2457d6; " +
-  "--deck-body-font: 'Inter', Arial, sans-serif; background: var(--deck-bg); color: var(--deck-ink); " +
+  "--deck-body-font: 'Inter', Arial, sans-serif; " +
   "padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; " +
   "font-family: var(--deck-body-font);";
 
@@ -410,7 +409,7 @@ const ESCAPES: Record<string, string> = {
   ">": "&gt;",
   " ": "&nbsp;",
   [ZWSP]: "&zwsp;",
-  "|": "&#124;",
+  "|": "&vert;",
   "[": "&#91;",
   "]": "&#93;",
 };
