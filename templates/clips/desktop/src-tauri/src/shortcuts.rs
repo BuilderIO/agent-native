@@ -761,6 +761,10 @@ pub fn install_countdown_local_key_monitor(app: &tauri::App) {
                 thread::spawn(move || {
                     if let Some(window) = app.get_webview_window("countdown") {
                         finish_countdown_from_shortcut(&app, &window, countdown_event, generation);
+                    } else {
+                        tauri::async_runtime::spawn(async move {
+                            let _ = finish_countdown_shortcuts(app, generation).await;
+                        });
                     }
                 });
             }
