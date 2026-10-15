@@ -11,7 +11,7 @@ import {
 const insertPendingTaskMock = vi.hoisted(() => vi.fn());
 const isDuplicateEventErrorMock = vi.hoisted(() => vi.fn(() => false));
 const recordDispatchAttemptMock = vi.hoisted(() => vi.fn());
-const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const resolveOrgScopeForEmailMock = vi.hoisted(() => vi.fn());
 const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./pending-tasks-store.js", () => ({
@@ -22,7 +22,7 @@ vi.mock("./pending-tasks-store.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: vi.fn(async () => ({ orgId: null })),
-  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+  resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
 }));
 
 vi.mock("../agent/production-agent.js", async () => {
@@ -91,7 +91,10 @@ function createAdapter(sendResponse = vi.fn()): PlatformAdapter {
 describe("integration webhook handler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-qa",
+    });
     insertPendingTaskMock.mockResolvedValue(undefined);
     isDuplicateEventErrorMock.mockReturnValue(false);
     resolveOwnerEngineApiKeyMock.mockResolvedValue({

@@ -11,8 +11,8 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: "org-qa", role: "owner" })),
 );
-const resolveOrgIdForEmailMock = vi.hoisted(() =>
-  vi.fn(async () => "org-owner"),
+const resolveOrgScopeForEmailMock = vi.hoisted(() =>
+  vi.fn(async () => ({ status: "organization", orgId: "org-owner" })),
 );
 const runWithRequestContextMock = vi.hoisted(() =>
   vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
@@ -113,7 +113,7 @@ vi.mock("../server/credential-provider.js", async () => {
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
-  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+  resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
 }));
 
 vi.mock("../server/request-context.js", () => ({
@@ -417,7 +417,10 @@ describe("integrations plugin routes", () => {
       owner: null,
     }));
     getOrgContextMock.mockResolvedValue({ orgId: "org-qa", role: "owner" });
-    resolveOrgIdForEmailMock.mockResolvedValue("org-owner");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-owner",
+    });
     runWithRequestContextMock.mockImplementation(
       (_ctx: unknown, fn: () => unknown) => fn(),
     );
@@ -2478,7 +2481,10 @@ describe("integrations plugin routes", () => {
       configData: { enabled: true },
       owner: "owner+qa@example.com",
     });
-    resolveOrgIdForEmailMock.mockResolvedValueOnce("org-owner");
+    resolveOrgScopeForEmailMock.mockResolvedValueOnce({
+      status: "organization",
+      orgId: "org-owner",
+    });
     resourceGetByPathMock.mockImplementation(async (owner, path) => {
       if (owner === "shared" && path === "AGENTS.md") {
         return { content: "Shared Dispatch instruction" };
@@ -2537,7 +2543,7 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(200);
-    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith(
+    expect(resolveOrgScopeForEmailMock).toHaveBeenCalledWith(
       "owner+qa@example.com",
     );
     expect(runWithRequestContextMock).toHaveBeenCalledWith(

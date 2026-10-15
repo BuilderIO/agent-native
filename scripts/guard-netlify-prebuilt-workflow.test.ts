@@ -559,6 +559,25 @@ describe("Netlify API rate-limit guard", () => {
       /raw Netlify fetch calls/,
     );
   });
+
+  it("uses the docs retry backoff when Retry-After is absent or invalid", () => {
+    const docsProductionSource = readFileSync(
+      ".github/workflows/deploy-docs-production.yml",
+      "utf8",
+    );
+    assert.match(
+      docsProductionSource,
+      /retryAfterHeader === null \|\| !retryAfterHeader\.trim\(\)[\s\S]*?Number\.NaN/,
+    );
+    assert.match(
+      docsProductionSource,
+      /Number\.isFinite\(retryAfter\) && retryAfter >= 0[\s\S]*?: attempt \* 1_000/,
+    );
+    assert.doesNotMatch(
+      docsProductionSource,
+      /Number\(response\.headers\.get\(['"]retry-after['"]\)\)/,
+    );
+  });
 });
 
 describe("production Netlify site concurrency guard", () => {
