@@ -257,8 +257,8 @@ describe("useSqlQuery saved results", () => {
     expect(savedFetchedAt("SELECT 1")).toBe(savedAt);
   });
 
-  it.each([401, 403, 404])(
-    "removes only the denied snapshot on HTTP %s and never restores it on remount",
+  it.each([401, 403, 404, "missing_api_key"])(
+    "removes only the denied snapshot on %s and never restores it on remount",
     async (status) => {
       seed("SELECT 1", { rows: [{ n: "saved" }], fetchedAt: minutesAgo(30) });
       seed("SELECT 2", { rows: [{ n: "other-query" }] });
@@ -274,17 +274,22 @@ describe("useSqlQuery saved results", () => {
           window.sessionStorage.getItem(key),
         ]),
       );
-      const request = deferred<SqlQueryResult>();
+      const request = deferred<
+        SqlQueryResult | { error: string; message: string }
+      >();
       mocks.callAction.mockReturnValue(request.promise);
       await act(async () => render({ sql: "SELECT 1", retry: true }));
       expect(state().rows).toEqual([{ n: "saved" }]);
 
       // The real callAction transport attaches numeric HTTP `status` to Error.
-      await act(async () =>
-        request.reject(
-          Object.assign(new Error("access withdrawn"), { status }),
-        ),
-      );
+      await act(async () => {
+        if (status === "missing_api_key")
+          request.resolve({ error: status, message: "access withdrawn" });
+        else
+          request.reject(
+            Object.assign(new Error("access withdrawn"), { status }),
+          );
+      });
       await vi.waitFor(() =>
         expect(state()).toMatchObject({
           rows: null,
@@ -326,58 +331,96 @@ describe("useSqlQuery saved results", () => {
     },
   );
 
-  it("clears in-memory rows and previous-filter retention after a denied refresh", async () => {
-    mocks.callAction.mockResolvedValueOnce({ rows: [{ n: "cached" }] });
-    await act(async () => render({ sql: "SELECT 1" }));
-    await vi.waitFor(() => expect(state().rows).toEqual([{ n: "cached" }]));
-    mocks.callAction.mockRejectedValueOnce(
-      Object.assign(new Error("denied"), { status: 403 }),
-    );
-    await act(async () => render({ sql: "SELECT 1", refreshToken: 1 }));
-    await vi.waitFor(() =>
-      expect(state()).toMatchObject({ rows: null, error: "denied" }),
-    );
-    expect(
-      queryClient.getQueryData(["sql", "SELECT 1", SCOPE_A]),
-    ).toBeUndefined();
-    mocks.callAction.mockImplementation(pendingAction);
-    await act(async () => render({ sql: "SELECT 2", refreshToken: 1 }));
-    expect(state().rows).toBeNull();
-    expect(state().previous).toBe(false);
-  });
+  it.each(["http", "missing_api_key"])(
+    "clears in-memory rows and previous-filter retention after a denied refresh: %s",
+    async (refusal) => {
+      mocks.callAction.mockResolvedValueOnce({ rows: [{ n: "cached" }] });
+      await act(async () => render({ sql: "SELECT 1" }));
+      await vi.waitFor(() => expect(state().rows).toEqual([{ n: "cached" }]));
+      if (refusal === "http")
+        mocks.callAction.mockRejectedValueOnce(
+          Object.assign(new Error("denied"), { status: 403 }),
+        );
+      else
+        mocks.callAction.mockResolvedValueOnce({
+          error: refusal,
+          message: "denied",
+        });
+      await act(async () => render({ sql: "SELECT 1", refreshToken: 1 }));
+      await vi.waitFor(() =>
+        expect(state()).toMatchObject({ rows: null, error: "denied" }),
+      );
+      expect(
+        queryClient.getQueryData(["sql", "SELECT 1", SCOPE_A]),
+      ).toBeUndefined();
+      mocks.callAction.mockImplementation(pendingAction);
+      await act(async () => render({ sql: "SELECT 2", refreshToken: 1 }));
+      expect(state().rows).toBeNull();
+      expect(state().previous).toBe(false);
+    },
+  );
 
-  it("suppresses retained rows from previous filters when the new query is denied", async () => {
-    mocks.callAction.mockResolvedValueOnce({
-      rows: [{ n: "previous-filter" }],
-    });
-    await act(async () => render({ sql: "SELECT 1" }));
-    await vi.waitFor(() =>
-      expect(state().rows).toEqual([{ n: "previous-filter" }]),
-    );
-    const request = deferred<SqlQueryResult>();
-    mocks.callAction.mockReturnValue(request.promise);
-    await act(async () => render({ sql: "SELECT 2" }));
-    expect(state()).toMatchObject({
-      rows: [{ n: "previous-filter" }],
-      previous: true,
-    });
-    await act(async () =>
-      request.reject(Object.assign(new Error("denied"), { status: 403 })),
-    );
-    await vi.waitFor(() =>
+  it.each(["http", "missing_api_key"])(
+    "suppresses retained rows from previous filters when the new query is denied: %s",
+    async (refusal) => {
+      mocks.callAction.mockResolvedValueOnce({
+        rows: [{ n: "previous-filter" }],
+      });
+      await act(async () => render({ sql: "SELECT 1" }));
+      await vi.waitFor(() =>
+        expect(state().rows).toEqual([{ n: "previous-filter" }]),
+      );
+      const request = deferred<
+        SqlQueryResult | { error: string; message: string }
+      >();
+      mocks.callAction.mockReturnValue(request.promise);
+      await act(async () => render({ sql: "SELECT 2" }));
       expect(state()).toMatchObject({
-        rows: null,
-        error: "denied",
-        previous: false,
-      }),
-    );
-    expect(
-      mocks.renders
-        .filter((render) => render.denied)
-        .every((render) => render.data === undefined),
-    ).toBe(true);
-    expect(console.warn).not.toHaveBeenCalled();
-  });
+        rows: [{ n: "previous-filter" }],
+        previous: true,
+      });
+      await act(async () => {
+        if (refusal === "http")
+          request.reject(Object.assign(new Error("denied"), { status: 403 }));
+        else request.resolve({ error: refusal, message: "denied" });
+      });
+      await vi.waitFor(() =>
+        expect(state()).toMatchObject({
+          rows: null,
+          error: "denied",
+          previous: false,
+        }),
+      );
+      expect(
+        mocks.renders
+          .filter((render) => render.denied)
+          .every((render) => render.data === undefined),
+      ).toBe(true);
+      expect(console.warn).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["invalid_query", "unsupported_by_backend"])(
+    "keeps saved rows for the non-access refusal %s",
+    async (error) => {
+      const savedAt = minutesAgo(30);
+      seed("SELECT 1", { rows: [{ n: "saved" }], fetchedAt: savedAt });
+      mocks.callAction.mockResolvedValueOnce({
+        error,
+        message: "Query refused",
+      });
+      await act(async () => render({ sql: "SELECT 1" }));
+      await vi.waitFor(() =>
+        expect(state()).toMatchObject({
+          rows: [{ n: "saved" }],
+          error: "Query refused",
+          fetching: false,
+        }),
+      );
+      expect(savedFetchedAt("SELECT 1")).toBe(savedAt);
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it.each([undefined, 500, 503])(
     "keeps cached rows and the snapshot for transient status %s",

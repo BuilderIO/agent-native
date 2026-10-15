@@ -1,6 +1,13 @@
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
 import {
+  isConfirmedPreQueryFailure,
+  isSqlQueryAccessDenied,
+  SqlQueryRefusalError,
+  supportsSqlQueryCacheBypass,
+  type SqlQueryExecutionMetadata,
+} from "@shared/sql-query-contract";
+import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "@shared/sql-query-limits";
@@ -26,24 +33,13 @@ import {
 
 export { DASHBOARD_REPORT_ACTION_TIMEOUT_MS };
 
-function isAccessDenied(error: unknown): error is Error & { status: number } {
-  if (!(error instanceof Error) || !("status" in error)) return false;
-  // callAction preserves the HTTP response status on its thrown Error.
-  return error.status === 401 || error.status === 403 || error.status === 404;
-}
-
-export interface SqlQueryResult {
+export interface SqlQueryResult extends Omit<
+  SqlQueryExecutionMetadata,
+  "bytesProcessed"
+> {
   rows: Record<string, unknown>[];
   error?: string;
   schema?: { name: string; type: string }[];
-  /** The app's own result cache served these rows. */
-  cached?: boolean;
-  /** BigQuery answered from its query cache; absent means it did not say. */
-  providerCacheHit?: boolean;
-  /** Rows were cut short by a server cap. */
-  truncated?: boolean;
-  /** When the app first received these rows, not when the warehouse ran them. */
-  fetchedAt?: string;
 }
 
 type PendingSqlQuerySlot = {
@@ -223,7 +219,9 @@ export async function executeSqlQuery(
   options?: { reportScreenshot?: boolean; forceRefresh?: boolean },
 ): Promise<SqlQueryResult> {
   const startedAt = performance.now();
-  const forceRefresh = Boolean(options?.forceRefresh && source === "bigquery");
+  const forceRefresh = Boolean(
+    options?.forceRefresh && supportsSqlQueryCacheBypass(source),
+  );
   const deadline = createDeadlineSignal(
     signal,
     DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
@@ -263,7 +261,11 @@ export async function executeSqlQuery(
         : "error";
     // A query still waiting for a slot never reached the warehouse. One that
     // was sent may have scanned before it failed, so its cost is unknown.
-    if (dispatchedAt !== undefined && scansBigQuery(source)) {
+    if (
+      dispatchedAt !== undefined &&
+      scansBigQuery(source) &&
+      !isConfirmedPreQueryFailure(error)
+    ) {
       recordQueryCost({
         status: status === "cancelled" ? "cancelled" : "error",
       });
@@ -294,11 +296,10 @@ export async function executeSqlQuery(
       requestMs,
       totalMs: performance.now() - startedAt,
     });
-    throw new Error(
-      typeof data.message === "string" && data.message
-        ? data.message
-        : data.error,
-    );
+    throw new SqlQueryRefusalError({
+      error: data.error,
+      message: data.message,
+    });
   }
 
   const metadata = responseMetadata(data);
@@ -401,8 +402,8 @@ export function useSqlQuery(
   const latestRefreshToken = useRef(refreshToken);
   const latestStartedRefreshToken = useRef(refreshToken);
   latestRefreshToken.current = refreshToken;
-  // A manual refresh bypasses the caches for the query it was requested on,
-  // and only that one, until that query succeeds. It is recorded while
+  // A manual refresh belongs to the query it was requested on. Sources that
+  // support cache bypass keep it pending until success. It is recorded while
   // rendering because the fetch it triggers can start before any effect runs.
   const pendingManualRefresh = useRef<{
     token: number;
@@ -449,7 +450,9 @@ export function useSqlQuery(
     queryFn: async ({ signal }) => {
       latestStartedRefreshToken.current = latestRefreshToken.current;
       const manual = pendingManualRefresh.current;
-      const forceRefresh = manual?.queryKeyHash === queryKeyHash;
+      const manualRequested = manual?.queryKeyHash === queryKeyHash;
+      const forceRefresh =
+        manualRequested && supportsSqlQueryCacheBypass(source);
       let result: SqlQueryResult;
       try {
         result = await executeSqlQuery(sql, source, signal, {
@@ -457,7 +460,7 @@ export function useSqlQuery(
           forceRefresh,
         });
       } catch (error) {
-        if (isAccessDenied(error)) {
+        if (isSqlQueryAccessDenied(error)) {
           if (
             lastShown.current?.accountScope === accountScope &&
             lastShown.current?.retainScope === retainScope
@@ -484,9 +487,16 @@ export function useSqlQuery(
         // The request stays pending for the cache bypass, but a later success
         // is not the one the user asked for.
         if (manual && forceRefresh && !signal.aborted) manual.failed = true;
+        if (
+          manualRequested &&
+          !forceRefresh &&
+          pendingManualRefresh.current === manual
+        ) {
+          pendingManualRefresh.current = null;
+        }
         throw error;
       }
-      if (forceRefresh && pendingManualRefresh.current === manual) {
+      if (manualRequested && pendingManualRefresh.current === manual) {
         pendingManualRefresh.current = null;
       }
       if (manual && forceRefresh && !manual.failed && !signal.aborted) {
@@ -512,7 +522,7 @@ export function useSqlQuery(
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
     retry: (failureCount, error) => {
-      if (isAccessDenied(error)) return false;
+      if (isSqlQueryAccessDenied(error)) return false;
       const retry = options?.retry ?? false;
       return typeof retry === "number" ? failureCount < retry : retry;
     },
@@ -521,7 +531,7 @@ export function useSqlQuery(
       (options?.reuseCompletedOnEnable ? Infinity : 5 * 60 * 1000),
   });
   const refetch = query.refetch;
-  const accessDenied = isAccessDenied(query.error);
+  const accessDenied = isSqlQueryAccessDenied(query.error);
 
   useEffect(() => {
     if (accessDenied) {

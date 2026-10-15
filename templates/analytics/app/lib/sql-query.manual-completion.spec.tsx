@@ -28,8 +28,16 @@ import {
 
 import { useSqlQuery } from "./sql-query";
 
-function Probe({ refreshToken, sql }: { refreshToken: number; sql: string }) {
-  const query = useSqlQuery(["sql", sql], sql, "bigquery", { refreshToken });
+function Probe({
+  refreshToken,
+  sql,
+  source = "bigquery",
+}: {
+  refreshToken: number;
+  sql: string;
+  source?: "bigquery" | "first-party";
+}) {
+  const query = useSqlQuery(["sql", sql], sql, source, { refreshToken });
   const confirmed = useRefreshConfirmation({
     requestToken: refreshToken,
     scopeKey: sql,
@@ -108,11 +116,15 @@ describe("useSqlQuery manual refresh completion", () => {
     vi.useRealTimers();
   });
 
-  const render = (refreshToken: number, sql = "SELECT 1") =>
+  const render = (
+    refreshToken: number,
+    sql = "SELECT 1",
+    source: "bigquery" | "first-party" = "bigquery",
+  ) =>
     act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
-          <Probe refreshToken={refreshToken} sql={sql} />
+          <Probe refreshToken={refreshToken} sql={sql} source={source} />
         </QueryClientProvider>,
       );
     });
@@ -133,6 +145,47 @@ describe("useSqlQuery manual refresh completion", () => {
       await flush();
       expect(calls.length).toBeGreaterThanOrEqual(count);
     });
+
+  it("refetches first-party normally without confirming a cache bypass", async () => {
+    await render(0, "SELECT 1", "first-party");
+    await waitForCalls(1);
+    await settle(0, "resolve");
+    mocks.callAction.mockResolvedValueOnce({
+      rows: [{ value: "cached" }],
+      cached: true,
+      fetchedAt: "2026-10-14T12:00:00.000Z",
+    });
+    await render(1, "SELECT 1", "first-party");
+    await flush();
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    expect(mocks.callAction.mock.calls[1]?.[1]).toEqual({
+      query: "SELECT 1",
+      source: "first-party",
+    });
+    expect(completed()).toBe("undefined");
+    expect(confirmed()).toBe("false");
+    await act(async () => vi.advanceTimersByTimeAsync(REFRESH_CONFIRMATION_MS));
+    await render(1, "SELECT 1", "first-party");
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    expect(confirmed()).toBe("false");
+
+    // Completing the manual request must not turn a later automatic load into
+    // a forced refresh or a completion of the old request.
+    mocks.callAction.mockResolvedValueOnce({
+      rows: [{ value: "automatic" }],
+      cached: true,
+    });
+    await act(async () => {
+      await queryClient.refetchQueries();
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(mocks.callAction).toHaveBeenCalledTimes(3);
+    expect(mocks.callAction.mock.calls[2]?.[1]).not.toHaveProperty(
+      "forceRefresh",
+    );
+    expect(completed()).toBe("undefined");
+    expect(confirmed()).toBe("false");
+  });
 
   it("reports the forced fetch of the request, then drops it after the confirmation", async () => {
     await render(0);

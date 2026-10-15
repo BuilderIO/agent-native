@@ -248,7 +248,10 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   const cardFill = inspectorSection(page, "Fill");
   await cardFill.getByRole("button", { name: "Open color picker" }).click();
   await page.getByRole("button", { name: "Gradient", exact: true }).click();
+  const gradientAngle = page.locator('input[aria-label="Gradient angle"]');
+  await expect(gradientAngle).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(gradientAngle).toBeHidden();
   await app.settled();
   const cardGradient = await savedStyle(app, id, "card");
   expect({
