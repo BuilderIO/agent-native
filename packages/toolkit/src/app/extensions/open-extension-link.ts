@@ -1,3 +1,5 @@
+import { useLayoutEffect, useMemo, useRef } from "react";
+
 export const EXTENSION_OPEN_URL_MESSAGE = "agent-native-extension-open-url";
 export const EXTENSION_OPEN_URL_READY_MESSAGE =
   "agent-native-extension-open-url-ready";
@@ -50,4 +52,49 @@ export function openExtensionLink(
   }
   window.open(parsed.href, "_blank", "noopener,noreferrer");
   return true;
+}
+
+// Binds link opening to one document the host loaded into an extension
+// iframe. The binding latch alone isn't enough: it also resets on re-renders
+// that keep the document, and by then the iframe may have navigated to
+// another page that would latch its own token. Pair it with
+// useOpenUrlLatchDocument so it resets only when the frame's document does.
+export function useOpenUrlLatch() {
+  const latchedRef = useRef(false);
+  const tokenRef = useRef<string | null>(null);
+  return useMemo(
+    () => ({
+      // Call with every binding message; only the document's first one counts.
+      latch(
+        message: unknown,
+        source: MessageEventSource | null,
+        enabled = true,
+      ) {
+        if (latchedRef.current) return;
+        latchedRef.current = true;
+        tokenRef.current = enabled ? readOpenUrlToken(message) : null;
+        if (tokenRef.current) announceOpenUrlSupport(source);
+      },
+      open(message: unknown) {
+        return openExtensionLink(message, tokenRef.current);
+      },
+      reset() {
+        latchedRef.current = false;
+        tokenRef.current = null;
+      },
+    }),
+    [],
+  );
+}
+
+// Resets the latch when `documentIdentity` (whatever determines the frame's
+// document: its key, src or srcdoc) changes. A layout effect, so it runs
+// before the new document can post its binding.
+export function useOpenUrlLatchDocument(
+  openUrl: ReturnType<typeof useOpenUrlLatch>,
+  documentIdentity: string,
+) {
+  useLayoutEffect(() => {
+    openUrl.reset();
+  }, [openUrl, documentIdentity]);
 }

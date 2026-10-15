@@ -44,10 +44,9 @@ import {
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
 import {
-  announceOpenUrlSupport,
   EXTENSION_OPEN_URL_MESSAGE,
-  openExtensionLink,
-  readOpenUrlToken,
+  useOpenUrlLatch,
+  useOpenUrlLatchDocument,
 } from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
@@ -141,7 +140,7 @@ export function EmbeddedExtension({
     isAuthor: false,
   });
   const bindingLatchedRef = useRef(false);
-  const openUrlTokenRef = useRef<string | null>(null);
+  const openUrl = useOpenUrlLatch();
   const extensionRef = useRef(null as null | Extension);
 
   useEffect(() => {
@@ -205,6 +204,11 @@ export function EmbeddedExtension({
     );
   }, [extensionId, slotId, extension?.updatedAt]);
 
+  useOpenUrlLatchDocument(
+    openUrl,
+    `${extensionId}|${extension?.updatedAt ?? ""}|${iframeSrc}`,
+  );
+
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
@@ -242,10 +246,9 @@ export function EmbeddedExtension({
       if (!message || typeof message !== "object") return;
 
       if (message.type === "agent-native-extension-binding") {
+        openUrl.latch(message, event.source);
         if (bindingLatchedRef.current) return;
         bindingLatchedRef.current = true;
-        openUrlTokenRef.current = readOpenUrlToken(message);
-        if (openUrlTokenRef.current) announceOpenUrlSupport(event.source);
         const binding = (message as any).binding ?? {};
         const role: ExtensionBridgeRole =
           binding.role === "owner" ||
@@ -277,7 +280,7 @@ export function EmbeddedExtension({
       }
 
       if (message.type === EXTENSION_OPEN_URL_MESSAGE) {
-        openExtensionLink(message, openUrlTokenRef.current);
+        openUrl.open(message);
         return;
       }
 
@@ -445,7 +448,7 @@ export function EmbeddedExtension({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [extensionId, slotId]);
+  }, [extensionId, openUrl, slotId]);
 
   if (!extension) {
     if (!isLoading && !isFetching) return null;

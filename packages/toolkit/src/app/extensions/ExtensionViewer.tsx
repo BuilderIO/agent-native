@@ -67,10 +67,9 @@ import {
 } from "./iframe-bridge.js";
 import { useExtensionIframeMetaCsp } from "./iframe-display-sources.js";
 import {
-  announceOpenUrlSupport,
   EXTENSION_OPEN_URL_MESSAGE,
-  openExtensionLink,
-  readOpenUrlToken,
+  useOpenUrlLatch,
+  useOpenUrlLatchDocument,
 } from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
@@ -743,7 +742,7 @@ export function ExtensionViewer({
     isAuthor: false,
   });
   const bindingLatchedRef = useRef(false);
-  const openUrlTokenRef = useRef<string | null>(null);
+  const openUrl = useOpenUrlLatch();
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -783,14 +782,11 @@ export function ExtensionViewer({
       if (!message) return;
 
       if (message.type === "agent-native-extension-binding") {
-        if (bindingLatchedRef.current) return;
-        bindingLatchedRef.current = true;
         // Inside an MCP chat embed this page is itself sandboxed, so its
         // window.open can't escape either; leave links native there.
-        openUrlTokenRef.current = isEmbedMcpChatBridgeActive()
-          ? null
-          : readOpenUrlToken(message);
-        if (openUrlTokenRef.current) announceOpenUrlSupport(event.source);
+        openUrl.latch(message, event.source, !isEmbedMcpChatBridgeActive());
+        if (bindingLatchedRef.current) return;
+        bindingLatchedRef.current = true;
         const binding = message.binding ?? {};
         const role: ExtensionBridgeRole =
           binding.role === "owner" ||
@@ -826,7 +822,7 @@ export function ExtensionViewer({
       }
 
       if (message.type === EXTENSION_OPEN_URL_MESSAGE) {
-        openExtensionLink(message, openUrlTokenRef.current);
+        openUrl.open(message);
         return;
       }
 
@@ -1003,7 +999,7 @@ export function ExtensionViewer({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [extensionId, queryClient]);
+  }, [extensionId, openUrl, queryClient]);
 
   const {
     data: extension,
@@ -1078,6 +1074,11 @@ export function ExtensionViewer({
     if (!extension || !usesSrcDoc || !iframeMetaCsp) return undefined;
     return buildExtensionViewerSrcDoc(extension, isDark, iframeMetaCsp);
   }, [extension, iframeMetaCsp, isDark, usesSrcDoc]);
+
+  useOpenUrlLatchDocument(
+    openUrl,
+    `${extensionId}|${extension?.updatedAt}|${refreshKey}|${usesSrcDoc ? "" : iframeSrc}|${iframeSrcDoc ?? ""}`,
+  );
   const unavailableStatus = extensionLoadErrorStatus(
     extensionError ?? extensionFailureReason,
   );
