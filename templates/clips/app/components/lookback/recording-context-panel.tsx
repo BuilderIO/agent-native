@@ -9,7 +9,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowsMaximize, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 import { toast } from "sonner";
 
@@ -74,11 +74,21 @@ export function useRecordingContextItems(
   accessToken?: string,
   canPollUnclaimedPending = false,
 ) {
+  // Player-data refetches mint a fresh token each time. The token is part of
+  // the query key, so keep the first one per clip: a new one would blank the
+  // panel and refetch the list.
+  const pinned = useRef<{ recordingId?: string; token?: string }>({});
+  if (pinned.current.recordingId !== recordingId) {
+    pinned.current = { recordingId, token: accessToken };
+  } else if (!pinned.current.token && accessToken) {
+    pinned.current.token = accessToken;
+  }
+  const stableToken = pinned.current.token;
   return useActionQuery<ListRecordingContextResult>(
     "list-recording-context",
     {
       recordingId: recordingId ?? "",
-      ...(accessToken ? { accessToken } : {}),
+      ...(stableToken ? { accessToken: stableToken } : {}),
     },
     {
       enabled: enabled && Boolean(recordingId),

@@ -524,6 +524,34 @@ describe("RecordingContextSection", () => {
     ).toBe(3000);
   });
 
+  it("keeps the first access token in the query key when a fresh one arrives", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [item({})] },
+    });
+    const renderWith = (token: string) =>
+      act(() =>
+        root.render(
+          <MemoryRouter initialEntries={["/share/s"]}>
+            <QueryClientProvider client={queryClient}>
+              <RecordingContextSection
+                recordingId="rec_1"
+                canManage={false}
+                accessToken={token}
+              />
+            </QueryClientProvider>
+          </MemoryRouter>,
+        ),
+      );
+    renderWith("token-1");
+    renderWith("token-2");
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: "token-1",
+    });
+  });
+
   it("refreshes only this clip's context when the desktop changes it", () => {
     setQuery({
       isSuccess: true,
