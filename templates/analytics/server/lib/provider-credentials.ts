@@ -77,16 +77,20 @@ interface SigmaDirectCredentialSnapshot {
   connectionLabel: string;
 }
 
+type SigmaDirectCredentialRead =
+  | { kind: "not-direct" }
+  | { kind: "direct"; snapshot: SigmaDirectCredentialSnapshot | null };
+
 const sigmaDirectCredentialReads = new WeakMap<
   object,
-  Map<string, Promise<SigmaDirectCredentialSnapshot | null>>
+  Map<string, Promise<SigmaDirectCredentialRead>>
 >();
 
 async function readSigmaDirectCredentials(
   orgId: string,
   connectionId: string,
   ctx: CredentialContext,
-): Promise<SigmaDirectCredentialSnapshot | null> {
+): Promise<SigmaDirectCredentialRead> {
   const requestContext = getRequestContext();
   if (!requestContext) {
     throw new Error("Sigma credentials require a request-scoped context.");
@@ -111,7 +115,7 @@ async function readSigmaDirectCredentials(
         connection.connection?.config.analyticsSetup !==
           SIGMA_DIRECT_CONNECTION_MARKER
       ) {
-        return null;
+        return { kind: "not-direct" };
       }
 
       const directConnection = connection.connection;
@@ -142,7 +146,7 @@ async function readSigmaDirectCredentials(
       });
       const provenance = resolution.provenance;
       if (!resolution.available || !resolution.value || !provenance) {
-        return null;
+        return { kind: "direct", snapshot: null };
       }
       if (
         provenance.connectionId !== connectionId ||
@@ -162,8 +166,11 @@ async function readSigmaDirectCredentials(
         throw new Error("The Analytics Sigma credentials are invalid.");
       }
       return {
-        credentials,
-        connectionLabel: provenance.connectionLabel,
+        kind: "direct",
+        snapshot: {
+          credentials,
+          connectionLabel: provenance.connectionLabel,
+        },
       };
     })();
     requestCache.set(cacheKey, result);
@@ -347,23 +354,26 @@ export async function resolveWorkspaceConnectionProviderCredential(
     const requestedKey = keys.find((key) => sigmaCredentialField(key));
     const field = requestedKey ? sigmaCredentialField(requestedKey) : null;
     if (requestedKey && field && options.ctx.orgId) {
-      const directCredentials = await readSigmaDirectCredentials(
+      const directRead = await readSigmaDirectCredentials(
         options.ctx.orgId,
         connectionId,
         options.ctx,
       );
-      const value = directCredentials?.credentials[field];
-      if (!value) return null;
-      return {
-        value,
-        key: normalizeKey(requestedKey),
-        provider,
-        source: "workspace_connection",
-        connectionId,
-        connectionLabel: directCredentials.connectionLabel,
-        scope: "org",
-        scopeId: options.ctx.orgId,
-      };
+      if (directRead.kind === "direct") {
+        const directCredentials = directRead.snapshot;
+        const value = directCredentials?.credentials[field];
+        if (!value) return null;
+        return {
+          value,
+          key: normalizeKey(requestedKey),
+          provider,
+          source: "workspace_connection",
+          connectionId,
+          connectionLabel: directCredentials.connectionLabel,
+          scope: "org",
+          scopeId: options.ctx.orgId,
+        };
+      }
     }
   }
 

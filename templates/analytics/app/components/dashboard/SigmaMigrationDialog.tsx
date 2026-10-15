@@ -1,4 +1,5 @@
 import {
+  actionErrorMessage,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
@@ -469,6 +470,7 @@ export function SigmaMigrationDialog({
     setSigmaSetupError(null);
     setSavingSigmaCredentials(true);
     const setupId = crypto.randomUUID();
+    let setupPhase: "credentials" | "connection" = "credentials";
     try {
       await saveApiKeyValue({
         name: sigmaSetupKey(setupId, "CLIENT_ID"),
@@ -490,6 +492,7 @@ export function SigmaMigrationDialog({
           shared: true,
         });
       }
+      setupPhase = "connection";
       const result = await saveSigmaConnection.mutateAsync({
         operation: "verify",
         setupId,
@@ -506,8 +509,27 @@ export function SigmaMigrationDialog({
       setSigmaClientSecret("");
       setSigmaBaseUrl("");
       setRefreshVersion((current) => current + 1);
-    } catch {
-      setSigmaSetupError(t("dashboardOverview.sigmaConnectFailed"));
+    } catch (error) {
+      const errorMessage =
+        setupPhase === "credentials"
+          ? error instanceof Error
+            ? error.message.trim()
+            : ""
+          : (actionErrorMessage(error) ?? "");
+      const redactedErrorMessage = [
+        sigmaClientId.trim(),
+        sigmaClientSecret,
+        sigmaClientSecret.trim(),
+        sigmaBaseUrl.trim(),
+      ]
+        .filter(Boolean)
+        .reduce(
+          (message, value) => message.split(value).join("[redacted]"),
+          errorMessage,
+        );
+      setSigmaSetupError(
+        redactedErrorMessage || t("dashboardOverview.sigmaConnectFailed"),
+      );
       await saveSigmaConnection
         .mutateAsync({ operation: "discard", setupId })
         .catch(() => undefined);
