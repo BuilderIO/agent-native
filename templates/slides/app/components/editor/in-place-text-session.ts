@@ -175,8 +175,10 @@ const STRUCTURAL_BLOCK_TAGS = new Set([
   "UL",
 ]);
 
-const RENDERED_ELEMENTS =
-  "br, img, svg, video, canvas, picture, iframe, input, hr";
+const REPLACED_ELEMENTS = "img, svg, video, canvas, picture, iframe, input, hr";
+const RENDERED_ELEMENTS = `br, ${REPLACED_ELEMENTS}`;
+const INLINE_WRAPPERS =
+  "a, b, code, em, i, s, small, span, strong, sub, sup, u";
 /** Blocks whose content may include a list, so a pasted list stays one. */
 const LIST_HOLDER_TAGS = new Set([
   "ARTICLE",
@@ -599,6 +601,32 @@ function removeRun(text: Text, line: HTMLElement) {
     run = run.parentNode;
   }
   run.parentNode?.removeChild(run);
+}
+
+/** Inline wrappers with nothing in them: no text, no `<br>`, no image. */
+function emptyWrappers(root: Element): Element[] {
+  return Array.from(root.querySelectorAll(INLINE_WRAPPERS)).filter(
+    (node) => !node.textContent && !node.querySelector(RENDERED_ELEMENTS),
+  );
+}
+
+/**
+ * Unwraps the pending-style runs nothing was typed into, apart from those
+ * `kept` answers for. A line break typed while a style was pending is theirs
+ * to hand back.
+ */
+function unwrapIdleStyleRuns(root: Element, kept: (run: Element) => boolean) {
+  for (const span of Array.from(
+    root.querySelectorAll("span[data-slide-inline-style]"),
+  )) {
+    if (
+      !span.textContent?.replaceAll(ZERO_WIDTH_SPACE, "") &&
+      !span.querySelector(REPLACED_ELEMENTS) &&
+      !kept(span)
+    ) {
+      span.replaceWith(...Array.from(span.childNodes));
+    }
+  }
 }
 
 /** What follows `node` on its own line: up to the next box that starts a line. */
@@ -1707,6 +1735,24 @@ export function startInPlaceTextSession(
       else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
     }
   };
+  // An empty wrapper the author wrote (a spacer) is told apart from a run the
+  // session emptied only by its markup, counted per markup: an undo or a split
+  // rebuilds the element, so identity does not survive. A shape marker is
+  // meaningful empty wherever a split copied it.
+  const authoredEmptyCounts = new Map<string, number>();
+  for (const wrapper of emptyWrappers(el)) {
+    const markup = wrapper.outerHTML;
+    authoredEmptyCounts.set(markup, (authoredEmptyCounts.get(markup) ?? 0) + 1);
+  }
+  const authoredEmptyKeeper = () => {
+    const left = new Map(authoredEmptyCounts);
+    return (wrapper: Element) => {
+      if (isBulletMarker(wrapper)) return true;
+      const count = left.get(wrapper.outerHTML) ?? 0;
+      if (count > 0) left.set(wrapper.outerHTML, count - 1);
+      return count > 0;
+    };
+  };
   // An author ZWSP is told apart from a placeholder by its place among the
   // element's ZWSPs, never by its text node: a split, a rebuild (a list
   // toggle, an undo), or Chrome's own typing makes new text nodes.
@@ -2593,7 +2639,8 @@ export function startInPlaceTextSession(
     const own = withoutNestedLists(block);
     if (node instanceof Text && node.length === 0) {
       // A join can leave the emptied start node in front of the text it took in.
-      if (node.parentNode === block && hasRenderedContent(own)) {
+      const run = node.parentNode === block ? own : node.parentElement;
+      if (run && hasRenderedContent(run)) {
         placeCaret(node, 0);
         return;
       }
@@ -2665,8 +2712,14 @@ export function startInPlaceTextSession(
     snapToText(range);
     const markerRow = bulletRowAt(range.startContainer);
     const startMarker = markerRow ? rowMarker(markerRow) : null;
-    if (startMarker && range.intersectsNode(startMarker)) {
-      range.setStartAfter(startMarker);
+    if (markerRow && startMarker && range.intersectsNode(startMarker)) {
+      // Into the row's text run, not after the marker: the run is emptied
+      // rather than deleted, so what replaces the range lands in it.
+      const text = rowTextRange(markerRow, startMarker);
+      const run = text.startContainer.childNodes[text.startOffset];
+      if (run instanceof HTMLElement) range.setStart(...blockStartPoint(run));
+      else if (run instanceof Text) range.setStart(run, 0);
+      else range.setStartAfter(startMarker);
     }
     const startRow = legacyRowAt(range.startContainer);
     const endRow = legacyRowAt(range.endContainer);
@@ -6563,6 +6616,7 @@ export function startInPlaceTextSession(
    * other placeholder character is removed.
    */
   function settlePlaceholders() {
+    unwrapIdleStyleRuns(el, authoredEmptyKeeper());
     const texts = textNodesIn(el);
     const flags = authorFlags(texts);
     texts.forEach((text, index) => {
@@ -6585,6 +6639,15 @@ export function startInPlaceTextSession(
         }
       }
     });
+    dropEmptiedWrappers(el);
+  }
+
+  /** Removes the wrappers the session emptied; the author's own stay. */
+  function dropEmptiedWrappers(root: Element) {
+    const kept = authoredEmptyKeeper();
+    for (const wrapper of emptyWrappers(root)) {
+      if (!kept(wrapper)) wrapper.remove();
+    }
   }
 
   /**
@@ -6602,13 +6665,7 @@ export function startInPlaceTextSession(
     }
     // A pending style run nothing was typed into is dropped by end().
     const live = el.cloneNode(true) as HTMLElement;
-    for (const span of Array.from(
-      live.querySelectorAll("span[data-slide-inline-style]"),
-    )) {
-      if (!span.textContent?.replaceAll(ZERO_WIDTH_SPACE, "")) {
-        span.replaceWith(...Array.from(span.childNodes));
-      }
-    }
+    unwrapIdleStyleRuns(live, authoredEmptyKeeper());
     const squash = (value: string) =>
       value
         .replace(/&nbsp;|&#0*160;|&#x0*a0;/gi, " ")
@@ -6632,7 +6689,25 @@ export function startInPlaceTextSession(
     )) {
       row.removeAttribute("data-slide-plain-row");
     }
+    // The edited element's counterpart in the copy; markup elsewhere on the
+    // slide is not the session's to clean.
+    let editedCopy: HTMLElement | null = null;
+    if (root.contains(el)) {
+      const path: number[] = [];
+      for (let node: Node = el; node !== root; node = node.parentNode!) {
+        path.unshift(
+          Array.from(node.parentNode!.childNodes).indexOf(node as ChildNode),
+        );
+      }
+      editedCopy = path.reduce<Node>(
+        (node, i) => node.childNodes[i],
+        copy,
+      ) as HTMLElement;
+      unwrapIdleStyleRuns(editedCopy, authoredEmptyKeeper());
+    }
     const copies = textNodesIn(copy);
+    // An emptied node beside a placeholder must not make it look shared.
+    for (const empty of copies) if (!empty.data) empty.remove();
     const texts = textNodesIn(el);
     const flags = new Map(
       authorFlags(texts).map((author, index) => [texts[index], author]),
@@ -6642,18 +6717,19 @@ export function startInPlaceTextSession(
       if (!author || author.every(Boolean)) return;
       const placeholder = copies[index];
       const rest = keepZwsp(text.data, author);
-      // A lone placeholder keeps an empty run from collapsing, so the run
-      // keeps its font; anywhere else it is dropped.
+      // A lone placeholder becomes the break that keeps an empty run from
+      // collapsing, so the run keeps its font; anywhere else it is dropped.
       if (rest) placeholder.data = rest;
       else if (placeholder.parentNode?.childNodes.length !== 1) {
         placeholder.remove();
-      } else {
+      } else if (hasOwnRenderedContent(nearestLineBox(text, root))) {
         // The clone has no layout: the line boxes are the live node's.
-        if (hasOwnRenderedContent(nearestLineBox(text, root))) {
-          removeRun(placeholder, copy);
-        }
+        removeRun(placeholder, copy);
+      } else {
+        placeholder.replaceWith(document.createElement("br"));
       }
     });
+    if (editedCopy) dropEmptiedWrappers(editedCopy);
     return copy;
   }
 
@@ -6677,13 +6753,6 @@ export function startInPlaceTextSession(
         el.innerHTML = startHtml;
       } else {
         settlePlaceholders();
-        // Only an unused pending-style run; adjacent style spans the slide
-        // already had are not this session's to merge.
-        for (const span of Array.from(
-          el.querySelectorAll("span[data-slide-inline-style]"),
-        )) {
-          if (!span.textContent && span.children.length === 0) span.remove();
-        }
       }
     }
     if (edited) {

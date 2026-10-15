@@ -3912,7 +3912,9 @@ describe("in-place text session: commands", () => {
 
     type(el, " ");
 
-    expect(session.element.textContent).toBe("Before●After");
+    expect(session.element.textContent?.replaceAll(ZWSP, "")).toBe(
+      "Before●After",
+    );
     expect(session.element.querySelectorAll(":scope > div")).toHaveLength(3);
     expect(session.element.children[0].querySelector("span")?.style.color).toBe(
       "red",

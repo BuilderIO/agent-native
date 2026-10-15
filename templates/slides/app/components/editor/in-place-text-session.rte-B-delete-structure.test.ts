@@ -276,7 +276,7 @@ describe("Backspace in an empty list item", () => {
   it("exits the list to an empty paragraph after the items", () => {
     const el = editEmpty("<ul><li>a</li><li></li></ul>", "li:last-child");
     keys(el, ["Backspace"]);
-    expect(saved(el)).toBe(`<ul><li>a</li></ul><p>${ZWSP}</p>`);
+    expect(saved(el)).toBe("<ul><li>a</li></ul><p><br></p>");
   });
 
   it("turns a sole empty item into a paragraph", () => {
@@ -613,7 +613,7 @@ describe("Deleting a range that ends at an element boundary", () => {
     const [a, b] = textNodes(el);
     select(a, 0, b, 6);
     keys(el, ["Backspace"]);
-    expect(saved(el).replace(ZWSP, "")).toBe("<p></p>");
+    expect(saved(el)).toBe("<p><br></p>");
   });
 });
 

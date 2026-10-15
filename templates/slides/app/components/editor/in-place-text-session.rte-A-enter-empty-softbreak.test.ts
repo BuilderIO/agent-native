@@ -112,8 +112,8 @@ describe("Enter in a sole empty block", () => {
     keys(el, ["Enter", "type:x"]);
     expect(plain(show(el))).toBe("<p></p><p>x|</p>");
     expect(looseText(el)).toEqual([]);
-    // A lone placeholder is kept so the empty paragraph does not collapse.
-    expect(saved(el)).toBe(`<p>${ZWSP}</p><p>x</p>`);
+    // A lone break keeps the empty paragraph from collapsing, as it will once saved.
+    expect(saved(el)).toBe("<p><br></p><p>x</p>");
   });
 
   it("keeps the count across repeated Enter", () => {
