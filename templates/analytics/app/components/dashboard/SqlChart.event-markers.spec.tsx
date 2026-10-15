@@ -196,6 +196,38 @@ describe("SqlChart key-date markers", () => {
     return document.querySelector("[data-radix-popper-content-wrapper]");
   }
 
+  /** Recharts clips the series to the plot; its clip rect is the plot's box. */
+  const plotArea = () => {
+    const rect = container.querySelector("clipPath rect")!;
+    const left = Number(rect.getAttribute("x"));
+    return {
+      left,
+      top: Number(rect.getAttribute("y")),
+      right: left + Number(rect.getAttribute("width")),
+    };
+  };
+
+  it.each(["line", "area", "bar", "combo"] as const)(
+    "keeps the markers on a %s chart's first and last days inside its plot",
+    async (chartType) => {
+      mocks.rows = ["2026-10-12", "2026-10-13", "2026-10-14"].map(
+        (day, index) => ({ day, people: 100 + index * 10 }),
+      );
+      await act(async () => {
+        root.render(<SqlChart panel={panel(chartType)} />);
+      });
+      const plot = plotArea();
+      const reaches = [
+        ...container.querySelectorAll("[data-event-marker] circle[r='11']"),
+      ].map((target) => Number(target.getAttribute("cx")));
+      expect(reaches).toHaveLength(2);
+      for (const cx of reaches) {
+        expect(cx - 11).toBeGreaterThanOrEqual(plot.left);
+        expect(cx + 11).toBeLessThanOrEqual(plot.right);
+      }
+    },
+  );
+
   const cardRows = (card: Element | null) =>
     [...(card?.querySelectorAll("li") ?? [])].map((row) => row.textContent);
 
@@ -513,6 +545,47 @@ describe("SqlChart key-date markers", () => {
       const right = left + Number(pill.getAttribute("width"));
       expect(left).toBeGreaterThanOrEqual(0);
       expect(right).toBeLessThanOrEqual(CHART_SIZE.width);
+    });
+
+    const pills = () =>
+      [...container.querySelectorAll("[data-data-note-label] rect")].map(
+        (pill) => {
+          const top = Number(pill.getAttribute("y"));
+          return { top, bottom: top + Number(pill.getAttribute("height")) };
+        },
+      );
+
+    it.each(["line", "area", "bar", "combo"] as const)(
+      "sets a %s chart's band title above its plot, off the axis labels and key-date lines",
+      async (chartType) => {
+        await renderInDashboard(failures(chartType));
+        const [pill] = pills();
+        expect(pill.top).toBeGreaterThanOrEqual(0);
+        expect(pill.bottom).toBeLessThan(plotArea().top);
+      },
+    );
+
+    it("lowers the plot by a row for each row of titles", async () => {
+      await renderInDashboard(failures("line"));
+      const oneRow = plotArea().top;
+      mocks.dataNotes = [
+        SETUP_INCIDENT,
+        {
+          ...SETUP_INCIDENT,
+          id: "note-double-count",
+          title: "Signups counted twice",
+        },
+      ];
+      await renderInDashboard(failures("line"));
+      const [first, second] = pills();
+      expect(plotArea().top).toBeGreaterThan(oneRow);
+      expect(Math.min(first.top, second.top)).toBeGreaterThanOrEqual(0);
+      expect(first.bottom <= second.top || second.bottom <= first.top).toBe(
+        true,
+      );
+      expect(Math.max(first.bottom, second.bottom)).toBeLessThan(
+        plotArea().top,
+      );
     });
 
     it("stacks title pills that would cover each other", () => {
