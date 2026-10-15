@@ -152,6 +152,8 @@ describe("parseTranscriptImport", () => {
       "",
       "- [0:00] Intro.",
       "**0:21** The chart.",
+      "[0:30]The axis",
+      "3:45pm is not a start time.",
       "(1:02:03.5) - The end.",
     ].join("\n");
     const result = parseTranscriptImport(text);
@@ -160,9 +162,10 @@ describe("parseTranscriptImport", () => {
     expect(result.segments.map((s) => [s.startMs, s.text])).toEqual([
       [0, "Intro."],
       [21_000, "The chart."],
+      [30_000, "The axis 3:45pm is not a start time."],
       [3_723_500, "The end."],
     ]);
-    expect(result.segments[2].endMs).toBeGreaterThan(3_723_500);
+    expect(result.segments[3].endMs).toBeGreaterThan(3_723_500);
   });
 
   it.each([
@@ -177,6 +180,12 @@ describe("parseTranscriptImport", () => {
       "1\n00:00:01,000 --> soon\nhello",
       "bad-timing",
       2,
+    ],
+    [
+      "an unreadable timing right under the previous cue",
+      "1\n00:00:01,000 --> 00:00:02,000\nHello\n00:00:02,000 --> later\nWorld",
+      "bad-timing",
+      4,
     ],
     [
       "a cue that ends before it starts",

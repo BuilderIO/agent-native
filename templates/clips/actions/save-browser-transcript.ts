@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
@@ -139,49 +139,63 @@ export default defineAction({
     const savedStatus = truncated ? ("failed" as const) : ("ready" as const);
     const savedFailureReason = truncated ? failureReason : null;
 
-    if (current) {
-      if (current.source === IMPORTED_TRANSCRIPT_SOURCE) {
-        return {
-          recordingId: args.recordingId,
-          status: "skipped" as const,
-          reason: "Imported transcript is kept",
-        };
-      }
-      if (hasReadySegments && !args.overwriteReady) {
-        return {
-          recordingId: args.recordingId,
-          status: "skipped" as const,
-          reason: "Transcript already exists",
-        };
-      }
-
-      await db
-        .update(schema.recordingTranscripts)
-        .set({
-          ownerEmail,
-          fullText,
-          segmentsJson,
-          status: savedStatus,
-          failureReason: savedFailureReason,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.recordingTranscripts.recordingId, args.recordingId),
-            notImportedTranscript(),
-          ),
-        );
-    } else {
-      await db.insert(schema.recordingTranscripts).values({
+    const importKept = {
+      recordingId: args.recordingId,
+      status: "skipped" as const,
+      reason: "Imported transcript is kept",
+    };
+    if (current?.source === IMPORTED_TRANSCRIPT_SOURCE) return importKept;
+    if (hasReadySegments && !args.overwriteReady) {
+      return {
         recordingId: args.recordingId,
-        ownerEmail,
-        language: "en",
-        segmentsJson,
-        fullText,
-        status: savedStatus,
-        failureReason: savedFailureReason,
-        createdAt: now,
-        updatedAt: now,
+        status: "skipped" as const,
+        reason: "Transcript already exists",
+      };
+    }
+
+    const t = schema.recordingTranscripts;
+    const set = {
+      ownerEmail,
+      fullText,
+      segmentsJson,
+      status: savedStatus,
+      failureReason: savedFailureReason,
+      updatedAt: now,
+    };
+    // An import can land after the read above; the guarded write then
+    // changes no row.
+    const written = current
+      ? await db
+          .update(t)
+          .set(set)
+          .where(
+            and(eq(t.recordingId, args.recordingId), notImportedTranscript()),
+          )
+          .returning({ recordingId: t.recordingId })
+      : await db
+          .insert(t)
+          .values({
+            ...set,
+            recordingId: args.recordingId,
+            language: "en",
+            createdAt: now,
+          })
+          .onConflictDoUpdate({
+            target: t.recordingId,
+            set,
+            setWhere: notImportedTranscript(),
+          })
+          .returning({ recordingId: t.recordingId });
+    if (written.length === 0) {
+      const [row] = await db
+        .select({ source: t.source })
+        .from(t)
+        .where(eq(t.recordingId, args.recordingId))
+        .limit(1);
+      if (row?.source === IMPORTED_TRANSCRIPT_SOURCE) return importKept;
+      fail(`Transcript row for ${args.recordingId} was removed while saving`, {
+        errorCode: "transcript_removed",
+        statusCode: 409,
       });
     }
 

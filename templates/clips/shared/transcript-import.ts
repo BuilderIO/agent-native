@@ -58,8 +58,11 @@ const CUE_TIMING = new RegExp(
 // "0:05 Use a --> b" is still text, while a cue with a bad end time is SRT
 // and gets SRT's line-specific error.
 const CUE_TIMING_START = new RegExp(String.raw`^\s*${TIME}\s*-->`);
+// Text can follow a closing bracket or bold marker directly, as in
+// "[0:21]The chart."; a bare time needs a space after it, so "3:45pm" in
+// prose isn't read as a start time.
 const TIMESTAMP_LINE = new RegExp(
-  String.raw`^\s*(?:[-*]\s+)?(?:\*\*)?[[(]?(${TIME})[\])]?(?:\*\*)?(?:\s*[-–—:|]?\s+(.*))?$`,
+  String.raw`^\s*(?:[-*]\s+)?(?:\*\*)?[[(]?(${TIME})(?:[\])](?:\*\*)?|\*\*|(?=\s|$))(?:\s*[-–—:|]?\s*(.*))?$`,
 );
 // WebVTT's cue tags and timestamps, and the tags SRT players render. Any
 // other angle bracket is prose, such as "x < 5 and y > 3".
@@ -386,8 +389,9 @@ function decodeEntities(text: string): string {
 }
 
 // Like WebVTT's own parser, a timing line starts a new cue even without a
-// blank line before it, so the next cue is not read as this one's text. An
-// SRT index right above that line moves with it.
+// blank line before it, so the next cue is not read as this one's text. A
+// line that only starts like one splits too, so a bad end time gets its
+// line-specific error. An SRT index right above that line moves with it.
 function splitAtCueTimings(
   block: Array<{ text: string; number: number }>,
 ): Array<Array<{ text: string; number: number }>> {
@@ -395,7 +399,7 @@ function splitAtCueTimings(
   let start = 0;
   let seenTiming = false;
   for (const [index, line] of block.entries()) {
-    if (!CUE_TIMING.test(line.text)) continue;
+    if (!CUE_TIMING_START.test(line.text)) continue;
     if (seenTiming) {
       const cut =
         index - 1 > start && /^\d+$/.test(block[index - 1].text.trim())
