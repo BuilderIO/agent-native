@@ -336,6 +336,16 @@ a.campaign-inline-link {
   font-family: var(--font-sans);
 }
 
+.campaign-articles-page {
+  --docs-accent: var(--b-text-link);
+}
+
+.campaign-articles-page a.campaign-inline-link,
+.campaign-articles-page nav a,
+.campaign-articles-page a .campaign-card-title {
+  color: var(--b-text-link);
+}
+
 .campaign-page .campaign-section {
   padding-block: var(--spacing-12);
   padding-inline: var(--spacing-8);

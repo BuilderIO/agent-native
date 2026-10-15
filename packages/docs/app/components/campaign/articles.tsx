@@ -48,7 +48,7 @@ export function ArticlesList({
     "{{useCases}}",
   );
   return (
-    <TemplateLandingShell className="builder-brand-tokens campaign-page pb-16">
+    <TemplateLandingShell className="builder-brand-tokens campaign-page campaign-articles-page pb-16">
       <div className="campaign-section border-x border-[var(--docs-border)]">
         <SectionHeader
           eyebrow={topic ? t("campaign.articles") : undefined}
@@ -171,7 +171,7 @@ export function ArticlePage({
     ? safeHref(article.author_avatar)
     : undefined;
   return (
-    <TemplateLandingShell className="builder-brand-tokens campaign-page">
+    <TemplateLandingShell className="builder-brand-tokens campaign-page campaign-articles-page">
       <CampaignView item={article} />
       <JsonLd
         value={{
