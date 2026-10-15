@@ -296,6 +296,75 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  it("retries capability discovery after a transient server response", async () => {
+    const apiUrl = "https://provider.example.test/_agent-native/agent-chat";
+    const capabilityUrl = `${apiUrl}/capabilities`;
+    let capabilityRequests = 0;
+    let promptDispatches = 0;
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith("/_agent-native/agent-engine/status")) {
+          return json({ configured: true, chatEligible: true });
+        }
+        if (String(input) === capabilityUrl) {
+          capabilityRequests += 1;
+          return capabilityRequests === 1
+            ? json({ error: "Temporarily unavailable" }, 503)
+            : json({
+                [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
+              });
+        }
+        if (
+          String(input) === apiUrl &&
+          (init?.method ?? "GET").toUpperCase() === "POST"
+        ) {
+          promptDispatches += 1;
+          return new Response(`data: ${JSON.stringify({ type: "done" })}\n\n`, {
+            headers: {
+              "content-type": "text/event-stream",
+              "x-run-id": "run-after-capability-retry",
+            },
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+      }),
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      await expect(
+        client.sendMessage({
+          threadId: "thread-capability-retry",
+          text: "First try",
+        }),
+      ).rejects.toThrow("503");
+
+      const run = await client.sendMessage({
+        threadId: "thread-capability-retry",
+        text: "Retry after discovery recovers",
+        metadata: {
+          custom: {
+            agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+          },
+        },
+      });
+      await run.completed;
+
+      expect(capabilityRequests).toBe(2);
+      expect(promptDispatches).toBe(1);
+    } finally {
+      await client.shutdown();
+    }
+  });
+
   it("does not send a deadline-bound prompt to an older server", async () => {
     const apiUrl = "https://provider.example.test/_agent-native/agent-chat";
     const capabilityUrl = `${apiUrl}/capabilities`;

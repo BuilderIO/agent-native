@@ -4352,20 +4352,25 @@ export function createAgentNativeAgentKitTransport(
           })();
       let supported = false;
       if (serverBackedCapabilities) {
-        try {
-          const response = await fetcher(capabilitiesUrl, {
-            method: "GET",
-            headers: { Accept: "application/json" },
-            credentials: "same-origin",
-            cache: "no-store",
-            ...(context?.signal ? { signal: context.signal } : {}),
-          });
-          if (response.ok) {
-            const serverCapabilities = asRecord(await response.json());
-            supported = serverCapabilities?.[capability] === true;
-          }
-        } catch (error) {
-          if (context?.signal?.aborted) throw error;
+        const response = await fetcher(capabilitiesUrl, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          credentials: "same-origin",
+          cache: "no-store",
+          ...(context?.signal ? { signal: context.signal } : {}),
+        });
+        if (
+          !response.ok &&
+          response.status !== 404 &&
+          response.status !== 405
+        ) {
+          throw new Error(
+            `Could not check server capability support (${response.status}).`,
+          );
+        }
+        if (response.ok) {
+          const serverCapabilities = asRecord(await response.json());
+          supported = serverCapabilities?.[capability] === true;
         }
       }
       const descriptor: AgentCapabilityDescriptor = supported
