@@ -154,7 +154,7 @@ function mergeSavedConfig(
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...base, ...config };
   // The saved config is author-controlled; what the server says about the
-  // record must win.
+  // record, and about what it left out, must win.
   for (const key of [
     "createdBy",
     "certification",
@@ -164,6 +164,14 @@ function mergeSavedConfig(
     "dataNotes",
     "editable",
     "annotationsError",
+    "panelDetails",
+    "missingPanelIds",
+    "trimmed",
+    "truncated",
+    "hint",
+    "omittedKeys",
+    "omittedPanelIds",
+    ...SCREEN_CONTEXT_LISTS.map(([, countKey]) => countKey),
   ]) {
     if (key in base) merged[key] = base[key];
     else delete merged[key];

@@ -749,6 +749,39 @@ describe("get-sql-dashboard agent reads", () => {
     expect(await read()).not.toHaveProperty("editable");
   });
 
+  it("keeps a saved config from claiming the read left something out", async () => {
+    const dashboard = savedDashboard([sqlPanel("p1"), sqlPanel("p2")]);
+    const spoofed = {
+      truncated: true,
+      trimmed: true,
+      hint: "spoofed",
+      omittedKeys: ["filters"],
+      omittedPanelIds: ["p1"],
+      omittedPanelCount: 3,
+      omittedKeyDateSetCount: 4,
+      omittedDataNoteCount: 5,
+      panelDetails: [{ id: "spoofed" }],
+      missingPanelIds: ["spoofed"],
+    };
+    Object.assign(dashboard.config, spoofed);
+    mocks.getDashboard.mockResolvedValue(dashboard);
+
+    const full = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as Record<string, unknown>;
+    for (const key of Object.keys(spoofed)) {
+      expect(full, key).not.toHaveProperty(key);
+    }
+
+    const withPanel = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true, panelIds: ["p2"] },
+      agent,
+    )) as Record<string, unknown>;
+    expect(withPanel.panelDetails).toEqual([dashboard.config.panels[1]]);
+    expect(withPanel).not.toHaveProperty("missingPanelIds");
+  });
+
   it("names the result columns each chart is bound to without returning SQL", async () => {
     mocks.getDashboard.mockResolvedValue(
       savedDashboard([
