@@ -3237,10 +3237,15 @@ function slideMatchesUndoSnapshot(
 function deckUndoSignature(deck: Deck): string {
   return stableDeckContentSignature({
     ...deck,
-    slides: deck.slides.map((slide) => ({
-      ...slide,
-      content: slideUndoContentSignature(slide.content),
-    })),
+    slides: deck.slides.map((slide) => {
+      const signatureSlide = {
+        ...slide,
+        content: slideUndoContentSignature(slide.content),
+      };
+      // Fit revisions are render bookkeeping, not part of the user's history.
+      delete signatureSlide.layoutFitRevision;
+      return signatureSlide;
+    }),
   });
 }
 
@@ -4763,43 +4768,72 @@ export function DeckProvider({
         apply: (ops, direction, entry) => {
           let startingDecks = decksRef.current;
           let restoredStaleDrafts = false;
+          const staleDraftsToRestore = new Map<string, StaleSlideFieldDraft>();
           if (direction === "undo") {
             const drafts = staleSlideFieldDrafts.get(deckId);
             if (drafts && startingDecks.some((deck) => deck.id === deckId)) {
-              const draftsToDiscard = new Map<string, StaleSlideFieldDraft>();
               for (const op of entry.redo) {
                 if (op.op !== "patch-slide" || op.deckId !== deckId) continue;
                 for (const field of Object.keys(op.fields)) {
                   const key = slideFieldDraftKey(op.slideId, field);
                   const draft = drafts.get(key);
-                  if (draft) draftsToDiscard.set(key, draft);
+                  if (draft) staleDraftsToRestore.set(key, draft);
                 }
               }
-              if (draftsToDiscard.size > 0) {
-                restoredStaleDrafts = true;
-                for (const key of draftsToDiscard.keys()) drafts.delete(key);
-                if (drafts.size === 0) staleSlideFieldDrafts.delete(deckId);
+              if (staleDraftsToRestore.size > 0) {
                 startingDecks = startingDecks.map((deck) =>
                   deck.id === deckId
                     ? restoreStaleSlideFieldDrafts(deck, [
-                        ...draftsToDiscard.values(),
+                        ...staleDraftsToRestore.values(),
                       ])
                     : deck,
                 );
-                setDecksLocal(() => startingDecks);
-                notifySaveListeners();
               }
             }
           }
+          const opsWithoutStaleDraftFields =
+            staleDraftsToRestore.size === 0
+              ? ops
+              : ops.flatMap<DeckUndoOp>((op) => {
+                  if (op.op !== "patch-slide" || op.deckId !== deckId) {
+                    return [op];
+                  }
+                  const fields = { ...op.fields };
+                  const baseFields = { ...op.baseFields };
+                  for (const draft of staleDraftsToRestore.values()) {
+                    if (draft.slideId !== op.slideId) continue;
+                    delete fields[draft.field as keyof PatchSlideFields];
+                    delete baseFields[draft.field as PatchSlideBaselineField];
+                  }
+                  if (Object.keys(fields).length === 0) return [];
+                  const { baseFields: _baseFields, ...withoutBaseFields } = op;
+                  return [
+                    {
+                      ...withoutBaseFields,
+                      fields,
+                      ...(Object.keys(baseFields).length > 0
+                        ? { baseFields }
+                        : {}),
+                    },
+                  ];
+                });
           const { ops: applicableOps, hasConflict } =
             undoOpsWithoutRemoteFieldConflicts(
-              ops,
+              opsWithoutStaleDraftFields,
               direction === "undo" ? entry.redo : entry.undo,
               startingDecks,
             );
           if (hasConflict) {
             toast.error(tRef.current("deckEditor.historyStepConflict"));
             return "conflict";
+          }
+          if (staleDraftsToRestore.size > 0) {
+            const drafts = staleSlideFieldDrafts.get(deckId);
+            for (const key of staleDraftsToRestore.keys()) drafts?.delete(key);
+            if (drafts?.size === 0) staleSlideFieldDrafts.delete(deckId);
+            restoredStaleDrafts = true;
+            setDecksLocal(() => startingDecks);
+            notifySaveListeners();
           }
           const appliedOps: DeckUndoOp[] = [];
           let currentDecks = startingDecks;

@@ -2328,6 +2328,87 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });
 
+  it("keeps a quarantined field draft when another field in its undo step conflicts", async () => {
+    const deckId = "undo-quarantined-field-conflict-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { setAccessibleDeck, getAccessibleDeck } = setupFetch({
+      slideFieldConflicts: {
+        deckId,
+        count: 1,
+        slideId: "slide-1",
+        field: "notes",
+        remoteValue: "Before",
+      },
+      serverFaithfulClientWrites: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: deckId,
+      title: "Undo quarantined field conflict deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "One",
+          notes: "Before",
+          background: "Before background",
+          layout: "title",
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-1",
+        { notes: "Local notes", background: "Local background" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await expect(result.current.flushDeckSave(deckId)).rejects.toThrow(
+        "unresolved slide field conflict",
+      );
+    });
+
+    const persisted = getAccessibleDeck();
+    if (!persisted) throw new Error("Expected the accessible deck");
+    setAccessibleDeck({
+      ...persisted,
+      updatedAt: nextDeckRevision(persisted.updatedAt),
+      slides: persisted.slides.map((slide) =>
+        slide.id === "slide-1"
+          ? { ...slide, background: "Remote background" }
+          : slide,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(deckId);
+    });
+
+    expect(result.current.getDeck(deckId)?.slides[0]).toMatchObject({
+      notes: "Local notes",
+      background: "Remote background",
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    act(() => result.current.undo(deckId));
+
+    expect(result.current.getDeck(deckId)?.slides[0]).toMatchObject({
+      notes: "Local notes",
+      background: "Remote background",
+    });
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+    expect(hasFailedDeckSave(deckId)).toBe(true);
+  });
+
   it("does not refetch or retry a non-revision 409", async () => {
     const {
       fetchMock,
@@ -5723,6 +5804,50 @@ describe("DeckContext deck creation persistence", () => {
     expect(toastSpy).toHaveBeenCalledWith("History step conflict");
     expect(result.current.undoAvailability[initial.id]?.canUndo).toBe(false);
     expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
+  });
+
+  it("ignores layout-fit revisions when undoing deck creation after a fit edit", async () => {
+    window.history.pushState({}, "", "/deck/undo-layout-revision-create-deck");
+    const { resolveCreate, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let createdDeck: Deck | undefined;
+    act(() => {
+      createdDeck = result.current.createDeck("Layout revision history deck");
+    });
+    const created = createdDeck;
+    if (!created) throw new Error("Expected the new deck");
+    resolveCreate(new Response("", { status: 200 }));
+    setAccessibleDeck(created);
+    await act(async () => {
+      await result.current.ensureDeckPersisted(created.id);
+    });
+
+    const slide = created.slides[0];
+    if (!slide) throw new Error("Expected a default slide");
+    await act(async () => {
+      result.current.updateSlide(
+        created.id,
+        slide.id,
+        { layout: "section" },
+        { persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(created.id);
+    });
+    expect(
+      result.current.getDeck(created.id)?.slides[0]?.layoutFitRevision,
+    ).toBeTruthy();
+
+    await act(async () => {
+      result.current.undo(created.id);
+      await result.current.flushDeckSave(created.id);
+    });
+    expect(result.current.getDeck(created.id)?.slides[0]?.layout).toBe("title");
+
+    act(() => result.current.undo(created.id));
+
+    expect(result.current.getDeck(created.id)).toBeUndefined();
   });
 
   it("undoes an image move while preserving a remote edit to a different object", async () => {
