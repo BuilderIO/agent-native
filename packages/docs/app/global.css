@@ -527,6 +527,12 @@ hr {
   font-size: 13px;
 }
 
+.campaign-article-content .docs-content table :is(th, td) {
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
 .docs-kbd {
   display: inline-block;
   padding: 1px 5px;

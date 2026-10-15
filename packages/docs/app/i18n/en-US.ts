@@ -2,6 +2,7 @@ const enUS = {
   campaign: {
     allArticles: "All articles",
     useCases: "Use cases",
+    useCasesDescription: "Pages for recurring jobs, by app",
     useCasesTitle:
       "Recurring work, done with an Agent-Native app and your AI agent",
     useCasesIntro: "Pick the job you do again and again.",
@@ -24,6 +25,7 @@ const enUS = {
     partOf: "Part of:",
     relatedResources: "Related resources",
     moreArticles: "More {{category}} articles",
+    genericMore: "More articles",
     showMore: "Show more articles",
     allTopics: "All topics",
     topics: {

@@ -4,6 +4,7 @@ const arSA = {
   campaign: {
     allArticles: "جميع المقالات",
     useCases: "حالات الاستخدام",
+    useCasesDescription: "صفحات للمهام المتكررة، حسب التطبيق",
     useCasesTitle:
       "أنجز العمل المتكرر باستخدام تطبيق Agent-Native ووكيل الذكاء الاصطناعي",
     useCasesIntro: "اختر العمل الذي تنفذه مرارًا وتكرارًا.",
@@ -26,6 +27,7 @@ const arSA = {
     partOf: "جزء من:",
     relatedResources: "موارد ذات صلة",
     moreArticles: "المزيد من مقالات {{category}}",
+    genericMore: "المزيد من المقالات",
     showMore: "عرض المزيد من المقالات",
     allTopics: "جميع المواضيع",
     topics: {

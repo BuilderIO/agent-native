@@ -4,6 +4,7 @@ const ptBR = {
   campaign: {
     allArticles: "Todos os artigos",
     useCases: "Casos de uso",
+    useCasesDescription: "Páginas para tarefas recorrentes, por app",
     useCasesTitle:
       "Trabalho recorrente, feito com um app Agent-Native e seu agente de IA",
     useCasesIntro: "Escolha o trabalho que você faz repetidamente.",
@@ -26,6 +27,7 @@ const ptBR = {
     partOf: "Parte de:",
     relatedResources: "Recursos relacionados",
     moreArticles: "Mais artigos de {{category}}",
+    genericMore: "Mais artigos",
     showMore: "Mostrar mais artigos",
     allTopics: "Todos os tópicos",
     topics: {

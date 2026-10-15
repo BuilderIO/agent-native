@@ -69,6 +69,21 @@ export function CampaignCta({
 }
 
 export function CampaignBand({ item }: { item: UseCase | Article }) {
+  if ("category" in item) {
+    return (
+      <TemplateFinalCta contentClassName="px-6 py-10 sm:px-8">
+        <div className="flex flex-col items-start gap-4 text-start">
+          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[var(--fg)] sm:text-4xl lg:text-[2.875rem] lg:tracking-[-0.92px]">
+            {item.cta_band_heading}
+          </h2>
+          <p className="m-0 text-lg text-[var(--fg-secondary)]">
+            {item.cta_band_subhead}
+          </p>
+          <CampaignCta item={item} location="band" />
+        </div>
+      </TemplateFinalCta>
+    );
+  }
   return (
     <TemplateFinalCta
       title={item.cta_band_heading}

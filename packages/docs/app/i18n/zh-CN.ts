@@ -4,6 +4,7 @@ const zhCN = {
   campaign: {
     allArticles: "所有文章",
     useCases: "使用场景",
+    useCasesDescription: "按应用分类的重复工作页面",
     useCasesTitle: "用 Agent-Native 应用和你的 AI 智能体完成日常重复工作",
     useCasesIntro: "选择你反复执行的工作。",
     articles: "文章",
@@ -25,6 +26,7 @@ const zhCN = {
     partOf: "所属场景：",
     relatedResources: "相关资源",
     moreArticles: "更多 {{category}} 文章",
+    genericMore: "更多文章",
     showMore: "显示更多文章",
     allTopics: "所有主题",
     topics: {

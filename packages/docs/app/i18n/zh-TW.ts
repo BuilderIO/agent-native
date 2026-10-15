@@ -2,6 +2,7 @@ const messages = {
   campaign: {
     allArticles: "所有文章",
     useCases: "使用情境",
+    useCasesDescription: "依應用程式分類的重複工作頁面",
     useCasesTitle: "使用 Agent-Native 應用程式和你的 AI 代理完成日常重複工作",
     useCasesIntro: "選擇你反覆執行的工作。",
     articles: "文章",
@@ -23,6 +24,7 @@ const messages = {
     partOf: "所屬情境：",
     relatedResources: "相關資源",
     moreArticles: "更多 {{category}} 文章",
+    genericMore: "更多文章",
     showMore: "顯示更多文章",
     allTopics: "所有主題",
     topics: {

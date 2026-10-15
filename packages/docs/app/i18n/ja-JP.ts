@@ -4,6 +4,7 @@ const jaJP = {
   campaign: {
     allArticles: "すべての記事",
     useCases: "ユースケース",
+    useCasesDescription: "繰り返しの仕事のためのページをアプリ別に紹介",
     useCasesTitle:
       "Agent-Native アプリと AI エージェントで繰り返しの仕事をこなす",
     useCasesIntro: "何度も繰り返す仕事を選んでください。",
@@ -26,6 +27,7 @@ const jaJP = {
     partOf: "関連するユースケース：",
     relatedResources: "関連リソース",
     moreArticles: "{{category}} のその他の記事",
+    genericMore: "その他の記事",
     showMore: "記事をさらに表示",
     allTopics: "すべてのトピック",
     topics: {

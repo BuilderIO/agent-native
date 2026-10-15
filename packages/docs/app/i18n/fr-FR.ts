@@ -4,6 +4,7 @@ const frFR = {
   campaign: {
     allArticles: "Tous les articles",
     useCases: "Cas d’usage",
+    useCasesDescription: "Pages pour les tâches récurrentes, par app",
     useCasesTitle:
       "Le travail récurrent, réalisé avec une app Agent-Native et votre agent IA",
     useCasesIntro: "Choisissez le travail que vous faites encore et encore.",
@@ -26,6 +27,7 @@ const frFR = {
     partOf: "Fait partie de :",
     relatedResources: "Ressources associées",
     moreArticles: "Plus d’articles {{category}}",
+    genericMore: "Plus d’articles",
     showMore: "Afficher plus d’articles",
     allTopics: "Tous les sujets",
     topics: {

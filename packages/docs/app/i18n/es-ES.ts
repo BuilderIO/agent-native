@@ -4,6 +4,7 @@ const esES = {
   campaign: {
     allArticles: "Todos los artículos",
     useCases: "Casos de uso",
+    useCasesDescription: "Páginas para tareas recurrentes, por app",
     useCasesTitle:
       "Trabajo recurrente, realizado con una app Agent-Native y tu agente de IA",
     useCasesIntro: "Elige el trabajo que haces una y otra vez.",
@@ -26,6 +27,7 @@ const esES = {
     partOf: "Parte de:",
     relatedResources: "Recursos relacionados",
     moreArticles: "Más artículos de {{category}}",
+    genericMore: "Más artículos",
     showMore: "Mostrar más artículos",
     allTopics: "Todos los temas",
     topics: {

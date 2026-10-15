@@ -4,6 +4,7 @@ const deDE = {
   campaign: {
     allArticles: "Alle Artikel",
     useCases: "Anwendungsfälle",
+    useCasesDescription: "Seiten für wiederkehrende Aufgaben, nach App",
     useCasesTitle:
       "Wiederkehrende Arbeit, erledigt mit einer Agent-Native-App und deinem KI-Agenten",
     useCasesIntro: "Wähle die Arbeit, die du immer wieder erledigst.",
@@ -26,6 +27,7 @@ const deDE = {
     partOf: "Teil von:",
     relatedResources: "Verwandte Ressourcen",
     moreArticles: "Weitere {{category}}-Artikel",
+    genericMore: "Weitere Artikel",
     showMore: "Weitere Artikel anzeigen",
     allTopics: "Alle Themen",
     topics: {

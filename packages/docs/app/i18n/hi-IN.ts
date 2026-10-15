@@ -4,6 +4,7 @@ const hiIN = {
   campaign: {
     allArticles: "सभी लेख",
     useCases: "उपयोग के उदाहरण",
+    useCasesDescription: "बार-बार होने वाले कामों के पेज, ऐप के अनुसार",
     useCasesTitle:
       "Agent-Native ऐप और अपने AI एजेंट से बार-बार होने वाला काम पूरा करें",
     useCasesIntro: "वह काम चुनें जो आप बार-बार करते हैं।",
@@ -26,6 +27,7 @@ const hiIN = {
     partOf: "इसका भाग:",
     relatedResources: "संबंधित संसाधन",
     moreArticles: "{{category}} के और लेख",
+    genericMore: "और लेख",
     showMore: "और लेख दिखाएँ",
     allTopics: "सभी विषय",
     topics: {

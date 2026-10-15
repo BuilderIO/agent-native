@@ -442,6 +442,202 @@ describe("public campaign frontend", () => {
     ).toBe(useCase.title);
   });
 
+  it("renders six All topics cards without a duplicate Articles eyebrow", () => {
+    currentLocale.locale = "fr-FR";
+    const document = dom(
+      markup(<ArticlesList articles={[article]} page={1} hasMore={false} />),
+    );
+    const header = document.querySelector("h1")!.parentElement!;
+    expect(header.textContent).toBe(
+      `${enUS.campaign.articles}${enUS.campaign.articlesIntro}`,
+    );
+    const topics = [...document.querySelectorAll("section")].find(
+      (section) => section.querySelector("h2")?.textContent === "All topics",
+    )!;
+    const cards = [...topics.querySelectorAll("a")];
+    expect(cards).toHaveLength(6);
+    expect(cards.map((card) => card.querySelector("h3")?.textContent)).toEqual([
+      ...categories.map((category) => CATEGORY_NAMES[category]),
+      "Use cases",
+    ]);
+    expect(cards[5].getAttribute("href")).toBe(
+      sitePathForLocale(USE_CASES_BASE, "fr-FR"),
+    );
+    expect(cards[5].querySelector("h3 + div")?.textContent).toBe(
+      "Pages for recurring jobs, by app",
+    );
+    const category = dom(
+      markup(
+        <ArticlesList
+          articles={[article]}
+          category="clips"
+          page={1}
+          hasMore={false}
+        />,
+      ),
+    );
+    expect(category.querySelector("h1")?.textContent).toBe("Clips");
+    expect(category.body.textContent).not.toContain("All topics");
+  });
+
+  it.each([
+    { categories: ["clips", "clips"], heading: "More Clips articles" },
+    { categories: ["clips", "design"], heading: "More articles" },
+    { categories: ["design"], heading: "More articles" },
+  ] as const)(
+    "uses '$heading' for recommendations $categories",
+    ({ categories, heading }) => {
+      const document = dom(
+        markup(
+          <ArticlePage
+            article={article}
+            useCase={null}
+            more={categories.map((category, index) => ({
+              ...article,
+              slug: `related-${index}`,
+              category,
+            }))}
+          />,
+        ),
+      );
+      const headings = [...document.querySelectorAll("h2")].map(
+        (heading) => heading.textContent,
+      );
+      expect(headings).toContain(heading);
+      expect(headings).not.toContain(
+        heading === "More articles" ? "More Clips articles" : "More articles",
+      );
+    },
+  );
+
+  it("prepends the localized use-case resource and keeps resource labels and URLs intact", () => {
+    currentLocale.locale = "fr-FR";
+    const resources = [
+      { label: "Test internal resource", url: "/docs?source=test#details" },
+      { label: "Test external resource", url: "https://example.com/resource" },
+    ];
+    const document = dom(
+      markup(
+        <ArticlePage
+          article={{ ...article, related_resources: resources }}
+          useCase={useCase}
+          more={[]}
+        />,
+      ),
+    );
+    const section = [...document.querySelectorAll("section")].find(
+      (section) =>
+        section.querySelector("h2")?.textContent === "Related resources",
+    )!;
+    expect(section.classList.contains("docs-content")).toBe(true);
+    expect(section.querySelector("h2")?.getAttribute("class")).toBeNull();
+    const links = [...section.querySelectorAll("li a")];
+    expect(
+      links.map((link) => [link.textContent, link.getAttribute("href")]),
+    ).toEqual([
+      [
+        useCase.title,
+        sitePathForLocale(`${USE_CASES_BASE}/${useCase.slug}`, "fr-FR"),
+      ],
+      [
+        resources[0].label,
+        `${sitePathForLocale("/docs", "fr-FR")}?source=test#details`,
+      ],
+      [resources[1].label, resources[1].url],
+    ]);
+    for (const link of links) {
+      expect(link.classList.contains("underline")).toBe(true);
+      expect(link.classList.contains("text-[var(--docs-accent)]")).toBe(true);
+    }
+    const partOf = [...document.querySelectorAll("p")]
+      .find((paragraph) => paragraph.textContent?.startsWith("Part of:"))!
+      .querySelector("a")!;
+    expect(partOf.getAttribute("href")).toBe(links[0].getAttribute("href"));
+    expect(partOf.classList.contains("underline")).toBe(true);
+    expect(partOf.classList.contains("text-[var(--docs-accent)]")).toBe(true);
+  });
+
+  it.each([true, false])(
+    "shows Related resources with only a use case: %s",
+    (hasUseCase) => {
+      const document = dom(
+        markup(
+          <ArticlePage
+            article={article}
+            useCase={hasUseCase ? useCase : null}
+            more={[]}
+          />,
+        ),
+      );
+      const section = [...document.querySelectorAll("section")].find(
+        (section) =>
+          section.querySelector("h2")?.textContent === "Related resources",
+      );
+      if (hasUseCase) {
+        expect(section?.querySelectorAll("li")).toHaveLength(1);
+        expect(section?.querySelector("a")?.textContent).toBe(useCase.title);
+      } else {
+        expect(section).toBeUndefined();
+      }
+    },
+  );
+
+  it("keeps article closing CTA content aligned in one compact block without changing use-case actions", () => {
+    const page = dom(
+      markup(<ArticlePage article={article} useCase={null} more={[]} />),
+    );
+    const band = [...page.querySelectorAll("section")].at(-1)!;
+    const content = band.firstElementChild!;
+    const stack = content.firstElementChild!;
+    expect(content.classList.contains("py-10")).toBe(true);
+    expect(content.classList.contains("pb-16")).toBe(false);
+    expect(stack.classList.contains("items-start")).toBe(true);
+    expect([...stack.children].map((element) => element.tagName)).toEqual([
+      "H2",
+      "P",
+      "A",
+    ]);
+    expect(stack.querySelector("h2")?.textContent).toBe(
+      article.cta_band_heading,
+    );
+    expect(stack.querySelector("p")?.textContent).toBe(
+      article.cta_band_subhead,
+    );
+    expect(stack.querySelector("a")?.textContent).toBe(article.cta_label);
+    expect(band.querySelector(".template-detail-cta-actions")).toBeNull();
+    const casePage = dom(markup(<UseCasePage item={useCase} articles={[]} />));
+    const caseBand = [...casePage.querySelectorAll("section")].at(-1)!;
+    expect(
+      caseBand.querySelector(".template-detail-cta-actions"),
+    ).not.toBeNull();
+    expect(caseBand.children[1].classList.contains("pb-16")).toBe(true);
+  });
+
+  it("scopes tables before, within and after article FAQs without changing semantic headers", () => {
+    const table =
+      "| Test header | Test value |\n| --- | --- |\n| Test cell | Test body |";
+    const document = dom(
+      markup(
+        <ArticlePage
+          article={{
+            ...article,
+            body: `${table}\n\n## Frequently asked questions\n\n### Test question?\n\n${table}\n\n## Test ending\n\n${table}`,
+          }}
+          useCase={null}
+          more={[]}
+        />,
+      ),
+    );
+    expect(document.querySelectorAll("table")).toHaveLength(3);
+    for (const cell of document.querySelectorAll("th, td")) {
+      expect(
+        cell.closest(".campaign-article-content .docs-content"),
+      ).not.toBeNull();
+    }
+    expect(document.querySelectorAll("thead th")).toHaveLength(6);
+    expect(document.querySelectorAll("tbody td")).toHaveLength(6);
+  });
+
   it.each(categories)(
     "uses existing dark/light %s app screenshots with fixed framing in heroes and inline markers",
     (app) => {
@@ -526,6 +722,7 @@ describe("public campaign frontend", () => {
           [
             path(`${ARTICLES_BASE}/${article.slug}`),
             path(`${ARTICLES_BASE}/page/2`),
+            path(USE_CASES_BASE),
             ...categories.map((category) =>
               path(`${ARTICLES_BASE}/category/${category}`),
             ),

@@ -334,7 +334,7 @@ export function ArticleBody({ article }: { article: Article }) {
   const parsed = parseArticle(article.body);
   const ids = new Map<string, number>();
   return (
-    <>
+    <div className="campaign-article-content">
       <div className="docs-content min-w-0 max-w-none break-words">
         <MarkdownBlocks
           tokens={parsed.before}
@@ -373,6 +373,6 @@ export function ArticleBody({ article }: { article: Article }) {
           headingIds={ids}
         />
       </div>
-    </>
+    </div>
   );
 }

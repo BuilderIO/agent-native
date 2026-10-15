@@ -45,7 +45,7 @@ export function ArticlesList({
     <TemplateLandingShell className="builder-brand-tokens pb-16">
       <div className="border-x border-[var(--docs-border)] px-6 py-16 sm:px-10">
         <SectionHeader
-          eyebrow={t("campaign.articles")}
+          eyebrow={category ? t("campaign.articles") : undefined}
           as="h1"
           heading={
             category
@@ -111,6 +111,11 @@ export function ArticlesList({
                 body={t(`campaign.topics.${key}`)}
               />
             ))}
+            <ContentCard
+              href={sitePathForLocale(USE_CASES_BASE, locale)}
+              title={t("campaign.useCases")}
+              body={t("campaign.useCasesDescription")}
+            />
           </div>
         </section>
       ) : null}
@@ -214,27 +219,49 @@ export function ArticlePage({
                   `${USE_CASES_BASE}/${useCase.slug}`,
                   locale,
                 )}
+                className="text-[var(--docs-accent)] underline underline-offset-4"
               >
                 {useCase.title}
               </Link>
             </p>
           ) : null}
           <ArticleBody article={article} />
-          {article.related_resources.length ? (
-            <section className="my-12">
-              <SectionHeader heading={t("campaign.relatedResources")} />
+          {useCase || article.related_resources.length ? (
+            <section className="docs-content my-12">
+              <h2>{t("campaign.relatedResources")}</h2>
               <ul className="mt-6 list-disc space-y-3 ps-6">
+                {useCase ? (
+                  <li>
+                    <Link
+                      to={sitePathForLocale(
+                        `${USE_CASES_BASE}/${useCase.slug}`,
+                        locale,
+                      )}
+                      className="text-[var(--docs-accent)] underline underline-offset-4"
+                    >
+                      {useCase.title}
+                    </Link>
+                  </li>
+                ) : null}
                 {article.related_resources.map((resource, i) => {
                   const href = safeHref(resource.url);
                   return (
                     <li key={i}>
                       {href ? (
                         href.startsWith("/") ? (
-                          <Link to={campaignHref(href, locale)}>
+                          <Link
+                            to={campaignHref(href, locale)}
+                            className="text-[var(--docs-accent)] underline underline-offset-4"
+                          >
                             {resource.label}
                           </Link>
                         ) : (
-                          <a href={href}>{resource.label}</a>
+                          <a
+                            href={href}
+                            className="text-[var(--docs-accent)] underline underline-offset-4"
+                          >
+                            {resource.label}
+                          </a>
                         )
                       ) : (
                         resource.label
@@ -251,9 +278,13 @@ export function ArticlePage({
         <section className="border border-[var(--docs-border)]">
           <div className="p-6 sm:p-8">
             <SectionHeader
-              heading={t("campaign.moreArticles", {
-                category: CATEGORY_NAMES[article.category],
-              })}
+              heading={
+                more.some((item) => item.category !== article.category)
+                  ? t("campaign.genericMore")
+                  : t("campaign.moreArticles", {
+                      category: CATEGORY_NAMES[article.category],
+                    })
+              }
             />
           </div>
           <div className="grid gap-px bg-[var(--docs-border)] sm:grid-cols-2 lg:grid-cols-3">
