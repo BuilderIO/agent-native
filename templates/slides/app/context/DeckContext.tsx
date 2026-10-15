@@ -3201,14 +3201,10 @@ function hasChangedFields(current: object, fields: object): boolean {
 
 function slideUndoContentSignature(content: string): string {
   if (typeof DOMParser === "undefined") {
-    return content.replace(
-      /\sdata-(?:slide-object-id|builder-id)=(['"])[^'"]*\1/g,
-      "",
-    );
+    return content.replace(/\sdata-builder-id=(['"])[^'"]*\1/g, "");
   }
   const document = new DOMParser().parseFromString(content, "text/html");
   for (const element of document.querySelectorAll("*")) {
-    element.removeAttribute("data-slide-object-id");
     element.removeAttribute("data-builder-id");
   }
   return document.documentElement.innerHTML;
@@ -3479,25 +3475,27 @@ function undoOpsWithoutRemoteFieldConflicts(
       }
 
       if (op.op === "reorder-slides") {
-        const deck = decks.find((entry) => entry.id === op.deckId);
-        if (!deck) {
+        const deck = simulatedDecks.find((entry) => entry.id === op.deckId);
+        const currentDeck = decks.find((entry) => entry.id === op.deckId);
+        if (!deck || !currentDeck) {
           hasConflict = true;
           return [];
         }
         const expectedOrder =
           expectedSlideOrders.get(op.deckId) ?? op.orderedIds;
         const expectedIds = new Set(expectedOrder);
-        if (deck.slides.some((slide) => !expectedIds.has(slide.id))) {
+        const allowedIds = new Set([...expectedOrder, ...op.orderedIds]);
+        if (deck.slides.some((slide) => !allowedIds.has(slide.id))) {
           hasConflict = true;
           return [];
         }
         if (applyUndoOpToDecks(simulatedDecks, op) === simulatedDecks)
           return [];
-        const currentIds = new Set(deck.slides.map((slide) => slide.id));
+        const currentIds = new Set(currentDeck.slides.map((slide) => slide.id));
         const expectedPresentOrder = expectedOrder.filter((id) =>
           currentIds.has(id),
         );
-        const currentPresentOrder = deck.slides
+        const currentPresentOrder = currentDeck.slides
           .map((slide) => slide.id)
           .filter((id) => expectedIds.has(id));
         if (
@@ -6688,6 +6686,16 @@ export function DeckProvider({
     (deckId: string, slideId: string) => {
       markDeckDirty(deckId);
       const before = decksRef.current.find((d) => d.id === deckId);
+      const replacesLastSlide =
+        before?.slides.length === 1 && before.slides[0]?.id === slideId;
+      const placeholder: Slide | undefined = replacesLastSlide
+        ? {
+            id: nanoid(8),
+            content: defaultSlideContent.blank,
+            notes: "",
+            layout: "blank",
+          }
+        : undefined;
       if (before?.slides.some((slide) => slide.id === slideId)) {
         markSlideDeleteTombstone(deckId, slideId);
       }
@@ -6695,12 +6703,14 @@ export function DeckProvider({
         if (d.id !== deckId) return d;
         const slides = d.slides.filter((s) => s.id !== slideId);
         if (slides.length === 0) {
-          slides.push({
-            id: nanoid(8),
-            content: defaultSlideContent.blank,
-            notes: "",
-            layout: "blank",
-          });
+          slides.push(
+            placeholder ?? {
+              id: nanoid(8),
+              content: defaultSlideContent.blank,
+              notes: "",
+              layout: "blank",
+            },
+          );
         }
         return {
           ...clearSourceImport(d),
@@ -6709,11 +6719,36 @@ export function DeckProvider({
         };
       };
       setDecksLocal((prev) => prev.map(removeSlide));
-      const op: PatchDeckOp = { op: "delete-slide", slideId };
-      enqueueDeckOp(deckId, op);
-      if (before) recordUndo(before, op, { label: "Delete slide" });
+      const deleteOp: PatchDeckOp = {
+        op: "delete-slide",
+        slideId,
+        ...(placeholder ? { allowEmpty: true } : {}),
+      };
+      const ops: PatchDeckOp[] = [deleteOp];
+      if (placeholder) {
+        ops.push({
+          op: "add-slide",
+          slideId: placeholder.id,
+          fields: {
+            content: placeholder.content,
+            notes: placeholder.notes,
+            layout: placeholder.layout,
+          },
+        });
+      }
+      for (const op of ops) enqueueDeckOp(deckId, op);
+      if (before) {
+        if (placeholder) recordUndoBatch(before, ops, "Delete slide");
+        else recordUndo(before, deleteOp, { label: "Delete slide" });
+      }
     },
-    [markDeckDirty, markSlideDeleteTombstone, recordUndo, setDecksLocal],
+    [
+      markDeckDirty,
+      markSlideDeleteTombstone,
+      recordUndo,
+      recordUndoBatch,
+      setDecksLocal,
+    ],
   );
 
   const deleteSlides = useCallback(
@@ -6724,10 +6759,31 @@ export function DeckProvider({
       const slides = before.slides.filter((slide) => ids.has(slide.id));
       if (slides.length === 0) return;
       const deletedIds = new Set(slides.map((slide) => slide.id));
+      const deletesEverySlide = deletedIds.size === before.slides.length;
+      const placeholder: Slide | undefined = deletesEverySlide
+        ? {
+            id: nanoid(8),
+            content: defaultSlideContent.blank,
+            notes: "",
+            layout: "blank",
+          }
+        : undefined;
       const ops: PatchDeckOp[] = slides.map((slide) => ({
         op: "delete-slide",
         slideId: slide.id,
+        ...(placeholder ? { allowEmpty: true } : {}),
       }));
+      if (placeholder) {
+        ops.push({
+          op: "add-slide",
+          slideId: placeholder.id,
+          fields: {
+            content: placeholder.content,
+            notes: placeholder.notes,
+            layout: placeholder.layout,
+          },
+        });
+      }
       markDeckDirty(deckId);
       for (const slide of slides) {
         markSlideDeleteTombstone(deckId, slide.id);
@@ -6736,12 +6792,14 @@ export function DeckProvider({
         if (d.id !== deckId) return d;
         const remaining = d.slides.filter((slide) => !deletedIds.has(slide.id));
         if (remaining.length === 0) {
-          remaining.push({
-            id: nanoid(8),
-            content: defaultSlideContent.blank,
-            notes: "",
-            layout: "blank",
-          });
+          remaining.push(
+            placeholder ?? {
+              id: nanoid(8),
+              content: defaultSlideContent.blank,
+              notes: "",
+              layout: "blank",
+            },
+          );
         }
         return {
           ...clearSourceImport(d),
@@ -6751,9 +6809,44 @@ export function DeckProvider({
       };
       setDecksLocal((prev) => prev.map(removeSlides));
       for (const op of ops) enqueueDeckOp(deckId, op);
-      recordUndoBatch(before, ops, "Delete slides");
+      if (placeholder) {
+        undoControllerForDeck(deckId).push({
+          undo: [
+            {
+              deckId,
+              op: "delete-slide",
+              slideId: placeholder.id,
+              allowEmpty: true,
+            },
+            ...before.slides.map((slide, index) => ({
+              deckId,
+              op: "add-slide" as const,
+              slideId: slide.id,
+              ...(index > 0
+                ? { afterSlideId: before.slides[index - 1]!.id }
+                : {}),
+              fields: addSlideFields(slide),
+            })),
+            {
+              deckId,
+              op: "reorder-slides",
+              orderedIds: before.slides.map((slide) => slide.id),
+            },
+          ],
+          redo: ops.map((op) => ({ deckId, ...op })),
+          label: "Delete slides",
+        });
+      } else {
+        recordUndoBatch(before, ops, "Delete slides");
+      }
     },
-    [markDeckDirty, markSlideDeleteTombstone, recordUndoBatch, setDecksLocal],
+    [
+      markDeckDirty,
+      markSlideDeleteTombstone,
+      recordUndoBatch,
+      setDecksLocal,
+      undoControllerForDeck,
+    ],
   );
 
   const duplicateSlide = useCallback(

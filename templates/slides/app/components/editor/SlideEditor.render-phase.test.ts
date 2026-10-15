@@ -679,6 +679,6 @@ describe("SlideEditor render-phase safety", () => {
     );
     expect(layoutBody).toContain("new ResizeObserver(update)");
     expect(layoutBody).toContain("new MutationObserver(update)");
-    expect(layoutBody).toContain("invalidateSelectionOverlayMeasurement();");
+    expect(layoutBody).toContain("measureSelectionOverlayNow();");
   });
 });
