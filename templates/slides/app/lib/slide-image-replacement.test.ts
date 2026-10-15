@@ -102,16 +102,23 @@ describe("slide image replacement", () => {
     expect(image.style.left).toBe("184px");
   });
 
-  it("replaces an image when undo changes its saved geometry", () => {
+  it("restores an image frame's geometry without replacing unrelated slide nodes", () => {
     const movedContent =
-      '<div class="fmd-slide"><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:90px;top:24px;width:320px;height:180px;"></div>';
+      '<div class="fmd-slide"><video src="clip.mp4"></video><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:90px;top:24px;width:320px;height:180px;"><img src="image.png"></div><div class="fmd-shape" data-slide-object-id="shape-1" style="position:absolute;left:400px;top:24px;width:100px;height:80px;">Text</div></div>';
     const restoredContent = movedContent.replace("left:90px", "left:40px");
     const root = document.createElement("div");
     root.innerHTML = movedContent;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    const video = root.querySelector("video")!;
+    const otherObject = root.querySelector(".fmd-shape")!;
 
     expect(swapImageSourcesInPlace(root, movedContent, restoredContent)).toBe(
-      false,
+      true,
     );
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(root.querySelector("video")).toBe(video);
+    expect(root.querySelector(".fmd-shape")).toBe(otherObject);
+    expect(frame.style.left).toBe("40px");
   });
 
   it("keeps live slide nodes when the saved image geometry already matches", () => {
