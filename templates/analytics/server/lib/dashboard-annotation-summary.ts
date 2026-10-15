@@ -2,7 +2,12 @@ import type {
   DashboardAnnotations,
   SqlPanel,
 } from "../../app/pages/adhoc/sql-dashboard/types";
-import { dataNoteAppliesTo, type DataNote } from "../../shared/data-notes.js";
+import {
+  dataNoteAppliesTo,
+  dataNoteIsRecent,
+  RECENT_DATA_NOTE_DAYS,
+  type DataNote,
+} from "../../shared/data-notes.js";
 import {
   KEY_DATE_CHART_TYPES,
   type KeyDate,
@@ -28,7 +33,7 @@ export interface DataNoteSummary {
   status: DataNote["status"];
   startDate?: string;
   endDate?: string;
-  /** Charts on this dashboard that draw the note. */
+  /** Charts on this dashboard that show the note; a time chart shades only the dates it plots. */
   panelIds: string[];
   /** Charts the note belongs on that this dashboard hides it from. */
   hiddenOnPanelIds?: string[];
@@ -65,6 +70,21 @@ function hiddenPanelIds(
   );
 }
 
+/** As `SqlChartCard` does: time charts shade a note over its dates, other charts list it only while it is recent. */
+function panelsShowingNote(
+  note: Pick<DataNote, "endDate" | "matchEvents" | "unlessEvents" | "panels">,
+  dashboardId: string,
+  panels: readonly SqlPanel[],
+  now: number,
+): SqlPanel[] {
+  return panels.filter(
+    (panel) =>
+      dataNoteAppliesTo(note, dashboardId, panel) &&
+      (KEY_DATE_CHART_TYPES.has(panel.chartType) ||
+        dataNoteIsRecent(note, now)),
+  );
+}
+
 const newestFirst = (a: KeyDate, b: KeyDate) =>
   `${b.date} ${b.time ?? ""}`.localeCompare(`${a.date} ${a.time ?? ""}`);
 
@@ -74,6 +94,7 @@ export function summarizeDashboardAnnotations(
   config: Record<string, unknown>,
   sets: readonly KeyDateSet[],
   notes: readonly DataNote[],
+  now: number = Date.now(),
 ): DashboardAnnotationSummary {
   const panels = configPanels(config);
   const annotations = configAnnotations(config);
@@ -95,9 +116,7 @@ export function summarizeDashboardAnnotations(
         })),
     })),
     dataNotes: notes.flatMap((note) => {
-      const reached = panels.filter((panel) =>
-        dataNoteAppliesTo(note, dashboardId, panel),
-      );
+      const reached = panelsShowingNote(note, dashboardId, panels, now);
       if (reached.length === 0) return [];
       const hidden = hiddenPanelIds(annotations, note.id);
       const hiddenOn = reached.filter((panel) => hidden.has(panel.id));
@@ -130,13 +149,16 @@ const panelRef = (panel: SqlPanel): PanelRef => ({
 
 /** Where a saved data note draws on one dashboard, with a hint when that is nowhere. */
 export function dataNotePlacement(
-  note: Pick<DataNote, "id" | "matchEvents" | "unlessEvents" | "panels">,
+  note: Pick<
+    DataNote,
+    "id" | "endDate" | "matchEvents" | "unlessEvents" | "panels"
+  >,
   dashboardId: string,
   config: Record<string, unknown>,
+  now: number = Date.now(),
 ) {
-  const reached = configPanels(config).filter((panel) =>
-    dataNoteAppliesTo(note, dashboardId, panel),
-  );
+  const panels = configPanels(config);
+  const reached = panelsShowingNote(note, dashboardId, panels, now);
   const hidden = hiddenPanelIds(configAnnotations(config), note.id);
   const shownOn = reached.filter((panel) => !hidden.has(panel.id));
   const hiddenOn = reached.filter((panel) => hidden.has(panel.id));
@@ -145,7 +167,9 @@ export function dataNotePlacement(
       ? undefined
       : hiddenOn.length > 0
         ? "This dashboard hides the note on every chart it belongs on (config.annotations.hiddenDataNotes). Tell the person rather than unhiding it on your own."
-        : "The note shows on none of this dashboard's charts: no chart's SQL names one of matchEvents as a quoted string without also naming one of unlessEvents, and no chart is pinned in panels. Read the charts' SQL with get-sql-dashboard panelIds and use the exact event name, or pin the charts with panels.";
+        : panels.some((panel) => dataNoteAppliesTo(note, dashboardId, panel))
+          ? `The note belongs here only on charts other than line, area, bar or combo, and those list a note only while it is ongoing or for ${RECENT_DATA_NOTE_DAYS} days after it ends.`
+          : "The note shows on none of this dashboard's charts: no chart's SQL names one of matchEvents as a quoted string without also naming one of unlessEvents, and no chart is pinned in panels. Read the charts' SQL with get-sql-dashboard panelIds and use the exact event name, or pin the charts with panels.";
   return {
     dashboardId,
     shownOn: shownOn.map(panelRef),
@@ -154,7 +178,11 @@ export function dataNotePlacement(
   };
 }
 
-/** Whether a dashboard draws a key date's set, with a hint when it doesn't. */
+/**
+ * Whether a dashboard shows a key date's set, with a hint when no chart there
+ * can draw the date. A chart draws it only if its rows reach the date, and the
+ * server never sees rows, so this must not claim any chart does.
+ */
 export function keyDatePlacement(
   setId: string,
   dashboardId: string,

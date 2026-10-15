@@ -305,10 +305,12 @@ reader should take away:
   charts.
 
 Pass the open dashboard's id as `dashboardId` to `save-key-date` or
-`save-data-note`, and read the result's `dashboard` before replying: name the
-charts the marker shows on. When its `hint` says it shows on none, fix the
-event names, or tell the person why. A set or note the dashboard hides is that
-dashboard's choice, so ask before showing it.
+`save-data-note`, and read the result's `dashboard` before replying. A note
+lists the charts it shows on in `shownOn`; a key date says only whether the
+dashboard shows its set, in `setShown`. Neither promises a mark: a time chart
+draws one only over the dates it plots. When `hint` says it shows on none, fix
+the event names, or tell the person why. A set or note the dashboard hides is
+that dashboard's choice, so ask before showing it.
 
 To explain a spike or dip, read `keyDateSets` and `dataNotes` from
 `get-sql-dashboard` or `view-screen` first and cite what they say. If

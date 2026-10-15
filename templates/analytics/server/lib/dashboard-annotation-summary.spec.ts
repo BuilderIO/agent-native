@@ -82,6 +82,10 @@ const launches: KeyDateSet = {
   ],
 };
 
+/** SKIPS_UNTRACKED ended Sep 17: recent on Oct 15, stale by December. */
+const OCT_15 = Date.parse("2026-10-15T12:00:00.000Z");
+const DEC_1 = Date.parse("2026-12-01T12:00:00.000Z");
+
 const productChanges: KeyDateSet = {
   ...launches,
   id: "product-changes",
@@ -193,10 +197,43 @@ describe("summarizeDashboardAnnotations", () => {
       { panels },
       [],
       [pinned],
+      OCT_15,
     );
     expect(summary.dataNotes.map((note) => note.panelIds)).toEqual([
       ["channels"],
     ]);
+  });
+
+  it("drops a note from charts without a date axis once it is no longer recent, as they do", () => {
+    const pinned = {
+      ...SKIPS_UNTRACKED,
+      panels: [
+        { dashboardId: "dash", panelId: "failures" },
+        { dashboardId: "dash", panelId: "channels" },
+      ],
+    };
+    const notesOn = (now: number) =>
+      summarizeDashboardAnnotations("dash", { panels }, [], [pinned], now)
+        .dataNotes;
+
+    expect(notesOn(OCT_15)).toMatchObject([
+      { panelIds: ["failures", "channels"] },
+    ]);
+    expect(notesOn(DEC_1)).toMatchObject([{ panelIds: ["failures"] }]);
+    expect(
+      summarizeDashboardAnnotations(
+        "dash",
+        {
+          panels,
+          annotations: {
+            hiddenDataNotes: [{ noteId: pinned.id, panelId: "channels" }],
+          },
+        },
+        [],
+        [{ ...pinned, panels: [{ dashboardId: "dash", panelId: "channels" }] }],
+        DEC_1,
+      ).dataNotes,
+    ).toEqual([]);
   });
 });
 
@@ -234,6 +271,22 @@ describe("dataNotePlacement", () => {
     );
     expect(placement.shownOn).toEqual([]);
     expect(placement.hint).toContain("exact event name");
+  });
+
+  it("leaves out charts without a date axis once the note is no longer recent, and says so", () => {
+    const pinned = {
+      ...SKIPS_UNTRACKED,
+      panels: [{ dashboardId: "dash", panelId: "channels" }],
+    };
+
+    expect(dataNotePlacement(pinned, "dash", { panels }, OCT_15)).toEqual({
+      dashboardId: "dash",
+      shownOn: [{ panelId: "channels", title: "Signups by channel" }],
+    });
+    const stale = dataNotePlacement(pinned, "dash", { panels }, DEC_1);
+    expect(stale.shownOn).toEqual([]);
+    expect(stale.hint).toContain("only while it is ongoing or for 30 days");
+    expect(stale.hint).not.toContain("exact event name");
   });
 });
 
