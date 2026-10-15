@@ -621,7 +621,8 @@ test.describe("click selects the container on the board surface, not the deep ch
       x: selectedChildBefore.x + selectedChildBefore.width / 2,
       y: selectedChildBefore.y + selectedChildBefore.height / 2,
     };
-    const dragEnd = { x: dragStart.x + 64, y: dragStart.y + 48 };
+    // Ends clear of Outer's edge and centre lines, so snapping cannot pull it.
+    const dragEnd = { x: dragStart.x + 80, y: dragStart.y + 56 };
 
     await page.mouse.move(dragStart.x, dragStart.y);
     await page.mouse.down();

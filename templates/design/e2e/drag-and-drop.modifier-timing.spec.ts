@@ -194,7 +194,7 @@ test("the platform modifier after pointerdown removes a flow child from flow and
   expect(styleOf(ignored.get("control-child"))).toEqual({
     width: "100px",
     height: "48px",
-    background: "rgb(99, 102, 241)",
+    background: "#6366f1",
     position: "absolute",
     left: "16px",
     top: "16px",
@@ -259,7 +259,7 @@ test("the platform modifier after pointerdown removes a flow child from flow and
   expect(styleOf(returned.get("control-child"))).toEqual({
     width: "100px",
     height: "48px",
-    background: "rgb(99, 102, 241)",
+    background: "#6366f1",
   });
   expectOnlyChanged(ignored, returned, ["control-child"]);
   await expect.poll(() => app.selectedLayers()).toEqual(["Control Child"]);
