@@ -567,9 +567,20 @@ function textContent(node: HtmlNode): string {
   return (node.childNodes ?? []).map(textContent).join("");
 }
 
-function wordUnitCount(value: string): number {
+type MotionTextWordChunk = {
+  value: string;
+  word: boolean;
+  start: number;
+  end: number;
+};
+
+type MotionTextWordRange = { start: number; end: number };
+
+function motionTextWordRanges(value: string): MotionTextWordRange[] {
   const Segmenter = motionTextSegmenter();
-  const chunks = Segmenter
+  const chunks: MotionTextWordChunk[] = [];
+  let offset = 0;
+  const segments = Segmenter
     ? Array.from(
         new Segmenter(undefined, { granularity: "word" }).segment(value),
         (part) => ({ value: part.segment, word: Boolean(part.isWordLike) }),
@@ -578,37 +589,83 @@ function wordUnitCount(value: string): number {
         value: part,
         word: !/^\s+$/u.test(part),
       }));
+  for (const segment of segments) {
+    const start = offset;
+    offset += segment.value.length;
+    chunks.push({ ...segment, start, end: offset });
+  }
   let remainingWords = chunks.reduce(
     (count, chunk) => count + Number(chunk.word),
     0,
   );
-  let count = 0;
-  let lastTokenAnimatedText = false;
+  const ranges: MotionTextWordRange[] = [];
   for (let index = 0; index < chunks.length; index += 1) {
     const chunk = chunks[index]!;
     if (/^\s+$/u.test(chunk.value)) {
-      lastTokenAnimatedText = false;
       continue;
     }
     if (chunk.word) {
       remainingWords -= 1;
-      count += 1;
-      lastTokenAnimatedText = true;
+      ranges.push({ start: chunk.start, end: chunk.end });
       continue;
     }
-    if (lastTokenAnimatedText) continue;
+    const previous = ranges[ranges.length - 1];
+    if (previous?.end === chunk.start) {
+      previous.end = chunk.end;
+      continue;
+    }
     if (remainingWords > 0) {
-      count += 1;
+      const start = chunk.start;
+      let end = chunk.end;
       while (
         index + 1 < chunks.length &&
         !chunks[index + 1]!.word &&
         !/^\s+$/u.test(chunks[index + 1]!.value)
       ) {
-        index += 1;
+        end = chunks[++index]!.end;
       }
-      lastTokenAnimatedText = true;
-    } else {
-      lastTokenAnimatedText = false;
+      ranges.push({ start, end });
+    }
+  }
+  return ranges;
+}
+
+function wordUnitCount(value: string): number {
+  return motionTextWordRanges(value).length;
+}
+
+function textNodeValues(node: HtmlNode): string[] {
+  if (node.nodeName === "#text") return [node.value ?? ""];
+  return (node.childNodes ?? []).flatMap(textNodeValues);
+}
+
+function lineTextFragmentCount(target: HtmlNode): number {
+  const leaves = textNodeValues(target);
+  const ranges = motionTextWordRanges(leaves.join(""));
+  let rangeIndex = 0;
+  let textOffset = 0;
+  let count = 0;
+
+  for (const value of leaves) {
+    const leafStart = textOffset;
+    const leafEnd = leafStart + value.length;
+    textOffset = leafEnd;
+    while (rangeIndex < ranges.length && ranges[rangeIndex]!.end <= leafStart) {
+      rangeIndex += 1;
+    }
+    for (
+      let index = rangeIndex;
+      index < ranges.length && ranges[index]!.start < leafEnd;
+      index += 1
+    ) {
+      const start = Math.max(leafStart, ranges[index]!.start);
+      const end = Math.min(leafEnd, ranges[index]!.end);
+      if (
+        end > start &&
+        !/^\s+$/u.test(value.slice(start - leafStart, end - leafStart))
+      ) {
+        count += 1;
+      }
     }
   }
   return count;
@@ -619,22 +676,21 @@ function staticTextUnitCount(
   animation: MotionTextAnimation,
 ): number | null {
   if (animation.unit === "line") {
-    const fragmentCount = wordUnitCount(textContent(target));
-    if (fragmentCount === 0) {
+    const maximumLineCount = lineTextFragmentCount(target);
+    if (maximumLineCount === 0) {
       sourceError(
         "unsupported-target",
         `Motion text target "${animation.targetNodeId}" has no animatable text units.`,
       );
     }
-    if (fragmentCount > MAX_RUNTIME_UNITS) {
+    if (maximumLineCount > MAX_RUNTIME_UNITS) {
       sourceError(
         "unsupported-target",
         `Motion text target "${animation.targetNodeId}" exceeds the ${MAX_RUNTIME_UNITS}-unit runtime limit.`,
       );
     }
-    // Runtime lines are groups of animated word fragments. Their exact count
-    // depends on layout, so the fragment count is the safe source-side bound.
-    return fragmentCount;
+    // Each emitted word fragment can occupy a distinct rendered line.
+    return maximumLineCount;
   }
   if (animation.unit === "paragraph") {
     if (PARAGRAPH_TAGS.has(target.tagName ?? "")) return 1;
@@ -1228,6 +1284,7 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         : fragments.map(function (unit) { return { unit: unit, index: Number(unit.getAttribute("data-agent-native-motion-text-unit")) }; });
     }
     var groupCount = entries.reduce(function (count, entry) { return Math.max(count, entry.index + 1); }, 0);
+    if (groupCount > ${MAX_RUNTIME_UNITS}) throw new Error("Motion text target exceeds the ${MAX_RUNTIME_UNITS}-unit runtime limit.");
     var order = animation.order || (animation.direction === "reverse" ? "right-to-left" : "left-to-right");
     var orderRanks = textOrderRanks(groupCount, order, targetGroup.targetNodeId + "|" + target.textContent);
     targetGroup.animations.forEach(function (track) {

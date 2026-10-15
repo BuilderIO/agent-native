@@ -1241,7 +1241,7 @@ describe("Motion Text source and runtime", () => {
     ).toThrow("Motion text animation span exceeds the 120000ms runtime limit.");
   });
 
-  it("bounds line text spans by their maximum word-group count", () => {
+  it("bounds line spans by the word fragments the runtime can place on separate lines", () => {
     const lineDocument: MotionTextDocument = {
       version: 2,
       animations: [
@@ -1254,16 +1254,25 @@ describe("Motion Text source and runtime", () => {
         },
       ],
     };
-    const thirteenLines =
-      '<div data-agent-native-node-id="headline">One two three four five six seven eight nine ten eleven twelve thirteen</div>';
-    const fourteenLines =
-      '<div data-agent-native-node-id="headline">One two three four five six seven eight nine ten eleven twelve thirteen fourteen</div>';
+    const textNodes = (count: number) =>
+      `<div data-agent-native-node-id="headline">${"<span>A</span>".repeat(count)}</div>`;
 
     expect(() =>
-      injectMotionTextRuntime(thirteenLines, lineDocument),
+      injectMotionTextRuntime(textNodes(13), lineDocument),
     ).not.toThrow();
-    expect(() => injectMotionTextRuntime(fourteenLines, lineDocument)).toThrow(
+    expect(() => injectMotionTextRuntime(textNodes(14), lineDocument)).toThrow(
       'Motion text target "headline" resolves to at most 14 line units whose animation span exceeds the 120000ms runtime limit.',
+    );
+    expect(() =>
+      injectMotionTextRuntime(
+        '<div data-agent-native-node-id="headline">' +
+          "A".repeat(513) +
+          "</div>",
+        lineDocument,
+      ),
+    ).not.toThrow();
+    expect(() => injectMotionTextRuntime(textNodes(513), lineDocument)).toThrow(
+      'Motion text target "headline" exceeds the 512-unit runtime limit.',
     );
   });
 
@@ -1297,6 +1306,36 @@ describe("Motion Text source and runtime", () => {
       { duration: 320, delay: 0, fill: "both" },
       { duration: 320, delay: 40, fill: "both" },
     ]);
+  });
+
+  it("rejects more than the runtime unit limit of separately wrapped line fragments", () => {
+    const lineDocument: MotionTextDocument = {
+      ...document,
+      animations: [
+        {
+          ...document.animations[0]!,
+          unit: "line",
+          direction: "forward",
+          order: "left-to-right",
+        },
+      ],
+    };
+    const target = new FakeElement("h1");
+    target.setAttribute("data-agent-native-node-id", "headline");
+    for (let index = 0; index < 513; index += 1) {
+      const formatted = new FakeElement("span");
+      formatted.appendChild(new FakeTextNode("A"));
+      target.appendChild(formatted);
+    }
+
+    expect(() =>
+      executeRuntime(
+        compileMotionTextRuntime(lineDocument),
+        target,
+        false,
+        (index) => index,
+      ),
+    ).toThrow("Motion text target exceeds the 512-unit runtime limit.");
   });
 
   it("rejects duplicate, malformed, and unsupported source markers", () => {

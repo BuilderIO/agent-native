@@ -708,6 +708,7 @@ function readAuthoredHtmlMotion(
     if (
       node.tagName !== "style" ||
       node.insideTemplate ||
+      !isPotentialCssStyle(node) ||
       attributes(node, MANAGED_STYLE_ATTRIBUTE).length > 0
     ) {
       continue;
@@ -746,10 +747,10 @@ function readAuthoredHtmlMotion(
     if (result.status === "unsupported") {
       sourceError("unsupported-authored-motion", result.reason);
     }
-    if (hasLinkedStylesheet(nodes)) {
+    if (hasUnresolvedStylesheet(nodes)) {
       sourceError(
         "unsupported-authored-motion",
-        "Inline CSS animations cannot be imported while linked stylesheets remain unresolved.",
+        "Inline CSS animations cannot be imported while external stylesheets remain unresolved.",
       );
     }
     for (const name of result.definedKeyframeNames) {
@@ -814,18 +815,92 @@ function readAuthoredHtmlMotion(
   }
 }
 
+function hasUnresolvedStylesheet(nodes: readonly HtmlNode[]): boolean {
+  return hasLinkedStylesheet(nodes) || hasImportedStylesheet(nodes);
+}
+
+function dynamicBoundAttributeName(attributeName: string): string | null {
+  const normalized = attributeName.toLowerCase();
+  if (normalized.startsWith(":")) return normalized.slice(1);
+  for (const prefix of ["x-bind:", "v-bind:", "ng-attr-"]) {
+    if (normalized.startsWith(prefix)) return normalized.slice(prefix.length);
+  }
+  return normalized === "ng-href" ? "href" : null;
+}
+
 function hasLinkedStylesheet(nodes: readonly HtmlNode[]): boolean {
-  return nodes.some(
-    (node) =>
-      node.tagName === "link" &&
-      !node.insideTemplate &&
-      attributes(node, "rel").some((attribute) =>
-        attribute.value
-          .split(/[\t\n\f\r ]+/)
-          .some((value) => value.toLowerCase() === "stylesheet"),
-      ) &&
-      attributes(node, "href").some((attribute) => attribute.value.trim()),
+  return nodes.some((node) => {
+    if (node.tagName !== "link" || node.insideTemplate) return false;
+    const relAttributes = attributes(node, "rel");
+    const hrefAttributes = attributes(node, "href");
+    const objectBinding = (node.attrs ?? []).some((attribute) =>
+      ["x-bind", "v-bind"].includes(attribute.name.toLowerCase()),
+    );
+    const hasBoundAttribute = (name: string) =>
+      (node.attrs ?? []).some((attribute) => {
+        const attributeName = attribute.name.toLowerCase();
+        return (
+          dynamicBoundAttributeName(attributeName) === name ||
+          (attributeName === name && /\{\{|\$\{|<%/u.test(attribute.value))
+        );
+      });
+    const hasHref =
+      hrefAttributes.some((attribute) => attribute.value.trim()) ||
+      hasBoundAttribute("href") ||
+      objectBinding;
+    const stylesheetRel = relAttributes.some((attribute) =>
+      attribute.value
+        .split(/[\t\n\f\r ]+/)
+        .some((value) => value.toLowerCase() === "stylesheet"),
+    );
+    return (
+      hasHref && (stylesheetRel || hasBoundAttribute("rel") || objectBinding)
+    );
+  });
+}
+
+function hasImportedStylesheet(nodes: readonly HtmlNode[]): boolean {
+  for (const node of nodes) {
+    if (
+      node.tagName !== "style" ||
+      node.insideTemplate ||
+      !isPotentialCssStyle(node)
+    ) {
+      continue;
+    }
+    try {
+      let imported = false;
+      postcss.parse(textContent(node)).walkAtRules((atRule) => {
+        if (decodeMotionCssIdentifier(atRule.name).toLowerCase() === "import") {
+          imported = true;
+        }
+      });
+      if (imported) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isPotentialCssStyle(node: HtmlNode): boolean {
+  const attributes = node.attrs ?? [];
+  const hasObjectBinding = attributes.some((attribute) =>
+    ["x-bind", "v-bind"].includes(attribute.name.toLowerCase()),
   );
+  const hasDynamicType = attributes.some((attribute) => {
+    const name = attribute.name.toLowerCase();
+    return (
+      dynamicBoundAttributeName(name) === "type" ||
+      (name === "type" && /\{\{|\$\{|<%/u.test(attribute.value))
+    );
+  });
+  if (hasObjectBinding || hasDynamicType) return true;
+
+  const type = attributes.find(
+    (attribute) => attribute.name.toLowerCase() === "type",
+  )?.value;
+  return type === undefined || /^\s*text\/css(?:\s*;|\s*$)/i.test(type);
 }
 
 function isSupportedAuthoredHtmlStyle(node: HtmlNode): boolean {
@@ -1003,6 +1078,12 @@ function readSource(
     }
   }
   const textDocument = readMotionText(source);
+  if ((document || textDocument) && hasUnresolvedStylesheet(nodes)) {
+    sourceError(
+      "unsupported-authored-motion",
+      "HTML Motion cannot be edited while external stylesheets remain unresolved.",
+    );
+  }
   const targetNodeIds = targetsFromDocuments(document, textDocument);
   assertTargetsExist(source, targetNodeIds, sourceFilePath);
   const pathTrimmedSource = applyPathTrimTargets(
@@ -1016,10 +1097,10 @@ function readSource(
     );
   }
   if (!document && !textDocument) {
-    if (hasLinkedStylesheet(nodes)) {
+    if (hasUnresolvedStylesheet(nodes)) {
       sourceError(
         "unsupported-authored-motion",
-        "HTML Motion cannot be added while linked stylesheets remain unresolved.",
+        "HTML Motion cannot be added while external stylesheets remain unresolved.",
       );
     }
     return { status: "absent" };

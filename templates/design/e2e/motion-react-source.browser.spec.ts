@@ -14,7 +14,10 @@ import { createServer, type ViteDevServer } from "vite";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { MOTION_CODE_METADATA_VERSION } from "../shared/motion-code";
-import { injectMotionTextRuntime } from "../shared/motion-text-code";
+import {
+  compileMotionTextRuntime,
+  injectMotionTextRuntime,
+} from "../shared/motion-text-code";
 import { e2eBaseURL } from "./base-url";
 import { appPath, enableLab, gotoEditor, selectByText } from "./helpers";
 
@@ -1371,4 +1374,47 @@ test("keeps collapsed text layout when whitespace units animate", async ({
     })),
   );
   expect(await measureLayout()).toEqual(before);
+});
+
+test("rejects a line schedule whose rendered word fragments exceed the runtime unit limit", async ({
+  page,
+}) => {
+  const fragments = Array.from({ length: 513 }, () => "<span>A</span>").join(
+    "",
+  );
+  const authored = [
+    "<!doctype html>",
+    "<html><head><style>",
+    "#line-target > span { display: block !important; }",
+    "</style></head><body>",
+    `<div id="line-target" data-agent-native-node-id="line-target">${fragments}</div>`,
+    compileMotionTextRuntime({
+      version: 2,
+      animations: [
+        {
+          targetNodeId: "line-target",
+          unit: "line",
+          direction: "forward",
+          staggerMs: 0,
+          animationDirection: "in",
+          order: "left-to-right",
+          property: "opacity",
+          durationMs: 500,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    }).runtimeMarkup,
+    "</body></html>",
+  ].join("\n");
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  await page.setContent(authored);
+
+  expect(pageErrors).toContain(
+    "Motion text target exceeds the 512-unit runtime limit.",
+  );
 });

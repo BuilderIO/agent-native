@@ -505,8 +505,70 @@ describe("HTML Motion source adapter", () => {
       error: { code: "unsupported-authored-motion" },
     });
     expect(() => apply(source)).toThrow(
-      "HTML Motion cannot be added while linked stylesheets remain unresolved.",
+      "HTML Motion cannot be added while external stylesheets remain unresolved.",
     );
+  });
+
+  it.each([
+    ["linked stylesheet", '<link rel="stylesheet" href="./theme.css">'],
+    [
+      "Alpine-bound stylesheet",
+      '<link rel="stylesheet" x-bind:href="themeUrl">',
+    ],
+    ["Alpine-bound relation", '<link href="./theme.css" :rel="themeRel">'],
+    ["CSS import", '<style>@IMPORT url("./theme.css");</style>'],
+    ["escaped CSS import", '<style>@\\69mport url("./theme.css");</style>'],
+  ])(
+    "fails closed when a %s can add motion beside a managed timeline",
+    (_sourceKind, externalStylesheet) => {
+      const managedSource = apply(html).source.replace(
+        "</head>",
+        `${externalStylesheet}\n</head>`,
+      );
+
+      expect(readMotionHtmlSource(managedSource, "index.html")).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+      expect(() => apply(managedSource)).toThrow(MotionHtmlSourceError);
+    },
+  );
+
+  it("fails closed when an imported stylesheet precedes malformed CSS", () => {
+    const managedSource = apply(html).source.replace(
+      "</head>",
+      '<style>@import url("./theme.css"); .broken { color: red</style>\n</head>',
+    );
+
+    expect(readMotionHtmlSource(managedSource, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(() => apply(managedSource)).toThrow(MotionHtmlSourceError);
+  });
+
+  it("does not treat inert non-CSS style data as an imported stylesheet", () => {
+    const managedSource = apply(html).source.replace(
+      "</head>",
+      '<style type="application/json">{"source":"@import url(./theme.css)"}</style>\n</head>',
+    );
+
+    expect(readMotionHtmlSource(managedSource, "index.html")).toMatchObject({
+      status: "valid",
+    });
+    expect(() => apply(managedSource)).not.toThrow();
+  });
+
+  it("treats a dynamically typed style data block as potentially active CSS", () => {
+    const managedSource = apply(html).source.replace(
+      "</head>",
+      '<style type="application/json" x-bind="styleAttrs">{"source":"@import url(./theme.css)"}</style>\n</head>',
+    );
+
+    expect(readMotionHtmlSource(managedSource, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
   });
 
   it("round-trips one authored CSS animation with multiple properties in Alpine HTML", () => {
