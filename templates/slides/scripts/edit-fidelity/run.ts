@@ -30,6 +30,7 @@ import {
   canonicalizeAuthoringFuzzPersistence,
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
+  browserSessionNavigationRequestIdentity,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
   isFirefoxBrowserSessionConsoleError,
@@ -5582,6 +5583,10 @@ async function runAuthoringFuzzQa(
     let createError: unknown = null;
     let seedHarnessUnavailable: CouldNotRun | null = null;
     const unavailableCleanupPages = new Set<Page>();
+    type CleanupSessionIdentity = {
+      kind: "poll" | "heartbeat";
+      sessionId: string;
+    };
     const cleanupRequestStartTimes = new Map<
       any,
       {
@@ -5590,15 +5595,18 @@ async function runAuthoringFuzzQa(
         requestSourceIsMainFrame: boolean;
         requestFrameUrl: string | null;
         outgoingDocumentUrl: string | null;
+        sessionIdentity: CleanupSessionIdentity | null;
       }
     >();
     const cleanupRequestFinishedAt = new WeakMap<any, number>();
     const cleanupClaimSequenceByRequest = new WeakMap<any, number>();
+    const cleanupClaimSequenceBySession = new Map<string, number>();
     const failedCleanupBrowserSessionClaims: Array<{
       page: Page;
       url: string;
       pathname: string;
       method: string;
+      sessionId: string;
       startedAt: number;
       failedAt: number;
       sameOrigin: boolean;
@@ -5607,27 +5615,58 @@ async function runAuthoringFuzzQa(
     let cleanupClaimSequence = 0;
     let cleanupNavigationStarted = false;
     let cleanupNavigationPage: Page | null = null;
-    let cleanupNavigationCompetingClaimStarted = false;
-    let cleanupNavigationCompetingRegistrationStarted = false;
     let cleanupNavigationCompetingPollStarted = false;
     const cleanupNavigationCompetingRequestUrls = new Set<string>();
+    const cleanupNavigationCompetingSessionRequests = new Set<string>();
+    const cleanupSessionRequestKey = (identity: CleanupSessionIdentity) =>
+      `${identity.kind}:${identity.sessionId}`;
+    const cleanupSessionIdentityFor = (
+      request: any,
+    ): CleanupSessionIdentity | null => {
+      const requestUrl = new URL(request.url());
+      if (
+        !/^\/_agent-native\/browser-sessions(?:\/|$)/.test(requestUrl.pathname)
+      ) {
+        return null;
+      }
+      let postData: string | null = null;
+      if (request.method() === "POST") {
+        try {
+          postData = request.postData() ?? null;
+        } catch {
+          postData = null;
+        }
+      }
+      const identity = browserSessionNavigationRequestIdentity(
+        request.method(),
+        requestUrl.pathname,
+        postData,
+      );
+      if (identity?.status === "identified") {
+        return { kind: identity.kind, sessionId: identity.sessionId };
+      }
+      if (request.method() === "POST") {
+        const heartbeatId =
+          /^\/_agent-native\/browser-sessions\/([^/]+)\/heartbeat$/.exec(
+            requestUrl.pathname,
+          )?.[1];
+        if (heartbeatId) {
+          try {
+            return {
+              kind: "heartbeat",
+              sessionId: decodeURIComponent(heartbeatId),
+            };
+          } catch {
+            return null;
+          }
+        }
+      }
+      return null;
+    };
     const isBrowserSessionRequest = (request: any) =>
       /^\/_agent-native\/browser-sessions(?:\/|$)/.test(
         new URL(request.url()).pathname,
       );
-    const isBrowserSessionClaimRequest = (request: any) =>
-      request.method() === "POST" &&
-      /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
-        new URL(request.url()).pathname,
-      );
-    const isBrowserSessionRegistrationRequest = (request: any) =>
-      request.method() === "POST" &&
-      (/^\/_agent-native\/browser-sessions$/.test(
-        new URL(request.url()).pathname,
-      ) ||
-        /^\/_agent-native\/browser-sessions\/[^/]+\/heartbeat$/.test(
-          new URL(request.url()).pathname,
-        ));
     const isCleanupPollRequest = (request: any) => {
       const requestUrl = new URL(request.url());
       return (
@@ -5647,22 +5686,26 @@ async function runAuthoringFuzzQa(
       if (cleanupRequestTrackingPages.has(target)) return;
       const onRequest = (request: any) => {
         let requestFrame: any = null;
+        const sessionIdentity = cleanupSessionIdentityFor(request);
         try {
           if (request.serviceWorker() === null) requestFrame = request.frame();
         } catch {
           requestFrame = null;
         }
-        if (isBrowserSessionClaimRequest(request)) {
+        if (sessionIdentity?.kind === "poll") {
           cleanupClaimSequence += 1;
           cleanupClaimSequenceByRequest.set(request, cleanupClaimSequence);
+          cleanupClaimSequenceBySession.set(
+            sessionIdentity.sessionId,
+            cleanupClaimSequence,
+          );
         }
         if (cleanupNavigationStarted && isBrowserSessionRequest(request)) {
           cleanupNavigationCompetingRequestUrls.add(request.url());
-          if (isBrowserSessionClaimRequest(request)) {
-            cleanupNavigationCompetingClaimStarted = true;
-          }
-          if (isBrowserSessionRegistrationRequest(request)) {
-            cleanupNavigationCompetingRegistrationStarted = true;
+          if (sessionIdentity) {
+            cleanupNavigationCompetingSessionRequests.add(
+              cleanupSessionRequestKey(sessionIdentity),
+            );
           }
         }
         if (
@@ -5678,6 +5721,7 @@ async function runAuthoringFuzzQa(
           requestSourceIsMainFrame: requestFrame === target.mainFrame(),
           requestFrameUrl: requestFrame?.url() ?? null,
           outgoingDocumentUrl: target.url() || null,
+          sessionIdentity,
         });
       };
       const onRequestFinished = (request: any) => {
@@ -5691,13 +5735,14 @@ async function runAuthoringFuzzQa(
       };
       const onRequestFailed = (request: any) => {
         const started = cleanupRequestStartTimes.get(request);
-        if (started && isBrowserSessionClaimRequest(request)) {
+        if (started && started.sessionIdentity?.kind === "poll") {
           const requestUrl = new URL(request.url());
           failedCleanupBrowserSessionClaims.push({
             page: target,
             url: request.url(),
             pathname: requestUrl.pathname,
             method: request.method(),
+            sessionId: started.sessionIdentity.sessionId,
             startedAt: started.startedAt,
             failedAt: Date.now(),
             sameOrigin: requestUrl.origin === new URL(base).origin,
@@ -5907,6 +5952,7 @@ async function runAuthoringFuzzQa(
         pathname: string;
         method: string;
         startedAt: number;
+        sessionIdentity: CleanupSessionIdentity | null;
         sameOrigin: boolean;
         requestSourceIsMainFrame: boolean;
         requestFrameUrl: string | null;
@@ -5937,8 +5983,13 @@ async function runAuthoringFuzzQa(
       const getCleanupNavigationCandidates = () => {
         const now = Date.now();
         return cleanupNavigationCandidates.map(
-          ({ request, startedAt, ...candidate }) => {
+          ({ request, startedAt, sessionIdentity, ...candidate }) => {
             const finishedAt = cleanupRequestFinishedAt.get(request);
+            const competingSessionRequestStarted = sessionIdentity
+              ? cleanupNavigationCompetingSessionRequests.has(
+                  cleanupSessionRequestKey(sessionIdentity),
+                )
+              : cleanupNavigationCompetingRequestUrls.has(candidate.url);
             return {
               ...candidate,
               ageMs: now - startedAt,
@@ -5951,11 +6002,13 @@ async function runAuthoringFuzzQa(
               competingRequestStartedAfterNavigation:
                 candidate.pathname === "/_agent-native/poll"
                   ? cleanupNavigationCompetingPollStarted
-                  : cleanupNavigationCompetingRequestUrls.has(candidate.url),
+                  : competingSessionRequestStarted,
               competingClaimStartedAfterNavigation:
-                cleanupNavigationCompetingClaimStarted,
+                sessionIdentity?.kind === "poll" &&
+                competingSessionRequestStarted,
               competingRegistrationStartedAfterNavigation:
-                cleanupNavigationCompetingRegistrationStarted,
+                sessionIdentity?.kind === "heartbeat" &&
+                competingSessionRequestStarted,
             };
           },
         );
@@ -5980,11 +6033,13 @@ async function runAuthoringFuzzQa(
             url: candidate.url,
             pathname: candidate.pathname,
             method: candidate.method,
+            sessionId: candidate.sessionId,
             requestAgeMs: now - candidate.startedAt,
             failureAgeMs: now - candidate.failedAt,
             sameOrigin: candidate.sameOrigin,
             competingClaimStartedAfterFailure:
-              cleanupClaimSequence > candidate.sequence,
+              (cleanupClaimSequenceBySession.get(candidate.sessionId) ??
+                candidate.sequence) > candidate.sequence,
           }));
       };
       const isExpectedCleanupNavigationError = (
@@ -6207,6 +6262,7 @@ async function runAuthoringFuzzQa(
                   pathname: requestUrl.pathname,
                   method: request.method(),
                   startedAt: tracked.startedAt,
+                  sessionIdentity: tracked.sessionIdentity,
                   sameOrigin: requestUrl.origin === cleanupUrl.origin,
                   requestSourceIsMainFrame: tracked.requestSourceIsMainFrame,
                   requestFrameUrl: tracked.requestFrameUrl,

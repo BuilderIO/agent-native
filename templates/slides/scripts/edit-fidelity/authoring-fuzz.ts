@@ -737,7 +737,11 @@ export function isExpectedWatchedRequestCorsError(
     activePhase === "save/reload"
       ? saveReloadRequestAbortRules
       : activePhase === "cleanup/navigation"
-        ? [browserSessionClaimRequestRule, cleanupPollRequestRule]
+        ? [
+            browserSessionRegistrationRequestRule,
+            browserSessionClaimRequestRule,
+            cleanupPollRequestRule,
+          ]
         : null;
   if (!rules) return false;
   const match =
@@ -760,7 +764,7 @@ export function isExpectedWatchedRequestCorsError(
           candidate,
           rules,
           activePhase === "save/reload",
-          activePhase === "save/reload",
+          true,
         ),
     ).length === 1
   );
@@ -1275,12 +1279,12 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
   return (
     message ===
       "[Agent-Native browser session] poll failed: TypeError: Load failed" &&
-    !candidates.some(
-      (candidate) => candidate.competingClaimStartedAfterNavigation === true,
-    ) &&
-    hasExactlyOneExpectedBrowserSessionAbort(candidates, [
-      browserSessionClaimRequestRule,
-    ])
+    hasExactlyOneExpectedBrowserSessionAbort(
+      candidates,
+      [browserSessionClaimRequestRule],
+      false,
+      true,
+    )
   );
 }
 

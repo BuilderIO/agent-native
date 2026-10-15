@@ -1679,7 +1679,7 @@ it("ignores only an in-flight browser-session claim canceled by cleanup navigati
     isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
       { ...candidate, competingClaimStartedAfterNavigation: true },
     ]),
-  ).toBe(true);
+  ).toBe(false);
   expect(
     isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
       { ...candidate, requestFinishedSuccessfully: true },
@@ -1731,6 +1731,36 @@ it("ignores only an in-flight browser-session claim canceled by cleanup navigati
           method: "GET",
           ageMs: 100,
           requestWasPendingAtNavigation: true,
+        },
+      ],
+    ),
+  ).toBe(false);
+
+  const registrationUrl =
+    "http://localhost:45715/_agent-native/browser-sessions";
+  const registrationCandidate = {
+    url: registrationUrl,
+    pathname: "/_agent-native/browser-sessions",
+    method: "POST",
+    ageMs: 100,
+    sameOrigin: true,
+    requestWasPendingAtNavigation: true,
+  };
+  expect(
+    isExpectedWatchedRequestCorsError(
+      `Fetch API cannot load ${registrationUrl} due to access control checks.`,
+      "cleanup/navigation",
+      [registrationCandidate],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedWatchedRequestCorsError(
+      `Fetch API cannot load ${registrationUrl} due to access control checks.`,
+      "cleanup/navigation",
+      [
+        {
+          ...registrationCandidate,
+          competingRequestStartedAfterNavigation: true,
         },
       ],
     ),
@@ -1819,6 +1849,17 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
       { ...candidate, competingClaimStartedAfterNavigation: true },
     ]),
   ).toBe(false);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      candidate,
+      {
+        ...candidate,
+        pathname:
+          "/_agent-native/browser-sessions/other-session/requests/claim",
+        competingClaimStartedAfterNavigation: true,
+      },
+    ]),
+  ).toBe(true);
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError(warning, [
       { ...candidate, requestWasPendingAtNavigation: false },
