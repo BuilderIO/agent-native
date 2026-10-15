@@ -26,7 +26,8 @@ export function otherViewerCount(
 /**
  * Gives the page's saves one toast, replaced in place from "Saving…" to
  * "Saved" with Undo, naming what the save changed when the caller passes
- * `changes`. Only the newest save on the open dashboard updates it.
+ * `changes`. Only the newest save on the open dashboard updates it, and it
+ * offers Undo only when a save it covers changed the dashboard.
  * `onUndo` must be stable; the toast calls it after later renders.
  */
 export function useDashboardSaveFeedback({
@@ -47,6 +48,11 @@ export function useDashboardSaveFeedback({
     otherViewersRef.current = otherViewers;
   }, [otherViewers]);
   const newestSaveRef = useRef(0);
+  // After saves that changed nothing, Undo would take back an earlier edit.
+  // The open toast covers saves from `firstCoveredSaveRef` (0 when none is
+  // pending) through the newest.
+  const firstCoveredSaveRef = useRef(0);
+  const newestWriteRef = useRef(0);
 
   // Undo restores the open dashboard's newest revision, so a toast must not
   // outlive its dashboard, and a save that lands after leaving it must not
@@ -55,16 +61,23 @@ export function useDashboardSaveFeedback({
     if (!dashboardId) return;
     return () => {
       newestSaveRef.current += 1;
+      firstCoveredSaveRef.current = 0;
       toast.dismiss(`dashboard-save:${dashboardId}`);
     };
   }, [dashboardId]);
 
   return useCallback(
-    <T>(save: Promise<T>, changes?: DashboardChange[] | null): Promise<T> => {
+    <T extends { changed: boolean }>(
+      save: Promise<T>,
+      changes?: DashboardChange[] | null,
+    ): Promise<T> => {
       if (!dashboardId) return save;
       const toastId = `dashboard-save:${dashboardId}`;
       const saveNumber = ++newestSaveRef.current;
       const isNewest = () => newestSaveRef.current === saveNumber;
+      if (firstCoveredSaveRef.current === 0) {
+        firstCoveredSaveRef.current = saveNumber;
+      }
       toast.loading(
         shared
           ? t("dashboardSaveStatus.savingShared")
@@ -72,8 +85,20 @@ export function useDashboardSaveFeedback({
         { id: toastId },
       );
       save.then(
-        () => {
+        ({ changed }) => {
+          if (changed) {
+            newestWriteRef.current = Math.max(
+              newestWriteRef.current,
+              saveNumber,
+            );
+          }
           if (!isNewest()) return;
+          const wrote = newestWriteRef.current >= firstCoveredSaveRef.current;
+          firstCoveredSaveRef.current = 0;
+          if (!wrote) {
+            toast.dismiss(toastId);
+            return;
+          }
           const viewers = otherViewersRef.current;
           toast.success(savedToastTitle(t, shared, changes), {
             id: toastId,
@@ -89,7 +114,9 @@ export function useDashboardSaveFeedback({
         },
         () => {
           // The caller reports the failure itself; only the pending toast goes.
-          if (isNewest()) toast.dismiss(toastId);
+          if (!isNewest()) return;
+          firstCoveredSaveRef.current = 0;
+          toast.dismiss(toastId);
         },
       );
       return save;
