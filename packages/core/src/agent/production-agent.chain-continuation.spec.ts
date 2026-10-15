@@ -4,6 +4,7 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_TURN_WALL_CLOCK_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { SelfDispatchHttpError } from "../server/self-dispatch.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
@@ -660,6 +661,27 @@ describe("resolveContinuationDispatchBudget — retry budget matrix", () => {
       backoffCapMs: Infinity,
     });
   });
+
+  it("keeps every overload wait inside its host's remaining wall time", () => {
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: true,
+        workerProvenInBackgroundFunction: false,
+      }).overloadWaitBudgetMs,
+    ).toBe(10_000);
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: false,
+        workerProvenInBackgroundFunction: true,
+      }).overloadWaitBudgetMs,
+    ).toBe(30_000);
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: false,
+        workerProvenInBackgroundFunction: false,
+      }).overloadWaitBudgetMs,
+    ).toBe(10_000);
+  });
 });
 
 describe("resolveSelfChainContinuationBudget — synchronous self-chain time budgeting", () => {
@@ -741,6 +763,46 @@ describe("chainServerDrivenContinuation — worker proven in background function
       "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_deferred",
+    );
+  });
+});
+
+describe("chainServerDrivenContinuation — self-dispatch 429 backoff", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("rides out a burst of 429s on the process-run endpoint instead of deferring to the sweep", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const throttled = () =>
+      new SelfDispatchHttpError(
+        `Self-dispatch to ${AGENT_CHAT_PROCESS_RUN_PATH} returned HTTP 429 Too Many Requests`,
+        429,
+      );
+    const dispatchMock = vi
+      .fn()
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockResolvedValueOnce(undefined);
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+
+    await runChain(h, {
+      chainViaDurableBackground: false,
+      workerProvenInBackgroundFunction: true,
+    });
+
+    expect(dispatchMock).toHaveBeenCalledTimes(6);
+    expect(
+      (h.deps.sleep as any).mock.calls.map((c: unknown[]) => c[0]),
+    ).toEqual([500, 1_000, 2_000, 4_000, 8_000]);
+    expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalledWith(
       "run-chunk0",
       "background_continuation_dispatch_deferred",
     );

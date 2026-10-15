@@ -775,6 +775,7 @@ function guardContext(params: {
   draftText: string;
   toolResults?: AgentLoopFinalResponseGuardContext["toolResults"];
   executionMode?: AgentLoopFinalResponseGuardContext["executionMode"];
+  retryCount?: number;
 }): AgentLoopFinalResponseGuardContext {
   const context: AgentLoopFinalResponseGuardContext & {
     requestText?: string;
@@ -785,7 +786,7 @@ function guardContext(params: {
     text: params.draftText,
     toolCalls: [],
     toolResults: params.toolResults ?? [],
-    retryCount: 0,
+    retryCount: params.retryCount ?? 0,
     executionMode: params.executionMode ?? "act",
   };
   return context;
@@ -1124,6 +1125,315 @@ describe("realDataFinalGuard", () => {
     expect((result as { retryMessage: string }).retryMessage).toContain(
       "Do not ask the user for warehouse schema identifiers",
     );
+  });
+
+  it("accepts a finished answer that mentions tables and says to tell the agent what else is wrong", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "That cohort table doesn't make any sense",
+        draftText:
+          "I found and fixed two data bugs in the cohort table. I'm guessing at what looked wrong, so tell me if something else is bothering you. Both panels now render (43 rows in the table, 12 months in the line).\n\n**What was wrong**\n- The query summed `current_month_pageviews`, which holds one frozen figure per account. MagMutual is now 0.06% for the year.",
+        toolResults: [
+          { name: "bigquery", isError: false, content: '{"rows":[{"n":43}]}' },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still retries a question asking the user which table to use", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Pull AI credit usage by user for each month",
+        draftText: "Which table holds the monthly credit usage?",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      retryMessage: expect.stringContaining(
+        "Do not ask the user for warehouse schema identifiers",
+      ),
+    });
+  });
+
+  it("does not retry a verified dashboard edit for quoting the rows it rendered", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Add a line chart panel for monthly pageviews",
+        draftText:
+          "Added the line chart. It renders 12 months and the table shows 43 accounts.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              changed: true,
+              verified: true,
+              summary: "Saved the dashboard.",
+              checks: [
+                {
+                  id: "pageviews-line",
+                  ok: true,
+                  detail: "renders 12 row(s), columns [month, pageviews]",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still retries figures after a save that only checked a section panel", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Rename the pageviews panel",
+        draftText:
+          "Renamed the panel. The table shows 43 accounts under 5% utilization.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              changed: true,
+              verified: true,
+              summary:
+                "Saved 1 op(s); 1 section/extension panel(s) not data-checked.",
+              checks: [
+                {
+                  id: "intro",
+                  ok: true,
+                  detail:
+                    "is a section panel with no data to run; only its config was checked",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({ maxRetries: 2 });
+  });
+
+  it("still retries figures after a save that checked no panel", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Rename the pageviews panel",
+        draftText:
+          "Renamed the panel. The table shows 43 accounts under 5% utilization.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              changed: true,
+              verified: true,
+              summary:
+                "Saved 1 op(s); no panel render was affected, so no panel was checked.",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({ maxRetries: 2 });
+  });
+
+  it.each([
+    "I can provide a table of the results if that helps.",
+    "I need the table to reload, so I re-ran the query and it shows 43 accounts.",
+    "There are 43 accounts. Want me to show which table this came from?",
+    "There are 43 accounts. Would you like me to show which table this came from?",
+    "There are 43 accounts. I need to know the table is current before I answer, so I re-ran it.",
+    "I fixed both panels, so tell me what else is off:\n- the table now shows 43 rows\n- the column labels are swapped back",
+    "I fixed both panels. Tell me what else is off: the table shows 43 rows.",
+    "Tell me if anything else is off, since the table still shows 43 rows.",
+    "I fixed both panels. Can you tell me what else is off:\n- the table shows 43 rows",
+    "Tell me if anything else is off and the table shows 43 rows.",
+    "Could you confirm the table has 43 rows?",
+    "Could you check the table has 43 rows?",
+    "Could you explain what the table represents?",
+    "I need the table that has the current data, so I re-ran the query and it shows 43 rows.",
+    "I need the table that holds the current figures, so I re-ran the query and it shows 43 rows.",
+    "Could you show me the table?",
+    "Can you show which table this came from?",
+    "There are 43 accounts. Which table rows were excluded from the 43 count?",
+    "There are 43 accounts. What is the table size relative to last month?",
+    "I fixed both panels. Can you share anything else that's off:\n- the table shows 43 rows",
+    "I need you to confirm the table is current, so I re-ran it and it shows 43 rows.",
+    "I need to know what the table shows before I answer, so I re-ran it and it has 43 rows.",
+    "I need to know what the table name is, so I looked it up and it is usage_monthly.",
+    "I need to know which table holds usage, so I searched the catalog and it is usage_monthly.",
+    "I need to know which table this came from. I re-ran the query and it shows 43 rows.",
+    "I need the table name, so I looked it up and it is usage_monthly.",
+    "I need to know which table holds usage. I checked the catalog and it is usage_monthly.",
+    "I need the table name, so I looked it up and it is usage_monthly, not usage_daily.",
+    "I need the table name. So I've checked the catalog and it is usage_monthly.",
+    "I need the table name, so I've looked it up and it is usage_monthly.",
+    "I need to know which table holds usage. I checked the catalog and it is usage_monthly, with no other table for this.",
+    "I need to know which table holds usage. I checked the catalog and found no other table.",
+    "There are 43 accounts. Which row in the table is wrong?",
+  ])(
+    "does not treat the agent's own narration as a schema request: %s",
+    (draftText) => {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText: "How many accounts are under 5% utilization?",
+          draftText,
+          toolResults: [
+            {
+              name: "bigquery",
+              isError: false,
+              content: '{"rows":[{"n":43}]}',
+            },
+          ],
+        }),
+      );
+
+      expect(result).toBeNull();
+    },
+  );
+
+  it("retries a schema ask even after a verified non-data dashboard save", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Rename the pageviews panel",
+        draftText:
+          "Renamed the panel. Could you provide the BigQuery dataset name?",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              changed: true,
+              verified: true,
+              summary: "Saved the dashboard.",
+              checks: [{ id: "intro", ok: true, detail: "is a section panel" }],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "Do not ask the user for warehouse schema identifiers",
+      ),
+    });
+  });
+
+  it("keeps the draft once the schema-request retries are spent", () => {
+    const draftText =
+      "Could you provide the BigQuery dataset name or the exact SQL query?";
+    const context = (retryCount: number) =>
+      guardContext({
+        userText: "Pull AI credit usage by user for each month",
+        draftText,
+        retryCount,
+      });
+
+    expect(realDataFinalGuard(context(1))).toMatchObject({ maxRetries: 2 });
+    expect(realDataFinalGuard(context(2))).toBeNull();
+  });
+
+  it("still checks unsupported figures after the schema-request retries are spent", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many accounts are under 5% utilization?",
+        draftText:
+          "Revenue was $4.2M across 43 accounts. Could you provide the BigQuery dataset name?",
+        retryCount: 2,
+      }),
+    );
+
+    expect(result).not.toBeNull();
+    expect(
+      (result as { retryMessage?: string } | string | null) &&
+        typeof result === "object" &&
+        (result as { retryMessage: string }).retryMessage,
+    ).not.toContain("Do not ask the user for warehouse schema identifiers");
+  });
+
+  it.each([
+    "I need the table name before I can continue.",
+    "I need a table name before I can continue.",
+    "I need to know which table holds monthly usage before I can continue.",
+    "I need to know the table name before I can continue.",
+    "I need to know what the table name is before I can continue.",
+    "I need to know what table holds monthly usage before I can continue.",
+    "What is the name of the table?",
+    "What is the table name?",
+    "What is the current table name?",
+    "What is the active dataset name?",
+    "What is the name of the source table?",
+    "I need to know what the current table name is before I can continue.",
+    "I need to know which table holds monthly usage so I can write the query.",
+    "I need the table name so I can write the query.",
+    "I need the table name, so I cannot continue until you send it.",
+    "I need the table name so I can write the query. Separately, the account count is ready, so I sent the summary.",
+    "I need the table name. Separately, I ran the revenue query and it returned 43 rows.",
+    "I need to know which table holds usage. Separately, I checked the revenue dashboard and it shows 43 rows.",
+    "I need the table name. I ran into a problem finding it in the catalog.",
+    "Which table for monthly usage?",
+    "Which dataset for this metric?",
+    "Which table to use for monthly usage?",
+    "Which source table holds usage?",
+    "Which warehouse table for monthly usage?",
+    "Which BigQuery dataset should I use?",
+    "What is the schema?",
+    "What is the SQL query?",
+    "What SQL query should I use?",
+    "What are the schema details for usage?",
+    "I need the table name. I looked in the catalog and found no table matching usage.",
+    "I need the table name before I can continue. I searched the catalog, but nothing matched.",
+    "I need the table name. I checked the catalog and couldn't find it.",
+    "I need to know which table holds usage. I searched the catalog. Nothing matched.",
+    "I need the table name. I looked in the catalog and found nothing.",
+    "I need the dataset name so I could build the chart.",
+    "Do you know which table holds the monthly credit usage?",
+    "I need the schema before I can write this query.",
+    "I need the column that holds usage before I can continue.",
+    "For this metric, which table holds the monthly usage?",
+    "I need the name of the table before I can continue.",
+    "I need table names before I can continue.",
+    "Could you let me know which table holds monthly usage?",
+    "Could you clarify which table holds monthly usage?",
+    "Could you show me the table name?",
+    "Could you show me which table holds monthly usage?",
+    "Could you describe which table holds monthly usage?",
+    "Could you explain what the dataset name is?",
+    "Could you check which table holds monthly usage?",
+    "Could you confirm which table holds monthly usage?",
+    "Could you verify the dataset name?",
+    "Can you check the dataset name?",
+    "Would you mind providing the dataset name?",
+    "Could you provide the following?\n- the BigQuery dataset name",
+    "What table stores monthly credit usage?",
+    "To continue, please provide:\n- the dataset name\n- the column that holds usage",
+    "To continue, please provide the following:\n\n- the dataset name\n- the column that holds usage",
+    "Share the dataset name.",
+  ])("retries a request for schema details: %s", (draftText) => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Pull AI credit usage by user for each month",
+        draftText,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "Do not ask the user for warehouse schema identifiers",
+      ),
+    });
   });
 
   it("accepts the action's string setup link without overwriting it with the settings path", () => {

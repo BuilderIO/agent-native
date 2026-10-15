@@ -437,7 +437,7 @@ describe("get-motion-timeline localhost React source", () => {
   it("reads and checks capability in the preview-proven child module", async () => {
     const childModulePath = "app/components/Hero.tsx";
     const childModuleSource = `function Hero() {
-  return <h1 data-agent-native-node-id="hero">Hello</h1>;
+  return <main><h1 data-agent-native-node-id="hero">Hello</h1></main>;
 }
 `;
     const childModuleHash = sourceHash(childModuleSource);

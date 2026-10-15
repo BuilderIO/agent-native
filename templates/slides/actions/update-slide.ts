@@ -245,6 +245,10 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  // Only with a source hash: a replay then fails slide_content_stale once the
+  // first write changed the slide. Without one, an occurrence-based find can
+  // re-apply to a different match.
+  retrySafe: (input) => typeof input.baseContentHash === "string",
   run: async (args, ctx) => {
     const startedAt = Date.now();
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);

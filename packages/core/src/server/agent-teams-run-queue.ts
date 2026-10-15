@@ -5,7 +5,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { stripInlineBytesFromJson } from "../shared/inline-bytes.js";
 
 export const MAX_AGENT_TEAM_CONTINUATIONS = 60;
@@ -49,12 +49,13 @@ export interface AgentTeamRunQueueRow {
   updatedAt: number;
 }
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const createSql = `
+export const agentTeamRunQueueStore = defineStore({
+  id: "agent_team_run_queue",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
           CREATE TABLE IF NOT EXISTS agent_team_run_queue (
             task_id TEXT PRIMARY KEY,
             thread_id TEXT NOT NULL,
@@ -70,27 +71,27 @@ export async function ensureTable(): Promise<void> {
             reconciliation_attempted_at BIGINT
           )
         `;
-      const indexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_status ON agent_team_run_queue (status, updated_at)`;
-      const reconciliationIndexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_reconciliation ON agent_team_run_queue (status, reconciliation_attempted_at, updated_at) WHERE status IN ('queued', 'running')`;
+        const indexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_status ON agent_team_run_queue (status, updated_at)`;
+        const reconciliationIndexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_reconciliation ON agent_team_run_queue (status, reconciliation_attempted_at, updated_at) WHERE status IN ('queued', 'running')`;
 
-      await ensureTableExists("agent_team_run_queue", createSql);
-      await ensureColumnExists(
-        "agent_team_run_queue",
-        "reconciliation_attempted_at",
-        "ALTER TABLE agent_team_run_queue ADD COLUMN IF NOT EXISTS reconciliation_attempted_at BIGINT",
-      );
-      await ensureIndexExists("idx_agent_team_run_queue_status", indexSql);
-      await ensureIndexExists(
-        "idx_agent_team_run_queue_reconciliation",
-        reconciliationIndexSql,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+        await ensureTableExists("agent_team_run_queue", createSql);
+        await ensureColumnExists(
+          "agent_team_run_queue",
+          "reconciliation_attempted_at",
+          "ALTER TABLE agent_team_run_queue ADD COLUMN IF NOT EXISTS reconciliation_attempted_at BIGINT",
+        );
+        await ensureIndexExists("idx_agent_team_run_queue_status", indexSql);
+        await ensureIndexExists(
+          "idx_agent_team_run_queue_reconciliation",
+          reconciliationIndexSql,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return agentTeamRunQueueStore.ready();
 }
 
 function getAffectedRowCount(result: unknown): number {
@@ -469,7 +470,7 @@ export async function getAgentTeamRunDispatchState(
 
 export const _agentTeamRunQueueForTests = {
   resetInit() {
-    _initPromise = undefined;
+    agentTeamRunQueueStore.reset();
   },
   getAffectedRowCount,
 };

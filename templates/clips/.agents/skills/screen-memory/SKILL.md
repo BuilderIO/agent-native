@@ -17,9 +17,10 @@ never describe Screen Memory as hosted, shared, exhaustive, or enabled by
 default.
 
 The one exception is an owner's explicit request for earlier screen time (see
-below). Then a chosen window of Rewind history is uploaded as a private recording
-attached to one Clip. That Clip stays private, and sharing is refused until that
-context is removed. The rest of the buffer stays local.
+below). Then a chosen window of Rewind history is uploaded as an owner-only
+recording attached to one Clip. That Clip follows its normal share rules, and
+sharing the Clip shares its earlier screen time with it. The rest of the buffer
+stays local.
 
 ## Reading it from the in-app agent
 
@@ -61,17 +62,18 @@ started:
   It starts as the last `requestedSeconds` (1 to 300) before the recording
   started. Any window inside the original, at least 1 second long, is allowed.
 
-It is private with its clip. Requesting it makes the clip private, and it is
-refused while the clip still has direct shares. While an item is active, sharing
-the clip is refused: making it public or visible to the organization, or
-granting access, fails until the item is removed. Never describe it as
-shareable. The request's `endedAt` may be up to 10 minutes after the Clip row
+It follows its clip's normal share rules and nothing is special. Requesting it
+does not change the clip's visibility. If the clip is public, shared with the
+organization, or shared with people, the same viewers see the earlier screen
+time: sharing the clip shares both as one bundle, and the clip's password and
+expiry apply to it too. Only the owner can remove it. The request's `endedAt` may be up to 10 minutes after the Clip row
 is created because native setup and the countdown happen after row creation. It
 may be up to 120 seconds before row creation for client clock skew. Timestamps
 outside those bounds fail with `recording_context_invalid_window`.
 
-The footage is a separate private recording, uploaded from this device through
-the Rewind handoff. Its source app name is `Clips Rewind`; the footage check
+The footage is a separate recording owned by the clip owner, uploaded from this
+device through the Rewind handoff. It stays owner-only by itself; viewers are
+served it through the clip they can access, never by opening it directly. Its source app name is `Clips Rewind`; the footage check
 refuses any other recording. The export handshake goes through
 `update-recording-context`: `processing` claims the item and may name the
 footage recording it created (`mediaRecordingId`); `ready` must name that same

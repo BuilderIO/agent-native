@@ -6,9 +6,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
-
-let initPromise: Promise<void> | undefined;
+import { defineStore } from "../db/store-registry.js";
 
 export type IntegrationConversationType =
   | "channel"
@@ -84,11 +82,13 @@ const TRUST_VALUES = new Set<IntegrationConversationTrust>([
   "unknown",
 ]);
 
-export async function ensureTable(): Promise<void> {
-  if (!initPromise) {
-    const initPromiseWithRequestDbPoolScope = (async () => {
-      const db = getDbExec();
-      const createSql = `CREATE TABLE IF NOT EXISTS integration_conversation_scopes (
+export const conversationScopesStore = defineStore({
+  id: "conversation_scopes",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `CREATE TABLE IF NOT EXISTS integration_conversation_scopes (
         id TEXT PRIMARY KEY,
         platform TEXT NOT NULL,
         tenant_id TEXT NOT NULL,
@@ -108,14 +108,6 @@ export async function ensureTable(): Promise<void> {
         created_at BIGINT NOT NULL,
         updated_at BIGINT NOT NULL
       )`;
-      const uniqueIndexSql =
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_scope_external_key ON integration_conversation_scopes(platform, tenant_id, conversation_id)";
-      const ownerIndexSql =
-        "CREATE INDEX IF NOT EXISTS idx_integration_scope_owner ON integration_conversation_scopes(owner_email, platform, tenant_id)";
-      const orgIndexSql =
-        "CREATE INDEX IF NOT EXISTS idx_integration_scope_org ON integration_conversation_scopes(org_id, platform, tenant_id)";
-
-      {
         await ensureTableExists("integration_conversation_scopes", createSql);
         await ensureColumnExists(
           "integration_conversation_scopes",
@@ -124,35 +116,23 @@ export async function ensureTable(): Promise<void> {
         );
         await ensureIndexExists(
           "idx_integration_scope_external_key",
-          uniqueIndexSql,
+          "CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_scope_external_key ON integration_conversation_scopes(platform, tenant_id, conversation_id)",
         );
-        await ensureIndexExists("idx_integration_scope_owner", ownerIndexSql);
-        await ensureIndexExists("idx_integration_scope_org", orgIndexSql);
-        return;
-      }
+        await ensureIndexExists(
+          "idx_integration_scope_owner",
+          "CREATE INDEX IF NOT EXISTS idx_integration_scope_owner ON integration_conversation_scopes(owner_email, platform, tenant_id)",
+        );
+        await ensureIndexExists(
+          "idx_integration_scope_org",
+          "CREATE INDEX IF NOT EXISTS idx_integration_scope_org ON integration_conversation_scopes(org_id, platform, tenant_id)",
+        );
+      },
+    },
+  ],
+});
 
-      await db.execute(createSql);
-      try {
-        await db.execute(
-          "ALTER TABLE integration_conversation_scopes ADD COLUMN default_model TEXT",
-        );
-      } catch (error) {
-        if (
-          !/duplicate/i.test(stringifyValue((error as Error)?.message ?? error))
-        ) {
-          throw error;
-        }
-      }
-      await db.execute(uniqueIndexSql);
-      await db.execute(ownerIndexSql);
-      await db.execute(orgIndexSql);
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
-  }
-  return initPromise;
+export function ensureTable(): Promise<void> {
+  return conversationScopesStore.ready();
 }
 
 function requiredString(value: unknown, name: string, maxLength = 255): string {
@@ -495,7 +475,7 @@ export function evaluateIntegrationScopePolicy(
 }
 
 export function _resetIntegrationScopeStoreForTests(): void {
-  initPromise = undefined;
+  conversationScopesStore.reset();
 }
 
 function stringifyValue(value: unknown): string {

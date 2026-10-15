@@ -2614,6 +2614,10 @@ export function createAgentKitProtocolAdapter(
                 ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
                 ...(event.toolName ? { toolName: event.toolName } : {}),
                 ...(event.input === undefined ? {} : { input: event.input }),
+                ...(event.allowPersistentApproval === false
+                  ? { allowPersistentApproval: false }
+                  : {}),
+                ...(event.askId ? { approvalAskId: event.askId } : {}),
               },
             } satisfies AgentApprovalRequest,
           },

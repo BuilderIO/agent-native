@@ -1,11 +1,10 @@
 /**
  * Tables for the core search index. Fixed names, scoped by `app` and
- * `resource_type`, so several apps can share one database. Listed in
- * `server/release-schema.ts`.
+ * `resource_type`, so several apps can share one database.
  */
 import type { DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 
 export const SEARCH_RESOURCES_TABLE = "search_resources";
 export const SEARCH_INDEX_STATE_TABLE = "search_index_state";
@@ -44,19 +43,16 @@ const SEARCH_INDEX_STATE_CREATE_SQL = `
   )
 `;
 
-let ensured: Promise<void> | undefined;
+export const searchIndexStore = defineStore({
+  id: "search_resources",
+  migrations: [{ name: "baseline", run: () => ensureAll() }],
+});
 
 export function ensureSearchIndexTables(
   injectedClient?: DbExec,
 ): Promise<void> {
   if (injectedClient) return ensureAll(injectedClient);
-  ensured ??= retainRequestDbPoolScope(
-    ensureAll().catch((error) => {
-      ensured = undefined;
-      throw error;
-    }),
-  );
-  return ensured;
+  return searchIndexStore.ready();
 }
 
 /**

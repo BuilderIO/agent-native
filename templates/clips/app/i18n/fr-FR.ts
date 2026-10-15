@@ -6,6 +6,7 @@ const messages = {
     includeLast: "Inclure les derniers",
     whatIsThis: "Qu'est-ce que c'est ?",
     off: "Désactivé",
+    none: "Aucun",
     custom: "Personnalisé…",
     customLabel: "Durée personnalisée",
     customAmount: "Durée",
@@ -17,6 +18,9 @@ const messages = {
     customErrorInvalid: "Saisissez un nombre entier de secondes ou de minutes.",
     customErrorTooLong: "Limitez-la à 5 min maximum.",
     turnOnRewind: "Activer Rewind",
+    turnOffRewind: "Désactiver",
+    turnOffRewindFailed:
+      "Impossible de désactiver Rewind. Arrêtez l'enregistrement et réessayez.",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
       "Désactivé par défaut. L’historique de l’écran reste sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",
@@ -2081,6 +2085,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (Localisé)",
     cleanupComplete: "Dictée nettoyée",
     cleanupFailed: "Impossible de nettoyer la dictée",
+    undoCleanup: "Annuler",
+    restoreOriginal: "Restaurer l’original",
+    cleanupRestored: "Dictée d’origine restaurée",
+    cleanupRestoreFailed: "Impossible de restaurer la dictée d’origine",
     startFirst: "Transformez vos idées en texte",
     recordOnDesktop: "Enregistrer sur le bureau",
     emptyDesktopDescription:

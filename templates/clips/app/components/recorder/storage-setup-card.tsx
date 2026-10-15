@@ -12,7 +12,7 @@ import {
 } from "@agent-native/toolkit/app/settings";
 import { readFileUploadStatus } from "@shared/file-upload-status";
 import { IconLoader2 } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { useStorageSetupHref } from "@/components/settings/settings-links";
@@ -61,6 +61,13 @@ export interface StorageSetupCardProps {
    * recording never navigates away.
    */
   openSettingsInNewTab?: boolean;
+  /**
+   * The recording waiting on storage, so each step event can be tied to it:
+   * the local id of a copy recorded without storage, or the server id of a
+   * row waiting to finish. Omit both where no recording exists yet.
+   */
+  recordingAttemptId?: string;
+  outputId?: string;
 }
 
 export function StorageSetupCard({
@@ -72,6 +79,8 @@ export function StorageSetupCard({
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",
   openSettingsInNewTab = false,
+  recordingAttemptId,
+  outputId,
 }: StorageSetupCardProps) {
   const t = useT();
   const storageSetupHref = useStorageSetupHref();
@@ -93,6 +102,17 @@ export function StorageSetupCard({
   const connectRequestedRef = useRef(false);
   const connectIntentExpiresAtRef = useRef<number | null>(null);
   const [stepViewId] = useState(createOnboardingCorrelationId);
+  const stepProperties = useMemo(
+    () => ({
+      flow: connectSource,
+      step_view_id: stepViewId,
+      ...(recordingAttemptId
+        ? { recording_attempt_id: recordingAttemptId }
+        : {}),
+      ...(outputId ? { output_id: outputId } : {}),
+    }),
+    [connectSource, stepViewId, recordingAttemptId, outputId],
+  );
 
   const clearConfiguredTimeout = useCallback(() => {
     if (configuredTimeoutRef.current !== null) {
@@ -170,8 +190,7 @@ export function StorageSetupCard({
           setConnecting(false);
           setConnected(true);
           trackStorageStep("onboarding_step_completed", {
-            flow: connectSource,
-            step_view_id: stepViewId,
+            ...stepProperties,
             method_id: "builder",
           });
           clearConfiguredTimeout();
@@ -207,9 +226,8 @@ export function StorageSetupCard({
     document.addEventListener("visibilitychange", visibilityHandlerRef.current);
   }, [
     clearConfiguredTimeout,
-    connectSource,
     onConfigured,
-    stepViewId,
+    stepProperties,
     stopVisibilityHandler,
     t,
   ]);
@@ -271,8 +289,7 @@ export function StorageSetupCard({
       connectIntentExpiresAtRef.current = null;
       setStatusIssue(null);
       trackStorageStep("onboarding_method_clicked", {
-        flow: connectSource,
-        step_view_id: stepViewId,
+        ...stepProperties,
         method_id: "builder",
       });
       builderConnect.start({
@@ -280,7 +297,7 @@ export function StorageSetupCard({
         scope: builderConnectionScope,
       });
     },
-    [builderConnectionScope, builderConnect.start, connectSource, stepViewId],
+    [builderConnectionScope, builderConnect.start, stepProperties],
   );
   const handleBuilderCancel = useCallback(() => {
     connectIntentExpiresAtRef.current =
@@ -290,11 +307,10 @@ export function StorageSetupCard({
   const handleSkip = useCallback(() => {
     clearConfiguredTimeout();
     trackStorageStep("onboarding_step_skipped", {
-      flow: connectSource,
-      step_view_id: stepViewId,
+      ...stepProperties,
     });
     onSkip?.();
-  }, [clearConfiguredTimeout, connectSource, onSkip, stepViewId]);
+  }, [clearConfiguredTimeout, onSkip, stepProperties]);
   const builderConnectErrorMessage = builderConnect.error
     ? builderConnect.errorKind === "launch"
       ? t("storageSetup.builderConnectPopupError")
@@ -311,10 +327,9 @@ export function StorageSetupCard({
 
   useEffect(() => {
     trackStorageStep("onboarding_step_viewed", {
-      flow: connectSource,
-      step_view_id: stepViewId,
+      ...stepProperties,
     });
-  }, [connectSource, stepViewId]);
+  }, [stepProperties]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -373,8 +388,7 @@ export function StorageSetupCard({
                 href={storageSetupHref}
                 onClick={() =>
                   trackStorageStep("onboarding_method_clicked", {
-                    flow: connectSource,
-                    step_view_id: stepViewId,
+                    ...stepProperties,
                     method_id: "s3",
                   })
                 }

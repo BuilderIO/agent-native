@@ -50,7 +50,6 @@ import {
   IconRepeatOnce,
   IconTrash,
   IconRefresh,
-  IconLayersSubtract,
   IconArrowsMove,
   IconCircleHalf,
   IconResize,
@@ -895,7 +894,7 @@ export function MotionDock({
   const handleTimelineDurationKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLButtonElement>) => {
       if (readOnly || !onDurationChange) return;
-      const stepMs = event.shiftKey ? 1000 : 10;
+      const stepMs = event.shiftKey ? 10 : 1;
       let nextDurationMs: number | null = null;
       if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
         nextDurationMs = durationMs - stepMs;
@@ -2034,6 +2033,27 @@ export function MotionDock({
                 commitDurationDraft();
               }}
               onKeyDown={(e) => {
+                if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                  if (readOnly || !onDurationChange) return;
+                  const currentMs = parseMotionTimeValue(
+                    durationInput,
+                    timeUnit,
+                  );
+                  if (currentMs === null) return;
+                  e.preventDefault();
+                  const stepMs =
+                    (timeUnit === "s" ? 100 : 1) * (e.shiftKey ? 10 : 1);
+                  const nextMs = Math.max(
+                    50,
+                    Math.min(
+                      MOTION_TIMELINE_MAX_DURATION_MS,
+                      currentMs + (e.key === "ArrowUp" ? stepMs : -stepMs),
+                    ),
+                  );
+                  setDurationInput(formatMotionTimeValue(nextMs, timeUnit));
+                  if (nextMs !== durationMs) onDurationChange(nextMs);
+                  return;
+                }
                 if (e.key === "Enter") {
                   e.preventDefault();
                   commitDurationDraft();
@@ -2312,8 +2332,7 @@ export function MotionDock({
               onSeek={(timeMs) => jumpToPlayhead(timeMs / durationMs)}
             />
             {layers.length === 0 && audioClips.length === 0 ? (
-              <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-4 py-6">
-                <IconLayersSubtract className="size-5 text-muted-foreground/40" />
+              <div data-motion-empty-state className="sr-only">
                 {selectedTarget ? (
                   <>
                     <p className="!text-[11px] text-muted-foreground/70 leading-snug">
@@ -2623,7 +2642,10 @@ export function AddTrackMenu({
     <div className="flex items-center gap-1">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-32 p-1">
+        <DropdownMenuContent
+          align="start"
+          className="w-[7.5rem] min-w-[7.5rem] p-[7px]"
+        >
           <DropdownMenuLabel className="sr-only">
             {t("designEditor.motion.animateLayer", {
               label: selectedTarget.label,

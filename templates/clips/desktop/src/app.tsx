@@ -186,7 +186,11 @@ import {
   type RecorderStopResult,
   type RestartHandoff,
 } from "./lib/recorder";
-import { RECORDER_DISCARD_EVENT } from "./lib/recorder-events";
+import {
+  RECORDER_DISCARD_EVENT,
+  parseRecorderStopPayload,
+  recorderStopPayloadTargetsRecording,
+} from "./lib/recorder-events";
 import { notifyRecordingFailure } from "./lib/recording-failure-notifications";
 import { clearResolvedFinalizationError } from "./lib/recording-finalization-state";
 import {
@@ -1179,6 +1183,8 @@ export function App({
   ] = useState<Record<string, RewindMeetingHistoryAvailability>>({});
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
+  const recorderRef = useRef<RecorderHandle | null>(recorder);
+  recorderRef.current = recorder;
   const recordingStartAttemptRef = useRef<RecordingStartAttempt | null>(null);
   const captureStartedDuringStartRef = useRef(false);
   const [recordingStartPending, setRecordingStartPending] = useState(false);
@@ -1849,6 +1855,16 @@ export function App({
     setInitialSettingsTab("rewind");
     setRewindConsentPending(true);
     setPopoverView("settings");
+  }
+
+  // Stopping capture is refused while a clip is recording, so a failure here
+  // is reported instead of leaving the row claiming Rewind is off.
+  function turnOffRewind() {
+    if (!featureConfig) return;
+    void invoke<ScreenMemoryStatus>("screen_memory_stop").catch((err) => {
+      console.error("[clips-tray] turn off rewind failed:", err);
+      setLookbackNotice(t("lookbackContext.turnOffRewindFailed"));
+    });
   }
 
   function lookbackTarget() {
@@ -2715,15 +2731,75 @@ export function App({
   const recordingFlowGateRef = useRef(false);
   const recordingStopFinalizingRef = useRef(false);
   const restartInFlightRef = useRef(false);
+  const pendingRestartStopRef = useRef<Set<string | null>>(new Set());
   const restartCancelledRef = useRef(false);
   const recordingCancelInFlightRef = useRef(false);
   const sessionRecordingIdRef = useRef<string | null>(null);
+  const sessionCaptureIdentityRef = useRef<string | null>(null);
+  const recorderStopListenerPromiseRef = useRef<Promise<() => void> | null>(
+    null,
+  );
   const recordedWithoutStorageRef = useRef(false);
   // The record-first list a capture belongs to, fixed when capture starts.
   const recordFirstKeyAtStartRef = useRef<string | null>(null);
   const finishRecordingStopRef = useRef<
     (handle: RecorderHandle, recordingId?: string | null) => Promise<void>
   >(async () => {});
+
+  function ensureRecorderStopListener() {
+    if (!recorderStopListenerPromiseRef.current) {
+      recorderStopListenerPromiseRef.current = listen<unknown>(
+        "clips:recorder-stop",
+        (event) => {
+          if (
+            recordingStopFinalizingRef.current ||
+            recordingCancelInFlightRef.current
+          )
+            return;
+          const stopPayload = parseRecorderStopPayload(event.payload);
+          if (stopPayload.kind === "invalid") return;
+          const sourceRecordingId =
+            stopPayload.kind === "tagged" ? stopPayload.recordingId : null;
+          if (
+            !recorderStopPayloadTargetsRecording(
+              stopPayload,
+              sessionCaptureIdentityRef.current,
+            )
+          )
+            return;
+          if (restartInFlightRef.current) {
+            pendingRestartStopRef.current.add(sourceRecordingId);
+            return;
+          }
+          const activeRecorder = recorderRef.current;
+          if (!activeRecorder) return;
+          void finishRecordingStopRef.current(
+            activeRecorder,
+            sessionRecordingIdRef.current,
+          );
+        },
+      ).catch((error) => {
+        recorderStopListenerPromiseRef.current = null;
+        throw error;
+      });
+    }
+    return recorderStopListenerPromiseRef.current;
+  }
+
+  useEffect(
+    () => () => {
+      void recorderStopListenerPromiseRef.current
+        ?.then((unlisten) => unlisten())
+        .catch((error) => {
+          console.warn(
+            "[clips-popover] recorder stop listener cleanup failed:",
+            error,
+          );
+        });
+    },
+    [],
+  );
+
   const recordingInFlight =
     isRecording || recordingFlowActive || recordingStartPending;
   useLayoutEffect(() => {
@@ -3274,6 +3350,7 @@ export function App({
     bubbleStreamTransferredToRecorder.current = false;
     bubbleStreamRef.current = null;
     recordingFlowGateRef.current = false;
+    recorderRef.current = null;
     (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
       false;
     setRecordingFlowActive(false);
@@ -3743,13 +3820,27 @@ export function App({
     let parkPopoverTimer: number | null = null;
     try {
       sessionRecordingIdRef.current = null;
-      unlistenStartupStop = await listen("clips:recorder-stop", () => {
-        stopRequestedDuringStart = true;
-        if (!captureStartRequestedDuringStart) {
-          attempt.cancel();
-          emit("clips:countdown-cancel").catch(() => {});
-        }
-      });
+      sessionCaptureIdentityRef.current = null;
+      unlistenStartupStop = await listen<unknown>(
+        "clips:recorder-stop",
+        (event) => {
+          const stopPayload = parseRecorderStopPayload(event.payload);
+          if (stopPayload.kind === "invalid") return;
+          if (
+            !recorderStopPayloadTargetsRecording(
+              stopPayload,
+              sessionCaptureIdentityRef.current,
+            )
+          )
+            return;
+          stopRequestedDuringStart = true;
+          if (!captureStartRequestedDuringStart) {
+            attempt.cancel();
+            emit("clips:countdown-cancel").catch(() => {});
+          }
+        },
+      );
+      await ensureRecorderStopListener();
       stopAllMicMeters();
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
@@ -3800,7 +3891,10 @@ export function App({
           pendingTranscriptionTeardown:
             options?.resumeCapture?.transcriptionTornDown ?? null,
           signal: attempt.signal,
-          onCaptureStartRequested: (recordingId) => {
+          onCaptureIdentityAvailable: (captureIdentity) => {
+            sessionCaptureIdentityRef.current = captureIdentity;
+          },
+          onCaptureStartRequested: (recordingId, captureIdentity) => {
             console.log(
               `[recording-start-latency] click to capture request ${Math.round(performance.now() - recordingClickAt)}ms`,
             );
@@ -3809,6 +3903,7 @@ export function App({
               captureStartedDuringStartRef.current = true;
             }
             sessionRecordingIdRef.current = recordingId;
+            sessionCaptureIdentityRef.current = captureIdentity ?? recordingId;
           },
         },
         audioCue,
@@ -3890,6 +3985,7 @@ export function App({
     }
 
     if (handle) {
+      recorderRef.current = handle;
       setRecorder(handle);
       requestLookbackForRecording(
         effectiveLookbackSeconds({
@@ -4113,24 +4209,11 @@ export function App({
       listen<{ recordingId?: string | null }>(
         "clips:recorder-session",
         (event) => {
-          sessionRecordingIdRef.current = event.payload?.recordingId ?? null;
+          const recordingId = event.payload?.recordingId ?? null;
+          sessionRecordingIdRef.current = recordingId;
+          sessionCaptureIdentityRef.current = recordingId;
         },
       ),
-    );
-    track(
-      listen("clips:recorder-stop", async () => {
-        if (
-          cancelled ||
-          restartInFlightRef.current ||
-          recordingStopFinalizingRef.current ||
-          recordingCancelInFlightRef.current
-        )
-          return;
-        void finishRecordingStopRef.current(
-          recorder,
-          sessionRecordingIdRef.current,
-        );
-      }),
     );
     track(
       listen(RECORDER_DISCARD_EVENT, async () => {
@@ -4167,6 +4250,7 @@ export function App({
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
             recordingFlowGateRef.current = false;
+            recorderRef.current = null;
             setRecorder(null);
             setRecordingFlowActive(false);
             setBubbleSessionEpoch((epoch) => epoch + 1);
@@ -4184,10 +4268,14 @@ export function App({
           return;
         if (restartInFlightRef.current) return;
         restartInFlightRef.current = true;
+        pendingRestartStopRef.current = new Set();
         restartCancelledRef.current = false;
         let handoff: RestartHandoff | null = null;
+        let restartedRecorder: RecorderHandle | null = null;
+        let oldRecorderWasDiscarded = false;
         try {
           handoff = await recorder.discardForRestart();
+          oldRecorderWasDiscarded = true;
           removeLookbackContext();
           if (cancelled) return;
           if (restartCancelledRef.current) {
@@ -4198,6 +4286,7 @@ export function App({
             ).clipsForceAlive = false;
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
+            recorderRef.current = null;
             setRecorder(null);
             setRecordingFlowActive(false);
             setBubbleSessionEpoch((epoch) => epoch + 1);
@@ -4205,17 +4294,38 @@ export function App({
             return;
           }
           setRecordingChromeEpoch((epoch) => epoch + 1);
+          recorderRef.current = null;
           setRecorder(null);
-          const restarted = await handleStartRecordingRef.current({
+          restartedRecorder = await handleStartRecordingRef.current({
             resumeCapture: handoff,
           });
-          if (restarted) handoff = null;
+          if (restartedRecorder) handoff = null;
         } catch (err) {
           console.error("[clips-popover] restart failed:", err);
           setRecError(err instanceof Error ? err.message : String(err));
         } finally {
           if (handoff) stopRestartHandoff(handoff);
           restartInFlightRef.current = false;
+          const pendingStops = pendingRestartStopRef.current;
+          pendingRestartStopRef.current = new Set();
+          const currentCaptureIdentity = sessionCaptureIdentityRef.current;
+          const stopRestartedRecorder = [...pendingStops].some(
+            (recordingId) =>
+              recordingId === null || recordingId === currentCaptureIdentity,
+          );
+          if (stopRestartedRecorder) {
+            const handleToStop =
+              restartedRecorder ??
+              (!oldRecorderWasDiscarded && !restartCancelledRef.current
+                ? recorder
+                : null);
+            if (handleToStop) {
+              void finishRecordingStopRef.current(
+                handleToStop,
+                sessionRecordingIdRef.current,
+              );
+            }
+          }
         }
       }),
     );
@@ -4829,6 +4939,7 @@ export function App({
               disabled={isRecording || recordingStartPending}
               onSecondsChange={chooseLookbackSeconds}
               onTurnOnRewind={openRewindConsent}
+              onTurnOffRewind={turnOffRewind}
             />
           ) : null}
         </div>

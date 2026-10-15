@@ -10,7 +10,7 @@ import {
   uniqueIndex,
 } from "@agent-native/core/db/schema";
 import { sql } from "drizzle-orm";
-import { boolean } from "drizzle-orm/pg-core";
+import { boolean, check, varchar } from "drizzle-orm/pg-core";
 
 export * from "./schema-monitoring.js";
 export * from "./schema-errors.js";
@@ -769,6 +769,72 @@ export const sourceIndexRuns = table(
     orgStartedIdx: index("source_index_runs_org_started_idx").on(
       run.orgId,
       run.startedAt,
+    ),
+  }),
+);
+
+export const externalDashboardMigrations = table(
+  "bi_migration_external_dashboards",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    provider: varchar("provider", { length: 32 }).notNull(),
+    sourceId: varchar("source_id", { length: 200 }).notNull(),
+    sourceName: varchar("source_name", { length: 200 }),
+    sourceUpdatedAt: varchar("source_updated_at", { length: 64 }),
+    status: text("status", {
+      enum: ["not_started", "migrating", "migrated", "failed"],
+    })
+      .notNull()
+      .default("not_started"),
+    targetDashboardId: varchar("target_dashboard_id", { length: 200 }),
+    originalMigratorEmail: varchar("original_migrator_email", {
+      length: 320,
+    }),
+    migrationClaimedAt: text("migration_claimed_at"),
+    migrationClaimToken: varchar("migration_claim_token", { length: 36 }),
+    failureCode: text("failure_code", {
+      enum: [
+        "provider_unavailable",
+        "unsupported_content",
+        "dashboard_write_failed",
+        "verification_failed",
+        "unknown",
+      ],
+    }),
+    providerStatus: integer("provider_status"),
+    elementDiagnostics: text("element_diagnostics").notNull().default("[]"),
+    flaggedCount: integer("flagged_count").notNull().default(0),
+    migratedAt: text("migrated_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    sourceUniqueIdx: uniqueIndex(
+      "bi_migration_external_dashboards_source_unique_idx",
+    ).on(t.orgId, t.provider, t.sourceId),
+    orgStatusUpdatedIdx: index(
+      "bi_migration_external_dashboards_org_status_updated_idx",
+    ).on(t.orgId, t.status, t.updatedAt),
+    statusCheck: check(
+      "bi_migration_external_dashboards_status_check",
+      sql`${t.status} IN ('not_started', 'migrating', 'migrated', 'failed')`,
+    ),
+    failureCodeCheck: check(
+      "bi_migration_external_dashboards_failure_code_check",
+      sql`${t.failureCode} IS NULL OR ${t.failureCode} IN ('provider_unavailable', 'unsupported_content', 'dashboard_write_failed', 'verification_failed', 'unknown')`,
+    ),
+    providerStatusCheck: check(
+      "bi_migration_external_dashboards_provider_status_check",
+      sql`${t.providerStatus} IS NULL OR ${t.providerStatus} BETWEEN 100 AND 599`,
+    ),
+    elementDiagnosticsLengthCheck: check(
+      "bi_migration_external_dashboards_element_diagnostics_length_check",
+      sql`char_length(${t.elementDiagnostics}) <= 50000`,
+    ),
+    flaggedCountCheck: check(
+      "bi_migration_external_dashboards_flagged_count_check",
+      sql`${t.flaggedCount} >= 0`,
     ),
   }),
 );
