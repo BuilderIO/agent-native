@@ -4803,7 +4803,7 @@ export default function DeckEditor() {
           <div className="mx-auto max-w-6xl text-start">
             <p>
               {generationContext?.generationFailureCode === "outcome_unresolved"
-                ? t("deckEditor.generationOutcomeUnresolved")
+                ? t("deckEditor.generationOutcomeUnresolvedWithSlides")
                 : t("deckEditor.partialGenerationFailed")}
             </p>
             {typeof generationContext?.originalPrompt === "string" &&

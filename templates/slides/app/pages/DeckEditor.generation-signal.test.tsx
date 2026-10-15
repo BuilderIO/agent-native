@@ -1542,7 +1542,7 @@ describe("DeckEditor generation signal wiring", () => {
       }),
     );
     expect(
-      screen.getByText("deckEditor.generationOutcomeUnresolved"),
+      screen.getByText("deckEditor.generationOutcomeUnresolvedWithSlides"),
     ).toBeTruthy();
     expect(screen.getByText(originalPrompt)).toBeTruthy();
     expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
