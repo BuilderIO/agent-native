@@ -15,11 +15,13 @@ import {
   isAgentContextCaller,
 } from "../server/lib/agent-readable-resource-context";
 import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
+import { dataNotesForReader } from "../server/lib/dashboard-data-notes";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import {
   getDashboard,
   getDashboardForReview,
 } from "../server/lib/dashboards-store";
+import { listDataNotes } from "../server/lib/data-notes-store";
 import { listKeyDateSets } from "../server/lib/key-dates-store";
 import { keyDateEvents } from "../shared/key-dates";
 
@@ -146,17 +148,20 @@ export default defineAction({
     };
     const context = buildDashboardAgentContext(dashboard, detail);
     if (!args.reviewPreview) return context;
-    // The reviewer may be in another organization, so list-key-dates would
-    // return their key dates, not the ones this dashboard draws.
+    // The reviewer may be in another organization, so list-key-dates and
+    // list-data-notes would return theirs, not the ones this dashboard draws.
+    const owner = { email: dashboard.ownerEmail, orgId: dashboard.orgId };
+    const [sets, notes] = await Promise.all([
+      listKeyDateSets(owner),
+      listDataNotes(owner),
+    ]);
     return {
       ...context,
       keyDates: keyDateEvents(
-        await listKeyDateSets({
-          email: dashboard.ownerEmail,
-          orgId: dashboard.orgId,
-        }),
+        sets,
         dashboard.config.annotations as DashboardAnnotations | undefined,
       ),
+      dataNotes: dataNotesForReader(notes, dashboard),
     };
   },
 });

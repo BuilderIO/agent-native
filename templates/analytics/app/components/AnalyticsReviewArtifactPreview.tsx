@@ -1,9 +1,14 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  DATA_NOTE_KINDS,
+  DATA_NOTE_STATUSES,
+  type DataNote,
+} from "@shared/data-notes";
 import { isValidPanelEvent } from "@shared/panel-events";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ResolvedKeyDatesProvider } from "@/components/dashboard/dashboard-annotations-context";
+import { ResolvedAnnotationsProvider } from "@/components/dashboard/dashboard-annotations-context";
 import { SqlChart } from "@/components/dashboard/SqlChart";
 import Markdown from "@/components/Markdown";
 import type { SqlQueryResult } from "@/lib/sql-query";
@@ -16,6 +21,7 @@ import { interpolateDashboardPanelSql } from "@/pages/adhoc/sql-dashboard/interp
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 import { timeRangeDays } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
+  DashboardAnnotations,
   DataSourceType,
   ChartType,
   PanelEvent,
@@ -115,6 +121,24 @@ export function reviewDashboardKeyDates(value: unknown): PanelEvent[] | null {
   return value.keyDates.filter(isValidPanelEvent);
 }
 
+function isDataNote(value: unknown): value is DataNote {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.title === "string" &&
+    DATA_NOTE_KINDS.includes(value.kind as DataNote["kind"]) &&
+    DATA_NOTE_STATUSES.includes(value.status as DataNote["status"]) &&
+    Array.isArray(value.matchEvents) &&
+    Array.isArray(value.unlessEvents) &&
+    Array.isArray(value.panels)
+  );
+}
+
+export function reviewDashboardDataNotes(value: unknown): DataNote[] | null {
+  if (!isRecord(value) || !Array.isArray(value.dataNotes)) return null;
+  return value.dataNotes.filter(isDataNote);
+}
+
 export function AnalyticsReviewArtifactPreview({
   artifactId,
   artifactPath,
@@ -165,6 +189,10 @@ function AnalyticsReviewDashboardPreview({
   const filters = reviewDashboardFilters(data);
   const variables = reviewDashboardVariables(data);
   const keyDates = useMemo(() => reviewDashboardKeyDates(data), [data]);
+  const dataNotes = useMemo(() => reviewDashboardDataNotes(data), [data]);
+  const annotations = isRecord(data?.annotations)
+    ? (data.annotations as DashboardAnnotations)
+    : undefined;
   if (isLoading) {
     return (
       <div
@@ -177,7 +205,14 @@ function AnalyticsReviewDashboardPreview({
       />
     );
   }
-  if (isError || panels.length === 0 || !filters || !variables || !keyDates) {
+  if (
+    isError ||
+    panels.length === 0 ||
+    !filters ||
+    !variables ||
+    !keyDates ||
+    !dataNotes
+  ) {
     return (
       <div
         className="flex size-full items-center justify-center bg-muted px-2 text-center text-xs text-muted-foreground"
@@ -193,7 +228,12 @@ function AnalyticsReviewDashboardPreview({
   const visiblePanels = compact ? panels.slice(0, 1) : panels;
 
   return (
-    <ResolvedKeyDatesProvider keyDates={keyDates}>
+    <ResolvedAnnotationsProvider
+      dashboardId={artifactId}
+      annotations={annotations}
+      keyDates={keyDates}
+      dataNotes={dataNotes}
+    >
       <div
         className={
           compact
@@ -213,7 +253,7 @@ function AnalyticsReviewDashboardPreview({
           />
         ))}
       </div>
-    </ResolvedKeyDatesProvider>
+    </ResolvedAnnotationsProvider>
   );
 }
 
