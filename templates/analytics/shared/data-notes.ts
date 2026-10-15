@@ -111,9 +111,35 @@ function xDateInstant(value: unknown): number | null {
   return typeof value === "string" ? xInstant(value) : null;
 }
 
-/** True when every x value reads as a date, so notes can be placed on the axis. */
+/** A blank bucket or a row label such as "Total", not a number. */
+function isRowLabel(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value !== "string") return false;
+  return value.trim() === "" || !Number.isFinite(Number(value));
+}
+
+/** The rows whose x is a date, by their position in xValues. */
+function dateRows(
+  xValues: readonly unknown[],
+): { row: number; instant: number }[] {
+  return xValues.flatMap((x, row) => {
+    const instant = xDateInstant(x);
+    return instant === null ? [] : [{ row, instant }];
+  });
+}
+
+/**
+ * True when notes can be placed on the axis: some x values are dates and the
+ * rest are blank or labels such as a total row. Any number makes it a
+ * numeric axis, which notes cannot be placed on.
+ */
 export function xValuesAreDates(xValues: readonly unknown[]): boolean {
-  return xValues.length > 0 && xValues.every((x) => xDateInstant(x) !== null);
+  let dates = 0;
+  for (const x of xValues) {
+    if (xDateInstant(x) !== null) dates++;
+    else if (!isRowLabel(x)) return false;
+  }
+  return dates > 0;
 }
 
 export interface DataNoteBand {
@@ -128,7 +154,8 @@ export interface DataNoteBand {
 /**
  * The run of x values a note covers. Each x value stands for the bucket up
  * to the next later one, so a weekly point covers its whole week whichever
- * way the rows are sorted. Null when the x axis is not dates or the note is
+ * way the rows are sorted. Rows whose x is not a date (a null bucket, a
+ * total row) are skipped. Null when the x axis is not dates or the note is
  * outside it.
  */
 export function resolveDataNoteBand(
@@ -136,7 +163,8 @@ export function resolveDataNoteBand(
   xValues: readonly unknown[],
 ): DataNoteBand | null {
   if (!xValuesAreDates(xValues)) return null;
-  const known = xValues.map(xDateInstant) as number[];
+  const rows = dateRows(xValues);
+  const known = rows.map(({ instant }) => instant);
   const points = [...new Set(known)].sort((a, b) => a - b);
   const gaps = points.slice(1).map((point, index) => point - points[index]);
   const lastSpan = gaps.length ? Math.min(...gaps) : DAY_MS;
@@ -148,8 +176,8 @@ export function resolveDataNoteBand(
   );
   const start = note.startDate ? Date.parse(note.startDate) : -Infinity;
   const end = note.endDate ? Date.parse(note.endDate) + DAY_MS : Infinity;
-  const covered = known.flatMap((point, index) =>
-    point < end && spanEnds.get(point)! > start ? [index] : [],
+  const covered = rows.flatMap(({ row, instant }) =>
+    instant < end && spanEnds.get(instant)! > start ? [row] : [],
   );
   if (covered.length === 0) return null;
   const startInside = start >= points[0];

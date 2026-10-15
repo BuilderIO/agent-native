@@ -305,6 +305,15 @@ describe("SqlChart key-date markers", () => {
       },
     );
 
+    it("still shades the note on a chart that ends in a total row", async () => {
+      mocks.rows = [...mocks.rows, { day: "Total", people: 460 }];
+      await renderInDashboard(failures("bar"));
+      expect(container.querySelectorAll("[data-data-note-band]")).toHaveLength(
+        1,
+      );
+      expect(container.querySelector("[data-data-note-lines]")).toBeNull();
+    });
+
     it("keeps a narrow band's whole title, inside the chart at its right edge", async () => {
       const title = "Signups counted twice after the webhook retry";
       mocks.dataNotes = [
