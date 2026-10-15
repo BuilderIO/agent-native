@@ -1,5 +1,5 @@
+import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
 import type { InboxThreadItem } from "@shared/inbox-threads.js";
-import { decodeCommonHtmlEntities } from "@shared/markdown.js";
 import type { EmailMessage, Label } from "@shared/types.js";
 import {
   and,
@@ -579,7 +579,7 @@ export function inboxRowToItem(
     from: { name: row.fromName ?? "", email: row.fromEmail ?? "" },
     to: row.to,
     subject: row.subject ?? "",
-    snippet: decodeCommonHtmlEntities(row.snippet ?? ""),
+    snippet: decodeGmailSnippet(row.snippet ?? ""),
     body: "",
     bodyHtml: undefined,
     date: new Date(row.latestDate).toISOString(),
