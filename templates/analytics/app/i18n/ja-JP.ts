@@ -2121,6 +2121,7 @@ export default {
     events: "影響を受けるイベント",
     eventsPlaceholder: "event_name, other_event",
     unlessEvents: "次もカウントするグラフを除く",
+    eventsLimit: "イベントは {{max}} 件まで、各 {{length}} 文字まで",
     charts: "グラフ",
     pinChart: "グラフを固定",
     unpin: "{{title}} の固定を解除",

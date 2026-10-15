@@ -348,6 +348,54 @@ describe("annotation writes", () => {
     expect(sets()).toEqual([{ ...LAUNCHES, name: "Releases" }, CHANGES]);
   });
 
+  it("keeps a later edit to the same note when an earlier one fails", async () => {
+    // The dialog saves every field, so the later edit repeats the title.
+    const retitle = await owner(useSaveDataNote, {
+      id: SETUP_INCIDENT.id,
+      title: "Setup outage",
+    });
+    const rewrite = await owner(useSaveDataNote, {
+      id: SETUP_INCIDENT.id,
+      title: "Setup outage",
+      note: "Setup failed for every workspace on SSO.",
+    });
+
+    await retitle.fail();
+    expect(notes()).toEqual([
+      {
+        ...SETUP_INCIDENT,
+        title: "Setup outage",
+        note: "Setup failed for every workspace on SSO.",
+      },
+      CONNECT_UNDERCOUNT,
+    ]);
+
+    await rewrite.fail();
+    expect(notes()).toEqual([SETUP_INCIDENT, CONNECT_UNDERCOUNT]);
+  });
+
+  it("keeps a later edit to the same key date when an earlier one fails", async () => {
+    const edit = { id: LAUNCH.id, setId: LAUNCHES.id };
+    const relabel = await owner(useSaveKeyDate, {
+      ...edit,
+      date: LAUNCH.date,
+      label: "Product Hunt live",
+    });
+    const move = await owner(useSaveKeyDate, {
+      ...edit,
+      date: "2026-10-02",
+      label: "Product Hunt live",
+    });
+
+    await relabel.fail();
+    expect(
+      sets()?.[0].dates.find((date) => date.id === LAUNCH.id),
+    ).toMatchObject({ date: "2026-10-02", label: "Product Hunt live" });
+
+    await move.fail();
+    expect(sets()).toEqual([LAUNCHES, CHANGES]);
+  });
+
   it("shows an edit keeping the time it leaves out, and clearing it with null", async () => {
     const timed = { ...LAUNCH, time: "00:01", timeZone: "America/Los_Angeles" };
     client.setQueryData(SETS_KEY, {

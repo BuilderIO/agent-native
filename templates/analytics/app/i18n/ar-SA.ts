@@ -2064,6 +2064,7 @@ export default {
     events: "الأحداث المتأثرة",
     eventsPlaceholder: "event_name, other_event",
     unlessEvents: "باستثناء المخططات التي تحسب أيضًا",
+    eventsLimit: "حتى {{max}} حدثًا، بحد أقصى {{length}} حرفًا لكل حدث",
     charts: "المخططات",
     pinChart: "تثبيت مخطط",
     unpin: "إلغاء تثبيت {{title}}",

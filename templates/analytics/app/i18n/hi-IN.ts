@@ -2048,6 +2048,7 @@ export default {
     events: "प्रभावित इवेंट",
     eventsPlaceholder: "event_name, other_event",
     unlessEvents: "उन चार्ट को छोड़कर जो यह भी गिनते हैं",
+    eventsLimit: "अधिकतम {{max}} इवेंट, हर एक में अधिकतम {{length}} वर्ण",
     charts: "चार्ट",
     pinChart: "चार्ट पिन करें",
     unpin: "{{title}} अनपिन करें",

@@ -2071,6 +2071,7 @@ export default {
     events: "Events it affects",
     eventsPlaceholder: "event_name, other_event",
     unlessEvents: "Except charts that also count",
+    eventsLimit: "Up to {{max}} events, {{length}} characters each",
     charts: "Charts",
     pinChart: "Pin a chart",
     unpin: "Unpin {{title}}",

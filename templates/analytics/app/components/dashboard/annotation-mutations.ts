@@ -2,7 +2,12 @@ import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { DataNote } from "@shared/data-notes";
 import type { KeyDate, KeyDateSet } from "@shared/key-dates";
-import { useQueryClient, type QueryKey } from "@tanstack/react-query";
+import {
+  hashKey,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 
 /** An annotation list query and how to reach the items in its result. */
@@ -30,8 +35,32 @@ const KEY_DATE_SETS: AnnotationList<
   with: (data, sets) => ({ ...data, sets }),
 };
 
-/** An optimistic edit, and how to take back only that edit. */
+/**
+ * An optimistic edit, and how to take it back. A revert runs only while its
+ * edit is the newest one the list shows, so it may restore what it replaced.
+ */
 type Change<T> = { next: T; revert: (current: T) => T };
+
+/** A write the lists show before the server confirms it. */
+interface ShownWrite<Item> {
+  apply: (items: Item[]) => Change<Item[]>;
+  /** Its revert in each cached copy of the list it changed, by hashed key. */
+  reverts: Map<string, { key: QueryKey; revert: Change<Item[]>["revert"] }>;
+}
+
+const shownWrites = new WeakMap<QueryClient, Map<string, unknown[]>>();
+
+/** A list's writes still shown, oldest first, until the list refetches. */
+function writesShown<Item>(
+  client: QueryClient,
+  action: string,
+): ShownWrite<Item>[] {
+  let lists = shownWrites.get(client);
+  if (!lists) shownWrites.set(client, (lists = new Map()));
+  let writes = lists.get(action);
+  if (!writes) lists.set(action, (writes = []));
+  return writes as ShownWrite<Item>[];
+}
 
 const PENDING_PREFIX = "pending-";
 let pendingCount = 0;
@@ -68,11 +97,12 @@ function removeItem<T extends { id: string }>(
 /**
  * Writes an annotation list optimistically. Failures toast here rather than
  * through `mutate`'s per-call callbacks: those never run once the dialog that
- * called `mutate` has closed. A failure reverts only its own change, since
- * restoring a snapshot would also erase other writes still in flight, and the
- * list refetches once the last overlapping write settles. The change shows in
- * every cached copy of the list (the dashboard's, the dialogs'), except a
- * shared dashboard's from another organization, which the write never reaches.
+ * called `mutate` has closed. A failure takes back only its own change: the
+ * writes started after it come off first and go back on after, so a later
+ * edit to the same note keeps its fields. The list refetches once the last
+ * overlapping write settles. The change shows in every cached copy of the list
+ * (the dashboard's, the dialogs'), except a shared dashboard's from another
+ * organization, which the write never reaches.
  */
 function useAnnotationWrite<TInput, Data extends { editable?: boolean }, Item>(
   action: string,
@@ -84,35 +114,57 @@ function useAnnotationWrite<TInput, Data extends { editable?: boolean }, Item>(
   const t = useT();
   const queryKey = ["action", list.action];
   const mutationKey = ["annotation-write", list.action];
-  type Reverts = Array<[QueryKey, Change<Item[]>["revert"]]>;
+
+  const takeBack = (write: ShownWrite<Item>) => {
+    const writes = writesShown<Item>(client, list.action);
+    const index = writes.indexOf(write);
+    const later = writes.slice(index + 1);
+    writes.splice(index, 1);
+    for (const [hash, { key, revert }] of write.reverts) {
+      const data = client.getQueryData<Data>(key);
+      if (!data) continue;
+      const redo = later.filter((other) => other.reverts.has(hash));
+      let items = redo.reduceRight(
+        (current, other) => other.reverts.get(hash)!.revert(current),
+        list.items(data),
+      );
+      items = revert(items);
+      for (const other of redo) {
+        const shown = other.apply(items);
+        other.reverts.set(hash, { key, revert: shown.revert });
+        items = shown.next;
+      }
+      client.setQueryData<Data>(key, list.with(data, items));
+    }
+  };
+
   return useActionMutation<unknown, TInput>(action, {
     mutationKey,
     skipActionQueryInvalidation: true,
     onMutate: async (input) => {
       await client.cancelQueries({ queryKey });
-      const reverts: Reverts = [];
+      const write: ShownWrite<Item> = {
+        apply: (items) => change(items, input as TInput),
+        reverts: new Map(),
+      };
       for (const [key, data] of client.getQueriesData<Data>({ queryKey })) {
         if (!data || data.editable === false) continue;
-        const { next, revert } = change(list.items(data), input as TInput);
+        const { next, revert } = write.apply(list.items(data));
         client.setQueryData<Data>(key, list.with(data, next));
-        reverts.push([key, revert]);
+        write.reverts.set(hashKey(key), { key, revert });
       }
-      return { reverts };
+      writesShown<Item>(client, list.action).push(write);
+      return { write };
     },
     onError: (error, _input, context) => {
-      const reverts = (context as { reverts: Reverts } | undefined)?.reverts;
-      for (const [key, revert] of reverts ?? []) {
-        client.setQueryData<Data>(
-          key,
-          (current) =>
-            current && list.with(current, revert(list.items(current))),
-        );
-      }
+      const write = (context as { write: ShownWrite<Item> } | undefined)?.write;
+      if (write) takeBack(write);
       toast.error(t(failure, { message: error.message }));
     },
     onSettled: () => {
       // The settling write still counts as pending here.
       if (client.isMutating({ mutationKey }) > 1) return;
+      shownWrites.get(client)?.delete(list.action);
       void client.invalidateQueries({ queryKey });
     },
   });

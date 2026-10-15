@@ -5,7 +5,12 @@ import {
   requireDataNoteScope,
   saveDataNote,
 } from "../server/lib/data-notes-store.js";
-import { DATA_NOTE_KINDS, DATA_NOTE_STATUSES } from "../shared/data-notes.js";
+import {
+  DATA_NOTE_KINDS,
+  DATA_NOTE_STATUSES,
+  MAX_DATA_NOTE_EVENT_LENGTH,
+  MAX_DATA_NOTE_EVENTS,
+} from "../shared/data-notes.js";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use "YYYY-MM-DD"');
 
@@ -59,15 +64,15 @@ export default defineAction({
       .optional()
       .describe("What fixed it, shown with the note once fixed"),
     matchEvents: z
-      .array(z.string().min(1).max(200))
-      .max(20)
+      .array(z.string().min(1).max(MAX_DATA_NOTE_EVENT_LENGTH))
+      .max(MAX_DATA_NOTE_EVENTS)
       .optional()
       .describe(
         'Event names exactly as charts filter on them, for example ["builder connect clicked"]',
       ),
     unlessEvents: z
-      .array(z.string().min(1).max(200))
-      .max(20)
+      .array(z.string().min(1).max(MAX_DATA_NOTE_EVENT_LENGTH))
+      .max(MAX_DATA_NOTE_EVENTS)
       .optional()
       .describe(
         "Event names that cover the gap: charts that also count one of these do not show the note",
