@@ -9,6 +9,12 @@ export interface PendingLookbackContext {
   removalInProgress?: boolean;
 }
 
+export function hasPendingFailedLookbackRemoval(
+  contexts: Map<string, PendingLookbackContext>,
+): boolean {
+  return [...contexts.values()].some((context) => context.stopFailed);
+}
+
 export function takePendingLookbackContext(
   contexts: Map<string, PendingLookbackContext>,
   recordingId: string | null | undefined,

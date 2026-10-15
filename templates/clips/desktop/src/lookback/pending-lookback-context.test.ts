@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { RecordingContextItem } from "./context-api";
 import {
+  hasPendingFailedLookbackRemoval,
   isLookbackContextAwaitingStop,
   settlePendingLookbackContextAfterStop,
   takePendingLookbackContext,
@@ -23,6 +24,23 @@ function pendingWithItem(recordingId: string): PendingLookbackContext {
     item: Promise.resolve({ id: "context-1" } as RecordingContextItem),
   };
 }
+
+describe("hasPendingFailedLookbackRemoval", () => {
+  it("reports whether a failed stop still needs server cleanup", () => {
+    const failed = pending("recording-a");
+    const newer = pending("recording-b");
+    failed.stopFailed = true;
+    const contexts = new Map([
+      [failed.recordingId, failed],
+      [newer.recordingId, newer],
+    ]);
+
+    expect(hasPendingFailedLookbackRemoval(contexts)).toBe(true);
+
+    contexts.delete(failed.recordingId);
+    expect(hasPendingFailedLookbackRemoval(contexts)).toBe(false);
+  });
+});
 
 describe("takePendingLookbackContext", () => {
   it("removes only the failed recording's cleanup handle", () => {
@@ -109,6 +127,7 @@ describe("settlePendingLookbackContextAfterStop", () => {
     expect(isLookbackContextAwaitingStop(contexts, context.recordingId)).toBe(
       true,
     );
+    expect(hasPendingFailedLookbackRemoval(contexts)).toBe(true);
 
     await settlePendingLookbackContextAfterStop(
       contexts,
@@ -121,6 +140,7 @@ describe("settlePendingLookbackContextAfterStop", () => {
     expect(isLookbackContextAwaitingStop(contexts, context.recordingId)).toBe(
       false,
     );
+    expect(hasPendingFailedLookbackRemoval(contexts)).toBe(false);
   });
 
   it("keeps the server request when recording stop succeeded", async () => {

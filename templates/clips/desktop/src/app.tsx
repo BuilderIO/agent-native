@@ -281,6 +281,7 @@ import {
 } from "./lookback/lookback-settings";
 import { LookbackRow } from "./lookback/LookbackRow";
 import {
+  hasPendingFailedLookbackRemoval,
   isLookbackContextAwaitingStop,
   settlePendingLookbackContextAfterStop,
   takePendingLookbackContextAfterStop,
@@ -1214,6 +1215,7 @@ export function App({
     loadRecentLookbackSeconds,
   );
   const [lookbackNotice, setLookbackNotice] = useState<string | null>(null);
+  const [lookbackRemovalFailed, setLookbackRemovalFailed] = useState(false);
   const [lookbackRewindConsentOpen, setLookbackRewindConsentOpen] =
     useState(false);
   const [lookbackRewindConsentBusy, setLookbackRewindConsentBusy] =
@@ -1953,13 +1955,19 @@ export function App({
       recordingId,
       stopSucceeded,
       removeRecordingContext,
-    ).catch((error: unknown) => {
-      console.error(
-        "[clips-popover] removing earlier screen time failed:",
-        error,
-      );
-      setLookbackNotice(t("lookbackContext.removeFailed"));
-    });
+    )
+      .then(() => {
+        setLookbackRemovalFailed(
+          hasPendingFailedLookbackRemoval(lookbackContextRef.current),
+        );
+      })
+      .catch((error: unknown) => {
+        console.error(
+          "[clips-popover] removing earlier screen time failed:",
+          error,
+        );
+        setLookbackRemovalFailed(true);
+      });
   }
 
   function removeLookbackContext(recordingId?: string) {
@@ -2033,7 +2041,11 @@ export function App({
             ),
           ),
         );
-        if (cancelled || !lookbackLabEnabled || !rewindOn) return;
+        if (cancelled) return;
+        setLookbackRemovalFailed(
+          hasPendingFailedLookbackRemoval(lookbackContextRef.current),
+        );
+        if (!lookbackLabEnabled || !rewindOn) return;
 
         const items = await listPendingRecordingContext(
           { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
@@ -4979,9 +4991,11 @@ export function App({
           <LocalRecordingModeBanner mode={localRecordingMode} />
         ) : null}
 
-        {lookbackNotice ? (
+        {lookbackNotice || lookbackRemovalFailed ? (
           <p role="status" className="setup-warning">
-            {lookbackNotice}
+            {lookbackRemovalFailed
+              ? t("lookbackContext.removeFailed")
+              : lookbackNotice}
           </p>
         ) : null}
 
