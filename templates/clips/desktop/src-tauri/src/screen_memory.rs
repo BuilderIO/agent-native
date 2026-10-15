@@ -1529,7 +1529,13 @@ fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
         let mut recovery_retry_delay = Duration::ZERO;
         let mut mode_change_retry_delay = Duration::ZERO;
         loop {
-            let capture_missing = screen_memory_capture_missing(&app);
+            let capture_missing = match screen_memory_capture_missing(&app) {
+                Ok(capture_missing) => capture_missing,
+                Err(error) => {
+                    record_error(&app, error);
+                    return;
+                }
+            };
             if !capture_missing {
                 recovery_retry_delay = Duration::ZERO;
             } else if !recovery_retry_delay.is_zero()
@@ -1565,10 +1571,15 @@ fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
             if let Err(err) = rotate_segment_from_worker(&app, &stop, &config) {
                 record_error(&app, err);
             }
-            if screen_memory_capture_missing(&app) {
-                recovery_retry_delay = next_capture_recovery_retry_delay(recovery_retry_delay);
-            } else {
-                recovery_retry_delay = Duration::ZERO;
+            match screen_memory_capture_missing(&app) {
+                Ok(true) => {
+                    recovery_retry_delay = next_capture_recovery_retry_delay(recovery_retry_delay);
+                }
+                Ok(false) => recovery_retry_delay = Duration::ZERO,
+                Err(error) => {
+                    record_error(&app, error);
+                    return;
+                }
             }
             match screen_memory_mode_change_pending(&app) {
                 Ok(true) => {
@@ -1585,20 +1596,22 @@ fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
     });
 }
 
-fn screen_memory_capture_missing(app: &AppHandle) -> bool {
-    app.state::<ScreenMemoryState>()
+fn screen_memory_capture_missing(app: &AppHandle) -> Result<bool, String> {
+    let runtime = app
+        .state::<ScreenMemoryState>()
         .inner
         .lock()
-        .map(|runtime| runtime.active.is_none() && !runtime.exclusion_active)
-        .unwrap_or(false)
+        .map_err(|error| error.to_string())?;
+    Ok(runtime.active.is_none() && !runtime.exclusion_active)
 }
 
-fn screen_memory_exclusion_active(app: &AppHandle) -> bool {
-    app.state::<ScreenMemoryState>()
+fn screen_memory_exclusion_active(app: &AppHandle) -> Result<bool, String> {
+    let runtime = app
+        .state::<ScreenMemoryState>()
         .inner
         .lock()
-        .map(|runtime| runtime.exclusion_active)
-        .unwrap_or(false)
+        .map_err(|error| error.to_string())?;
+    Ok(runtime.exclusion_active)
 }
 
 fn screen_memory_mode_change_pending(app: &AppHandle) -> Result<bool, String> {
@@ -1688,10 +1701,10 @@ fn wait_for_rotation(
     if crate::rewind_capture_suspension::is_active(app) {
         return Ok(wait_for_capture_suspension_to_clear(app, stop));
     }
-    if screen_memory_exclusion_active(app) {
+    if screen_memory_exclusion_active(app)? {
         return Ok(wait_for_exclusion(app, stop));
     }
-    if screen_memory_capture_missing(app) {
+    if screen_memory_capture_missing(app)? {
         let live_config =
             normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
         let (_, exclusion_reason) = sample_active_window(&live_config);
@@ -1717,7 +1730,7 @@ fn wait_for_rotation(
         if crate::rewind_capture_suspension::is_active(app) {
             return Ok(wait_for_capture_suspension_to_clear(app, stop));
         }
-        if screen_memory_exclusion_active(app) {
+        if screen_memory_exclusion_active(app)? {
             return Ok(wait_for_exclusion(app, stop));
         }
         let now = Instant::now();
@@ -1729,7 +1742,7 @@ fn wait_for_rotation(
                 normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
             let (event, exclusion_reason) = sample_active_window(&live_config);
             match exclusion_transition(
-                screen_memory_exclusion_active(app),
+                screen_memory_exclusion_active(app)?,
                 exclusion_reason.is_some(),
             ) {
                 ExclusionTransition::Suspend => {
@@ -2294,8 +2307,9 @@ fn rotate_segment_with_capture_mode_change(
         capture_start_generation(state.capture_start_gate.load(Ordering::SeqCst));
     let (_, exclusion_reason) = sample_active_window(config);
     let current_window_excluded = exclusion_reason.is_some();
-    if current_window_excluded {
+    if let Some(reason) = exclusion_reason {
         mark_active_segment_exclusion_tainted(app);
+        append_event(app, coverage_gap_event(reason));
     }
     let (start_allowed, active) = {
         let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
