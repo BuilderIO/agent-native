@@ -55,6 +55,42 @@ test("counts protocol tool-call references once per event", () => {
   assert.equal(JSON.stringify(result).includes("fixture-"), false);
 });
 
+test("counts other events once when multiple root assistants share a run", () => {
+  const result = inspectPersistedAssistantProvenance({
+    threadData: {
+      messages: ["fixture-root-a", "fixture-root-b", "fixture-root-c"].map(
+        (id, index) => ({
+          id,
+          role: "assistant",
+          metadata: { runId: index < 2 ? "fixture-run-a" : "fixture-run-b" },
+        }),
+      ),
+      agentKit: {
+        messages: [{ id: "fixture-sdk", role: "assistant" }],
+        events: [
+          "fixture-run-a",
+          "fixture-run-a",
+          "fixture-run-b",
+          "fixture-unrelated-run",
+        ].map((runId) => ({
+          type: "tool.started",
+          runId,
+          toolCall: { messageId: "fixture-sdk" },
+        })),
+        runs: [],
+      },
+    },
+  });
+  assert.equal(result.kind, "ok");
+  assert.equal(result.rootAssistantCount, 3);
+  assert.equal(result.snapshotAssistants[0]?.anyEventReferenceCount, 4);
+  assert.equal(
+    result.snapshotAssistants[0]?.otherEventSameRunRootMatchCount,
+    3,
+  );
+  assert.equal(result.snapshotAssistants[0]?.completionProven, false);
+});
+
 test("counts the declared action invocation message reference", () => {
   const result = inspectPersistedAssistantProvenance({
     threadData: {

@@ -581,6 +581,7 @@ function snapshotResult(
   let sameRunRootCount = 0;
   let nativeServerRunRootMessageIdMatchCount = 0;
   let otherEventSameRunRootMatchCount = 0;
+  const countedRootRunIds = new Set<string>();
   let rootAgentKitAliasPresentCount = 0;
   let rootAgentKitAliasMessageIdMatchCount = 0;
   const reference = id ? events.references.get(id) : undefined;
@@ -595,9 +596,15 @@ function snapshotResult(
       id === `server-${explicitRootRunId}`
     )
       nativeServerRunRootMessageIdMatchCount++;
-    if (root.runId && !root.runIdAmbiguous)
+    if (
+      root.runId &&
+      !root.runIdAmbiguous &&
+      !countedRootRunIds.has(root.runId)
+    ) {
+      countedRootRunIds.add(root.runId);
       otherEventSameRunRootMatchCount +=
         reference?.otherRunCounts.get(root.runId) ?? 0;
+    }
     const alias = stringId(record(metadata?.custom)?.agentKitMessageId);
     if (alias) {
       rootAgentKitAliasPresentCount++;
