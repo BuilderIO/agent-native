@@ -418,6 +418,12 @@ interface TextOffsets {
   fromBefore: boolean;
   toBefore: boolean;
   backward: boolean;
+  /**
+   * Which text-less block an end sits in. A text offset cannot tell the end
+   * of the block before from an empty block after it.
+   */
+  fromEmpty?: number;
+  toEmpty?: number;
 }
 
 interface SnapshotHtmlDelta {
@@ -1943,6 +1949,7 @@ export function startInPlaceTextSession(
     const { startContainer, startOffset, endContainer, endOffset } = range;
     const from = textOffset(el, startContainer, startOffset, breaks);
     const fromBefore = endsText(startContainer, startOffset);
+    const fromEmpty = breaks ? emptyBlockIndex(startContainer) : undefined;
     return {
       from,
       to: range.collapsed
@@ -1956,7 +1963,41 @@ export function startInPlaceTextSession(
         !range.collapsed &&
         selection?.anchorNode === endContainer &&
         selection.anchorOffset === endOffset,
+      fromEmpty,
+      toEmpty: range.collapsed
+        ? fromEmpty
+        : breaks
+          ? emptyBlockIndex(endContainer)
+          : undefined,
     };
+  }
+
+  function emptyBlocks() {
+    return Array.from(el.querySelectorAll<HTMLElement>("*")).filter(
+      (block) =>
+        isBlock(block) &&
+        !block.textContent &&
+        !block.querySelector(RENDERED_ELEMENTS),
+    );
+  }
+
+  function emptyBlockIndex(node: Node): number | undefined {
+    const block = nearestBlock(node, el);
+    if (block === el || block.textContent) return undefined;
+    const index = emptyBlocks().indexOf(block);
+    return index < 0 ? undefined : index;
+  }
+
+  /** The start of the text-less block `index` names, when it still sits at `offset`. */
+  function emptyBlockPoint(
+    offset: number,
+    index: number | undefined,
+    breaks: boolean,
+  ): [Node, number] | null {
+    const block = index === undefined ? undefined : emptyBlocks()[index];
+    return block && textOffset(el, block, 0, breaks) === offset
+      ? [block, 0]
+      : null;
   }
 
   function select(
@@ -1978,12 +2019,22 @@ export function startInPlaceTextSession(
   }
 
   function selectOffsets(
-    { from, to, fromBefore, toBefore, backward }: TextOffsets,
+    {
+      from,
+      to,
+      fromBefore,
+      toBefore,
+      backward,
+      fromEmpty,
+      toEmpty,
+    }: TextOffsets,
     breaks = false,
   ) {
     select(
-      textPoint(el, from, fromBefore, breaks),
-      textPoint(el, to, toBefore, breaks),
+      emptyBlockPoint(from, fromEmpty, breaks) ??
+        textPoint(el, from, fromBefore, breaks),
+      emptyBlockPoint(to, toEmpty, breaks) ??
+        textPoint(el, to, toBefore, breaks),
       backward,
     );
   }
@@ -2324,22 +2375,40 @@ export function startInPlaceTextSession(
     undoStack.push(before ?? snapshot(selection));
   }
 
+  /** The block count and the caret's block ancestors: what a structural delete changes. */
+  function blockShape() {
+    const path: string[] = [];
+    for (
+      let node = selectionRange()?.startContainer ?? null;
+      node && node !== el;
+      node = node.parentNode
+    ) {
+      if (node instanceof HTMLElement && isBlock(node)) path.push(node.tagName);
+    }
+    const blocks = Array.from(el.querySelectorAll("*")).filter(isBlock);
+    return `${blocks.length} ${path.join(">")}`;
+  }
+
   function edit(kind: EditKind, mutate: () => void | boolean) {
     captureReservationParentHeight();
+    let effective = kind;
     if (kind === "delete") {
       const before = snapshot();
+      const shape = blockShape();
       if (mutate() === false) return;
-      checkpoint(kind, false, before);
+      // A delete that rebuilds blocks never joins the run of deletes before it.
+      if (blockShape() !== shape) effective = "command";
+      checkpoint(effective, false, before);
     } else {
       checkpoint(kind);
       mutate();
     }
     reshapeAtCaret();
-    if (kind === "command") {
+    if (effective === "command") {
       compactSnapshot(undoStack.at(-1), el.innerHTML);
     }
     trimHistory();
-    notify(kind === "command");
+    notify(effective === "command");
   }
 
   function command(mutate: () => boolean): boolean {
@@ -4698,28 +4767,6 @@ export function startInPlaceTextSession(
     );
   }
 
-  function selectAllBlockOrEditable() {
-    const range = selectionRange();
-    const block = range ? commandBlock(range.startContainer) : el;
-    if (block === el) return selectAllEditableText(el);
-
-    const selection = window.getSelection();
-    if (!selection) return false;
-    const blockRange = document.createRange();
-    blockRange.selectNodeContents(block);
-    const alreadySelected =
-      !!range &&
-      !range.collapsed &&
-      range.compareBoundaryPoints(Range.START_TO_START, blockRange) === 0 &&
-      range.compareBoundaryPoints(Range.END_TO_END, blockRange) === 0;
-    if (alreadySelected) return selectAllEditableText(el);
-
-    el.focus({ preventScroll: true });
-    selection.removeAllRanges();
-    selection.addRange(blockRange);
-    return true;
-  }
-
   function retagBlock(block: HTMLElement, tagName: string) {
     if (block === el) {
       if (block.tagName !== tagName) retagRoot(tagName);
@@ -6069,7 +6116,7 @@ export function startInPlaceTextSession(
         options.onRequestLink?.(range.cloneRange());
     } else if (mod && key === "a" && !event.shiftKey) {
       event.preventDefault();
-      selectAllBlockOrEditable();
+      selectAllEditableText(el);
     } else if (mod && event.shiftKey && key === "s") {
       event.preventDefault();
       commands.strike();

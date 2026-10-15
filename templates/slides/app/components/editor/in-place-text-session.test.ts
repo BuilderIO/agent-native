@@ -3607,13 +3607,13 @@ describe("in-place text session: commands", () => {
     expect(window.getSelection()!.toString()).toBe("One two");
   });
 
-  it("selects the current block before the whole edit for Mod-A", () => {
+  it("selects every block on the first Mod-A and keeps it on a second", () => {
     const el = mount('<div id="t"><p>One</p><p>Two</p></div>');
     session = startInPlaceTextSession(el);
     caret(textOf(el, "Two"), 1);
 
     key(el, { key: "a", metaKey: true });
-    expect(window.getSelection()?.toString()).toBe("Two");
+    expect(window.getSelection()?.toString()).toBe("OneTwo");
     key(el, { key: "a", metaKey: true });
     expect(window.getSelection()?.toString()).toBe("OneTwo");
   });
