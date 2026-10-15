@@ -265,9 +265,7 @@ test("Motion inspector states match the editable timeline", async ({
     const trigger = document.querySelector<HTMLElement>(
       'button[aria-label="Animations"]',
     );
-    const inspector = trigger?.closest<HTMLElement>(
-      "[data-design-inspector-section]",
-    );
+    const inspector = trigger?.closest<HTMLElement>(".design-sidebar");
     if (!inspector || !trigger) {
       throw new Error("Animation catalog anchor geometry is unavailable");
     }
