@@ -261,10 +261,12 @@ data notes already hidden.
   badge, and label text, including on combo charts. Labels sit in rows above the
   plot: same-day labels join, a long one wraps at words, and days that find no
   room are counted, not cut.
-- A dashboard draws the key dates of its owner's organization, minus the sets
-  it hides, even for a viewer or reviewer in another organization. There
-  `list-key-dates` returns `editable: false`: a date you save lands in your
-  own organization's sets, not on that dashboard. Human Review previews get
+- A dashboard and its report emails draw the key dates of its owner's
+  organization, minus the sets it hides, even for a viewer or reviewer in
+  another organization. There `list-key-dates` returns `editable: false`,
+  without member emails or, unless you can edit the dashboard, the hidden sets:
+  a date you save lands in your own organization's sets, not on that
+  dashboard. Human Review previews get
   them from `get-sql-dashboard` with `reviewPreview` as `keyDates`.
 
 ## Data Notes
