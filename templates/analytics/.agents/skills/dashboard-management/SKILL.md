@@ -241,8 +241,8 @@ extension for this.
   x-axis shows nothing.
 - `mutate-dashboard` rejects malformed events and other chart types.
 - Scheduled email reports draw the guide line, badge, and label text, including
-  on combo charts. Same-day labels join into one; labels that would overlap
-  move to a second row.
+  on combo charts. Labels sit in rows above the plot: same-day labels join, a
+  long one wraps at words, and days that find no room are counted, not cut.
 
 ## Reusable Native Dashboard Patterns
 
