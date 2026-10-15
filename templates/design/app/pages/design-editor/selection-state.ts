@@ -322,7 +322,7 @@ export function getSelectedScreenGeometryForInspector(args: {
 
 function fileIdFromLayerSelectionId(
   layerId: string,
-  fileIds: Set<string>,
+  fileIds: ReadonlySet<string>,
 ): string | null {
   const normalized = layerId.startsWith("code:")
     ? layerId.slice("code:".length)
@@ -535,9 +535,10 @@ export function reconcileSelectedLayerIdsForOverviewScreens(args: {
   selectedScreenIds: readonly string[];
 }): string[] {
   const selectedScreens = new Set(args.selectedScreenIds);
-  return args.selectedLayerIds.filter(
-    (id) => !args.screenFileIds.has(id) || selectedScreens.has(id),
-  );
+  return args.selectedLayerIds.filter((id) => {
+    const fileId = fileIdFromLayerSelectionId(id, args.screenFileIds);
+    return fileId === null || selectedScreens.has(fileId);
+  });
 }
 
 export function shouldResetBreakpointAfterOverviewSelectionClear(args: {

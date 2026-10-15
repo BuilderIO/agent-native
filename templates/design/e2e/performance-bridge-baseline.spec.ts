@@ -490,6 +490,8 @@ test("a Cmd-marquee across a large screen and a small one scans each crossed scr
     profiler.finalSelectionIds.length,
     "precondition: the marquee selected the cards it crossed",
   ).toBeGreaterThanOrEqual(24);
+  const compareFrameIds = (left: string, right: string) =>
+    left < right ? -1 : left > right ? 1 : 0;
   expect(
     profiler.collectionRequests
       .map((request) => ({
@@ -498,11 +500,13 @@ test("a Cmd-marquee across a large screen and a small one scans each crossed scr
         deep: request.deep,
         atPoint: request.hasAtPoint,
       }))
-      .sort((a, b) =>
-        `${a.frameId}${a.styles}`.localeCompare(`${b.frameId}${b.styles}`),
+      .sort(
+        (a, b) =>
+          compareFrameIds(a.frameId, b.frameId) ||
+          Number(a.styles) - Number(b.styles),
       ),
   ).toStrictEqual(
-    [...fixture.fileIds].sort().flatMap((frameId) => [
+    [...fixture.fileIds].sort(compareFrameIds).flatMap((frameId) => [
       { frameId, styles: false, deep: true, atPoint: false },
       { frameId, styles: true, deep: true, atPoint: false },
     ]),

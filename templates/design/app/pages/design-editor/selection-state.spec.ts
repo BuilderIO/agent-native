@@ -447,6 +447,33 @@ describe("pendingEditTargetsSelectedElement", () => {
 });
 
 describe("reconcileSelectedLayerIdsForOverviewScreens", () => {
+  it("normalizes legacy screen IDs while retaining selected IDs and child layers", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: [
+          "home",
+          "code:home",
+          "about",
+          "code:about",
+          "code:child",
+          "layer:hero",
+        ],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: ["about"],
+      }),
+    ).toEqual(["about", "code:about", "code:child", "layer:hero"]);
+  });
+
+  it("clears legacy screen IDs after an empty marquee without dropping child IDs", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: ["code:home", "code:about", "code:child"],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: [],
+      }),
+    ).toEqual(["code:child"]);
+  });
+
   it("removes deselected file IDs but keeps selected screens and owner-derived layers", () => {
     expect(
       reconcileSelectedLayerIdsForOverviewScreens({
