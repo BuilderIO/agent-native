@@ -189,29 +189,31 @@ describe("dashboard annotation reads", () => {
       });
     });
 
-    it("tells a reader when no chart here draws key dates, without the sets", async () => {
+    it("tells a reader or editor when no chart here draws key dates, without the sets", async () => {
       await saveKeyDate(carol, {
         setName: "Launches",
         date: "2026-10-14",
         label: "Product Hunt live",
       });
-      const summary = await loadDashboardAnnotationSummary(
-        {
-          scope: carol,
-          editable: false,
-          dashboard: { canEdit: false } as DashboardRecord,
-        },
-        "dash",
-        { panels: [{ ...config.panels[0], chartType: "table" }] },
-      );
+      for (const canEdit of [false, true]) {
+        const summary = await loadDashboardAnnotationSummary(
+          {
+            scope: carol,
+            editable: false,
+            dashboard: { canEdit } as DashboardRecord,
+          },
+          "dash",
+          { panels: [{ ...config.panels[0], chartType: "table" }] },
+        );
 
-      expect(summary).toMatchObject({
-        keyDateSets: [],
-        keyDatesHint: expect.stringContaining(
-          "no line, area, bar or combo charts",
-        ),
-        editable: false,
-      });
+        expect(summary).toMatchObject({
+          keyDateSets: [],
+          keyDatesHint: expect.stringContaining(
+            "no line, area, bar or combo charts",
+          ),
+          editable: false,
+        });
+      }
     });
 
     it("keeps what it hides for a reader who can show it again", async () => {

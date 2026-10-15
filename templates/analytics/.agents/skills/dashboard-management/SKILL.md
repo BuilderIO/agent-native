@@ -265,9 +265,9 @@ Annotations menu, which also adds and edits key dates and sets.
 - A dashboard and its report emails draw the key dates of its owner's
   organization, minus the sets it hides, even for a viewer or reviewer in
   another organization. There `list-key-dates` returns `editable: false`,
-  without member emails or, unless you can edit the dashboard, the hidden sets:
-  a date you save lands in your own organization's sets, not on that
-  dashboard. Human Review previews get
+  without member emails or, unless you can edit the dashboard, the hidden sets,
+  and no sets at all when no chart there draws key dates: a date you save lands
+  in your own organization's sets, not on that dashboard. Human Review previews get
   them from `get-sql-dashboard` with `reviewPreview` as `keyDates`.
 
 ## Data Notes

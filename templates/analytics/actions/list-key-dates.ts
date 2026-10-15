@@ -1,28 +1,34 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import type { DashboardAnnotations } from "../app/pages/adhoc/sql-dashboard/types";
+import type {
+  DashboardAnnotations,
+  SqlPanel,
+} from "../app/pages/adhoc/sql-dashboard/types";
 import { dashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope.js";
 import type { DashboardRecord } from "../server/lib/dashboards-store.js";
 import {
   listKeyDateSets,
   requireKeyDateScope,
 } from "../server/lib/key-dates-store.js";
-import type { KeyDateSet } from "../shared/key-dates.js";
+import { drawsKeyDates, type KeyDateSet } from "../shared/key-dates.js";
 
 /**
- * Another organization's sets as one of its dashboards shows them: no
- * member emails, and none it hides unless the reader can show them again.
+ * Another organization's sets as one of its dashboards shows them: none
+ * where no chart draws key dates, no member emails, and none it hides unless
+ * the reader can show them again.
  */
 function setsForReader(
   sets: readonly KeyDateSet[],
   dashboard: DashboardRecord,
 ): KeyDateSet[] {
-  const annotations = (
-    dashboard.config as { annotations?: DashboardAnnotations }
-  ).annotations;
+  const config = dashboard.config as {
+    panels?: SqlPanel[];
+    annotations?: DashboardAnnotations;
+  };
+  if (!drawsKeyDates(config.panels ?? [])) return [];
   const hidden = new Set(
-    dashboard.canEdit ? [] : annotations?.hiddenKeyDateSets,
+    dashboard.canEdit ? [] : config.annotations?.hiddenKeyDateSets,
   );
   return sets
     .filter((set) => !hidden.has(set.id))

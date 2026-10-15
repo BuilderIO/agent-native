@@ -134,13 +134,16 @@ describe("key-date actions", () => {
         },
       ],
     });
-    const shared = (canEdit: boolean) => {
+    const shared = (canEdit: boolean, chartType = "line") => {
       mocks.dashboardAnnotationScope.mockResolvedValue({
         scope: owner,
         editable: false,
         dashboard: {
           canEdit,
-          config: { annotations: { hiddenKeyDateSets: ["changes"] } },
+          config: {
+            panels: [{ id: "signups", title: "Signups", chartType }],
+            annotations: { hiddenKeyDateSets: ["changes"] },
+          },
         },
       });
       mocks.listKeyDateSets.mockResolvedValue([
@@ -195,6 +198,16 @@ describe("key-date actions", () => {
         "changes",
       ]);
       expect(JSON.stringify(result)).not.toContain("@example.test");
+    });
+
+    it("lists no sets where no chart draws key dates, even for an editor", async () => {
+      for (const canEdit of [false, true]) {
+        shared(canEdit, "table");
+
+        await expect(
+          actions.list.run({ dashboardId: "shared-dashboard" }),
+        ).resolves.toEqual({ sets: [], editable: false });
+      }
     });
   });
 

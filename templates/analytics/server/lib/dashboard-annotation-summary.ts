@@ -10,6 +10,7 @@ import {
   type DataNote,
 } from "../../shared/data-notes.js";
 import {
+  drawsKeyDates,
   isKeyDateChartType,
   type KeyDate,
   type KeyDateSet,
@@ -72,10 +73,6 @@ function configAnnotations(
 
 const NO_KEY_DATE_CHARTS =
   "This dashboard has no line, area, bar or combo charts, so no chart here draws key dates.";
-
-function drawsKeyDates(panels: readonly SqlPanel[]): boolean {
-  return panels.some((panel) => isKeyDateChartType(panel.chartType));
-}
 
 function hiddenPanelIds(
   annotations: DashboardAnnotations | undefined,
