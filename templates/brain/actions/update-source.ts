@@ -56,10 +56,12 @@ export default defineAction({
         "Merge trust, answer eligibility, authority, freshness, review, or conflict behavior into the source answer policy",
       ),
   }),
-  changeResource: (input) => ({
-    resourceType: "brain-source",
-    resourceId: input.id,
-  }),
+  // Archiving changes the provider catalog's source counts, so it stays
+  // unscoped and refreshes every query.
+  changeResource: (input) =>
+    input.status === "archived"
+      ? null
+      : { resourceType: "brain-source", resourceId: input.id },
   run: async (args) => {
     const access = await assertAccess("brain-source", args.id, "editor");
     const existing = access.resource;
