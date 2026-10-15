@@ -93,4 +93,16 @@ describe("recording context model", () => {
       ]),
     ).toBe(true);
   });
+
+  it("uses the safe waiting state for viewers without a device ID", () => {
+    expect(
+      hasUnfinishedContextItems([
+        item({
+          status: "pending",
+          capturedDeviceId: undefined,
+          waitingForDevice: true,
+        }),
+      ]),
+    ).toBe(false);
+  });
 });

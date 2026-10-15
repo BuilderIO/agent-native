@@ -387,6 +387,10 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       const gate = recRow;
+      if (clipId && gate.trashedAt) {
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }
       let rec: RecordingRow = gate;
       if (clipId) {
         const [footage] = await getDb()

@@ -106,12 +106,13 @@ describe("list-recording-context", () => {
     expect(removedOnly.items).toEqual([]);
   });
 
-  it("returns each item's capturedDeviceId, null when no device captured it", async () => {
+  it("returns owner-only device and error details to the owner", async () => {
     await seedRecording(client, { id: "rec_2" });
-    mocks.roles = { rec_1: "viewer", rec_2: "viewer" };
+    mocks.roles = { rec_1: "owner", rec_2: "owner" };
     await seedContextItem(client, {
       id: "from_device",
       capturedDeviceId: "dev_a",
+      error: "private export diagnostics",
     });
     await seedContextItem(client, {
       id: "from_web",
@@ -122,13 +123,44 @@ describe("list-recording-context", () => {
     expect(fromDevice.items[0]).toMatchObject({
       id: "from_device",
       capturedDeviceId: "dev_a",
+      error: "private export diagnostics",
+      waitingForDevice: true,
     });
 
     const fromWeb = await action.run({ recordingId: "rec_2" });
     expect(fromWeb.items[0]).toMatchObject({
       id: "from_web",
       capturedDeviceId: null,
+      waitingForDevice: false,
     });
+  });
+
+  it("returns only current playback fields and safe state to viewers", async () => {
+    await seedContextItem(client, {
+      id: "viewer_item",
+      status: "pending",
+      mediaRecordingId: "stale_media",
+      pendingMediaRecordingId: "pending_media",
+      capturedDeviceId: "private_device_id",
+      error: "private export diagnostics",
+    });
+
+    const { items } = await action.run({ recordingId: "rec_1" });
+
+    expect(items[0]).toEqual({
+      id: "viewer_item",
+      recordingId: "rec_1",
+      kind: "screen_history",
+      label: null,
+      startedAt: "2026-10-01T11:59:30.000Z",
+      endedAt: "2026-10-01T12:00:00.000Z",
+      status: "pending",
+      mediaRecordingId: null,
+      waitingForDevice: true,
+    });
+    expect(items[0]).not.toHaveProperty("error");
+    expect(items[0]).not.toHaveProperty("capturedDeviceId");
+    expect(items[0]).not.toHaveProperty("pendingMediaRecordingId");
   });
 
   it("returns an empty list when the Clip has no context", async () => {
@@ -215,6 +247,47 @@ describe("list-recording-context", () => {
     ).rejects.toMatchObject({
       errorCode: "recording_not_found",
       statusCode: 404,
+    });
+  });
+
+  it("refuses context for a Clip in Trash", async () => {
+    await seedRecording(client, {
+      id: "trashed",
+      trashedAt: "2026-10-12T12:00:00.000Z",
+    });
+    mocks.roles = { trashed: "viewer" };
+
+    await expect(action.run({ recordingId: "trashed" })).rejects.toMatchObject({
+      statusCode: 404,
+      errorCode: "recording_not_found",
+    });
+  });
+
+  it("refuses context for an expired Clip for viewers", async () => {
+    await seedRecording(client, {
+      id: "expired",
+      expiresAt: "2000-01-01T00:00:00.000Z",
+    });
+    mocks.roles = { expired: "viewer" };
+
+    await expect(action.run({ recordingId: "expired" })).rejects.toMatchObject({
+      statusCode: 410,
+      errorCode: "recording_expired",
+    });
+  });
+
+  it("refuses context while the Clip is held for redaction", async () => {
+    await seedRecording(client, {
+      id: "redacting",
+      editsJson: "unreadable edits",
+    });
+    mocks.roles = { redacting: "viewer" };
+
+    await expect(
+      action.run({ recordingId: "redacting" }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "recording_redaction_pending",
     });
   });
 

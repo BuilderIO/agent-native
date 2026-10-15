@@ -826,6 +826,28 @@ describe("/api/video/:recordingId route", () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
+    it("does not serve attached footage when the parent Clip is in Trash", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence([{ recordingId: "clip-1" }], []),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: {
+          visibility: "public",
+          password: null,
+          trashedAt: "2026-10-14T12:00:00.000Z",
+        },
+      });
+
+      const event = makeEvent();
+      const result = await handler(event as any);
+
+      expect(mockResolveAccess).toHaveBeenCalledWith("recording", "clip-1");
+      expect(event.status).toBe(404);
+      expect(result).toEqual({ error: "Not found" });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
     it("does not attach footage while its Clip context is pending", async () => {
       mockGetDb.mockReturnValue(createDbWithSelectSequence([], [footageRow]));
       mockResolveAccess.mockResolvedValue(null);

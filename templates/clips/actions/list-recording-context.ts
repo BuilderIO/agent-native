@@ -1,10 +1,15 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { verifyShortLivedToken } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  isHeldForRedaction,
+  REDACTION_HOLD_MESSAGE,
+} from "../server/lib/pending-redactions.js";
+import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import { getRecordingAccessTokenResourceId } from "../server/lib/share-password.js";
 
 export default defineAction({
@@ -23,6 +28,9 @@ export default defineAction({
         id: schema.recordings.id,
         password: schema.recordings.password,
         sharePasswordVersion: schema.recordings.sharePasswordVersion,
+        expiresAt: schema.recordings.expiresAt,
+        trashedAt: schema.recordings.trashedAt,
+        editsJson: schema.recordings.editsJson,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, recordingId))
@@ -34,6 +42,29 @@ export default defineAction({
       });
     }
     const access = await assertAccess("recording", recordingId, "viewer");
+    if (recording.trashedAt) {
+      fail("Recording not found.", {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
+    if (
+      isRecordingExpiredForViewer({
+        expiresAt: recording.expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
+      fail("Recording has expired.", {
+        errorCode: "recording_expired",
+        statusCode: 410,
+      });
+    }
+    if (isHeldForRedaction(recording.editsJson, access.role)) {
+      fail(REDACTION_HOLD_MESSAGE, {
+        errorCode: "recording_redaction_pending",
+        statusCode: 409,
+      });
+    }
     if (recording.password && access.role !== "owner") {
       const scopeId = getRecordingAccessTokenResourceId(
         recordingId,
@@ -47,16 +78,41 @@ export default defineAction({
         });
       }
     }
+    const where = and(
+      eq(schema.recordingContextItems.recordingId, recordingId),
+      ne(schema.recordingContextItems.status, "removed"),
+    );
+    const orderBy = desc(schema.recordingContextItems.createdAt);
+    if (access.role === "owner") {
+      const items = await getDb()
+        .select()
+        .from(schema.recordingContextItems)
+        .where(where)
+        .orderBy(orderBy);
+      return {
+        items: items.map((item) => ({
+          ...item,
+          waitingForDevice: Boolean(item.capturedDeviceId),
+        })),
+      };
+    }
     const items = await getDb()
-      .select()
+      .select({
+        id: schema.recordingContextItems.id,
+        recordingId: schema.recordingContextItems.recordingId,
+        kind: schema.recordingContextItems.kind,
+        label: schema.recordingContextItems.label,
+        startedAt: schema.recordingContextItems.startedAt,
+        endedAt: schema.recordingContextItems.endedAt,
+        status: schema.recordingContextItems.status,
+        mediaRecordingId: sql<
+          string | null
+        >`case when ${schema.recordingContextItems.status} = 'ready' then ${schema.recordingContextItems.mediaRecordingId} else null end`,
+        waitingForDevice: sql<boolean>`${schema.recordingContextItems.capturedDeviceId} is not null`,
+      })
       .from(schema.recordingContextItems)
-      .where(
-        and(
-          eq(schema.recordingContextItems.recordingId, recordingId),
-          ne(schema.recordingContextItems.status, "removed"),
-        ),
-      )
-      .orderBy(desc(schema.recordingContextItems.createdAt));
+      .where(where)
+      .orderBy(orderBy);
     return { items };
   },
 });
