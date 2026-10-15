@@ -1316,6 +1316,17 @@ export default {
     resetFilters: "Restablecer filtros",
     collapseFilters: "Contraer filtros",
     expandFilters: "Ampliar filtros",
+    drilldownFilterRows: "Filtrar filas",
+    drilldownShowSql: "Mostrar SQL",
+    drilldownHideSql: "Ocultar SQL",
+    drilldownDownloadCsv: "Descargar CSV",
+    drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownCountMismatch:
+      "El gráfico muestra {{chart}}, pero coinciden {{total}} registros",
+    drilldownAggregateOnly:
+      "Este panel solo tiene filas agregadas. Las filas del punto seleccionado aparecen resaltadas.",
+    drilldownNoRecords: "No hay registros coincidentes",
+    drilldownLoadFailed: "No se pudieron cargar los registros",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Anular el rango de tiempo de este gráfico",
     chartTimeRangeInherit: "Rango del panel",

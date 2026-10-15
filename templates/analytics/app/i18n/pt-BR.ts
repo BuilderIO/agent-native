@@ -1313,6 +1313,17 @@ export default {
     resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
+    drilldownFilterRows: "Filtrar linhas",
+    drilldownShowSql: "Mostrar SQL",
+    drilldownHideSql: "Ocultar SQL",
+    drilldownDownloadCsv: "Baixar CSV",
+    drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownCountMismatch:
+      "O gráfico mostra {{chart}}, mas {{total}} registros correspondem",
+    drilldownAggregateOnly:
+      "Este painel tem apenas linhas agregadas. As linhas do ponto clicado estão destacadas.",
+    drilldownNoRecords: "Nenhum registro correspondente",
+    drilldownLoadFailed: "Não foi possível carregar os registros",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
     chartTimeRangeInherit: "Intervalo do painel",

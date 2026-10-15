@@ -1275,6 +1275,17 @@ export default {
     resetFilters: "필터 초기화",
     collapseFilters: "필터 접기",
     expandFilters: "필터 확장",
+    drilldownFilterRows: "행 필터링",
+    drilldownShowSql: "SQL 보기",
+    drilldownHideSql: "SQL 숨기기",
+    drilldownDownloadCsv: "CSV 다운로드",
+    drilldownShowing: "{{total}}개 레코드 중 {{shown}}개 표시",
+    drilldownCountMismatch:
+      "차트에는 {{chart}}이(가) 표시되지만 {{total}}개 레코드가 일치했습니다",
+    drilldownAggregateOnly:
+      "이 패널에는 집계된 행만 있습니다. 클릭한 지점과 일치하는 행이 강조 표시됩니다.",
+    drilldownNoRecords: "일치하는 레코드가 없습니다",
+    drilldownLoadFailed: "레코드를 불러오지 못했습니다",
     filterSeries: "Filter",
     chartTimeRangeOverride: "이 차트의 기간 재정의",
     chartTimeRangeInherit: "대시보드 기간",

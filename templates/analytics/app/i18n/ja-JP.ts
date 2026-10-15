@@ -1296,6 +1296,17 @@ export default {
     resetFilters: "フィルターをリセット",
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
+    drilldownFilterRows: "行をフィルター",
+    drilldownShowSql: "SQLを表示",
+    drilldownHideSql: "SQLを非表示",
+    drilldownDownloadCsv: "CSVをダウンロード",
+    drilldownShowing: "{{total}} 件中 {{shown}} 件を表示",
+    drilldownCountMismatch:
+      "グラフは {{chart}} ですが、一致したレコードは {{total}} 件です",
+    drilldownAggregateOnly:
+      "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
+    drilldownNoRecords: "一致するレコードがありません",
+    drilldownLoadFailed: "レコードを読み込めませんでした",
     filterSeries: "Filter",
     chartTimeRangeOverride: "このチャートの期間を上書き",
     chartTimeRangeInherit: "ダッシュボードの期間",

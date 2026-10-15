@@ -1139,7 +1139,7 @@ const ACTION_RESPONSE_CALL_TYPE_SQL = `CASE WHEN COALESCE(upper(properties::json
 const ACTION_RESPONSE_AUTH_STATE_SQL = `CASE WHEN NULLIF(user_id, '') IS NOT NULL THEN 'signed_in' ELSE 'anonymous' END`;
 const ACTION_RESPONSE_DEPLOYMENT_ENV_SQL = `CASE WHEN hostname LIKE 'beta.%' THEN 'beta' WHEN NULLIF(hostname, '') IS NOT NULL THEN 'prod' ELSE 'unknown' END`;
 const ACTION_RESPONSE_EVENT_FILTER = `event_name = 'action.response' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
-const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
+const ACTIVATION_FUNNEL_CHAIN = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
   SELECT DISTINCT funnel_user_key
   FROM funnel_events
   WHERE funnel_user_key IS NOT NULL
@@ -1230,7 +1230,8 @@ const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
       AND e.timestamp::timestamptz >= s.entered_at
       AND ${FUNNEL_SCOPE_FILTER}
   ) action ON true
-) SELECT 1 AS stage_order, 'Signup page viewed' AS stage, COUNT(*) FILTER (WHERE page_at IS NOT NULL) AS users FROM action_stage UNION ALL SELECT 2, 'Signup CTA clicked', COUNT(*) FILTER (WHERE cta_at IS NOT NULL) FROM action_stage UNION ALL SELECT 3, 'Signed up', COUNT(*) FILTER (WHERE signed_up_at IS NOT NULL) FROM action_stage UNION ALL SELECT 4, 'Onboarding started', COUNT(*) FILTER (WHERE started_at IS NOT NULL) FROM action_stage UNION ALL SELECT 5, 'Onboarding step reached', COUNT(*) FILTER (WHERE step_at IS NOT NULL) FROM action_stage UNION ALL SELECT 6, 'Onboarding completed', COUNT(*) FILTER (WHERE completed_at IS NOT NULL) FROM action_stage UNION ALL SELECT 7, 'Entered app', COUNT(*) FILTER (WHERE entered_at IS NOT NULL) FROM action_stage UNION ALL SELECT 8, 'First significant action', COUNT(*) FILTER (WHERE action_at IS NOT NULL) FROM action_stage ORDER BY stage_order`;
+)`;
+const ACTIVATION_FUNNEL_SQL = `${ACTIVATION_FUNNEL_CHAIN} SELECT 1 AS stage_order, 'Signup page viewed' AS stage, COUNT(*) FILTER (WHERE page_at IS NOT NULL) AS users FROM action_stage UNION ALL SELECT 2, 'Signup CTA clicked', COUNT(*) FILTER (WHERE cta_at IS NOT NULL) FROM action_stage UNION ALL SELECT 3, 'Signed up', COUNT(*) FILTER (WHERE signed_up_at IS NOT NULL) FROM action_stage UNION ALL SELECT 4, 'Onboarding started', COUNT(*) FILTER (WHERE started_at IS NOT NULL) FROM action_stage UNION ALL SELECT 5, 'Onboarding step reached', COUNT(*) FILTER (WHERE step_at IS NOT NULL) FROM action_stage UNION ALL SELECT 6, 'Onboarding completed', COUNT(*) FILTER (WHERE completed_at IS NOT NULL) FROM action_stage UNION ALL SELECT 7, 'Entered app', COUNT(*) FILTER (WHERE entered_at IS NOT NULL) FROM action_stage UNION ALL SELECT 8, 'First significant action', COUNT(*) FILTER (WHERE action_at IS NOT NULL) FROM action_stage ORDER BY stage_order`;
 const SIGNUP_METHOD_CONVERSION_SQL = `${FUNNEL_EVENTS_CTE}, clicks AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'method', ''), 'unknown') AS method, COUNT(DISTINCT funnel_user_key) AS clicks FROM funnel_events WHERE event_name = 'auth.signup_clicked' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), signups AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'signup_method', ''), CASE WHEN lower(properties::jsonb ->> 'auth_provider') = 'google' THEN 'google' ELSE 'unknown' END) AS method, COUNT(DISTINCT funnel_user_key) AS signups FROM funnel_events WHERE event_name = 'signup' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), methods AS (SELECT method FROM clicks UNION SELECT method FROM signups) SELECT methods.method, COALESCE(clicks.clicks, 0) AS clicks, COALESCE(signups.signups, 0) AS signups, COALESCE(signups.signups::float / NULLIF(clicks.clicks, 0), 0) AS conversion_rate FROM methods LEFT JOIN clicks ON clicks.method = methods.method LEFT JOIN signups ON signups.method = methods.method ORDER BY clicks DESC NULLS LAST, methods.method`;
 const ONBOARDING_STEP_DROPOFF_SQL = `${ONBOARDING_EVENTS_CTE}, viewers AS (
   SELECT DISTINCT funnel_user_key,
@@ -3247,4 +3248,71 @@ export function buildPanel(
     sql,
     config,
   };
+}
+
+export interface FirstPartyDrilldown {
+  sql: string;
+}
+
+const FUNNEL_STAGE_REACHED_AT_SQL = `CASE '{{drillX}}' WHEN 'Signup page viewed' THEN page_at WHEN 'Signup CTA clicked' THEN cta_at WHEN 'Signed up' THEN signed_up_at WHEN 'Onboarding started' THEN started_at WHEN 'Onboarding step reached' THEN step_at WHEN 'Onboarding completed' THEN completed_at WHEN 'Entered app' THEN entered_at WHEN 'First significant action' THEN action_at END`;
+
+const ACTIVATION_FUNNEL_DRILLDOWN_SQL = `${ACTIVATION_FUNNEL_CHAIN}, stage_users AS (
+  SELECT s.*, ${FUNNEL_STAGE_REACHED_AT_SQL} AS stage_reached_at
+  FROM action_stage s
+), visitor_emails AS (
+  SELECT funnel_user_key, MAX(funnel_user_email) AS email
+  FROM funnel_events
+  GROUP BY funnel_user_key
+)
+SELECT COALESCE(v.email, s.funnel_user_key) AS visitor,
+  s.stage_reached_at, s.page_at, s.cta_at, s.signed_up_at, s.started_at,
+  s.step_at, s.completed_at, s.entered_at, s.action_at,
+  s.funnel_user_key, COUNT(*) OVER () AS total_matching
+FROM stage_users s
+LEFT JOIN visitor_emails v ON v.funnel_user_key = s.funnel_user_key
+WHERE s.stage_reached_at IS NOT NULL
+ORDER BY s.stage_reached_at DESC
+LIMIT 500`;
+
+const SIGNUP_DRILLDOWN_SELECT = `SELECT timestamp,
+  COALESCE(NULLIF(user_id, ''), NULLIF(user_key, ''), NULLIF(anonymous_id, '')) AS visitor,
+  ${TEMPLATE_EXPR} AS template,
+  properties::jsonb ->> 'method' AS signup_method,
+  properties::jsonb ->> 'referrer_user' AS referrer_user,
+  anonymous_id, COUNT(*) OVER () AS total_matching
+FROM analytics_events
+WHERE event_name = 'signup'
+  AND ${DASHBOARD_TIME_RANGE_FILTER}
+  AND ${DASHBOARD_EMAIL_FILTER}
+  AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
+
+const DRILLDOWNS: Record<string, FirstPartyDrilldown> = {
+  "activation-funnel": {
+    sql: ACTIVATION_FUNNEL_DRILLDOWN_SQL,
+  },
+  "signups-over-time": {
+    sql: scopeFirstPartyPanelSql(
+      `${SIGNUP_DRILLDOWN_SELECT}
+  AND ${EVENT_DATE_SQL} = '{{drillX}}'
+  AND ('{{drillSeries}}' = '' OR ${TEMPLATE_EXPR} = '{{drillSeries}}')
+ORDER BY timestamp DESC
+LIMIT 500`,
+    ),
+  },
+  "signups-by-template": {
+    sql: scopeFirstPartyPanelSql(
+      `${SIGNUP_DRILLDOWN_SELECT}
+  AND ${TEMPLATE_EXPR} = '{{drillX}}'
+ORDER BY timestamp DESC
+LIMIT 500`,
+    ),
+  },
+};
+
+export function getFirstPartyDrilldown(
+  panelId: string,
+): FirstPartyDrilldown | null {
+  return Object.prototype.hasOwnProperty.call(DRILLDOWNS, panelId)
+    ? DRILLDOWNS[panelId]
+    : null;
 }

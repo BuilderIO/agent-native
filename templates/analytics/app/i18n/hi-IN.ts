@@ -1260,6 +1260,17 @@ export default {
     resetFilters: "फ़िल्टर रीसेट करें",
     collapseFilters: "फ़िल्टर संक्षिप्त करें",
     expandFilters: "फ़िल्टर का विस्तार करें",
+    drilldownFilterRows: "पंक्तियाँ फ़िल्टर करें",
+    drilldownShowSql: "SQL दिखाएँ",
+    drilldownHideSql: "SQL छिपाएँ",
+    drilldownDownloadCsv: "CSV डाउनलोड करें",
+    drilldownShowing: "{{total}} रिकॉर्ड में से {{shown}} दिखाए जा रहे हैं",
+    drilldownCountMismatch:
+      "चार्ट {{chart}} दिखाता है, लेकिन {{total}} रिकॉर्ड मेल खाते हैं",
+    drilldownAggregateOnly:
+      "इस पैनल में केवल समेकित पंक्तियाँ हैं। क्लिक किए गए बिंदु से मेल खाने वाली पंक्तियाँ हाइलाइट की गई हैं।",
+    drilldownNoRecords: "कोई मेल खाता रिकॉर्ड नहीं",
+    drilldownLoadFailed: "रिकॉर्ड लोड नहीं हो सके",
     filterSeries: "Filter",
     chartTimeRangeOverride: "इस चार्ट के लिए समय सीमा ओवरराइड करें",
     chartTimeRangeInherit: "डैशबोर्ड सीमा",

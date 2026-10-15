@@ -20,7 +20,11 @@ import {
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
+import {
+  ChartFillHeight,
+  SqlChart,
+  type ChartDatum,
+} from "@/components/dashboard/SqlChart";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,6 +66,7 @@ import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
 import { usePersonalColumnWidths } from "@/lib/personal-column-widths";
 import { cn } from "@/lib/utils";
 
+import { PanelDrilldownDialog } from "./PanelDrilldownDialog";
 import { timeRangeDays } from "./pivot";
 import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
@@ -198,6 +203,7 @@ export function SqlChartCard({
       panel.chartType === "extension",
   );
   const [refreshToken, setRefreshToken] = useState(0);
+  const [drilldownDatum, setDrilldownDatum] = useState<ChartDatum | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
@@ -826,6 +832,7 @@ export function SqlChartCard({
             refreshToken={refreshToken}
             onRefreshRequested={handleRefresh}
             dashboardId={dashboardId}
+            onDatumClick={setDrilldownDatum}
             onExportCsvChange={handleExportCsvChange}
             onCopyTableChange={handleCopyTableChange}
             {...tableColumnProps}
@@ -851,12 +858,22 @@ export function SqlChartCard({
                 onRefreshRequested={handleRefresh}
                 {...tableColumnProps}
                 dashboardId={dashboardId}
+                onDatumClick={setDrilldownDatum}
                 extensionContext={extensionContext}
               />
             </ChartFillHeight>
           </div>
         </DialogContent>
       </Dialog>
+
+      <PanelDrilldownDialog
+        panel={panel}
+        datum={drilldownDatum}
+        resolvedSql={resolvedSql}
+        dashboardId={dashboardId}
+        filters={filters}
+        onClose={() => setDrilldownDatum(null)}
+      />
 
       {editable ? (
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

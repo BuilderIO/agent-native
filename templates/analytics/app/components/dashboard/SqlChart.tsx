@@ -44,6 +44,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -108,6 +109,7 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery, type SqlQueryResult } from "@/lib/sql-query";
+import { cn } from "@/lib/utils";
 import {
   resolveDualAxis,
   type ChartAxisSide,
@@ -1206,8 +1208,55 @@ function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
   );
 }
 
+export interface ChartDatum {
+  x: string;
+  series?: string;
+  value?: unknown;
+}
+
+type DatumClickHandler = (datum: ChartDatum) => void;
+
+function rowDatum(
+  rows: Record<string, unknown>[],
+  index: unknown,
+  xKey: string,
+  series?: string,
+  valueKey?: string,
+): ChartDatum | null {
+  const row = rows[Number(index)];
+  if (!row) return null;
+  return {
+    x: stringifyValue(row[xKey]),
+    series,
+    value: valueKey ? row[valueKey] : undefined,
+  };
+}
+
+function chartClickProps(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  onDatumClick: DatumClickHandler | undefined,
+) {
+  if (!onDatumClick) return {};
+  return {
+    style: { cursor: "pointer" } as CSSProperties,
+    onClick: (state: {
+      activeIndex?: unknown;
+      activeTooltipIndex?: unknown;
+    }) => {
+      const datum = rowDatum(
+        rows,
+        state?.activeIndex ?? state?.activeTooltipIndex,
+        xKey,
+      );
+      if (datum) onDatumClick(datum);
+    },
+  };
+}
+
 interface SqlChartProps {
   panel: SqlPanel;
+  onDatumClick?: DatumClickHandler;
   resolvedSql?: string;
   className?: string;
   loadData?: boolean;
@@ -1249,6 +1298,7 @@ export function SqlChart({
   onColumnWidthChange,
   dashboardId,
   extensionContext,
+  onDatumClick,
 }: SqlChartProps) {
   const t = useT();
   const { enabled: demoModeEnabled } = useDemoModeStatus();
@@ -1493,6 +1543,7 @@ export function SqlChart({
           yKey={yKeys[0]}
           colors={colors}
           panel={panel}
+          onDatumClick={onDatumClick}
         />,
       ),
     );
@@ -1509,6 +1560,7 @@ export function SqlChart({
           yFormatter={yFormatter}
           stacked={panel.config?.stacked === true}
           panel={panel}
+          onDatumClick={onDatumClick}
         />,
       ),
     );
@@ -1525,6 +1577,7 @@ export function SqlChart({
           yFormatter={yFormatter}
           barKeys={panel.config?.barKeys ?? []}
           panel={panel}
+          onDatumClick={onDatumClick}
         />,
       ),
     );
@@ -1533,7 +1586,12 @@ export function SqlChart({
   if (chartType === "funnel" && plan.funnel) {
     return withConfigWarning(
       withPointLimit(
-        <FunnelRenderer funnel={plan.funnel} panel={panel} colors={colors} />,
+        <FunnelRenderer
+          funnel={plan.funnel}
+          panel={panel}
+          colors={colors}
+          onDatumClick={onDatumClick}
+        />,
       ),
     );
   }
@@ -1567,6 +1625,7 @@ export function SqlChart({
         chartType={chartType}
         stacked={panel.config?.stacked === true}
         panel={panel}
+        onDatumClick={onDatumClick}
       />,
     ),
   );
@@ -2559,12 +2618,14 @@ function PieRenderer({
   yKey,
   colors,
   panel,
+  onDatumClick,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
   yKey: string;
   colors: string[];
   panel: SqlPanel;
+  onDatumClick?: DatumClickHandler;
 }) {
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
@@ -2586,6 +2647,11 @@ function PieRenderer({
             }
             labelLine={false}
             isAnimationActive={false}
+            style={onDatumClick ? { cursor: "pointer" } : undefined}
+            onClick={(_, index) => {
+              const datum = rowDatum(rows, index, xKey, undefined, yKey);
+              if (datum) onDatumClick?.(datum);
+            }}
           >
             {rows.map((_, i) => (
               <Cell key={i} fill={colors[i % colors.length]} />
@@ -2735,6 +2801,7 @@ function BarRenderer({
   yFormatter,
   stacked,
   panel,
+  onDatumClick,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -2743,6 +2810,7 @@ function BarRenderer({
   yFormatter?: "number" | "currency" | "percent";
   stacked?: boolean;
   panel: SqlPanel;
+  onDatumClick?: DatumClickHandler;
 }) {
   const xLabelFormatter = useCallback(
     (value: unknown) => formatXLabel(String(value ?? ""), panel),
@@ -2824,6 +2892,17 @@ function BarRenderer({
               stackId={stacked ? "stack" : undefined}
               hide={hiddenKeys.has(key)}
               isAnimationActive={false}
+              style={onDatumClick ? { cursor: "pointer" } : undefined}
+              onClick={(_, index) => {
+                const datum = rowDatum(
+                  rows,
+                  index,
+                  xKey,
+                  panel.config?.pivot ? key : undefined,
+                  key,
+                );
+                if (datum) onDatumClick?.(datum);
+              }}
             />
           ))}
         </BarChart>
@@ -2840,6 +2919,7 @@ function ComboRenderer({
   yFormatter,
   barKeys,
   panel,
+  onDatumClick,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -2848,6 +2928,7 @@ function ComboRenderer({
   yFormatter?: "number" | "currency" | "percent";
   barKeys: string[];
   panel: SqlPanel;
+  onDatumClick?: DatumClickHandler;
 }) {
   const xLabelFormatter = useCallback(
     (value: unknown) => formatXLabel(String(value ?? ""), panel),
@@ -2879,7 +2960,10 @@ function ComboRenderer({
       showCustomLegend
     >
       <ChartResponsiveContainer>
-        <ComposedChart data={rows}>
+        <ComposedChart
+          data={rows}
+          {...chartClickProps(rows, xKey, onDatumClick)}
+        >
           {categoryLabels ? (
             <CategoryXAxis
               dataKey={xKey}
@@ -2957,6 +3041,7 @@ function TimeSeriesRenderer({
   chartType,
   stacked,
   panel,
+  onDatumClick,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -2966,6 +3051,7 @@ function TimeSeriesRenderer({
   chartType: "line" | "area";
   stacked?: boolean;
   panel: SqlPanel;
+  onDatumClick?: DatumClickHandler;
 }) {
   const xLabelFormatter = (value: any) =>
     formatXLabel(String(value ?? ""), panel);
@@ -3010,7 +3096,10 @@ function TimeSeriesRenderer({
         showCustomLegend
       >
         <ChartResponsiveContainer>
-          <LineChart data={chartRows}>
+          <LineChart
+            data={chartRows}
+            {...chartClickProps(chartRows, xKey, onDatumClick)}
+          >
             <XAxis
               dataKey={xKey}
               stroke="hsl(var(--muted-foreground))"
@@ -3088,7 +3177,11 @@ function TimeSeriesRenderer({
       showCustomLegend
     >
       <ChartResponsiveContainer>
-        <AreaChart key={JSON.stringify(yKeys)} data={chartRows}>
+        <AreaChart
+          key={JSON.stringify(yKeys)}
+          data={chartRows}
+          {...chartClickProps(chartRows, xKey, onDatumClick)}
+        >
           {showFill && (
             <defs>
               {yKeys.map((key, i) => (
@@ -3187,10 +3280,12 @@ function FunnelRenderer({
   funnel,
   panel,
   colors,
+  onDatumClick,
 }: {
   funnel: DashboardFunnelRows;
   panel: SqlPanel;
   colors: string[];
+  onDatumClick?: DatumClickHandler;
 }) {
   const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
   const formatter = panel.config?.yFormatter;
@@ -3211,7 +3306,28 @@ function FunnelRenderer({
             ? null
             : `${item.dropOffPercent < 0 ? "↑" : "↓"} ${Math.abs(item.dropOffPercent).toFixed(1)}%`;
         return (
-          <div key={`${item.label}-${index}`} className="space-y-1">
+          <div
+            key={`${item.label}-${index}`}
+            className={cn(
+              "space-y-1",
+              onDatumClick &&
+                "cursor-pointer rounded-sm hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
+            )}
+            {...(onDatumClick
+              ? {
+                  role: "button",
+                  tabIndex: 0,
+                  onClick: () =>
+                    onDatumClick({ x: item.label, value: item.value }),
+                  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onDatumClick({ x: item.label, value: item.value });
+                    }
+                  },
+                }
+              : {})}
+          >
             <div className="flex items-baseline justify-between gap-3 text-xs">
               <span className="min-w-0 truncate font-medium text-foreground">
                 {item.label}

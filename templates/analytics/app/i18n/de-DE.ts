@@ -1329,6 +1329,17 @@ export default {
     resetFilters: "Filter zurücksetzen",
     collapseFilters: "Filter ausblenden",
     expandFilters: "Filter erweitern",
+    drilldownFilterRows: "Zeilen filtern",
+    drilldownShowSql: "SQL anzeigen",
+    drilldownHideSql: "SQL ausblenden",
+    drilldownDownloadCsv: "CSV herunterladen",
+    drilldownShowing: "{{shown}} von {{total}} Datensätzen werden angezeigt",
+    drilldownCountMismatch:
+      "Das Diagramm zeigt {{chart}}, aber {{total}} Datensätze passen",
+    drilldownAggregateOnly:
+      "Dieses Panel enthält nur aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
+    drilldownNoRecords: "Keine passenden Datensätze",
+    drilldownLoadFailed: "Datensätze konnten nicht geladen werden",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Zeitraum für dieses Diagramm überschreiben",
     chartTimeRangeInherit: "Dashboard-Zeitraum",
