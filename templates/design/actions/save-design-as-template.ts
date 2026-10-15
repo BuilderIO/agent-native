@@ -38,6 +38,7 @@ export default defineAction({
     description: z.string().trim().max(500).optional(),
     category: designTemplateCategorySchema.optional().default("other"),
   }),
+  changeResource: () => null,
   run: async ({ designId, title, description, category }, ctx) => {
     const access = await resolveAccess("design", designId);
     if (!access || !["owner", "admin", "editor"].includes(access.role)) {

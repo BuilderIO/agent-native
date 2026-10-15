@@ -37,6 +37,7 @@ export default defineAction({
     "Save the current viewer's playback position for a Clips recording.",
   agentTool: false,
   schema: schemaInput,
+  changeEvents: false,
   run: async ({ recordingId, positionMs, sessionId }) => {
     const { viewerEmail, viewerKey } = viewerIdentity(sessionId);
     const access = await resolveAccess("recording", recordingId);

@@ -18,6 +18,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 
 export const DESIGN_ACCESS_REQUEST_EMAIL_ID = "design.access-request";
@@ -116,6 +117,10 @@ export default defineAction({
     designId: z.string().min(1).describe("Design ID to request access to."),
   }),
   agentTool: false,
+  changeResource: ({ designId }, result) =>
+    result.alreadyHasAccess || result.alreadyRequested
+      ? null
+      : designChangeResource(designId),
   run: async ({ designId }) => {
     const requesterEmail = getRequestUserEmail()?.trim().toLowerCase();
     if (!requesterEmail) {

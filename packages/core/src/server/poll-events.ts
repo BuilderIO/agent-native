@@ -75,7 +75,9 @@ export function validateSseMaxDurationMs(
  * delivered after a newer one is discarded as already seen, and a presence
  * update delivered late would overwrite a newer one.
  */
-function createOrderedVisibilityGate<T extends ChangeEvent | AwarenessChangeEvent>({
+function createOrderedVisibilityGate<
+  T extends ChangeEvent | AwarenessChangeEvent,
+>({
   decide,
   peek,
   onVisible,
@@ -173,9 +175,8 @@ export function createPollEventsHandler(
             UNDETERMINED_RECONNECT_BASE_MS +
             Math.round(Math.random() * UNDETERMINED_RECONNECT_SPREAD_MS),
         });
-      } catch {
-        // The close below still sends the client back to its cursor read.
-      }
+        // coercion-ok: a lost hint only means the browser's default retry; the close still hands the client back to its cursor read
+      } catch {}
       void stream.close();
     };
 

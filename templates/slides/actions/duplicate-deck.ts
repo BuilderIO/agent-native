@@ -42,6 +42,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  changeResource: () => null,
   run: async ({ deckId, title, newId: clientNewId, slideIds }, ctx) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);

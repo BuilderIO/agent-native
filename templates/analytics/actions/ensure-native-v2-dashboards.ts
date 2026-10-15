@@ -265,6 +265,7 @@ export default defineAction({
       height: 680,
     }),
   },
+  changeResource: () => null,
   run: async (args, ctx) => {
     const userEmail = ctx?.userEmail ?? getRequestUserEmail();
     const orgId = ctx?.orgId ?? getRequestOrgId() ?? null;

@@ -397,4 +397,8 @@ export default defineAction({
         : "Access request recorded for the clip owner.",
     };
   },
+  changeResource: ({ recordingId }, result) =>
+    result.alreadyHasAccess || result.alreadyRequested
+      ? null
+      : { resourceType: "recording", resourceId: recordingId },
 });

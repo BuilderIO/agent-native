@@ -28,12 +28,12 @@ import {
   registerRecurringSweepHandler,
   type RecurringSweepContext,
 } from "../jobs/sweep-hooks.js";
-import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
-import { getSettingsEmitter } from "../settings/store.js";
 import {
   type ChangeVisibilityDelivery,
   recordChangeVisibilityHold,
 } from "../observability/metrics.js";
+import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
+import { getSettingsEmitter } from "../settings/store.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 import { getRequestRunContext } from "./request-context.js";
 import {

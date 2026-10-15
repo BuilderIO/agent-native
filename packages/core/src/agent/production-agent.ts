@@ -25,10 +25,6 @@ import {
   actionChangeResource,
 } from "../action-call-classification.js";
 import {
-  createActionChangeScope,
-  runInActionChangeScope,
-} from "../server/action-change-scope.js";
-import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
 } from "../action-ui.js";
@@ -106,6 +102,10 @@ import {
   readOptionalKeyCache,
   writeOptionalKeyCache,
 } from "../secrets/optional-key-cache.js";
+import {
+  createActionChangeScope,
+  runInActionChangeScope,
+} from "../server/action-change-scope.js";
 import {
   AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
   isAgentChatAiSetupRequiredError,

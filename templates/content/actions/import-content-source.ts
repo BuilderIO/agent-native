@@ -202,6 +202,7 @@ export default defineAction({
     description:
       "Import local Markdown/MDX source files into editable Content documents.",
   },
+  changeResource: () => null,
   run: async ({ files, dryRun }) => {
     const builderPaths = Object.keys(files).filter((filePath) =>
       isBuilderMdxSourcePath(filePath),

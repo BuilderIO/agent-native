@@ -77,15 +77,25 @@ or authenticated route; public, documentation, and SSR pages should not start a
 background transport.
 
 An opted-in page only hears about an action when its change event reaches the
-current user. By default an `action` event reaches the actor alone, so a
-collaborator's comment, save, or agent edit never arrives. Declare
-`changeResource: (input, result) => ({ resourceType, resourceId })` on the
-mutating action and the event also reaches everyone who can read that resource.
-Name it from `input` when the call carries the resource id (Content's
-`documentChangeResource`, Slides' comment actions) and from `result` when the
-call is keyed by a child id (Design's `designChangeResource` for
-`delete-file`); return `null` for a call that changed nothing. Do not publish a
-parallel per-template event for the same purpose.
+current user. The event reaches everyone who can read the resource the call
+changed, and core names that resource for you when the call asserts write
+access to exactly one resource (`assertAccess(type, id, "editor")` or a
+write-level `access.resource`). Declare
+`changeResource: (input, result) => ({ resourceType, resourceId })` when core
+cannot tell: the action checks access only with `resolveAccess`, or it writes
+several resources. Name it from `input` when the call carries the resource id
+(Content's `documentChangeResource`) and from `result` when the call is keyed
+by a child id (Design's `designChangeResource` for `delete-file`); return
+`null` for a call that changed nothing or touches no shared resource.
+`guard:action-change-resource` flags the actions that need a declaration. Do
+not publish a parallel per-template event for the same purpose.
+
+Resource-scoped events recorded with `recordChange` while serving a browser
+request carry the writing tab as `requestSource` automatically; do not stamp
+it by hand. Server code that decides delivery uses
+`resolveChangeVisibilityForUser`, never the deprecated boolean
+`canSeeChangeForUser`, and must hold or re-read an `"undetermined"` event
+rather than drop it.
 
 Do not start `subscribeSyncEvents()` or an `EventSource` in a feature to bypass
 the decision. `subscribeSyncEvents()` is a lower-level transport subscription

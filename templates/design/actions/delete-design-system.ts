@@ -58,6 +58,10 @@ export default defineAction({
   schema: z.object({
     id: z.string().min(1).describe("Design system ID to delete"),
   }),
+  changeResource: ({ id }) => ({
+    resourceType: "design-system",
+    resourceId: id,
+  }),
   run: async ({ id }) => {
     const access = await assertAccess(
       "design-system",

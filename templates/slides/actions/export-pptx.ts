@@ -1682,6 +1682,7 @@ export default defineAction({
       )
       .describe("Include speaker notes"),
   }),
+  changeResource: () => null,
   run: trackPptxExportFailures(async (args, ctx, facts) => {
     const { deckId, includeNotes } = args;
     const downloadContext = slidesPptxDownloadContext(ctx);

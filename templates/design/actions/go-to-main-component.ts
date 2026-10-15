@@ -58,6 +58,7 @@ export default defineAction({
         "Design file id the instance currently lives in; defaults to index.html",
       ),
   }),
+  changeResource: () => null,
   run: async ({ designId, nodeId, fileId }) => {
     const access = await resolveAccess("design", designId);
     if (!access)

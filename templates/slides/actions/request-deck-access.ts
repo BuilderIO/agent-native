@@ -298,6 +298,11 @@ export default defineAction({
   }),
   requiresAuth: false,
   agentTool: false,
+  changeResource: ({ deckId }, result) =>
+    "requestId" in result &&
+    !("alreadyRequested" in result && result.alreadyRequested)
+      ? { resourceType: "deck", resourceId: deckId }
+      : null,
   run: async ({
     deckId,
     accessRequestToken,

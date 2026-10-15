@@ -633,6 +633,7 @@ export default defineAction({
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
   }),
+  changeResource: () => null,
   run: trackHtmlExportFailures(async ({ deckId }, ctx, facts) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail)

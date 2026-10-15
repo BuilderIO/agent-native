@@ -117,6 +117,7 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
+  changeResource: () => null,
   run: async ({ templateId, title, newId }, ctx) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail)

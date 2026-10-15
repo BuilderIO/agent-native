@@ -5,6 +5,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   assertContentDatabaseLifecycleAccess,
   collectInlineDatabaseOwnerBlockIds,
@@ -74,6 +75,10 @@ export default defineAction({
     summary: (_args, result) =>
       setupAuditSummary(result, "Restored Content database from Trash"),
   },
+  changeResource: (_input, result) =>
+    "receipt" in result && result.receipt.outcome === "unchanged"
+      ? null
+      : documentChangeResource(result.documentId),
   run: async (args, context) => {
     if (context?.caller === "mcp") setupLifecycleSchema.parse(args);
     if ("target" in args) {

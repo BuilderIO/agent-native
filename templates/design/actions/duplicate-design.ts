@@ -23,6 +23,7 @@ export default defineAction({
       .optional()
       .describe("Title for the copy (defaults to 'Copy of ...')"),
   }),
+  changeResource: () => null,
   run: async ({ id, title }, ctx) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);

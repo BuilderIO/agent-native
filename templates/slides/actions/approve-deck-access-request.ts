@@ -89,6 +89,8 @@ export default defineAction({
       .describe("Signed approval capability from the deck owner email."),
   }),
   agentTool: false,
+  changeResource: ({ deckId }, result) =>
+    result.alreadyAllowed ? null : { resourceType: "deck", resourceId: deckId },
   run: async ({ deckId, approvalToken }) => {
     const approverEmail = getRequestUserEmail();
     if (!approverEmail) {

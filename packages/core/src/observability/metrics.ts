@@ -29,7 +29,9 @@ const GEN_AI_TOKEN_USAGE_BUCKETS = [
 ];
 
 // Waits are bounded at 1 s (poll) and 10 s (SSE).
-const CHANGE_VISIBILITY_HOLD_BUCKETS_S = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
+const CHANGE_VISIBILITY_HOLD_BUCKETS_S = [
+  0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
+];
 
 export const OBSERVABILITY_FLUSH_TIMEOUT_MS = 2_000;
 

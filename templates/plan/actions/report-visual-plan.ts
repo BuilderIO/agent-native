@@ -48,6 +48,7 @@ export default defineAction({
     description:
       "Flag an accessible plan for moderation review without changing plan content.",
   },
+  changeResource: () => null,
   run: async (args) => {
     const reporterEmail = getRequestUserEmail();
     if (!reporterEmail) {

@@ -28,6 +28,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Design ID to export"),
   }),
+  changeResource: () => null,
   run: trackHtmlExportFailures(async ({ id }, ctx, facts) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);

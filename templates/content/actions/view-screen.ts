@@ -811,6 +811,7 @@ export default defineAction({
   deferLoading: false,
   schema: z.object({}),
   http: false,
+  changeResource: () => null,
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation");
     const suggestionMode = await readAppStateForCurrentTab(

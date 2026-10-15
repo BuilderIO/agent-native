@@ -69,6 +69,10 @@ export default defineAction({
   }),
   http: { method: "PUT" },
   agentTool: false,
+  changeResource: ({ deckId }) => ({
+    resourceType: "deck",
+    resourceId: deckId,
+  }),
   run: async ({ deckId, deck: inputDeck, clientWrite }, ctx) =>
     withDeckLock(deckId, async () => {
       const deck = inputDeck as DeckPayload;

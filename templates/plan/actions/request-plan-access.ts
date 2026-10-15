@@ -190,4 +190,8 @@ export default defineAction({
         : "Access request recorded for the plan owner.",
     };
   },
+  changeResource: ({ planId }, result) =>
+    result.alreadyHasAccess
+      ? null
+      : { resourceType: "plan", resourceId: planId },
 });

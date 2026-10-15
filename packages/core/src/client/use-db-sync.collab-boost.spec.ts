@@ -267,8 +267,11 @@ describe("collab poll boost", () => {
       });
 
       it("stays idle for a sender-named event with no resource", async () => {
-        const { resourceType: _type, resourceId: _id, ...unscoped } =
-          deckEvent("other-tab");
+        const {
+          resourceType: _type,
+          resourceId: _id,
+          ...unscoped
+        } = deckEvent("other-tab");
         expect(await boosted(unscoped)).toBeLessThanOrEqual(1);
       });
     });

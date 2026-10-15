@@ -17,6 +17,7 @@ const guards = [
   "guard:release-schema-complete",
   "guard:no-unscoped-queries",
   "guard:identity-columns-registered",
+  "guard:action-change-resource",
   "guard:no-raw-app-identity-env",
   "guard:no-env-credentials",
   "guard:env-documentation",

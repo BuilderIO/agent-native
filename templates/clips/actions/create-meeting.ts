@@ -70,6 +70,7 @@ export default defineAction({
     .refine((v) => v.title || v.calendarEventId, {
       message: "Provide either title or calendarEventId",
     }),
+  changeResource: () => null,
   run: async (args, actionContext) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

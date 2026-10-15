@@ -89,6 +89,7 @@
     "guard:release-schema-complete": "tsx scripts/guard-release-schema-complete.ts",
     "guard:no-unscoped-queries": "node scripts/guard-no-unscoped-queries.mjs",
     "guard:identity-columns-registered": "tsx scripts/guard-identity-columns-registered.ts",
+    "guard:action-change-resource": "tsx scripts/guard-action-change-resource.ts",
     "guard:no-raw-app-identity-env": "tsx scripts/guard-no-raw-app-identity-env.ts",
     "guard:no-env-credentials": "node scripts/guard-no-env-credentials.mjs",
     "guard:env-documentation": "tsx scripts/guard-env-documentation.ts",

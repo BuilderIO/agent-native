@@ -29,6 +29,10 @@ export default defineAction({
       .describe("Signed approval capability from the owner email."),
   }),
   agentTool: false,
+  changeResource: ({ recordingId }, result) =>
+    result.alreadyAllowed
+      ? null
+      : { resourceType: "recording", resourceId: recordingId },
   run: async ({ recordingId, approvalToken }) => {
     const approverEmail = getRequestUserEmail();
     if (!approverEmail) {

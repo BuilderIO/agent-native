@@ -52,6 +52,7 @@ export default defineAction({
       .optional()
       .describe("Design file id; defaults to index.html"),
   }),
+  changeResource: () => null,
   run: async ({ designId, nodeId, fileId }) => {
     const db = getDb();
 
