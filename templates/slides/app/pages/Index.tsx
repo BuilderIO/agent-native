@@ -121,6 +121,7 @@ import {
 } from "@/lib/composer-context";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import {
+  BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION,
   describeUploadedFilesForAgent,
   getUploadedImageAgentOptions,
   isSourceImprovementRequest,
@@ -1655,6 +1656,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         : `The user just created a new empty deck (id: "${deckId}") and wants to create a presentation or standalone visual.`,
       `The browser owns this deck's generation lifecycle. Its exact generationAttemptId is "${generationAttemptId}". If a tool call for this deck accepts generationAttemptId, pass this exact value unchanged; never create a substitute ID.`,
       "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+      BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION,
       googleDocContext,
       fileContext,
       referenceDocumentContext,

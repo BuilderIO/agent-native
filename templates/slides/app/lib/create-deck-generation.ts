@@ -30,6 +30,9 @@ export const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
 export const NO_UPLOADED_FILES_CONTEXT =
   "No uploaded files are attached to this run. Use source text already present in the user message or supplied reference context. For a supplied URL, follow its dedicated import instructions. Never invent a local file path or call `import-file` for an unattached file. If the referenced content is not present or retrievable from a supplied reference, ask the user to upload the file or paste its contents.";
 
+export const BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION =
+  'Scale the work to the request. A blank or empty deck request needs no question, outline, progress run, retitle, or audit: add one empty slide with `add-slide` (layout "blank") and reply. These generation instructions govern only this generation and its guided-question answers; a later direct request in this thread, such as adding an empty slide, renaming, reordering, or deleting, is a targeted edit: make it with the one action it needs and reply.';
+
 export const SLIDE_COUNT_COMPLETION_INSTRUCTION =
   "For a requested slide count, compare the realSlideCount returned by every add-slide result (slideCount only if realSlideCount is absent) with the persisted target; blank placeholder slides do not count. Once it matches, stop all slide writes and return a completion summary. If add-slide returns errorCode target_slide_count_reached, re-read get-deck once; if the target is already satisfied, stop without retrying and finish the response. Only add more slides if the user explicitly asks to extend the deck and targetSlideCountOverride is set to the new total of real slides.";
 
@@ -836,6 +839,7 @@ export async function startDeckGeneration({
       ? `The user uploaded a source presentation into target deck (id: "${deckId}") and wants a reliable visual improvement.`
       : `The user just created a new empty deck (id: "${deckId}") and wants to create a presentation or standalone visual.`,
     "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+    BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION,
     googleDocContext,
     fileContext,
     referenceDocumentContext,
