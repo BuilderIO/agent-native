@@ -18398,6 +18398,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return cs.position === "absolute" || cs.position === "fixed";
   }
 
+  // No in-flow children to stack against, so a drop keeps its release point.
+  function isFreeformDropContainer(el: Element): boolean {
+    if (isAutoLayoutElement(el)) return false;
+    var hasChild = false;
+    for (var i = 0; i < el.children.length; i += 1) {
+      var child = el.children[i]!;
+      if (isOverlayElement(child)) continue;
+      var childStyle = window.getComputedStyle(child);
+      if (childStyle.display === "none") continue;
+      if (
+        childStyle.position !== "absolute" &&
+        childStyle.position !== "fixed"
+      ) {
+        return false;
+      }
+      hasChild = true;
+    }
+    return hasChild || window.getComputedStyle(el).position !== "static";
+  }
+
   function hasAbsolutePositionedChild(el: Element): boolean {
     var kids = el.children;
     for (var i = 0; i < kids.length; i += 1) {
@@ -24345,7 +24365,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           pointerY,
           excluded,
         );
-        if (besideContainer && !isAutoLayoutElement(document.body)) {
+        if (besideContainer && isFreeformDropContainer(document.body)) {
           besideContainer.dropMode = "absolute-container";
         }
         return besideContainer;

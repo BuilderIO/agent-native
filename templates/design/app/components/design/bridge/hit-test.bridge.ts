@@ -1704,7 +1704,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
         clientX,
         clientY,
       );
-      if (besideContainer && !isAutoLayoutElement(document.body)) {
+      if (besideContainer && isFreeformDropContainer(document.body)) {
         besideContainer.dropMode = "absolute-container";
       }
       return besideContainer;

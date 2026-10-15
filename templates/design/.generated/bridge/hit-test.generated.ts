@@ -1172,7 +1172,7 @@ export const hitTestBridgeScript: string = `"use strict";
           clientX,
           clientY
         );
-        if (besideContainer && !isAutoLayoutElement(document.body)) {
+        if (besideContainer && isFreeformDropContainer(document.body)) {
           besideContainer.dropMode = "absolute-container";
         }
         return besideContainer;
