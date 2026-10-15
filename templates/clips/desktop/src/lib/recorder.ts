@@ -10,6 +10,10 @@ import { desktopRecoveryCopy } from "../i18n/en-US";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
+import {
+  loadCameraCutoutPreference,
+  subscribeCameraCutoutPreference,
+} from "./camera-cutout-preference";
 import { finalizeAfterDurableBackup } from "./finalization-guard";
 import {
   createLocalRecordingFolderName,
@@ -4715,6 +4719,8 @@ async function startRecordingInner(
             bubbleSizeRatio: bubbleSizeRatioForName(
               await invoke<string>("load_bubble_size").catch(() => "small"),
             ),
+            cutout: loadCameraCutoutPreference(),
+            subscribeCutout: subscribeCameraCutoutPreference,
           })
         : null;
     if (recordedScreenCameraStream) {

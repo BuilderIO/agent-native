@@ -110,6 +110,10 @@ pub(crate) fn schedule_popover_dismissal(app_handle: &tauri::AppHandle) {
         {
             return;
         }
+        if clips::bubble_is_focused(&delayed_app_handle) {
+            dlog!("[clips-tray] popover blur ignored — camera bubble focused");
+            return;
+        }
         clips::hide_popover(&delayed_app_handle);
     });
 }
@@ -213,6 +217,7 @@ pub fn run() {
             clips::bubble_drag_move,
             clips::bubble_drag_end,
             clips::set_bubble_size,
+            clips::set_bubble_hit_mask,
             clips::load_bubble_size,
             config::get_feature_config,
             config::set_feature_config,

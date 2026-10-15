@@ -1,20 +1,41 @@
-import { IconCameraOff } from "@tabler/icons-react";
+import { IconCameraOff, IconUserScan } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 
+import {
+  buildHitMask,
+  HIT_MASK_CELL_PX,
+  type HitMask,
+  type HitRect,
+  hitMaskGrid,
+  sameHitMask,
+} from "../lib/bubble-hit-mask";
 import {
   BUBBLE_PLAY_HEARTBEAT_MS,
   BUBBLE_RENDER_GRACE_MS,
   shouldClaimWebrtcPath,
   shouldReportUnrendered,
 } from "../lib/bubble-playback";
+import { useCameraCutoutPreference } from "../lib/camera-cutout-preference";
+import { createPersonCutout } from "../lib/person-cutout";
+
+// Upper bound for the cut-out canvas in device pixels.
+const CUTOUT_MAX_PX = 720;
+// How often the click-through mask follows the cut-out.
+const HIT_MASK_INTERVAL_MS = 100;
+
+function toHitRect(el: Element): HitRect {
+  const { left, top, right, bottom } = el.getBoundingClientRect();
+  return { left, top, right, bottom };
+}
 
 type BubbleSize = "small" | "medium";
 
 export function Bubble() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cutoutRef = useRef<HTMLCanvasElement | null>(null);
   const firstFrameAtRef = useRef<number | null>(null);
   const firstTrackAtRef = useRef<number | null>(null);
   const trackArrivedAtRef = useRef<number | null>(null);
@@ -25,7 +46,17 @@ export function Bubble() {
   );
   const [size, setSize] = useState<BubbleSize>("small");
   const [showControls, setShowControls] = useState(false);
+  const [cutout, setCutout] = useCameraCutoutPreference();
+  const [cutoutReady, setCutoutReady] = useState(false);
+  const activePathRef = useRef(activePath);
+  activePathRef.current = activePath;
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const showControlsRef = useRef(showControls);
+  const showCutoutRef = useRef(false);
+  const hitProbeRef = useRef<HTMLCanvasElement | null>(null);
+  const hitMaskSentRef = useRef<HitMask | null>(null);
+  const hitMaskDirtyRef = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,6 +93,81 @@ export function Bubble() {
     };
   }, []);
 
+  // Rust reports whether the cursor is over the person or a control while
+  // the transparent parts are click-through; the window then gets no native
+  // mouseleave, so hover follows this instead.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    listen<boolean>("clips:bubble-hover", (event) => {
+      if (event.payload) handleMouseEnter();
+      else handleMouseLeave();
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    showControlsRef.current = showControls;
+    hitMaskDirtyRef.current = true;
+  }, [showControls]);
+
+  const sendHitMask = (mask: HitMask | null) => {
+    if (sameHitMask(hitMaskSentRef.current, mask)) return;
+    hitMaskSentRef.current = mask;
+    invoke("set_bubble_hit_mask", { mask }).catch((err) => {
+      console.warn("[bubble] set_bubble_hit_mask failed", err);
+    });
+  };
+
+  // Samples the displayed cut-out onto a grid over the whole window.
+  const computeHitMask = (cutoutCanvas: HTMLCanvasElement): HitMask | null => {
+    const { cols, rows } = hitMaskGrid(window.innerWidth, window.innerHeight);
+    const probe = (hitProbeRef.current ??= document.createElement("canvas"));
+    if (probe.width !== cols) probe.width = cols;
+    if (probe.height !== rows) probe.height = rows;
+    const ctx = probe.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cols, rows);
+    const box = cutoutCanvas.getBoundingClientRect();
+    const transform = getComputedStyle(cutoutCanvas).transform;
+    const mirrored = transform !== "none" && new DOMMatrix(transform).a < 0;
+    const scale = 1 / HIT_MASK_CELL_PX;
+    ctx.setTransform(
+      mirrored ? -scale : scale,
+      0,
+      0,
+      scale,
+      (mirrored ? box.right : box.left) * scale,
+      box.top * scale,
+    );
+    ctx.drawImage(cutoutCanvas, 0, 0, box.width, box.height);
+    const rgba = ctx.getImageData(0, 0, cols, rows).data;
+    const rects = showControlsRef.current
+      ? Array.from(
+          wrapperRef.current?.querySelectorAll(
+            ".bubble-close, .bubble-controls",
+          ) ?? [],
+          toHitRect,
+        )
+      : [];
+    return buildHitMask({
+      cols,
+      rows,
+      rgba,
+      rects,
+      emptyFallback: toHitRect(cutoutCanvas),
+    });
+  };
+
   const pickSize = async (next: BubbleSize) => {
     if (next === size) return;
     try {
@@ -71,6 +177,92 @@ export function Bubble() {
       console.warn("[bubble] set_bubble_size failed", err);
     }
   };
+
+  // One segmenter for as long as the cut-out is on; the loop follows
+  // whichever camera path (WebRTC video or canvas pump) is live.
+  useEffect(() => {
+    setCutoutReady(false);
+    const target = cutoutRef.current;
+    if (!cutout || !target) return;
+
+    let stopped = false;
+    let raf: number | null = null;
+    let close: (() => void) | null = null;
+
+    createPersonCutout({ canvas: target })
+      .then((personCutout) => {
+        if (stopped) {
+          personCutout.close();
+          return;
+        }
+        close = () => personCutout.close();
+        let ready = false;
+        let lastHitMaskAt = 0;
+        const tick = () => {
+          if (stopped) return;
+          raf = requestAnimationFrame(tick);
+          const path = activePathRef.current;
+          const source =
+            path === "canvas"
+              ? canvasRef.current
+              : path === "webrtc"
+                ? videoRef.current
+                : null;
+          const box = target.parentElement?.clientWidth ?? 0;
+          if (!source || box <= 0) return;
+          const size = Math.min(
+            CUTOUT_MAX_PX,
+            Math.round(box * window.devicePixelRatio),
+          );
+          if (!personCutout.render(source, size)) return;
+          if (!ready) {
+            ready = true;
+            setCutoutReady(true);
+          }
+          const now = performance.now();
+          if (
+            showCutoutRef.current &&
+            (hitMaskDirtyRef.current ||
+              now - lastHitMaskAt >= HIT_MASK_INTERVAL_MS)
+          ) {
+            hitMaskDirtyRef.current = false;
+            lastHitMaskAt = now;
+            let mask: HitMask | null = null;
+            try {
+              mask = computeHitMask(target);
+            } catch (err) {
+              console.warn("[bubble] hit mask failed", err);
+            }
+            // No mask means the whole window stays clickable.
+            sendHitMask(mask);
+          }
+        };
+        raf = requestAnimationFrame(tick);
+      })
+      .catch((err) => {
+        console.warn("[bubble] person cut-out unavailable", err);
+      });
+
+    return () => {
+      stopped = true;
+      if (raf !== null) cancelAnimationFrame(raf);
+      close?.();
+    };
+  }, [cutout]);
+
+  const showCutout = cutout && cutoutReady && activePath !== "none";
+  showCutoutRef.current = showCutout;
+
+  // Click-through only applies to the cut-out; otherwise (and on unmount)
+  // the whole bubble window takes clicks again.
+  useEffect(() => {
+    if (!showCutout) {
+      sendHitMask(null);
+      return;
+    }
+    hitMaskDirtyRef.current = true;
+    return () => sendHitMask(null);
+  }, [showCutout]);
 
   const onClose = async () => {
     try {
@@ -586,6 +778,7 @@ export function Bubble() {
 
   return (
     <div
+      ref={wrapperRef}
       className={`bubble-wrapper bubble-${size}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -594,6 +787,7 @@ export function Bubble() {
       onPointerUp={endBubbleDrag}
       onPointerCancel={endBubbleDrag}
       data-path={activePath}
+      data-cutout={showCutout ? "true" : undefined}
     >
       <div className="bubble-root">
         {/*
@@ -615,12 +809,27 @@ export function Bubble() {
           autoPlay
           playsInline
           muted
-          style={activePath === "canvas" ? { display: "none" } : undefined}
+          style={
+            activePath === "canvas" || showCutout
+              ? { display: "none" }
+              : undefined
+          }
         />
         <canvas
           ref={canvasRef}
           className="bubble-video"
-          style={activePath === "webrtc" ? { display: "none" } : undefined}
+          style={
+            activePath === "webrtc" || showCutout
+              ? { display: "none" }
+              : undefined
+          }
+        />
+        {/* Person cut-out on a transparent background, drawn from
+            whichever source above is live. */}
+        <canvas
+          ref={cutoutRef}
+          className="bubble-video bubble-cutout"
+          style={showCutout ? undefined : { display: "none" }}
         />
         {/* Close X — top-right of bubble, only visible on hover. Marked
             `data-no-drag` so pointer-down here does NOT start a drag;
@@ -664,6 +873,17 @@ export function Bubble() {
           data-no-drag
         >
           <IconCameraOff size={14} stroke={2} />
+        </button>
+        <button
+          type="button"
+          className={`bubble-control-button ${cutout ? "is-active" : ""}`}
+          onClick={() => setCutout(!cutout)}
+          aria-label="Remove background"
+          aria-pressed={cutout}
+          title={cutout ? "Show background" : "Remove background"}
+          data-no-drag
+        >
+          <IconUserScan size={14} stroke={2} />
         </button>
         <button
           type="button"

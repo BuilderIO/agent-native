@@ -125,6 +125,7 @@ import {
   connectBuilderForVoiceCleanup,
   isBuilderProvisioningAvailable,
 } from "./lib/builder-connection";
+import { useCameraCutoutPreference } from "./lib/camera-cutout-preference";
 import {
   captureSetupForCamera,
   captureSetupForMode,
@@ -1028,6 +1029,7 @@ export function App({
   const [cameraOn, setCameraOn] = useState<boolean>(
     initialCaptureSetup.cameraOn,
   );
+  const [cameraCutout, setCameraCutout] = useCameraCutoutPreference();
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
   const [micOffConfirmOpen, setMicOffConfirmOpen] = useState(false);
   const [systemAudioOn, setSystemAudioOn] = useState<boolean>(() =>
@@ -4799,6 +4801,8 @@ export function App({
             onRefresh={() => requestDeviceAccess("camera")}
             on={cameraOn}
             onToggle={toggleCamera}
+            backgroundRemoval={cameraCutout}
+            onBackgroundRemovalToggle={setCameraCutout}
           />
 
           <MediaDeviceRow

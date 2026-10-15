@@ -1,3 +1,5 @@
+import { createPersonCutout, type PersonCutout } from "./person-cutout";
+
 type CameraBubbleAnchor = "bottom-left" | "bottom-right";
 
 interface CameraCompositeOptions {
@@ -9,6 +11,10 @@ interface CameraCompositeOptions {
   bubbleMaxPx?: number;
   bubbleMarginRatio?: number;
   anchor?: CameraBubbleAnchor;
+  /** Draw only the person, without the circle, fill and border. */
+  cutout?: boolean;
+  /** Follows live changes of the cut-out toggle during the recording. */
+  subscribeCutout?: (onChange: (enabled: boolean) => void) => () => void;
 }
 
 export interface CameraCompositeHandle {
@@ -21,6 +27,9 @@ const DEFAULT_BUBBLE_SIZE_RATIO = 0.18;
 const DEFAULT_BUBBLE_MIN_PX = 96;
 const DEFAULT_BUBBLE_MAX_PX = 280;
 const DEFAULT_BUBBLE_MARGIN_RATIO = 0.04;
+// While the cut-out warms up, leave the bubble out instead of flashing the
+// round camera; draw the circle only if that takes longer than this.
+const CUTOUT_LOAD_GRACE_MS = 2000;
 
 function positiveNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
@@ -152,6 +161,7 @@ function drawCameraBubble(
       | "anchor"
     >
   >,
+  cutout: CutoutDrawState = { mode: "off" },
 ): void {
   const minDimension = Math.min(canvas.width, canvas.height);
   const maxSize = Math.min(options.bubbleMaxPx, minDimension * 0.42);
@@ -168,6 +178,18 @@ function drawCameraBubble(
   const x =
     options.anchor === "bottom-right" ? canvas.width - size - margin : margin;
   const y = canvas.height - size - margin;
+  if (cutout.mode === "on") {
+    if (
+      cutout.personCutout &&
+      drawPersonCutout(ctx, cameraVideo, cutout.personCutout, x, y, size)
+    ) {
+      return;
+    }
+    // No cut-out frame yet: leave the bubble out rather than flash the
+    // circle, unless the segmenter is taking too long.
+    if (!cutout.pastGrace) return;
+  }
+
   const radius = size / 2;
   const centerX = x + radius;
   const centerY = y + radius;
@@ -198,6 +220,35 @@ function drawCameraBubble(
   ctx.arc(centerX, centerY, radius - ctx.lineWidth / 2, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
+}
+
+type CutoutDrawState =
+  | { mode: "off" }
+  | { mode: "on"; personCutout: PersonCutout | null; pastGrace: boolean };
+
+function drawPersonCutout(
+  ctx: CanvasRenderingContext2D,
+  cameraVideo: HTMLVideoElement,
+  personCutout: PersonCutout,
+  x: number,
+  y: number,
+  size: number,
+): boolean {
+  // Render at device pixels of the bubble; the cut-out is square already.
+  const frame = personCutout.render(cameraVideo, Math.ceil(size));
+  if (!frame) return false;
+
+  ctx.save();
+  // guard:allow-raw-color — shadow is baked into the recording, theme-invariant
+  ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+  ctx.shadowBlur = Math.max(12, size * 0.06);
+  ctx.shadowOffsetY = Math.max(4, size * 0.025);
+  // Mirrored like the on-screen bubble.
+  ctx.translate(x + size, y);
+  ctx.scale(-1, 1);
+  ctx.drawImage(frame, 0, 0, size, size);
+  ctx.restore();
+  return true;
 }
 
 export function createCameraCompositeStream(
@@ -231,10 +282,51 @@ export function createCameraCompositeStream(
     anchor: options.anchor ?? "bottom-left",
   };
 
+  let stopped = false;
+  let cutoutEnabled = options.cutout === true;
+  let cutoutRequestedAt = 0;
+  let cutoutFailed = false;
+  let personCutout: PersonCutout | null = null;
+  let personCutoutPending = false;
+
+  const ensurePersonCutout = () => {
+    if (personCutout || personCutoutPending || cutoutFailed) return;
+    personCutoutPending = true;
+    cutoutRequestedAt = performance.now();
+    createPersonCutout()
+      .then((created) => {
+        if (stopped) created.close();
+        else personCutout = created;
+      })
+      .catch((err) => {
+        cutoutFailed = true;
+        console.warn(
+          "[camera-composite] person cut-out unavailable — recording the round bubble:",
+          err,
+        );
+      })
+      .finally(() => {
+        personCutoutPending = false;
+      });
+  };
+  if (cutoutEnabled) ensurePersonCutout();
+  const unsubscribeCutout = options.subscribeCutout?.((enabled) => {
+    cutoutEnabled = enabled;
+    if (enabled) ensurePersonCutout();
+  });
+
+  const cutoutDrawState = (): CutoutDrawState => {
+    if (!cutoutEnabled || cutoutFailed) return { mode: "off" };
+    return {
+      mode: "on",
+      personCutout,
+      pastGrace: performance.now() - cutoutRequestedAt >= CUTOUT_LOAD_GRACE_MS,
+    };
+  };
+
   resizeCanvasToDisplay(canvas, display.video, options.displayStream);
   const stream = canvas.captureStream(frameRate);
   let raf: number | null = null;
-  let stopped = false;
   let lastFrameAt = 0;
   const minFrameMs = 1000 / frameRate;
 
@@ -247,7 +339,7 @@ export function createCameraCompositeStream(
     } catch {
       // The display video can be momentarily unavailable while metadata loads.
     }
-    drawCameraBubble(ctx, camera.video, canvas, drawOptions);
+    drawCameraBubble(ctx, camera.video, canvas, drawOptions, cutoutDrawState());
   };
 
   const tick = (now: number) => {
@@ -271,6 +363,9 @@ export function createCameraCompositeStream(
         raf = null;
       }
       stream.getTracks().forEach((track) => track.stop());
+      unsubscribeCutout?.();
+      personCutout?.close();
+      personCutout = null;
       display.cleanup();
       camera.cleanup();
     },
