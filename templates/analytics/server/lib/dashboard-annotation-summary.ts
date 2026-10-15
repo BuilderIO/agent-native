@@ -9,7 +9,7 @@ import {
   type DataNote,
 } from "../../shared/data-notes.js";
 import {
-  KEY_DATE_CHART_TYPES,
+  isKeyDateChartType,
   type KeyDate,
   type KeyDateSet,
 } from "../../shared/key-dates.js";
@@ -80,8 +80,7 @@ function panelsShowingNote(
   return panels.filter(
     (panel) =>
       dataNoteAppliesTo(note, dashboardId, panel) &&
-      (KEY_DATE_CHART_TYPES.has(panel.chartType) ||
-        dataNoteIsRecent(note, now)),
+      (isKeyDateChartType(panel.chartType) || dataNoteIsRecent(note, now)),
   );
 }
 
@@ -190,7 +189,7 @@ export function keyDatePlacement(
 ) {
   const shown = !configAnnotations(config)?.hiddenKeyDateSets?.includes(setId);
   const canDraw = configPanels(config).some((panel) =>
-    KEY_DATE_CHART_TYPES.has(panel.chartType),
+    isKeyDateChartType(panel.chartType),
   );
   const hint = !shown
     ? "This dashboard hides the date's set (config.annotations.hiddenKeyDateSets), so its charts don't draw the date. Tell the person rather than showing the set on your own."

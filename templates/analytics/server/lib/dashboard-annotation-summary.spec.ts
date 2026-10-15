@@ -40,6 +40,11 @@ const panels = [
   },
 ];
 
+const stackedPanels = [
+  { ...panels[1], id: "stacked-clicks", chartType: "stacked-bar" },
+  { ...panels[2], id: "stacked-old-clicks", chartType: "stacked-area" },
+];
+
 const keyDate = (
   date: string,
   label: string,
@@ -288,6 +293,24 @@ describe("dataNotePlacement", () => {
     expect(stale.hint).toContain("only while it is ongoing or for 30 days");
     expect(stale.hint).not.toContain("exact event name");
   });
+
+  it("keeps a stale note on legacy stacked charts, which render as time charts", () => {
+    const pinned = {
+      ...SKIPS_UNTRACKED,
+      panels: stackedPanels.map(({ id }) => ({
+        dashboardId: "dash",
+        panelId: id,
+      })),
+    };
+
+    expect(
+      dataNotePlacement(pinned, "dash", { panels: stackedPanels }, DEC_1)
+        .shownOn,
+    ).toEqual([
+      { panelId: "stacked-clicks", title: "Connect clicks per day" },
+      { panelId: "stacked-old-clicks", title: "Connect clicks (old event)" },
+    ]);
+  });
 });
 
 describe("keyDatePlacement", () => {
@@ -311,5 +334,11 @@ describe("keyDatePlacement", () => {
       setShown: true,
       hint: expect.stringContaining("no line, area, bar or combo charts"),
     });
+  });
+
+  it("counts legacy stacked charts as the time charts they render as", () => {
+    expect(
+      keyDatePlacement("launches", "dash", { panels: stackedPanels }),
+    ).toEqual({ dashboardId: "dash", setShown: true });
   });
 });
