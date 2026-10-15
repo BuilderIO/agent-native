@@ -1100,12 +1100,7 @@ export function useEditorLayoutAndStructure({
         row: number;
         rowEnd: number;
       };
-      targetAnchorRect?: {
-        left: number;
-        top: number;
-        width: number;
-        height: number;
-      };
+      targetAbsoluteOrigin?: { left: number; top: number };
       targetCanvasPoint?: { x: number; y: number };
       targetLocalPoint?: { x: number; y: number };
       sourcePointerOffset?: { x: number; y: number };

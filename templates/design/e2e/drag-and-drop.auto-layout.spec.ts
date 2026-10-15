@@ -372,7 +372,7 @@ test.fixme("a layer taller than a nested frame drops beside it in the row, not i
   });
 });
 
-// fixme: product bug: Teleport: the saved style drops position/left/top, so the layer becomes a static body child rendered at the screen's top-left 0,0 over
+// fixme: product bug: the drop saves position:absolute but lands at 97,140 instead of the release point 100,150
 test.fixme("a layer wider than an empty auto-layout frame drops beside it and stays where it was released", async ({
   app,
 }) => {
