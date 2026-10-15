@@ -27,18 +27,10 @@ function pruneStatusCache(now: number): void {
 function statusCacheKey(identity: {
   userEmail?: string | null;
   orgId?: string | null;
-  isLoopbackRequest?: boolean;
-  isDirectLoopbackRequest?: boolean;
-  isAgentChatDevModeEnabled?: boolean;
-  requestOrigin?: string | null;
 }): string {
   return JSON.stringify([
     identity.userEmail?.trim().toLowerCase() ?? null,
     identity.orgId?.trim() || null,
-    identity.isLoopbackRequest === true,
-    identity.isDirectLoopbackRequest === true,
-    identity.isAgentChatDevModeEnabled === true,
-    identity.requestOrigin ?? null,
   ]);
 }
 
@@ -46,10 +38,6 @@ export function memoizeAgentEngineStatus<T>(
   identity: {
     userEmail?: string | null;
     orgId?: string | null;
-    isLoopbackRequest?: boolean;
-    isDirectLoopbackRequest?: boolean;
-    isAgentChatDevModeEnabled?: boolean;
-    requestOrigin?: string | null;
   },
   load: () => Promise<T>,
 ): Promise<T> {
@@ -88,10 +76,6 @@ export function memoizeAgentEngineStatus<T>(
 export function getMemoizedAgentEngineStatus<T>(identity: {
   userEmail?: string | null;
   orgId?: string | null;
-  isLoopbackRequest?: boolean;
-  isDirectLoopbackRequest?: boolean;
-  isAgentChatDevModeEnabled?: boolean;
-  requestOrigin?: string | null;
 }): Promise<T> | undefined {
   pruneStatusCache(Date.now());
   const entry = statusByIdentity.get(statusCacheKey(identity)) as

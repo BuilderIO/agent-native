@@ -107,6 +107,7 @@ describe("AgentEngine registry", () => {
     );
     vi.doUnmock("../../settings/store.js");
     vi.doUnmock("../../server/credential-provider.js");
+    vi.doUnmock("../../server/chatgpt-subscription-oauth.js");
     vi.doUnmock("../../server/request-context.js");
     vi.doUnmock("../../extensions/url-safety.js");
     vi.doUnmock("../../secrets/storage.js");
@@ -250,6 +251,74 @@ describe("AgentEngine registry", () => {
     await expect(
       resolveEngine({ engineOption: { name: "ai-sdk:openai", config: {} } }),
     ).rejects.toThrow(/requires optional packages/);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("blocks personal ChatGPT credentials for org-scoped defaults and explicit engines", async () => {
+    const hasChatGPTSubscriptionCredential = vi.fn(async () => true);
+    vi.doMock("../../server/chatgpt-subscription-oauth.js", () => ({
+      hasChatGPTSubscriptionCredential,
+    }));
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const {
+      isStoredEngineUsableForRequest,
+      registerAgentEngine,
+      resolveEngine,
+    } = await import("./registry.js");
+    const create = vi.fn(() => ({ name: "chatgpt-subscription" }) as any);
+    const entry = {
+      name: "chatgpt-subscription",
+      label: "ChatGPT subscription",
+      description: "Personal ChatGPT subscription engine",
+      capabilities: {} as any,
+      defaultModel: "personal-model",
+      supportedModels: ["personal-model"],
+      requiredEnvVars: [],
+      create,
+    };
+    registerAgentEngine(entry);
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.test",
+        orgId: "org-1",
+        isDirectLoopbackRequest: true,
+      },
+      async () => {
+        await expect(
+          isStoredEngineUsableForRequest({ engine: entry.name }, entry, {
+            credentialIdentity: {
+              userEmail: "alice@example.test",
+              orgId: "org-1",
+            },
+          }),
+        ).resolves.toBe(false);
+        await expect(
+          resolveEngine({
+            engineOption: entry.name,
+            credentialIdentity: {
+              userEmail: "alice@example.test",
+              orgId: "org-1",
+            },
+          }),
+        ).rejects.toThrow(
+          "Connect a ChatGPT account with direct model access before using this engine.",
+        );
+        await expect(
+          resolveEngine({
+            engineOption: {
+              name: entry.name,
+              stream: vi.fn(),
+            } as any,
+          }),
+        ).rejects.toThrow(
+          "Connect a ChatGPT account with direct model access before using this engine.",
+        );
+      },
+    );
+
+    expect(hasChatGPTSubscriptionCredential).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
   });
 

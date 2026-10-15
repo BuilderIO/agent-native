@@ -160,7 +160,6 @@ import {
   isAgentChatAiSetupReady,
   isBuilderChatSetupReady,
 } from "./agent-chat-ai-setup.js";
-import { isAgentChatDevModeEnabled } from "./agent-chat-mode.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import { createAgentEngineDisconnectHandler } from "./agent-engine-default-model-route.js";
 import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
@@ -313,7 +312,6 @@ import {
   isAllowedUploadMimeType,
 } from "./h3-helpers.js";
 import { handleIdentitySso } from "./identity-sso.js";
-import { isDirectLoopbackRequest, isLoopbackRequest } from "./loopback.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import {
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
@@ -340,7 +338,6 @@ import {
   hasRequestContext,
   runWithRequestContext,
 } from "./request-context.js";
-import { getForwardedRequestOrigin } from "./request-origin.js";
 import { isSameOriginRequest } from "./request-origin.js";
 import {
   findUnsupportedScopedKeyNames,
@@ -5905,28 +5902,11 @@ export function createCoreRoutesPlugin(
             const statusStartedAt = Date.now();
             const { userEmail, orgId } =
               await resolveAgentEngineStatusIdentity(event);
-            const loopbackRequest = isLoopbackRequest(event);
-            const directLoopbackRequest = isDirectLoopbackRequest(event);
-            const agentChatDevModeEnabled = isAgentChatDevModeEnabled(nitroApp);
-            const requestOrigin = getForwardedRequestOrigin(event);
             const status = await memoizeAgentEngineStatus(
-              {
-                userEmail,
-                orgId,
-                isLoopbackRequest: loopbackRequest,
-                isDirectLoopbackRequest: directLoopbackRequest,
-                isAgentChatDevModeEnabled: agentChatDevModeEnabled,
-                requestOrigin,
-              },
+              { userEmail, orgId },
               async () =>
                 await runWithRequestContext(
-                  {
-                    userEmail,
-                    orgId,
-                    requestOrigin,
-                    isLoopbackRequest: loopbackRequest,
-                    isDirectLoopbackRequest: directLoopbackRequest,
-                  },
+                  { userEmail, orgId },
                   async (): Promise<AgentEngineStatusResponse> => {
                     const deps = requestAgentEngineStatusDeps();
                     const engineStatus = await resolveAgentEngineStatus(deps);
