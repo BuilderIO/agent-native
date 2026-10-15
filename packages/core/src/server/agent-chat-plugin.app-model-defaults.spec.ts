@@ -41,7 +41,21 @@ describe("agent app model-default ChatGPT options", () => {
 
   it("preserves resolved personal scope through catalog reads and validation", () => {
     expect(contextRoute).toContain("resolveAgentRunOrgScope({");
+    expect(contextRoute).toContain(
+      'if (!orgScope.orgId && orgScope.orgScope !== "personal")',
+    );
+    expect(contextRoute).toContain("status: 503");
     expect(contextRoute).toContain('orgScope.orgScope === "personal"');
+    expect(
+      contextRoute.indexOf('orgScope.orgScope !== "personal"'),
+    ).toBeLessThan(
+      contextRoute.indexOf("const orgId = orgScope.orgId ?? null"),
+    );
+    expect(
+      contextRoute.indexOf('orgScope.orgScope !== "personal"'),
+    ).toBeLessThan(
+      contextRoute.indexOf("canUpdateAgentAppModelDefaultSettings("),
+    );
     expect(listRoute).toContain('orgScope: "personal" as const');
     expect(putRoute).toContain('orgScope: "personal" as const');
   });

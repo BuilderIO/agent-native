@@ -5514,10 +5514,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           ownerContext: { owner: session.email, anonymous: false },
           resolveOrgId: options?.resolveOrgId,
         });
+        if (!orgScope.orgId && orgScope.orgScope !== "personal") {
+          return {
+            ok: false as const,
+            status: 503,
+            error: "Organization scope is temporarily unavailable.",
+          };
+        }
         const orgId = orgScope.orgId ?? null;
         const canUpdate = await canUpdateAgentAppModelDefaultSettings(
           session.email,
           orgId,
+          orgScope.orgScope,
         );
 
         return {
@@ -5631,7 +5639,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const buildModelDefaultsPayload = async (event: any, appId: string) => {
         const ctx = await resolveModelDefaultsContext(event);
         if (!ctx.ok) return ctx;
-        const scope = { userEmail: ctx.userEmail, orgId: ctx.orgId };
+        const scope = {
+          userEmail: ctx.userEmail,
+          orgId: ctx.orgId,
+          orgScope: ctx.orgScope,
+        };
         const [settings, orgDefault] = await Promise.all([
           readAgentAppModelDefaultSettings(scope, appId),
           readDefaultAgentEngineSetting(scope),
@@ -5702,7 +5714,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           if (method === "DELETE") {
             await resetAgentAppModelDefaultSettings(
-              { userEmail: ctx.userEmail, orgId: ctx.orgId },
+              {
+                userEmail: ctx.userEmail,
+                orgId: ctx.orgId,
+                orgScope: ctx.orgScope,
+              },
               appId,
             );
             return buildModelDefaultsPayload(event, appId);
@@ -5783,7 +5799,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
 
           await writeAgentAppModelDefaultSettings(
-            { userEmail: ctx.userEmail, orgId: ctx.orgId },
+            {
+              userEmail: ctx.userEmail,
+              orgId: ctx.orgId,
+              orgScope: ctx.orgScope,
+            },
             targetAppId,
             { engine, model, updatedBy: ctx.userEmail },
           );
@@ -7949,11 +7969,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ownerContext: { owner: session.email, anonymous: false },
               resolveOrgId: options?.resolveOrgId,
             });
+            if (!orgScope.orgId && orgScope.orgScope !== "personal") {
+              setResponseStatus(event, 503);
+              return {
+                error: "Organization scope is temporarily unavailable.",
+              };
+            }
+            const scope = orgScope.orgId
+              ? { orgId: orgScope.orgId }
+              : { orgId: null, orgScope: "personal" as const };
             return {
               token: await createAgentChatStreamToken({
                 ownerEmail: session.email,
-                orgId: orgScope.orgId ?? null,
-                orgScope: orgScope.orgScope,
+                ...scope,
                 authUserId: session.authUserId,
               }),
               ttlSeconds: AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,

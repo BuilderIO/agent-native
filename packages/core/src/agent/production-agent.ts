@@ -930,6 +930,12 @@ export async function getOwnerActiveApiKey(
     const engineSetting = await readDefaultAgentEngineSetting({
       userEmail: ownerEmail ?? getRequestUserEmail(),
       orgId: getRequestOrgId(),
+      ...(getRequestContext()?.orgScope === "personal"
+        ? { orgScope: "personal" as const }
+        : {}),
+      ...(getRequestContext()?.defaultAgentEngineScope === "deployment"
+        ? { defaultAgentEngineScope: "deployment" as const }
+        : {}),
     });
     const activeEngine =
       (engineSetting?.engine as string | undefined) ?? "anthropic";
@@ -982,8 +988,9 @@ export async function resolveOwnerEngineApiKey(input: {
     if (resolved.apiKey) return resolved;
   } else {
     try {
-      const { getSetting } = await import("../settings/store.js");
-      const engineSetting = await getSetting("agent-engine");
+      const { readDefaultAgentEngineSetting } =
+        await import("./default-agent-engine.js");
+      const engineSetting = await readDefaultAgentEngineSetting();
       activeEngineSetting = {
         status: "available",
         engine: (engineSetting?.engine as string | undefined) ?? "anthropic",

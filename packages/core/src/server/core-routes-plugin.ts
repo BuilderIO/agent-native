@@ -419,7 +419,13 @@ function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry>
       );
       if (!appId) return null;
       const settings = await readAgentAppModelDefaultSettings(
-        { userEmail: getRequestUserEmail(), orgId: getRequestOrgId() },
+        {
+          userEmail: getRequestUserEmail(),
+          orgId: getRequestOrgId(),
+          ...(getRequestContext()?.orgScope === "personal"
+            ? { orgScope: "personal" as const }
+            : {}),
+        },
         appId,
       );
       return settings.engine && settings.model

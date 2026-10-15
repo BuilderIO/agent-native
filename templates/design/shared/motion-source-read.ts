@@ -8,6 +8,7 @@ export interface MotionSourceReadCapability {
 const PASSIVE_UNSUPPORTED_MOTION_READ_CODES = new Set([
   "motion_css_source_unreadable",
   "motion_html_source_unsupported_authored_motion",
+  "motion_local_source_ambiguous_source_file",
   "motion_react_source_unsupported_authored_motion",
 ]);
 

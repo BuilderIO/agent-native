@@ -488,7 +488,10 @@ describe("request-scoped action surface", () => {
     const streamRoute = source.slice(streamStart, streamEnd);
 
     expect(mintRoute).toContain("resolveAgentRunOrgScope({");
-    expect(mintRoute).toContain("orgScope: orgScope.orgScope");
+    expect(mintRoute).toContain('orgScope: "personal" as const');
+    expect(mintRoute).toContain(
+      "Organization scope is temporarily unavailable.",
+    );
     expect(streamRoute).toContain('orgScope: "personal" as const');
   });
 

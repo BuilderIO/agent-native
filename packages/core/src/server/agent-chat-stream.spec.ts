@@ -53,6 +53,30 @@ describe("agent-chat stream tokens", () => {
     });
   });
 
+  it("does not mint a token when organization scope is unresolved", async () => {
+    await expect(
+      createAgentChatStreamToken({
+        ownerEmail: "steve@example.test",
+        orgId: null,
+      } as never),
+    ).rejects.toThrow(/resolved organization or personal scope/);
+  });
+
+  it("rejects a signed token that encodes null org without personal scope", async () => {
+    const token = await new jose.SignJWT({
+      token_type: "agent-native-agent-chat-stream",
+      sub: "steve@example.test",
+      org_id: null,
+    })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setIssuer("https://calendar.example.test")
+      .setAudience("https://calendar.example.test")
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode(TEST_SECRET));
+
+    expect(await verifyAgentChatStreamToken(token)).toBeNull();
+  });
+
   it("rejects personal scope claims paired with an organization", async () => {
     const token = await new jose.SignJWT({
       token_type: "agent-native-agent-chat-stream",

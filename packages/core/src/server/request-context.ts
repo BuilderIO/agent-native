@@ -122,6 +122,8 @@ export interface RequestContext {
   userName?: string;
   orgId?: string;
   orgScope?: "personal";
+  /** Explicitly selects deployment-wide agent defaults for shared no-org jobs. */
+  defaultAgentEngineScope?: "deployment";
   /**
    * Narrow authorization capability verified from an embed session. This is
    * deliberately separate from user identity: capability-only sessions must

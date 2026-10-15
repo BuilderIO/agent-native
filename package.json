@@ -23,6 +23,7 @@
     "postinstall": "node scripts/prebuild-workspace-packages.ts postinstall",
     "setup": "pnpm install",
     "build": "pnpm -r build",
+    "feedback:inventory-check": "node --experimental-strip-types scripts/feedback-inventory-check.ts",
     "dev": "node scripts/dev-lazy.ts",
     "typecheck": "tsx scripts/workspace-run.ts typecheck",
     "fmt": "oxfmt --write .",
