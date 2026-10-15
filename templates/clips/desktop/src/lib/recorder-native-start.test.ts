@@ -99,6 +99,9 @@ class TestMediaRecorder {
     this.state = "recording";
   });
   stop = vi.fn(() => {
+    if (rejectMediaRecorderStop) {
+      throw new Error("Unable to finalize the late recording");
+    }
     if (emitStopChunk) {
       this.ondataavailable?.({
         data: new Blob(["clip"], { type: "video/webm" }),
@@ -125,6 +128,7 @@ class TestMediaRecorder {
 
 const mediaRecorderStart = vi.fn();
 let emitStopChunk = false;
+let rejectMediaRecorderStop = false;
 
 function installRecordingBackupStore() {
   const stores = new Set<string>();
@@ -238,6 +242,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   localStorageValues.clear();
   emitStopChunk = false;
+  rejectMediaRecorderStop = false;
   handlers.clear();
   nativeCommands.clear();
   getUserMedia = vi.fn(() => new Promise(() => {}));
@@ -341,6 +346,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   emitStopChunk = false;
+  rejectMediaRecorderStop = false;
 });
 
 describe("native recording startup", () => {
@@ -1649,5 +1655,53 @@ describe("browser recording startup cancellation", () => {
       ),
     ).toBe(false);
     expect(getRewindClipOrigin(id)).not.toBeNull();
+  });
+
+  it("clears earlier screen time when cleanup of a late-start take fails", async () => {
+    useBrowserCameraCapture();
+    installRecordingBackupStore();
+    emitStopChunk = true;
+    const cue = deferred<void>();
+    const transcription = deferred<TranscriptionCapture>();
+    const audioCue = {
+      playBeforeCapture: vi.fn(async () => cue.promise),
+      cleanup: vi.fn(),
+    };
+    mocks.transcribe.mockReturnValueOnce(transcription.promise);
+    rejectMediaRecorderStop = true;
+    const controller = new AbortController();
+    const onCaptureStartFailed = vi.fn();
+    const pending = startRecording(
+      {
+        ...params,
+        mode: "camera",
+        cameraOn: true,
+        systemAudioOn: false,
+        lookbackEnabled: true,
+        signal: controller.signal,
+        onCaptureStartFailed,
+      },
+      audioCue,
+    );
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await reachCue(audioCue.playBeforeCapture);
+    cue.resolve();
+    await flush();
+    expect(mediaRecorderStart).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(100);
+    const id = createdRecordingId();
+    expect(getRewindClipOrigin(id)).not.toBeNull();
+
+    controller.abort();
+    await failed;
+    transcription.resolve(capture());
+    await vi.advanceTimersByTimeAsync(15_000);
+    await flush();
+
+    expect(onCaptureStartFailed).toHaveBeenCalledExactlyOnceWith(id);
+    expect(getRewindClipOrigin(id)).toBeNull();
   });
 });

@@ -4457,6 +4457,17 @@ export async function startRecording(
     void invoke("native_fullscreen_recording_cancel").catch(() => {});
     void invoke("hide_recording_chrome").catch(() => {});
   };
+  const cleanupFailedCaptureStart = (recordingId: string) => {
+    forgetRewindClipOrigin(recordingId);
+    try {
+      params.onCaptureStartFailed?.(recordingId);
+    } catch (cleanupError) {
+      console.error(
+        "[clips-recorder] failed to clear context after startup failure:",
+        cleanupError,
+      );
+    }
+  };
   const startPromise = startRecordingInner(
     {
       ...recordingParams,
@@ -4499,7 +4510,7 @@ export async function startRecording(
       onLateResolve: (handle) => {
         void handle.stop().catch((err) => {
           if (requestedRecordingId) {
-            forgetRewindClipOrigin(requestedRecordingId);
+            cleanupFailedCaptureStart(requestedRecordingId);
           }
           console.warn("[clips-recorder] late start cleanup failed:", err);
         });
@@ -4517,15 +4528,7 @@ export async function startRecording(
         );
         if (retained) return;
       }
-      forgetRewindClipOrigin(recordingId);
-      try {
-        params.onCaptureStartFailed?.(recordingId);
-      } catch (cleanupError) {
-        console.error(
-          "[clips-recorder] failed to clear context after startup failure:",
-          cleanupError,
-        );
-      }
+      cleanupFailedCaptureStart(recordingId);
     });
     audioCue.cleanup();
     await boundedCleanup(invoke("hide_recording_chrome"));

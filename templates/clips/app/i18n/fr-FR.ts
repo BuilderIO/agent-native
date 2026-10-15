@@ -33,13 +33,13 @@ const messages = {
       "Impossible d’accéder au stockage de Rewind. Vérifiez l’espace disque et les autorisations du dossier, puis réessayez.",
     rewindConsentTitle: "Activer Rewind ?",
     rewindConsentBody:
-      "Lorsque Rewind est activé, Clips enregistre continuellement votre écran et conserve l’historique récent sur cet appareil. Les agents connectés peuvent demander des images de cet historique. Par défaut, Clips vous demande votre accord avant chaque partage ; si vous désactivez la vérification des demandes dans les réglages de Rewind, Clips les partage automatiquement. Le service de l’agent détermine comment les images partagées sont traitées. Si vous choisissez une durée pour inclure l’écran précédent, Clips l’ajoute automatiquement à chaque nouveau Clip enregistré dans votre compte, selon les paramètres de partage de ce Clip. Désactiver Rewind arrête les nouveaux enregistrements, mais conserve l’historique ; utilisez l’option de suppression totale pour l’effacer. Par défaut, les demandes vidéo passent par une étape de vérification distincte.",
+      "Lorsque Rewind est activé, Clips enregistre continuellement votre écran et conserve l’historique récent sur cet appareil jusqu’à atteindre votre limite de durée ou de stockage. Choisissez « Écran + audio » pour enregistrer aussi le micro et le son du système. Les agents connectés peuvent accéder directement aux images de l’écran, sans validation par Clips ; leur utilisation ultérieure dépend de l’agent. Clips ajoute automatiquement la durée d’écran précédent choisie à chaque nouveau Clip, selon ses paramètres de partage. Par défaut, les demandes de partage d’une période choisie sous forme de Clip sont vérifiées avant envoi. Désactivez la vérification avant envoi dans les réglages Rewind pour envoyer automatiquement ces demandes. Un Clip peut inclure l’audio capturé du micro et du système. Désactiver Rewind arrête les nouveaux enregistrements, mais n’efface pas l’historique enregistré ; choisissez « Tout supprimer » pour le supprimer avant son expiration.",
     rewindConsentCancel: "Pas maintenant",
     rewindConsentConfirm: "Activer Rewind",
     rewindConsentBusy: "Activation de Rewind…",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
-      "Pour inclure l’écran avant un enregistrement, activez d’abord Rewind. Tant qu’il est activé, Rewind enregistre l’écran en continu et conserve l’historique récent sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",
+      "Pour inclure l’écran précédent, activez d’abord Rewind. Il conserve un historique continu de l’écran sur cet appareil jusqu’à atteindre votre limite de durée ou de stockage. Désactiver Rewind arrête les nouveaux enregistrements, mais n’efface pas l’historique enregistré ; choisissez « Tout supprimer » pour l’effacer avant son expiration. Les demandes de Clip sont vérifiées avant envoi par défaut, sauf si vous désactivez la vérification avant envoi dans les réglages Rewind.",
     requestFailed:
       "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
     localOnlyUnavailable:

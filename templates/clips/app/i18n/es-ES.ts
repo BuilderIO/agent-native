@@ -33,13 +33,13 @@ const messages = {
       "No se pudo acceder al almacenamiento de Rewind. Comprueba el espacio en disco y los permisos de la carpeta e inténtalo de nuevo.",
     rewindConsentTitle: "¿Activar Rewind?",
     rewindConsentBody:
-      "Mientras Rewind esté activado, Clips graba tu pantalla continuamente y conserva el historial reciente en este dispositivo. Los agentes conectados pueden solicitar imágenes de ese historial. De forma predeterminada, Clips te pregunta antes de compartir cada solicitud; si desactivas la revisión de solicitudes en los ajustes de Rewind, las comparte automáticamente. El servicio del agente determina cómo se gestionan las imágenes compartidas. Si eliges una duración para incluir tiempo de pantalla anterior, Clips la añade automáticamente a cada nuevo Clip guardado en tu cuenta y se aplican los permisos para compartir de ese Clip. Al desactivar Rewind se detiene la grabación nueva, pero el historial guardado permanece; usa la opción para eliminarlo todo y borrarlo. De forma predeterminada, las solicitudes de vídeo tienen un paso de revisión independiente.",
+      "Mientras Rewind está activado, Clips graba continuamente tu pantalla y conserva el historial reciente en este dispositivo hasta alcanzar tu límite de tiempo o almacenamiento. Elige «Pantalla + audio» para capturar también el micrófono y el audio del sistema. Los agentes conectados pueden acceder directamente a imágenes de la pantalla, sin una aprobación de Clips; el uso posterior depende del agente. Clips añade automáticamente el tiempo anterior que elijas a cada nuevo Clip, siguiendo los ajustes para compartir de ese Clip. De forma predeterminada, las solicitudes para compartir un intervalo seleccionado como Clip se revisan antes de enviarse. Desactiva la revisión antes de enviar en los ajustes de Rewind para enviar esas solicitudes automáticamente. Un Clip puede incluir el audio capturado del micrófono y del sistema. Desactivar Rewind detiene las nuevas grabaciones, pero no borra el historial guardado; elige «Eliminar todo» para borrarlo antes.",
     rewindConsentCancel: "Ahora no",
     rewindConsentConfirm: "Activar Rewind",
     rewindConsentBusy: "Activando Rewind…",
     rewindOffTitle: "Activar Rewind",
     rewindOffBody:
-      "Para incluir el tiempo de pantalla anterior, primero activa Rewind. Mientras está activado, Rewind graba continuamente la pantalla y conserva el historial reciente en este dispositivo hasta que lo añadas a una grabación o apruebes una solicitud para compartirlo.",
+      "Para incluir tiempo de pantalla anterior, primero activa Rewind. Conserva un historial continuo de la pantalla en este dispositivo hasta alcanzar tu límite de tiempo o almacenamiento. Desactivar Rewind detiene las nuevas grabaciones, pero no borra el historial guardado; elige «Eliminar todo» para borrarlo antes. Las solicitudes para crear un Clip se revisan antes de enviarse de forma predeterminada, salvo que desactives la revisión antes de enviar en los ajustes de Rewind.",
     requestFailed:
       "No se pudo incluir el tiempo de pantalla anterior. La grabación continúa sin él.",
     localOnlyUnavailable:

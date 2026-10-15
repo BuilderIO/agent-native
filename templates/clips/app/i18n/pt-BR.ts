@@ -33,13 +33,13 @@ const messages = {
       "Não foi possível acessar o armazenamento do Rewind. Confira o espaço em disco e as permissões da pasta e tente novamente.",
     rewindConsentTitle: "Ativar o Rewind?",
     rewindConsentBody:
-      "Enquanto o Rewind estiver ativado, o Clips grava sua tela continuamente e mantém o histórico recente neste dispositivo. Agentes conectados podem solicitar imagens desse histórico. Por padrão, o Clips pede sua aprovação antes de compartilhar cada solicitação. Se você desativar a revisão de solicitações nas configurações do Rewind, o Clips as compartilhará automaticamente. O serviço do agente determina como as imagens compartilhadas são tratadas. Se você definir uma duração para incluir tempo de tela anterior, o Clips adiciona esse período automaticamente a cada novo Clip salvo na sua conta, seguindo as configurações de compartilhamento do Clip. Desativar o Rewind interrompe novas gravações, mas mantém o histórico salvo; use a opção de excluir tudo para apagá-lo. Por padrão, solicitações de vídeo passam por uma etapa de revisão separada.",
+      "Enquanto o Rewind estiver ativado, o Clips grava a tela continuamente e mantém o histórico recente neste dispositivo até atingir o limite de tempo ou de armazenamento escolhido. Escolha “Tela + áudio” para gravar também o microfone e o áudio do sistema. Agentes conectados podem acessar imagens da tela diretamente, sem uma aprovação do Clips; o uso posterior depende do agente. O período de tela anterior escolhido é adicionado automaticamente a cada novo Clip, seguindo as configurações de compartilhamento dele. Por padrão, pedidos para compartilhar um intervalo selecionado como Clip são revisados antes do envio. Desative a revisão antes do envio nas configurações do Rewind para enviar esses pedidos automaticamente. Um Clip pode incluir áudio capturado do microfone e do sistema. Desativar o Rewind interrompe novas gravações, mas não apaga o histórico salvo; escolha “Excluir tudo” para apagá-lo antes do prazo.",
     rewindConsentCancel: "Agora não",
     rewindConsentConfirm: "Ativar o Rewind",
     rewindConsentBusy: "Ativando o Rewind…",
     rewindOffTitle: "Ativar o Rewind",
     rewindOffBody:
-      "Para incluir o tempo de tela anterior, ative primeiro o Rewind. Enquanto estiver ligado, o Rewind grava a tela continuamente e mantém o histórico recente neste dispositivo até você adicioná-lo a uma gravação ou aprovar uma solicitação para compartilhá-lo.",
+      "Para incluir tempo de tela anterior, ative primeiro o Rewind. Ele mantém um histórico contínuo da tela neste dispositivo até atingir o limite de tempo ou de armazenamento escolhido. Desativar o Rewind interrompe novas gravações, mas não apaga o histórico salvo; escolha “Excluir tudo” para apagá-lo antes do prazo. Por padrão, os pedidos para compartilhar um intervalo como Clip são revisados antes do envio, a menos que você desative essa revisão nas configurações do Rewind.",
     requestFailed:
       "Não foi possível incluir o tempo de tela anterior. A gravação continua sem ele.",
     localOnlyUnavailable:
