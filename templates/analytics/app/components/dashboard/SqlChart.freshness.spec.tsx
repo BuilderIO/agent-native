@@ -126,6 +126,50 @@ describe("SqlChart freshness", () => {
       }
     });
 
+    it("holds one status slot, with the chart in the same place, whether or not a label shows", async () => {
+      const slot = () =>
+        container.querySelector("[data-dashboard-report-status-slot]");
+      const chartHost = () => slot()?.nextElementSibling;
+      mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };
+
+      await render();
+      const initialSlot = slot();
+      const initialChartHost = chartHost();
+      expect(
+        container.querySelectorAll("[data-dashboard-report-status-slot]"),
+      ).toHaveLength(1);
+      expect(initialSlot?.textContent).toBe("");
+      expect(initialChartHost?.textContent).toBe("42");
+
+      mocks.query.isFetching = true;
+      await render();
+      expect(
+        slot()?.querySelector("[data-dashboard-report-updating]"),
+      ).not.toBeNull();
+
+      mocks.query.isFetching = false;
+      setAge(STALE_RESULT_AGE_MS + 1_000);
+      await render();
+      expect(
+        slot()?.querySelector("[data-dashboard-report-stale]"),
+      ).not.toBeNull();
+
+      setAge(60_000);
+      await render();
+      expect(slot()?.textContent).toBe("");
+      expect(slot()).toBe(initialSlot);
+      expect(chartHost()).toBe(initialChartHost);
+    });
+
+    it("keeps the slot for a result with no rows, which shows no config warning", async () => {
+      mocks.query.data = { rows: [] };
+      await render();
+      expect(
+        container.querySelector("[data-dashboard-report-status-slot]"),
+      ).not.toBeNull();
+      expect(container.textContent).toContain("common.noData");
+    });
+
     it("keeps exactly one hour normal and labels the first moment past it", async () => {
       mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "app-cache" };
 

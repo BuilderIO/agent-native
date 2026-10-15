@@ -1194,7 +1194,7 @@ function SqlChartStaleText({ freshness }: { freshness: SqlQueryFreshness }) {
   const t = useT();
   const formatters = useFormatters();
   return (
-    <time dateTime={freshness.fetchedAt}>
+    <time dateTime={freshness.fetchedAt} className="truncate">
       {describeFreshnessText(t, formatters, freshness, "compact")}
     </time>
   );
@@ -1499,59 +1499,47 @@ export function SqlChart({
   }
 
   const missingConfigKeys = plan.missingKeys;
+  // The label is one line in a slot whose height never changes, so a label
+  // appearing, changing, or disappearing moves nothing, and a long label
+  // truncates instead of growing into the chart.
   const noticeText =
-    "inline-flex items-center gap-1.5 text-xs text-muted-foreground";
-  const noticeRow = (notice: ReactNode) => (
-    <div className="pointer-events-none flex shrink-0 justify-end pb-1">
-      {notice}
-    </div>
-  );
-  const updatingNotice = isUpdating
-    ? noticeRow(
-        <span
-          role="status"
-          data-dashboard-report-updating={
-            isShowingPreviousFilters ? "previous-filters" : "refresh"
-          }
-          className={noticeText}
-        >
-          <Spinner className="size-3" />
-          {t(
-            isShowingPreviousFilters
-              ? "sqlDashboard.updatingPreviousFilters"
-              : "sqlDashboard.updating",
-          )}
-        </span>,
-      )
-    : isPausedOnPreviousFilters
-      ? noticeRow(
-          <span
-            data-dashboard-report-paused="previous-filters"
-            className={noticeText}
-          >
-            {t("sqlDashboard.previousFilters")}
-          </span>,
-        )
-      : refreshConfirmed
-        ? noticeRow(
-            <span
-              role="status"
-              data-dashboard-report-refreshed
-              className={noticeText}
-            >
-              {t("sqlDashboard.refreshed")}
-            </span>,
-          )
-        : isStale && shownFreshness
-          ? noticeRow(
-              <span
-                data-dashboard-report-stale={shownFreshness.cache}
-                className={noticeText}
-              >
-                <SqlChartStaleText freshness={shownFreshness} />
-              </span>,
-            )
-          : null;
+    "inline-flex min-w-0 max-w-full items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground";
+  const statusNotice = isUpdating ? (
+    <span
+      role="status"
+      data-dashboard-report-updating={
+        isShowingPreviousFilters ? "previous-filters" : "refresh"
+      }
+      className={noticeText}
+    >
+      <Spinner className="size-3 shrink-0" />
+      <span className="truncate">
+        {t(
+          isShowingPreviousFilters
+            ? "sqlDashboard.updatingPreviousFilters"
+            : "sqlDashboard.updating",
+        )}
+      </span>
+    </span>
+  ) : isPausedOnPreviousFilters ? (
+    <span
+      data-dashboard-report-paused="previous-filters"
+      className={noticeText}
+    >
+      <span className="truncate">{t("sqlDashboard.previousFilters")}</span>
+    </span>
+  ) : refreshConfirmed ? (
+    <span role="status" data-dashboard-report-refreshed className={noticeText}>
+      <span className="truncate">{t("sqlDashboard.refreshed")}</span>
+    </span>
+  ) : isStale && shownFreshness ? (
+    <span
+      data-dashboard-report-stale={shownFreshness.cache}
+      className={noticeText}
+    >
+      <SqlChartStaleText freshness={shownFreshness} />
+    </span>
+  ) : null;
   const withConfigBanners = (node: ReactNode) => {
     if (refreshError) {
       return (
@@ -1596,15 +1584,17 @@ export function SqlChart({
     );
   };
 
-  const withNotice = (node: ReactNode) =>
-    updatingNotice ? (
-      <div className="flex h-full min-h-0 flex-col">
-        {updatingNotice}
-        <div className="min-h-0 flex-1">{node}</div>
+  const withNotice = (node: ReactNode) => (
+    <div className="flex h-full min-h-0 flex-col">
+      <div
+        data-dashboard-report-status-slot
+        className="pointer-events-none flex h-5 min-h-5 shrink-0 items-center justify-end overflow-hidden"
+      >
+        {statusNotice}
       </div>
-    ) : (
-      node
-    );
+      <div className="min-h-0 flex-1">{node}</div>
+    </div>
+  );
   const withConfigWarning = (node: ReactNode) =>
     withNotice(withConfigBanners(node));
 
@@ -1622,7 +1612,7 @@ export function SqlChart({
   if (plan.empty) {
     const noData = (
       <div
-        className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
+        className={`flex h-full flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
       >
         <p className="text-sm text-muted-foreground text-center">
           {t("common.noData")}

@@ -99,7 +99,7 @@ interface RefreshConfirmationInput {
 export function useRefreshConfirmation(input: RefreshConfirmationInput) {
   const { requestToken, scopeKey, completedToken } = input;
   const [confirmedIdentity, setConfirmedIdentity] = useState<string>();
-  const processedIdentity = useRef<string>();
+  const processedIdentity = useRef<string | undefined>(undefined);
   const context = useRef({ requestToken, scopeKey });
   const completionIdentity =
     completedToken === requestToken
