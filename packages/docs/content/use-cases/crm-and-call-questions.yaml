@@ -1,0 +1,83 @@
+slug: crm-and-call-questions
+job_id: job-crm-questions
+app: analytics
+audience: gtm-ops
+title: "Ask your CRM and call data questions in plain English"
+subhead: "Connect HubSpot, plus Gong if you use it, ask about pipeline and deals the way you'd ask a teammate, and keep the answers as dashboards."
+meta_description: "Connect HubSpot and Gong, ask pipeline questions in plain English, and save the answers as dashboards for your pipeline review. Open-source Analytics from Agent-Native."
+cta_label: "Try Analytics"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://analytics.agent-native.com"
+screenshot_alt: "An Analytics product overview dashboard with metric cards, a weekly active users chart, an activation funnel, and the agent chat open"
+old_way:
+  heading: "How most people do it today"
+  body: "The CRM report you need doesn't exist, so you export to a spreadsheet, rebuild it, and paste charts into the pipeline review deck. Next week, you do it again."
+new_way:
+  heading: "How it works in Analytics"
+  steps:
+    - "Connect HubSpot. Gong, Apollo, Clay, and Common Room are available as data sources too."
+    - "Ask a question in plain English. The agent writes and validates the queries and returns a chart, table, or metric."
+    - "Save the answers as a dashboard and share it before your pipeline review."
+todays_stack:
+  heading: "Four tools for one pipeline review"
+  items:
+    - tool: "Your CRM's reports"
+      used_for: "Standard pipeline views"
+      breaks: "The view you need isn't one of them."
+    - tool: "A spreadsheet export"
+      used_for: "Custom analysis"
+      breaks: "It's rebuilt every week and goes stale in between."
+    - tool: "A call recorder"
+      used_for: "What was said on calls"
+      breaks: "It sits apart from the deal data."
+    - tool: "Slides"
+      used_for: "Presenting the pipeline review"
+      breaks: "Charts get pasted in by hand."
+  in_app: "In Analytics, your CRM data and the other GTM sources you connect answer plain-English questions, and the answers live in dashboards the team can share."
+frequency: weekly
+how_often_label: "Weekly"
+roles: [revops, sales]
+connects_to: ["HubSpot", "Gong", "Apollo", "Clay", "Common Room"]
+next_jobs: [ai-meeting-notes, startup-kpi-dashboard]
+recipes:
+  - id: stuck-deals
+    title: "Find stuck deals before pipeline review"
+    when: "Pipeline review is this week."
+    do: "Connect HubSpot and ask which open deals haven't moved."
+    prompt: "Which open deals haven't changed stage in the last 30 days?"
+    you_get: "A list of deals to talk about, with the query the agent wrote."
+    save: "Your HubSpot connection stays in place for next week's review."
+    how_often: "Weekly"
+  - id: pipeline-dashboard
+    title: "Save a weekly pipeline dashboard"
+    when: "You're asking the same questions every week."
+    do: "Save the answers as a dashboard and share it with the team."
+    you_get: "One place everyone checks before the review."
+    how_often: "Weekly"
+  - id: add-calls
+    title: "Bring call data into the question"
+    when: "You want to know what was said, not just what moved."
+    do: "Connect Gong as a data source, then ask questions that use both sources."
+    you_get: "Answers that combine deal data and call data."
+    how_often: "Weekly"
+story: null
+faqs:
+  - q: "Which GTM data sources can I connect?"
+    a: "Analytics includes connectors for HubSpot, Gong, Apollo, Clay, and Common Room, along with product and revenue sources like Stripe."
+  - q: "Do I need to write SQL?"
+    a: "No. The agent writes and validates the queries. You can also use the SQL query explorer to run them yourself."
+  - q: "Can I trust the numbers?"
+    a: "Check the first few answers against your CRM before you rely on them. Clear field definitions in the data dictionary help."
+  - q: "Who can see my dashboards?"
+    a: "You can share dashboards per user or per organization, with viewer, editor, or admin roles."
+cta_band_heading: "Walk into pipeline review with the answers"
+cta_band_subhead: "Connect HubSpot and ask your first question."
+updated: 2026-10-15
+internal:
+  job: "Answer pipeline and deal questions without rebuilding reports"
+  recurs_when: "Weekly"
+  first_session: "Connect HubSpot, ask one pipeline question"
+  return_signal: "Second question or saved dashboard within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "hubspot dashboard (US 600/mo, KD 18); hubspot reporting (450, KD 8); hubspot reports (150, KD 20); sales pipeline report (150, KD 0); pipeline review (150, KD 1)"
+  basis: "hypothesis (GTM side test; CRM as the anchor, per Brent)"
+  verify: "What the Gong connector pulls, and whether one question can combine HubSpot and Gong. HubSpot connector reliability (the changelog shows recent status fixes). Salesforce is not a listed data source, so don't mention it."

@@ -1,0 +1,83 @@
+slug: weekly-marketing-report
+job_id: job-marketing-report
+app: analytics
+audience: gtm-ops
+title: "A weekly marketing report you don't rebuild by hand"
+subhead: "Connect Google Analytics and HubSpot, ask how the week went in plain English, and keep the answers in a dashboard you can share."
+meta_description: "Connect Google Analytics and HubSpot, ask how the week went in plain English, and keep a shareable marketing dashboard. Open-source Analytics from Agent-Native."
+cta_label: "Try Analytics"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://analytics.agent-native.com"
+screenshot_alt: "An Analytics product overview dashboard with metric cards, a weekly active users chart, an activation funnel, and the agent chat open"
+old_way:
+  heading: "How most people do it today"
+  body: "Every Monday someone pulls numbers from Google Analytics and the CRM into a spreadsheet, then screenshots charts into a doc. The report is out of date by Wednesday."
+new_way:
+  heading: "How it works in Analytics"
+  steps:
+    - "Connect Google Analytics and HubSpot. DataForSEO and X are available as data sources too."
+    - "Ask how the week went in plain English. The agent writes and validates the queries."
+    - "Save the answers as a dashboard and share it with the team."
+todays_stack:
+  heading: "Four tools for one weekly report"
+  items:
+    - tool: "Google Analytics"
+      used_for: "Traffic and conversions"
+      breaks: "Its reports don't match the question you were asked."
+    - tool: "Your CRM"
+      used_for: "Leads and pipeline"
+      breaks: "It's separate from the traffic numbers."
+    - tool: "A spreadsheet"
+      used_for: "Putting it together"
+      breaks: "It's rebuilt every week."
+    - tool: "A doc or slides"
+      used_for: "Sharing the report"
+      breaks: "Screenshots go stale."
+  in_app: "In Analytics, traffic and pipeline data answer the same plain-English questions, and the report lives in a dashboard instead of a screenshot."
+frequency: weekly
+how_often_label: "Weekly"
+roles: [marketing]
+connects_to: ["Google Analytics", "HubSpot", "DataForSEO", "X"]
+next_jobs: [landing-page-prototypes, startup-kpi-dashboard]
+recipes:
+  - id: how-was-the-week
+    title: "Ask how the week went"
+    when: "Monday morning."
+    do: "Connect Google Analytics and HubSpot, then ask."
+    prompt: "How did signups from organic search change this week compared with last week?"
+    you_get: "A chart or metric, with the query the agent wrote."
+    save: "Your connections stay in place for next week."
+    how_often: "Weekly"
+  - id: marketing-dashboard
+    title: "Save the report as a dashboard"
+    when: "You've answered the same questions twice."
+    do: "Save the answers as a dashboard and share it."
+    you_get: "A report that updates instead of one you rebuild."
+    how_often: "Weekly"
+  - id: add-search-data
+    title: "Add search data"
+    when: "You want to see search demand next to your traffic."
+    do: "Connect DataForSEO as a data source and ask about the terms you care about."
+    you_get: "Search data alongside your own numbers."
+    how_often: "Monthly"
+story: null
+faqs:
+  - q: "Which marketing data sources can I connect?"
+    a: "Analytics includes connectors for Google Analytics, HubSpot, DataForSEO, X, and Builder.io Content, among others."
+  - q: "Do I need to write SQL?"
+    a: "No. The agent writes and validates the queries for you."
+  - q: "Can I share the report?"
+    a: "Yes. You can share dashboards per user or per organization, with viewer, editor, or admin roles."
+  - q: "Can I trust the numbers?"
+    a: "Check the first few answers against Google Analytics and your CRM before you rely on them."
+cta_band_heading: "Stop rebuilding the Monday report"
+cta_band_subhead: "Connect your data and ask how the week went."
+updated: 2026-10-15
+internal:
+  job: "Weekly marketing report without rebuilding it"
+  recurs_when: "Weekly"
+  first_session: "Connect GA4, ask one question, save a dashboard"
+  return_signal: "Dashboard opened again within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "marketing report template (US 700/mo, KD 5); ga4 reports (150, KD 20); weekly marketing report (90, KD 0); marketing performance report (80, KD 8)"
+  basis: "hypothesis (marketing side test; dogfooding candidate for Geoff's own team)"
+  verify: "What the DataForSEO connector pulls. That one question can combine GA4 and HubSpot."

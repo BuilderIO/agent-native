@@ -1,0 +1,87 @@
+slug: find-where-users-drop-off
+job_id: job-funnel-dropoff
+app: analytics
+audience: technical
+title: "Find out where new users drop off"
+subhead: "Ask Analytics where people stop between signing up and first real use, then watch session replays to see what happened. The agent writes the queries."
+meta_description: "Ask where new users drop off, build a funnel in plain English, and watch session replays to see why. Open-source Analytics from Agent-Native."
+cta_label: "Try Analytics"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://analytics.agent-native.com"
+screenshot_alt: "An Analytics product overview dashboard with metric cards, a weekly active users chart, an activation funnel, and the agent chat open"
+old_way:
+  heading: "How most people do it today"
+  body: "You build the funnel in one tool, guess at the why, and open a separate session replay tool to find out. By the time the two line up, the question has moved on."
+replaces:
+  - "Amplitude"
+  - "Mixpanel"
+  - "FullStory"
+new_way:
+  heading: "How it works in Analytics"
+  steps:
+    - "Connect your product data, like PostHog, Amplitude, Mixpanel, Google Analytics, or BigQuery, or use the built-in event collector."
+    - "Ask where people drop off in plain English. The agent writes and validates the queries and returns a funnel."
+    - "Open session replays to watch what new users did around the step where people stop."
+todays_stack:
+  heading: "Three tools for one drop-off question"
+  items:
+    - tool: "A product analytics tool, like Amplitude or Mixpanel"
+      used_for: "Building the funnel"
+      breaks: "Only a few people know how to build it."
+    - tool: "A session replay tool"
+      used_for: "Seeing what people actually did"
+      breaks: "It's a separate tool from the funnel, so the numbers and the sessions don't line up."
+    - tool: "A spreadsheet or doc"
+      used_for: "Sharing what you found"
+      breaks: "The screenshot is stale by the next standup."
+  in_app: "In Analytics, plain-English questions, funnels, dashboards, and session replays are in one app, and the agent writes the queries."
+frequency: weekly
+how_often_label: "Weekly"
+roles: [product, engineering, founders]
+connects_to: ["PostHog", "Amplitude", "Mixpanel", "Google Analytics", "BigQuery"]
+next_jobs: [startup-kpi-dashboard, bug-reports-with-console-logs]
+recipes:
+  - id: activation-funnel
+    title: "Build your activation funnel"
+    when: "You want to know where new users stop."
+    do: "Ask for a funnel from signup to the first action that matters in your product."
+    prompt: "Of last week's signups, how many reached [key action], and where did the rest stop?"
+    you_get: "A funnel with the count at each step."
+    save: "Save it as a dashboard so you can check it every week."
+    how_often: "Weekly"
+  - id: watch-sessions
+    title: "Watch what happened"
+    when: "A step loses more people than you expected."
+    do: "Open session replays and watch sessions from new users."
+    you_get: "What people saw and did, instead of a guess."
+    how_often: "Weekly"
+  - id: define-active
+    title: "Agree on what 'active' means"
+    when: "Before you track retention."
+    do: "Write your definition of an active user in the data dictionary."
+    you_get: "Every chart and answer uses the same definition."
+    save: "The definition stays in the data dictionary for every future question."
+    how_often: "Once, then when it changes"
+story: null
+faqs:
+  - q: "Which data sources can I connect?"
+    a: "Analytics includes connectors for sources like PostHog, Amplitude, Mixpanel, Google Analytics, BigQuery, Stripe, and HubSpot, plus a built-in first-party event collector."
+  - q: "Does Analytics include session replay?"
+    a: "Yes. Analytics includes session replays alongside dashboards and plain-English questions."
+  - q: "Do I need to write SQL?"
+    a: "No. The agent writes and validates the SQL. You can also use the SQL query explorer to run queries yourself."
+  - q: "Can I trust the funnel numbers?"
+    a: "Check the first few against a source you trust, and define your events clearly in the data dictionary. A funnel is only as good as the events behind it."
+cta_band_heading: "Find your biggest drop-off"
+cta_band_subhead: "Connect your data and ask where people stop."
+updated: 2026-10-15
+internal:
+  job: "Find where new users drop off and why"
+  recurs_when: "Weekly"
+  first_session: "Connect one source, ask one funnel question"
+  return_signal: "Second funnel question or saved dashboard within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "funnel analysis (US 1,200/mo, KD 0); session replay (900, KD 47); retention analysis (500, KD 2); onboarding funnel (100, KD 0)"
+  basis: "hypothesis, plus dogfooding: Michael used funnels and session replays to find why Clips users left after recording"
+  replaces_source: "Analytics page names Amplitude and Mixpanel. Analytics README names FullStory."
+  story_candidate: "Michael's Clips finding: users who recorded without connecting storage downloaded the file and left. Needs Michael's permission and his wording."
+  verify: "Session replay is available to users of the hosted app. A funnel can be built from a plain-English question. The built-in event collector is available. The data dictionary holds definitions."
