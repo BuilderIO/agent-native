@@ -343,6 +343,11 @@ export function AgentNativeMotionText({
       throw error;
     }
 
+    const textTimelineDurationMs = previewAnimations.reduce(
+      (duration, entry) => Math.max(duration, entry.delay + entry.durationMs),
+      0,
+    );
+
     let isPreviewing = false;
 
     const handlePreviewMessage = (event: MessageEvent<unknown>) => {
@@ -363,13 +368,19 @@ export function AgentNativeMotionText({
       }
 
       const t = Number(event.data.t);
-      const timelineDuration = Number(event.data.durationMs);
-      if (!Number.isFinite(t) || !Number.isFinite(timelineDuration)) return;
-      if (timelineDuration <= 0) return;
+      const requestedTimelineDuration = Number(event.data.durationMs);
+      if (!Number.isFinite(t) || !Number.isFinite(requestedTimelineDuration)) {
+        return;
+      }
+      if (requestedTimelineDuration <= 0) return;
       if (!isPreviewing) {
         isPreviewing = true;
         for (const entry of previewAnimations) entry.animation.pause();
       }
+      const timelineDuration = Math.max(
+        requestedTimelineDuration,
+        textTimelineDurationMs,
+      );
       const timelineTime = Math.max(0, Math.min(1, t)) * timelineDuration;
       for (const entry of previewAnimations) {
         const elapsed = Math.max(0, timelineTime - entry.delay);

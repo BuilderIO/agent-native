@@ -3118,11 +3118,12 @@ export const EditPanel = memo(function EditPanel({
                                   </Button>
                                 </PopoverTrigger>
                                 <PopoverContent
-                                  align="end"
+                                  align="start"
                                   side="left"
-                                  className="w-[244px] p-0"
+                                  sideOffset={184}
+                                  className="w-[240px] p-0"
                                 >
-                                  <div className="h-[min(480px,calc(100dvh-4rem))]">
+                                  <div className="h-[min(483px,calc(100dvh-4rem))]">
                                     <AnimationStyleBrowser
                                       styles={motionAnimationStyles}
                                       basicStyles={getMotionDockPrimaryStyles(

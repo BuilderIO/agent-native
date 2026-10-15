@@ -620,8 +620,15 @@ test.describe.serial("React Motion source browser writeback", () => {
     await expect(
       page.getByRole("option", { name: "Bottom to top", exact: true }),
     ).toHaveCount(0);
-    await page.keyboard.press("Escape");
-    await expect(orderSelect).toHaveAttribute("aria-expanded", "false");
+    const orderSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await page.getByRole("option", { name: "Center out", exact: true }).click();
+    const orderResponse = await orderSave;
+    expect(orderResponse.ok(), await orderResponse.text()).toBe(true);
     await expect
       .poll(() =>
         getAction(request, "get-motion-timeline", {
@@ -632,7 +639,9 @@ test.describe.serial("React Motion source browser writeback", () => {
       .toMatchObject({
         timelines: [
           {
-            textDocument: { animations: [{ unit: "line" }] },
+            textDocument: {
+              animations: [{ unit: "line", order: "center-out" }],
+            },
           },
         ],
       });

@@ -541,6 +541,40 @@ describe("AgentNativeMotionText", () => {
     ]);
   });
 
+  it("seeks fixed character stagger across whitespace through its actual duration", async () => {
+    const characterAnimation = {
+      ...animation,
+      unit: "character",
+      staggerMs: 50,
+      ignoreSpaces: false,
+      delayMs: 25,
+      durationMs: 200,
+    } as MotionTextAnimation;
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={characterAnimation}>
+          <h1 data-agent-native-node-id="headline">A B</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(mockedAnimations.map(({ options }) => options.delay)).toEqual([
+      25, 75, 125,
+    ]);
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: window,
+        data: { type: "motion-preview", t: 1, durationMs: 200 },
+      }),
+    );
+
+    expect(
+      mockedAnimations.map(({ animation: handle }) => handle.currentTime),
+    ).toEqual([200, 200, 200]);
+  });
+
   it.each([
     {
       label: "unsupported order",

@@ -600,8 +600,8 @@ describe("MotionNativeStyleEditor", () => {
     },
   );
 
-  it.each(["CHARACTER", "WORD"] as const)(
-    "keeps a stored vertical TextStagger order selectable for unsupported %s grouping",
+  it.each(["CHARACTER", "WORD", "LINE", "PARAGRAPH"] as const)(
+    "keeps a stored vertical TextStagger order selectable for %s grouping",
     async (grouping) => {
       const base = createMotionNativeStyleInstance({
         styleKey: "TextStagger",

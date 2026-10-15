@@ -236,6 +236,64 @@ test("Motion inspector states match the editable timeline", async ({
     page.getByRole("button", { name: "Add animation", exact: true }).first(),
   ).toBeVisible();
 
+  await page.setViewportSize({ width: 1728, height: 997 });
+  const animationCatalogTrigger = page.getByRole("button", {
+    name: "Animations",
+    exact: true,
+  });
+  await animationCatalogTrigger.click();
+  const animationCatalog = page
+    .locator("[data-radix-popper-content-wrapper]")
+    .filter({
+      has: page.getByRole("button", { name: "Close", exact: true }),
+    });
+  await expect(animationCatalog).toBeVisible();
+  await animationCatalog.evaluate(async (popover) => {
+    const finiteAnimations = popover
+      .getAnimations()
+      .filter(
+        (animation) => animation.effect?.getTiming().iterations !== Infinity,
+      );
+    await Promise.all(finiteAnimations.map((animation) => animation.finished));
+  });
+  await captureReferenceState(
+    page,
+    "motion-controls-animation-library-2026-10-15",
+  );
+  const catalogGeometry = await animationCatalog.evaluate((popover) => {
+    const rect = popover.getBoundingClientRect();
+    const trigger = document.querySelector<HTMLElement>(
+      'button[aria-label="Animations"]',
+    );
+    const inspector = trigger?.closest<HTMLElement>(
+      "[data-design-inspector-section]",
+    );
+    if (!inspector || !trigger) {
+      throw new Error("Animation catalog anchor geometry is unavailable");
+    }
+    return {
+      popover: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      inspector: inspector.getBoundingClientRect().toJSON(),
+      trigger: trigger.getBoundingClientRect().toJSON(),
+    };
+  });
+  expect(catalogGeometry.popover.width).toBe(240);
+  expect(catalogGeometry.popover.height).toBe(485);
+  expect(
+    Math.abs(
+      catalogGeometry.popover.x +
+        catalogGeometry.popover.width -
+        catalogGeometry.inspector.x,
+    ),
+  ).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs(catalogGeometry.popover.y - catalogGeometry.trigger.y),
+  ).toBeLessThanOrEqual(1);
+  await animationCatalog
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await page.setViewportSize({ width: 1728, height: 941 });
+
   const addAnimation = page
     .getByRole("button", { name: "Add animation", exact: true })
     .first();
