@@ -7,7 +7,6 @@ import type {
 import {
   MOTION_BUILT_IN_RECIPES,
   type MotionBuiltInRecipe,
-  type MotionBuiltInRecipeCategory,
   type MotionBuiltInRecipeProperty,
   type MotionBuiltInRecipeTempo,
 } from "@shared/motion-built-in-recipes";
