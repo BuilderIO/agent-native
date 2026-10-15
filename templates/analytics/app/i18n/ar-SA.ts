@@ -1215,6 +1215,7 @@ export default {
     selectAll: "تحديد الكل",
     selectOnly: "فقط",
     selectOnlyValue: "فقط {{value}}",
+    presets: "إعدادات مسبقة",
     untitledDashboard: "لوحة تحكم بلا عنوان",
     dashboardFallback: "لوحة المعلومات",
     viewOnly: "لديك حق الوصول للعرض فقط إلى لوحة المعلومات هذه.",
