@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { appStateGet } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import { isOrgMember } from "@agent-native/core/org";
 import {
   getSession,
   getForwardedRequestURL,
@@ -506,11 +507,16 @@ export async function canReadAppActivityEvents(
   access: PublicAgentAccess,
 ): Promise<boolean> {
   if (access.viewerIsOwner) return true;
-  if (!access.agentLinkCreatorEmail) return false;
+  const userEmail = access.agentLinkCreatorEmail;
+  if (!userEmail) return false;
+  const { orgId } = access.recording;
+  // resolveAccess trusts the orgId it is given, so pass it only for a member.
+  const memberOrgId =
+    orgId && (await isOrgMember(orgId, userEmail)) ? orgId : undefined;
   const creator = await resolveAccess(
     "recording",
     access.recording.id,
-    { userEmail: access.agentLinkCreatorEmail },
+    { userEmail, ...(memberOrgId ? { orgId: memberOrgId } : {}) },
     { skipResourceBody: true },
   );
   return creator !== null && roleSatisfies(creator.role, "editor");

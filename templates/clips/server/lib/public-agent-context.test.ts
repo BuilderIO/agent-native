@@ -9,6 +9,11 @@ const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockRecordings = vi.hoisted(() => ({ rows: [] as any[] }));
 const mockResolveAccess = vi.hoisted(() => vi.fn());
+const mockIsOrgMember = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/org", () => ({
+  isOrgMember: mockIsOrgMember,
+}));
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: mockResolveAccess,
@@ -268,6 +273,37 @@ describe("public agent context access", () => {
     expect(
       fromViewer.ok && (await canReadAppActivityEvents(fromViewer.access)),
     ).toBe(false);
+  });
+
+  it("counts an org share for an agent link creator only while they are in that org", async () => {
+    mockRecordings.rows = [makeRecording({ orgId: "org-1" })];
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: true,
+      viewerEmail: "teammate@example.com",
+    });
+    const loaded = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "agent-link-token",
+    });
+    if (!loaded.ok) throw new Error("expected the agent link to load");
+    mockResolveAccess.mockResolvedValue({ role: "editor" });
+
+    mockIsOrgMember.mockResolvedValueOnce(true);
+    expect(await canReadAppActivityEvents(loaded.access)).toBe(true);
+    expect(mockResolveAccess).toHaveBeenLastCalledWith(
+      "recording",
+      "rec-1",
+      { userEmail: "teammate@example.com", orgId: "org-1" },
+      { skipResourceBody: true },
+    );
+
+    mockIsOrgMember.mockResolvedValueOnce(false);
+    await canReadAppActivityEvents(loaded.access);
+    expect(mockResolveAccess).toHaveBeenLastCalledWith(
+      "recording",
+      "rec-1",
+      { userEmail: "teammate@example.com" },
+      { skipResourceBody: true },
+    );
   });
 
   it("keeps private clips hidden from callers without a scoped agent token", async () => {
