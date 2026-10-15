@@ -1338,6 +1338,8 @@ const messages: ToolkitAgentChatTranslation = {
     "O provedor do modelo rejeitou esta solicitação por estar malformada, então ela não foi repetida. Tente novamente ou inicie um novo chat se continuar acontecendo.",
   "errorMessages.requestTooLarge":
     "Esta solicitação excedeu o limite de tamanho do servidor (HTTP 413). Inicie um novo chat ou remova anexos ou referências grandes e tente novamente.",
+  "errorMessages.capabilityUnavailable":
+    "Não foi possível enviar sua mensagem agora. Tente novamente em instantes.",
   "errorMessages.runInterrupted": "O agente parou antes de terminar.",
   "errorMessages.runFailed": "A execução do agente falhou.",
   "errorMessages.runUnverified":

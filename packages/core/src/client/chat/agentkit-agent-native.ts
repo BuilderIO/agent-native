@@ -1,7 +1,4 @@
-import {
-  AgentKitCapabilityError,
-  AgentKitRunSlotBusyError,
-} from "@agent-native/agentkit/client";
+import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type {
   AgentAnnotation,
   AgentAnnotationSnapshot,
@@ -24,6 +21,7 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+  createCapabilityUnavailableError,
   createCapabilityUnsupportedError,
   agentEventSequenceEnd,
   isAgentKitProtocolVersion,
@@ -53,7 +51,10 @@ import {
   requireAgentEngineConfiguredForDispatch,
 } from "../agent-engine-readiness.js";
 import { agentNativePath } from "../api-path.js";
-import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
+import {
+  CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
+  CHAT_REQUEST_TOO_LARGE_MESSAGE,
+} from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
 import {
   appendChatThreadScopeParams,
@@ -3600,7 +3601,7 @@ export function createAgentNativeAgentKitTransport(
           await waitForSnapshotRetry(attempt, signal);
         };
         throwIfRequestAborted(signal);
-        let response: Response;
+        let response: Response | undefined = undefined;
         try {
           response = await fetcher(threadUrl, {
             method: "PUT",
@@ -4354,15 +4355,15 @@ export function createAgentNativeAgentKitTransport(
             };
           })();
       let supported = false;
+      let unavailableError:
+        | ReturnType<typeof createCapabilityUnavailableError>
+        | undefined;
       if (serverBackedCapabilities) {
-        const unavailableError = () =>
-          new AgentKitCapabilityError(
-            capability,
-            "unavailable",
-            "We couldn't check prompt recovery support right now. Try again shortly.",
-            true,
-          );
-        let response: Response;
+        const createUnavailableError = () =>
+          createCapabilityUnavailableError(capability, {
+            message: CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
+          });
+        let response: Response | undefined = undefined;
         try {
           response = await fetcher(capabilitiesUrl, {
             method: "GET",
@@ -4373,35 +4374,48 @@ export function createAgentNativeAgentKitTransport(
           });
         } catch (error) {
           if (context?.signal?.aborted) throw error;
-          throw unavailableError();
+          unavailableError = createUnavailableError();
         }
         if (
+          !unavailableError &&
+          response &&
           !response.ok &&
           response.status !== 404 &&
           response.status !== 405
         ) {
-          throw unavailableError();
+          unavailableError = createUnavailableError();
         }
-        if (response.ok) {
+        if (!unavailableError && response?.ok) {
           try {
             const serverCapabilities = asRecord(await response.json());
+            if (!serverCapabilities) {
+              throw new TypeError("Capability response must be an object.");
+            }
             supported = serverCapabilities?.[capability] === true;
           } catch (error) {
             if (context?.signal?.aborted) throw error;
-            throw unavailableError();
+            unavailableError = createUnavailableError();
           }
         }
       }
       const descriptor: AgentCapabilityDescriptor = supported
         ? { id: capability, state: "available" }
-        : {
-            id: capability,
-            state: "unsupported",
-            error: createCapabilityUnsupportedError(capability, {
-              message:
-                "This server does not advertise deadline-safe prompt recovery.",
-            }),
-          };
+        : unavailableError
+          ? { id: capability, state: "unavailable", error: unavailableError }
+          : {
+              id: capability,
+              state: "unsupported",
+              error: createCapabilityUnsupportedError(capability, {
+                message:
+                  "This server does not advertise deadline-safe prompt recovery.",
+              }),
+            };
+      const legacy = { ...discovery.legacy };
+      if (unavailableError) {
+        delete legacy[capability];
+      } else {
+        legacy[capability] = supported;
+      }
       return {
         ...discovery,
         capabilities: [
@@ -4410,10 +4424,7 @@ export function createAgentNativeAgentKitTransport(
           ),
           descriptor,
         ],
-        legacy: {
-          ...discovery.legacy,
-          [capability]: supported,
-        },
+        legacy,
       };
     },
     async *subscribeToRun(input) {

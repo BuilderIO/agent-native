@@ -353,8 +353,26 @@ describe("createAgentNativeAgentKitTransport", () => {
           client.sendMessage({
             threadId: "thread-capability-retry",
             text: "First try",
+            metadata: {
+              custom: {
+                agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+              },
+            },
           }),
-        ).rejects.toMatchObject({ retryable: true });
+        ).rejects.toMatchObject({
+          code: "capability_unavailable",
+          retryable: true,
+        });
+        expect(promptDispatches).toBe(0);
+        expect(
+          client
+            .getSnapshot()
+            .capabilityDiscovery?.capabilities.find(
+              (candidate) =>
+                candidate.id ===
+                AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+            ),
+        ).toMatchObject({ state: "unavailable", error: { retryable: true } });
 
         const run = await client.sendMessage({
           threadId: "thread-capability-retry",
@@ -425,11 +443,17 @@ describe("createAgentNativeAgentKitTransport", () => {
 
   it("keeps ordinary prompts usable when the deadline endpoint is unavailable", async () => {
     const apiUrl = "https://provider.example.test/_agent-native/agent-chat";
+    const capabilityUrl = `${apiUrl}/capabilities`;
+    let capabilityRequests = 0;
     let promptDispatches = 0;
     const fetcher = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         if (String(input).endsWith("/_agent-native/agent-engine/status")) {
           return json({ configured: true, chatEligible: true });
+        }
+        if (String(input) === capabilityUrl) {
+          capabilityRequests += 1;
+          return json({ error: "Temporarily unavailable" }, 503);
         }
         if (
           String(input) === apiUrl &&
@@ -463,6 +487,10 @@ describe("createAgentNativeAgentKitTransport", () => {
       });
       await run.completed;
 
+      expect(await client.getCapabilities()).not.toHaveProperty(
+        AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+      );
+      expect(capabilityRequests).toBe(1);
       expect(promptDispatches).toBe(1);
     } finally {
       await client.shutdown();

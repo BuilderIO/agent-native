@@ -5613,6 +5613,12 @@ export class AgentKitClient implements AgentKitController {
     context: AgentRequestContext,
   ): Promise<void> {
     const capability = AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID;
+    const descriptor = this.snapshot.capabilityDiscovery?.capabilities.find(
+      (candidate) => candidate.id === capability,
+    );
+    if (descriptor?.state === "unavailable" && descriptor.error.retryable) {
+      this.patch({ capabilitiesStatus: "error" });
+    }
     await this.requireCapability(capability, context);
     const capabilities = await this.ensureCapabilities(context);
     if (capabilities[capability] !== true) {

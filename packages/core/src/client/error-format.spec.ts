@@ -13,6 +13,7 @@ import {
 } from "./chat/run-outcome.js";
 import {
   BUILDER_SPACE_SETTINGS_URL,
+  CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
   NEW_CHAT_ACTION_HREF,
   PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
   SERVER_AUTHORED_CREDENTIAL_CODES,
@@ -547,6 +548,20 @@ describe("localizeKnownChatErrorText", () => {
             : interpolate(key, options),
       ),
     ).toBe("Fehler: Diese Anfrage ist zu groß.");
+  });
+
+  it("localizes an unavailable capability message", () => {
+    expect(
+      localizeKnownChatErrorText(
+        `Error: ${CHAT_CAPABILITY_UNAVAILABLE_MESSAGE}`,
+        (key, options) =>
+          key === "agentChat.errorMessages.capabilityUnavailable"
+            ? "No fue posible enviar tu mensaje ahora. Inténtalo de nuevo en breve."
+            : interpolate(key, options),
+      ),
+    ).toBe(
+      "Fehler: No fue posible enviar tu mensaje ahora. Inténtalo de nuevo en breve.",
+    );
   });
 
   it("localizes a typed invalid-attachment failure", () => {
