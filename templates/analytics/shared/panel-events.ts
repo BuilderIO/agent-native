@@ -21,6 +21,13 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_OF_DAY = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DAY_MS = 86_400_000;
 
+/** A real "YYYY-MM-DD" day. Date.parse rolls 2026-02-30 over to March 2 instead of rejecting it. */
+export function isIsoCalendarDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false;
+  const ms = Date.parse(value);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === value;
+}
+
 export function isValidTimeZone(value: unknown): value is string {
   if (typeof value !== "string" || value.trim() === "") return false;
   try {
@@ -32,21 +39,41 @@ export function isValidTimeZone(value: unknown): value is string {
   }
 }
 
+/** What is wrong with `value` as an event, or null when it is a valid one. */
+export function panelEventProblem(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "must be an object";
+  }
+  const { date, label, color, time, timeZone } = value as Record<
+    string,
+    unknown
+  >;
+  if (typeof date !== "string" || !isIsoCalendarDate(date)) {
+    return 'date must be a real "YYYY-MM-DD" day';
+  }
+  if (typeof label !== "string" || label.trim() === "") {
+    return "label must be a non-empty string";
+  }
+  if (color !== undefined && typeof color !== "string") {
+    return "color must be a string";
+  }
+  if (time === undefined) {
+    return timeZone === undefined ? null : "timeZone needs a time";
+  }
+  if (typeof time !== "string" || !TIME_OF_DAY.test(time)) {
+    return 'time must be a 24-hour "HH:MM"';
+  }
+  if (timeZone === undefined) return null;
+  if (!isValidTimeZone(timeZone)) {
+    return "timeZone must be an IANA zone, such as America/New_York";
+  }
+  return zonedInstant(eventWallTime({ date, time }), timeZone) === null
+    ? nonexistentTimeProblem({ date, time, timeZone })
+    : null;
+}
+
 export function isValidPanelEvent(value: unknown): value is PanelEvent {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const event = value as Record<string, unknown>;
-  return (
-    typeof event.date === "string" &&
-    ISO_DATE.test(event.date) &&
-    !Number.isNaN(Date.parse(event.date)) &&
-    typeof event.label === "string" &&
-    event.label.trim() !== "" &&
-    (event.color === undefined || typeof event.color === "string") &&
-    (event.time === undefined ||
-      (typeof event.time === "string" && TIME_OF_DAY.test(event.time))) &&
-    (event.timeZone === undefined ||
-      (event.time !== undefined && isValidTimeZone(event.timeZone)))
-  );
+  return panelEventProblem(value) === null;
 }
 
 /** Milliseconds a zone's wall clock is ahead of UTC at `instant`. */
@@ -76,18 +103,42 @@ function zoneOffsetMs(instant: number, timeZone: string): number {
   return wall - Math.floor(instant / 1000) * 1000;
 }
 
+/**
+ * The instant a zone's clocks read `wall` (a wall time written as UTC ms), or
+ * null when they skip it springing forward. A time they read twice falling
+ * back resolves to the earlier instant: 01:30 on New York's November change
+ * day is 01:30 EDT, not EST.
+ */
+function zonedInstant(wall: number, timeZone: string): number | null {
+  // The offsets a day either side are the ones in force around any change.
+  const shown = [wall - DAY_MS, wall + DAY_MS]
+    .map((probe) => wall - zoneOffsetMs(probe, timeZone))
+    .filter((instant) => instant + zoneOffsetMs(instant, timeZone) === wall);
+  return shown.length > 0 ? Math.min(...shown) : null;
+}
+
+function eventWallTime(event: Pick<PanelEvent, "date" | "time">): number {
+  const base = Date.parse(event.date);
+  if (!event.time) return base;
+  const [hours, minutes] = event.time.split(":").map(Number);
+  return base + (hours * 60 + minutes) * 60_000;
+}
+
+function nonexistentTimeProblem(
+  event: Pick<PanelEvent, "date" | "time" | "timeZone">,
+): string {
+  return `time ${event.time} does not exist on ${event.date} in ${event.timeZone}: the clocks skip it for daylight saving`;
+}
+
 /** The UTC instant of an event's date and time of day in its time zone. */
 export function panelEventInstant(
   event: Pick<PanelEvent, "date" | "time" | "timeZone">,
 ): number {
-  const base = Date.parse(event.date);
-  if (!event.time) return base;
-  const [hours, minutes] = event.time.split(":").map(Number);
-  const wall = base + (hours * 60 + minutes) * 60_000;
-  if (!event.timeZone) return wall;
-  // Second pass settles times next to a daylight-saving change.
-  const first = wall - zoneOffsetMs(wall, event.timeZone);
-  return wall - zoneOffsetMs(first, event.timeZone);
+  const wall = eventWallTime(event);
+  if (!event.time || !event.timeZone) return wall;
+  const instant = zonedInstant(wall, event.timeZone);
+  if (instant === null) throw new RangeError(nonexistentTimeProblem(event));
+  return instant;
 }
 
 export function xInstant(value: unknown): number | null {
@@ -124,26 +175,37 @@ function containingBucket(points: readonly number[], target: number): number {
 }
 
 /**
+ * The calendar day an x value is written on, as UTC ms. A zoned timestamp
+ * keeps its own date: local midnight east of UTC is the previous UTC day.
+ */
+function xDay(value: unknown, instant: number): number {
+  return typeof value === "string"
+    ? Date.parse(value.trim().slice(0, 10))
+    : Math.floor(instant / DAY_MS) * DAY_MS;
+}
+
+/**
  * Snaps each event to the nearest x value. Daily axes match on the event's
  * date; an axis with several points per day matches on its time of day too.
- * Events outside the x range, and x axes that are not dates, resolve to
- * nothing.
+ * Rows whose x is not a date (a null bucket, a total row) are skipped; events
+ * outside the x range, and x axes with no dates at all, resolve to nothing.
  */
 export function resolvePanelEvents(
   events: unknown,
   xValues: readonly unknown[],
 ): ResolvedPanelEvent[] {
-  if (!Array.isArray(events) || xValues.length === 0) return [];
-  const instants = xValues.map(xInstant);
-  if (instants.some((instant) => instant === null)) return [];
-  const known = instants as number[];
-  const subDaily = known.some(
-    (instant, index) =>
-      index > 0 && Math.abs(instant - known[index - 1]) < DAY_MS,
-  );
-  const points = subDaily
-    ? known
-    : known.map((instant) => Math.floor(instant / DAY_MS) * DAY_MS);
+  if (!Array.isArray(events)) return [];
+  const rows = xValues.flatMap((x, row) => {
+    const instant = xInstant(x);
+    return instant === null ? [] : [{ row, instant, day: xDay(x, instant) }];
+  });
+  if (rows.length === 0) return [];
+  // Cadence comes from calendar dates, not gaps: local midnights 23 or 25
+  // hours apart across a daylight-saving change are still one point a day.
+  const subDaily =
+    new Set(rows.map((entry) => entry.instant)).size >
+    new Set(rows.map((entry) => entry.day)).size;
+  const points = rows.map((entry) => (subDaily ? entry.instant : entry.day));
   const min = Math.min(...points);
   const max = Math.max(...points);
   const step = subDaily
@@ -164,9 +226,10 @@ export function resolvePanelEvents(
       ? containingBucket(points, target)
       : nearestPoint(points, target);
     if (best < 0) continue;
+    const { row } = rows[best];
     resolved.push({
-      index: best,
-      x: String(xValues[best]),
+      index: row,
+      x: String(xValues[row]),
       date: event.date,
       ...(event.time ? { time: event.time } : {}),
       ...(event.timeZone ? { timeZone: event.timeZone } : {}),
@@ -202,13 +265,19 @@ export function groupPanelEvents(
     }));
 }
 
-/** "3:01 AM ET" for a timed event, in its own time zone; null without a time. */
-export function formatPanelEventTime(
+const EVENT_DATE_PARTS = {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+} as const;
+
+function formatTimedEvent(
   event: Pick<PanelEvent, "date" | "time" | "timeZone">,
-  locale?: string,
-): string | null {
-  if (!event.time) return null;
+  withDate: boolean,
+  locale: string | undefined,
+): string {
   return new Intl.DateTimeFormat(locale, {
+    ...(withDate ? EVENT_DATE_PARTS : {}),
     hour: "numeric",
     minute: "2-digit",
     timeZone: event.timeZone ?? "UTC",
@@ -216,12 +285,34 @@ export function formatPanelEventTime(
   }).format(panelEventInstant(event));
 }
 
+/** "3:01 AM ET" for a timed event, in its own time zone; null without a time. */
+export function formatPanelEventTime(
+  event: Pick<PanelEvent, "date" | "time" | "timeZone">,
+  locale?: string,
+): string | null {
+  return event.time ? formatTimedEvent(event, false, locale) : null;
+}
+
+/**
+ * When an event happened, in a list headed by `headerDate`: its time, with its
+ * own date in front whenever that is another day ("Oct 13, 2026, 3:01 AM ET").
+ * A weekly or monthly point gathers several days' events under one header.
+ * Null for an untimed event on the header's date.
+ */
+export function formatPanelEventWhen(
+  event: Pick<PanelEvent, "date" | "time" | "timeZone">,
+  headerDate: string,
+  locale?: string,
+): string | null {
+  const withDate = event.date !== headerDate;
+  if (event.time) return formatTimedEvent(event, withDate, locale);
+  return withDate ? formatPanelEventDate(event.date, locale) : null;
+}
+
 /** "Oct 14, 2026" for an event's date. */
 export function formatPanelEventDate(date: string, locale?: string): string {
   return new Intl.DateTimeFormat(locale, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
+    ...EVENT_DATE_PARTS,
     timeZone: "UTC",
   }).format(Date.parse(date));
 }

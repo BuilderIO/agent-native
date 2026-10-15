@@ -11,9 +11,11 @@ import {
   type DataNotePanelRef,
   type DataNoteStatus,
 } from "../../shared/data-notes.js";
+import { isIsoCalendarDate } from "../../shared/panel-events.js";
 import { getDb, schema } from "../db/index.js";
 import {
   inAnnotationScope,
+  writeInAnnotationScope,
   requireAnnotationScope,
   type AnnotationScope,
 } from "./annotation-scope.js";
@@ -25,7 +27,6 @@ const MAX_FIX_LENGTH = 500;
 const MAX_EVENTS = 20;
 const MAX_EVENT_LENGTH = 200;
 const MAX_PANELS = 50;
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const notes = schema.analyticsDataNotes;
 type NoteRow = typeof notes.$inferSelect;
@@ -111,8 +112,8 @@ function cleanText(
 
 function cleanDate(value: string | null | undefined, field: string) {
   if (value == null || value === "") return undefined;
-  if (!ISO_DATE.test(value) || Number.isNaN(Date.parse(value))) {
-    invalid(`${field} must be a date "YYYY-MM-DD".`);
+  if (!isIsoCalendarDate(value)) {
+    invalid(`${field} must be a real day "YYYY-MM-DD".`);
   }
   return value;
 }
@@ -214,10 +215,11 @@ function toColumns(fields: NoteFields) {
 }
 
 async function findNote(
+  tx: any,
   scope: AnnotationScope,
   id: string,
 ): Promise<NoteRow | undefined> {
-  const [row] = await (getDb() as any)
+  const [row] = await tx
     .select()
     .from(notes)
     .where(and(inAnnotationScope(notes, scope), eq(notes.id, id)))
@@ -225,25 +227,37 @@ async function findNote(
   return row;
 }
 
-/** Adds a note, or changes only the fields given on the note with `id`. */
-export async function saveDataNote(
+async function updateNote(
+  tx: any,
   scope: AnnotationScope,
+  id: string,
   input: SaveDataNoteInput,
 ): Promise<DataNote> {
-  const db = getDb() as any;
-  if (input.id) {
-    const existing = await findNote(scope, input.id);
-    if (!existing) notFound(input.id);
-    const [row] = await db
-      .update(notes)
-      .set(toColumns(cleanNote(input, toDataNote(existing))))
-      .where(and(inAnnotationScope(notes, scope), eq(notes.id, input.id)))
-      .returning();
-    if (!row) notFound(input.id);
-    return toDataNote(row);
-  }
-  const fields = cleanNote(input);
-  const [{ total }] = await db
+  const existing = await findNote(tx, scope, id);
+  if (!existing) notFound(id);
+  const columns = toColumns(cleanNote(input, toDataNote(existing)));
+  const given = Object.fromEntries(
+    Object.entries(columns).filter(
+      ([key]) =>
+        key === "updatedAt" ||
+        input[key as keyof SaveDataNoteInput] !== undefined,
+    ),
+  );
+  const [row] = await tx
+    .update(notes)
+    .set(given)
+    .where(and(inAnnotationScope(notes, scope), eq(notes.id, id)))
+    .returning();
+  if (!row) notFound(id);
+  return toDataNote(row);
+}
+
+async function addNote(
+  tx: any,
+  scope: AnnotationScope,
+  fields: NoteFields,
+): Promise<DataNote> {
+  const [{ total }] = await tx
     .select({ total: count() })
     .from(notes)
     .where(inAnnotationScope(notes, scope));
@@ -254,7 +268,7 @@ export async function saveDataNote(
     });
   }
   const columns = toColumns(fields);
-  const [row] = await db
+  const [row] = await tx
     .insert(notes)
     .values({
       ...columns,
@@ -267,16 +281,33 @@ export async function saveDataNote(
   return toDataNote(row);
 }
 
+/** Adds a note, or changes only the fields given on the note with `id`. */
+export async function saveDataNote(
+  scope: AnnotationScope,
+  input: SaveDataNoteInput,
+): Promise<DataNote> {
+  const { id } = input;
+  if (id) {
+    return writeInAnnotationScope(scope, (tx) =>
+      updateNote(tx, scope, id, input),
+    );
+  }
+  const fields = cleanNote(input);
+  return writeInAnnotationScope(scope, (tx) => addNote(tx, scope, fields));
+}
+
 export async function deleteDataNote(
   scope: AnnotationScope,
   id: string,
 ): Promise<{ id: string }> {
-  const deleted = await (getDb() as any)
-    .delete(notes)
-    .where(and(inAnnotationScope(notes, scope), eq(notes.id, id)))
-    .returning({ id: notes.id });
-  if (deleted.length === 0) notFound(id);
-  return { id };
+  return writeInAnnotationScope(scope, async (tx) => {
+    const deleted = await tx
+      .delete(notes)
+      .where(and(inAnnotationScope(notes, scope), eq(notes.id, id)))
+      .returning({ id: notes.id });
+    if (deleted.length === 0) notFound(id);
+    return { id };
+  });
 }
 
 function notFound(id: string): never {

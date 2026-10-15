@@ -4,6 +4,8 @@ import {
   estimateTextWidth,
   isCategoryAxis,
   planCategoryAxis,
+  spanLabelX,
+  trimToWholeWords,
   trimToWidth,
 } from "../../shared/chart-axis-labels";
 import type { DashboardFunnelItem } from "../../shared/dashboard-funnel";
@@ -370,10 +372,12 @@ function stackSegments(
 
 const EVENT_LABEL_FONT_SIZE = 10;
 const EVENT_LABEL_ROW_HEIGHT = 13;
-const EVENT_LABEL_MAX_ROWS = 3;
+const EVENT_LABEL_MAX_ROWS = 6;
+const EVENT_LABEL_MAX_LINES = 3;
 const EVENT_LABEL_GAP = 8;
+const EVENT_LABEL_SEPARATOR = " · ";
 
-type EventGroup = { index: number; label: string; color?: string };
+type EventGroup = { index: number; labels: string[]; color?: string };
 
 /** Same-day events share one line, so their labels join instead of overprinting. */
 function groupEventsByIndex(
@@ -389,51 +393,167 @@ function groupEventsByIndex(
     .sort(([a], [b]) => a - b)
     .map(([index, members]) => ({
       index,
-      label: members.map((member) => member.label).join(" · "),
+      labels: members.map((member) => member.label),
       color: members[0].color,
     }));
 }
 
-type PlacedEventLabel = EventGroup & {
+const fitsEventLine = (value: string, maxWidth: number) =>
+  estimateTextWidth(value, EVENT_LABEL_FONT_SIZE) <= maxWidth;
+
+/** Breaks a label at its spaces; only a single word wider than a line is trimmed. */
+function wrapEventLabel(label: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  for (const word of label.split(/\s+/).filter(Boolean)) {
+    const joined = `${lines[lines.length - 1]} ${word}`;
+    if (lines.length > 0 && fitsEventLine(joined, maxWidth)) {
+      lines[lines.length - 1] = joined;
+    } else {
+      lines.push(trimToWidth(word, EVENT_LABEL_FONT_SIZE, maxWidth));
+    }
+  }
+  return lines;
+}
+
+/** Joins whole labels into lines; a label that needs its own lines starts one. */
+function packEventLabels(labels: readonly string[], maxWidth: number) {
+  const lines: string[] = [];
+  let lastTakesMore = false;
+  for (const label of labels) {
+    const joined = `${lines[lines.length - 1]}${EVENT_LABEL_SEPARATOR}${label}`;
+    if (lastTakesMore && fitsEventLine(joined, maxWidth)) {
+      lines[lines.length - 1] = joined;
+      continue;
+    }
+    const wrapped = wrapEventLabel(label, maxWidth);
+    lines.push(...wrapped);
+    lastTakesMore = wrapped.length === 1;
+  }
+  return lines;
+}
+
+/**
+ * One day's labels as at most `EVENT_LABEL_MAX_LINES` lines. Labels that don't
+ * fit are counted in a "+N more" line rather than cut, and a lone label too
+ * long for the lines ends on a whole word.
+ */
+function eventLabelLines(labels: readonly string[], maxWidth: number) {
+  for (let shown = labels.length; shown > 0; shown -= 1) {
+    const lines = packEventLabels(labels.slice(0, shown), maxWidth);
+    const hidden = labels.length - shown;
+    if (hidden === 0 && lines.length <= EVENT_LABEL_MAX_LINES) return lines;
+    if (hidden > 0 && lines.length < EVENT_LABEL_MAX_LINES) {
+      return [...lines, `+${hidden} more`];
+    }
+  }
+  const hidden = labels.length - 1;
+  const kept = wrapEventLabel(labels[0], maxWidth).slice(
+    0,
+    EVENT_LABEL_MAX_LINES - (hidden > 0 ? 1 : 0),
+  );
+  const words = kept[kept.length - 1].split(" ");
+  while (words.length > 1 && !fitsEventLine(`${words.join(" ")} …`, maxWidth)) {
+    words.pop();
+  }
+  kept[kept.length - 1] = `${words.join(" ")} …`;
+  return hidden > 0 ? [...kept, `+${hidden} more`] : kept;
+}
+
+/** One line: the first label, ending on a whole word if cut, then "+N more". */
+function compactEventLabel(labels: readonly string[], maxWidth: number) {
+  const more = labels.length > 1 ? ` +${labels.length - 1} more` : "";
+  const room = maxWidth - estimateTextWidth(more, EVENT_LABEL_FONT_SIZE);
+  const words = labels[0].split(/\s+/).filter(Boolean);
+  if (fitsEventLine(words.join(" "), room)) return `${words.join(" ")}${more}`;
+  while (words.length > 1 && !fitsEventLine(`${words.join(" ")} …`, room)) {
+    words.pop();
+  }
+  const cut = trimToWidth(
+    `${words.join(" ")} …`,
+    EVENT_LABEL_FONT_SIZE,
+    room,
+    "…",
+  );
+  return `${cut}${more}`;
+}
+
+type PlacedEventLabel = {
   x: number;
+  color?: string;
+  lines: string[];
   row: number;
   anchor: "start" | "end";
 };
 
+type EventLabelLayout = {
+  labels: PlacedEventLabel[];
+  /** Days with no clear rows left: drawn as a rule and dot, without text. */
+  unlabeled: Array<{ x: number; color?: string }>;
+  /** Counts the unlabeled days, so a dropped label shows. */
+  notice: { text: string; row: number } | null;
+  rowCount: number;
+};
+
 /**
- * Puts each label on the first row where it clears the labels already there.
- * Labels open toward the side with room, so one near the right edge is never
- * cut off by the chart boundary.
+ * Puts each day's lines on the first rows where they clear the labels already
+ * there, never on top of one. Labels open toward the side with room, so one
+ * near the right edge is never cut off by the chart boundary. A day that finds
+ * no room tries one compact line, then goes unlabeled and is counted.
  */
 function layoutEventLabels(
   groups: readonly EventGroup[],
   centerFor: (index: number) => number,
   chartLeft: number,
   chartRight: number,
-): PlacedEventLabel[] {
+): EventLabelLayout {
   const rows: Array<Array<[number, number]>> = [];
   const maxWidth = (chartRight - chartLeft) / 2;
-  return groups.map((group) => {
-    const x = centerFor(group.index);
-    const label = trimToWidth(group.label, EVENT_LABEL_FONT_SIZE, maxWidth);
-    const width = estimateTextWidth(label, EVENT_LABEL_FONT_SIZE);
+  const clear = (row: number, span: [number, number]) =>
+    (rows[row] ?? []).every(
+      ([start, end]) =>
+        span[1] + EVENT_LABEL_GAP <= start || span[0] >= end + EVENT_LABEL_GAP,
+    );
+  const place = (x: number, lines: string[]) => {
+    const width = Math.max(
+      ...lines.map((line) => estimateTextWidth(line, EVENT_LABEL_FONT_SIZE)),
+    );
     const anchor: "start" | "end" =
       x + 5 + width > chartRight ? "end" : "start";
     const span: [number, number] =
       anchor === "end" ? [x - 5 - width, x] : [x, x + 5 + width];
-    let row = rows.findIndex((spans) =>
-      spans.every(
-        ([start, end]) =>
-          span[1] + EVENT_LABEL_GAP <= start ||
-          span[0] >= end + EVENT_LABEL_GAP,
-      ),
-    );
-    if (row === -1) {
-      row = Math.min(rows.length, EVENT_LABEL_MAX_ROWS - 1);
+    for (let row = 0; row + lines.length <= EVENT_LABEL_MAX_ROWS; row += 1) {
+      if (lines.every((_, offset) => clear(row + offset, span))) {
+        lines.forEach((_, offset) => (rows[row + offset] ??= []).push(span));
+        return { x, lines, row, anchor };
+      }
     }
+    return null;
+  };
+
+  const labels: PlacedEventLabel[] = [];
+  const unlabeled: EventLabelLayout["unlabeled"] = [];
+  for (const group of groups) {
+    const x = centerFor(group.index);
+    const placed =
+      place(x, eventLabelLines(group.labels, maxWidth)) ??
+      place(x, [compactEventLabel(group.labels, maxWidth)]);
+    if (placed) labels.push({ ...placed, color: group.color });
+    else unlabeled.push({ x, color: group.color });
+  }
+
+  let notice: EventLabelLayout["notice"] = null;
+  if (unlabeled.length > 0) {
+    const text = `+${unlabeled.length} ${unlabeled.length === 1 ? "date" : "dates"} not labeled`;
+    const span: [number, number] = [
+      chartRight - estimateTextWidth(text, EVENT_LABEL_FONT_SIZE),
+      chartRight,
+    ];
+    let row = 0;
+    while (row < rows.length && !clear(row, span)) row += 1;
     (rows[row] ??= []).push(span);
-    return { ...group, x, row, anchor, label };
-  });
+    notice = { text, row };
+  }
+  return { labels, unlabeled, notice, rowCount: rows.length };
 }
 
 function renderCartesianChartSvg({
@@ -509,13 +629,27 @@ function renderCartesianChartSvg({
     : series;
   const legendLayout =
     fit && series.length > 1 ? layoutLegend(legendSeries, plotWidth) : null;
-  const chartTop = !fit
+  const slot = plotWidth / Math.max(labels.length, 1);
+  const centerFor = (index: number) => chartLeft + slot * index + slot / 2;
+  const eventLayout = layoutEventLabels(
+    groupEventsByIndex(events ?? [], labels.length),
+    centerFor,
+    chartLeft,
+    chartRight,
+  );
+  const eventsTop = !fit
     ? subtitle
       ? 88
       : 66
     : legendLayout
       ? legendTop + (legendLayout.rows.length - 1) * LEGEND_ROW_HEIGHT + 30
       : header.headerBottom + 34;
+  // Event labels get their own rows above the plot so they never sit on the data.
+  const chartTop =
+    eventsTop +
+    (eventLayout.rowCount > 0
+      ? eventLayout.rowCount * EVENT_LABEL_ROW_HEIGHT + 4
+      : 0);
   const plotHeight = Math.max(1, chartBottom - chartTop);
 
   const stackedBars = stacked && type === "bar";
@@ -567,7 +701,6 @@ function renderCartesianChartSvg({
   const scaleFor = (seriesIndex: number): AxisScale =>
     dualAxis && series[seriesIndex].axis === "right" ? rightScale : leftScale;
 
-  const slot = plotWidth / Math.max(labels.length, 1);
   const labelStep = Math.max(1, Math.ceil(labels.length / 8));
 
   const grid = Array.from({ length: 5 }, (_, index) => {
@@ -580,7 +713,6 @@ function renderCartesianChartSvg({
     return `<line x1="${chartLeft}" x2="${chartRight}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${theme.gridColor}" stroke-width="0.8"/><text x="${chartLeft - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(value, leftFormatter))}</text>${rightTick}`;
   }).join("");
 
-  const centerFor = (index: number) => chartLeft + slot * index + slot / 2;
   const xLabels = categoryAxis
     ? labels
         .map((label, index) => {
@@ -751,38 +883,79 @@ function renderCartesianChartSvg({
       return `<rect x="${formatCoord(left)}" y="${chartTop}" width="${formatCoord(right - left)}" height="${formatCoord(plotHeight)}" fill="${color}" fill-opacity="0.1"/>${band.startEdge ? edge(left) : ""}${band.endEdge ? edge(right) : ""}`;
     })
     .join("");
-  // Band titles sit at the bottom of the plot, clear of the event labels along the top.
   const bandLabels = placedBands
     .map((band, index) => {
       const color = safeColor(band.color, theme.tickColor);
       const left = chartLeft + slot * band.startIndex;
       const right = chartLeft + slot * (band.endIndex + 1);
-      const label = trimToWidth(
+      const label = trimToWholeWords(
         band.label,
         EVENT_LABEL_FONT_SIZE,
-        Math.max(right - left - 8, 96),
+        chartRight - chartLeft - 8,
       );
       const width = estimateTextWidth(label, EVENT_LABEL_FONT_SIZE);
-      const x = Math.max(chartLeft, Math.min(left + 4, chartRight - width));
+      const x = spanLabelX(left, right, width, chartLeft, chartRight, 4);
       const y = chartBottom - 6 - index * EVENT_LABEL_ROW_HEIGHT;
       return `<text x="${formatCoord(x)}" y="${formatCoord(y)}" font-size="${EVENT_LABEL_FONT_SIZE}" fill="${color}" stroke="${theme.background}" stroke-width="3" paint-order="stroke">${escapeXml(label)}</text>`;
     })
     .join("");
 
-  const eventMarkup = layoutEventLabels(
-    groupEventsByIndex(events ?? [], labels.length),
-    centerFor,
-    chartLeft,
-    chartRight,
-  )
-    .map(({ x, label, color: rawColor, row, anchor }) => {
-      const color = safeColor(rawColor, theme.labelColor);
-      const labelX = anchor === "end" ? x - 5 : x + 5;
-      const labelY = chartTop + 10 + row * EVENT_LABEL_ROW_HEIGHT;
-      return `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${chartTop}" y2="${chartBottom}" stroke="${color}" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="3 3"/><text x="${labelX.toFixed(1)}" y="${labelY}" text-anchor="${anchor}" font-size="${EVENT_LABEL_FONT_SIZE}" fill="${color}" stroke="${theme.background}" stroke-width="3" paint-order="stroke">${escapeXml(label)}</text><circle cx="${x.toFixed(1)}" cy="${chartBottom}" r="5" fill="${color}" stroke="${theme.background}" stroke-width="2"/>`;
-    })
-    .join("");
-
+  const rowTopFor = (row: number) => eventsTop + row * EVENT_LABEL_ROW_HEIGHT;
+  const placedEvents = eventLayout.labels.map((event) => ({
+    ...event,
+    color: safeColor(event.color, theme.labelColor),
+    rowTop: rowTopFor(event.row),
+  }));
+  // An unlabeled day's rule starts at the plot, clear of the label rows.
+  const eventRules = [
+    ...placedEvents,
+    ...eventLayout.unlabeled.map((event) => ({
+      ...event,
+      color: safeColor(event.color, theme.labelColor),
+      rowTop: chartTop,
+    })),
+  ];
+  const eventText = (
+    x: number,
+    rowTop: number,
+    anchor: "start" | "end",
+    fill: string,
+    text: string,
+  ) =>
+    `<text x="${x.toFixed(1)}" y="${rowTop + 10}" text-anchor="${anchor}" font-size="${EVENT_LABEL_FONT_SIZE}" fill="${fill}" stroke="${theme.background}" stroke-width="3" paint-order="stroke">${escapeXml(text)}</text>`;
+  // Every rule goes down before any text, so no event's line crosses another's label.
+  const eventMarkup = [
+    ...eventRules.map(
+      ({ x, color, rowTop }) =>
+        `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${rowTop}" y2="${chartBottom}" stroke="${color}" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="3 3"/>`,
+    ),
+    ...placedEvents.flatMap(({ x, color, rowTop, anchor, lines }) =>
+      lines.map((line, offset) =>
+        eventText(
+          anchor === "end" ? x - 5 : x + 5,
+          rowTop + offset * EVENT_LABEL_ROW_HEIGHT,
+          anchor,
+          color,
+          line,
+        ),
+      ),
+    ),
+    ...(eventLayout.notice
+      ? [
+          eventText(
+            chartRight,
+            rowTopFor(eventLayout.notice.row),
+            "end",
+            theme.tickColor,
+            eventLayout.notice.text,
+          ),
+        ]
+      : []),
+    ...eventRules.map(
+      ({ x, color }) =>
+        `<circle cx="${x.toFixed(1)}" cy="${chartBottom}" r="5" fill="${color}" stroke="${theme.background}" stroke-width="2"/>`,
+    ),
+  ].join("");
   const legendEntries = legendLayout
     ? legendLayout.rows
         .map((row, rowIndex) => {

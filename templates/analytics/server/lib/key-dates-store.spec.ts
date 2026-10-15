@@ -36,11 +36,20 @@ const productHunt = {
 describe("key-dates store", () => {
   type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
   let client: PGliteClient;
+  let queries: { query: string; params: unknown[] }[];
 
   beforeEach(async () => {
     client = await PGlite.create("memory://");
+    queries = [];
     getDbMock.mockReset();
-    getDbMock.mockReturnValue(drizzle(client, { schema: dbModule.schema }));
+    getDbMock.mockReturnValue(
+      drizzle(client, {
+        schema: dbModule.schema,
+        logger: {
+          logQuery: (query, params) => queries.push({ query, params }),
+        },
+      }),
+    );
     for (let run = 0; run < 2; run++) {
       for (const statement of KEY_DATES_MIGRATION_SQL) {
         await client.exec(statement);
@@ -51,6 +60,27 @@ describe("key-dates store", () => {
   afterEach(async () => {
     await client.close();
   });
+
+  const seedSets = (total: number) =>
+    client.query(
+      `INSERT INTO analytics_key_date_sets (id, org_id, owner_email, name)
+       SELECT 'seed-set-' || n, $1, $2, 'Seed ' || n FROM generate_series(1, $3::int) n`,
+      [alice.orgId, alice.email, total],
+    );
+
+  const seedDates = (setId: string, total: number) =>
+    client.query(
+      `INSERT INTO analytics_key_dates (id, set_id, org_id, owner_email, date, label)
+       SELECT 'seed-date-' || n, $1, $2, $3, '2026-01-01', 'Seed ' || n FROM generate_series(1, $4::int) n`,
+      [setId, alice.orgId, alice.email, total],
+    );
+
+  const rejections = (results: PromiseSettledResult<unknown>[]) =>
+    results.flatMap((result) =>
+      result.status === "rejected"
+        ? [(result.reason as { errorCode?: string }).errorCode]
+        : [],
+    );
 
   it("creates a set by name with its first date, then reuses it", async () => {
     const first = await store.saveKeyDate(alice, productHunt);
@@ -183,5 +213,168 @@ describe("key-dates store", () => {
       store.saveKeyDate(alice, { date: "2026-10-14", label: "No set" }),
     ).rejects.toMatchObject({ statusCode: 400 });
     expect(await store.listKeyDateSets(alice)).toEqual([]);
+  });
+
+  it("rejects a day the calendar does not have before writing", async () => {
+    await expect(
+      store.saveKeyDate(alice, { ...productHunt, date: "2026-02-30" }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      errorCode: "invalid_key_date",
+    });
+    expect(queries).toEqual([]);
+    expect(await store.listKeyDateSets(alice)).toEqual([]);
+  });
+
+  it("says why it rejects a time the clocks skip for daylight saving", async () => {
+    await expect(
+      store.saveKeyDate(alice, {
+        ...productHunt,
+        date: "2026-03-08",
+        time: "02:30",
+        timeZone: "America/New_York",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      errorCode: "invalid_key_date",
+      message: expect.stringContaining(
+        "time 02:30 does not exist on 2026-03-08 in America/New_York",
+      ),
+    });
+    expect(queries).toEqual([]);
+  });
+
+  it("keeps an edited date in its set when no set is named", async () => {
+    const saved = await store.saveKeyDate(alice, productHunt);
+
+    const edited = await store.saveKeyDate(alice, {
+      id: saved.id,
+      date: "2026-10-15",
+      label: "Product Hunt recap",
+    });
+
+    expect(edited).toMatchObject({
+      id: saved.id,
+      setId: saved.setId,
+      setName: "Launches",
+      date: "2026-10-15",
+      label: "Product Hunt recap",
+    });
+    await expect(
+      store.saveKeyDate(otherOrg, {
+        id: saved.id,
+        date: "2026-10-15",
+        label: "Not theirs",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("locks the organization, or the person without one, before every write", async () => {
+    const locks = () =>
+      queries.flatMap(({ query, params }) =>
+        query.includes("pg_advisory_xact_lock") ? params : [],
+      );
+
+    const saved = await store.saveKeyDate(alice, productHunt);
+    await store.deleteKeyDate(alice, saved.id);
+    await store.saveKeyDateSet(
+      { email: "Alice@Example.test", orgId: null },
+      { name: "Personal" },
+    );
+
+    expect(locks()).toEqual([
+      "org:org-1",
+      "org:org-1",
+      "user:alice@example.test",
+    ]);
+    expect(queries[0].query).toContain("pg_advisory_xact_lock");
+  });
+
+  it("creates one set when the same name is saved at once", async () => {
+    const sets = await Promise.allSettled(
+      [1, 2, 3].map(() => store.saveKeyDateSet(alice, { name: "Launches" })),
+    );
+    expect(rejections(sets)).toEqual([
+      "duplicate_key_date_set",
+      "duplicate_key_date_set",
+    ]);
+
+    const saved = await Promise.all(
+      ["Clips", "Slides", "Design"].map((label) =>
+        store.saveKeyDate(alice, {
+          setName: "Product changes",
+          date: "2026-10-14",
+          label,
+        }),
+      ),
+    );
+    expect(new Set(saved.map((date) => date.setId)).size).toBe(1);
+    expect((await store.listKeyDateSets(alice)).map((set) => set.name)).toEqual(
+      ["Launches", "Product changes"],
+    );
+  });
+
+  it("stops at the set limit when sets are created at once", async () => {
+    await seedSets(store.MAX_KEY_DATE_SETS - 2);
+
+    const created = await Promise.allSettled(
+      ["A", "B", "C", "D"].map((name) => store.saveKeyDateSet(alice, { name })),
+    );
+
+    expect(rejections(created)).toEqual([
+      "key_date_set_limit",
+      "key_date_set_limit",
+    ]);
+    expect(await store.listKeyDateSets(alice)).toHaveLength(
+      store.MAX_KEY_DATE_SETS,
+    );
+  });
+
+  it("stops at the date limit when dates are added at once", async () => {
+    const launches = await store.saveKeyDateSet(alice, { name: "Launches" });
+    await seedDates(launches.id, store.MAX_KEY_DATES - 2);
+
+    const added = await Promise.allSettled(
+      ["A", "B", "C", "D"].map((label) =>
+        store.saveKeyDate(alice, {
+          setId: launches.id,
+          date: "2026-10-14",
+          label,
+        }),
+      ),
+    );
+
+    expect(rejections(added)).toEqual(["key_date_limit", "key_date_limit"]);
+    const { rows } = await client.query(
+      "SELECT count(*)::int AS total FROM analytics_key_dates",
+    );
+    expect(rows).toEqual([{ total: store.MAX_KEY_DATES }]);
+  });
+
+  it("leaves no new set behind when its first date is refused", async () => {
+    const launches = await store.saveKeyDateSet(alice, { name: "Launches" });
+    await seedDates(launches.id, store.MAX_KEY_DATES);
+
+    await expect(
+      store.saveKeyDate(alice, { ...productHunt, setName: "Recaps" }),
+    ).rejects.toMatchObject({ statusCode: 409, errorCode: "key_date_limit" });
+    expect((await store.listKeyDateSets(alice)).map((set) => set.name)).toEqual(
+      ["Launches"],
+    );
+  });
+
+  it("deletes a set's dates even when one is added to it at the same time", async () => {
+    const launches = await store.saveKeyDateSet(alice, { name: "Launches" });
+
+    await Promise.allSettled([
+      store.deleteKeyDateSet(alice, launches.id),
+      store.saveKeyDate(alice, { ...productHunt, setId: launches.id }),
+    ]);
+
+    const { rows } = await client.query(
+      "SELECT id FROM analytics_key_dates WHERE set_id = $1",
+      [launches.id],
+    );
+    expect(rows).toEqual([]);
   });
 });
