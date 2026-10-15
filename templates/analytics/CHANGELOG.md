@@ -3,6 +3,30 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-15
+
+### Improved
+
+- Collapsed navigation has clearer spacing between its icons
+
+## 2026-10-14
+
+### Added
+
+- Preview Sigma workbooks in Analytics; SQL import stays blocked until the BigQuery project mapping can be verified.
+
+### Improved
+
+- Dashboards show a Reset filters button whenever a filter differs from the defaults, and it returns every filter to them in one click.
+- Gong questions use Gong's own search and answer in seconds instead of paging through every call.
+- Start Sigma workbook imports from the dashboard menu, use an Analytics-only connection with direct credentials, or choose a Sigma connection already granted through Dispatch.
+
+### Fixed
+
+- Chats no longer stop with "result is unknown" after a rejected edit; the agent corrects the call and continues.
+- Fixed the chat repeating a finished reply several times and then replacing it with "I couldn't complete that lookup" after a correct dashboard edit.
+- Membership searches no longer treat monthly counts as user rosters
+
 ## 2026-10-13
 
 ### Added

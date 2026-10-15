@@ -667,6 +667,10 @@ const messages: ToolkitAgentChatTranslation = {
     "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
   "errorMessages.requestTooLarge":
     "이 요청은 서버 크기 제한을 초과했습니다(HTTP 413). 새 채팅을 시작하거나 큰 첨부 파일 또는 참조를 제거한 뒤 다시 시도하세요.",
+  "errorMessages.capabilityUnavailable":
+    "지금은 메시지를 보낼 수 없습니다. 잠시 후 다시 시도해 주세요.",
+  "errorMessages.capabilityUnsupported":
+    "이 앱은 저장된 프롬프트를 아직 안전하게 다시 시도할 수 없습니다. 앱을 업데이트한 뒤 다시 시도하세요.",
   "errorMessages.runInterrupted": "에이전트가 완료하기 전에 중지되었습니다.",
   "errorMessages.runFailed": "에이전트 실행이 실패했습니다.",
   "errorMessages.runUnverified":

@@ -121,6 +121,7 @@ import {
 } from "@/lib/composer-context";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import {
+  BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION,
   describeUploadedFilesForAgent,
   getUploadedImageAgentOptions,
   isSourceImprovementRequest,
@@ -1655,6 +1656,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         : `The user just created a new empty deck (id: "${deckId}") and wants to create a presentation or standalone visual.`,
       `The browser owns this deck's generation lifecycle. Its exact generationAttemptId is "${generationAttemptId}". If a tool call for this deck accepts generationAttemptId, pass this exact value unchanged; never create a substitute ID.`,
       "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+      BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION,
       googleDocContext,
       fileContext,
       referenceDocumentContext,
@@ -1670,7 +1672,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       SLIDE_COUNT_COMPLETION_INSTRUCTION,
       "Add each generated slide through sequential add-slide calls, preserving the established deck contract and using a targeted get-deck read with slideId and compact=false after the first slide to verify it.",
       "If no explicit count was given (including when the guided slide-count question was skipped), infer the count from the distinct topics/sections implied by the request — one slide per section plus a title and closing slide — and add slides for every section before considering the deck done. Do not stop at an arbitrary round number (e.g. 10) if sections remain uncovered, and never call `generate-slides-ai` for this flow; it is a legacy single-shot helper capped at 10 slides.",
-      "The original brief and uploaded/reference handles are persisted on the deck as generationContext. On every continuation or follow-up, call get-deck first and treat that context as the canonical brief. Continue the original slide sequence from the current slide count; do not replace it with a fresh topic inferred only from the follow-up message.",
+      "The original brief and uploaded/reference handles are persisted on the deck as generationContext. When continuing this generation (guided-question answers, or a request to keep going or finish the deck), call get-deck first and treat that context as the canonical brief. Continue the original slide sequence from the current slide count; do not replace it with a fresh topic inferred only from the follow-up message. A targeted edit is not a continuation.",
       "An explicit theme or brand instruction in the original brief overrides the background, palette, and styling of an uploaded/reference image or source page. Preserve source content and imagery, but do not copy a white wireframe background when the requested theme is dark.",
       "Do not report completion until the persisted generationContext targetSlideCount is reached, or, when sourceCoverage is present for source-preserving mode, get-deck compact=true reports it complete for the ordered source manifest. If the current deck is short, finish the missing requested slides before adding unrelated content.",
       "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 800x412px available inside standard 64px 80px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",

@@ -2124,9 +2124,7 @@ function ModelSelector({
   const selectedModelLabel = selectedModelName;
   const selectedModelButtonLabel = selectedModelNeedsConnection
     ? selectedModelLabel
-    : selectedModelHasDuplicateName
-      ? selectedModelDisplayLabel
-      : (selectedModelDisplayName ?? compactComposerModelName(model, t));
+    : selectedModelFriendlyName;
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2152,7 +2150,7 @@ function ModelSelector({
           data-agent-composer-slot="model-button"
           aria-label={`${t("agentChat.composer.model", {
             defaultValue: "Model",
-          })}: ${selectedModelName}${
+          })}: ${selectedModelButtonLabel}${
             effortOptions.length > 0
               ? `. ${t("agentChat.composer.effort", {
                   defaultValue: "Effort",
