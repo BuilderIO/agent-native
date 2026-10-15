@@ -2374,12 +2374,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       recomputePenPointerForViewChangeRef.current();
       return;
     }
-    if (
-      pendingCameraZoom !== null &&
-      cameraCommand &&
-      lastCameraCommandNonceRef.current === cameraCommand.nonce &&
-      zoom === pendingCameraControlledZoom
-    ) {
+    // The prop still holds the zoom from before the last camera command; a newer
+    // pending command does not make that stale value an external zoom change.
+    if (pendingCameraZoom !== null && zoom === pendingCameraControlledZoom) {
       return;
     }
     if (pendingCameraZoom !== null) {
@@ -2453,7 +2450,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     recomputePenPointerForViewChangeRef.current();
   }, [
     activeId,
-    cameraCommand,
     recomputePenPointerForViewChangeRef,
     releaseWidgetFit,
     renderedScreens,
