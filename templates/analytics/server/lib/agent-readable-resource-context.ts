@@ -293,6 +293,24 @@ export function buildDashboardSeedAgentContext(
   return withRequestedDetail(base, seed, options);
 }
 
+/** Lists a trimmed screen context sheds from the end, each with the field that counts what it shed. */
+const SCREEN_CONTEXT_LISTS = [
+  ["keyDateSets", "omittedKeyDateSetCount"],
+  ["dataNotes", "omittedDataNoteCount"],
+  ["panels", "omittedPanelCount"],
+] as const;
+
+/** Never dropped whole: what the model needs to fetch the rest, and the labels for what it lacks. */
+const SCREEN_CONTEXT_KEPT_KEYS: ReadonlySet<string> = new Set([
+  "resourceType",
+  "id",
+  "url",
+  "trimmed",
+  "hint",
+  "omittedKeys",
+  ...SCREEN_CONTEXT_LISTS.flat(),
+]);
+
 /**
  * The auto-injected `<current-screen>` block is cut at a fixed size, mid-JSON.
  * A dashboard too big for `maxChars` sheds detail in labelled steps instead, so
@@ -327,13 +345,46 @@ export function fitDashboardScreenContext(
     },
     panels,
     trimmed: true,
-    hint: "Panel bindings, layout rows, and key dates are omitted to fit. Call get-sql-dashboard for them, with panelIds for a panel's SQL and config.",
+    hint: "Panel bindings, layout rows, and key dates are omitted to fit, as is anything an omitted* field counts or names. Call get-sql-dashboard for them, with panelIds for a panel's SQL and config.",
   };
-  let kept = panels.length;
-  while (kept > 0 && length(slim) > maxChars) {
-    kept -= 1;
-    slim.panels = panels.slice(0, kept);
-    slim.omittedPanelCount = panels.length - kept;
+  const lists = SCREEN_CONTEXT_LISTS.flatMap(([key, countKey]) => {
+    const items = slim[key];
+    return Array.isArray(items)
+      ? [{ key, countKey, items, kept: items.length }]
+      : [];
+  });
+  const withEveryListShed = () => {
+    const shed: Record<string, unknown> = { ...slim };
+    for (const { key, countKey, items } of lists) {
+      shed[key] = [];
+      shed[countKey] = items.length;
+    }
+    return shed;
+  };
+
+  // Filters, variables, annotations, and the description have no size cap.
+  // Drop whole ones, largest first, only while they overflow on their own.
+  const omittedKeys: string[] = [];
+  while (length(withEveryListShed()) > maxChars) {
+    const largest = Object.keys(slim)
+      .filter(
+        (key) => slim[key] !== undefined && !SCREEN_CONTEXT_KEPT_KEYS.has(key),
+      )
+      .sort((a, b) => length(slim[b]) - length(slim[a]))[0];
+    if (largest === undefined) break;
+    delete slim[largest];
+    omittedKeys.push(largest);
+    slim.omittedKeys = omittedKeys;
+  }
+
+  // Shed from the longest list, so many notes can't push out every panel, nor
+  // many panels every note.
+  while (length(slim) > maxChars) {
+    const longest = [...lists].sort((a, b) => b.kept - a.kept)[0];
+    if (!longest || longest.kept === 0) break;
+    longest.kept -= 1;
+    slim[longest.key] = longest.items.slice(0, longest.kept);
+    slim[longest.countKey] = longest.items.length - longest.kept;
   }
   return slim;
 }
