@@ -3076,14 +3076,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: none;
 }
 
+/* Keep the circle: only its black fill goes, so the desktop shows around
+   the person. The shadow follows the clipped silhouette. */
 .bubble-wrapper[data-cutout="true"] .bubble-root {
   background: transparent;
-  border-radius: 0;
-  overflow: visible;
-}
-
-.bubble-wrapper[data-cutout="true"] .bubble-cutout {
-  border-radius: 0;
   /* guard:allow-raw-color — theme-invariant capture chrome over the desktop */
   filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.35));
 }

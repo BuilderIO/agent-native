@@ -11,7 +11,7 @@ interface CameraCompositeOptions {
   bubbleMaxPx?: number;
   bubbleMarginRatio?: number;
   anchor?: CameraBubbleAnchor;
-  /** Draw only the person, without the circle, fill and border. */
+  /** Draw only the person inside the circle, without its fill and border. */
   cutout?: boolean;
   /** Follows live changes of the cut-out toggle during the recording. */
   subscribeCutout?: (onChange: (enabled: boolean) => void) => () => void;
@@ -226,6 +226,8 @@ type CutoutDrawState =
   | { mode: "off" }
   | { mode: "on"; personCutout: PersonCutout | null; pastGrace: boolean };
 
+let cutoutScratch: HTMLCanvasElement | null = null;
+
 function drawPersonCutout(
   ctx: CanvasRenderingContext2D,
   cameraVideo: HTMLVideoElement,
@@ -235,18 +237,34 @@ function drawPersonCutout(
   size: number,
 ): boolean {
   // Render at device pixels of the bubble; the cut-out is square already.
-  const frame = personCutout.render(cameraVideo, Math.ceil(size));
+  const pixels = Math.ceil(size);
+  const frame = personCutout.render(cameraVideo, pixels);
   if (!frame) return false;
+
+  // Clip to the bubble circle off-screen first, so the shadow below follows
+  // the clipped silhouette instead of being cut off by the clip.
+  const scratch = (cutoutScratch ??= document.createElement("canvas"));
+  if (scratch.width !== pixels) scratch.width = pixels;
+  if (scratch.height !== pixels) scratch.height = pixels;
+  const scratchCtx = scratch.getContext("2d");
+  if (!scratchCtx) return false;
+  scratchCtx.clearRect(0, 0, pixels, pixels);
+  scratchCtx.save();
+  scratchCtx.beginPath();
+  scratchCtx.arc(pixels / 2, pixels / 2, pixels / 2, 0, Math.PI * 2);
+  scratchCtx.clip();
+  // Mirrored like the on-screen bubble.
+  scratchCtx.translate(pixels, 0);
+  scratchCtx.scale(-1, 1);
+  scratchCtx.drawImage(frame, 0, 0, pixels, pixels);
+  scratchCtx.restore();
 
   ctx.save();
   // guard:allow-raw-color — shadow is baked into the recording, theme-invariant
   ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
   ctx.shadowBlur = Math.max(12, size * 0.06);
   ctx.shadowOffsetY = Math.max(4, size * 0.025);
-  // Mirrored like the on-screen bubble.
-  ctx.translate(x + size, y);
-  ctx.scale(-1, 1);
-  ctx.drawImage(frame, 0, 0, size, size);
+  ctx.drawImage(scratch, x, y, size, size);
   ctx.restore();
   return true;
 }

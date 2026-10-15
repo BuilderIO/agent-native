@@ -149,7 +149,13 @@ export function Bubble() {
       (mirrored ? box.right : box.left) * scale,
       box.top * scale,
     );
+    // Only the part inside the bubble circle is visible, so only it counts.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(box.width / 2, box.height / 2, box.width / 2, 0, Math.PI * 2);
+    ctx.clip();
     ctx.drawImage(cutoutCanvas, 0, 0, box.width, box.height);
+    ctx.restore();
     const rgba = ctx.getImageData(0, 0, cols, rows).data;
     const rects = showControlsRef.current
       ? Array.from(
