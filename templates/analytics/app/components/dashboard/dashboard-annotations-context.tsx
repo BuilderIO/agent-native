@@ -1,7 +1,15 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { dataNotesForPanel, type DataNote } from "@shared/data-notes";
 import { keyDateEvents, panelEventsWithKeyDates } from "@shared/key-dates";
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
 
 import type {
   DashboardAnnotations,
@@ -23,7 +31,11 @@ interface DashboardAnnotationsValue {
   dashboardId: string | null;
   annotations?: DashboardAnnotations;
   keyDates: readonly PanelEvent[];
+  /** The list failed to load, so a chart without markers may still have key dates. */
+  keyDatesFailed: boolean;
   dataNotes: readonly DataNote[];
+  /** The list failed to load, so a chart without notes may still have some. */
+  dataNotesFailed: boolean;
   dataNoteActions?: DataNoteActions;
 }
 
@@ -32,7 +44,9 @@ const NO_DATA_NOTES: readonly DataNote[] = [];
 const NO_ANNOTATIONS: DashboardAnnotationsValue = {
   dashboardId: null,
   keyDates: NO_KEY_DATES,
+  keyDatesFailed: false,
   dataNotes: NO_DATA_NOTES,
+  dataNotesFailed: false,
 };
 const DashboardAnnotationsContext =
   createContext<DashboardAnnotationsValue>(NO_ANNOTATIONS);
@@ -52,12 +66,31 @@ export function DashboardAnnotationsProvider({
   dataNoteActions?: DataNoteActions;
   children: ReactNode;
 }) {
-  const { data: keyDateData } = useActionQuery("list-key-dates", undefined, {
+  const t = useT();
+  const keyDateQuery = useActionQuery("list-key-dates", undefined, {
     staleTime: 60_000,
   });
-  const { data: dataNoteData } = useActionQuery("list-data-notes", undefined, {
+  const dataNoteQuery = useActionQuery("list-data-notes", undefined, {
     staleTime: 60_000,
   });
+  const keyDateData = keyDateQuery.data;
+  const dataNoteData = dataNoteQuery.data;
+  const keyDatesFailed = keyDateQuery.isError && !keyDateData;
+  const dataNotesFailed = dataNoteQuery.isError && !dataNoteData;
+  useEffect(() => {
+    if (keyDatesFailed) {
+      toast.error(t("dashboard.keyDatesUnavailable"), {
+        id: "key-dates-unavailable",
+      });
+    }
+  }, [keyDatesFailed, t]);
+  useEffect(() => {
+    if (dataNotesFailed) {
+      toast.error(t("dashboard.dataNotesUnavailable"), {
+        id: "data-notes-unavailable",
+      });
+    }
+  }, [dataNotesFailed, t]);
   const value = useMemo<DashboardAnnotationsValue>(
     () => ({
       dashboardId: dashboardId ?? null,
@@ -65,10 +98,20 @@ export function DashboardAnnotationsProvider({
       keyDates: keyDateData
         ? keyDateEvents(keyDateData.sets, annotations)
         : NO_KEY_DATES,
-      dataNotes: dataNoteData?.notes ?? NO_DATA_NOTES,
+      keyDatesFailed,
+      dataNotes: dataNoteData ? dataNoteData.notes : NO_DATA_NOTES,
+      dataNotesFailed,
       dataNoteActions,
     }),
-    [dashboardId, annotations, keyDateData, dataNoteData, dataNoteActions],
+    [
+      dashboardId,
+      annotations,
+      keyDateData,
+      keyDatesFailed,
+      dataNoteData,
+      dataNotesFailed,
+      dataNoteActions,
+    ],
   );
   return (
     <DashboardAnnotationsContext.Provider value={value}>

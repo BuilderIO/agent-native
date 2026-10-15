@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
 import {
+  CONNECT_UNDERCOUNT,
   SETUP_INCIDENT,
   SKIPS_UNTRACKED,
 } from "../../shared/annotation-fixtures";
@@ -1073,6 +1074,7 @@ describe("renderReportEmail data notes", () => {
   async function render(
     chartType: SqlPanel["chartType"],
     notes = [SETUP_INCIDENT],
+    { xKey = "date", panelRows = rows as Array<Record<string, unknown>> } = {},
   ) {
     return renderReportEmail({
       snapshot: {
@@ -1080,14 +1082,14 @@ describe("renderReportEmail data notes", () => {
           panel({
             id: "failures",
             chartType,
-            config: { xKey: "date", yKeys: ["failures"] },
+            config: { xKey, yKeys: ["failures"] },
           }),
         ]),
         generatedAt: "2026-10-30T00:00:00.000Z",
         dataNotesByPanel: { failures: notes },
       },
       panelData: new Map([
-        ["failures", { status: "rows" as const, rows, schema: [] }],
+        ["failures", { status: "rows" as const, rows: panelRows, schema: [] }],
       ]),
     });
   }
@@ -1118,6 +1120,41 @@ describe("renderReportEmail data notes", () => {
       bands: [],
     });
     expect(email.html).not.toContain("Onboarding step skips not tracked");
+  });
+
+  it("spells a time chart's note out once and leaves off recent notes outside its dates", async () => {
+    const earlier = {
+      ...SETUP_INCIDENT,
+      id: "note-earlier-outage",
+      title: "Earlier outage",
+      startDate: "2026-10-01",
+      endDate: "2026-10-03",
+    };
+    const email = await render("line", [SETUP_INCIDENT, earlier]);
+    expect(
+      email.html.split("<strong>Builder.io account setup failures</strong>"),
+    ).toHaveLength(2);
+    expect(
+      email.text.split("! Builder.io account setup failures"),
+    ).toHaveLength(2);
+    expect(email.html).not.toContain("Earlier outage");
+  });
+
+  it("lists recent notes under a chart whose x axis is numbers, not dates", async () => {
+    const email = await render("line", [CONNECT_UNDERCOUNT], {
+      xKey: "hour",
+      panelRows: [
+        { hour: 9, failures: 3 },
+        { hour: 10, failures: 20 },
+        { hour: 11, failures: 4 },
+      ],
+    });
+    expect(mocks.renderReportChartSvg.mock.calls[0]?.[0]).toMatchObject({
+      bands: [],
+    });
+    expect(email.html).toContain(
+      "<strong>Connect clicks undercounted</strong>",
+    );
   });
 
   it("lists recent notes under charts without a date axis", async () => {

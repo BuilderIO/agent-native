@@ -143,6 +143,44 @@ describe("resolveDataNoteBand", () => {
     });
   });
 
+  it("covers the same weekly buckets when rows are newest first", () => {
+    const weeks = ["2026-10-19", "2026-10-12", "2026-10-05", "2026-09-28"];
+    expect(resolveDataNoteBand(SETUP_INCIDENT, weeks)).toEqual({
+      startIndex: 1,
+      endIndex: 2,
+      startEdge: true,
+      endEdge: true,
+    });
+  });
+
+  it("draws a newest-first note's end edge at its first row", () => {
+    const newestFirst = days("2026-10-11", 6).reverse();
+    expect(resolveDataNoteBand(SETUP_INCIDENT, newestFirst)).toEqual({
+      startIndex: 3,
+      endIndex: 5,
+      startEdge: true,
+      endEdge: false,
+    });
+  });
+
+  it("skips a null bucket and a total row, keeping each week's row", () => {
+    const weeks = [
+      "2026-09-28",
+      null,
+      "2026-10-05",
+      "2026-10-12",
+      "2026-10-19",
+      "Total",
+    ];
+    expect(xValuesAreDates(weeks)).toBe(true);
+    expect(resolveDataNoteBand(SETUP_INCIDENT, weeks)).toEqual({
+      startIndex: 2,
+      endIndex: 3,
+      startEdge: true,
+      endEdge: true,
+    });
+  });
+
   it("places nothing outside the chart or on an axis that is not dates", () => {
     expect(resolveDataNoteBand(SETUP_INCIDENT, days("2026-09-01", 7))).toBe(
       null,
@@ -152,6 +190,19 @@ describe("resolveDataNoteBand", () => {
     );
     expect(xValuesAreDates(["Signup"])).toBe(false);
     expect(xValuesAreDates([])).toBe(false);
+  });
+
+  it("does not read numeric categories such as hours or years as dates", () => {
+    const hours = Array.from({ length: 24 }, (_, hour) => hour);
+    expect(xValuesAreDates(hours)).toBe(false);
+    expect(xValuesAreDates([2024, 2025, 2026])).toBe(false);
+    expect(xValuesAreDates(["2026-10-12", 2026])).toBe(false);
+    expect(xValuesAreDates(["2026-10-12", "2026"])).toBe(false);
+    expect(xValuesAreDates([null, "Total"])).toBe(false);
+    expect(resolveDataNoteBand(SKIPS_UNTRACKED, hours)).toBe(null);
+    expect(xValuesAreDates(["2026-10-14 07:00:00", "2026-10-14T08:00Z"])).toBe(
+      true,
+    );
   });
 });
 

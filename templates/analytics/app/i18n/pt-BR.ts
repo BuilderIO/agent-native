@@ -1091,6 +1091,8 @@ export default {
     redoFailed: "Não foi possível refazer a alteração do painel",
     redoFailedWithMessage:
       "Não foi possível refazer a alteração do painel: {{message}}",
+    keyDatesUnavailable: "Não foi possível carregar as datas importantes",
+    dataNotesUnavailable: "Não foi possível carregar as notas de dados",
     panelSettings: "Configurações do painel",
     revenueOverTime: "Receita ao longo do tempo",
     recentSales: "Vendas recentes",

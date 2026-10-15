@@ -1096,6 +1096,8 @@ export default {
     redoFailed: "No se pudo rehacer el cambio del panel",
     redoFailedWithMessage:
       "No se pudo rehacer el cambio del panel: {{message}}",
+    keyDatesUnavailable: "No se pudieron cargar las fechas clave",
+    dataNotesUnavailable: "No se pudieron cargar las notas de datos",
     panelSettings: "Configuración del panel",
     revenueOverTime: "Ingresos a lo largo del tiempo",
     recentSales: "Ventas recientes",

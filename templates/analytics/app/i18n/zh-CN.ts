@@ -1011,6 +1011,8 @@ export default {
     redoSuccess: "已重做仪表板更改",
     redoFailed: "无法重做仪表板更改",
     redoFailedWithMessage: "无法重做仪表板更改：{{message}}",
+    keyDatesUnavailable: "无法加载关键日期",
+    dataNotesUnavailable: "无法加载数据备注",
     panelSettings: "面板设置",
     revenueOverTime: "一段时间内的收入",
     recentSales: "最近销售",

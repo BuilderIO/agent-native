@@ -8,17 +8,23 @@ const mocks = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
   keyDateSets: [] as unknown[],
   dataNotes: [] as unknown[],
+  keyDatesFailed: false,
+  dataNotesFailed: false,
+  t: (key: string) => key,
+  toastError: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: (name: string) => ({
-    data:
-      name === "list-key-dates"
-        ? { sets: mocks.keyDateSets }
-        : name === "list-data-notes"
-          ? { notes: mocks.dataNotes }
-          : undefined,
-  }),
+  useActionQuery: (name: string) =>
+    name === "list-key-dates"
+      ? mocks.keyDatesFailed
+        ? { data: undefined, isError: true }
+        : { data: { sets: mocks.keyDateSets }, isError: false }
+      : name === "list-data-notes"
+        ? mocks.dataNotesFailed
+          ? { data: undefined, isError: true }
+          : { data: { notes: mocks.dataNotes }, isError: false }
+        : { data: undefined, isError: false },
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
@@ -27,8 +33,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => mocks.t,
 }));
+
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 
 vi.mock("@/lib/demo-chart-trend", () => ({
   createDemoChartTrendRows: (rows: Record<string, unknown>[]) => rows,
@@ -57,6 +65,7 @@ import {
   DashboardAnnotationsProvider,
   type DataNoteActions,
 } from "./dashboard-annotations-context";
+import { layoutDataNoteLabels } from "./data-note-bands";
 import { SqlChart } from "./SqlChart";
 
 const CHART_SIZE = { width: 640, height: 320 };
@@ -125,6 +134,8 @@ describe("SqlChart key-date markers", () => {
   afterEach(() => {
     mocks.keyDateSets = [];
     mocks.dataNotes = [];
+    mocks.keyDatesFailed = false;
+    mocks.dataNotesFailed = false;
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
@@ -227,6 +238,37 @@ describe("SqlChart key-date markers", () => {
       // The panel's Oct 12 and Oct 14 markers, plus the Oct 11 product change.
       expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(3);
     });
+
+    it("says once that key dates failed to load, and keeps each chart's own markers", async () => {
+      mocks.keyDatesFailed = true;
+      await act(async () => {
+        root.render(
+          <DashboardAnnotationsProvider>
+            <SqlChart panel={panel("line")} />
+            <SqlChart panel={panel("bar")} />
+          </DashboardAnnotationsProvider>,
+        );
+      });
+      expect(mocks.toastError).toHaveBeenCalledTimes(1);
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "dashboard.keyDatesUnavailable",
+        { id: "key-dates-unavailable" },
+      );
+      expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(4);
+    });
+
+    it("stays quiet when there are no key dates", async () => {
+      mocks.keyDateSets = [];
+      await act(async () => {
+        root.render(
+          <DashboardAnnotationsProvider>
+            <SqlChart panel={unmarked("line")} />
+          </DashboardAnnotationsProvider>,
+        );
+      });
+      expect(mocks.toastError).not.toHaveBeenCalled();
+      expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(0);
+    });
   });
 
   describe("with the owner's data notes", () => {
@@ -270,6 +312,50 @@ describe("SqlChart key-date markers", () => {
         ).toContain(SETUP_INCIDENT.title);
       },
     );
+
+    it("still shades the note on a chart that ends in a total row", async () => {
+      mocks.rows = [...mocks.rows, { day: "Total", people: 460 }];
+      await renderInDashboard(failures("bar"));
+      expect(container.querySelectorAll("[data-data-note-band]")).toHaveLength(
+        1,
+      );
+      expect(container.querySelector("[data-data-note-lines]")).toBeNull();
+    });
+
+    it("keeps a narrow band's whole title, inside the chart at its right edge", async () => {
+      const title = "Signups counted twice after the webhook retry";
+      mocks.dataNotes = [
+        {
+          ...SETUP_INCIDENT,
+          title,
+          startDate: "2026-10-14",
+          endDate: "2026-10-14",
+        },
+      ];
+      await renderInDashboard(failures("line"));
+      const label = container.querySelector("[data-data-note-label]");
+      expect(label?.textContent).toBe(title);
+      const pill = label!.querySelector("rect")!;
+      const left = Number(pill.getAttribute("x"));
+      const right = left + Number(pill.getAttribute("width"));
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(right).toBeLessThanOrEqual(CHART_SIZE.width);
+    });
+
+    it("stacks title pills that would cover each other", () => {
+      const titles = ["Signups counted twice", "Account setup failures"];
+      const slots = layoutDataNoteLabels(
+        [
+          { left: 100, right: 110, title: titles[0] },
+          { left: 120, right: 130, title: titles[1] },
+          { left: 400, right: 410, title: titles[0] },
+        ],
+        0,
+        600,
+      );
+      expect(slots.map((slot) => slot.text)).toEqual([...titles, titles[0]]);
+      expect(slots.map((slot) => slot.row)).toEqual([0, 1, 0]);
+    });
 
     it("leaves charts alone that do not count the event, or that hide the note", async () => {
       await renderInDashboard(panel("line"));
@@ -340,6 +426,24 @@ describe("SqlChart key-date markers", () => {
       expect(
         container.querySelector("[data-data-note-lines]")?.textContent,
       ).toContain(SETUP_INCIDENT.title);
+    });
+
+    it("says once that data notes failed to load", async () => {
+      mocks.dataNotesFailed = true;
+      await act(async () => {
+        root.render(
+          <DashboardAnnotationsProvider dashboardId="dash" annotations={{}}>
+            <SqlChart panel={failures("line")} />
+            <SqlChart panel={failures("bar")} />
+          </DashboardAnnotationsProvider>,
+        );
+      });
+      expect(mocks.toastError).toHaveBeenCalledTimes(1);
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "dashboard.dataNotesUnavailable",
+        { id: "data-notes-unavailable" },
+      );
+      expect(container.querySelector("[data-data-note-band]")).toBeNull();
     });
   });
 });

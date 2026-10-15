@@ -1044,6 +1044,8 @@ export default {
     redoSuccess: "डैशबोर्ड बदलाव फिर से किया गया",
     redoFailed: "डैशबोर्ड बदलाव फिर से नहीं किया जा सका",
     redoFailedWithMessage: "डैशबोर्ड बदलाव फिर से नहीं किया जा सका: {{message}}",
+    keyDatesUnavailable: "मुख्य तिथियाँ लोड नहीं की जा सकीं",
+    dataNotesUnavailable: "डेटा नोट्स लोड नहीं किए जा सके",
     panelSettings: "पैनल सेटिंग्स",
     revenueOverTime: "समय के साथ राजस्व",
     recentSales: "हाल की बिक्री",

@@ -1077,6 +1077,8 @@ export default {
     redoFailed: "ダッシュボードの変更をやり直せませんでした",
     redoFailedWithMessage:
       "ダッシュボードの変更をやり直せませんでした：{{message}}",
+    keyDatesUnavailable: "重要な日付を読み込めませんでした",
+    dataNotesUnavailable: "データノートを読み込めませんでした",
     panelSettings: "パネル設定",
     revenueOverTime: "経時的な収益",
     recentSales: "最近の売上",

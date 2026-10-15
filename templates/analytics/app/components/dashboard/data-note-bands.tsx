@@ -1,5 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { estimateTextWidth, trimToWidth } from "@shared/chart-axis-labels";
+import {
+  estimateTextWidth,
+  spanLabelX,
+  trimToWholeWords,
+} from "@shared/chart-axis-labels";
 import {
   dataNoteIsRecent,
   dataNoteTone,
@@ -47,7 +51,8 @@ const LABEL_Z_INDEX = 650;
 const LABEL_FONT_SIZE = 10;
 const LABEL_HEIGHT = 16;
 const LABEL_GAP = 2;
-const LABEL_MIN_WIDTH = 72;
+const LABEL_PADDING = 6;
+const LABEL_INSET = 2;
 
 function DataNoteDetails({
   note,
@@ -182,8 +187,6 @@ function DataNoteHoverCard({
 export interface PlacedDataNoteBand {
   note: DataNote;
   band: DataNoteBand;
-  /** Label row, so overlapping notes stack instead of covering each other. */
-  row: number;
 }
 
 /**
@@ -204,56 +207,37 @@ export function useDataNoteLayout(
         unplaced: notes.filter((note) => dataNoteIsRecent(note)),
       };
     }
-    const bands: PlacedDataNoteBand[] = [];
-    for (const note of notes) {
+    const bands = notes.flatMap((note) => {
       const band = resolveDataNoteBand(note, xValues);
-      if (!band) continue;
-      const taken = new Set(
-        bands
-          .filter(
-            (other) =>
-              band.endIndex >= other.band.startIndex &&
-              other.band.endIndex >= band.startIndex,
-          )
-          .map((other) => other.row),
-      );
-      let row = 0;
-      while (taken.has(row)) row++;
-      bands.push({ note, band, row });
-    }
+      return band ? [{ note, band }] : [];
+    });
     return { bands, unplaced: [] };
   }, [notes, rows, xKey]);
 }
 
-interface AreaShapeProps {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-}
+type XAxisScale = NonNullable<ReturnType<typeof useXAxisScale>>;
+type PlotArea = NonNullable<ReturnType<typeof usePlotArea>>;
 
 /** A point axis maps a value to a line, so pad half a step to cover the day. */
-function useBandEdges(
-  shape: AreaShapeProps,
+function bandEdges(
+  scale: XAxisScale,
+  plot: PlotArea,
   x1: unknown,
+  x2: unknown,
   stepValues: readonly unknown[],
 ): { left: number; right: number; top: number; bottom: number } | null {
-  const scale = useXAxisScale();
-  const plot = usePlotArea();
-  if (shape.x == null || shape.width == null || !plot) return null;
+  const start = scale(x1, { position: "start" });
+  const end = scale(x2, { position: "end" });
+  if (start == null || end == null) return null;
   let pad = 0;
-  if (
-    scale &&
-    stepValues.length === 2 &&
-    scale(x1, { position: "start" }) === scale(x1, { position: "end" })
-  ) {
+  if (stepValues.length === 2 && start === scale(x1, { position: "end" })) {
     const a = scale(stepValues[0]);
     const b = scale(stepValues[1]);
     if (a != null && b != null) pad = Math.abs(b - a) / 2;
   }
   return {
-    left: Math.max(plot.x, shape.x - pad),
-    right: Math.min(plot.x + plot.width, shape.x + shape.width + pad),
+    left: Math.max(plot.x, Math.min(start, end) - pad),
+    right: Math.min(plot.x + plot.width, Math.max(start, end) + pad),
     top: plot.y,
     bottom: plot.y + plot.height,
   };
@@ -261,17 +245,21 @@ function useBandEdges(
 
 function BandShape({
   x1,
+  x2,
   stepValues,
   color,
   band,
-  ...shape
-}: AreaShapeProps & {
+}: {
   x1: unknown;
+  x2: unknown;
   stepValues: readonly unknown[];
   color: string;
   band: DataNoteBand;
 }) {
-  const edges = useBandEdges(shape, x1, stepValues);
+  const scale = useXAxisScale();
+  const plot = usePlotArea();
+  const edges =
+    scale && plot ? bandEdges(scale, plot, x1, x2, stepValues) : null;
   if (!edges) return null;
   const { left, right, top, bottom } = edges;
   return (
@@ -308,64 +296,122 @@ function BandShape({
   );
 }
 
-function BandLabel({
-  x1,
+export interface DataNoteLabelSlot {
+  text: string;
+  x: number;
+  width: number;
+  /** Rows stack labels that would otherwise cover each other. */
+  row: number;
+}
+
+/**
+ * Title pills for bands spanning [left, right]. A pill keeps its whole title
+ * and runs past a narrow band, ending at the band's right edge instead when it
+ * would leave the plot. Only a title wider than the plot is shortened, at a
+ * word; the hover card still shows it whole.
+ */
+export function layoutDataNoteLabels(
+  spans: readonly { left: number; right: number; title: string }[],
+  plotLeft: number,
+  plotRight: number,
+): DataNoteLabelSlot[] {
+  const rows: Array<Array<[number, number]>> = [];
+  const maxTextWidth =
+    plotRight - plotLeft - 2 * LABEL_INSET - 2 * LABEL_PADDING;
+  return spans.map(({ left, right, title }) => {
+    const text = trimToWholeWords(title, LABEL_FONT_SIZE, maxTextWidth);
+    const width = estimateTextWidth(text, LABEL_FONT_SIZE) + 2 * LABEL_PADDING;
+    const x = spanLabelX(left, right, width, plotLeft, plotRight, LABEL_INSET);
+    let row = rows.findIndex((taken) =>
+      taken.every(
+        ([start, end]) =>
+          start - LABEL_GAP >= x + width || x - LABEL_GAP >= end,
+      ),
+    );
+    if (row === -1) row = rows.length;
+    (rows[row] ??= []).push([x, x + width]);
+    return { text, x, width, row };
+  });
+}
+
+function BandLabels({
+  bands,
+  rows,
+  xKey,
   stepValues,
-  color,
-  placed,
   panelId,
   onHoverChange,
-  ...shape
-}: AreaShapeProps & {
-  x1: unknown;
+}: {
+  bands: readonly PlacedDataNoteBand[];
+  rows: readonly Record<string, unknown>[];
+  xKey: string;
   stepValues: readonly unknown[];
-  color: string;
-  placed: PlacedDataNoteBand;
   panelId?: string;
   onHoverChange?: (hovered: boolean) => void;
 }) {
-  const edges = useBandEdges(shape, x1, stepValues);
-  if (!edges) return null;
-  const maxWidth = Math.max(LABEL_MIN_WIDTH, edges.right - edges.left - 4);
-  const text = trimToWidth(placed.note.title, LABEL_FONT_SIZE, maxWidth - 12);
-  const width = Math.min(
-    maxWidth,
-    estimateTextWidth(text, LABEL_FONT_SIZE) + 12,
+  const scale = useXAxisScale();
+  const plot = usePlotArea();
+  if (!scale || !plot) return null;
+  const placed = bands.flatMap((entry) => {
+    const edges = bandEdges(
+      scale,
+      plot,
+      rows[entry.band.startIndex][xKey],
+      rows[entry.band.endIndex][xKey],
+      stepValues,
+    );
+    return edges ? [{ entry, edges }] : [];
+  });
+  const slots = layoutDataNoteLabels(
+    placed.map(({ entry, edges }) => ({
+      left: edges.left,
+      right: edges.right,
+      title: entry.note.title,
+    })),
+    plot.x,
+    plot.x + plot.width,
   );
-  const x = Math.min(edges.left + 2, edges.right - 2 - width);
-  const y = edges.top + 2 + placed.row * (LABEL_HEIGHT + LABEL_GAP);
   return (
-    <DataNoteHoverCard
-      notes={[placed.note]}
-      panelId={panelId}
-      onHoverChange={onHoverChange}
-    >
-      <g
-        data-data-note-label=""
-        style={{ cursor: "default" }}
-        onMouseMove={(e) => e.stopPropagation()}
-      >
-        <rect
-          x={Math.max(x, 0)}
-          y={y}
-          width={width}
-          height={LABEL_HEIGHT}
-          rx={4}
-          fill="hsl(var(--background))"
-          stroke={color}
-          strokeOpacity={0.7}
-        />
-        <text
-          x={Math.max(x, 0) + 6}
-          y={y + LABEL_HEIGHT / 2}
-          dominantBaseline="central"
-          fontSize={LABEL_FONT_SIZE}
-          fill="hsl(var(--foreground))"
-        >
-          {text}
-        </text>
-      </g>
-    </DataNoteHoverCard>
+    <>
+      {placed.map(({ entry, edges }, index) => {
+        const { text, x, width, row } = slots[index];
+        const y = edges.top + LABEL_INSET + row * (LABEL_HEIGHT + LABEL_GAP);
+        return (
+          <DataNoteHoverCard
+            key={entry.note.id}
+            notes={[entry.note]}
+            panelId={panelId}
+            onHoverChange={onHoverChange}
+          >
+            <g
+              data-data-note-label=""
+              style={{ cursor: "default" }}
+              onMouseMove={(e) => e.stopPropagation()}
+            >
+              <rect
+                x={x}
+                y={y}
+                width={width}
+                height={LABEL_HEIGHT}
+                rx={4}
+                fill="hsl(var(--background))"
+                stroke={dataNoteColor(entry.note)}
+                strokeOpacity={0.7}
+              />
+              <text
+                x={x + LABEL_PADDING}
+                y={y + LABEL_HEIGHT / 2}
+                dominantBaseline="central"
+                fontSize={LABEL_FONT_SIZE}
+                fill="hsl(var(--foreground))"
+              >
+                {text}
+              </text>
+            </g>
+          </DataNoteHoverCard>
+        );
+      })}
+    </>
   );
 }
 
@@ -387,42 +433,51 @@ export function renderDataNoteBands(
 ): ReactNode[] {
   if (bands.length === 0) return [];
   const stepValues = rows.slice(0, 2).map((row) => row[xKey]);
-  return bands.flatMap((placed) => {
-    const color = dataNoteColor(placed.note);
-    const x1 = rows[placed.band.startIndex][xKey] as string | number;
-    const x2 = rows[placed.band.endIndex][xKey] as string | number;
-    const shared = { x1, x2, yAxisId, ifOverflow: "visible" as const };
-    return [
-      <ReferenceArea
-        key={`data-note-${placed.note.id}`}
-        {...shared}
-        zIndex={BAND_Z_INDEX}
-        shape={
-          <BandShape
-            x1={x1}
-            stepValues={stepValues}
-            color={color}
-            band={placed.band}
-          />
-        }
-      />,
-      <ReferenceArea
-        key={`data-note-label-${placed.note.id}`}
-        {...shared}
-        zIndex={LABEL_Z_INDEX}
-        shape={
-          <BandLabel
-            x1={x1}
-            stepValues={stepValues}
-            color={color}
-            placed={placed}
-            panelId={panelId}
-            onHoverChange={onHoverChange}
-          />
-        }
-      />,
-    ];
-  });
+  const xValue = (index: number) => rows[index][xKey] as string | number;
+  return [
+    ...bands.map((placed) => {
+      const x1 = xValue(placed.band.startIndex);
+      const x2 = xValue(placed.band.endIndex);
+      return (
+        <ReferenceArea
+          key={`data-note-${placed.note.id}`}
+          x1={x1}
+          x2={x2}
+          yAxisId={yAxisId}
+          ifOverflow="visible"
+          zIndex={BAND_Z_INDEX}
+          shape={
+            <BandShape
+              x1={x1}
+              x2={x2}
+              stepValues={stepValues}
+              color={dataNoteColor(placed.note)}
+              band={placed.band}
+            />
+          }
+        />
+      );
+    }),
+    // One layer for every title, so each pill is placed knowing where the others are.
+    <ReferenceArea
+      key="data-note-labels"
+      x1={xValue(0)}
+      x2={xValue(rows.length - 1)}
+      yAxisId={yAxisId}
+      ifOverflow="visible"
+      zIndex={LABEL_Z_INDEX}
+      shape={
+        <BandLabels
+          bands={bands}
+          rows={rows}
+          xKey={xKey}
+          stepValues={stepValues}
+          panelId={panelId}
+          onHoverChange={onHoverChange}
+        />
+      }
+    />,
+  ];
 }
 
 const MAX_LINES = 2;

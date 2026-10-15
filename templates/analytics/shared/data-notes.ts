@@ -103,53 +103,91 @@ export function dataNoteIsRecent(
   );
 }
 
-/** True when every x value reads as a date, so notes can be placed on the axis. */
+/**
+ * A date or timestamp string. Unlike a key date, a note can be open-ended, so
+ * a numeric axis read as instants (hour of day, year) would be shaded whole.
+ */
+function xDateInstant(value: unknown): number | null {
+  return typeof value === "string" ? xInstant(value) : null;
+}
+
+/** A blank bucket or a row label such as "Total", not a number. */
+function isRowLabel(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value !== "string") return false;
+  return value.trim() === "" || !Number.isFinite(Number(value));
+}
+
+/** The rows whose x is a date, by their position in xValues. */
+function dateRows(
+  xValues: readonly unknown[],
+): { row: number; instant: number }[] {
+  return xValues.flatMap((x, row) => {
+    const instant = xDateInstant(x);
+    return instant === null ? [] : [{ row, instant }];
+  });
+}
+
+/**
+ * True when notes can be placed on the axis: some x values are dates and the
+ * rest are blank or labels such as a total row. Any number makes it a
+ * numeric axis, which notes cannot be placed on.
+ */
 export function xValuesAreDates(xValues: readonly unknown[]): boolean {
-  return xValues.length > 0 && xValues.every((x) => xInstant(x) !== null);
+  let dates = 0;
+  for (const x of xValues) {
+    if (xDateInstant(x) !== null) dates++;
+    else if (!isRowLabel(x)) return false;
+  }
+  return dates > 0;
 }
 
 export interface DataNoteBand {
   startIndex: number;
   endIndex: number;
-  /** The note's start falls inside the chart, so its edge is drawn. */
+  /** Draw an edge at startIndex: the note's start falls inside the chart, or its end on a newest-first axis. */
   startEdge: boolean;
-  /** The note's end falls inside the chart; an ongoing note has none. */
+  /** Draw an edge at endIndex: the note's end falls inside the chart, or its start on a newest-first axis. */
   endEdge: boolean;
 }
 
 /**
  * The run of x values a note covers. Each x value stands for the bucket up
- * to the next one, so a weekly point covers its whole week. Null when the
- * x axis is not dates or the note is outside it.
+ * to the next later one, so a weekly point covers its whole week whichever
+ * way the rows are sorted. Rows whose x is not a date (a null bucket, a
+ * total row) are skipped. Null when the x axis is not dates or the note is
+ * outside it.
  */
 export function resolveDataNoteBand(
   note: Pick<DataNote, "startDate" | "endDate">,
   xValues: readonly unknown[],
 ): DataNoteBand | null {
   if (!xValuesAreDates(xValues)) return null;
-  const known = xValues.map(xInstant) as number[];
-  const gaps = known
-    .slice(1)
-    .map((point, index) => point - known[index])
-    .filter((gap) => gap > 0);
+  const rows = dateRows(xValues);
+  const known = rows.map(({ instant }) => instant);
+  const points = [...new Set(known)].sort((a, b) => a - b);
+  const gaps = points.slice(1).map((point, index) => point - points[index]);
   const lastSpan = gaps.length ? Math.min(...gaps) : DAY_MS;
-  const spanEnd = (index: number) =>
-    index + 1 < known.length && known[index + 1] > known[index]
-      ? known[index + 1]
-      : known[index] + lastSpan;
+  const spanEnds = new Map(
+    points.map((point, index) => [
+      point,
+      points[index + 1] ?? point + lastSpan,
+    ]),
+  );
   const start = note.startDate ? Date.parse(note.startDate) : -Infinity;
   const end = note.endDate ? Date.parse(note.endDate) + DAY_MS : Infinity;
-  const covered = known.flatMap((point, index) =>
-    point < end && spanEnd(index) > start ? [index] : [],
+  const covered = rows.flatMap(({ row, instant }) =>
+    instant < end && spanEnds.get(instant)! > start ? [row] : [],
   );
   if (covered.length === 0) return null;
-  const first = Math.min(...known);
-  const last = Math.max(...known.map((_, index) => spanEnd(index)));
+  const startInside = start >= points[0];
+  const endInside = end <= points[points.length - 1] + lastSpan;
+  const newestFirst = known[0] > known[known.length - 1];
   return {
     startIndex: covered[0],
     endIndex: covered[covered.length - 1],
-    startEdge: start >= first,
-    endEdge: end <= last,
+    startEdge: newestFirst ? endInside : startInside,
+    endEdge: newestFirst ? startInside : endInside,
   };
 }
 
