@@ -23,7 +23,7 @@ const messages = {
       "No se pudo desactivar Rewind. Detén la grabación e inténtalo de nuevo.",
     rewindOffTitle: "Activar Rewind",
     rewindOffBody:
-      "Para incluir el tiempo de pantalla anterior, primero activa Rewind. Mientras está activado, Rewind graba continuamente la pantalla y conserva el historial reciente en este dispositivo.",
+      "Para incluir el tiempo de pantalla anterior, primero activa Rewind. Mientras está activado, Rewind graba continuamente la pantalla y conserva el historial reciente en este dispositivo hasta que lo añadas a una grabación o apruebes una solicitud para compartirlo.",
     requestFailed:
       "No se pudo incluir el tiempo de pantalla anterior. La grabación continúa sin él.",
     localOnlyUnavailable:

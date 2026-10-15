@@ -20,7 +20,7 @@ const messages = {
     turnOffRewindFailed: "無法關閉 Rewind。請先停止錄製，然後再試一次。",
     rewindOffTitle: "開啟 Rewind",
     rewindOffBody:
-      "如要包含錄影前的螢幕時間，請先開啟 Rewind。開啟時，Rewind 會持續錄製螢幕，並將近期記錄保存在此裝置上。",
+      "如要包含錄影前的螢幕時間，請先開啟 Rewind。開啟時，Rewind 會持續錄製螢幕，並將近期記錄保存在此裝置上，直到您將它加入錄影或核准分享請求為止。",
     requestFailed: "無法包含更早的螢幕時間。錄製會繼續，但不含這部分。",
     localOnlyUnavailable: "僅限本機的錄製不會儲存更早的螢幕時間。",
     saving: "正在儲存錄製前的 {{window}}…",

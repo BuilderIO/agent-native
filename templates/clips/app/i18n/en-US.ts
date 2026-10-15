@@ -21,7 +21,7 @@ const messages = {
       "Couldn't turn off Rewind. Stop your recording and try again.",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
-      "To include earlier screen time, first turn on Rewind. While it’s on, Rewind continuously records your screen and keeps recent history on this device.",
+      "To include earlier screen time, first turn on Rewind. While it’s on, Rewind continuously records your screen and keeps recent history on this device until you add it to a recording or approve a request to share it.",
     requestFailed:
       "Couldn't include earlier screen time. The recording continues without it.",
     localOnlyUnavailable:

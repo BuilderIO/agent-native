@@ -23,7 +23,7 @@ const messages = {
       "Impossible de désactiver Rewind. Arrêtez l'enregistrement et réessayez.",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
-      "Pour inclure l’écran avant un enregistrement, activez d’abord Rewind. Tant qu’il est activé, Rewind enregistre l’écran en continu et conserve l’historique récent sur cet appareil.",
+      "Pour inclure l’écran avant un enregistrement, activez d’abord Rewind. Tant qu’il est activé, Rewind enregistre l’écran en continu et conserve l’historique récent sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",
     requestFailed:
       "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
     localOnlyUnavailable:

@@ -228,7 +228,6 @@ import {
   listenForRecordingShortcutStopAcks,
   requestRecordingShortcutStop,
 } from "./lib/recording-shortcut-stop";
-import { settleRecordingStart } from "./lib/recording-start";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
@@ -3911,6 +3910,13 @@ export function App({
             }
             sessionRecordingIdRef.current = recordingId;
             sessionCaptureIdentityRef.current = captureIdentity ?? recordingId;
+            requestLookbackForRecording(
+              effectiveLookbackSeconds({
+                labEnabled: lookbackLabEnabled,
+                rewindOn,
+                seconds: lookbackSeconds,
+              }),
+            );
           },
         },
         audioCue,
@@ -3933,26 +3939,19 @@ export function App({
         attempt.ensureActive();
       }
       attempt.captureSuspension = null;
-      const settled = await settleRecordingStart(started, {
-        stopRequested:
-          (stopRequestedDuringStart || attempt.signal.aborted) &&
-          captureStartRequestedDuringStart,
-        requestLookback: () =>
-          requestLookbackForRecording(
-            effectiveLookbackSeconds({
-              labEnabled: lookbackLabEnabled,
-              rewindOn,
-              seconds: lookbackSeconds,
-            }),
-          ),
-        finishStop: (recording) =>
-          finishRecordingStopRef.current(
-            recording,
-            sessionRecordingIdRef.current,
-          ),
-      });
-      handle = settled.handle;
-      stoppedDuringStart = settled.stoppedDuringStart;
+      // Capture already began: an abandoned start stops and keeps the take.
+      if (
+        (stopRequestedDuringStart || attempt.signal.aborted) &&
+        captureStartRequestedDuringStart
+      ) {
+        stoppedDuringStart = true;
+        await finishRecordingStopRef.current(
+          started,
+          sessionRecordingIdRef.current,
+        );
+      } else {
+        handle = started;
+      }
       if (handle) console.log("[clips-popover] recorder handle received");
     } catch (err) {
       startError = err;

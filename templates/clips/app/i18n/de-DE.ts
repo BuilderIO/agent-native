@@ -21,7 +21,7 @@ const messages = {
       "Rewind konnte nicht deaktiviert werden. Beende die Aufnahme und versuche es erneut.",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
-      "Um frühere Bildschirmzeit einzuschließen, aktiviere zuerst Rewind. Solange Rewind eingeschaltet ist, zeichnet es deinen Bildschirm fortlaufend auf und speichert den aktuellen Verlauf auf diesem Gerät.",
+      "Um frühere Bildschirmzeit einzuschließen, aktiviere zuerst Rewind. Solange Rewind eingeschaltet ist, zeichnet es deinen Bildschirm fortlaufend auf und speichert den aktuellen Verlauf auf diesem Gerät, bis du ihn zu einer Aufnahme hinzufügst oder einer Freigabeanfrage zustimmst.",
     requestFailed:
       "Frühere Bildschirmzeit konnte nicht einbezogen werden. Die Aufnahme läuft ohne sie weiter.",
     localOnlyUnavailable:

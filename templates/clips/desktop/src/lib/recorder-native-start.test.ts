@@ -1538,6 +1538,7 @@ describe("browser recording startup cancellation", () => {
     };
     mocks.transcribe.mockReturnValueOnce(transcription.promise);
     const controller = new AbortController();
+    const onCaptureStartRequested = vi.fn();
     const pending = startRecording(
       {
         ...params,
@@ -1546,6 +1547,7 @@ describe("browser recording startup cancellation", () => {
         systemAudioOn: false,
         lookbackEnabled: true,
         signal: controller.signal,
+        onCaptureStartRequested,
       },
       audioCue,
     );
@@ -1559,6 +1561,7 @@ describe("browser recording startup cancellation", () => {
     expect(mediaRecorderStart).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(100);
     const id = createdRecordingId();
+    expect(onCaptureStartRequested).toHaveBeenCalledWith(id);
 
     // A start abandoned this late (a timeout, a closed window) must not
     // discard what was already recorded.
