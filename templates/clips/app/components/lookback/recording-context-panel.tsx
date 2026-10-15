@@ -69,21 +69,26 @@ export function contextVideoSrc(
   return accessToken ? `${src}?t=${encodeURIComponent(accessToken)}` : src;
 }
 
+type MediaAccessTokenClaims =
+  | { kind: "valid"; resourceId: string; exp: number }
+  | { kind: "invalid" };
+
 function mediaAccessTokenClaims(
   token: string | undefined,
-): { resourceId: string; exp: number } | null {
-  const payload = token?.split(".", 1)[0];
-  if (!payload) return null;
+): MediaAccessTokenClaims | undefined {
+  if (!token) return undefined;
+  const payload = token.split(".", 1)[0];
+  if (!payload) return { kind: "invalid" };
   try {
     const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
     const decoded = atob(base64 + "=".repeat((4 - (base64.length % 4)) % 4));
     const claims = JSON.parse(decoded) as Record<string, unknown>;
     return typeof claims.resourceId === "string" &&
       typeof claims.exp === "number"
-      ? { resourceId: claims.resourceId, exp: claims.exp }
-      : null;
+      ? { kind: "valid", resourceId: claims.resourceId, exp: claims.exp }
+      : { kind: "invalid" };
   } catch {
-    return null;
+    return { kind: "invalid" };
   }
 }
 
@@ -95,8 +100,8 @@ function shouldReplacePinnedAccessToken(
   if (!currentToken) return true;
   const current = mediaAccessTokenClaims(currentToken);
   const incoming = mediaAccessTokenClaims(incomingToken);
-  if (!incoming) return false;
-  if (!current) return true;
+  if (incoming?.kind !== "valid") return false;
+  if (current?.kind !== "valid") return true;
   return (
     current.resourceId !== incoming.resourceId ||
     current.exp * 1000 <= Date.now() + ACCESS_TOKEN_REFRESH_SKEW_MS

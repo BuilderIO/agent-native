@@ -603,6 +603,38 @@ describe("RecordingContextSection", () => {
     clock.mockRestore();
   });
 
+  it("keeps a valid pinned token when a malformed token arrives", () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const validToken = `${btoa(JSON.stringify({ resourceId: "rec_1:access", exp: nowSeconds + 3600 }))}.signature`;
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [item({})] },
+    });
+    const renderWith = (token: string) =>
+      act(() =>
+        root.render(
+          <MemoryRouter initialEntries={["/share/s"]}>
+            <QueryClientProvider client={queryClient}>
+              <RecordingContextSection
+                recordingId="rec_1"
+                canManage={false}
+                accessToken={token}
+              />
+            </QueryClientProvider>
+          </MemoryRouter>,
+        ),
+      );
+
+    renderWith(validToken);
+    renderWith("malformed-token");
+
+    expect(queryOptions.current?.input).toEqual({
+      recordingId: "rec_1",
+      accessToken: validToken,
+    });
+  });
+
   it("refreshes only this clip's context when the desktop changes it", () => {
     setQuery({
       isSuccess: true,
