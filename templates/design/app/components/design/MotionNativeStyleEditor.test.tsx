@@ -455,6 +455,11 @@ describe("MotionNativeStyleEditor", () => {
       expect.objectContaining({ index: 0, styleKey: "Position" }),
     );
 
+    // Radix refocuses the Select trigger a macrotask after closing; a popover
+    // opened before then reads that focus as outside and dismisses itself.
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(styleNameSelect),
+    );
     const easingSelect = document.body.querySelector<HTMLButtonElement>(
       'button[aria-label="designEditor.motion.animationStyles.easingPresets.easeOut"]',
     )!;
