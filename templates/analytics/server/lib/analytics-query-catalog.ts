@@ -362,9 +362,13 @@ function requestedHistoricalTemporalUnit(search: string): string | null {
     (/\b(?:as of|at (?:the )?end of)\s+(?:the\s+)?month[- ]end\b/i.test(search)
       ? "month"
       : null);
+  const hasUnmarkedPastCalendarPeriod =
+    /\b(?:last|past|previous|prior)\s+(?:month|quarter|year)\b/i.test(search) &&
+    !/\b(?:joined|signed\s+up|created|added|invited|started)\b/i.test(search);
   if (
     !unit ||
-    !isExplicitMembershipSnapshotRequest(search) ||
+    (!isExplicitMembershipSnapshotRequest(search) &&
+      !hasUnmarkedPastCalendarPeriod) ||
     (!/\b(?:last|past|previous|prior)\b/i.test(search) &&
       !/\b(?:as of|at (?:the )?end of)\b/i.test(search)) ||
     /\b(?:this|current|next)\s+(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+)?(?:day|week|month|quarter|year)s?\b/i.test(
@@ -444,7 +448,7 @@ function hasTemporalMembershipSnapshotShape(
     /\b(?:one|single)\s+row\s+per\s+(?:date|day|week|month|quarter|year)\b/.test(
       grain,
     ) ||
-    /\b(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b/.test(
+    /\b(?:per|by)\s+(?:date|day(?:ly)?|week(?:ly)?|month(?:ly)?|quarter(?:ly)?|year(?:ly)?)\b/.test(
       grain,
     ) ||
     /\b(?:snapshot|snapshots)\s+(?:by|per)\s+(?:date|day|week|month|quarter|year)\b/.test(

@@ -43,13 +43,14 @@ accuracy gain. No production index or data rows were written for this eval.
 
 ## Synthetic source and grain cases
 
-### Current production-path retrieval comparison v24
+### Historical production-path comparison v24 (superseded)
 
 [`SYNTHETIC-analytics-production-path-v24-before-after.csv`](./synthetic-production-path/SYNTHETIC-analytics-production-path-v24-before-after.csv)
 records two runs each for 25 synthetic cases on baseline `757e1dd35809` and
 candidate `cf46270ac7ee`, using identical pinned harness bytes. This rerun
-includes the dashboard join, BigQuery comment, and row-grain cadence fixes at
-the reviewed PR head. The measured candidate code hash is
+includes the dashboard join, BigQuery comment, and row-grain cadence fixes in
+candidate `cf46270ac7ee`; later PR revisions are not covered. The measured
+candidate code hash is
 `sha256:090fa4775bcd5cae7bc3896d27bd58be65a68672356eefc4d90f92217e0b794e`;
 the shared harness hash is
 `sha256:c75aaf0790f81dc25897143367bb374b5669baf03e9ef5231635be12421bd9bc`.
@@ -64,12 +65,14 @@ It includes a case where the only membership reference is a monthly aggregate.
 - Mean harness latency rose from 35.0 ms to 59.1 ms. This is local synthetic
   timing, not a production latency measurement.
 
-The v23 CSV remains available as historical evidence. V24 is the current
-source-pinned measurement. This deterministic harness uses a synthetic model
-and in-memory source index; it is not a hosted-model, BigQuery-connection, or
-production-data test, and it does not replay Brent's historical chat. The CSV
-contains only synthetic case IDs, bounded metrics, and provenance hashes. No
-production rows, prompts, transcripts, user identifiers, or secrets were used.
+The v23 CSV remains available as historical evidence. V24 is a historical
+source-pinned measurement for candidate `cf46270ac7ee`, superseded by later PR
+revisions; it does not measure the current PR head. This deterministic
+harness uses a synthetic model and in-memory source index; it is not a
+hosted-model, BigQuery-connection, or production-data test, and it does not
+replay Brent's historical chat. The CSV contains only synthetic case IDs,
+bounded metrics, and provenance hashes. No production rows, prompts,
+transcripts, user identifiers, or secrets were used.
 
 ### Production-path retrieval comparison v22
 

@@ -24,13 +24,15 @@ runs in each phase to complete the production path. Keep this CSV only as a
 record of the harness failure; use a comparison whose baseline and candidate
 both meet that completion threshold.
 
-## Latest measured v24 comparison
+## Historical v24 comparison (superseded)
 
 The v24 artifact compares baseline commit
 `757e1dd35809cce59999f5e54762151c00750a6b` with candidate commit
 `cf46270ac7ee6b6f5fdbe30910aeb5dab11e5bc3`. It runs the same 25 synthetic
 retrieval cases twice in each phase, including the aggregate-only abstention
-case, using identical harness bytes.
+case, using identical harness bytes. This historical artifact measures the
+pinned candidate only; later PR revisions are not included, so it does not
+measure the current PR head.
 
 Top-1 retrieval rose from 46/48 (95.8%) to 48/48 (100%). Correct abstentions
 rose from 0/2 to 2/2, and total contract accuracy rose from 46/50 (92%) to
@@ -306,8 +308,8 @@ artifact is
 
 The v18 artifact has the same case set and completion results, measured on an
 earlier candidate snapshot `1e9eb1188e5250d594d43c0a37b0eef7f177fe60`. It is
-retained for historical comparison; v19 is the current measurement. Its
-evaluated-code hashes were
+retained for historical comparison; the newer v19 artifact is described
+above. Its evaluated-code hashes were
 `sha256:14d8e0b6b7400765132207c578c268605e30183307067481a91a075e7d46de5a`
 before and
 `sha256:f22d56316f7e06cba5aa5824bcc27e75c885f1f715f21a5786891bb025a5c912`
@@ -319,7 +321,7 @@ The artifact is
 ## Historical measured v17 comparison (superseded)
 
 The v17 artifact below uses older main and candidate snapshots. It is retained
-for historical comparison; v18 is the current measurement.
+for historical comparison; the newer v18 artifact follows it in this archive.
 
 The v17 artifact evaluates the same twenty-four synthetic retrieval cases twice
 per phase through the Analytics production agent loop. Its baseline was

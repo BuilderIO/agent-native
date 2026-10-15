@@ -599,7 +599,7 @@ describe("analytics query catalog", () => {
     });
   });
 
-  it("rejects active-only sources and historical snapshots for an unfiltered current roster", () => {
+  it("rejects active-only sources and snapshots without treating grain cadence as temporal grain", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "list full workspace member roster with roles",
       limit: 6,
@@ -643,7 +643,7 @@ describe("analytics query catalog", () => {
             "Current workspace memberships and assigned roles, refreshed daily from the nightly snapshot.",
           table: "workspace_member_role_bridge",
           columnsUsed: "user_id, workspace_id, role",
-          grain: "One row per user-workspace membership",
+          grain: "One row per user-workspace membership, refreshed daily",
           semanticScope: "membership",
           updateFrequency: "Daily",
         },
@@ -1395,6 +1395,7 @@ describe("analytics query catalog", () => {
   it.each([
     "workspace user roster as of month end",
     "workspace user roster at end of last month",
+    "list workspace users last month",
   ])("routes point-in-time membership phrasing to snapshots: %s", (search) => {
     const results = rankAnalyticsQueryCatalog({
       search,
