@@ -382,5 +382,23 @@ describe("validateDashboardConfig multi-select options", () => {
         ),
       ).toContain('"forms"');
     });
+
+    it("bounds how many presets a filter has and how many values each names", () => {
+      const many = Array.from({ length: 21 }, (_, n) => ({
+        label: `Group ${n}`,
+        values: ["mail"],
+      }));
+      expect(
+        validateDashboardConfig(withPresets(many.slice(0, 20))),
+      ).toBeNull();
+      expect(validateDashboardConfig(withPresets(many))).toContain(
+        "presets[20] is past the limit of 20 presets",
+      );
+      expect(
+        validateDashboardConfig(
+          withPresets([{ label: "Mail", values: Array(101).fill("mail") }]),
+        ),
+      ).toContain("has more than 100 values");
+    });
   });
 });
