@@ -1117,6 +1117,45 @@ export function buildExtensionHtml(
 	      }
 	    });
 
+	    // A tab opened from this sandboxed iframe would inherit the sandbox (an
+	    // opaque origin with no cookies), so apps like HubSpot render blank. Ask
+	    // the host to open web links instead: it opens them unsandboxed with
+	    // noopener, so the new tab gets no handle on the host page.
+	    function _webUrl(href) {
+	      try {
+	        var url = new URL(String(href), document.baseURI);
+	        return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+	      } catch (e) {
+	        return null;
+	      }
+	    }
+	    function _openInHost(url) {
+	      window.parent.postMessage({ type: 'agent-native-extension-open-url', url: url }, '*');
+	    }
+	    function _routeLinkClick(e) {
+	      if (e.defaultPrevented) return;
+	      var el = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+	      if (!el) return;
+	      var target = (el.getAttribute('target') || '').toLowerCase();
+	      var newTab = e.type === 'auxclick'
+	        ? e.button === 1
+	        : (target && target !== '_self') || e.metaKey || e.ctrlKey || e.shiftKey;
+	      if (!newTab) return;
+	      var url = _webUrl(el.href);
+	      if (!url) return;
+	      e.preventDefault();
+	      _openInHost(url);
+	    }
+	    document.addEventListener('click', _routeLinkClick);
+	    document.addEventListener('auxclick', _routeLinkClick);
+	    var _origWindowOpen = window.open;
+	    window.open = function(href, target, features) {
+	      var url = href === undefined || href === '' ? null : _webUrl(href);
+	      if (!url || target === '_self') return _origWindowOpen.apply(window, arguments);
+	      _openInHost(url);
+	      return null;
+	    };
+
 	    document.addEventListener('keydown', function(e) {
 	      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
 	        var key = (e.key || '').toLowerCase();

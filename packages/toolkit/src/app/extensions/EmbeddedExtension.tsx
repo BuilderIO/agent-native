@@ -44,6 +44,10 @@ import {
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
+import {
+  EXTENSION_OPEN_URL_MESSAGE,
+  openExtensionLink,
+} from "./open-extension-link.js";
 
 interface Extension {
   id: string;
@@ -264,6 +268,11 @@ export function EmbeddedExtension({
           setHeight(Math.ceil(h));
           fireReady();
         }
+        return;
+      }
+
+      if (message.type === EXTENSION_OPEN_URL_MESSAGE) {
+        openExtensionLink((message as any).url);
         return;
       }
 

@@ -100,23 +100,12 @@ describe("portable extension runtime", () => {
       normalizeAgentNativeExtensionSandbox(
         "allow-scripts allow-same-origin allow-popups",
       ),
-    ).toBe(
-      "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads",
-    );
+    ).toBe("allow-scripts allow-popups allow-downloads");
     expect(normalizeAgentNativeExtensionSandbox(undefined)).toContain(
       "allow-scripts",
     );
     expect(normalizeAgentNativeExtensionSandbox("allow-forms")).toContain(
       "allow-downloads",
-    );
-  });
-
-  it("lets popups opened from an extension escape the sandbox", () => {
-    expect(normalizeAgentNativeExtensionSandbox(undefined)).toContain(
-      "allow-popups-to-escape-sandbox",
-    );
-    expect(normalizeAgentNativeExtensionSandbox("allow-forms")).not.toContain(
-      "allow-popups-to-escape-sandbox",
     );
   });
 

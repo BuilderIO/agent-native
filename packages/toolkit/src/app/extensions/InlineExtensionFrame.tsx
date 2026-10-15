@@ -15,6 +15,10 @@ import {
 } from "./iframe-bridge.js";
 import { useExtensionIframeMetaCsp } from "./iframe-display-sources.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
+import {
+  EXTENSION_OPEN_URL_MESSAGE,
+  openExtensionLink,
+} from "./open-extension-link.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -503,6 +507,11 @@ export function InlineExtensionFrame({
             cancelable: true,
           }),
         );
+        return;
+      }
+
+      if (message.type === EXTENSION_OPEN_URL_MESSAGE) {
+        openExtensionLink((message as any).url);
         return;
       }
 

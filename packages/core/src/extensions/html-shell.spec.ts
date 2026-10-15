@@ -138,6 +138,24 @@ describe("buildExtensionHtml", () => {
     expect(html).not.toContain("clientSecret");
   });
 
+  it("asks the host to open new-tab web links instead of opening sandboxed popups", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain(
+      "window.parent.postMessage({ type: 'agent-native-extension-open-url', url: url }, '*');",
+    );
+    expect(html).toContain(
+      "document.addEventListener('click', _routeLinkClick);",
+    );
+    expect(html).toContain(
+      "document.addEventListener('auxclick', _routeLinkClick);",
+    );
+    expect(html).toContain(
+      "return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;",
+    );
+    expect(html).toContain("window.open = function(href, target, features)");
+  });
+
   it("exposes a chat bridge helper to extension code", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
 
