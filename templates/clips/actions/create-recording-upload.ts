@@ -8,11 +8,8 @@ import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { z } from "zod";
 
 import { getServerAppBasePath } from "../server/lib/public-agent-context.js";
-import {
-  assertRecordingUploadTicketCapacity,
-  createRecordingUploadTicket,
-} from "../server/lib/recording-upload-ticket.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import { createRecordingUploadTicket } from "../server/lib/recording-upload-ticket.js";
+import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
 import createRecording from "./create-recording.js";
 
 export default defineAction({
@@ -71,9 +68,13 @@ export default defineAction({
   }),
   run: async (args, actionContext) => {
     const ownerEmail = getCurrentOwnerEmail();
-    await assertRecordingUploadTicketCapacity(ownerEmail);
+    // The ticket comes first: if it is refused or fails to save, no recording
+    // is left stranded in "uploading" with nothing able to finish it.
+    const recordingId = nanoid();
+    const ticket = await createRecordingUploadTicket(ownerEmail, recordingId);
     const created = await createRecording.run(
       {
+        id: recordingId,
         title: args.title,
         visibility: args.visibility,
         mimeType: args.mimeType,
@@ -85,11 +86,6 @@ export default defineAction({
         requestStreaming: true,
       },
       actionContext,
-    );
-    const ticket = await createRecordingUploadTicket(
-      ownerEmail,
-      created.id,
-      created.organizationId,
     );
 
     const appUrl = `${new URL(getRequestContext()?.requestOrigin || getAppProductionUrl()).origin}${getServerAppBasePath()}`;

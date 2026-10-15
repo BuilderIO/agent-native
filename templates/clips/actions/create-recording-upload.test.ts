@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  assertRecordingUploadTicketCapacity: vi.fn(),
   createRecordingRun: vi.fn(),
   createRecordingUploadTicket: vi.fn(),
   getRequestContext: vi.fn(),
@@ -21,13 +20,12 @@ vi.mock("../server/lib/public-agent-context.js", () => ({
 }));
 
 vi.mock("../server/lib/recording-upload-ticket.js", () => ({
-  assertRecordingUploadTicketCapacity:
-    mocks.assertRecordingUploadTicketCapacity,
   createRecordingUploadTicket: mocks.createRecordingUploadTicket,
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
+  nanoid: () => "rec-1",
 }));
 
 vi.mock("./create-recording.js", () => ({
@@ -52,7 +50,6 @@ beforeEach(() => {
   });
   mocks.createRecordingUploadTicket.mockResolvedValue({
     recordingId: "rec-1",
-    orgId: "org-1",
     tokenHash: "hash",
     token: "fake-ticket",
     expiresAt: Date.parse("2026-10-14T14:00:00.000Z"),
@@ -77,6 +74,7 @@ describe("create-recording-upload", () => {
 
     expect(mocks.createRecordingRun).toHaveBeenCalledWith(
       {
+        id: "rec-1",
         title: "PR 7419 chart fixes",
         visibility: "private",
         mimeType: "video/mp4",
@@ -92,8 +90,10 @@ describe("create-recording-upload", () => {
     expect(mocks.createRecordingUploadTicket).toHaveBeenCalledWith(
       "owner@example.com",
       "rec-1",
-      "org-1",
     );
+    expect(
+      mocks.createRecordingUploadTicket.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.createRecordingRun.mock.invocationCallOrder[0]);
     expect(result).toMatchObject({
       recordingId: "rec-1",
       visibility: "private",
@@ -123,8 +123,8 @@ describe("create-recording-upload", () => {
     expect(result.next).toContain("isFinal=1");
   });
 
-  it("refuses at the ticket cap before creating a recording", async () => {
-    mocks.assertRecordingUploadTicketCapacity.mockRejectedValue(
+  it("creates no recording when the ticket is refused or cannot be saved", async () => {
+    mocks.createRecordingUploadTicket.mockRejectedValue(
       Object.assign(new Error("20 agent uploads are still in progress."), {
         statusCode: 429,
       }),
@@ -136,11 +136,7 @@ describe("create-recording-upload", () => {
         { caller: "mcp", userEmail: "owner@example.com" },
       ),
     ).rejects.toMatchObject({ statusCode: 429 });
-    expect(mocks.assertRecordingUploadTicketCapacity).toHaveBeenCalledWith(
-      "owner@example.com",
-    );
     expect(mocks.createRecordingRun).not.toHaveBeenCalled();
-    expect(mocks.createRecordingUploadTicket).not.toHaveBeenCalled();
   });
 
   it("refuses files over the upload limit before creating a recording", () => {

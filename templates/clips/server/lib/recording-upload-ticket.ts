@@ -19,7 +19,6 @@ const MAX_CAS_ATTEMPTS = 8;
 
 export interface RecordingUploadTicket extends Record<string, unknown> {
   recordingId: string;
-  orgId?: string;
   tokenHash: string;
   expiresAt: number;
 }
@@ -31,7 +30,7 @@ interface RecordingUploadTickets extends Record<string, unknown> {
 export interface RecordingUploadTicketOwner {
   recordingId: string;
   ownerEmail: string;
-  orgId?: string;
+  orgId: string;
 }
 
 function tokenHash(token: string): string {
@@ -100,8 +99,9 @@ function dropExpiredTickets(
 }
 
 /**
- * Tickets that can still open an upload. Never drops one whose recording is
- * still "uploading": evicting it would strand that upload mid-file.
+ * Drops a ticket only once its recording exists and has left "uploading".
+ * A ticket is reserved before its recording is created, so a missing row is
+ * an upload still starting; evicting either would strand it mid-file.
  */
 async function liveTickets(
   ownerEmail: string,
@@ -110,20 +110,23 @@ async function liveTickets(
   const unexpired = dropExpiredTickets(tickets, Date.now());
   const recordingIds = Object.keys(unexpired);
   if (recordingIds.length < MAX_PENDING_TICKETS) return unexpired;
-  const uploading = await getDb()
-    .select({ id: schema.recordings.id })
+  const recordings = await getDb()
+    .select({ id: schema.recordings.id, status: schema.recordings.status })
     .from(schema.recordings)
     .where(
       and(
         inArray(schema.recordings.id, recordingIds),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        eq(schema.recordings.status, "uploading"),
       ),
     );
-  const uploadingIds = new Set(uploading.map((row) => row.id));
+  const finishedIds = new Set(
+    recordings
+      .filter((recording) => recording.status !== "uploading")
+      .map((recording) => recording.id),
+  );
   return Object.fromEntries(
-    Object.entries(unexpired).filter(([recordingId]) =>
-      uploadingIds.has(recordingId),
+    Object.entries(unexpired).filter(
+      ([recordingId]) => !finishedIds.has(recordingId),
     ),
   );
 }
@@ -162,39 +165,32 @@ async function compareAndSwapTickets(
   return result.rowsAffected === 1;
 }
 
-/** Call before creating the recording, so a refusal leaves nothing behind. */
-export async function assertRecordingUploadTicketCapacity(
-  ownerEmail: string,
-): Promise<void> {
-  const { collection } = await readTicketsRow(ownerEmail);
-  const live = await liveTickets(ownerEmail, collection.tickets);
-  if (Object.keys(live).length >= MAX_PENDING_TICKETS) {
-    throw createError({
-      statusCode: 429,
-      message: `${MAX_PENDING_TICKETS} agent uploads are still in progress. Finish one before starting another; an abandoned upload frees its slot within two hours.`,
-    });
-  }
-}
-
+/**
+ * Reserve before creating the recording: the cap is enforced inside the same
+ * compare-and-swap, so a refusal or a failed write leaves nothing behind.
+ */
 export async function createRecordingUploadTicket(
   ownerEmail: string,
   recordingId: string,
-  orgId?: string,
 ): Promise<RecordingUploadTicket & { token: string }> {
   const token = `${TOKEN_PREFIX}${encodeOwner(ownerEmail)}.${crypto.randomBytes(32).toString("base64url")}`;
   const ticket: RecordingUploadTicket = {
     recordingId,
-    ...(orgId ? { orgId } : {}),
     tokenHash: tokenHash(token),
     expiresAt: Date.now() + RECORDING_UPLOAD_TICKET_TTL_MS,
   };
 
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
     const { raw, collection } = await readTicketsRow(ownerEmail);
-    const tickets = {
-      ...(await liveTickets(ownerEmail, collection.tickets)),
-      [recordingId]: ticket,
-    };
+    const live = await liveTickets(ownerEmail, collection.tickets);
+    delete live[recordingId];
+    if (Object.keys(live).length >= MAX_PENDING_TICKETS) {
+      throw createError({
+        statusCode: 429,
+        message: `${MAX_PENDING_TICKETS} agent uploads are still in progress. Finish one before starting another; an abandoned upload frees its slot within two hours.`,
+      });
+    }
+    const tickets = { ...live, [recordingId]: ticket };
     if (await compareAndSwapTickets(ownerEmail, raw, { tickets })) {
       return { ...ticket, token };
     }
@@ -245,7 +241,10 @@ export async function requireRecordingUploadTicketOwner(
     });
   }
   const [recording] = await getDb()
-    .select({ status: schema.recordings.status })
+    .select({
+      status: schema.recordings.status,
+      organizationId: schema.recordings.organizationId,
+    })
     .from(schema.recordings)
     .where(
       and(
@@ -272,6 +271,6 @@ export async function requireRecordingUploadTicketOwner(
   return {
     recordingId,
     ownerEmail: verified.ownerEmail,
-    ...(verified.ticket.orgId ? { orgId: verified.ticket.orgId } : {}),
+    orgId: recording.organizationId,
   };
 }

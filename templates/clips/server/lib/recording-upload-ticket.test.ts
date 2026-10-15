@@ -28,8 +28,8 @@ const execute = vi.hoisted(() =>
   }),
 );
 const recordingRows = vi.hoisted(() => ({
-  rows: [] as Array<{ status: string }>,
-  uploadingIds: [] as string[],
+  rows: [] as Array<{ status: string; organizationId?: string }>,
+  statusById: {} as Record<string, string>,
 }));
 const selectRecording = vi.hoisted(() => vi.fn());
 
@@ -61,7 +61,9 @@ vi.mock("../db/index.js", () => ({
         where: async (where: unknown) => {
           selectRecording(where);
           if (JSON.stringify(where).includes('"inArray"')) {
-            return recordingRows.uploadingIds.map((id) => ({ id }));
+            return Object.entries(recordingRows.statusById).map(
+              ([id, status]) => ({ id, status }),
+            );
           }
           return recordingRows.rows;
         },
@@ -71,6 +73,7 @@ vi.mock("../db/index.js", () => ({
   schema: {
     recordings: {
       id: "recordings.id",
+      organizationId: "recordings.organizationId",
       ownerEmail: "recordings.ownerEmail",
       status: "recordings.status",
     },
@@ -92,8 +95,8 @@ describe("recording upload tickets", () => {
     settings.clear();
     execute.mockClear();
     selectRecording.mockClear();
-    recordingRows.rows = [{ status: "uploading" }];
-    recordingRows.uploadingIds = [];
+    recordingRows.rows = [{ status: "uploading", organizationId: "org-1" }];
+    recordingRows.statusById = {};
     vi.useRealTimers();
   });
 
@@ -105,14 +108,12 @@ describe("recording upload tickets", () => {
     const created = await createRecordingUploadTicket(
       "owner@example.com",
       "rec-1",
-      "org-1",
     );
 
     const stored = JSON.parse(settings.get(storageKey)!);
     expect(Object.keys(stored.tickets)).toEqual(["rec-1"]);
     expect(stored.tickets["rec-1"]).toEqual({
       recordingId: "rec-1",
-      orgId: "org-1",
       tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       expiresAt: created.expiresAt,
     });
@@ -123,13 +124,12 @@ describe("recording upload tickets", () => {
     );
   });
 
-  it("opens its own recording's live upload for the ticket owner", async () => {
+  it("opens its own recording's live upload for the ticket owner, in the recording's org", async () => {
     const { createRecordingUploadTicket, requireRecordingUploadTicketOwner } =
       await import("./recording-upload-ticket.js");
     const { token } = await createRecordingUploadTicket(
       "owner@example.com",
       "rec-1",
-      "org-1",
     );
 
     await expect(
@@ -241,12 +241,9 @@ describe("recording upload tickets", () => {
     }
   });
 
-  it("never evicts a live upload's ticket, and refuses a new upload at the cap", async () => {
-    const {
-      assertRecordingUploadTicketCapacity,
-      createRecordingUploadTicket,
-      requireRecordingUploadTicketOwner,
-    } = await import("./recording-upload-ticket.js");
+  it("refuses a new upload at the cap without evicting or writing anything", async () => {
+    const { createRecordingUploadTicket, requireRecordingUploadTicketOwner } =
+      await import("./recording-upload-ticket.js");
     const ids = Array.from({ length: 20 }, (_, i) => `rec-${i}`);
     const first = await createRecordingUploadTicket(
       "owner@example.com",
@@ -255,36 +252,32 @@ describe("recording upload tickets", () => {
     for (const id of ids.slice(1)) {
       await createRecordingUploadTicket("owner@example.com", id);
     }
-    recordingRows.uploadingIds = ids;
+    // rec-0's recording is not created yet: its upload is still starting.
+    recordingRows.statusById = Object.fromEntries(
+      ids.slice(1).map((id) => [id, "uploading"]),
+    );
 
     const storedBefore = settings.get(storageKey);
     await expect(
-      assertRecordingUploadTicketCapacity("owner@example.com"),
+      createRecordingUploadTicket("owner@example.com", "rec-late"),
     ).rejects.toMatchObject({ statusCode: 429 });
     expect(settings.get(storageKey)).toBe(storedBefore);
-
-    // A concurrent call that passed the check still keeps every live ticket.
-    await createRecordingUploadTicket("owner@example.com", "rec-late");
-    expect(
-      Object.keys(JSON.parse(settings.get(storageKey)!).tickets),
-    ).toHaveLength(21);
     await expect(
       requireRecordingUploadTicketOwner(ticketEvent(first.token), ids[0]),
     ).resolves.toMatchObject({ recordingId: ids[0] });
   });
 
   it("frees capacity held by uploads that already finished", async () => {
-    const { assertRecordingUploadTicketCapacity, createRecordingUploadTicket } =
+    const { createRecordingUploadTicket } =
       await import("./recording-upload-ticket.js");
     const ids = Array.from({ length: 20 }, (_, i) => `rec-${i}`);
     for (const id of ids) {
       await createRecordingUploadTicket("owner@example.com", id);
     }
-    recordingRows.uploadingIds = ids.slice(1);
+    recordingRows.statusById = Object.fromEntries(
+      ids.map((id, i) => [id, i === 0 ? "ready" : "uploading"]),
+    );
 
-    await expect(
-      assertRecordingUploadTicketCapacity("owner@example.com"),
-    ).resolves.toBeUndefined();
     await createRecordingUploadTicket("owner@example.com", "rec-new");
     const stored = Object.keys(JSON.parse(settings.get(storageKey)!).tickets);
     expect(stored).not.toContain(ids[0]);
