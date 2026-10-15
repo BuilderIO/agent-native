@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   centreSquare,
+  createCompositor,
   segmentationInterval,
   smoothMask,
 } from "./person-cutout";
@@ -64,5 +65,52 @@ describe("segmentationInterval", () => {
 
   it("respects a maximum rate below the minimum", () => {
     expect(segmentationInterval(500, 10)).toBe(100);
+  });
+});
+
+describe("createCompositor", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  // WebGL2 context whose shader setup fails after the context exists.
+  const brokenWebgl = () => ({
+    VERTEX_SHADER: 0x8b31,
+    createProgram: () => ({}),
+    createShader: () => null,
+    getExtension: () => null,
+  });
+  const canvas2d = () => ({
+    createImageData: (width: number, height: number) => ({
+      data: new Uint8ClampedArray(width * height * 4),
+    }),
+  });
+  const fakeCanvas = () => {
+    const contexts: string[] = [];
+    let locked: string | null = null;
+    return {
+      contexts,
+      width: 0,
+      height: 0,
+      getContext(type: string) {
+        contexts.push(type);
+        // A canvas keeps the first context type it hands out.
+        if (locked && locked !== type) return null;
+        locked = type;
+        return type === "webgl2" ? brokenWebgl() : canvas2d();
+      },
+    };
+  };
+
+  it("keeps the target free for Canvas 2D when WebGL setup fails", () => {
+    vi.stubGlobal("document", { createElement: () => fakeCanvas() });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const target = fakeCanvas();
+
+    const compositor = createCompositor(target as unknown as HTMLCanvasElement);
+
+    expect(compositor).toBeDefined();
+    expect(target.contexts).toEqual(["2d"]);
   });
 });

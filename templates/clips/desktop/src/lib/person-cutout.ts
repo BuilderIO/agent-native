@@ -491,6 +491,36 @@ function createCanvas2dCompositor(canvas: HTMLCanvasElement): Compositor {
   };
 }
 
+/**
+ * Builds the WebGL compositor when it works, else the Canvas 2D one. A canvas
+ * cannot switch to Canvas 2D once it holds a WebGL context, so WebGL setup is
+ * tried on a scratch canvas first and the target stays free for the fallback.
+ */
+export function createCompositor(canvas: HTMLCanvasElement): Compositor {
+  if (webglCompositorWorks()) {
+    const webgl = createWebglCompositor(canvas);
+    if (webgl) return webgl;
+  }
+  return createCanvas2dCompositor(canvas);
+}
+
+function webglCompositorWorks(): boolean {
+  const probe = document.createElement("canvas");
+  try {
+    const compositor = createWebglCompositor(probe);
+    compositor?.close();
+    return compositor !== null;
+  } catch (err) {
+    console.warn("[person-cutout] WebGL compositor unavailable", err);
+    return false;
+  } finally {
+    probe
+      .getContext("webgl2")
+      ?.getExtension("WEBGL_lose_context")
+      ?.loseContext();
+  }
+}
+
 // --- Cut-out ---------------------------------------------------------------
 
 export async function createPersonCutout(
@@ -511,16 +541,10 @@ export async function createPersonCutout(
 
   let compositor: Compositor;
   try {
-    compositor =
-      createWebglCompositor(canvas) ?? createCanvas2dCompositor(canvas);
+    compositor = createCompositor(canvas);
   } catch (err) {
-    console.warn("[person-cutout] WebGL compositor unavailable", err);
-    try {
-      compositor = createCanvas2dCompositor(canvas);
-    } catch (fallbackErr) {
-      segmenter.close();
-      throw fallbackErr;
-    }
+    segmenter.close();
+    throw err;
   }
 
   const maskFrame: MaskFrame = {
