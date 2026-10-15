@@ -79,13 +79,17 @@ export function DashboardAnnotationsProvider({
       });
     }
   }, [dataNotesFailed, t]);
+  // Its own memo: a changed note list must not re-resolve every chart's key dates.
+  const keyDates = useMemo(
+    () =>
+      keyDateData ? keyDateEvents(keyDateData.sets, annotations) : NO_KEY_DATES,
+    [keyDateData, annotations],
+  );
   const value = useMemo<DashboardAnnotationsValue>(
     () => ({
       dashboardId: dashboardId ?? null,
       annotations,
-      keyDates: keyDateData
-        ? keyDateEvents(keyDateData.sets, annotations)
-        : NO_KEY_DATES,
+      keyDates,
       keyDatesFailed,
       dataNotes: dataNoteData ? dataNoteData.notes : NO_DATA_NOTES,
       dataNotesFailed,
@@ -93,7 +97,7 @@ export function DashboardAnnotationsProvider({
     [
       dashboardId,
       annotations,
-      keyDateData,
+      keyDates,
       keyDatesFailed,
       dataNoteData,
       dataNotesFailed,
@@ -106,7 +110,30 @@ export function DashboardAnnotationsProvider({
   );
 }
 
-/** A panel's own events plus the dashboard's key dates, for `renderEventMarkers`. */
+/**
+ * Draws key dates already resolved for one dashboard. A Human Review preview
+ * can show another organization's dashboard, whose key dates list-key-dates
+ * does not return, so get-sql-dashboard sends them with it.
+ */
+export function ResolvedKeyDatesProvider({
+  keyDates,
+  children,
+}: {
+  keyDates: readonly PanelEvent[];
+  children: ReactNode;
+}) {
+  const value = useMemo<DashboardAnnotationsValue>(
+    () => ({ ...NO_ANNOTATIONS, keyDates }),
+    [keyDates],
+  );
+  return (
+    <DashboardAnnotationsContext.Provider value={value}>
+      {children}
+    </DashboardAnnotationsContext.Provider>
+  );
+}
+
+/** A panel's own events plus the dashboard's key dates, for `useEventMarkerGroups`. */
 export function usePanelEvents(
   panel: Pick<SqlPanel, "chartType" | "config">,
 ): unknown {
