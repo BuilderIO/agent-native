@@ -1415,6 +1415,9 @@ export default function Index({ active = true }: { active?: boolean }) {
           } satisfies DeckGenerationRetryState,
           flushSync: true,
         });
+      } else if (isHome) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+        setNewDeckPromptOpen(true, { clearInitialPrompt: false });
       }
     };
 

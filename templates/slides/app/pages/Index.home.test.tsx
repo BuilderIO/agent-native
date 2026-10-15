@@ -1456,6 +1456,35 @@ describe("Slides prompt-led home", () => {
     );
   });
 
+  it("reopens the Home composer with its prompt when new-deck setup fails", async () => {
+    const prompt = "Create a presentation about team onboarding";
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: false });
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue(null);
+    renderHome({ ensureDeckPersisted, deleteDeck: vi.fn() });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() => expect(promptProps.mock.lastCall![0].open).toBe(true));
+    expect(
+      screen.getByRole("textbox", { name: "Presentation prompt" }),
+    ).toHaveProperty("value", prompt);
+    expect(
+      window.localStorage.getItem("an-composer-draft:slides-new-deck"),
+    ).toContain(prompt);
+  });
+
   it("restores the prompt when saving a source deck rejects", async () => {
     const uploadedFile = {
       path: "/uploads/source.pptx",
