@@ -1054,6 +1054,18 @@ export default {
     operationalPain: "手術の痛み",
     untitledTheme: "無題のテーマ",
   },
+  dashboardSaveStatus: {
+    saved: "保存済み",
+    savedShared: "全員向けに保存済み",
+    saving: "保存中…",
+    savingShared: "全員向けに保存中…",
+    failed: "保存できませんでした",
+    you: "あなた",
+    sharedHint: "アクセスできる全員がこのバージョンを見ます",
+    privateHint: "このバージョンを見られるのは、あなたと共有相手だけです",
+    oneOtherViewer: "ほかに1人が開いています",
+    otherViewers: "ほかに{{count}}人が開いています",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "ダッシュボード履歴",

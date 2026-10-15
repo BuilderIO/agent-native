@@ -176,6 +176,11 @@ import {
   extractFilterParams,
   resolveFilterVars,
 } from "./DashboardFilterBar";
+import {
+  DashboardSaveStatus,
+  otherViewerCount,
+  useDashboardSaveFeedback,
+} from "./DashboardSaveStatus";
 import { EmailReportDialog } from "./EmailReportDialog";
 import { dashboardExtensionSlotId } from "./extension-slot";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
@@ -712,6 +717,15 @@ function SqlDashboardPageContent({
     dashboardId: string;
     queue: ReturnType<typeof createDashboardSaveQueue<SqlDashboardConfig>>;
   } | null>(null);
+  // A queued save can land after the page has moved to another dashboard; it
+  // must not stamp that dashboard's saved-at.
+  const liveSaverRef = useRef({
+    dashboardId,
+    email: session?.email ?? null,
+  });
+  useEffect(() => {
+    liveSaverRef.current = { dashboardId, email: session?.email ?? null };
+  }, [dashboardId, session?.email]);
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
@@ -847,6 +861,21 @@ function SqlDashboardPageContent({
     docId: collabDocId,
     requestSource: TAB_ID,
     user: currentUser,
+  });
+
+  // handleUndo is declared below the saves that offer it, so the save toast's
+  // Undo goes through this ref.
+  const handleUndoRef = useRef<(() => Promise<void>) | null>(null);
+  const undoLatestSave = useCallback(() => {
+    void handleUndoRef.current?.();
+  }, []);
+  const dashboardShared =
+    dashboardVisibility === "org" || dashboardVisibility === "public";
+  const { state: saveState, track: trackSave } = useDashboardSaveFeedback({
+    dashboardId,
+    shared: dashboardShared,
+    otherViewers: otherViewerCount(activeUsers, session?.email),
+    onUndo: undoLatestSave,
   });
 
   const updateCachedDashboardConfig = useCallback(
@@ -1233,8 +1262,13 @@ function SqlDashboardPageContent({
               config,
               dashboardUpdatedAtRef.current ?? undefined,
             );
-            if (typeof result?.updatedAt === "string") {
+            if (
+              typeof result?.updatedAt === "string" &&
+              liveSaverRef.current.dashboardId === id
+            ) {
               dashboardUpdatedAtRef.current = result.updatedAt;
+              setDashboardUpdatedAt(result.updatedAt);
+              setDashboardUpdatedBy(liveSaverRef.current.email);
             }
           }),
         };
@@ -1255,7 +1289,7 @@ function SqlDashboardPageContent({
       holdDashboardConfig();
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
-      void enqueueDashboardSave(dashboardId, updated)
+      void trackSave(enqueueDashboardSave(dashboardId, updated))
         .then(({ isLatest }) => {
           if (!isLatest) return;
           queryClient.removeQueries({
@@ -1297,6 +1331,7 @@ function SqlDashboardPageContent({
       queryClient,
       resetRevisionNavigation,
       t,
+      trackSave,
       updateCachedDashboardConfig,
     ],
   );
@@ -1311,7 +1346,9 @@ function SqlDashboardPageContent({
       holdDashboardConfig();
       let isLatest: boolean;
       try {
-        ({ isLatest } = await enqueueDashboardSave(dashboardId, updated));
+        ({ isLatest } = await trackSave(
+          enqueueDashboardSave(dashboardId, updated),
+        ));
       } catch (err) {
         pendingConfigRef.current = null;
         void queryClient.invalidateQueries({
@@ -1347,6 +1384,7 @@ function SqlDashboardPageContent({
       queryClient,
       resetRevisionNavigation,
       t,
+      trackSave,
       updateCachedDashboardConfig,
     ],
   );
@@ -1375,7 +1413,7 @@ function SqlDashboardPageContent({
       const restored = await restoreDashboardRevision.mutateAsync({
         dashboardId,
         revisionId: targetRevision.id,
-        expectedUpdatedAt: dashboardUpdatedAt ?? undefined,
+        expectedUpdatedAt: dashboardUpdatedAtRef.current ?? undefined,
       });
       setUndoRevisionId(targetRevision.id);
       setRedoRevisionIds((current) => [
@@ -1398,7 +1436,6 @@ function SqlDashboardPageContent({
     canEdit,
     dashboardId,
     dashboardRevisions,
-    dashboardUpdatedAt,
     holdDashboardConfig,
     restoreDashboardRevision,
     refetchDashboardRevisions,
@@ -1407,6 +1444,9 @@ function SqlDashboardPageContent({
     undoRevisionId,
     undoRevisionIndex,
   ]);
+  useEffect(() => {
+    handleUndoRef.current = handleUndo;
+  }, [handleUndo]);
 
   const handleRedo = useCallback(async () => {
     if (
@@ -1427,7 +1467,7 @@ function SqlDashboardPageContent({
       const restored = await restoreDashboardRevision.mutateAsync({
         dashboardId,
         revisionId: targetRevisionId,
-        expectedUpdatedAt: dashboardUpdatedAt ?? undefined,
+        expectedUpdatedAt: dashboardUpdatedAtRef.current ?? undefined,
       });
       setRedoRevisionIds((current) => current.slice(0, -1));
       setUndoRevisionId(null);
@@ -1447,7 +1487,6 @@ function SqlDashboardPageContent({
     canEdit,
     canRedo,
     dashboardId,
-    dashboardUpdatedAt,
     holdDashboardConfig,
     redoRevisionIds,
     resetRevisionNavigation,
@@ -2079,6 +2118,15 @@ function SqlDashboardPageContent({
             </TooltipTrigger>
             <TooltipContent>{t("sqlDashboard.certifiedForAi")}</TooltipContent>
           </Tooltip>
+        ) : null}
+        {canEdit ? (
+          <DashboardSaveStatus
+            state={saveState}
+            shared={dashboardShared}
+            updatedAt={dashboardUpdatedAt}
+            updatedBy={dashboardUpdatedBy}
+            currentUserEmail={session?.email}
+          />
         ) : null}
       </div>
     ) : dashboardId && !loaded ? (

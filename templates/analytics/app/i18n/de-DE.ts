@@ -1083,6 +1083,19 @@ export default {
     operationalPain: "Operationsschmerz",
     untitledTheme: "Thema ohne Titel",
   },
+  dashboardSaveStatus: {
+    saved: "Gespeichert",
+    savedShared: "Für alle gespeichert",
+    saving: "Wird gespeichert…",
+    savingShared: "Wird für alle gespeichert…",
+    failed: "Speichern fehlgeschlagen",
+    you: "Sie",
+    sharedHint: "Alle mit Zugriff sehen diese Version",
+    privateHint:
+      "Nur Sie und Personen, mit denen Sie es teilen, sehen diese Version",
+    oneOtherViewer: "1 weitere Person hat es geöffnet",
+    otherViewers: "{{count}} weitere Personen haben es geöffnet",
+  },
   dashboard: {
     sqlDashboard: "SQL dashboard",
     historyTitle: "Dashboard-Verlauf",
