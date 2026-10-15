@@ -2752,7 +2752,9 @@ function BarRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
         <BarChart key={JSON.stringify(yKeys)} data={rows}>
@@ -2778,13 +2780,13 @@ function BarRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
-          {renderDataNoteBands(
-            dataNoteLayout.bands,
-            rows,
+          {renderDataNoteBands(dataNoteLayout.bands, {
+            rows: rows,
             xKey,
-            dualAxis.enabled ? "left" : undefined,
-            setEventHovered,
-          )}
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+          })}
           <Tooltip
             active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
@@ -2881,7 +2883,9 @@ function ComboRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
         <ComposedChart data={rows}>
@@ -2907,13 +2911,13 @@ function ComboRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
-          {renderDataNoteBands(
-            dataNoteLayout.bands,
-            rows,
+          {renderDataNoteBands(dataNoteLayout.bands, {
+            rows: rows,
             xKey,
-            dualAxis.enabled ? "left" : undefined,
-            setEventHovered,
-          )}
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+          })}
           <Tooltip
             active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
@@ -3032,7 +3036,9 @@ function TimeSeriesRenderer({
         onToggleLegendKey={toggleSeries}
         onFilterLegendKey={filterSeries}
         showCustomLegend
-        footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
+        footer={
+          <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+        }
       >
         <ChartResponsiveContainer>
           <LineChart data={chartRows}>
@@ -3050,13 +3056,13 @@ function TimeSeriesRenderer({
               stroke="hsl(var(--border))"
               vertical={false}
             />
-            {renderDataNoteBands(
-              dataNoteLayout.bands,
-              chartRows,
+            {renderDataNoteBands(dataNoteLayout.bands, {
+              rows: chartRows,
               xKey,
-              dualAxis.enabled ? "left" : undefined,
-              setEventHovered,
-            )}
+              yAxisId: dualAxis.enabled ? "left" : undefined,
+              panelId: panel.id,
+              onHoverChange: setEventHovered,
+            })}
             <Tooltip
               active={eventHovered ? false : undefined}
               {...CHART_TOOLTIP_PROPS}
@@ -3126,7 +3132,9 @@ function TimeSeriesRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      footer={<DataNoteLines notes={dataNoteLayout.unplaced} />}
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
         <AreaChart key={JSON.stringify(yKeys)} data={chartRows}>
@@ -3169,13 +3177,13 @@ function TimeSeriesRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
-          {renderDataNoteBands(
-            dataNoteLayout.bands,
-            chartRows,
+          {renderDataNoteBands(dataNoteLayout.bands, {
+            rows: chartRows,
             xKey,
-            dualAxis.enabled ? "left" : undefined,
-            setEventHovered,
-          )}
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+          })}
           <Tooltip
             active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}

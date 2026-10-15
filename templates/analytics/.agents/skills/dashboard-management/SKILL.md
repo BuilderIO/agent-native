@@ -237,7 +237,8 @@ for this. They live in two places:
 A dashboard leaves sets off its charts with `config.annotations`, set through
 `mutate-dashboard`'s `setDashboard({ annotations: { hiddenKeyDateSets: [setId, ...] } })`.
 The patch replaces the whole `annotations` object, so include the sets and
-data notes already hidden.
+data notes already hidden. People do the same from the dashboard header's
+Annotations menu, which also adds and edits key dates and sets.
 
 - Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
   multiple are allowed. `date` is the calendar date in the event's own zone.
@@ -281,6 +282,9 @@ only the fields given); remove with `delete-data-note`.
 - A dashboard hides a note on one chart with
   `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
   keeping `hiddenKeyDateSets` and the notes already hidden in the same object.
+- People add a note from a chart's menu ("Add data note", pinned to that chart)
+  or the Annotations menu; a note's hover card offers Edit, Mark fixed, and
+  Hide on this chart.
 - Scheduled email reports shade the same ranges and write each note's text under
   the chart.
 

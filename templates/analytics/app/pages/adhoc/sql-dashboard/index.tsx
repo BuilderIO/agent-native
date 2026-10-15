@@ -140,6 +140,7 @@ import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
+import { useAnnotationEditing } from "./annotation-editing";
 import {
   canPersistDashboardFilterPreference,
   dashboardFilterParams,
@@ -2088,6 +2089,13 @@ function SqlDashboardPageContent({
     ) : null,
   );
 
+  const annotationEditing = useAnnotationEditing({
+    dashboardId,
+    dashboard,
+    canEdit,
+    persist,
+  });
+
   useSetHeaderActions(
     reportScreenshot ? null : dashboard ? (
       <>
@@ -2100,6 +2108,7 @@ function SqlDashboardPageContent({
         {dashboardId && (
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
+        {annotationEditing.menu}
         {dashboardId ? (
           <ShareButton
             resourceType="dashboard"
@@ -2796,8 +2805,12 @@ function SqlDashboardPageContent({
     <DashboardAnnotationsProvider
       dashboardId={dashboardId}
       annotations={dashboard.annotations}
+      dataNoteActions={
+        reportScreenshot ? undefined : annotationEditing.dataNoteActions
+      }
     >
       {content}
+      {annotationEditing.dialogs}
     </DashboardAnnotationsProvider>
   );
 }

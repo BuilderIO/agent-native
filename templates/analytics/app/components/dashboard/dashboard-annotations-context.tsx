@@ -9,11 +9,22 @@ import type {
   SqlPanel,
 } from "@/pages/adhoc/sql-dashboard/types";
 
+/** What a chart's data-note card offers; absent outside an editable dashboard. */
+export interface DataNoteActions {
+  /** Starts a note pinned to this chart. */
+  add(panelId: string): void;
+  edit(note: DataNote): void;
+  markFixed(note: DataNote): void;
+  /** Absent when the viewer can't edit this dashboard. */
+  hide?(noteId: string, panelId: string): void;
+}
+
 interface DashboardAnnotationsValue {
   dashboardId: string | null;
   annotations?: DashboardAnnotations;
   keyDates: readonly PanelEvent[];
   dataNotes: readonly DataNote[];
+  dataNoteActions?: DataNoteActions;
 }
 
 const NO_KEY_DATES: readonly PanelEvent[] = [];
@@ -33,10 +44,12 @@ const DashboardAnnotationsContext =
 export function DashboardAnnotationsProvider({
   dashboardId,
   annotations,
+  dataNoteActions,
   children,
 }: {
   dashboardId?: string | null;
   annotations?: DashboardAnnotations;
+  dataNoteActions?: DataNoteActions;
   children: ReactNode;
 }) {
   const { data: keyDateData } = useActionQuery("list-key-dates", undefined, {
@@ -53,8 +66,9 @@ export function DashboardAnnotationsProvider({
         ? keyDateEvents(keyDateData.sets, annotations)
         : NO_KEY_DATES,
       dataNotes: dataNoteData?.notes ?? NO_DATA_NOTES,
+      dataNoteActions,
     }),
-    [dashboardId, annotations, keyDateData, dataNoteData],
+    [dashboardId, annotations, keyDateData, dataNoteData, dataNoteActions],
   );
   return (
     <DashboardAnnotationsContext.Provider value={value}>
@@ -91,4 +105,8 @@ export function usePanelDataNotes(
         : NO_DATA_NOTES,
     [dashboardId, annotations, dataNotes, id, sql],
   );
+}
+
+export function useDataNoteActions(): DataNoteActions | undefined {
+  return useContext(DashboardAnnotationsContext).dataNoteActions;
 }

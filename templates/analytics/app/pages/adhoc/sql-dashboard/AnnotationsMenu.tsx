@@ -1,0 +1,141 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { dataNoteAppliesTo, type DataNote } from "@shared/data-notes";
+import {
+  IconChevronDown,
+  IconFlag,
+  IconPencil,
+  IconPlus,
+} from "@tabler/icons-react";
+import { useMemo } from "react";
+
+import { dataNoteColor } from "@/components/dashboard/data-note-bands";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+import type { DashboardAnnotations, SqlPanel } from "./types";
+
+export function AnnotationsMenu({
+  dashboardId,
+  panels,
+  annotations,
+  onAnnotationsChange,
+  onAddKeyDate,
+  onEditKeyDates,
+  onAddDataNote,
+  onEditDataNote,
+}: {
+  dashboardId: string;
+  panels: readonly SqlPanel[];
+  annotations?: DashboardAnnotations;
+  /** Absent when the viewer can't edit this dashboard. */
+  onAnnotationsChange?: (next: DashboardAnnotations) => void;
+  onAddKeyDate: () => void;
+  onEditKeyDates: () => void;
+  onAddDataNote: () => void;
+  onEditDataNote: (note: DataNote) => void;
+}) {
+  const t = useT();
+  const { data: keyDateData } = useActionQuery("list-key-dates", undefined, {
+    staleTime: 60_000,
+  });
+  const { data: dataNoteData } = useActionQuery("list-data-notes", undefined, {
+    staleTime: 60_000,
+  });
+  const sets = keyDateData?.sets ?? [];
+  const hiddenSets = new Set(annotations?.hiddenKeyDateSets);
+  const notesHere = useMemo(
+    () =>
+      (dataNoteData?.notes ?? []).filter((note) =>
+        panels.some((panel) => dataNoteAppliesTo(note, dashboardId, panel)),
+      ),
+    [dashboardId, dataNoteData, panels],
+  );
+
+  const toggleSet = (setId: string, shown: boolean) => {
+    if (!onAnnotationsChange) return;
+    const hiddenKeyDateSets = shown
+      ? [...hiddenSets].filter((id) => id !== setId)
+      : [...hiddenSets, setId];
+    const { hiddenKeyDateSets: _previous, ...rest } = annotations ?? {};
+    onAnnotationsChange(
+      hiddenKeyDateSets.length > 0 ? { ...rest, hiddenKeyDateSets } : rest,
+    );
+  };
+
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="gap-1.5 text-xs">
+              <IconFlag className="h-3.5 w-3.5" />
+              <span>{t("annotations.menu")}</span>
+              <IconChevronDown className="h-3 w-3 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("annotations.menuTooltip")}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          {t("annotations.keyDates")}
+        </DropdownMenuLabel>
+        {sets.map((set) => (
+          <DropdownMenuCheckboxItem
+            key={set.id}
+            checked={!hiddenSets.has(set.id)}
+            disabled={!onAnnotationsChange}
+            onSelect={(event) => event.preventDefault()}
+            onCheckedChange={(checked) => toggleSet(set.id, checked === true)}
+          >
+            <span className="min-w-0 flex-1 truncate">{set.name}</span>
+            <span className="ml-2 shrink-0 tabular-nums text-xs text-muted-foreground">
+              {set.dates.length}
+            </span>
+          </DropdownMenuCheckboxItem>
+        ))}
+        <DropdownMenuItem onSelect={onAddKeyDate}>
+          <IconPlus className="mr-2 h-4 w-4" />
+          {t("annotations.addKeyDate")}
+        </DropdownMenuItem>
+        {sets.length > 0 ? (
+          <DropdownMenuItem onSelect={onEditKeyDates}>
+            <IconPencil className="mr-2 h-4 w-4" />
+            {t("annotations.editKeyDates")}
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          {t("annotations.dataNotes")}
+        </DropdownMenuLabel>
+        {notesHere.map((note) => (
+          <DropdownMenuItem key={note.id} onSelect={() => onEditDataNote(note)}>
+            <span
+              className="mr-2 size-2 shrink-0 rounded-full"
+              style={{ background: dataNoteColor(note) }}
+            />
+            <span className="min-w-0 truncate">{note.title}</span>
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuItem onSelect={onAddDataNote}>
+          <IconPlus className="mr-2 h-4 w-4" />
+          {t("annotations.addDataNote")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

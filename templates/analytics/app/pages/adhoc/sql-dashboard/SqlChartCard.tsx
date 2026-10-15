@@ -18,11 +18,15 @@ import {
   IconBrandGoogle,
   IconArrowUpRight,
   IconLink,
+  IconFlag,
 } from "@tabler/icons-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { usePanelDataNotes } from "@/components/dashboard/dashboard-annotations-context";
+import {
+  useDataNoteActions,
+  usePanelDataNotes,
+} from "@/components/dashboard/dashboard-annotations-context";
 import {
   DataNoteFlag,
   DataNoteLines,
@@ -165,6 +169,7 @@ export function SqlChartCard({
 }: SqlChartCardProps) {
   const t = useT();
   const panelDataNotes = usePanelDataNotes(panel);
+  const dataNoteActions = useDataNoteActions();
   // Time charts draw notes as bands over their dates; other charts flag the recent ones.
   const flaggedDataNotes = useMemo(
     () =>
@@ -652,7 +657,7 @@ export function SqlChartCard({
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
-          <DataNoteFlag notes={flaggedDataNotes} />
+          <DataNoteFlag notes={flaggedDataNotes} panelId={panel.id} />
           {timeRangeOverrideLabel ? (
             <Badge
               variant="secondary"
@@ -746,6 +751,14 @@ export function SqlChartCard({
                     <IconLink className="h-4 w-4 mr-2" />
                     {t("sidebar.copyLink")}
                   </DropdownMenuItem>
+                  {dataNoteActions ? (
+                    <DropdownMenuItem
+                      onSelect={() => dataNoteActions.add(panel.id)}
+                    >
+                      <IconFlag className="h-4 w-4 mr-2" />
+                      {t("annotations.addDataNote")}
+                    </DropdownMenuItem>
+                  ) : null}
                   {editable || panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
                   ) : null}
@@ -831,7 +844,7 @@ export function SqlChartCard({
             onSaveColumns={onSaveColumns}
             extensionContext={extensionContext}
           />
-          <DataNoteLines notes={flaggedDataNotes} />
+          <DataNoteLines notes={flaggedDataNotes} panelId={panel.id} />
         </CardContent>
       </Card>
 
