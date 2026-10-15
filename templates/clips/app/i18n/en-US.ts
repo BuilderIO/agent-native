@@ -20,6 +20,12 @@ const messages = {
     turnOffRewindFailed:
       "Couldn't turn off Rewind. Stop your recording and try again.",
     turnOnRewindFailed: "Couldn't turn on Rewind. Try again.",
+    rewindConsentTitle: "Turn on Rewind?",
+    rewindConsentBody:
+      "Clips will continuously record your screen and keep it on this device. Agents get text excerpts, and video is shared only when you approve it.",
+    rewindConsentCancel: "Not now",
+    rewindConsentConfirm: "Turn on Rewind",
+    rewindConsentBusy: "Turning on…",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
       "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",

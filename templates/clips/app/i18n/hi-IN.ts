@@ -20,6 +20,12 @@ const messages = {
     turnOffRewindFailed:
       "Rewind बंद नहीं किया जा सका। रिकॉर्डिंग रोकें और फिर से प्रयास करें।",
     turnOnRewindFailed: "Rewind चालू नहीं हो सका। फिर से प्रयास करें।",
+    rewindConsentTitle: "Rewind चालू करें?",
+    rewindConsentBody:
+      "Clips आपकी स्क्रीन को लगातार रिकॉर्ड करके इसी डिवाइस पर रखेगा। एजेंटों को टेक्स्ट अंश मिलेंगे, और वीडियो केवल आपकी मंज़ूरी के बाद साझा किया जाएगा।",
+    rewindConsentCancel: "अभी नहीं",
+    rewindConsentConfirm: "Rewind चालू करें",
+    rewindConsentBusy: "Rewind चालू हो रहा है…",
     rewindOffTitle: "Rewind चालू करें",
     rewindOffBody:
       "डिफ़ॉल्ट रूप से बंद। स्क्रीन इतिहास इसी डिवाइस पर रहता है, जब तक आप उसे रिकॉर्डिंग में शामिल न करें या साझा करने का अनुरोध मंज़ूर न करें।",

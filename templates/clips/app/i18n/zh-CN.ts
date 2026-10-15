@@ -19,6 +19,12 @@ const messages = {
     turnOffRewind: "关闭",
     turnOffRewindFailed: "无法关闭 Rewind。请先停止录制，然后重试。",
     turnOnRewindFailed: "无法开启 Rewind。请重试。",
+    rewindConsentTitle: "开启 Rewind？",
+    rewindConsentBody:
+      "Clips 会持续录制你的屏幕，并将内容保留在此设备上。智能体会获取文本摘录，只有你批准后才会分享视频。",
+    rewindConsentCancel: "暂不",
+    rewindConsentConfirm: "开启 Rewind",
+    rewindConsentBusy: "正在开启 Rewind…",
     rewindOffTitle: "开启 Rewind",
     rewindOffBody:
       "默认关闭。屏幕历史记录会保留在此设备上，直到你将其加入录制内容或批准共享请求。",

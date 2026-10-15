@@ -22,6 +22,12 @@ const messages = {
     turnOffRewindFailed:
       "No se pudo desactivar Rewind. Detén la grabación e inténtalo de nuevo.",
     turnOnRewindFailed: "No se pudo activar Rewind. Inténtalo de nuevo.",
+    rewindConsentTitle: "¿Activar Rewind?",
+    rewindConsentBody:
+      "Clips grabará tu pantalla continuamente y la conservará en este dispositivo. Los agentes recibirán extractos de texto, y el vídeo solo se compartirá cuando lo apruebes.",
+    rewindConsentCancel: "Ahora no",
+    rewindConsentConfirm: "Activar Rewind",
+    rewindConsentBusy: "Activando Rewind…",
     rewindOffTitle: "Activar Rewind",
     rewindOffBody:
       "Desactivado de forma predeterminada. El historial de pantalla permanece en este dispositivo hasta que lo añades a una grabación o apruebas una solicitud para compartirlo.",

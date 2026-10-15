@@ -20,6 +20,12 @@ const messages = {
     turnOffRewindFailed:
       "Rewind를 끌 수 없습니다. 녹화를 중지한 후 다시 시도하세요.",
     turnOnRewindFailed: "Rewind를 켤 수 없습니다. 다시 시도해 주세요.",
+    rewindConsentTitle: "Rewind를 켤까요?",
+    rewindConsentBody:
+      "Clips는 화면을 계속 녹화해 이 기기에 보관합니다. 에이전트에는 텍스트 발췌가 제공되며, 동영상은 사용자가 승인한 경우에만 공유됩니다.",
+    rewindConsentCancel: "나중에",
+    rewindConsentConfirm: "Rewind 켜기",
+    rewindConsentBusy: "Rewind 켜는 중…",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
       "기본적으로 꺼져 있습니다. 화면 기록은 녹화에 포함하거나 공유 요청을 승인할 때까지 이 기기에 보관됩니다.",

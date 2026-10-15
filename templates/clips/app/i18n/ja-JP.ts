@@ -23,6 +23,12 @@ const messages = {
       "Rewindをオフにできませんでした。録画を停止してからもう一度お試しください。",
     turnOnRewindFailed:
       "Rewindをオンにできませんでした。もう一度お試しください。",
+    rewindConsentTitle: "Rewindをオンにしますか？",
+    rewindConsentBody:
+      "Clipsは画面を継続的に録画し、このデバイスに保存します。エージェントにはテキストの抜粋が提供され、動画は承認した場合にのみ共有されます。",
+    rewindConsentCancel: "今はしない",
+    rewindConsentConfirm: "Rewindをオンにする",
+    rewindConsentBusy: "Rewindをオンにしています…",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
       "初期設定ではオフです。画面履歴はこのデバイスに保存され、録画に含めるか共有リクエストを承認するまで外部に送信されません。",

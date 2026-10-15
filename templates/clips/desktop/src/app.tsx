@@ -6378,15 +6378,17 @@ function RewindConsentDialog({
   error?: string | null;
   onConfirm: () => void;
 }) {
+  const t = useT();
+
   return (
     <UiAlertDialog open={open} onOpenChange={onOpenChange}>
       <UiAlertDialogContent className="max-w-md">
         <UiAlertDialogHeader>
-          <UiAlertDialogTitle>Turn on Rewind?</UiAlertDialogTitle>
+          <UiAlertDialogTitle>
+            {t("lookbackContext.rewindConsentTitle")}
+          </UiAlertDialogTitle>
           <UiAlertDialogDescription>
-            Clips will continuously record your screen and keep it on this
-            device. Agents get text excerpts, and video is shared only when you
-            approve it.
+            {t("lookbackContext.rewindConsentBody")}
           </UiAlertDialogDescription>
         </UiAlertDialogHeader>
         {error ? (
@@ -6395,7 +6397,9 @@ function RewindConsentDialog({
           </Alert>
         ) : null}
         <UiAlertDialogFooter>
-          <UiAlertDialogCancel>Not now</UiAlertDialogCancel>
+          <UiAlertDialogCancel>
+            {t("lookbackContext.rewindConsentCancel")}
+          </UiAlertDialogCancel>
           <UiAlertDialogAction
             disabled={busy || disabled}
             onClick={(event) => {
@@ -6403,7 +6407,9 @@ function RewindConsentDialog({
               onConfirm();
             }}
           >
-            {busy ? "Turning on…" : "Turn on Rewind"}
+            {busy
+              ? t("lookbackContext.rewindConsentBusy")
+              : t("lookbackContext.rewindConsentConfirm")}
           </UiAlertDialogAction>
         </UiAlertDialogFooter>
       </UiAlertDialogContent>

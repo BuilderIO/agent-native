@@ -21,6 +21,12 @@ const messages = {
     turnOffRewind: "إيقاف",
     turnOffRewindFailed: "تعذّر إيقاف Rewind. أوقف التسجيل ثم حاول مرة أخرى.",
     turnOnRewindFailed: "تعذّر تفعيل Rewind. حاول مرة أخرى.",
+    rewindConsentTitle: "تفعيل Rewind؟",
+    rewindConsentBody:
+      "سيسجل Clips شاشتك باستمرار ويحتفظ بالتسجيل على هذا الجهاز. يحصل الوكلاء على مقتطفات نصية، ولا تتم مشاركة الفيديو إلا بعد موافقتك.",
+    rewindConsentCancel: "ليس الآن",
+    rewindConsentConfirm: "تفعيل Rewind",
+    rewindConsentBusy: "جارٍ تفعيل Rewind…",
     rewindOffTitle: "تفعيل Rewind",
     rewindOffBody:
       "متوقف افتراضيًا. يبقى سجل الشاشة على هذا الجهاز حتى تضيفه إلى تسجيل أو توافق على طلب لمشاركته.",

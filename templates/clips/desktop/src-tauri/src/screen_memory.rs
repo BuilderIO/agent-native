@@ -314,7 +314,26 @@ pub async fn screen_memory_start(app: AppHandle) -> Result<ScreenMemoryStatus, S
     feature_config.screen_memory.paused = false;
     feature_config.screen_memory = normalize_screen_memory_config(feature_config.screen_memory);
     crate::config::set_feature_config(app.clone(), feature_config).await?;
-    build_status(&app)
+    let status = build_status(&app)?;
+    if !crate::rewind_capture_suspension::is_active(&app) {
+        if let Some(error) = screen_memory_start_error(&status) {
+            return Err(error);
+        }
+    }
+    Ok(status)
+}
+
+fn screen_memory_start_error(status: &ScreenMemoryStatus) -> Option<String> {
+    (status.config.enabled
+        && !status.config.paused
+        && status.active_segment.is_none()
+        && !status.exclusion_active)
+        .then(|| {
+            status
+                .last_error
+                .clone()
+                .unwrap_or_else(|| "Rewind did not start recording.".to_string())
+        })
 }
 
 #[tauri::command]
@@ -3369,6 +3388,39 @@ fn now_iso() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screen_memory_start_reports_a_failed_capture_start() {
+        let mut status = ScreenMemoryStatus {
+            available: true,
+            state: ScreenMemoryRuntimeState::Idle,
+            config: ScreenMemoryConfig {
+                enabled: true,
+                paused: false,
+                ..ScreenMemoryConfig::default()
+            },
+            storage_dir: PathBuf::from("/tmp/screen-memory"),
+            active_segment: None,
+            recent_segments: Vec::new(),
+            last_error: Some("Screen capture permission is required.".into()),
+            exclusion_active: false,
+            coverage: String::new(),
+        };
+
+        assert_eq!(
+            screen_memory_start_error(&status).as_deref(),
+            Some("Screen capture permission is required.")
+        );
+
+        status.last_error = None;
+        assert_eq!(
+            screen_memory_start_error(&status).as_deref(),
+            Some("Rewind did not start recording.")
+        );
+
+        status.exclusion_active = true;
+        assert_eq!(screen_memory_start_error(&status), None);
+    }
 
     #[test]
     fn codex_agent_connection_replaces_only_its_own_mcp_footprint() {
