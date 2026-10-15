@@ -77,6 +77,7 @@ vi.mock("@agent-native/core/client/collab", () => ({
   useCollaborativeDoc: () => mocks.collab,
   emailToColor: () => "#000000",
   emailToName: (email: string) => email,
+  dedupeCollabUsersByEmail: <T,>(users: T[]) => users,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
