@@ -273,32 +273,33 @@ test("Motion inspector states match the editable timeline", async ({
     const inspectorHeading = document.querySelector<HTMLElement>(
       'h3[aria-label="Animations"]',
     );
-    const rightPanel = inspectorHeading?.closest<HTMLElement>(
+    const inspectorSection = inspectorHeading?.closest<HTMLElement>(
       "[data-design-inspector-section]",
     );
-    const trigger = rightPanel?.querySelector<HTMLElement>(
+    const rightPanel = document.querySelector<HTMLElement>(
+      '[data-design-chrome-region="right-panel"]',
+    );
+    const trigger = inspectorSection?.querySelector<HTMLElement>(
       'button[aria-label="Animations"]',
     );
-    if (!rightPanel || !trigger) {
+    if (!inspectorSection || !rightPanel || !trigger) {
       throw new Error("Animation catalog anchor geometry is unavailable");
     }
     return {
       popover: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-      inspector: rightPanel.getBoundingClientRect().toJSON(),
+      rightPanel: rightPanel.getBoundingClientRect().toJSON(),
       trigger: trigger.getBoundingClientRect().toJSON(),
     };
   });
   expect(catalogGeometry.popover.width).toBe(240);
   expect(catalogGeometry.popover.height).toBe(485);
+  expect(catalogGeometry.rightPanel.width).toBe(240);
   expect(catalogGeometry.trigger.width).toBe(24);
   expect(
-    Math.abs(
-      catalogGeometry.inspector.x -
-        (catalogGeometry.popover.x + catalogGeometry.popover.width) -
-        2,
-    ),
+    catalogGeometry.rightPanel.x -
+      (catalogGeometry.popover.x + catalogGeometry.popover.width),
     JSON.stringify(catalogGeometry),
-  ).toBeLessThanOrEqual(1);
+  ).toBe(1);
   expect(
     Math.abs(catalogGeometry.popover.y - catalogGeometry.trigger.y),
   ).toBeLessThanOrEqual(1);
@@ -339,8 +340,16 @@ test("Motion inspector states match the editable timeline", async ({
         'button[aria-label="Add animation"]',
       ),
     ).find((button) => button.getBoundingClientRect().width > 0);
+    const inspectorHeader = trigger
+      ?.closest<HTMLElement>("[data-design-inspector-section]")
+      ?.querySelector<HTMLElement>(
+        '[data-design-inspector-section-header] [data-inspector-layout="header-actions"]',
+      );
+    if (!inspectorHeader) {
+      throw new Error("Animation inspector geometry is unavailable");
+    }
     return {
-      viewportWidth: document.documentElement.clientWidth,
+      inspectorHeaderRight: inspectorHeader.getBoundingClientRect().right,
       menu: bounds(document.querySelector('[role="menu"]')),
       trigger: bounds(trigger ?? null),
     };
@@ -351,9 +360,15 @@ test("Motion inspector states match the editable timeline", async ({
   expect(menuGeometry.menu.width).toBe(120);
   expect(menuGeometry.menu.height).toBe(136);
   expect(menuGeometry.trigger.width).toBe(24);
-  expect(menuGeometry.trigger.x + menuGeometry.trigger.width).toBe(
-    menuGeometry.viewportWidth - 8,
-  );
+  expect(
+    Math.abs(
+      menuGeometry.trigger.x +
+        menuGeometry.trigger.width -
+        menuGeometry.inspectorHeaderRight +
+        1,
+    ),
+    JSON.stringify(menuGeometry),
+  ).toBeLessThanOrEqual(1);
   expect(
     Math.abs(
       menuGeometry.menu.x +
@@ -702,7 +717,7 @@ test("Motion inspector states match the editable timeline", async ({
   const savedStartOpacity = await startOpacitySave;
   expect(savedStartOpacity.ok(), await savedStartOpacity.text()).toBe(true);
   const opacityTimelineRow = dock.locator(
-    '[data-motion-property-row="opacity"]',
+    '[data-motion-property-row="opacity"][data-motion-target-node-id="e2e-motion-reference-rectangle"]',
   );
   await expect(opacityTimelineRow).toBeVisible();
   await expect(
@@ -764,8 +779,13 @@ test("Motion inspector states match the editable timeline", async ({
       (keyframe: { value: string }) => keyframe.value,
     ),
   ).toEqual(["1", "0.7"]);
+  const middleOpacityTimelineRow = dock.locator(
+    '[data-motion-property-row="opacity"][data-motion-target-node-id="e2e-motion-reference-rectangle-2"]',
+  );
   await expect(
-    opacityTimelineRow.getByRole("button", { name: "Add or remove keyframe" }),
+    middleOpacityTimelineRow.getByRole("button", {
+      name: "Add or remove keyframe",
+    }),
   ).toBeVisible();
   await captureReferenceState(
     page,

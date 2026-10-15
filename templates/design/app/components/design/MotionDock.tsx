@@ -3073,6 +3073,7 @@ function LayerGroup({
               <div
                 key={`${track.targetNodeId}-${track.property}`}
                 data-motion-property-row={track.property}
+                data-motion-target-node-id={track.targetNodeId}
                 className={cn(
                   "group relative flex shrink-0 items-center cursor-pointer hover:bg-accent/20",
                   trackKey(track) === selectedTrackKey && "bg-accent/40",
