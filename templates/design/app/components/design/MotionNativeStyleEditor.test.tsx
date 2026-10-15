@@ -127,10 +127,13 @@ describe("MotionNativeStyleEditor", () => {
   }
 
   async function clickButtonWithText(text: string) {
-    const button = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((candidate) => candidate.textContent?.trim() === text);
-    if (!button) throw new Error(`Missing button ${text}`);
+    const button = await vi.waitFor(() => {
+      const found = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((candidate) => candidate.textContent?.trim() === text);
+      if (!found) throw new Error(`Missing button ${text}`);
+      return found;
+    });
     await act(async () => button.click());
   }
 
