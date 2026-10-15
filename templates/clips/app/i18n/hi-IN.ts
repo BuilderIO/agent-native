@@ -4,6 +4,7 @@ const messages = {
     includeLast: "पिछले शामिल करें",
     whatIsThis: "यह क्या है?",
     off: "बंद",
+    none: "कोई नहीं",
     custom: "कस्टम…",
     customLabel: "कस्टम अवधि",
     customAmount: "अवधि",
@@ -15,6 +16,9 @@ const messages = {
     customErrorInvalid: "सेकंड या मिनट में पूरी संख्या दर्ज करें।",
     customErrorTooLong: "5 मिनट या उससे कम रखें।",
     turnOnRewind: "Rewind चालू करें",
+    turnOffRewind: "बंद करें",
+    turnOffRewindFailed:
+      "Rewind बंद नहीं किया जा सका। रिकॉर्डिंग रोकें और फिर से प्रयास करें।",
     rewindOffTitle: "Rewind चालू करें",
     rewindOffBody:
       "डिफ़ॉल्ट रूप से बंद। स्क्रीन इतिहास इसी डिवाइस पर रहता है, जब तक आप उसे रिकॉर्डिंग में शामिल न करें या साझा करने का अनुरोध मंज़ूर न करें।",

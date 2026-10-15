@@ -217,6 +217,107 @@ export default {
     moveDashboard: "Move dashboard",
     folderCreateFailed: "Couldn't create folder",
     moveFailed: "Couldn't move dashboard",
+    importFromSigma: "Import from Sigma",
+    sigmaConnection: "Sigma connection",
+    sigmaConnectedTo: "Connected to {{name}}",
+    sigmaChooseConnection: "Sigma connection",
+    sigmaChooseConnectionPlaceholder: "Choose a connection",
+    sigmaChooseConnectionDescription:
+      "Choose the Sigma workspace to browse its workbooks.",
+    sigmaNoConnection: "Sigma isn't connected",
+    sigmaClientId: "Client ID",
+    sigmaClientSecret: "Client secret",
+    sigmaBaseUrl: "API base URL (optional)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Connect Sigma",
+    sigmaConnecting: "Connecting…",
+    sigmaConnectFailed:
+      "Couldn't verify this Sigma connection. Check the credentials and API region, then try again.",
+    sigmaCredentialStageFailed:
+      "Couldn't securely stage the Sigma credentials. Check Vault access and try again.",
+    sigmaCredentialsRequired: "Enter the Sigma client ID and client secret.",
+    sigmaBaseUrlInvalid:
+      "Use an HTTPS Sigma API URL on a sigmacomputing.com domain.",
+    sigmaPersistenceUnavailable:
+      "Analytics can't securely save the Sigma connection right now. Try again.",
+    sigmaPolicyInvalid:
+      "The existing Analytics Sigma connection has an unexpected access policy. Manage it in Dispatch before retrying.",
+    sigmaSaveFailed:
+      "Sigma credentials were verified, but Analytics couldn't save them. Your previous connection is unchanged. Try again.",
+    sigmaCleanupPending:
+      "Temporary Sigma setup credentials remain until cleanup succeeds.",
+    sigmaCleanupFailed:
+      "Couldn't clear temporary Sigma setup credentials. Try cleanup again.",
+    sigmaRetryCleanup: "Retry cleanup",
+    sigmaDirectCredentialsUnavailable:
+      "Couldn't read Analytics's saved Sigma credentials. An organization admin can reconnect in Dispatch or enter them again in Analytics.",
+    sigmaNoConnectionDescription:
+      "Enter credentials here to create an Analytics-only connection. Dispatch connections granted to Analytics appear here automatically; only organization admins can save credentials directly.",
+    sigmaOpenDispatch: "Connect in Dispatch",
+    sigmaOpenVault: "Open Vault",
+    sigmaWorkbooksLoadFailed: "Couldn't load Sigma workbooks",
+    sigmaRetryConnection: "Check the connection and try again.",
+    sigmaRetry: "Retry",
+    sigmaNoWorkbooks: "No Sigma workbooks are available.",
+    sigmaWorkbook: "Workbook",
+    sigmaChooseWorkbook: "Choose a workbook",
+    sigmaStatusNotImported: "Not imported",
+    sigmaStatusImporting: "Importing",
+    sigmaStatusImported: "Imported",
+    sigmaStatusFailed: "Import failed",
+    sigmaArchived: "Archived",
+    sigmaPreviewTitle: "Workbook contents",
+    sigmaPreviewFailed: "Couldn't preview this workbook",
+    sigmaRetryPreview: "Try again to load the workbook preview.",
+    sigmaImportableCount: "{{count}} importable",
+    sigmaUnsupportedCount: "{{count}} unsupported",
+    sigmaImportable: "Importable",
+    sigmaUnsupported: "Unsupported",
+    sigmaNoElements: "No workbook elements were found.",
+    sigmaPreviewOnly:
+      "Preview only for now: Sigma does not expose a BigQuery project mapping Analytics can verify, so importing is disabled until that mapping is available.",
+    sigmaPreviewTruncated: "Showing {{shown}} of {{total}} elements.",
+    sigmaImportWorkbook: "Import workbook",
+    sigmaImporting: "Importing workbook…",
+    sigmaImportInProgress:
+      "An import for this workbook is already in progress.",
+    sigmaMigrationFailed: "Couldn't import this workbook. Try again.",
+    sigmaMigrationResultInvalid:
+      "The import response was incomplete. Reload the workbook list to check its status.",
+    sigmaImportComplete: "Dashboard created",
+    sigmaImportSummary:
+      "{{imported}} elements imported; {{unsupported}} unsupported elements retained as review callouts.",
+    sigmaAlreadyImported: "This workbook has already been imported.",
+    sigmaImportedNoDashboard:
+      "The imported dashboard isn't available to open from this account.",
+    sigmaReviewRequiredCount: "{{count}} need review",
+    sigmaBetaRepresentationWarning:
+      "This beta import may represent some visualizations differently from Sigma.",
+    sigmaReasonUnsupportedElement:
+      "This element type is not supported for import.",
+    sigmaReasonUnsupportedSource:
+      "This element uses a source that is not supported for import.",
+    sigmaReasonSourceMappingRequired:
+      "Sigma doesn't expose a BigQuery project mapping Analytics can verify, so this SQL can't be imported yet.",
+    sigmaReasonSourceUnavailable:
+      "Sigma didn't allow access to this source connection. Check its permissions.",
+    sigmaReasonQueryUnavailable:
+      "Sigma did not return an importable query for this element.",
+    sigmaReasonUnsafeSql: "This query pattern cannot be imported safely.",
+    sigmaReasonVisualizationReview:
+      "The data can be imported, but verify its visualization after import.",
+    sigmaRetryOwnerOnly:
+      "Only the person who started this import can retry it.",
+    sigmaImportedByTeammate: "Imported by a teammate",
+    sigmaFlaggedCount: "{{count}} flagged for review",
+    sigmaMoreWorkbooksFailed: "Could not load more workbooks",
+    sigmaLoadingMore: "Loading workbooks…",
+    sigmaLoadMore: "Load more workbooks",
+    sigmaOpenDashboard: "Open dashboard",
+    sigmaReviewWithAgent: "Review with agent",
+    sigmaReviewContext: "Imported Sigma dashboard",
+    sigmaReviewPrompt:
+      "Review the imported Sigma dashboard {{name}}. Check the imported panels and unsupported elements, then suggest any corrections.",
   },
   sidebar: {
     collapseSidebar: "Collapse sidebar",
@@ -805,6 +906,7 @@ export default {
     saveViewFailed: "Couldn't save view",
     saveViewFailedWithMessage: "Couldn't save view: {{message}}",
     clearAll: "Clear all",
+    resetFilters: "Reset filters",
     collapseFilters: "Collapse filters",
     expandFilters: "Expand filters",
     filterSeries: "Filter",

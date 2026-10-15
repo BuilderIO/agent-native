@@ -1,4 +1,3 @@
-
 mod accessibility;
 mod adhoc_meetings_watcher;
 mod call_activity;
@@ -40,7 +39,7 @@ mod whisper_speech;
 
 use std::time::Duration;
 
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use clips::{position_popover, toggle_popover};
 use state::{
@@ -58,6 +57,8 @@ pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
 
 const POPOVER_BLUR_GUARD: Duration = Duration::from_millis(1500);
 const POPOVER_BLUR_SETTLE: Duration = Duration::from_millis(100);
+#[cfg(any(target_os = "macos", test))]
+const MACOS_CONTROL_CENTER_BUNDLE_IDENTIFIER: &str = "com.apple.controlcenter";
 
 fn popover_blur_delay(elapsed: Duration, bubble_dragging: bool) -> Option<Duration> {
     if bubble_dragging {
@@ -67,6 +68,39 @@ fn popover_blur_delay(elapsed: Duration, bubble_dragging: bool) -> Option<Durati
     } else {
         Some(POPOVER_BLUR_SETTLE)
     }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn should_keep_popover_open_for_control_center(
+    camera_bubble_visible: bool,
+    frontmost_bundle_identifier: Option<&str>,
+) -> bool {
+    camera_bubble_visible
+        && frontmost_bundle_identifier == Some(MACOS_CONTROL_CENTER_BUNDLE_IDENTIFIER)
+}
+
+#[cfg(target_os = "macos")]
+fn control_center_is_frontmost_with_camera_bubble_visible(app_handle: &AppHandle) -> bool {
+    let Some(camera_bubble) = app_handle.get_webview_window("bubble") else {
+        return false;
+    };
+    let camera_bubble_visible = match camera_bubble.is_visible() {
+        Ok(visible) => visible,
+        Err(error) => {
+            dlog!("[clips-tray] camera bubble visibility check failed: {error}");
+            return false;
+        }
+    };
+    let frontmost_bundle_identifier = clips::frontmost_bundle_identifier();
+    should_keep_popover_open_for_control_center(
+        camera_bubble_visible,
+        frontmost_bundle_identifier.as_deref(),
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn control_center_is_frontmost_with_camera_bubble_visible(_app_handle: &AppHandle) -> bool {
+    false
 }
 
 pub(crate) fn schedule_popover_dismissal(app_handle: &tauri::AppHandle) {
@@ -97,18 +131,26 @@ pub(crate) fn schedule_popover_dismissal(app_handle: &tauri::AppHandle) {
     let delayed_app_handle = (*app_handle).clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(delay).await;
-        let still_current = delayed_app_handle
-            .try_state::<PopoverShownAt>()
-            .and_then(|state| state.0.lock().ok().map(|guard| *guard == shown_at))
-            .unwrap_or(false);
-        if !still_current
-            || clips::is_bubble_dragging()
-            || (is_recording_active(&delayed_app_handle)
-                && clips::popover_is_parked(&delayed_app_handle))
-            || !config::auto_hide_popover_enabled(&delayed_app_handle)
-            || delayed_handle.is_focused().unwrap_or(true)
-        {
-            return;
+        loop {
+            let still_current = delayed_app_handle
+                .try_state::<PopoverShownAt>()
+                .and_then(|state| state.0.lock().ok().map(|guard| *guard == shown_at))
+                .unwrap_or(false);
+            if !still_current
+                || clips::is_bubble_dragging()
+                || (is_recording_active(&delayed_app_handle)
+                    && clips::popover_is_parked(&delayed_app_handle))
+                || !config::auto_hide_popover_enabled(&delayed_app_handle)
+                || delayed_handle.is_focused().unwrap_or(true)
+            {
+                return;
+            }
+            if !control_center_is_frontmost_with_camera_bubble_visible(&delayed_app_handle) {
+                break;
+            }
+            dlog!("[clips-tray] popover blur waiting while Control Center is active");
+            // Control Center can close without sending another blur event to the popover.
+            tokio::time::sleep(POPOVER_BLUR_SETTLE).await;
         }
         clips::hide_popover(&delayed_app_handle);
     });
@@ -551,7 +593,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{popover_blur_delay, POPOVER_BLUR_GUARD, POPOVER_BLUR_SETTLE};
+    use super::{
+        popover_blur_delay, should_keep_popover_open_for_control_center, POPOVER_BLUR_GUARD,
+        POPOVER_BLUR_SETTLE,
+    };
     use std::time::Duration;
 
     #[test]
@@ -565,5 +610,22 @@ mod tests {
             Some(POPOVER_BLUR_SETTLE)
         );
         assert_eq!(popover_blur_delay(Duration::MAX, true), None);
+    }
+
+    #[test]
+    fn keeps_popover_open_only_for_visible_camera_bubble_when_control_center_is_frontmost() {
+        assert!(should_keep_popover_open_for_control_center(
+            true,
+            Some("com.apple.controlcenter")
+        ));
+        assert!(!should_keep_popover_open_for_control_center(
+            false,
+            Some("com.apple.controlcenter")
+        ));
+        assert!(!should_keep_popover_open_for_control_center(
+            true,
+            Some("com.apple.systempreferences")
+        ));
+        assert!(!should_keep_popover_open_for_control_center(true, None));
     }
 }

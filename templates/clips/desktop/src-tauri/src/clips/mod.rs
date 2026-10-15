@@ -37,6 +37,7 @@ const COUNTDOWN_CONTROL_HIT_PAD: f64 = 8.0;
 static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
 static TOOLBAR_FINISHING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
+pub(crate) const BUBBLE_WINDOW_TITLE: &str = "Clips Camera";
 const BUBBLE_DESTROYED_EVENT: &str = "clips:bubble-destroyed";
 const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
@@ -1573,7 +1574,7 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     );
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(&app, BUBBLE_LABEL, build_overlay_url("bubble"))
-        .title("Clips Camera")
+        .title(BUBBLE_WINDOW_TITLE)
         .decorations(false)
         .transparent(true)
         .always_on_top(true)
@@ -2863,11 +2864,12 @@ fn read_clipboard() -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn frontmost_bundle_identifier() -> Option<String> {
+pub(crate) fn frontmost_bundle_identifier() -> Option<String> {
     use objc2::msg_send;
+    use objc2::rc::autoreleasepool;
     use objc2::runtime::{AnyClass, AnyObject};
 
-    unsafe {
+    autoreleasepool(|_| unsafe {
         let class_name = std::ffi::CString::new("NSWorkspace").ok()?;
         let cls: &AnyClass = AnyClass::get(&class_name)?;
         let workspace: *mut AnyObject = msg_send![cls, sharedWorkspace];
@@ -2880,7 +2882,7 @@ fn frontmost_bundle_identifier() -> Option<String> {
         }
         let bundle_id: *mut AnyObject = msg_send![app, bundleIdentifier];
         ns_string_to_owned(bundle_id)
-    }
+    })
 }
 
 #[cfg(target_os = "macos")]

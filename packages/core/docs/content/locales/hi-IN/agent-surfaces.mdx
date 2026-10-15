@@ -248,6 +248,21 @@ binding की पहचान नाम में रखें, जैसे �
 दूसरा आ रहा है। "हमेशा अनुमति दें" approvals tool के नाम का अनुसरण करते हैं, इसलिए
 जब वही नाम बाद में किसी नई चीज़ का अर्थ लेता है तब भी वे लागू रहते हैं।
 
+इसे रोकने के लिए entry पर `revision` सेट करें: एक-बार की approvals और "हमेशा अनुमति
+दें" उस revision को दर्ज करते हैं जिसके लिए वे दी गई थीं, और अलग revision होने पर
+उपयोगकर्ता से फिर पूछा जाता है।
+कस्टम "हमेशा अनुमति दें" handler को approval का `askId` `set-tool-approval-policy`
+को `approvalId` के रूप में पास करना चाहिए; इसके बिना, यह अनुमति केवल उन entries पर
+लागू होती है जिनमें कोई revision नहीं है।
+
+जिस tool का conversation ने पहले उपयोग किया था या उसे load किया था, लेकिन जो इस run
+के पास अब नहीं है, उसे call करने पर `Unknown tool` की जगह `Error: Tool no longer
+available` के साथ विफलता मिलती है, और load किए गए tools के गायब होने के बाद शुरू
+होने वाला run model को बताता है कि कौन-से गायब हुए। अगर उपयोगकर्ता ने उस call को
+स्वीकृत किया था, तो run रुक जाता है, model को उसके बिना आगे बढ़ने नहीं देता। chat के
+लिए callback को `threadId`, `requestedTurnId` और `internalContinuation` भी मिलते हैं,
+ताकि जो ऐप पूरे turn के लिए एक ही tool set चाहता है, वह अपना snapshot रख सके।
+
 ये entries केवल agent loop के लिए native tools हैं। कॉलर के MCP tools की तरह, इन
 तक `run-code` या `tool-orchestration` से नहीं पहुँचा जा सकता।
 

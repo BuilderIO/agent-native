@@ -2536,6 +2536,7 @@ const ptBR = {
     advancedRuntime: "Avançado: estender o runtime",
     templatesSection: "Apps",
     gettingStarted: "Primeiros passos",
+    createWithAgent: "Criar com um agente",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "O que é Agent-Native?",

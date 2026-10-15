@@ -2501,6 +2501,7 @@ const koKR = {
     advancedRuntime: "고급: 런타임 확장",
     templatesSection: "앱",
     gettingStarted: "시작하기",
+    createWithAgent: "에이전트로 만들기",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Agent-Native란?",

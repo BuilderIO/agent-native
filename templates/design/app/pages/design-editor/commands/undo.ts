@@ -446,6 +446,8 @@ export interface UndoArgs {
     filename: string;
     fileType: DesignFile["fileType"];
     content: string;
+    createdAt?: string | null;
+    fileOrderIndex?: number;
     result?: Record<string, unknown> | null;
   }) => void;
   deleteFileMutation: ReturnType<
@@ -1685,6 +1687,7 @@ export function runUndo({
     syncUndoRedoState();
     void (async () => {
       const recreatedIds: string[] = [];
+      const recreatedCreatedAt: Array<string | null> = [];
       let preparedFiles: ReturnType<typeof prepareDeletedFileRestore>[] = [];
       try {
         // A delete-triggered read can finish late and replace restored geometry.
@@ -1709,11 +1712,14 @@ export function runUndo({
             ...(file.restoreClaimId
               ? { restoreClaimId: file.restoreClaimId }
               : {}),
-          } as any)) as { id?: string };
+          } as any)) as { id?: string; createdAt?: string | null };
           if (!result.id) {
             throw new Error(`Failed to restore "${file.filename}"`);
           }
           recreatedIds.push(result.id);
+          recreatedCreatedAt.push(
+            result.createdAt === undefined ? file.createdAt : result.createdAt,
+          );
           recorder.log("screen.restored", { from: file.id, to: result.id });
         }
 
@@ -1737,6 +1743,11 @@ export function runUndo({
             filename: file.filename,
             fileType: file.fileType,
             content: prepared.content,
+            createdAt:
+              recreatedCreatedAt[index] === undefined
+                ? file.createdAt
+                : recreatedCreatedAt[index],
+            fileOrderIndex: file.fileOrderIndex,
           });
         });
         const metadataRestore = restoreMetadataAndGeometry(

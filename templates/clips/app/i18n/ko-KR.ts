@@ -4,6 +4,7 @@ const messages = {
     includeLast: "마지막 구간 포함",
     whatIsThis: "이것은 무엇입니까?",
     off: "끔",
+    none: "없음",
     custom: "사용자 지정…",
     customLabel: "사용자 지정 길이",
     customAmount: "길이",
@@ -15,6 +16,9 @@ const messages = {
     customErrorInvalid: "초 또는 분 단위의 정수를 입력하세요.",
     customErrorTooLong: "5분 이하로 입력하세요.",
     turnOnRewind: "Rewind 켜기",
+    turnOffRewind: "끄기",
+    turnOffRewindFailed:
+      "Rewind를 끌 수 없습니다. 녹화를 중지한 후 다시 시도하세요.",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
       "기본적으로 꺼져 있습니다. 화면 기록은 녹화에 포함하거나 공유 요청을 승인할 때까지 이 기기에 보관됩니다.",

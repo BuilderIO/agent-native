@@ -2523,6 +2523,7 @@ const jaJP = {
     advancedRuntime: "高度: ランタイムを拡張",
     templatesSection: "アプリ",
     gettingStarted: "はじめに",
+    createWithAgent: "エージェントで作成",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Agent-Native とは？",

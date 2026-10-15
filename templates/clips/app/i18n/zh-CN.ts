@@ -4,6 +4,7 @@ const messages = {
     includeLast: "包含最近",
     whatIsThis: "这是什么？",
     off: "关",
+    none: "无",
     custom: "自定义…",
     customLabel: "自定义时长",
     customAmount: "时长",
@@ -15,6 +16,8 @@ const messages = {
     customErrorInvalid: "请输入整数秒数或分钟数。",
     customErrorTooLong: "请不超过 5 分钟。",
     turnOnRewind: "开启 Rewind",
+    turnOffRewind: "关闭",
+    turnOffRewindFailed: "无法关闭 Rewind。请先停止录制，然后重试。",
     rewindOffTitle: "开启 Rewind",
     rewindOffBody:
       "默认关闭。屏幕历史记录会保留在此设备上，直到你将其加入录制内容或批准共享请求。",

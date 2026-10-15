@@ -756,12 +756,12 @@ Primary color: #f97316
         expect.objectContaining({
           cssVar: "--font-heading-font",
           value: "Inter",
-          type: "typography",
+          type: "font-family",
         }),
         expect.objectContaining({
           cssVar: "--text-body-size-medium",
           value: "1rem",
-          type: "typography",
+          type: "font-size",
         }),
       ]),
     );
@@ -1128,6 +1128,66 @@ font-family: 'Inter;
     expect(byVar.get("--motion-transition-duration")).toBe("motion");
     expect(byVar.get("--shadow-elevation-raised")).toBe("shadow");
     expect(result.tokens.filter((t) => /release/i.test(t.cssVar))).toEqual([]);
+  });
+
+  it("imports DTCG files with their $type saved as the token type", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens.json",
+          content: JSON.stringify({
+            opacity: { muted: { $type: "number", $value: 0.6 } },
+            color: { primary: { $type: "color", $value: "#2563eb" } },
+          }),
+        },
+      ],
+    });
+
+    expect(result.tokens).toEqual([
+      expect.objectContaining({
+        cssVar: "--opacity-muted",
+        value: "0.6",
+        type: "opacity",
+      }),
+      expect.objectContaining({
+        cssVar: "--color-primary",
+        value: "#2563eb",
+        type: "color",
+      }),
+    ]);
+    const persisted = JSON.parse(designStore.row.data) as {
+      tokenTypes: Record<string, string>;
+    };
+    expect(persisted.tokenTypes).toEqual({
+      "--opacity-muted": "opacity",
+      "--color-primary": "color",
+    });
+  });
+
+  it("drops a DTCG alias whose target falls past the import cap", async () => {
+    const spacing = Object.fromEntries(
+      Array.from({ length: 130 }, (_, i) => [`s${i}`, { $value: `${i}px` }]),
+    );
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens.json",
+          content: JSON.stringify({
+            alias: { $type: "dimension", $value: "{space.s129}" },
+            space: { $type: "dimension", ...spacing },
+          }),
+        },
+      ],
+    });
+
+    const vars = result.tokens.map((token) => token.cssVar);
+    expect(vars).not.toContain("--alias");
+    expect(vars).not.toContain("--space-s129");
+    expect(vars).toContain("--space-s0");
   });
 
   it("can extract tokens from the current design files", async () => {

@@ -4575,6 +4575,27 @@ describe("design node classification", () => {
     expect(typeOf(html, "span")).toBeUndefined();
   });
 
+  it("keeps explicitly named inline layers selectable under a text root", () => {
+    const projection = buildCodeLayerProjection(
+      `<div><span data-agent-native-node-id="caption" data-agent-native-layer-name="Caption">Prefix <span data-agent-native-node-id="phrase" data-agent-native-layer-name="Underlined phrase">selected phrase</span><em> suffix</em></span></div>`,
+    );
+    const caption = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "caption",
+    )!;
+    const phrase = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "phrase",
+    )!;
+    const tree = buildCodeLayerTree(projection);
+    const captionRow = tree[0]!.children.find(
+      (node) => node.id === caption.id,
+    )!;
+
+    expect(captionRow.type).toBe("text");
+    expect(captionRow.children.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: phrase.id, name: "Underlined phrase" },
+    ]);
+  });
+
   it("classifies painted void leaves by their radius", () => {
     const dot = buildCodeLayerTree(
       buildCodeLayerProjection(

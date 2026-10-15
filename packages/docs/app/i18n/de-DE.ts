@@ -2551,6 +2551,7 @@ const deDE = {
     advancedRuntime: "Fortgeschritten: Runtime erweitern",
     templatesSection: "Apps",
     gettingStarted: "Erste Schritte",
+    createWithAgent: "Mit einem Agenten erstellen",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Was ist Agent-Native?",

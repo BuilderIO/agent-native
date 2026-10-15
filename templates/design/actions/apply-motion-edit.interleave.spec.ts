@@ -671,7 +671,7 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
         tracks: [],
       } as never),
     ).rejects.toThrow(
-      /must contain a Text animation, a saved Motion style, or a native Figma style/,
+      /must contain a Text animation, a saved Motion style, or a native style instance/,
     );
     expect(motionTimelineStore.rows.size).toBe(0);
     expect(currentFileRef().content).not.toContain("data-agent-native-motion");
@@ -898,5 +898,120 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     expect(currentFileRef().content).toBe(original);
     expect(await hasCollabState(FILE_ID)).toBe(false);
     expect(agentEnterDocument).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy managed HTML writes fail-closed for dynamic target styles", async () => {
+    const legacySource = baseDoc()
+      .replace(
+        'data-agent-native-node-id="node-hero" style="opacity: 1;"',
+        'data-agent-native-node-id="node-hero" style="opacity: 1;" x-transition.opacity',
+      )
+      .replace(
+        "</head>",
+        "<style data-agent-native-motion>@keyframes legacy { from { opacity: 0; } to { opacity: 1; } }</style>\n</head>",
+      );
+    seedFile(legacySource);
+
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: oneTrack(),
+        durationMs: 500,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "motion_html_source_unsupported_target",
+      statusCode: 422,
+    });
+
+    expect(currentFileRef().content).toBe(legacySource);
+    expect(motionTimelineStore.rows.size).toBe(0);
+    expect(await hasCollabState(FILE_ID)).toBe(false);
+  });
+
+  it("adopts authored inline animations when migrating legacy managed HTML", async () => {
+    const legacySource = baseDoc()
+      .replace(
+        '<section data-agent-native-node-id="node-hero"',
+        '<section class="hero" data-agent-native-node-id="node-hero"',
+      )
+      .replace(
+        "</head>",
+        `<style>
+.hero { color: rebeccapurple; animation-name: hero-fade; animation-duration: 900ms; animation-fill-mode: both; }
+@keyframes hero-fade { from { color: red; } to { color: blue; } }
+</style>
+<style data-agent-native-motion>@keyframes legacy { from { opacity: 0; } to { opacity: 1; } }</style>
+</head>`,
+      );
+    seedFile(legacySource);
+
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      durationMs: 900,
+      includeContent: true,
+    } as never);
+
+    expect(saved.patchedContent).not.toContain("animation-name: hero-fade");
+    expect(saved.patchedContent).toContain("@keyframes hero-fade");
+    expect(saved.patchedContent).toContain("color: rebeccapurple;");
+    expect(saved.patchedContent).not.toContain("@keyframes legacy");
+
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+    expect(readback.timelines).toHaveLength(1);
+    expect(readback.timelines[0]).toMatchObject({
+      durationMs: 900,
+    });
+    expect(readback.timelines[0]?.tracks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetNodeId: "node-hero",
+          property: "color",
+        }),
+        expect.objectContaining({
+          targetNodeId: "node-hero",
+          property: "opacity",
+        }),
+      ]),
+    );
+    expect(readback.timelines[0]?.tracks).toHaveLength(2);
+  });
+
+  it("preserves legacy HTML when authored and managed tracks overlap", async () => {
+    const legacySource = baseDoc()
+      .replace(
+        '<section data-agent-native-node-id="node-hero"',
+        '<section class="hero" data-agent-native-node-id="node-hero"',
+      )
+      .replace(
+        "</head>",
+        `<style>
+.hero { animation-name: hero-fade; animation-duration: 900ms; animation-fill-mode: both; }
+@keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }
+</style>
+<style data-agent-native-motion>@keyframes legacy { from { opacity: 0; } to { opacity: 1; } }</style>
+</head>`,
+      );
+    seedFile(legacySource);
+
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: oneTrack(),
+        durationMs: 900,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "motion_html_source_unsupported_authored_motion",
+      statusCode: 422,
+    });
+
+    expect(currentFileRef().content).toBe(legacySource);
+    expect(motionTimelineStore.rows.size).toBe(0);
   });
 });

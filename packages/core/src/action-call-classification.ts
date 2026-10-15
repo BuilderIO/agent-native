@@ -1,4 +1,6 @@
+import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import type { ActionChangeResource, ActionPlanModeConfig } from "./action.js";
+import type { ActionTool } from "./agent/types.js";
 
 export function actionCallIsReadOnly(
   entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
@@ -17,6 +19,37 @@ export function actionCallIsReadOnly(
   }
   if (typeof entry.readOnly === "boolean") return entry.readOnly;
   return fallback;
+}
+
+/**
+ * Whether re-running this call after an error or a lost result is safe. An
+ * action opts in with `retrySafe`; an undeclared action is not, so an
+ * ambiguous write keeps blocking the run. A predicate sees the arguments after
+ * the same gateway-string repair schema validation applies (`"true"` already
+ * `true`), never the raw model input a stringified flag could slip past a
+ * strict comparison in.
+ */
+export function actionCallIsRetrySafe(
+  entry: {
+    retrySafe?: boolean | ((input: any) => boolean);
+    tool?: { parameters?: ActionTool["parameters"] };
+  },
+  params: unknown,
+): boolean {
+  const { retrySafe } = entry;
+  if (typeof retrySafe === "boolean") return retrySafe;
+  if (typeof retrySafe !== "function") return false;
+  try {
+    return (
+      retrySafe(
+        coerceGatewayStringifiedArgs(params, entry.tool?.parameters),
+      ) === true
+    );
+  } catch {
+    // coercion-ok: a throwing predicate declares nothing, so the call stays
+    // conservative (blocked) rather than being treated as safe to replay.
+    return false;
+  }
 }
 
 /**

@@ -8,11 +8,21 @@ import { orgMembers as sourceOrgMembers } from "../../../packages/core/src/org/s
 import { runWithRequestContext } from "../../../packages/core/src/server/request-context.js";
 import { registerShareableResource } from "../../../packages/core/src/sharing/registry.js";
 import * as schema from "../server/db/schema.js";
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 
 const mocks = vi.hoisted(() => ({
   db: undefined as any,
   executedStatements: [] as unknown[],
   linkedOrganization: false,
+  restoreClaimInserts: [] as Array<{
+    table: unknown;
+    values: {
+      id: string;
+      designId: string;
+      sourceFileId: string;
+      snapshot: string;
+    };
+  }>,
 }));
 
 vi.mock("../server/db/index.js", async () => {
@@ -139,6 +149,19 @@ function makeChain(transaction: boolean) {
 function makeDatabase() {
   const tx = {
     select: vi.fn(() => makeChain(true)),
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn(
+        async (values: {
+          id: string;
+          designId: string;
+          sourceFileId: string;
+          snapshot: string;
+        }) => {
+          mocks.restoreClaimInserts.push({ table, values });
+          return { rowCount: 1 };
+        },
+      ),
+    })),
     execute: vi.fn(async (statement: unknown) => {
       mocks.executedStatements.push(statement);
       const normalizedSql = new PgDialect()
@@ -210,6 +233,7 @@ describe("delete-file transactional access compatibility", () => {
   beforeEach(() => {
     mocks.executedStatements = [];
     mocks.linkedOrganization = false;
+    mocks.restoreClaimInserts = [];
     mocks.db = makeDatabase();
     registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
     registerShareableResource({
@@ -223,30 +247,50 @@ describe("delete-file transactional access compatibility", () => {
   });
 
   it("deletes a directly shared org-visible screen without org_members", async () => {
-    await expect(
-      runWithRequestContext(
-        { userEmail: "shared@example.com", orgId: "org-1" },
-        () => action.run({ id: file.id, allowLockedLayers: true }),
-      ),
-    ).resolves.toMatchObject({
+    const result = await runWithRequestContext(
+      { userEmail: "shared@example.com", orgId: "org-1" },
+      () => action.run({ id: file.id, allowLockedLayers: true }),
+    );
+
+    expect(result).toMatchObject({
       id: file.id,
       deleted: true,
     });
     expect(mocks.db.transaction).toHaveBeenCalledTimes(1);
     expect(mocks.db.tx.delete).toHaveBeenCalledTimes(1);
     expect(mocks.db.tx.execute).toHaveBeenCalled();
+    expect(mocks.restoreClaimInserts).toHaveLength(1);
+    const [{ table, values: claim }] = mocks.restoreClaimInserts;
+    expect(table).toBe(schema.designScreenRestoreClaims);
+    expect(claim).toMatchObject({
+      id: expect.any(String),
+      designId,
+      sourceFileId: file.id,
+    });
+    expect(result.deletedFiles?.[0]).toMatchObject({
+      restoreClaimId: claim.id,
+      restoreSourceFileId: file.id,
+    });
+    const snapshot = JSON.parse(claim.snapshot);
+    expect(snapshot).toMatchObject({
+      filename: file.filename,
+      fileType: file.fileType,
+      fileOrderKey: file.id,
+      contentHashes: screenRestoreContentHashes(file.content, file.fileType),
+    });
+    expect(snapshot).not.toHaveProperty("content");
   });
 
   it("translates feature-flag settings placeholders inside the transaction", async () => {
     mocks.linkedOrganization = true;
     mocks.db = makeDatabase();
 
-    await expect(
-      runWithRequestContext(
-        { userEmail: "shared@example.com", orgId: "org-1" },
-        () => action.run({ id: file.id, allowLockedLayers: true }),
-      ),
-    ).resolves.toMatchObject({ deleted: true });
+    const result = await runWithRequestContext(
+      { userEmail: "shared@example.com", orgId: "org-1" },
+      () => action.run({ id: file.id, allowLockedLayers: true }),
+    );
+    expect(result).toMatchObject({ deleted: true });
+    expect(mocks.restoreClaimInserts).toHaveLength(1);
 
     const settingsQueries = mocks.executedStatements
       .map((statement) => {

@@ -2511,6 +2511,7 @@ const enUS = {
     advancedRuntime: "Advanced: Extend the Runtime",
     templatesSection: "Apps",
     gettingStarted: "Getting Started",
+    createWithAgent: "Create with an Agent",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "What is Agent-Native?",

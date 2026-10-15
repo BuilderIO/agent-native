@@ -2454,6 +2454,7 @@ const messages = {
     advancedRuntime: "進階：擴充功能執行時",
     templatesSection: "應用程式",
     gettingStarted: "入門",
+    createWithAgent: "使用智慧代理建立",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "什麼是 Agent-Native？",

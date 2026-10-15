@@ -979,6 +979,14 @@ export default {
         toTopRight: "Nach rechts oben",
         toBottomLeft: "Nach links unten",
         toBottomRight: "Nach rechts unten",
+        fromLeft: "Von links",
+        fromRight: "Von rechts",
+        fromTop: "Von oben",
+        fromBottom: "Von unten",
+        fromTopLeft: "Von links oben",
+        fromTopRight: "Von rechts oben",
+        fromBottomLeft: "Von links unten",
+        fromBottomRight: "Von rechts unten",
         clockwise: "Im Uhrzeigersinn",
         counterclockwise: "Gegen den Uhrzeigersinn",
         easingPresets: {
@@ -1028,6 +1036,8 @@ export default {
         save: "Stil speichern",
         createDescription:
           "Die Bewegungsabläufe des ausgewählten Ziels als wiederverwendbaren Stil speichern.",
+        unsupportedSequence:
+          "Dieser Stil kann nicht angewendet werden, da Segmente derselben Eigenschaft überlappen oder nicht anschließen.",
         tooMany: "Ein Stil kann bis zu 24 Animationen enthalten.",
         limit: "Dieses Design hat das Limit von 64 Animationsstilen erreicht.",
       },
@@ -1060,8 +1070,13 @@ export default {
       timelineDescription:
         "Keyframe-Zeitleiste. {{tracks}} Spuren, {{keyframes}} Keyframes. Mit Pfeiltasten oder Leertaste + Ziehen scrollen, mit Pinch oder Strg/Cmd + Mausrad zoomen, Keyframes zum Verschieben ziehen, Umschalt/Cmd zur Mehrfachauswahl, doppelklicken zum Hinzufügen.",
       size: "Größe",
+      sourceReadUnavailable:
+        "Motion kann diese Animation nicht lesen, ohne ihr Verhalten zu ändern.",
       sourceWriteUnavailable:
         "Motion-Code kann derzeit nur in eingebettete HTML-Designs geschrieben werden.",
+      sourceConflict:
+        "Der Motion-Quellcode wurde geändert, während diese Zeitleiste ungespeicherte Änderungen hatte. Lade den Code neu, um diese Änderungen zu verwerfen und die aktuelle Quelle zu verwenden.",
+      reloadFromSource: "Code neu laden",
       dockLabel: "Bewegungsleiste",
       collapseDock: "Bewegungsleiste einklappen",
       expandAllTracks: "Alle Spuren erweitern",
@@ -1196,17 +1211,15 @@ export default {
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
-      add: "Add token",
       import: "Tokens importieren",
-      importTitle: "Tokens importieren",
-      importHint:
-        "Nutze zuerst design.md, CSS, Theme-Dateien oder das aktuelle Design, bevor du Tokens manuell hinzufügst.",
-      files: "Dateien",
-      folder: "Ordner",
-      current: "Aktuell",
-      // guard:allow-raw-color - CSS example content in an import placeholder, not UI styling.
-      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
-      importPasted: "Eingefügte Tokens importieren",
+      importDtcg: "DTCG-Datei…",
+      importCssOrTailwind: "CSS- oder Tailwind-Datei…",
+      importClipboard: "Aus Zwischenablage einfügen",
+      importFromDesign: "Aus Design generieren",
+      importFailed: "Tokens konnten nicht importiert werden: {{message}}",
+      clipboardBlocked:
+        "Zwischenablage konnte nicht gelesen werden. Erlaube den Zugriff und versuche es erneut.",
+      clipboardEmpty: "Die Zwischenablage ist leer",
       importedCount: "{{count}} Tokens importiert",
       importing: "Tokens werden importiert…",
       importedWithSkipped:
@@ -1225,6 +1238,21 @@ export default {
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
+      addFailed: "Token konnte nicht hinzugefügt werden: {{message}}",
+      types: {
+        color: "Farbe",
+        fontFamily: "Schriftfamilie",
+        fontWeight: "Schriftstärke",
+        fontSize: "Schriftgröße",
+        lineHeight: "Zeilenhöhe",
+        letterSpacing: "Zeichenabstand",
+        spacing: "Abstand",
+        container: "Container",
+        breakpoint: "Breakpoint",
+        radius: "Radius",
+        shadow: "Schatten",
+        opacity: "Deckkraft",
+      },
       editColor: "Farbe von {{name}} bearbeiten",
     },
     import: {

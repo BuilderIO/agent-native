@@ -2454,6 +2454,7 @@ const zhCN = {
     advancedRuntime: "高级：扩展运行时",
     templatesSection: "应用",
     gettingStarted: "入门",
+    createWithAgent: "使用智能体创建",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "什么是 Agent-Native？",
