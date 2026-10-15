@@ -16,6 +16,7 @@ vi.mock("../db/index.js", async () => {
 });
 
 import * as dbModule from "../db/index.js";
+import { KEY_DATES_MIGRATION_SQL } from "./key-dates-migration.js";
 import * as store from "./key-dates-store.js";
 
 const alice = { email: "alice@example.test", orgId: "org-1" };
@@ -41,7 +42,7 @@ describe("key-dates store", () => {
     getDbMock.mockReset();
     getDbMock.mockReturnValue(drizzle(client, { schema: dbModule.schema }));
     for (let run = 0; run < 2; run++) {
-      for (const statement of store.KEY_DATES_MIGRATION_SQL) {
+      for (const statement of KEY_DATES_MIGRATION_SQL) {
         await client.exec(statement);
       }
     }

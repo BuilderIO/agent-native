@@ -14,7 +14,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store.js";
-import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-store.js";
+import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs.js";
 

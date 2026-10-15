@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import * as schema from "../db/schema";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store";
-import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-store";
+import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration";
 import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs";
 
 /**
