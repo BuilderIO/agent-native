@@ -118,10 +118,18 @@ const getSlashListbox = async (page: any, editor: any) => {
     (element: HTMLElement) => {
       const listboxId = element.getAttribute("aria-controls");
       const listbox = listboxId ? document.getElementById(listboxId) : null;
-      return listbox?.getAttribute("role") === "listbox";
+      if (listbox?.getAttribute("role") !== "listbox") return false;
+      const style = getComputedStyle(listbox);
+      const rect = listbox.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
     },
     editorHandle,
-    { timeout: 5_000 },
+    { polling: 50, timeout: 5_000 },
   );
   const listboxId = await editor.getAttribute("aria-controls");
   if (!listboxId) throw new Error("slash menu did not expose its listbox");

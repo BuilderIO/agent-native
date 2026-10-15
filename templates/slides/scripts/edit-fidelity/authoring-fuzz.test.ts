@@ -2272,6 +2272,61 @@ it("accepts Firefox's retired-session warning when the request finished during t
   ).toBe(false);
 });
 
+it("accepts only a matching heartbeat that finished just before reload navigation", () => {
+  const warning =
+    "[Agent-Native browser session] heartbeat failed: TypeError: NetworkError when attempting to fetch resource.";
+  const completedHeartbeat = {
+    url: "http://localhost/_agent-native/browser-sessions",
+    pathname: "/_agent-native/browser-sessions",
+    method: "POST",
+    ageMs: 120,
+    settledAgeMs: 300,
+    sameOrigin: true,
+    responseStatus: 200,
+    requestFinishedSuccessfully: true,
+    requestWasPendingAtNavigation: false,
+    completedSuccessfullyBeforeNavigation: true,
+    completedBeforeNavigationAgeMs: 4,
+    requestStartedDuringNavigation: false,
+    requestStartedAfterNavigation: false,
+    outgoingNavigationAbort: false,
+    outgoingRequestKind: "heartbeat" as const,
+    requestSessionId: "retired-session-id",
+    retiredSessionId: "retired-session-id",
+    competingSameTypeRequest: false,
+  };
+
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      warning,
+      "save/reload",
+      [completedHeartbeat],
+      250,
+    ),
+  ).toBe(true);
+
+  for (const override of [
+    { outgoingRequestKind: "poll" as const },
+    { requestSessionId: "new-session-id" },
+    { responseStatus: 500 },
+    { completedBeforeNavigationAgeMs: 250 },
+    { settledAgeMs: 249 },
+    { competingSameTypeRequest: true },
+    { requestWasPendingAtNavigation: undefined },
+    { completedSuccessfullyBeforeNavigation: false },
+  ]) {
+    expect(
+      isExpectedSaveReloadBrowserSessionConsoleError(
+        warning,
+        "save/reload",
+        [{ ...completedHeartbeat, ...override }],
+        250,
+      ),
+      JSON.stringify(override),
+    ).toBe(false);
+  }
+});
+
 it("measures the finished-request window from the warning, not from when it was evaluated", async () => {
   vi.useFakeTimers();
   try {
@@ -2611,7 +2666,7 @@ it("distinguishes outgoing retired-session traffic from a competing new session"
   ).toBe(true);
 });
 
-it("does not let a completed same-kind request block abort correlation", () => {
+it("distinguishes an in-reload completion from a recent pre-navigation request", () => {
   const request = {
     outgoingRequestKind: "poll" as const,
     requestSourceIsMainFrame: true,
@@ -2637,6 +2692,13 @@ it("does not let a completed same-kind request block abort correlation", () => {
       finishedSuccessfully: true,
     }),
   ).toBe(false);
+  expect(
+    isCompetingOutgoingBrowserSessionRequest("poll", outgoingDocumentUrl, {
+      ...request,
+      finishedSuccessfully: true,
+      completedSuccessfullyBeforeNavigation: true,
+    }),
+  ).toBe(true);
   expect(
     isCompetingOutgoingBrowserSessionRequest(
       "heartbeat",
