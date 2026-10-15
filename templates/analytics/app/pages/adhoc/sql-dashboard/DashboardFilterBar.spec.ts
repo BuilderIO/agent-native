@@ -271,6 +271,30 @@ describe("resolveFilterVars", () => {
     );
   });
 
+  it("gives an all-time option an all-time start, with or without customRange", () => {
+    for (const customRange of [true, undefined]) {
+      const filters: DashboardFilter[] = [
+        {
+          id: "window",
+          label: "Window",
+          type: "select",
+          default: "30d",
+          customRange,
+          options: [
+            { value: "30d", label: "Last 30 days" },
+            { value: "all", label: "All time" },
+            { value: "custom", label: "Custom" },
+          ],
+        },
+      ];
+      const vars = resolveFilterVars(filters, (key) =>
+        key === "window" ? "all" : "",
+      );
+      expect(vars.windowStart).toBe("1970-01-01");
+      expect(vars.windowEnd).toBe(daysAgo(0));
+    }
+  });
+
   it("leaves quarter-style selects without customRange as plain selects", () => {
     expect(
       isDateRangePresetFilter({

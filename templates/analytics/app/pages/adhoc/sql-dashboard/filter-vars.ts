@@ -218,6 +218,7 @@ function resolveDateParam(
 }
 
 function dateRangeStart(range: string): string {
+  if (range === "all") return ALL_TIME_START;
   const days = /^(\d+)d$/.exec(range);
   return days ? daysAgo(Number(days[1])) : daysAgo(30);
 }
