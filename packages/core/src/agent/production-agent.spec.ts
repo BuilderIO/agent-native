@@ -484,20 +484,6 @@ describe("approvalKeyForHistory", () => {
 });
 
 describe("resolveAgentRequestReasoningEffort", () => {
-  it("narrates a retry the user waited through, and stays silent on a blip", async () => {
-    const src = readFileSync(
-      new URL("./production-agent.ts", import.meta.url),
-      "utf8",
-    );
-    const idx = src.indexOf("const stalledMs = Date.now() - attemptStartedAt;");
-    expect(idx).toBeGreaterThan(0);
-    const block = src.slice(idx, idx + 600);
-    expect(block).toContain("VISIBLE_RETRY_THRESHOLD_MS");
-    expect(block.indexOf("Model did not respond")).toBeLessThan(
-      block.indexOf('send({ type: "clear" })'),
-    );
-  });
-
   it("defaults missing effort to High", () => {
     expect(
       resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),

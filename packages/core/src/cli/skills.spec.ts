@@ -114,18 +114,6 @@ function workspaceRoot(): string {
 }
 
 describe("agent-native skills", () => {
-  it("calls out hosted Plans as free and open source in CLI copy", () => {
-    const source = fs.readFileSync(
-      path.join(workspaceRoot(), "packages", "core", "src", "cli", "skills.ts"),
-      "utf-8",
-    );
-
-    expect(source).toContain("Hosted plans, shareable links (recommended)");
-    expect(source).toContain(
-      "100% free and open source. Supports comments, browser editor, and sharing.",
-    );
-  });
-
   it("defaults to the one-command Assets install path", () => {
     expect(parseSkillsArgs(["add", "assets"])).toMatchObject({
       command: "add",

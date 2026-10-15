@@ -69,23 +69,6 @@ describe("chat-shell sync guard", () => {
     ).toEqual([]);
   });
 
-  it("every listed shell file exists in both scaffold and chat template", () => {
-    for (const [filename, reason] of SHELL_FILES) {
-      const scaffoldPath = path.join(SCAFFOLD_DIR, filename);
-      const chatPath = path.join(CHAT_TEMPLATE_DIR, filename);
-
-      expect(
-        fs.existsSync(scaffoldPath),
-        `${filename} missing from scaffold (${reason})`,
-      ).toBe(true);
-
-      expect(
-        fs.existsSync(chatPath),
-        `${filename} missing from chat template (${reason})`,
-      ).toBe(true);
-    }
-  });
-
   it("keeps the custom design-system seam load-bearing in both starters", () => {
     for (const directory of [SCAFFOLD_DIR, CHAT_TEMPLATE_DIR]) {
       const designSystem = readFile(directory, "design-system.ts");

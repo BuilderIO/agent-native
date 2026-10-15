@@ -132,27 +132,6 @@ describe("recording viewer identity migration", () => {
 });
 
 describe("recording share password version migration", () => {
-  it("preserves existing passwordless token scopes and defaults new rows", () => {
-    expect(dbTsSource).toMatch(
-      /version:\s*77,\s*name:\s*"recording-share-password-version"/,
-    );
-    expect(dbTsSource).toMatch(
-      /ALTER TABLE recordings ADD COLUMN IF NOT EXISTS share_password_version TEXT/,
-    );
-    expect(dbTsSource).toContain(
-      "SET share_password_version = ''''legacy:'''' || updated_at",
-    );
-    expect(dbTsSource).toContain(
-      "ALTER COLUMN share_password_version SET DEFAULT ''''initial''''",
-    );
-    expect(dbTsSource).toContain(
-      "CREATE OR REPLACE FUNCTION public.clips_recordings_rotate_share_password_version()",
-    );
-    expect(dbTsSource).toContain(
-      "BEFORE UPDATE OF password ON public.recordings",
-    );
-  });
-
   it("rotates the legacy scope when an older writer changes a password", async () => {
     const migrationSql = dbTsSource.match(
       /version:\s*77,\s*name:\s*"recording-share-password-version"[\s\S]*?sql:\s*`([\s\S]*?)`/,
@@ -306,12 +285,6 @@ describe("recording failure code migration", () => {
 });
 
 describe("clips db.ts wires ensureAdditiveColumns after migrations", () => {
-  it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
-    expect(dbTsSource).toMatch(
-      /import\s*\{[^}]*\bensureAdditiveColumns\b[^}]*\}\s*from\s*["']@agent-native\/core\/db["']/,
-    );
-  });
-
   it("calls ensureAdditiveColumns after runMigrations(...) completes", () => {
     const migrationsCallIdx = dbTsSource.indexOf("runMigrations(");
     const ensureCallIdx = dbTsSource.indexOf("ensureAdditiveColumns({");

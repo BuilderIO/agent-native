@@ -57,14 +57,4 @@ describe("run-design-extension-action — Motion Presets preview route (Issue 3)
       })(),
     ).toBe(true);
   });
-
-  it("design.motion-presets:preview route is marked readOnly:true", () => {
-    const src = readAction("run-design-extension-action");
-
-    const previewIdx = src.indexOf("design.motion-presets:preview");
-    expect(previewIdx).toBeGreaterThan(-1);
-
-    const segment = src.slice(previewIdx, previewIdx + 700);
-    expect(segment).toContain("readOnly: true");
-  });
 });

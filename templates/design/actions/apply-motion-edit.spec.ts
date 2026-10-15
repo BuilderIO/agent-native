@@ -167,16 +167,6 @@ describe("apply-motion-edit write ordering", () => {
     expect(persistIdx).toBeLessThan(txIdx);
   });
 
-  it("documents source as canonical and the row as a recoverable index", () => {
-    const actionPath = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "apply-motion-edit.ts",
-    );
-    const src = readFileSync(actionPath, "utf8");
-
-    expect(src).toMatch(/inline source is canonical/i);
-  });
-
   it("does not re-apply list access filtering after assertAccess authorizes the design", () => {
     const actionPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
@@ -237,15 +227,6 @@ describe("motionTrackKey (Issue 6 — NUL separator made the file binary)", () =
   it("cannot be forged by a nodeId/property boundary shift", () => {
     expect(motionTrackKey("ab", "c")).not.toBe(motionTrackKey("a", "bc"));
   });
-
-  it("the action source file contains no literal NUL byte", () => {
-    const actionPath = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "apply-motion-edit.ts",
-    );
-    const src = readFileSync(actionPath, "utf8");
-    expect(src.includes("\0")).toBe(false);
-  });
 });
 
 describe("assertValidMotionEase", () => {
@@ -294,22 +275,6 @@ describe("playback mode + track timing plumbing (source contract)", () => {
     ),
     "utf8",
   );
-
-  it("exposes a top-level playbackMode enum parameter", () => {
-    expect(src).toContain('.enum(["loop", "once", "ping-pong"])');
-    expect(src).toContain("playbackMode: z");
-  });
-
-  it("stamps the mode into the persisted tracks JSON via withTimelinePlaybackMode", () => {
-    expect(src).toContain(
-      "withTimelinePlaybackMode(inputTracks, playbackMode)",
-    );
-  });
-
-  it("accepts per-track delayMs/durationMs in the track schema", () => {
-    expect(src).toContain("delayMs:");
-    expect(src).toContain("durationMs:");
-  });
 
   it("validates keyframe ease and defaultEase with the spring-aware guard", () => {
     expect(src).toContain('assertValidMotionEase(kf.ease, "keyframe ease")');

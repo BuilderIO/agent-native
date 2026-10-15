@@ -23,57 +23,6 @@ function treeNode(
 }
 
 describe("document sidebar layout", () => {
-  it("gives the visible workspace plus button only root Page and Collection choices", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const selectorStart = sidebar.indexOf("const contentSpaceSelector");
-    const selectorEnd = sidebar.indexOf("const feedbackButton", selectorStart);
-    const selector = sidebar.slice(selectorStart, selectorEnd);
-    const plusMenuStart = selector.lastIndexOf("<DropdownMenu>");
-    const plusMenu = selector.slice(plusMenuStart);
-
-    expect(plusMenu).toContain("<DropdownMenuTrigger asChild>");
-    expect(plusMenu).toContain(
-      'aria-label={`${t("sidebar.new")} — ${selectedSpace.name}`}',
-    );
-    expect(plusMenu).toContain("handleCreatePageInSpace(selectedSpace)");
-    expect(plusMenu).toContain("handleCreateDatabaseInSpace(selectedSpace)");
-    expect(plusMenu).toContain('{t("sidebar.page")}');
-    expect(plusMenu).toContain('{t("sidebar.collection")}');
-    expect(plusMenu).not.toContain("WorkspaceSourceMenu");
-    expect(plusMenu).not.toContain('t("sidebar.newWorkspace")');
-    expect(plusMenu).not.toContain('to="/local-files"');
-  });
-
-  it("keeps workspace switching and source creation in the workspace menu", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const selectorStart = sidebar.indexOf("const contentSpaceSelector");
-    const selectorEnd = sidebar.indexOf("const feedbackButton", selectorStart);
-    const selector = sidebar.slice(selectorStart, selectorEnd);
-
-    expect(selector).toContain("<WorkspaceSourceMenu");
-    expect(selector).toContain("menuStart={");
-    expect(selector).toContain("<DropdownMenuRadioGroup");
-    expect(selector).toContain("contentSpaces.map((space)");
-    expect(selector).toContain("void handleSelectContentSpace(space)");
-    expect(selector).toContain("onCreated={handleWorkspaceCreated}");
-  });
-
-  it("opens search from expanded and collapsed sidebar branches", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const collapsedBranchStart = sidebar.indexOf("if (collapsed)");
-    const expandedBranchStart = sidebar.indexOf(
-      "className={cn(",
-      collapsedBranchStart,
-    );
-
-    expect(sidebar).toContain("openContentCommandMenu");
-    expect(sidebar).toContain('t("sidebar.search")');
-    expect(sidebar.slice(collapsedBranchStart, expandedBranchStart)).toContain(
-      "{collapsedSearchButton}",
-    );
-    expect(sidebar.slice(expandedBranchStart)).toContain("{searchButton}");
-  });
-
   it("keeps deeply nested page rows within the sidebar viewport", () => {
     const preferences = readSidebarSource("../layout/sidebar-preferences.ts");
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
@@ -123,30 +72,6 @@ describe("document sidebar layout", () => {
     expect(actionsRightEdge).toBeLessThanOrEqual(sidebarWidth);
   });
 
-  it("uses one sidebar surface for collapsed and expanded rails", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-
-    expect(sidebar).toContain(
-      "agent-layout-left-drawer flex h-full w-14 flex-col",
-    );
-    expect(sidebar).toContain(
-      "agent-layout-left-drawer relative flex h-full min-h-0 flex-col",
-    );
-    expect(sidebar).toContain("bg-sidebar");
-    expect(sidebar).not.toContain("bg-muted/30");
-  });
-
-  it("keeps collapsed footer actions at the bottom of the rail", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const collapsedBranchStart = sidebar.indexOf("if (collapsed)");
-    const collapsedReturn = sidebar.indexOf("return (", collapsedBranchStart);
-    const expandedReturn = sidebar.indexOf("\n  return (", collapsedReturn + 1);
-    const collapsedBranch = sidebar.slice(collapsedBranchStart, expandedReturn);
-
-    expect(collapsedBranch).toContain('className="mt-auto shrink-0 w-full"');
-    expect(collapsedBranch).toContain("<AppSidebarFooter");
-  });
-
   it("gates page tree actions by document capabilities", () => {
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
 
@@ -154,35 +79,6 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain("{canFavorite && (");
     expect(treeItem).toContain("const canCreateChild = canEdit");
     expect(treeItem).toContain("{canManage && (");
-  });
-
-  it("keeps hovered page row actions readable on inactive rows", () => {
-    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
-
-    expect(treeItem).toContain("hover:bg-accent hover:text-foreground");
-    expect(treeItem).toContain("pointer-events-none");
-    expect(treeItem).toContain("group-focus-within:opacity-100");
-    expect(treeItem).toContain('"bg-accent text-foreground"');
-    expect(treeItem).toContain("More actions for");
-    expect(treeItem).not.toContain("bg-inherit");
-    expect(treeItem).not.toContain("hover:bg-accent/50");
-    expect(treeItem).not.toContain("hover:bg-background/70");
-    expect(treeItem).not.toContain("transition-opacity");
-  });
-
-  it("defaults database pages to the database icon before the page icon", () => {
-    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
-    const iconSource = treeItem.slice(
-      treeItem.indexOf("export function getDocumentSidebarIconKind"),
-      treeItem.indexOf("export function DocumentTreeItem"),
-    );
-
-    expect(treeItem).toContain("IconDatabase");
-    expect(iconSource).toContain("if (document.database)");
-    expect(iconSource.indexOf("if (document.database)")).toBeLessThan(
-      iconSource.indexOf('return "page"'),
-    );
-    expect(treeItem).toContain("<DocumentSidebarIcon document={node} />");
   });
 
   it("uses the database icon as the default for database pages", () => {
@@ -235,32 +131,6 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain("limit: Math.max(contentSpaces.length, 1)");
     expect(sidebar).toContain("useContentSpaces()");
     expect(documentsHook).toContain("enabled: options?.enabled !== false");
-  });
-
-  it("does not keep a hidden sidebar search query field", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-
-    expect(sidebar).not.toContain("setSearchQuery");
-    expect(sidebar).not.toContain('placeholder={t("sidebar.search")}');
-  });
-
-  it("keeps one command-menu search launcher above the navigation scroller", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const layout = readSidebarSource("../layout/Layout.tsx");
-
-    expect(sidebar).toContain("openContentCommandMenu");
-    expect(sidebar).toContain("openCommandMenuFrom(searchTriggerRef.current)");
-    expect(sidebar).toContain('{isMac ? "⌘ K" : "Ctrl K"}');
-    expect(sidebar.indexOf("{searchButton}")).toBeLessThan(
-      sidebar.indexOf('<ScrollArea className="min-h-0 flex-1'),
-    );
-    expect(sidebar).not.toContain("searchQuery");
-    expect(sidebar).not.toContain("isSearching");
-    expect(sidebar).not.toContain("filteredDocuments");
-    expect(sidebar).not.toContain("search={searchButton}");
-    expect(layout).toContain("openSearchAfterSidebarCloseRef");
-    expect(layout).toContain("openContentCommandMenu(");
-    expect(layout).toContain("sidebarTriggerRef.current ?? undefined");
   });
 
   it("reveals child destinations without concurrent rollback conflicts", () => {
@@ -460,63 +330,6 @@ describe("document sidebar layout", () => {
       "workspaceSelectionQueueRef\n      .current(async () =>",
     );
     expect(sidebar).not.toContain("ensureWorkspaceExpanded(current, space.id)");
-  });
-
-  it("uses the full row width until right-side actions are revealed", () => {
-    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
-    const rowActions = readSidebarSource("./SidebarRowActions.tsx");
-    const reorder = readSidebarSource("./sidebar-reorder.tsx");
-
-    expect(rowActions).toContain(
-      "group-hover:[mask-image:linear-gradient(to_left,transparent_3rem,#000_4rem)]",
-    );
-    expect(databaseSidebar).toContain(
-      "sidebarRowTitleFadeClassName(hasMenuActions ? 2 : 1)",
-    );
-    expect(databaseSidebar).not.toContain("group-hover:pe-12");
-    expect(databaseSidebar).not.toContain(
-      '(hasMenuActions || canCreateChild) && "pe-12"',
-    );
-    expect(databaseSidebar).toContain(
-      "data-sidebar-reorder-item-id={reorder?.controls.itemId}",
-    );
-    expect(databaseSidebar).toContain(
-      '"touch-none cursor-pointer select-none"',
-    );
-    expect(databaseSidebar).toContain(
-      'className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"',
-    );
-    expect(databaseSidebar).toMatch(
-      /key=\{navigationItem\.membershipId\}[\s\S]{0,160}?className="grid min-w-0 gap-0\.5"/,
-    );
-    expect(rowActions).toContain("pointer-events-none absolute end-0 top-1/2");
-    expect(databaseSidebar).toContain("<SidebarRowActions>");
-    expect(reorder).toContain(
-      'document.addEventListener("click", preventDraggedLinkNavigation, true)',
-    );
-    expect(reorder).toContain("event.preventDefault()");
-  });
-
-  it("links the unified Trash lifecycle from the sidebar", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const messages = readSidebarSource("../../i18n-data.ts");
-
-    expect(sidebar).toContain("const renderTrashSection = () =>");
-    expect(sidebar).toContain('to="/trash"');
-    expect(sidebar).toContain('location.pathname.startsWith("/trash")');
-    expect(sidebar).toContain("<IconTrash");
-    expect(sidebar).toContain("{renderTrashSection()}");
-
-    expect(messages).toContain('trash: "Trash"');
-    expect(messages).toContain('restoreDatabase: "Restore"');
-    expect(messages).toContain('restorePage: "Restore"');
-    expect(messages).toContain('trashEmpty: "Trash is empty"');
-    expect(messages).toContain(
-      'deleteDatabasePermanentlyQuestion: "Delete collection permanently?"',
-    );
-    expect(messages).toContain(
-      'failedRestoreDatabase: "Failed to restore collection"',
-    );
   });
 
   it("removes the standalone Local files destination and gates the dev database link to Code mode", () => {

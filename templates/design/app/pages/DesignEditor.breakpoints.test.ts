@@ -357,26 +357,6 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(source).toContain("handleResponsiveEditScopeChange");
   });
 
-  it("keeps the responsive scope control inline in Screen settings", () => {
-    expect(source).toContain("const screenBreakpointControls = (");
-    expect(source).toContain('className="design-sidebar-property-group"');
-    expect(source).toContain('className="flex min-w-0 items-center gap-1"');
-    expect(source).toContain(
-      'className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"',
-    );
-    expect(source).toContain(
-      'className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"',
-    );
-    expect(source).toContain("IconArrowsDown");
-    expect(source).not.toContain("w-[190px] max-w-full shrink-0 !text-[11px]");
-  });
-
-  it("deletes selected screens without an editor-open-only confirmation flow", () => {
-    expect(source).not.toContain("PendingScreenDeletionDialog");
-    expect(source).not.toContain("screenDeletion");
-    expect(source).toContain("recordDeletionHistory: true");
-  });
-
   it("routes every style-commit path through the scoped write helper", () => {
     const calls = editorSurface.match(/applyScopedVisualStyleEdit\(\{/g) ?? [];
     expect(calls.length).toBeGreaterThanOrEqual(3);

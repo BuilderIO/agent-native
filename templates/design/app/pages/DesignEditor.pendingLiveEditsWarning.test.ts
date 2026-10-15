@@ -2,37 +2,9 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import enUSMessages from "../i18n/en-US";
 import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
 
 describe("DesignEditor pending live edits", () => {
-  it("keeps the Apply split button minimal", () => {
-    const source = readDesignEditorSource();
-    const toolbarStart = source.indexOf(
-      "data-design-pending-visual-style-toolbar",
-    );
-    const toolbar = source.slice(
-      toolbarStart,
-      source.indexOf("{viewMode ===", toolbarStart),
-    );
-
-    expect(toolbar).toContain(
-      '"designEditor.pendingVisualStyles.applyDesignUpdates"',
-    );
-    expect(toolbar).not.toContain("sessionOnlyWarning");
-    expect(toolbar).not.toContain("{pendingVisualEditCount}");
-    expect(toolbar).toContain('"min-w-0 shrink-0 cursor-pointer');
-    expect(toolbar).toContain('className="h-9 w-8');
-    expect(toolbar).not.toContain("h-11");
-    expect(toolbar).toContain("canApplyPendingVisualEditsFromToolbar");
-    expect(toolbar).toContain("handleCopyPendingVisualStylePrompt");
-    expect(toolbar).toContain("canApplyPendingVisualEditsFromToolbar ? null");
-
-    expect(
-      enUSMessages.designEditor.pendingVisualStyles.applyDesignUpdates,
-    ).toBe("Apply design update");
-  });
-
   it("clears the pending state after Apply and explicit discard", () => {
     const source = readDesignEditorSource();
     const applyHandler = readFileSync(

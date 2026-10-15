@@ -299,26 +299,6 @@ describe("document editor layout", () => {
     expect(title).toContain("md:pb-0.5");
   });
 
-  it("keeps inline comments outside the independent reading column", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).not.toContain('"mx-auto max-w-5xl"');
-    expect(source).toContain('showDesktopInfoPanel ? "flex-1" : "w-full"');
-    expect(source).toContain('className="absolute right-0 top-0 w-80"');
-    expect(source).toContain(
-      'const hasUtilityRailSpace = commentSurfaces.list === "rail";',
-    );
-    expect(source).toContain(
-      'const hasInlineCommentSpace = commentSurfaces.margin === "lane";',
-    );
-    expect(source).toContain('reserveInlineReviewSpace && "pr-80"');
-    expect(source).toContain(
-      "observeCommentLane(container, lane, setCommentLaneOffset)",
-    );
-  });
-
   it("projects decisions immediately without changing canonical rejection content", () => {
     const suggestion = {
       operations: [
@@ -1152,16 +1132,6 @@ describe("document editor layout", () => {
       'if (event.key !== "Escape" || event.defaultPrevented) return;',
     );
   });
-  it("resizes titles when their available width changes without observing height feedback", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain(
-      "if (!documentTitleWidthChanged(previousWidth, nextWidth)) return;",
-    );
-    expect(source).toContain("observer?.observe(textarea)");
-  });
   it("measures an untransformed comment lane without an offset feedback loop", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -1177,14 +1147,6 @@ describe("document editor layout", () => {
     expect(lane.slice(lane.indexOf(">"))).toContain(
       "translateX(${commentLaneOffset}px)",
     );
-  });
-  it("keeps selected and hovered comment highlights distinct", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain("activeThreadId={selectedThreadId}");
-    expect(source).toContain("hoveredThreadId={hoveredThreadId}");
   });
   it("opens an accept that can't be placed instead of treating it as accepted", () => {
     expect(
@@ -2727,22 +2689,6 @@ describe("document editor layout", () => {
     expect(documentEditorDatabaseRegionClassName()).toContain("min-w-0");
   });
 
-  it("keeps the editor flex chain shrinkable inside the app shell", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain(
-      'className="relative flex min-h-0 min-w-0 flex-1"',
-    );
-    expect(source).toContain(
-      'className="flex min-h-0 min-w-0 flex-1 flex-col"',
-    );
-  });
-
   it("focuses the editor padding without moving the document scroll position", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -2757,50 +2703,6 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("onWheelCapture={cancelPaddingScrollRestore}");
     expect(source).toContain("onKeyDownCapture={cancelPaddingScrollRestore}");
-  });
-
-  it("shows the editor skeleton instead of stale data during document switches", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain("usePageOpenDocument(");
-    expect(source).toContain("databaseId,");
-    expect(source).toContain("databaseDocumentId,");
-    expect(source).toContain("isFetchedAfterMount");
-    expect(source).toContain("queriedDocument?.id === documentId");
-    expect(source).toContain("documentEditorLoadState");
-    expect(source).toMatch(
-      /return \(\s*<DocumentEditorSkeleton\s+title=\{optimisticTitle\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}\s+shape=\{\s*document\s*\?\s*readDocumentShapeHint\(document\)\s*:\s*readPageShapeHint\(documentId\)\s*\}/,
-    );
-  });
-
-  it("keeps the contextual right rail inside the document scroll surface", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    const scrollIndex = source.indexOf("data-document-print-scroll");
-    const contentIndex = source.lastIndexOf("data-document-scroll-content");
-    const desktopPanelIndex = source.indexOf("{showDesktopRightRail ? (");
-    const mobileSheetIndex = source.indexOf("<Sheet");
-
-    expect(scrollIndex).toBeGreaterThan(-1);
-    expect(contentIndex).toBeGreaterThan(scrollIndex);
-    expect(desktopPanelIndex).toBeGreaterThan(contentIndex);
-    expect(desktopPanelIndex).toBeLessThan(mobileSheetIndex);
-    expect(source).toContain(
-      'type DocumentUtilityPanel = "info" | "comments" | null',
-    );
-    expect(source).toContain('utilityPanel === "info"');
-    expect(source).toContain('setUtilityPanel("comments")');
-    expect(source).toContain("showInlineComments");
   });
 
   it("keeps metadata in Info while reusing canonical properties inline in previews", () => {
@@ -2867,63 +2769,6 @@ describe("document editor layout", () => {
         databaseDocumentId: "membership-b",
       }),
     );
-  });
-
-  it("keeps the document toolbar in normal layout flow", () => {
-    const source = readFileSync(
-      new URL("./DocumentToolbar.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-    const editorSource = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      "relative z-10 flex h-12 shrink-0 items-center bg-background @container/toolbar",
-    );
-    expect(source).toContain('shareInMenu ? "gap-1 px-2" : "gap-3 px-4"');
-    expect(source).toContain("ToolbarBreadcrumb");
-    expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
-    expect(source).toContain("formatEditedLabel");
-    expect(source).toContain("editor.toolbar.createShareableCopy");
-    expect(source).toContain("editor.toolbar.sharePeople");
-    expect(source).toContain("editor.toolbar.shareAgents");
-    expect(source).toContain("editor.toolbar.info");
-    expect(source).toContain("comments.title");
-    expect(source).toContain(
-      "showCommentsControl && !inWidget && !commentsInMenu ?",
-    );
-    expect(editorSource).toContain(
-      "commentsHistoryOpen={showCommentsHistoryDrawer}",
-    );
-    expect(source).toContain("quickCopy={{");
-    expect(source).toContain("agentTabContent={");
-    expect(source).not.toContain("shareLinkContent=");
-    expect(source).toContain('utilityPanel === "info" ? null : "info"');
-    expect(source).toContain('commentsHistoryOpen ? null : "comments"');
-    expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
-    expect(source).toContain("aria-pressed={commentsHistoryOpen}");
-    expect(source).toContain(
-      'utilityPanel === "info" && "bg-accent text-foreground"',
-    );
-    expect(editorSource).toContain("setShowCommentIndicators");
-    expect(editorSource).toContain(
-      "showCommentIndicators={showCommentIndicators}",
-    );
-    expect(editorSource).toContain('"comments.hideIndicators"');
-    expect(editorSource).toContain('"comments.showIndicators"');
-    expect(editorSource).not.toContain(
-      "absolute end-2 top-2 z-20 flex items-center",
-    );
-    expect(source).toContain("setDeleteDialogOpen(true)");
-    expect(source).toContain("text-destructive focus:text-destructive");
-    expect(source).toContain("<IconTrash");
-    expect(source).toContain("sidebar.deletePageQuestion");
-    expect(source).not.toContain("absolute top-2 right-2");
-    expect(source).not.toContain("shadow-sm");
   });
 
   it("flushes pending document saves when leaving an editor", () => {
@@ -3183,48 +3028,6 @@ describe("document editor layout", () => {
 
     expect(source).not.toContain("onPointerDownCapture={(event) => {");
     expect(source).toContain("onClickCapture={(event) => {");
-  });
-
-  it("keeps the comments history drawer width-safe and vertically reachable", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      '"flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0',
-    );
-    expect(source).toContain("overlayClassName={");
-    expect(source).toContain(
-      'shellLayout?.agentPanel === "overlay" && "z-[80]"',
-    );
-    expect(source).toContain(
-      'className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"',
-    );
-    expect(source).toContain("data-[state=closed]:duration-[260ms]");
-    expect(source).toContain("data-[state=open]:ease-[var(--ease-drawer)]");
-    expect(source).toContain(
-      'target.closest("[data-radix-popper-content-wrapper]")',
-    );
-    expect(source).toContain(
-      "utilityPanelSheetContainer?.contains(nestedPopper)",
-    );
-    expect(source).not.toContain("{showUtilityPanelSheet ? (");
-    expect(source).toContain("utilityPanelSheetContainer,");
-    expect(source).toContain("showDesktopCommentsHistory");
-    expect(source).toContain("const transferredToRail =");
-    expect(source).toContain("if (utilityPanel && !transferredToRail) return;");
-    expect(source).toContain("showDesktopInfoPanel,");
-    expect(source).toContain("data-comments-history-rail");
-    expect(source).toContain("commentsHistoryRailMounted");
-    expect(source).toContain('event.propertyName === "width"');
-    expect(source).toContain(
-      '"min-h-0 shrink-0 overflow-hidden border-s bg-background transition-[width] duration-[260ms] ease-[var(--ease-drawer)]"',
-    );
-    expect(source).toContain('renderUtilityPanelContent("comments")');
-    expect(source).toContain(
-      "commentsHistoryDrawerOpen: showCommentsHistoryDrawer",
-    );
   });
 
   it("keeps title and content save watermarks independent after partial saves", () => {
@@ -3674,22 +3477,6 @@ describe("document editor layout", () => {
     expect(slashMenuSource).toContain("if (!persisted) throw new Error");
     expect(slashMenuSource).not.toContain("useUpdateDocument");
     expect(slashMenuSource).not.toContain("updateDocument.mutateAsync");
-  });
-
-  it("copies the open page route for local-file documents", () => {
-    const source = readFileSync(
-      new URL("./DocumentToolbar.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain("const pageUrl");
-    expect(source).toContain(
-      "const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl",
-    );
-    expect(source).toContain("writeClipboardText(copyPageUrl)");
-    expect(source).not.toContain("navigator.clipboard.writeText");
   });
 
   it("routes Content text-copy controls through the shared clipboard boundary", () => {

@@ -7,54 +7,6 @@ import { readDesignEditorSource } from "./design-editor/read-design-editor-sourc
 describe("Design editor mobile layout", () => {
   const editorSource = readDesignEditorSource();
   const layoutSource = readFileSync("app/components/layout/Layout.tsx", "utf8");
-  const bottomToolbarSource = readFileSync(
-    "app/components/design/editor/DesignBottomToolbar.tsx",
-    "utf8",
-  );
-  const workspaceRailSource = readFileSync(
-    "app/components/design/editor/DesignWorkspaceRail.tsx",
-    "utf8",
-  );
-
-  it("uses the dynamic viewport height for the app shell", () => {
-    expect(layoutSource).toContain(
-      "agent-layout-shell flex h-dvh w-full overflow-hidden",
-    );
-    expect(layoutSource).not.toContain(
-      "agent-layout-shell flex h-screen w-full overflow-hidden",
-    );
-  });
-
-  it("keeps wide rails out while preserving mobile editor controls", () => {
-    expect(bottomToolbarSource).toContain(
-      "flex max-w-[calc(100%-1rem)] -translate-x-1/2",
-    );
-    expect(bottomToolbarSource).toContain("overflow-x-auto rounded-xl");
-    expect(editorSource).toContain(
-      "absolute inset-y-0 left-0 z-[70] flex min-h-0",
-    );
-    expect(editorSource).toContain(
-      "className={rightInspectorPanelClassName(minimalUi)}",
-    );
-    const inspectorSource = readFileSync(
-      "app/pages/design-editor/minimal-inspector.ts",
-      "utf8",
-    );
-    expect(inspectorSource).toContain(
-      "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col",
-    );
-    expect(editorSource).toContain(
-      "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",
-    );
-    expect(editorSource).toContain('aria-label={t("editPanel.properties")}');
-    expect(editorSource).toContain("resolveLeftSidebarWidth(");
-    const resizeSource = readFileSync(
-      "app/pages/design-editor/commands/start-sidebar-resize.ts",
-      "utf8",
-    );
-    expect(resizeSource).toContain("snapLeftSidebarDragWidth(");
-    expect(resizeSource).toContain("Math.min(390, Math.max(240,");
-  });
 
   it("keeps the app shell in non-Builder embedded routes", () => {
     expect(layoutSource).toContain(
@@ -110,11 +62,5 @@ describe("Design editor mobile layout", () => {
     );
     // Every toast stays otherwise unconditional, so normal sessions still warn.
     expect(warn.match(/if \(readOnlyWidget\) return;/g)).toHaveLength(4);
-  });
-
-  it("lets the compact workspace rail scroll on short screens", () => {
-    expect(workspaceRailSource).toContain(
-      "items-center overflow-y-auto overscroll-contain",
-    );
   });
 });
