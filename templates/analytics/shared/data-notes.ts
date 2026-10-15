@@ -183,7 +183,7 @@ interface SqlScope {
  * excludes with `!=`, `<>`, or a NOT over its predicate or parentheses, or
  * only mentions in a comment does not count.
  */
-function sqlFilters(sql: string): SqlFilters {
+function parseSqlFilters(sql: string): SqlFilters {
   const tokens = sqlTokens(sql);
   const filters: SqlFilters = { values: new Set(), patterns: [] };
   const scopes: SqlScope[] = [{ negated: false, inList: false, not: false }];
@@ -224,6 +224,25 @@ function sqlFilters(sql: string): SqlFilters {
       (next === "," || next === ")");
     if (compared || listed) filters.values.add(token.value);
   });
+  return filters;
+}
+
+const FILTERS_BY_SQL_CAP = 500;
+const filtersBySql = new Map<string, SqlFilters>();
+
+/**
+ * Every note is checked against every chart, so each chart's SQL is parsed once
+ * and shared, oldest dropped first past the cap. Callers only read the result.
+ */
+function sqlFilters(sql: string): SqlFilters {
+  let filters = filtersBySql.get(sql);
+  if (!filters) {
+    filters = parseSqlFilters(sql);
+    if (filtersBySql.size >= FILTERS_BY_SQL_CAP) {
+      filtersBySql.delete(filtersBySql.keys().next().value as string);
+    }
+    filtersBySql.set(sql, filters);
+  }
   return filters;
 }
 
