@@ -1218,6 +1218,7 @@ export default {
     selectAll: "모두 선택",
     selectOnly: "만",
     selectOnlyValue: "{{value}}만",
+    presets: "프리셋",
     untitledDashboard: "제목 없는 대시보드",
     dashboardFallback: "대시보드",
     viewOnly: "이 대시보드에 대한 보기 전용 액세스 권한이 있습니다.",

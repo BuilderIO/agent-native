@@ -2472,7 +2472,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             brandHref="/home"
             collapsed={true}
           />
-          <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3">
+          <nav className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-2 py-3">
             {collapsedNavItems.map((item) => {
               const Icon = item.icon;
               return (

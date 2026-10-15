@@ -19,6 +19,24 @@ const messages = {
     turnOffRewind: "Ausschalten",
     turnOffRewindFailed:
       "Rewind konnte nicht deaktiviert werden. Beende die Aufnahme und versuche es erneut.",
+    turnOnRewindFailed:
+      "Rewind konnte nicht aktiviert werden. Versuch es erneut.",
+    turnOnRewindPermissionFailed:
+      "Erlaube Clips die Bildschirmaufnahme unter Systemeinstellungen > Datenschutz & Sicherheit > Bildschirm- und Systemaudioaufnahme. Starte Clips danach neu und versuche es erneut.",
+    turnOnRewindUnsupported:
+      "Die Bildschirmaufnahme mit Rewind ist nur unter macOS verfügbar.",
+    turnOnRewindNoSpace:
+      "Es ist nicht genug Speicherplatz vorhanden, um Rewind zu starten. Gib Speicherplatz frei und versuche es erneut.",
+    turnOnRewindStopClip:
+      "Beende den aktuellen Clip, bevor du Rewind aktivierst.",
+    turnOnRewindStorageFailed:
+      "Auf den Rewind-Speicher konnte nicht zugegriffen werden. Prüfe den freien Speicherplatz und die Ordnerberechtigungen und versuche es erneut.",
+    rewindConsentTitle: "Rewind aktivieren?",
+    rewindConsentBody:
+      "Clips zeichnet fortlaufend deinen Bildschirm auf und speichert ihn auf diesem Gerät. Agents erhalten Textauszüge, und Videos werden nur mit deiner Zustimmung geteilt.",
+    rewindConsentCancel: "Nicht jetzt",
+    rewindConsentConfirm: "Rewind aktivieren",
+    rewindConsentBusy: "Rewind wird aktiviert…",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
       "Standardmäßig deaktiviert. Der Bildschirmverlauf bleibt auf diesem Gerät, bis du ihn einer Aufnahme hinzufügst oder eine Freigabeanfrage bestätigst.",

@@ -18,6 +18,20 @@ const messages = {
     turnOnRewind: "开启 Rewind",
     turnOffRewind: "关闭",
     turnOffRewindFailed: "无法关闭 Rewind。请先停止录制，然后重试。",
+    turnOnRewindFailed: "无法开启 Rewind。请重试。",
+    turnOnRewindPermissionFailed:
+      "在系统设置 > 隐私与安全性 > 屏幕与系统音频录制中允许 Clips 录屏，然后重新启动 Clips 并重试。",
+    turnOnRewindUnsupported: "Rewind 屏幕录制仅在 macOS 上可用。",
+    turnOnRewindNoSpace: "磁盘空间不足，无法启动 Rewind。请释放空间后重试。",
+    turnOnRewindStopClip: "请先停止当前 Clip，再开启 Rewind。",
+    turnOnRewindStorageFailed:
+      "无法访问 Rewind 存储空间。请检查磁盘空间和文件夹权限后重试。",
+    rewindConsentTitle: "开启 Rewind？",
+    rewindConsentBody:
+      "Clips 会持续录制你的屏幕，并将内容保留在此设备上。智能体会获取文本摘录，只有你批准后才会分享视频。",
+    rewindConsentCancel: "暂不",
+    rewindConsentConfirm: "开启 Rewind",
+    rewindConsentBusy: "正在开启 Rewind…",
     rewindOffTitle: "开启 Rewind",
     rewindOffBody:
       "默认关闭。屏幕历史记录会保留在此设备上，直到你将其加入录制内容或批准共享请求。",
