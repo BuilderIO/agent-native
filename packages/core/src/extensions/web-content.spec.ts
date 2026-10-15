@@ -71,4 +71,39 @@ describe("processWebContent", () => {
       }),
     ).resolves.toMatchObject({ content: "(empty response body)" });
   });
+
+  it("falls back to raw text when the HTML parser rejects the body", async () => {
+    vi.doMock("linkedom/worker", () => {
+      throw new Error(
+        "Cannot destructure property 'firstElementChild' of 'documentElement' as it is null.",
+      );
+    });
+    const { processWebContent } = await import("./web-content.js");
+
+    await expect(
+      processWebContent({
+        url: "https://example.com/",
+        body: "Access denied",
+        contentType: "text/html",
+      }),
+    ).resolves.toMatchObject({ content: "Access denied" });
+  });
+
+  it("falls back to the size note when the HTML parser rejects it", async () => {
+    vi.doMock("linkedom/worker", () => {
+      throw new Error(
+        "Cannot destructure property 'firstElementChild' of 'documentElement' as it is null.",
+      );
+    });
+    const { processWebContent } = await import("./web-content.js");
+    const body = "(response too large - 1200009 bytes, max 1048576)";
+
+    await expect(
+      processWebContent({
+        url: "https://example.com/",
+        body,
+        contentType: "text/html",
+      }),
+    ).resolves.toMatchObject({ content: body });
+  });
 });

@@ -179,7 +179,7 @@ export async function processWebContent(
     html &&
     !emptyHtmlBody &&
     (mode !== "raw" || hasWebContentSearch(search) || options.saveContentFormat)
-      ? await extractHtml(
+      ? await safeExtractHtml(
           options.body,
           options.url,
           extract,
@@ -333,6 +333,35 @@ function isHtmlResponse(contentType: string | null, body: string): boolean {
   return /<!doctype html|<html[\s>]|<body[\s>]|<article[\s>]/i.test(
     body.slice(0, 2_000),
   );
+}
+
+async function safeExtractHtml(
+  body: string,
+  url: string,
+  extract: WebExtractMode,
+  includeMarkdown: boolean,
+): Promise<{
+  html: string;
+  text: string;
+  markdown: string;
+  links: WebContentLink[];
+  title?: string;
+  excerpt?: string;
+  byline?: string;
+  siteName?: string;
+  lang?: string;
+  publishedTime?: string;
+  agentMetadata?: unknown[];
+} | null> {
+  try {
+    return await extractHtml(body, url, extract, includeMarkdown);
+  } catch {
+    // If the parser rejects the body (e.g. linkedom throws because the
+    // document has no parseable documentElement), fall back to treating the
+    // HTML-labeled response as plain text so web-request surfaces the status
+    // and body instead of an internal post-processing error.
+    return null;
+  }
 }
 
 async function extractHtml(
