@@ -231,6 +231,39 @@ describe("stepVideoFrame", () => {
     expect(fake.shownFrame()).toBe(27);
   });
 
+  it("steps onto the last frame before a cut, then across it", async () => {
+    // Frame 11 (458 ms) shows for 7 ms before the cut, inside the first probe.
+    const frames = frameStarts(24, 48, true);
+    const { fake, step, goToFrame } = setup(frames, [
+      { startMs: 465, endMs: 1500 },
+    ]);
+    await goToFrame(10);
+
+    const shown: number[] = [];
+    for (const direction of [1, 1, -1, -1] as const) {
+      await step(direction);
+      shown.push(fake.shownFrame());
+    }
+
+    expect(shown).toEqual([11, 36, 11, 10]);
+  });
+
+  it("finds the frames between a held frame and a cut", async () => {
+    // A still screen from 1 s to 3 s, then frames until a cut at 3.1 s.
+    const frames = [
+      ...frameStarts(24, 25, true),
+      ...Array.from({ length: 36 }, (_, i) => 3 + i / 24),
+    ];
+    const { fake, step, goToFrame } = setup(frames, [
+      { startMs: 3100, endMs: 4000 },
+    ]);
+    await goToFrame(24);
+
+    await step(1);
+
+    expect(fake.shownFrame()).toBe(25);
+  });
+
   it("steps back over a cut to the frame before it", async () => {
     const frames = frameStarts(24, 48, true);
     const { fake, step, goToFrame } = setup(frames, [
@@ -272,5 +305,24 @@ describe("stepVideoFrame", () => {
     await stepVideoFrame(target, -1);
 
     expect(seeks).toEqual([1034, 967]);
+  });
+
+  it("falls back to a step back that clears a cut", async () => {
+    const fake = new FakeVideo(frameStarts(30, 60), false);
+    // Just after a cut from 0.5 s to 1.5 s.
+    fake.currentTime = 1.5;
+    const seeks: number[] = [];
+
+    await stepVideoFrame(
+      {
+        video: fake as unknown as HTMLVideoElement,
+        clock: null,
+        seekMs: (ms) => seeks.push(ms),
+        excludedRanges: [{ startMs: 500, endMs: 1500 }],
+      },
+      -1,
+    );
+
+    expect(seeks).toEqual([499]);
   });
 });

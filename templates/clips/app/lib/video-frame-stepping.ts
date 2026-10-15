@@ -188,6 +188,7 @@ export interface FrameStepTarget {
   clock: VideoFrameClock | null;
   /** Seeks to original media time, as the player's own seek does. */
   seekMs: (ms: number) => void;
+  /** Cuts in original media time, sorted and merged. */
   excludedRanges: readonly ExcludedRange[];
 }
 
@@ -200,10 +201,11 @@ export async function stepVideoFrame(
   if (!clock) {
     // The player floors to whole milliseconds; rounding up keeps a 30 fps
     // step from landing back on the frame it started from.
+    const targetMs = Math.ceil(
+      (video.currentTime + direction * FALLBACK_FRAME_SECONDS) * 1000,
+    );
     seekMs(
-      Math.ceil(
-        (video.currentTime + direction * FALLBACK_FRAME_SECONDS) * 1000,
-      ),
+      direction < 0 ? beforeCut(targetMs, target.excludedRanges) : targetMs,
     );
     return;
   }
@@ -236,21 +238,27 @@ async function showAt(
   return shown;
 }
 
+/**
+ * `ms`, or just before the cut it falls in: a seek into a cut skips forward
+ * past it, so aiming back into one would bounce to where the step began.
+ */
+function beforeCut(ms: number, cuts: readonly ExcludedRange[]): number {
+  const cut = cuts.find((range) => ms >= range.startMs && ms < range.endMs);
+  return cut ? cut.startMs - 1 : ms;
+}
+
 async function stepBack(
   target: FrameStepTarget,
   clock: VideoFrameClock,
   start: number,
 ) {
   // Just before this frame starts is inside the previous one, whatever its
-  // length. A cut there would bounce the seek forward, so aim before the cut.
-  let targetMs = frameTimeMs(start) - 1;
-  const cut = target.excludedRanges.find(
-    (range) => targetMs >= range.startMs && targetMs < range.endMs,
-  );
-  if (cut) targetMs = cut.startMs - 1;
+  // length.
+  const previousMs = frameTimeMs(start) - 1;
+  const targetMs = beforeCut(previousMs, target.excludedRanges);
   if (targetMs < 0) return;
   const shown = await showAt(target, clock, targetMs);
-  if (!cut && shown !== null && shown < start) {
+  if (targetMs === previousMs && shown !== null && shown < start) {
     clock.recordFrameSeconds(start - shown);
   }
 }
@@ -260,28 +268,63 @@ async function stepForward(
   clock: VideoFrameClock,
   start: number,
 ) {
+  // Search the kept spans between cuts in turn: a probe inside a cut would
+  // land after it and pass the frames just before it.
+  let from = start;
+  for (const cut of target.excludedRanges) {
+    if (cut.endMs <= from * 1000) continue;
+    if (cut.startMs > from * 1000) {
+      const endMs = cut.startMs - 1;
+      if (
+        endMs > from * 1000 &&
+        !(await stepWithinSpan(target, clock, start, from, endMs))
+      ) {
+        return;
+      }
+      // Nothing new shows before the cut, so the next frame is the one the
+      // player shows at its end, unless the current frame lasts past it.
+      const shown = await showAt(target, clock, cut.endMs);
+      if (shown === null || shown > start) return;
+    }
+    from = cut.endMs / 1000;
+  }
+  await stepWithinSpan(target, clock, start, from, Number.POSITIVE_INFINITY);
+}
+
+/**
+ * Steps to the first frame after `start` that shows between `from`, which
+ * still shows `start`, and `endMs`. Returns true when no new frame does.
+ */
+async function stepWithinSpan(
+  target: FrameStepTarget,
+  clock: VideoFrameClock,
+  start: number,
+  from: number,
+  endMs: number,
+): Promise<boolean> {
   const frame = clock.frameSeconds();
   // Aim at the middle of the next frame, then widen when a held frame
   // (screen recordings hold still screens) covers the aim point.
   let reach = 1.5 * frame;
-  let lo = start;
+  let lo = from;
   let next: number | null = null;
   let shownNow = start;
   for (let probe = 0; probe < MAX_FORWARD_PROBES; probe++) {
-    const probeMs = Math.round((start + reach) * 1000);
+    const probeMs = Math.min(Math.round((from + reach) * 1000), endMs);
     const shown = await showAt(target, clock, probeMs);
-    if (shown === null) return;
+    if (shown === null) return false;
     shownNow = shown;
     if (shown > start) {
       next = shown;
       break;
     }
+    if (probeMs === endMs) return true;
     // The seek stopped short of the probe: this is the clip's last frame.
-    if (target.video.currentTime * 1000 < probeMs - 1) return;
-    lo = start + reach;
+    if (target.video.currentTime * 1000 < probeMs - 1) return false;
+    lo = from + reach;
     reach *= 2;
   }
-  if (next === null) return;
+  if (next === null) return false;
 
   // A widened probe can pass frames that follow a held one; narrow back to
   // the first frame after `start`.
@@ -292,7 +335,7 @@ async function stepForward(
   ) {
     const mid = (lo + next) / 2;
     const shown = await showAt(target, clock, Math.round(mid * 1000));
-    if (shown === null) return;
+    if (shown === null) return false;
     shownNow = shown;
     if (shown > start && shown < next) next = shown;
     else lo = mid;
@@ -300,4 +343,5 @@ async function stepForward(
   if (shownNow !== next) {
     await showAt(target, clock, frameTimeMs(next));
   }
+  return false;
 }
