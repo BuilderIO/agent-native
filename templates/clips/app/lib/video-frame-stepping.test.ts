@@ -497,6 +497,31 @@ describe("stepVideoFrame", () => {
     expect(fake.shownFrame()).toBe(1);
   });
 
+  it("doesn't keep a fallback step whose seek never finishes", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = new FakeVideo(frameStarts(30, 60), false);
+      fake.stalled = true;
+
+      const stepping = stepVideoFrame(
+        {
+          video: fake as unknown as HTMLVideoElement,
+          clock: null,
+          seekMs: (ms) => {
+            fake.currentTime = ms / 1000;
+          },
+          excludedRanges: [],
+        },
+        1,
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(await stepping).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("falls back to a step back that clears a cut", async () => {
     const fake = new FakeVideo(frameStarts(30, 60), false);
     // Just after a cut from 0.5 s to 1.5 s.

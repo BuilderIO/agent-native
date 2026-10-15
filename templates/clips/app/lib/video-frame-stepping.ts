@@ -205,19 +205,21 @@ export class VideoFrameClock {
   }
 }
 
+/** Resolves true when `type` fires, or false if it doesn't in time. */
 function nextEvent(
   target: EventTarget,
   type: string,
   timeoutMs = PRESENTED_FRAME_TIMEOUT_MS,
-): Promise<void> {
+): Promise<boolean> {
   return new Promise((resolve) => {
-    const done = () => {
+    const done = (fired: boolean) => {
       clearTimeout(timer);
-      target.removeEventListener(type, done);
-      resolve();
+      target.removeEventListener(type, onEvent);
+      resolve(fired);
     };
-    const timer = setTimeout(done, timeoutMs);
-    target.addEventListener(type, done);
+    const onEvent = () => done(true);
+    const timer = setTimeout(() => done(false), timeoutMs);
+    target.addEventListener(type, onEvent);
   });
 }
 
@@ -256,8 +258,8 @@ export async function stepVideoFrame(
     // Let each seek finish, so queued presses show every frame rather than
     // one jump.
     const fallbackSought = video.currentTime;
-    if (video.seeking) await nextEvent(video, "seeked");
-    return !overtaken(video, fallbackSought);
+    const finished = !video.seeking || (await nextEvent(video, "seeked"));
+    return finished && !overtaken(video, fallbackSought);
   }
   const sought = video.currentTime;
   // Stepping from the seek target instead would override a seek still in
