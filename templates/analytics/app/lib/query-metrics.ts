@@ -34,9 +34,9 @@ export async function queryMetrics(sql: string): Promise<QueryMetricsResult> {
   }
 
   if (!res.ok) {
-    // The server answers a failed BigQuery job with an error and no bytes, so
-    // what it scanned is unknown, not zero.
-    recordQueryCost({ status: "error" });
+    // /api/query returns 401 before runQuery; provider failures are mapped to
+    // 400. Keep other failures unknown because they may have scanned.
+    if (res.status !== 401) recordQueryCost({ status: "error" });
     const body = await res.json().catch(() => ({}));
     return {
       rows: [],

@@ -115,6 +115,23 @@ describe("queryMetrics cost accounting", () => {
     expect(getUnknownScans()).toBe(1);
   });
 
+  it("does not count a pre-query authentication failure as an unknown scan", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ error: "missing_api_key" }, 401),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(queryMetrics("SELECT 1")).resolves.toEqual({
+      rows: [],
+      error: "missing_api_key",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mocks.recordQueryCost).not.toHaveBeenCalled();
+    expect(getTotalBytes()).toBe(0);
+    expect(getUnknownScans()).toBe(0);
+  });
+
   it("records a lost request as an unknown scan and rethrows it", async () => {
     vi.stubGlobal(
       "fetch",
