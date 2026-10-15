@@ -255,17 +255,26 @@ export function AgentNativeMotionText({
         `AgentNativeMotionText supports at most ${MAX_TEXT_UNITS} animated units.`,
       );
     }
-    if (
-      animations.some(
-        (track) =>
-          track.overlapPercent === undefined &&
-          (groupCount - 1) * track.staggerMs > 120_000,
-      )
-    ) {
-      throw new Error(
-        "AgentNativeMotionText stagger exceeds the 120000ms runtime limit.",
-      );
-    }
+    const animationSchedules = animations.map((track) => {
+      const overlap = track.overlapPercent;
+      const durationMs =
+        overlap === undefined
+          ? track.durationMs
+          : track.durationMs /
+            (1 + Math.max(0, groupCount - 1) * (1 - overlap / 100));
+      const staggerMs =
+        overlap === undefined
+          ? track.staggerMs
+          : durationMs * (1 - overlap / 100);
+      const spanMs =
+        (track.delayMs ?? 0) + (groupCount - 1) * staggerMs + durationMs;
+      if (!Number.isFinite(spanMs) || spanMs > 120_000) {
+        throw new Error(
+          "AgentNativeMotionText animation span exceeds the 120000ms runtime limit.",
+        );
+      }
+      return { track, durationMs, staggerMs };
+    });
     const orderRanks = textOrderRanks(
       groupCount,
       motionTextOrder(primaryAnimation),
@@ -278,7 +287,7 @@ export function AgentNativeMotionText({
       durationMs: number;
     }> = [];
     try {
-      for (const track of animations) {
+      for (const { track, durationMs, staggerMs } of animationSchedules) {
         for (const entry of elements) {
           if (typeof entry.element.animate !== "function") {
             throw new Error(
@@ -286,16 +295,6 @@ export function AgentNativeMotionText({
             );
           }
           const delayIndex = orderRanks[entry.index] ?? entry.index;
-          const overlap = track.overlapPercent;
-          const durationMs =
-            overlap === undefined
-              ? track.durationMs
-              : track.durationMs /
-                (1 + Math.max(0, groupCount - 1) * (1 - overlap / 100));
-          const staggerMs =
-            overlap === undefined
-              ? track.staggerMs
-              : durationMs * (1 - overlap / 100);
           const easingStyle = track.keyframes.some((keyframe) =>
             isMotionEaseVariableReference(keyframe.ease ?? ""),
           )

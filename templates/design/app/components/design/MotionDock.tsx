@@ -451,13 +451,16 @@ export function MotionDock({
     storedDurationMs,
     ...Object.values(previewContentDurationsMs),
   );
+  const previewContentDurationMs = Math.max(
+    0,
+    ...Object.values(previewContentDurationsMs),
+  );
   const commitTracksChange = useCallback(
     (nextTracks: MotionDockTrack[]) => {
       if (!onTracksChange) return;
-      if (durationMs > storedDurationMs) onDurationChange?.(durationMs);
       onTracksChange(nextTracks);
     },
-    [durationMs, onDurationChange, onTracksChange, storedDurationMs],
+    [onTracksChange],
   );
   const setOpen = useCallback(
     (v: boolean) => {
@@ -468,19 +471,15 @@ export function MotionDock({
   );
 
   useEffect(() => {
-    const iframe = canvasIframeRef?.current;
-    const iframeWindow = iframe?.contentWindow;
-    if (!iframe || !iframeWindow) return;
-
     const requestPreviewDuration = () => {
-      iframeWindow.postMessage(
+      canvasIframeRef?.current?.contentWindow?.postMessage(
         { type: "motion-preview-duration-request" },
         "*",
       );
     };
     const handleMessage = (event: MessageEvent) => {
       if (
-        event.source !== iframeWindow ||
+        event.source !== canvasIframeRef?.current?.contentWindow ||
         event.data?.type !== "motion-preview-span"
       ) {
         return;
@@ -507,13 +506,14 @@ export function MotionDock({
         return { ...current, [key]: nextDurationMs };
       });
     };
-    const handleLoad = () => {
+    const handleLoad = (event: Event) => {
+      if (event.target !== canvasIframeRef?.current) return;
       setPreviewContentDurationsMs({});
       requestPreviewDuration();
     };
 
     window.addEventListener("message", handleMessage);
-    iframe.addEventListener("load", handleLoad);
+    document.addEventListener("load", handleLoad, true);
     if (isOpen) {
       setPreviewContentDurationsMs((current) =>
         Object.keys(current).length === 0 ? current : {},
@@ -522,9 +522,20 @@ export function MotionDock({
     }
     return () => {
       window.removeEventListener("message", handleMessage);
-      iframe.removeEventListener("load", handleLoad);
+      document.removeEventListener("load", handleLoad, true);
     };
   }, [canvasIframeRef, isOpen]);
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !onDurationChange ||
+      previewContentDurationMs <= storedDurationMs
+    ) {
+      return;
+    }
+    onDurationChange(previewContentDurationMs);
+  }, [isOpen, onDurationChange, previewContentDurationMs, storedDurationMs]);
 
   const [playhead, setPlayhead] = useState(playheadProp ?? 0);
   const playheadRef = useRef(playheadProp ?? 0);

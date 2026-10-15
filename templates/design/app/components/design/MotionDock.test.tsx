@@ -168,6 +168,9 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  document
+    .querySelectorAll("iframe[data-motion-test-preview]")
+    .forEach((iframe) => iframe.remove());
   container.remove();
 });
 
@@ -457,9 +460,11 @@ describe("MotionDock text preview timeline", () => {
       removeEventListener: vi.fn(),
     } as unknown as HTMLIFrameElement;
     const canvasIframeRef = { current: iframe };
+    const onDurationChange = vi.fn();
     await renderInteractive({
       canvasIframeRef,
       durationMs: 2000,
+      onDurationChange,
     });
 
     expect(postMessage).toHaveBeenCalledWith(
@@ -484,6 +489,7 @@ describe("MotionDock text preview timeline", () => {
     await reportSpan("html", 4250);
 
     expect(handle?.getAttribute("aria-valuenow")).toBe("4250");
+    expect(onDurationChange).toHaveBeenLastCalledWith(4250);
     expect(
       container
         .querySelector("[data-motion-scrubber]")
@@ -492,6 +498,7 @@ describe("MotionDock text preview timeline", () => {
 
     await reportSpan("react:headline", 5000);
     expect(handle?.getAttribute("aria-valuenow")).toBe("5000");
+    expect(onDurationChange).toHaveBeenLastCalledWith(5000);
     const currentTime = container.querySelector<HTMLInputElement>(
       'input[aria-label="Current time"]',
     );
@@ -523,6 +530,77 @@ describe("MotionDock text preview timeline", () => {
       { type: "motion-preview-duration-request" },
       "*",
     );
+  });
+
+  it("tracks preview span messages and load events from a replacement iframe", async () => {
+    const firstWindow = { postMessage: vi.fn() };
+    const firstIframe = document.createElement("iframe");
+    firstIframe.dataset.motionTestPreview = "true";
+    Object.defineProperty(firstIframe, "contentWindow", {
+      configurable: true,
+      value: firstWindow,
+    });
+    document.body.append(firstIframe);
+
+    const nextWindow = { postMessage: vi.fn() };
+    const nextIframe = document.createElement("iframe");
+    nextIframe.dataset.motionTestPreview = "true";
+    Object.defineProperty(nextIframe, "contentWindow", {
+      configurable: true,
+      value: nextWindow,
+    });
+    let currentIframe = firstIframe;
+    const canvasIframeRef = {
+      get current() {
+        return currentIframe;
+      },
+    };
+    const onDurationChange = vi.fn();
+
+    await renderInteractive({
+      canvasIframeRef,
+      durationMs: 2000,
+      onDurationChange,
+    });
+    expect(firstWindow.postMessage).toHaveBeenCalledWith(
+      { type: "motion-preview-duration-request" },
+      "*",
+    );
+
+    await act(async () => {
+      firstIframe.replaceWith(nextIframe);
+      currentIframe = nextIframe;
+      nextIframe.dispatchEvent(new Event("load"));
+    });
+    expect(nextWindow.postMessage).toHaveBeenCalledWith(
+      { type: "motion-preview-duration-request" },
+      "*",
+    );
+
+    const handle = container.querySelector<HTMLButtonElement>(
+      "[data-motion-timeline-duration-handle]",
+    );
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "motion-preview-span", key: "html", durationMs: 9000 },
+          source: firstWindow as unknown as Window,
+        }),
+      );
+    });
+    expect(handle?.getAttribute("aria-valuenow")).toBe("2000");
+    expect(onDurationChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "motion-preview-span", key: "html", durationMs: 4250 },
+          source: nextWindow as unknown as Window,
+        }),
+      );
+    });
+    expect(handle?.getAttribute("aria-valuenow")).toBe("4250");
+    expect(onDurationChange).toHaveBeenCalledExactlyOnceWith(4250);
   });
 });
 

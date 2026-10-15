@@ -624,6 +624,14 @@ describe("Motion Text source and runtime", () => {
     ]);
   });
 
+  it("rejects long emoji-only word targets without rescanning remaining segments", () => {
+    const authored = `<div data-agent-native-node-id="headline">${"🙂".repeat(8_192)}</div>`;
+
+    expect(() => injectMotionTextRuntime(authored, document)).toThrow(
+      'Motion text target "headline" has no animatable text units.',
+    );
+  });
+
   it("plays out keyframes in reverse while preserving their easing and spaces", () => {
     const animation: MotionTextAnimation = {
       ...document.animations[0]!,

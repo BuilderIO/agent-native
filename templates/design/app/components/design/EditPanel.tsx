@@ -2297,6 +2297,27 @@ export const EditPanel = memo(function EditPanel({
     useState(false);
   const [animationStyleBrowserOpen, setAnimationStyleBrowserOpen] =
     useState(false);
+  const animationStyleBrowserTriggerRef = useRef<HTMLButtonElement | null>(
+    null,
+  );
+  const [animationStyleBrowserSideOffset, setAnimationStyleBrowserSideOffset] =
+    useState(0);
+  const handleAnimationStyleBrowserOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      const trigger = animationStyleBrowserTriggerRef.current;
+      const section = trigger?.closest<HTMLElement>(
+        "[data-design-inspector-section]",
+      );
+      if (trigger && section) {
+        setAnimationStyleBrowserSideOffset(
+          trigger.getBoundingClientRect().left -
+            section.getBoundingClientRect().left +
+            2,
+        );
+      }
+    }
+    setAnimationStyleBrowserOpen(open);
+  }, []);
 
   const effectiveSelectedElements = useMemo(
     () =>
@@ -3099,11 +3120,14 @@ export const EditPanel = memo(function EditPanel({
                             <div className="flex -translate-x-[11px] items-center gap-1">
                               <Popover
                                 open={animationStyleBrowserOpen}
-                                onOpenChange={setAnimationStyleBrowserOpen}
+                                onOpenChange={
+                                  handleAnimationStyleBrowserOpenChange
+                                }
                               >
                                 <PopoverTrigger asChild>
                                   <Button
                                     type="button"
+                                    ref={animationStyleBrowserTriggerRef}
                                     size="sm"
                                     variant="ghost"
                                     className="h-6 w-6 px-0 text-[11px]"
@@ -3122,7 +3146,7 @@ export const EditPanel = memo(function EditPanel({
                                 <PopoverContent
                                   align="start"
                                   side="left"
-                                  sideOffset={181}
+                                  sideOffset={animationStyleBrowserSideOffset}
                                   className="w-[240px] p-0"
                                 >
                                   <div className="h-[min(483px,calc(100dvh-4rem))]">

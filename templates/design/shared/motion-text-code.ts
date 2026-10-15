@@ -578,6 +578,10 @@ function wordUnitCount(value: string): number {
         value: part,
         word: !/^\s+$/u.test(part),
       }));
+  let remainingWords = chunks.reduce(
+    (count, chunk) => count + Number(chunk.word),
+    0,
+  );
   let count = 0;
   let lastTokenAnimatedText = false;
   for (let index = 0; index < chunks.length; index += 1) {
@@ -587,12 +591,13 @@ function wordUnitCount(value: string): number {
       continue;
     }
     if (chunk.word) {
+      remainingWords -= 1;
       count += 1;
       lastTokenAnimatedText = true;
       continue;
     }
     if (lastTokenAnimatedText) continue;
-    if (chunks.slice(index + 1).some((candidate) => candidate.word)) {
+    if (remainingWords > 0) {
       count += 1;
       while (
         index + 1 < chunks.length &&

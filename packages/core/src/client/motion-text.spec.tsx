@@ -494,7 +494,7 @@ describe("AgentNativeMotionText", () => {
     ]);
   });
 
-  it("rejects fixed stagger schedules whose actual group delay exceeds two minutes", async () => {
+  it("rejects fixed stagger schedules whose total span exceeds two minutes", async () => {
     const overlongAnimation = {
       ...animation,
       staggerMs: 30_001,
@@ -511,9 +511,52 @@ describe("AgentNativeMotionText", () => {
         );
       }),
     ).rejects.toThrow(
-      "AgentNativeMotionText stagger exceeds the 120000ms runtime limit.",
+      "AgentNativeMotionText animation span exceeds the 120000ms runtime limit.",
     );
     expect(mockedAnimations).toHaveLength(0);
+  });
+
+  it("rejects text animation spans beyond two minutes, including delay and duration for one unit", async () => {
+    const overlongAnimation = {
+      ...animation,
+      delayMs: 119_801,
+      durationMs: 200,
+    };
+
+    await expect(
+      act(async () => {
+        root.render(
+          <AgentNativeMotionText animation={overlongAnimation}>
+            <h1 data-agent-native-node-id="headline">One</h1>
+          </AgentNativeMotionText>,
+        );
+      }),
+    ).rejects.toThrow(
+      "AgentNativeMotionText animation span exceeds the 120000ms runtime limit.",
+    );
+    expect(mockedAnimations).toHaveLength(0);
+  });
+
+  it("accepts a text animation span exactly at the two-minute limit", async () => {
+    const boundaryAnimation = {
+      ...animation,
+      delayMs: 119_800,
+      durationMs: 200,
+    };
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={boundaryAnimation}>
+          <h1 data-agent-native-node-id="headline">One</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(mockedAnimations).toHaveLength(1);
+    expect(mockedAnimations[0]?.options).toMatchObject({
+      delay: 119_800,
+      duration: 200,
+    });
   });
 
   it("keeps whitespace in flow while including it in character ordering", async () => {
