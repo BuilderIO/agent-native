@@ -550,6 +550,160 @@ describe("first imported recording transactional email", () => {
     });
   });
 
+  describe("hosted direct import verification failures", () => {
+    const sourceUrl = "https://media.example.com/source.mp4";
+    const uploadedUrl = "https://clips.example.com/recording-verify.mp4";
+
+    function setup(existing?: Record<string, unknown>) {
+      const updates: Array<Record<string, unknown>> = [];
+      const selectWhere = vi
+        .fn()
+        .mockResolvedValueOnce(existing ? [existing] : [])
+        .mockResolvedValue([]);
+      mocks.getDb.mockReturnValue({
+        select: vi.fn(() => ({ from: vi.fn(() => ({ where: selectWhere })) })),
+        insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+        update: vi.fn(() => ({
+          set: (value: Record<string, unknown>) => {
+            updates.push(value);
+            return {
+              where: vi.fn(() => ({
+                returning: vi.fn(async () => [{ id: "updated-recording" }]),
+              })),
+            };
+          },
+        })),
+      } as any);
+      mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+      mocks.requireOrganizationAccess.mockResolvedValue({
+        organizationId: "org-1",
+      });
+      mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+      mocks.nanoid.mockReturnValue("recording-verify");
+      mocks.parseSpaceIds.mockReturnValue([]);
+      mocks.stringifySpaceIds.mockReturnValue("[]");
+      mocks.isCandidateDirectVideoUrl.mockReturnValue(true);
+      mocks.resolveClipsVideoStorage.mockResolvedValue({
+        mode: "hosted",
+        provider: { id: "clips-hosted", upload: mocks.hostedUpload },
+        hostedRemaining: 2,
+        hostedLimit: 3,
+        maxClipBytes: 10,
+        maxClipDurationMs: 60_000,
+        reservationCreated: true,
+      });
+      mocks.downloadDirectVideo.mockResolvedValue({
+        bytes: new Uint8Array([1, 2, 3]),
+        mimeType: "video/mp4",
+        sizeBytes: 3,
+      });
+      mocks.hostedUpload.mockResolvedValue({
+        id: "asset-verify",
+        url: uploadedUrl,
+        provider: "clips-hosted",
+      });
+      mocks.ensureEnabledAt.mockRejectedValue(
+        new Error("email store unavailable"),
+      );
+      return updates;
+    }
+
+    it("marks a confirmed size mismatch media_verification_failed and keeps its handle", async () => {
+      const updates = setup();
+      mocks.verifyHostedClipMedia.mockResolvedValue(2);
+
+      await expect(importLoomRecording.run({ url: sourceUrl })).rejects.toThrow(
+        /does not match the downloaded file/,
+      );
+
+      expect(updates.at(-1)).toMatchObject({
+        status: "failed",
+        failureCode: "media_verification_failed",
+        videoUrl: uploadedUrl,
+      });
+      expect(mocks.consumeHostedClipRecording).not.toHaveBeenCalled();
+    });
+
+    it("keeps a transient verification read failure out of media_verification_failed", async () => {
+      const updates = setup();
+      mocks.verifyHostedClipMedia.mockRejectedValue(
+        new Error("read timed out"),
+      );
+      mocks.deleteS3ObjectByUrl.mockResolvedValue(true);
+
+      await expect(importLoomRecording.run({ url: sourceUrl })).rejects.toThrow(
+        "read timed out",
+      );
+
+      expect(updates.at(-1)).toMatchObject({
+        status: "failed",
+        failureCode: "video_link_import_failed",
+        videoUrl: null,
+      });
+    });
+
+    it("persists the object URL when deleting a failed upload is unconfirmed", async () => {
+      const updates = setup();
+      mocks.verifyHostedClipMedia.mockRejectedValue(
+        new Error("read timed out"),
+      );
+      mocks.deleteS3ObjectByUrl.mockResolvedValue(false);
+
+      await expect(importLoomRecording.run({ url: sourceUrl })).rejects.toThrow(
+        "read timed out",
+      );
+
+      expect(updates.at(-1)).toMatchObject({
+        status: "failed",
+        videoUrl: uploadedUrl,
+      });
+      expect(mocks.releaseHostedClipRecording).not.toHaveBeenCalled();
+    });
+
+    it("deletes a mismatched object on retry and downloads afresh", async () => {
+      const updates = setup({
+        id: "recording-verify",
+        organizationId: "org-1",
+        ownerEmail: "owner@example.com",
+        status: "failed",
+        failureCode: "media_verification_failed",
+        storageMode: "hosted",
+        videoUrl: uploadedUrl,
+        videoSizeBytes: 2,
+        videoFormat: "mp4",
+        failureReason: "Hosted Clips media size does not match.",
+        sourceAppName: "Video link",
+        sourceWindowTitle: sourceUrl,
+        thumbnailUrl: null,
+        editsJson: "{}",
+        title: "Imported video",
+        titleSource: "upload",
+        spaceIds: "[]",
+        visibility: "private",
+        folderId: null,
+        description: "",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      });
+      mocks.verifyHostedClipMedia.mockResolvedValue(3);
+      mocks.deleteS3ObjectByUrl.mockResolvedValue(true);
+
+      const result = await importLoomRecording.run({
+        url: sourceUrl,
+        recordingId: "recording-verify",
+      });
+
+      expect(result).toMatchObject({ status: "ready" });
+      expect(mocks.deleteS3ObjectByUrl).toHaveBeenCalledWith(uploadedUrl, {
+        storageMode: "hosted",
+        recordingId: "recording-verify",
+      });
+      expect(mocks.downloadDirectVideo).toHaveBeenCalledOnce();
+      expect(updates.find((u) => u.status === "processing")).toMatchObject({
+        videoUrl: null,
+      });
+    });
+  });
+
   it.each([
     {
       label: "direct-video",

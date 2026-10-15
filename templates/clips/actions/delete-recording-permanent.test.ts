@@ -26,6 +26,7 @@ const mockDeleteRecordingMediaObjects = vi.hoisted(() =>
     attempted: 2,
     deleted: 2,
     skipped: 0,
+    external: 0,
     errors: [],
   })),
 );
@@ -225,6 +226,7 @@ describe("delete-recording-permanent", () => {
         attempted: 2,
         deleted: 2,
         skipped: 0,
+        external: 0,
         errors: [],
       },
     });
@@ -247,12 +249,29 @@ describe("delete-recording-permanent", () => {
     expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
   });
 
+  it("permanently deletes a hosted Loom recording whose thumbnail is external", async () => {
+    mockExistingRecording.storageMode = "hosted";
+    mockDeleteRecordingMediaObjects.mockResolvedValueOnce({
+      attempted: 2,
+      deleted: 1,
+      skipped: 0,
+      external: 1,
+      errors: [],
+    });
+
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(mockDb.transaction).toHaveBeenCalled();
+    expect(mockAdjustHostedClipRecordingBytes).toHaveBeenCalled();
+  });
+
   it("keeps the row and hosted quota when hosted media cleanup is incomplete", async () => {
     mockExistingRecording.storageMode = "hosted";
     mockDeleteRecordingMediaObjects.mockResolvedValueOnce({
       attempted: 2,
       deleted: 1,
       skipped: 1,
+      external: 0,
       errors: [],
     });
 

@@ -1253,6 +1253,61 @@ describe("s3FileUploadProvider", () => {
     );
   });
 
+  it("reconciles a multipart completion whose response body is lost", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/media",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    let headStatus = 200;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.includes("uploadId=upload-example")) {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new Error("socket reset"));
+            },
+          }),
+        );
+      }
+      if (init?.method === "HEAD" && url.endsWith("/clips/recording.webm")) {
+        return new Response(null, {
+          status: headStatus,
+          headers: { "content-length": "3" },
+        });
+      }
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const session = {
+      sessionId: "upload-example",
+      meta: {
+        objectKey: "clips/recording.webm",
+        stagingKey: "clips/.multipart/recording.webm.pending",
+        mimeType: "video/webm",
+        maxBytes: 1024,
+        pendingBytes: 0,
+        parts: [{ partNumber: 1, etag: '"part-example"', sizeBytes: 3 }],
+      },
+    };
+    const resumable = s3FileUploadProvider.resumable!;
+
+    await expect(
+      resumable.completeSession(session, "recording.webm"),
+    ).resolves.toBe("https://cdn.example.com/media/clips/recording.webm");
+
+    headStatus = 404;
+    await expect(
+      resumable.completeSession(session, "recording.webm"),
+    ).rejects.toThrow(/CompleteMultipartUpload failed.*socket reset/);
+  });
+
   it("rejects resumable chunks beyond the session byte limit", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "clips-bucket",

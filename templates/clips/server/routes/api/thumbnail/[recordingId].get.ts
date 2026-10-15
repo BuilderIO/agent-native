@@ -36,7 +36,10 @@ import {
 } from "../../../lib/pending-redactions.js";
 import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
-import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
+import {
+  fetchS3ObjectByUrl,
+  isUrlInS3Storage,
+} from "../../../lib/s3-upload-provider.js";
 import {
   getRecordingAccessTokenResourceId,
   verifySharePassword,
@@ -448,10 +451,16 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       try {
-        const response =
-          recording.storageMode === "hosted"
-            ? await fetchHostedThumbnail(resolvedSourceUrl, recordingId)
-            : await fetchThumbnail(resolvedSourceUrl);
+        // Imported thumbnails (e.g. Loom's) live outside the bucket, so only
+        // URLs inside it take the recording-bound private fetch.
+        const isHostedObject =
+          recording.storageMode === "hosted" &&
+          (await isUrlInS3Storage(resolvedSourceUrl, {
+            storageMode: "hosted",
+          })) !== false;
+        const response = isHostedObject
+          ? await fetchHostedThumbnail(resolvedSourceUrl, recordingId)
+          : await fetchThumbnail(resolvedSourceUrl);
         if (response.status >= 500) {
           captureRouteError(
             new Error(

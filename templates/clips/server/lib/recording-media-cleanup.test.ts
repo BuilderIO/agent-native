@@ -4,6 +4,7 @@ const mockDeleteS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockResolveBuilderRequestAuthorization = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
 const mockObjectSize = vi.hoisted(() => vi.fn());
+const mockIsUrlInS3Storage = vi.hoisted(() => vi.fn());
 const mockSubtractBytes = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
 
@@ -13,6 +14,7 @@ vi.mock("@agent-native/core/tracking", () => ({
 
 vi.mock("./s3-upload-provider.js", () => ({
   deleteS3ObjectByUrl: (...args: unknown[]) => mockDeleteS3ObjectByUrl(...args),
+  isUrlInS3Storage: (...args: unknown[]) => mockIsUrlInS3Storage(...args),
   s3ObjectSizeBytesByUrl: (...args: unknown[]) => mockObjectSize(...args),
 }));
 
@@ -39,6 +41,7 @@ describe("recording-media-cleanup", () => {
     vi.stubGlobal("fetch", mockFetch);
     mockDeleteS3ObjectByUrl.mockResolvedValue(false);
     mockObjectSize.mockResolvedValue(null);
+    mockIsUrlInS3Storage.mockResolvedValue(true);
     mockSubtractBytes.mockResolvedValue({ adjusted: true, quotaBytes: 0 });
     mockResolveBuilderRequestAuthorization.mockResolvedValue({
       authorization: "Bearer private-key",
@@ -66,6 +69,7 @@ describe("recording-media-cleanup", () => {
       attempted: 1,
       deleted: 1,
       skipped: 0,
+      external: 0,
       errors: [],
     });
     expect(mockDeleteS3ObjectByUrl).toHaveBeenCalledWith(
@@ -123,6 +127,7 @@ describe("recording-media-cleanup", () => {
       attempted: 2,
       deleted: 0,
       skipped: 2,
+      external: 0,
       errors: [],
     });
     expect(mockDeleteS3ObjectByUrl).toHaveBeenCalledTimes(1);
@@ -145,6 +150,7 @@ describe("recording-media-cleanup", () => {
       attempted: 1,
       deleted: 0,
       skipped: 1,
+      external: 0,
       errors: [],
     });
     expect(mockFetch).not.toHaveBeenCalled();
@@ -284,6 +290,29 @@ describe("recording-media-cleanup", () => {
 
       expect(mockTrack).not.toHaveBeenCalled();
     });
+  });
+
+  it("counts an external hosted-recording URL as external, not as a failed delete", async () => {
+    mockIsUrlInS3Storage.mockImplementation(async (url: string) =>
+      url.startsWith("https://storage.example.com/"),
+    );
+    mockDeleteS3ObjectByUrl.mockResolvedValue(true);
+
+    const result = await deleteRecordingMediaObjects({
+      id: "rec_1",
+      storageMode: "hosted",
+      videoUrl: "https://storage.example.com/clips/rec_1/clip.mp4",
+      thumbnailUrl: "https://cdn.loom.com/sessions/thumbnails/abc.jpg",
+    });
+
+    expect(result).toMatchObject({
+      deleted: 1,
+      external: 1,
+      skipped: 0,
+      errors: [],
+    });
+    expect(mockDeleteS3ObjectByUrl).toHaveBeenCalledTimes(1);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("leaves another recording's hosted object untouched", async () => {

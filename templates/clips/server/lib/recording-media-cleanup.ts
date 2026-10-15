@@ -8,6 +8,7 @@ import { isImageRecording } from "../../shared/recording-kind.js";
 import { subtractHostedClipRetainedBytes } from "./hosted-clip-allowance.js";
 import {
   deleteS3ObjectByUrl,
+  isUrlInS3Storage,
   s3ObjectSizeBytesByUrl,
 } from "./s3-upload-provider.js";
 import { screenshotLeftoverUrls } from "./screenshot-edits.js";
@@ -31,6 +32,8 @@ export interface RecordingMediaCleanupResult {
   attempted: number;
   deleted: number;
   skipped: number;
+  /** Hosted recordings only: URLs outside the bucket, which are not ours to delete. */
+  external: number;
   errors: Array<{ url: string; error: string }>;
 }
 
@@ -252,6 +255,7 @@ export async function deleteRecordingMediaObjects(
     attempted: 0,
     deleted: 0,
     skipped: 0,
+    external: 0,
     errors: [],
   };
   const protectedUrls = new Set(options.protectedUrls ?? []);
@@ -264,6 +268,12 @@ export async function deleteRecordingMediaObjects(
     }
     try {
       if (recording.storageMode === "hosted") {
+        if (
+          (await isUrlInS3Storage(url, { storageMode: "hosted" })) === false
+        ) {
+          result.external += 1;
+          continue;
+        }
         const deleted = await deleteHostedMediaObject(url, recording.id);
         if (deleted) {
           result.deleted += 1;

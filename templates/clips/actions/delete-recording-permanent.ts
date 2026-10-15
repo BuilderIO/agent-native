@@ -244,7 +244,10 @@ export default defineAction({
       const unprotectedUrls = mediaUrls.filter(
         (url) => !cleanupProtectedUrls.has(url),
       );
-      if (hostedMediaCleanup.deleted < unprotectedUrls.length) {
+      if (
+        hostedMediaCleanup.deleted + hostedMediaCleanup.external <
+        unprotectedUrls.length
+      ) {
         fail(
           "Hosted media for this recording could not be deleted from storage, so the recording was kept. Try again later.",
           { errorCode: "hosted_media_cleanup_incomplete", statusCode: 502 },

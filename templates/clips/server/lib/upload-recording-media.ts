@@ -3,6 +3,7 @@ import {
   type FileUploadInput,
   type FileUploadResult,
 } from "@agent-native/core/file-upload";
+import { getAppConfig } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
@@ -20,6 +21,18 @@ type UploadRecordingMediaInput = Omit<FileUploadInput, "ownerEmail"> & {
   recordingId: string;
   ownerEmail: string;
 };
+
+export class HostedDerivativeTooLargeError extends Error {
+  constructor(
+    readonly sizeBytes: number,
+    readonly maxBytes: number,
+  ) {
+    super(
+      `Hosted recording derivative is ${sizeBytes} bytes, over the ${maxBytes} byte per-clip limit.`,
+    );
+    this.name = "HostedDerivativeTooLargeError";
+  }
+}
 
 function recordingScopedFilename(
   recordingId: string,
@@ -99,6 +112,12 @@ export async function uploadRecordingMedia(
     const uploadedBytes = upload.data.byteLength;
     if (!Number.isSafeInteger(uploadedBytes) || uploadedBytes < 0) {
       throw new Error("Hosted recording derivative has an invalid byte size.");
+    }
+    // Checked before upload: the allowance only enforces the optional global
+    // cap, so without this a single derivative could exceed the clip budget.
+    const maxBytes = getAppConfig().clips.hostedStorage.maxClipBytes;
+    if (uploadedBytes > maxBytes) {
+      throw new HostedDerivativeTooLargeError(uploadedBytes, maxBytes);
     }
 
     const uploaded = await clipsHostedFileUploadProvider.upload({

@@ -1015,6 +1015,20 @@ export async function deleteS3ObjectByUrl(
   return true;
 }
 
+/**
+ * Whether a URL points inside the configured bucket at all. `false` means an
+ * external URL (e.g. an imported Loom thumbnail) that no bucket call can serve
+ * or delete; `null` means storage is not configured, so ownership is unknown.
+ */
+export async function isUrlInS3Storage(
+  url: string,
+  options: { storageMode?: ClipsS3StorageMode } = {},
+): Promise<boolean | null> {
+  const cfg = await readS3ConfigForMode(options.storageMode ?? "own");
+  if (!cfg) return null;
+  return objectKeyFromUrl(cfg, url) !== null;
+}
+
 export async function isS3ObjectUrlBoundToRecording(
   url: string,
   recordingId: string,
@@ -1239,7 +1253,9 @@ function createS3FileUploadProvider(
             .join("") +
           "</CompleteMultipartUpload>";
         // CompleteMultipartUpload is not idempotent; retries verify the deterministic object instead.
+        // A lost response body is as ambiguous as a failed request: S3 may have completed.
         let res: Response;
+        let body: string;
         try {
           res = await signedS3Request(cfg, meta.objectKey, {
             method: "POST",
@@ -1248,6 +1264,7 @@ function createS3FileUploadProvider(
             contentType: "application/xml",
             timeoutMs: S3_PUT_TIMEOUT_MS,
           });
+          body = await res.text();
         } catch (error) {
           try {
             if (await verifyCompletedMultipartObject(cfg, meta)) {
@@ -1271,7 +1288,6 @@ function createS3FileUploadProvider(
             `S3 CompleteMultipartUpload failed: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
-        const body = await res.text();
         if (!res.ok || /<Error(?:\s|>)/.test(body)) {
           if (
             xmlElement(body, "Code") === "NoSuchUpload" &&

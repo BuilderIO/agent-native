@@ -470,31 +470,32 @@ export default defineAction({
       );
     }
 
-    if (isLoom) {
-      const failedHostedUrl =
-        existingRecording?.status === "failed" &&
-        existingRecording.storageMode === "hosted"
-          ? existingRecording.videoUrl
-          : null;
-      // An object that failed verification against its download is never
-      // promoted: delete it, then let the job download and verify afresh.
-      const staleUnverifiedUrl =
-        existingRecording?.failureCode === "media_verification_failed"
-          ? failedHostedUrl
-          : null;
-      const reusableHostedLoomUrl = staleUnverifiedUrl ? null : failedHostedUrl;
-      if (staleUnverifiedUrl) {
-        const deleted = await deleteS3ObjectByUrl(staleUnverifiedUrl, {
-          storageMode: "hosted",
-          recordingId: id,
-        });
-        if (!deleted) {
-          fail(
-            "The earlier unverified upload for this Loom import could not be deleted. Try again shortly.",
-            { errorCode: "stale_hosted_media_cleanup_failed", statusCode: 502 },
-          );
-        }
+    const failedHostedUrl =
+      existingRecording?.status === "failed" &&
+      existingRecording.storageMode === "hosted"
+        ? existingRecording.videoUrl
+        : null;
+    // An object that failed verification against its download is never
+    // promoted: delete it, then let the retry download and verify afresh.
+    const staleUnverifiedUrl =
+      existingRecording?.failureCode === "media_verification_failed"
+        ? failedHostedUrl
+        : null;
+    const reusableHostedUrl = staleUnverifiedUrl ? null : failedHostedUrl;
+    if (staleUnverifiedUrl) {
+      const deleted = await deleteS3ObjectByUrl(staleUnverifiedUrl, {
+        storageMode: "hosted",
+        recordingId: id,
+      });
+      if (!deleted) {
+        fail(
+          "The earlier unverified upload for this import could not be deleted. Try again shortly.",
+          { errorCode: "stale_hosted_media_cleanup_failed", statusCode: 502 },
+        );
       }
+    }
+
+    if (isLoom) {
       const recordingValues = {
         ...buildRecordingValues(existingRecording?.videoSizeBytes ?? 0),
         uploadLeaseExpiresAt: uploadLeaseExpiry(),
@@ -504,7 +505,7 @@ export default defineAction({
           await updateExistingRecording({
             ...recordingValues,
             status: "processing",
-            videoUrl: reusableHostedLoomUrl,
+            videoUrl: reusableHostedUrl,
             failureReason: null,
             loomImportClaimId: null,
             loomImportClaimedAt: null,
@@ -579,11 +580,6 @@ export default defineAction({
       };
     }
 
-    const reusableHostedUrl =
-      existingRecording?.status === "failed" &&
-      existingRecording.storageMode === "hosted"
-        ? existingRecording.videoUrl
-        : null;
     const initialValues = {
       ...buildRecordingValues(existingRecording?.videoSizeBytes ?? 0),
       uploadProgress: 0,
@@ -623,6 +619,7 @@ export default defineAction({
     let videoFormat: "mp4" | "webm" =
       existingRecording?.videoFormat === "webm" ? "webm" : "mp4";
     let hostedVerifiedBytes: number | null = null;
+    let uploadSizeMismatch = false;
     try {
       if (reusableHostedUrl) {
         hostedVerifiedBytes = await verifyHostedClipMedia({
@@ -680,6 +677,7 @@ export default defineAction({
             videoUrl,
           });
           if (hostedVerifiedBytes !== media.sizeBytes) {
+            uploadSizeMismatch = true;
             // guard:allow-bare-error — invariant: provider verification must match the exact downloaded object before it can be retained.
             throw new Error(
               "Hosted Clips media size does not match the downloaded file.",
@@ -768,6 +766,9 @@ export default defineAction({
         } catch {
           cleaned = false;
         }
+        // An unconfirmed delete must not drop the only handle: the reaper and
+        // permanent delete find the object through the row's videoUrl.
+        if (!cleaned) failureVideoUrl = upload.url;
         if (cleaned && storage.reservationCreated === true) {
           try {
             await releaseHostedReservation();
@@ -788,7 +789,9 @@ export default defineAction({
         .update(schema.recordings)
         .set({
           status: "failed",
-          failureCode: "video_link_import_failed",
+          failureCode: uploadSizeMismatch
+            ? "media_verification_failed"
+            : "video_link_import_failed",
           failureReason: error instanceof Error ? error.message : String(error),
           storageMode: failureStorageMode,
           videoUrl: failureVideoUrl,

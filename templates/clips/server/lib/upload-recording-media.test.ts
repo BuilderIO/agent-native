@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   ownerEmailMatches: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  getAppConfig: () => ({ clips: { hostedStorage: { maxClipBytes: 1024 } } }),
+}));
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: (...args: unknown[]) => mocks.uploadFile(...args),
 }));
@@ -54,7 +57,10 @@ vi.mock("./video-storage.js", () => ({
     mocks.addAllowance(...args),
 }));
 
-import { uploadRecordingMedia } from "./upload-recording-media.js";
+import {
+  HostedDerivativeTooLargeError,
+  uploadRecordingMedia,
+} from "./upload-recording-media.js";
 
 describe("uploadRecordingMedia", () => {
   beforeEach(() => {
@@ -130,6 +136,24 @@ describe("uploadRecordingMedia", () => {
       mocks.addAllowance.mock.invocationCallOrder[0],
     );
     expect(mocks.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects a hosted derivative above the per-clip limit before uploading", async () => {
+    mocks.rows = [{ storageMode: "hosted" }];
+
+    await expect(
+      uploadRecordingMedia({
+        recordingId: "recording-1",
+        ownerEmail: "owner@example.com",
+        data: new Uint8Array(1025),
+        filename: "thumb-recording-1.jpeg",
+        mimeType: "image/jpeg",
+        recordAsset: false,
+      }),
+    ).rejects.toBeInstanceOf(HostedDerivativeTooLargeError);
+
+    expect(mocks.hostedUpload).not.toHaveBeenCalled();
+    expect(mocks.addAllowance).not.toHaveBeenCalled();
   });
 
   it("deletes an over-cap derivative through the pinned hosted provider", async () => {
