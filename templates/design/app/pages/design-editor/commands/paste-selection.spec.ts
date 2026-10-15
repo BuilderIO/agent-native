@@ -1092,6 +1092,8 @@ describe("pasting copied layers while the original is off-screen", () => {
 });
 
 describe("clipboard source placement", () => {
+  beforeEach(() => toastError.mockClear());
+
   const card = `<section data-agent-native-node-id="card" style="position:absolute;left:40px;top:60px;width:260px"><button data-agent-native-node-id="child">Child</button></section>`;
   const source = `<!doctype html><html><body><main data-agent-native-node-id="source-root">${card}<p data-agent-native-node-id="peer">Peer</p></main></body></html>`;
   const selected = (id: string): ElementInfo => ({
@@ -1197,6 +1199,78 @@ describe("clipboard source placement", () => {
       expect(toastError).not.toHaveBeenCalled();
     },
   );
+
+  it("uses captured relative geometry when copied markup omits stylesheet positioning", async () => {
+    const relative =
+      '<div class="relative-offset" data-agent-native-node-id="relative" data-agent-native-layer-name="Relative" style="left:40.25px;right:7.75px;top:12.5px;bottom:9.25px">Relative</div>';
+    const absolute =
+      '<section data-agent-native-node-id="absolute" data-agent-native-layer-name="Absolute" style="position:absolute;left:340px;top:80px">Absolute</section>';
+    const { args, writes } = harness({
+      files: [
+        designFile(
+          "home",
+          "index.html",
+          `<!doctype html><html><head><style>.relative-offset{position:relative}</style></head><body>${relative}${absolute}</body></html>`,
+        ),
+      ],
+      activeFileId: "home",
+      pasteCascade: 1,
+      entries: [
+        {
+          html: relative,
+          rootNodeId: "relative",
+          sourceFileId: "home",
+          sourceRelativeOffset: { x: -7.75, y: 12.5 },
+        },
+        { html: absolute, rootNodeId: "absolute", sourceFileId: "home" },
+      ],
+      selectedElement: {
+        ...selected("relative"),
+        computedStyles: {
+          position: "relative",
+          left: "40.25px",
+          right: "7.75px",
+          top: "12.5px",
+          bottom: "9.25px",
+        },
+        relativeContainingBlockDirection: "rtl",
+      },
+    });
+    args.selectedCanvasSelector = args.selectedElement!.selector!;
+
+    await runPasteSelection(args);
+
+    const copies = pastedCopies(writes[0]!.content);
+    const relativeCopy = copies.find(
+      (root) =>
+        root.getAttribute("data-agent-native-layer-name") === "Relative",
+    )!;
+    const absoluteCopy = copies.find(
+      (root) =>
+        root.getAttribute("data-agent-native-layer-name") === "Absolute",
+    )!;
+    expect([
+      relativeCopy.className,
+      relativeCopy.style.position,
+      relativeCopy.style.left,
+      relativeCopy.style.right,
+      relativeCopy.style.top,
+      relativeCopy.style.bottom,
+    ]).toEqual([
+      "relative-offset",
+      "",
+      "40.25px",
+      "7.75px",
+      "12.5px",
+      "9.25px",
+    ]);
+    expect([
+      absoluteCopy.style.position,
+      absoluteCopy.style.left,
+      absoluteCopy.style.top,
+    ]).toEqual(["absolute", "356px", "96px"]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
 
   it("cascades only positioned roots when repasting the original mixed source", async () => {
     const relative =
@@ -2004,6 +2078,83 @@ describe("clipboard source placement", () => {
     },
   );
 
+  it("uses the source baseline and the selected clone's RTL parent when repeating a relative layer", async () => {
+    const relative =
+      '<div data-agent-native-node-id="relative" style="position:relative;left:40.25px;right:7.75px;top:12.5px;bottom:9.25px">Relative</div>';
+    const absolute =
+      '<section data-agent-native-node-id="absolute" style="position:absolute;left:340px;top:80px">Absolute</section>';
+    const selectedCloneId = "relative-copy";
+    const selector = `[data-agent-native-node-id="${selectedCloneId}"]`;
+    const pastedClipboardLayerSourcesRef = ref(
+      new Map([
+        [
+          JSON.stringify(["live", selectedCloneId]),
+          { sourceFileId: "home", rootNodeId: "relative" },
+        ],
+      ]),
+    );
+    const { args, runtimeInsertRequests } = harness({
+      files: [designFile("live", "live.html", "https://example.com/live")],
+      activeFileId: "live",
+      entries: [
+        {
+          html: relative,
+          rootNodeId: "relative",
+          sourceFileId: "home",
+          sourceRelativeOffset: { x: -7.75, y: 12.5 },
+        },
+        { html: absolute, rootNodeId: "absolute", sourceFileId: "home" },
+      ],
+      pastedClipboardLayerSourcesRef,
+      selectedElement: {
+        ...selected(selectedCloneId),
+        runtimeSourceId: selectedCloneId,
+        runtimeSelector: selector,
+        inlineStyles: {
+          position: "relative",
+          left: "40.25px",
+          right: "-8.25px",
+          top: "28.5px",
+          bottom: "9.25px",
+        },
+        computedStyles: {
+          position: "relative",
+          left: "40.25px",
+          right: "-8.25px",
+          top: "28.5px",
+          bottom: "9.25px",
+        },
+        relativeContainingBlockDirection: "rtl",
+      },
+    });
+    args.viewModeRef.current = "single";
+    args.selectedCanvasSelector = selector;
+
+    await runPasteSelection(args);
+
+    const copies = [
+      runtimeInsertRequests[0]!.html,
+      ...(runtimeInsertRequests[0]!.additionalHtml ?? []),
+    ].map(
+      (html) =>
+        new DOMParser().parseFromString(html, "text/html").body
+          .firstElementChild as HTMLElement,
+    );
+    expect([
+      copies[0]!.style.position,
+      copies[0]!.style.left,
+      copies[0]!.style.top,
+      copies[0]!.style.right,
+      copies[0]!.style.bottom,
+    ]).toEqual(["relative", "24.25px", "44.5px", "auto", "auto"]);
+    expect([
+      copies[1]!.style.position,
+      copies[1]!.style.left,
+      copies[1]!.style.top,
+    ]).toEqual(["absolute", "372px", "112px"]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
   it.each(["absolute", "relative"] as const)(
     "preserves an unmoved relative root when repeating beside an unmoved selected %s clone",
     async (selectedRootPosition) => {
@@ -2788,6 +2939,102 @@ describe("clipboard source placement", () => {
       ["340px", "80px"],
     ]);
   });
+
+  it.each(["saved HTML", "live URL"] as const)(
+    "preserves relative and absolute modes on no-anchor cross-screen %s pastes",
+    async (targetKind) => {
+      const relative =
+        '<div data-agent-native-node-id="relative" data-agent-native-layer-name="Relative" data-note="kept" style="position:relative;left:40px;top:12px;margin:3px 4px">Relative</div>';
+      const absolute =
+        '<section data-agent-native-node-id="absolute" data-agent-native-layer-name="Absolute" style="position:absolute;left:340px;top:80px">Absolute</section>';
+      const targetFileId = "target";
+      const targetContent =
+        targetKind === "saved HTML"
+          ? '<!doctype html><html><body data-agent-native-node-id="target-body"></body></html>'
+          : "https://example.com/live";
+      const { args, writes, runtimeInsertRequests } = harness({
+        files: [
+          designFile(
+            "home",
+            "index.html",
+            `<!doctype html><html><body>${relative}${absolute}</body></html>`,
+          ),
+          designFile(targetFileId, "target.html", targetContent),
+        ],
+        activeFileId: targetFileId,
+        entries: [
+          { html: relative, rootNodeId: "relative", sourceFileId: "home" },
+          { html: absolute, rootNodeId: "absolute", sourceFileId: "home" },
+        ],
+      });
+      if (targetKind === "live URL") args.viewModeRef.current = "single";
+
+      const rootsFromPaste = (pasteIndex: number) => {
+        if (targetKind === "saved HTML") {
+          const content = writes[pasteIndex]!.content;
+          const copies = pastedCopies(content);
+          if (pasteIndex === 0) return copies;
+          const previousIds = new Set(
+            pastedCopies(writes[pasteIndex - 1]!.content).map((root) =>
+              root.getAttribute("data-agent-native-node-id"),
+            ),
+          );
+          return copies.filter(
+            (root) =>
+              !previousIds.has(root.getAttribute("data-agent-native-node-id")),
+          );
+        }
+        const request = runtimeInsertRequests[pasteIndex]!;
+        return [request.html, ...(request.additionalHtml ?? [])].map(
+          (html) =>
+            new DOMParser().parseFromString(html, "text/html").body
+              .firstElementChild as HTMLElement,
+        );
+      };
+      const expectRoots = (
+        roots: HTMLElement[],
+        absoluteLeft: string,
+        absoluteTop: string,
+      ) => {
+        expect(roots).toHaveLength(2);
+        const relativeCopy = roots.find(
+          (root) =>
+            root.getAttribute("data-agent-native-layer-name") === "Relative",
+        )!;
+        const absoluteCopy = roots.find(
+          (root) =>
+            root.getAttribute("data-agent-native-layer-name") === "Absolute",
+        )!;
+        expect([
+          relativeCopy.style.position,
+          relativeCopy.style.left,
+          relativeCopy.style.top,
+          relativeCopy.style.margin,
+          relativeCopy.getAttribute("data-note"),
+          relativeCopy.textContent,
+        ]).toEqual(["relative", "40px", "12px", "3px 4px", "kept", "Relative"]);
+        expect([
+          absoluteCopy.style.position,
+          absoluteCopy.style.left,
+          absoluteCopy.style.top,
+          absoluteCopy.textContent,
+        ]).toEqual(["absolute", absoluteLeft, absoluteTop, "Absolute"]);
+        expect([
+          relativeCopy.getAttribute("data-agent-native-node-id"),
+          absoluteCopy.getAttribute("data-agent-native-node-id"),
+        ]).not.toEqual(["relative", "absolute"]);
+      };
+
+      await runPasteSelection(args);
+
+      expectRoots(rootsFromPaste(0), "340px", "80px");
+
+      await runPasteSelection(args);
+
+      expectRoots(rootsFromPaste(1), "356px", "96px");
+      expect(toastError).not.toHaveBeenCalled();
+    },
+  );
 
   it("applies the current cascade uniformly to source-positioned live roots", async () => {
     const peer = `<button data-agent-native-node-id="runtime-peer" style="position:absolute;left:340px;top:80px">Peer</button>`;
