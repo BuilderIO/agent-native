@@ -19,6 +19,7 @@ import {
 } from "../chat-threads/schema-migrations.js";
 import { getDatabaseUrl } from "../db/client.js";
 import { runMigrations } from "../db/migrations.js";
+import { withStoreMigrationLock } from "../db/store-registry.js";
 import {
   REMOTE_DEVICE_MIGRATIONS,
   REMOTE_DEVICE_MIGRATIONS_TABLE,
@@ -93,53 +94,57 @@ export async function runFrameworkReleaseMigrations(
   nitroApp: unknown,
 ): Promise<void> {
   assertReleaseMigrationTargetsRemoteDatabase();
-  // First: the versioned migration lists below only cover the tables that have
-  // one. Most framework tables are defined by their store's `ensureTable()`,
-  // which production serverless can never run — see `./release-schema.ts`.
-  await runFrameworkSchemaEnsures();
-  await recordDatabaseIdentity();
-  await runBetterAuthMigrations(nitroApp);
-  await runMigrations(AGENT_TOOL_APPROVAL_MIGRATIONS, {
-    table: AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(OAUTH_TOKEN_MIGRATIONS, {
-    table: OAUTH_TOKEN_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(CHAT_THREAD_SCHEMA_MIGRATIONS, {
-    table: CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(OBSERVABILITY_MIGRATIONS, {
-    table: OBSERVABILITY_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(AGENT_RUN_MIGRATIONS, {
-    table: AGENT_RUN_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(AGENT_HARNESS_SESSION_MIGRATIONS, {
-    table: AGENT_HARNESS_SESSION_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(USAGE_ALERT_MIGRATIONS, {
-    table: USAGE_ALERT_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" })(nitroApp);
-  await runMigrations(REMOTE_DEVICE_MIGRATIONS, {
-    table: REMOTE_DEVICE_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(IDENTITY_SSO_MIGRATIONS, {
-    table: "_identity_sso_migrations",
-  })(nitroApp);
-  await runMigrations(CONTEXT_XRAY_MIGRATIONS, {
-    table: "_context_xray_migrations",
-  })(nitroApp);
-  await runMigrations(OBSERVATIONAL_MEMORY_MIGRATIONS, {
-    table: "_observational_memory_migrations",
-  })(nitroApp);
-  await runMigrations(WORKSPACE_CONNECTIONS_MIGRATIONS, {
-    table: WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runAutomationRunMigrations(nitroApp);
-  await runAutomationTriggerEventMigrations(nitroApp);
-  await runAutomationSchedulerHealthMigrations(nitroApp);
-  // Last, so the framework's own share and owner tables exist. An app's tables
-  // are indexed by the release after the one that creates them.
-  await ensureSharingAccessIndexes();
+  // One lease for the whole release: the store pass, Better Auth and every
+  // versioned list, so two deploys against one database never interleave.
+  await withStoreMigrationLock(async () => {
+    // First: the versioned migration lists below only cover the tables that have
+    // one. Most framework tables are defined by their store's `ensureTable()`,
+    // which production serverless can never run — see `./release-schema.ts`.
+    await runFrameworkSchemaEnsures();
+    await recordDatabaseIdentity();
+    await runBetterAuthMigrations(nitroApp);
+    await runMigrations(AGENT_TOOL_APPROVAL_MIGRATIONS, {
+      table: AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(OAUTH_TOKEN_MIGRATIONS, {
+      table: OAUTH_TOKEN_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(CHAT_THREAD_SCHEMA_MIGRATIONS, {
+      table: CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(OBSERVABILITY_MIGRATIONS, {
+      table: OBSERVABILITY_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(AGENT_RUN_MIGRATIONS, {
+      table: AGENT_RUN_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(AGENT_HARNESS_SESSION_MIGRATIONS, {
+      table: AGENT_HARNESS_SESSION_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(USAGE_ALERT_MIGRATIONS, {
+      table: USAGE_ALERT_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" })(nitroApp);
+    await runMigrations(REMOTE_DEVICE_MIGRATIONS, {
+      table: REMOTE_DEVICE_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(IDENTITY_SSO_MIGRATIONS, {
+      table: "_identity_sso_migrations",
+    })(nitroApp);
+    await runMigrations(CONTEXT_XRAY_MIGRATIONS, {
+      table: "_context_xray_migrations",
+    })(nitroApp);
+    await runMigrations(OBSERVATIONAL_MEMORY_MIGRATIONS, {
+      table: "_observational_memory_migrations",
+    })(nitroApp);
+    await runMigrations(WORKSPACE_CONNECTIONS_MIGRATIONS, {
+      table: WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runAutomationRunMigrations(nitroApp);
+    await runAutomationTriggerEventMigrations(nitroApp);
+    await runAutomationSchedulerHealthMigrations(nitroApp);
+    // Last, so the framework's own share and owner tables exist. An app's tables
+    // are indexed by the release after the one that creates them.
+    await ensureSharingAccessIndexes();
+  });
 }

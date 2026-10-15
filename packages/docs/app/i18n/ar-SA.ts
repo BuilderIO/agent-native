@@ -2497,6 +2497,7 @@ const arSA = {
     advancedRuntime: "متقدم: توسيع runtime",
     templatesSection: "التطبيقات",
     gettingStarted: "البدء",
+    createWithAgent: "الإنشاء باستخدام وكيل",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "ما هو Agent-Native؟",

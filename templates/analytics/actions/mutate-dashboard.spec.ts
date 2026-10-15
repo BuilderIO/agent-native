@@ -393,6 +393,20 @@ describe("mutate-dashboard", () => {
     expect(result.dashboardFieldsChanged).toEqual(["columns"]);
   });
 
+  it("tells a replayed remove that the panel may already be gone", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: dashboardConfig(),
+    });
+
+    await expect(
+      mutateDashboard.run({
+        dashboardId: "traffic",
+        operations: [{ op: "removePanels", panelIds: ["already-removed"] }],
+      }),
+    ).rejects.toThrow(/already in the requested state/);
+  });
+
   it("reports panel reorders made through a dashboard panels replacement", async () => {
     const existingConfig = dashboardConfig();
     mocks.getDashboard.mockResolvedValue({

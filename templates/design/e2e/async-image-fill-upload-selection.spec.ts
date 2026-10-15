@@ -568,8 +568,7 @@ async function openImageFill(page: Page, layerName: string) {
   return page.locator('input[type="file"][accept="image/*"]');
 }
 
-// fixme: product bug: During the Add fill step the host page requests GET /design/&quot;/api/qa-import-assets/<id>.png&quot; and gets a 404 (console error).
-test.fixme("PNG image fill upload stays renderable after Add fill and reload", async ({
+test("PNG image fill upload stays renderable after Add fill and reload", async ({
   app,
 }) => {
   await uploadBeforePickerCloses(app, PNG_FIXTURE, { width: 8, height: 8 });
@@ -581,8 +580,7 @@ test("PNG upload still saves on its original layer after the picker closes", asy
   await uploadAfterPickerCloses(app, PNG_FIXTURE, { width: 8, height: 8 });
 });
 
-// fixme: product bug: During the Add fill step the host page requests GET /design/&quot;/api/qa-import-assets/<id>.svg&quot; and gets a 404 (console error).
-test.fixme("Sonora SVG fill upload stays renderable after Add fill and reload", async ({
+test("Sonora SVG fill upload stays renderable after Add fill and reload", async ({
   app,
 }) => {
   await uploadBeforePickerCloses(app, SVG_FIXTURE, { width: 48, height: 48 });

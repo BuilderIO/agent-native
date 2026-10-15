@@ -19,7 +19,7 @@ for example `skill-slide-editing--references-animations`.
 
 | Situation | Read |
 | --- | --- |
-| Changing only colors, borders, shadows, or backgrounds, or matching every slide to one slide's look | `references/style-only-edits.md` |
+| Changing only colors, borders, shadows, or backgrounds, or matching every slide to one slide's look | `references/restyling.md` |
 | Adding, changing, or removing click-to-reveal animations | `references/animations.md` |
 | Adding, moving, duplicating, or restyling hand-placed text boxes and other freeform objects | `references/freeform-objects.md` |
 | Adding or editing a video | `references/video.md` |

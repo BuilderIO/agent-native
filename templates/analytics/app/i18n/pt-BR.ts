@@ -51,6 +51,112 @@ export default {
     moveDashboard: "Mover painel",
     folderCreateFailed: "Não foi possível criar a pasta",
     moveFailed: "Não foi possível mover o painel",
+    importFromSigma: "Importar do Sigma",
+    sigmaConnection: "Conexão do Sigma",
+    sigmaConnectedTo: "Conectado a {{name}}",
+    sigmaChooseConnection: "Conexão do Sigma",
+    sigmaChooseConnectionPlaceholder: "Escolha uma conexão",
+    sigmaChooseConnectionDescription:
+      "Escolha o espaço de trabalho do Sigma para ver as pastas de trabalho.",
+    sigmaNoConnection: "O Sigma não está conectado",
+    sigmaClientId: "ID do cliente",
+    sigmaClientSecret: "Segredo do cliente",
+    sigmaBaseUrl: "URL base da API (opcional)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Conectar Sigma",
+    sigmaConnecting: "Conectando ao Sigma…",
+    sigmaConnectFailed:
+      "Não foi possível verificar esta conexão do Sigma. Confira as credenciais e a região da API e tente novamente.",
+    sigmaCredentialStageFailed:
+      "Não foi possível armazenar as credenciais temporárias do Sigma. Verifique o acesso ao Vault e tente novamente.",
+    sigmaCredentialsRequired:
+      "Salve primeiro o ID e o segredo do cliente Sigma.",
+    sigmaBaseUrlInvalid:
+      "Use uma URL HTTPS da API do Sigma em um domínio sigmacomputing.com.",
+    sigmaPersistenceUnavailable:
+      "O Analytics não pode salvar a conexão do Sigma com segurança agora. Tente novamente.",
+    sigmaPolicyInvalid:
+      "A conexão existente do Sigma no Analytics tem uma política de acesso inesperada. Reconecte-a no Dispatch antes de tentar novamente.",
+    sigmaSaveFailed:
+      "As credenciais do Sigma foram verificadas, mas o Analytics não conseguiu salvá-las. A conexão anterior não foi alterada. Tente novamente.",
+    sigmaCleanupPending:
+      "As credenciais temporárias de configuração do Sigma permanecerão até que a limpeza seja concluída com sucesso.",
+    sigmaCleanupFailed:
+      "Não foi possível limpar as credenciais temporárias do Sigma. Tente a limpeza novamente.",
+    sigmaRetryCleanup: "Tentar limpeza novamente",
+    sigmaDirectCredentialsUnavailable:
+      "Não foi possível ler as credenciais do Sigma salvas no Analytics. Um administrador da organização pode reconectar no Dispatch ou inserir as credenciais novamente no Analytics.",
+    sigmaNoConnectionDescription:
+      "Insira as credenciais aqui para criar uma conexão exclusiva do Analytics. As conexões do Sigma concedidas ao Analytics no Dispatch aparecem aqui automaticamente; somente administradores da organização podem salvar credenciais diretamente.",
+    sigmaOpenDispatch: "Conectar no Dispatch",
+    sigmaOpenVault: "Abrir Vault",
+    sigmaWorkbooksLoadFailed:
+      "Não foi possível carregar as pastas de trabalho do Sigma",
+    sigmaRetryConnection: "Verifique a conexão e tente novamente.",
+    sigmaRetry: "Tentar novamente",
+    sigmaNoWorkbooks: "Nenhuma pasta de trabalho do Sigma está disponível.",
+    sigmaWorkbook: "Pasta de trabalho",
+    sigmaChooseWorkbook: "Escolha uma pasta de trabalho",
+    sigmaStatusNotImported: "Não importado",
+    sigmaStatusImporting: "Importando",
+    sigmaStatusImported: "Importado",
+    sigmaStatusFailed: "Falha na importação",
+    sigmaArchived: "Arquivado",
+    sigmaPreviewTitle: "Conteúdo da pasta de trabalho",
+    sigmaPreviewFailed: "Não foi possível visualizar esta pasta de trabalho",
+    sigmaRetryPreview: "Tente carregar a prévia da pasta novamente.",
+    sigmaImportableCount: "{{count}} importáveis",
+    sigmaUnsupportedCount: "{{count}} sem suporte",
+    sigmaImportable: "Importável",
+    sigmaUnsupported: "Sem suporte",
+    sigmaNoElements: "Nenhum elemento foi encontrado nesta pasta de trabalho.",
+    sigmaPreviewOnly:
+      "Por enquanto, somente visualização: o Sigma não fornece um mapeamento de projeto do BigQuery que o Analytics possa verificar. A importação ficará desativada até que esse mapeamento esteja disponível.",
+    sigmaPreviewTruncated: "Exibindo {{shown}} de {{total}} elementos.",
+    sigmaImportWorkbook: "Importar pasta de trabalho",
+    sigmaImporting: "Importando pasta de trabalho…",
+    sigmaImportInProgress:
+      "A importação desta pasta de trabalho já está em andamento.",
+    sigmaMigrationFailed:
+      "Não foi possível importar esta pasta de trabalho. Tente novamente.",
+    sigmaMigrationResultInvalid:
+      "A resposta da importação estava incompleta. Atualize a lista de pastas de trabalho para verificar o status.",
+    sigmaImportComplete: "Painel criado",
+    sigmaImportSummary:
+      "{{imported}} elementos importados; os {{unsupported}} elementos sem suporte foram mantidos como avisos para revisão.",
+    sigmaAlreadyImported: "Esta pasta de trabalho já foi importada.",
+    sigmaImportedNoDashboard:
+      "O painel foi importado, mas não pode ser aberto por esta conta.",
+    sigmaReviewRequiredCount: "{{count}} precisam de revisão",
+    sigmaBetaRepresentationWarning:
+      "Esta importação beta pode representar algumas visualizações de forma diferente do Sigma.",
+    sigmaReasonUnsupportedElement:
+      "Este tipo de elemento não é compatível com a importação.",
+    sigmaReasonUnsupportedSource:
+      "Este elemento usa uma fonte que não é compatível com a importação.",
+    sigmaReasonSourceMappingRequired:
+      "O Sigma não fornece um mapeamento de projeto BigQuery que o Analytics possa verificar, então este SQL ainda não pode ser importado.",
+    sigmaReasonSourceUnavailable:
+      "O Sigma não permitiu acesso a esta conexão de origem. Verifique as permissões.",
+    sigmaReasonQueryUnavailable:
+      "O Sigma não retornou uma consulta importável para este elemento.",
+    sigmaReasonUnsafeSql:
+      "Este padrão de consulta não pode ser importado com segurança.",
+    sigmaReasonVisualizationReview:
+      "Os dados podem ser importados, mas confira a visualização depois.",
+    sigmaRetryOwnerOnly:
+      "Somente quem iniciou esta importação pode tentar novamente.",
+    sigmaImportedByTeammate: "Importado por um colega da equipe",
+    sigmaFlaggedCount: "{{count}} marcados para revisão",
+    sigmaMoreWorkbooksFailed:
+      "Não foi possível carregar mais pastas de trabalho",
+    sigmaLoadingMore: "Carregando pastas de trabalho…",
+    sigmaLoadMore: "Carregar mais pastas de trabalho",
+    sigmaOpenDashboard: "Abrir painel",
+    sigmaReviewWithAgent: "Revisar com o agente",
+    sigmaReviewContext: "Painel importado do Sigma",
+    sigmaReviewPrompt:
+      "Revise o painel importado do Sigma {{name}}. Confira os painéis importados e os elementos sem suporte e sugira correções.",
   },
   sidebar: {
     collapseSidebar: "Recolher barra lateral",
@@ -1192,6 +1298,7 @@ export default {
     saveViewFailedWithMessage:
       "Não foi possível salvar a visualização: {{message}}",
     clearAll: "Limpar tudo",
+    resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
     filterSeries: "Filter",
@@ -1225,6 +1332,11 @@ export default {
     copyTable: "Copiar tabela",
     multiColumnSortHelp:
       "Clique para ordenar. Shift-clique para adicionar outra ordenação.",
+    chartPointLimitNewest:
+      "Mostrando os {{shown}} pontos mais recentes de {{total}}",
+    chartPointLimitFirst:
+      "Mostrando os primeiros {{shown}} de {{total}} pontos",
+    chartPointLimitLast: "Mostrando os últimos {{shown}} de {{total}} pontos",
     exportToGoogleSheets: "Exportar para o Google Sheets",
     exportingToGoogleSheets: "Exportando para o Google Sheets...",
     googleSheetsExported: "Exportado para o Google Sheets",

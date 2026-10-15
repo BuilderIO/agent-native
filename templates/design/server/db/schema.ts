@@ -344,6 +344,10 @@ export const designScreenRestoreClaims = table(
       t.designId,
       t.sourceFileId,
     ),
+    index("design_screen_restore_claims_design_restored_idx").on(
+      t.designId,
+      t.restoredFileId,
+    ),
   ],
 );
 

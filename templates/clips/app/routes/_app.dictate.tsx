@@ -84,6 +84,8 @@ interface Dictation {
   source?: "fn-hold" | "cmd-shift-space" | (string & {});
   startedAt?: string;
   createdAt: string;
+  updatedAt: string;
+  cleanupVersion: number;
 }
 
 type BrowserDictationSource = "manual" | "cmd-shift-space";
@@ -451,7 +453,37 @@ function DictationCard({
   const [expanded, setExpanded] = useState(initialExpanded);
   const rowRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
-  const cleanup = useActionMutation<any, { id: string }>("cleanup-dictation");
+  const cleanup = useActionMutation<
+    | { conflict: true; id: string }
+    | {
+        conflict: false;
+        id: string;
+        cleanedText: string;
+        cleanupVersion: number;
+      },
+    { id: string }
+  >("cleanup-dictation");
+  const restoreCleanup = useActionMutation<
+    | { conflict: true; id: string }
+    | { conflict: false; id: string; ok: true; updated: true },
+    { id: string; cleanedText: null; expectedCleanupVersion: number }
+  >("update-dictation", {
+    onSuccess: (result) => {
+      if (result.conflict) {
+        toast.error(t("dictateRoute.cleanupRestoreFailed"));
+      } else {
+        toast.success(t("dictateRoute.cleanupRestored"));
+      }
+      void qc.invalidateQueries({
+        queryKey: ["action", "list-dictations"],
+      });
+    },
+    onError: (error) => {
+      toast.error(
+        actionErrorMessage(error) ?? t("dictateRoute.cleanupRestoreFailed"),
+      );
+    },
+  });
   const deleteDictation = useActionMutation<any, { id: string }>(
     "delete-dictation",
   );
@@ -480,12 +512,33 @@ function DictationCard({
 
   const displayText = dictation.cleanedText || dictation.fullText;
 
+  const handleRestoreCleanup = (expectedCleanupVersion: number) => {
+    restoreCleanup.mutate({
+      id: dictation.id,
+      cleanedText: null,
+      expectedCleanupVersion,
+    });
+  };
+
   const handleCleanup = () => {
     cleanup.mutate(
       { id: dictation.id },
       {
-        onSuccess: () => {
-          toast.success(t("dictateRoute.cleanupComplete"));
+        onSuccess: (result) => {
+          if (result.conflict) {
+            toast.error(t("dictateRoute.cleanupFailed"));
+            void qc.invalidateQueries({
+              queryKey: ["action", "list-dictations"],
+            });
+            return;
+          }
+          toast.success(t("dictateRoute.cleanupComplete"), {
+            action: {
+              label: t("dictateRoute.undoCleanup"),
+              onClick: () => handleRestoreCleanup(result.cleanupVersion),
+            },
+            duration: 12_000,
+          });
           void qc.invalidateQueries({
             queryKey: ["action", "list-dictations"],
           });
@@ -542,13 +595,20 @@ function DictationCard({
           }}
         >
           <ItemContent className="min-w-0 self-start py-0.5">
+            {expanded && dictation.cleanedText ? (
+              <span className="text-xs text-muted-foreground">
+                {t("dictateRoute.original")}
+              </span>
+            ) : null}
             <ItemTitle
               className={cn(
                 "block min-w-0 w-full text-base font-normal leading-relaxed",
                 expanded ? "whitespace-pre-wrap break-words" : "truncate",
               )}
             >
-              {displayText || (
+              {(expanded && dictation.cleanedText
+                ? dictation.fullText
+                : displayText) || (
                 <span className="text-muted-foreground italic">
                   {t("dictateRoute.noText")}
                 </span>
@@ -590,6 +650,28 @@ function DictationCard({
           </ItemActions>
 
           <CollapsibleContent className="clips-collapsible-content w-full">
+            {dictation.cleanedText ? (
+              <div className="mb-3 space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  {t("dictateRoute.cleaned")}
+                </p>
+                <p className="whitespace-pre-wrap break-words text-sm">
+                  {dictation.cleanedText}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleRestoreCleanup(dictation.cleanupVersion)}
+                  disabled={restoreCleanup.isPending}
+                >
+                  {restoreCleanup.isPending ? (
+                    <IconLoader2 className="animate-spin" aria-hidden="true" />
+                  ) : null}
+                  {t("dictateRoute.restoreOriginal")}
+                </Button>
+              </div>
+            ) : null}
             <DictationActions
               dictation={dictation}
               onCopy={() =>

@@ -254,6 +254,7 @@ export function useInfiniteRecordings(
 
 export function useRecordingsCount(
   args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
+  options: { enabled?: boolean } = {},
 ) {
   const normalizedArgs = Object.fromEntries(
     Object.entries(args).filter(([, value]) => value != null),
@@ -266,6 +267,7 @@ export function useRecordingsCount(
         typeof data?.total === "number" ? data.total : undefined,
       retry: false,
       throwOnError: false,
+      enabled: options.enabled,
     },
   );
 }

@@ -1,5 +1,11 @@
 # @agent-native/agentkit
 
+## 0.209.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.208.0
 
 ### Patch Changes

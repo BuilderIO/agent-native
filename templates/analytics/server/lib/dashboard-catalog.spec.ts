@@ -831,6 +831,23 @@ describe("dashboard catalog", () => {
     }
   });
 
+  it("groups sessions by app on the template key its filter matches", () => {
+    const sql = buildPanel("sessions-by-app")!.sql;
+    const templateKey =
+      /^SELECT (lower\(COALESCE\(.*?'unknown'\)\)) AS app,/.exec(sql)?.[1];
+
+    expect(templateKey).toBeDefined();
+    expect(sql).toContain(`${templateKey} IN ('analytics'`);
+    expect(sql).toContain(`GROUP BY ${templateKey} ORDER BY count DESC`);
+    expect(sql).not.toContain("NULLIF(app, ''), 'unknown')");
+
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    const seedPanel = (
+      seed?.panels as Array<{ id?: string; sql?: string }>
+    ).find((panel) => panel.id === "sessions-by-app");
+    expect(seedPanel?.sql).toBe(sql);
+  });
+
   it("keeps every shipped first-party panel time-scoped or explicitly exceptional", () => {
     const seed = loadDashboardSeed("agent-native-templates-first-party");
     expect(seed).not.toBeNull();

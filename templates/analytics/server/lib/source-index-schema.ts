@@ -35,6 +35,7 @@ const sourceIndexSourceSchema = z
   .object({
     id: z.string().regex(SAFE_SOURCE),
     sourceKind: z.enum(SOURCE_INDEX_KINDS).optional(),
+    status: z.enum(["active", "deprecated"]).optional(),
     repositoryRef: z
       .string()
       .regex(/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/)
@@ -256,5 +257,30 @@ export function parseSourceIndexBundle(value: unknown): SourceIndexBundle {
         .join("; ")}`,
     );
   }
-  return parsed.data;
+  const entriesBySource = new Map<string, SourceIndexEntry[]>();
+  for (const entry of parsed.data.entries) {
+    const entries = entriesBySource.get(entry.source) ?? [];
+    entries.push(entry);
+    entriesBySource.set(entry.source, entries);
+  }
+  const sources = parsed.data.sources.map((source) => {
+    if (source.status !== undefined) return source;
+    const entries = entriesBySource.get(source.id) ?? [];
+    const sourceKinds = new Set(
+      entries
+        .map((entry) => entry.sourceKind)
+        .filter((kind): kind is NonNullable<typeof kind> => kind !== undefined),
+    );
+    const isLegacyRetiredDbtSource =
+      entries.length > 0 &&
+      entries.every((entry) => entry.status === "deprecated") &&
+      (source.sourceKind === "dbt" ||
+        (source.sourceKind === undefined &&
+          sourceKinds.size === 1 &&
+          sourceKinds.has("dbt")));
+    return isLegacyRetiredDbtSource
+      ? { ...source, status: "deprecated" as const }
+      : source;
+  });
+  return { ...parsed.data, sources };
 }

@@ -1,5 +1,20 @@
 # @agent-native/dispatch
 
+## 0.40.23
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 3ab5193: Drop the caller-supplied `size` from Builder upload attachments and measure it on the server, reject invalid attachments up front with an `invalid_attachment` error, and teach the turn-into-app browser-host guide to attach Project instructions and knowledge files verbatim, so a bad or missing attachment no longer reads as a temporary Builder outage or a silent drop.
+- 3b9d3cd: Show how long each tool call took in Thread Debug.
+- Updated dependencies [fadfb1b]
+- Updated dependencies [7407dca]
+- Updated dependencies [980bd9f]
+- Updated dependencies [7407dca]
+- Updated dependencies
+- Updated dependencies [d6a3ea3]
+  - @agent-native/toolkit@0.209.0
+
 ## 0.40.22
 
 ### Patch Changes
@@ -1244,12 +1259,5 @@
 
 - Updated dependencies [95ea873]
   - @agent-native/toolkit@0.16.4
-
-## 0.27.16
-
-### Patch Changes
-
-- 3850b75: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- 3850b75: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -125,6 +125,125 @@ describe("HTML Motion source adapter", () => {
     }
   });
 
+  it("fails closed when a Motion target has dynamic or Alpine motion styles", () => {
+    for (const attribute of [
+      'x-transition.opacity=""',
+      'x-bind="attrs"',
+      ':style="style"',
+      'x-bind:style="style"',
+      'v-bind:style="style"',
+    ]) {
+      const source = html.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        `<h1 data-agent-native-node-id="hero-title" ${attribute}>Hello</h1>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining(attribute.split("=")[0]!),
+      });
+
+      let writeError: unknown;
+      try {
+        apply(source);
+      } catch (error) {
+        writeError = error;
+      }
+      expect(writeError).toMatchObject({ code: "unsupported-target" });
+    }
+  });
+
+  it("refuses authored inline animation and transition declarations on a target", () => {
+    for (const style of [
+      "animation: pulse 1s infinite",
+      "transition: opacity 200ms ease",
+      "-webkit-animation-name: pulse",
+      "\\61 nimation: pulse 1s infinite",
+      "\\74 ransition: opacity 200ms ease",
+      "-\\77 ebkit-animation-name: pulse",
+    ]) {
+      const source = html.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        `<h1 data-agent-native-node-id="hero-title" style="${style}">Hello</h1>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining("uses style"),
+      });
+
+      let writeError: unknown;
+      try {
+        apply(source);
+      } catch (error) {
+        writeError = error;
+      }
+      expect(writeError).toMatchObject({ code: "unsupported-target" });
+    }
+  });
+
+  it.each([
+    ["x-transition.opacity"],
+    ['x-bind="attrs"'],
+    ['x-bind:style="style"'],
+    ['style="animation: pulse 1s infinite"'],
+  ])("validates generated Motion targets with %s during reads", (attribute) => {
+    const generated = apply(html).source;
+    const source = generated.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${attribute}>Hello</h1>`,
+    );
+
+    expect(readMotionHtmlSource(source, "pages/home.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+  });
+
+  it("allows a target when dynamic style bindings belong to another element", () => {
+    const source = html.replace(
+      "  </main>",
+      '    <aside style="animation: pulse 1s infinite" x-transition.opacity x-bind:style="style">Other animation</aside>\n  </main>',
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+    expect(apply(source).source).toContain("data-agent-native-motion");
+  });
+
+  it("allows unrelated static inline styles on a Motion target", () => {
+    const source = html.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" style="color: rebeccapurple; background-color: white">Hello</h1>',
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+    expect(apply(source).source).toContain(
+      'style="color: rebeccapurple; background-color: white"',
+    );
+  });
+
   it("updates only the managed CSS and keeps unrelated HTML byte-for-byte", () => {
     const first = apply(html);
     const next = applyMotionHtmlSourceEdit({
@@ -158,6 +277,231 @@ describe("HTML Motion source adapter", () => {
       },
     });
   });
+
+  it("reads source-authored CSS changes and preserves them on a later Motion write", () => {
+    const authored = apply(html);
+    const directEdit = authored.source
+      .replace("opacity: 0;", "opacity: 0.35;")
+      .replace(
+        "animation-timing-function: linear;",
+        "animation-timing-function: ease-in;",
+      )
+      .replace("animation-duration: 0.8s;", "animation-duration: 1.1s;");
+    const read = readMotionHtmlSource(directEdit);
+
+    expect(read).toMatchObject({
+      status: "valid",
+      document: {
+        durationMs: 1100,
+        tracks: [
+          {
+            targetNodeId: "hero-title",
+            property: "opacity",
+            keyframes: [
+              { t: 0, value: "0.35", ease: "ease-in" },
+              { t: 1, value: "1", ease: "ease-out" },
+            ],
+          },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("direct HTML Motion CSS edit was not readable");
+    }
+
+    const written = applyMotionHtmlSourceEdit({
+      currentSource: directEdit,
+      expectedSource: directEdit,
+      preview: previewFor(directEdit),
+      timeline: {
+        ...makeTimeline(),
+        tracks: read.document.tracks,
+        durationMs: read.document.durationMs,
+        playbackMode: read.document.playbackMode,
+      },
+    });
+
+    expect(readMotionHtmlSource(written.source)).toMatchObject({
+      status: "valid",
+      document: {
+        durationMs: 1100,
+        tracks: read.document.tracks,
+      },
+    });
+    expect(
+      written.source.match(/agent-native-motion-source:v3:/g),
+    ).toHaveLength(1);
+  });
+
+  it("adopts static inline CSS animations and keeps their global keyframes", () => {
+    const source = `<!doctype html>
+<html>
+<head>
+  <style>
+.hero {
+  color: rebeccapurple;
+  /* Keep this authored note. */
+  animation-name: hero-fade;
+  animation-duration: 900ms;
+  animation-timing-function: ease-in;
+  animation-fill-mode: both;
+}
+@keyframes hero-fade {
+  from { opacity: 0; }
+  50% { opacity: 0.5; }
+  to { opacity: 1; }
+}
+  </style>
+</head>
+<body><h1 class="hero" data-agent-native-node-id="hero-css">Hello</h1></body>
+</html>`;
+    const read = readMotionHtmlSource(source, "index.html");
+
+    expect(read).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-css"],
+      document: {
+        durationMs: 900,
+        tracks: [
+          {
+            targetNodeId: "hero-css",
+            property: "opacity",
+            durationMs: 900,
+            keyframes: [
+              { t: 0, value: "0", ease: "ease-in" },
+              { t: 0.5, value: "0.5", ease: "ease-in" },
+              { t: 1, value: "1", ease: "ease" },
+            ],
+          },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("authored HTML CSS Motion was not readable");
+    }
+
+    const written = applyMotionHtmlSourceEdit({
+      currentSource: source,
+      expectedSource: source,
+      preview: previewFor(source),
+      sourceFilePath: "index.html",
+      timeline: {
+        ...makeTimeline("hero-css"),
+        tracks: read.document.tracks,
+        durationMs: read.document.durationMs,
+        playbackMode: read.playbackMode,
+      },
+    });
+    expect(written.source).not.toContain("animation-name: hero-fade;");
+    expect(written.source).toContain("@keyframes hero-fade");
+    expect(written.source).toContain("color: rebeccapurple;");
+    expect(written.source).toContain("/* Keep this authored note. */");
+    expect(readMotionHtmlSource(written.source, "index.html")).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-css"],
+      document: { tracks: read.document.tracks },
+    });
+
+    const removed = removeMotionHtmlSource(written.source, "index.html");
+    expect(removed.changed).toBe(true);
+    expect(removed.source).toContain("color: rebeccapurple;");
+    expect(removed.source).toContain("@keyframes hero-fade");
+    expect(removed.source).toContain("/* Keep this authored note. */");
+    expect(readMotionHtmlSource(removed.source, "index.html")).toEqual({
+      status: "absent",
+    });
+  });
+
+  it("rejects animations for one HTML target across separate style blocks", () => {
+    const source = `<!doctype html><html><head>
+<style>#hero { animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } }</style>
+<style>#hero { animation-name: tint; animation-duration: 800ms; animation-fill-mode: both; } @keyframes tint { from { color: red; } to { color: blue; } }</style>
+</head><body><h1 id="hero">Hello</h1></body></html>`;
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("rejects global keyframe names shadowed by another inline style block", () => {
+    const source = `<!doctype html><html><head>
+<style>#hero { animation-name: pulse; animation-duration: 800ms; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }</style>
+<style>@keyframes pulse { from { opacity: 1; } to { opacity: 0; } }</style>
+</head><body><h1 id="hero">Hello</h1></body></html>`;
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("rejects conditional keyframes that redefine an imported animation name", () => {
+    const source = `<!doctype html><html><head>
+<style>#hero { animation-name: pulse; animation-duration: 800ms; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }</style>
+<style>@media (min-width: 1px) { @keyframes pulse { from { opacity: 1; } to { opacity: 0; } } }</style>
+</head><body><h1 id="hero">Hello</h1></body></html>`;
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("rejects authored CSS targets that also match HTML template content", () => {
+    const source = `<!doctype html><html><head><style>
+.hero { animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+</style></head><body>
+<h1 class="hero" data-agent-native-node-id="hero-title">Hello</h1>
+<template x-for="item in items"><h1 class="hero">Template item</h1></template>
+</body></html>`;
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("resolves inline CSS selectors to the same path-derived HTML target IDs as preview", () => {
+    const source = `<!doctype html>
+<html><head><style>
+.hero { animation-name: hero-fade; animation-duration: 800ms; animation-fill-mode: both; }
+@keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }
+</style></head><body><main class="hero">Hello</main></body></html>`;
+    const sourceFilePath = "pages/home.html";
+    const generatedId = generatedMotionNodeId(sourceFilePath, 3);
+    const preview = instrumentMotionHtmlPreviewSource({
+      source,
+      sourceFilePath,
+    });
+    const read = readMotionHtmlSource(source, sourceFilePath);
+
+    expect(preview.targetNodeIds).toContain(generatedId);
+    expect(read).toMatchObject({
+      status: "valid",
+      targetNodeIds: [generatedId],
+      document: { tracks: [{ targetNodeId: generatedId }] },
+    });
+  });
+
+  it.each([
+    ["an Alpine-bound class", ':class="{ hero: active }"'],
+    ["a generic Alpine binding", 'x-bind="attrs"'],
+  ])(
+    "fails closed when an inline CSS selector can match %s",
+    (_label, binding) => {
+      const source = `<!doctype html><html><head><style>
+.hero { animation-name: hero-fade; animation-duration: 800ms; animation-fill-mode: both; }
+@keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }
+</style></head><body><main ${binding}>Hello</main></body></html>`;
+
+      expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+    },
+  );
 
   it("uses stable generated preview IDs and persists selected IDs on write", () => {
     const sourcePath = "pages/index.html";
@@ -367,6 +711,30 @@ describe("HTML Motion source adapter", () => {
       status: "invalid",
       error: { code: "malformed-source" },
     });
+  });
+
+  it("preserves authored rules and fails closed when managed CSS cannot be represented", () => {
+    const authored = apply(html);
+    const customRule =
+      "@keyframes authored-pulse { from { opacity: 0; } to { opacity: 1; } }";
+    const sourceWithCustomRule = authored.source.replace(
+      authored.css,
+      `${authored.css}\n${customRule}`,
+    );
+
+    expect(readMotionHtmlSource(sourceWithCustomRule)).toMatchObject({
+      status: "invalid",
+      error: { code: "invalid-managed-style" },
+    });
+    expect(() =>
+      applyMotionHtmlSourceEdit({
+        currentSource: sourceWithCustomRule,
+        expectedSource: sourceWithCustomRule,
+        preview: previewFor(sourceWithCustomRule),
+        timeline: makeTimeline(),
+      }),
+    ).toThrow(/authored rules the timeline cannot represent/);
+    expect(sourceWithCustomRule).toContain(customRule);
   });
 
   it("reports malformed Motion Text source instead of treating it as absent", () => {

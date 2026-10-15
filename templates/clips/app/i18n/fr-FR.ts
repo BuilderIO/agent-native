@@ -6,6 +6,7 @@ const messages = {
     includeLast: "Inclure les derniers",
     whatIsThis: "Qu'est-ce que c'est ?",
     off: "Désactivé",
+    none: "Aucun",
     custom: "Personnalisé…",
     customLabel: "Durée personnalisée",
     customAmount: "Durée",
@@ -17,6 +18,9 @@ const messages = {
     customErrorInvalid: "Saisissez un nombre entier de secondes ou de minutes.",
     customErrorTooLong: "Limitez-la à 5 min maximum.",
     turnOnRewind: "Activer Rewind",
+    turnOffRewind: "Désactiver",
+    turnOffRewindFailed:
+      "Impossible de désactiver Rewind. Arrêtez l'enregistrement et réessayez.",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
       "Désactivé par défaut. L’historique de l’écran reste sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",
@@ -212,9 +216,12 @@ const messages = {
     expandSidebar: "Développer la barre latérale",
     collapseSidebar: "Réduire la barre latérale",
     agentEmptyState: "Comment puis-je vous aider avec vos enregistrements ?",
-    agentSuggestionSummary: "Résume mon dernier enregistrement",
-    agentSuggestionPricing: "Trouve où j’ai mentionné les prix",
-    agentSuggestionFiller: "Supprime les mots de remplissage de ce clip",
+    agentSuggestionSummary: "Résume un enregistrement",
+    agentSuggestionPricing: "Trouve les prix mentionnés",
+    agentSuggestionFiller: "Supprime les mots parasites",
+    agentScreenshotSuggestionSummary: "Résume les captures",
+    agentScreenshotSuggestionText: "Trouve le texte dans les captures",
+    agentScreenshotSuggestionCompare: "Compare les captures",
     createFolderError: "Échec de la création",
     folderCreated: "Dossier créé",
     folderNamePlaceholder: "Nom du dossier",
@@ -1908,6 +1915,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (Localisé)",
     recordingDownloadStarted: "Recording download started (Localisé)",
+    partialLocalCopyDownloadStarted:
+      "La copie locale est peut-être incomplète. Les données d’enregistrement disponibles sont en cours de téléchargement.",
     backToLibrary: "Back to library (Localisé)",
     clipsRecorder: "Clips recorder (Localisé)",
     preparingSources: "Preparing sources… (Localisé)",
@@ -2076,6 +2085,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (Localisé)",
     cleanupComplete: "Dictée nettoyée",
     cleanupFailed: "Impossible de nettoyer la dictée",
+    undoCleanup: "Annuler",
+    restoreOriginal: "Restaurer l’original",
+    cleanupRestored: "Dictée d’origine restaurée",
+    cleanupRestoreFailed: "Impossible de restaurer la dictée d’origine",
     startFirst: "Transformez vos idées en texte",
     recordOnDesktop: "Enregistrer sur le bureau",
     emptyDesktopDescription:

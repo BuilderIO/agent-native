@@ -51,6 +51,39 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.209.0
+
+### Minor Changes
+
+- 8961aeb: Add BigQuery to managed Google workspace OAuth connections.
+
+### Patch Changes
+
+- d52c0b3: Save streamed agent run events in batches, so write tools no longer wait for hundreds of single-row inserts after the model finishes.
+- 9df9b9e: Keep chat prompts whose run never started out of later model history while preserving failed turns that produced a response.
+- 340b878: Add `resolveAdditionalActions` to `createAgentChatPlugin` so apps can add request-scoped actions for the signed-in caller, such as tools registered while the server runs. Interactive chat receives them by default; A2A and MCP `ask_app` receive them only when listed in `additionalActionSurfaces`. Entries are bound to their caller, checked and validated on every call, cannot reuse any built-in action name, and keep the same names for a chat run, including its hosted durable background continuations. Those continuations resolve the names again, so each entry has its current definition and is checked again. The caller's MCP tools are pinned the same way, so a saved action allowlist that names an MCP tool removed mid-turn no longer fails the durable continuation; calling that tool returns an error instead.
+- 1856007: Export `getBetterAuthUserIdForEmail` and `platformWaitUntil` from `@agent-native/core/server` and `readAnalyticsAnonymousId` from `@agent-native/core/tracking`, so app server routes can key their own analytics events to the same user and anonymous visitor ids that signup tracking uses, and keep post-response work alive on Netlify, where Nitro drops `event.waitUntil`.
+- 980bd9f: Realtime voice sessions use reasoning effort values supported by GPT-Live.
+- d31e11d: Reconcile stale assistant replies and keep pending questions in status without duplicating chat text.
+- 11c3988: Extract large HTML responses before applying the context limit and save full Markdown or text instead of raw page code, with bounded search results.
+- 62cc000: Add the missing `notified_at` column to share tables created before it existed
+  (`tool_shares`, `data_program_shares`, and the creative-context share tables).
+  Share inserts name that column, so sharing an extension, data program, or
+  creative context with a user or org failed on those databases.
+- Release all public npm packages with a patch version bump.
+- 3be2c82: Preserve approved tool inputs across reloads, identify approval pauses with structured metadata, require exact input matches for reader-local calls, and keep pauses from triggering automatic continuation.
+- 3be2c82: Replay an approved tool call when its paused result is missing from the stream.
+- 3be2c82: Preserve renewed tool approval asks and reserve continuation history for the selected call.
+- 6c0529a: Reuse one tokenizer for context token counts instead of rebuilding it on every call, removing seconds of delay before each agent model call on long threads.
+- 3b9d3cd: When preloaded context times out or fails, the agent now searches only if the request depends on workspace knowledge instead of always searching before answering.
+- 9bb5cda: Keep missing optional peers out of Node server bundles and replay the exact tool call a user approved.
+- 3ab5193: Drop the caller-supplied `size` from Builder upload attachments and measure it on the server, reject invalid attachments up front with an `invalid_attachment` error, and teach the turn-into-app browser-host guide to attach Project instructions and knowledge files verbatim, so a bad or missing attachment no longer reads as a temporary Builder outage or a silent drop.
+- 49ec8ae: Report verification email delivery failures instead of showing a successful signup, and limit repeated-signup verification emails to one per address every five minutes.
+- 459b1eb: Allow apps to authorize connected MCP tool calls immediately before remote execution.
+- Updated dependencies
+  - @agent-native/agentkit@0.209.0
+  - @agent-native/recap-cli@0.5.72
+
 ## 0.208.0
 
 ### Minor Changes
@@ -4057,14 +4090,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - 1aafc1d: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
 - 40baf42: Preserve browser attribution through Better Auth email signup user creation.
 - 1aafc1d: Avoid treating the desktop broker identity as proof that an app's own session is authenticated.
-
-## 0.167.2
-
-### Patch Changes
-
-- 95d9d70: Bound public-site monitor requests and clarify unified-diff framing in visual recap authoring prompts.
-- 7f22204: Warn on the Agent Automations page when schedule-triggered automations can never fire — recurring jobs disabled at build time, no durable scheduler on the hosting target, or local development — via a new `get-scheduled-trigger-status` action. The build embeds its recurring-jobs decision into the server bundle so the warning reflects whether a scheduled trigger was actually emitted, and a failed status check is reported as unverified rather than healthy.
-- Updated dependencies [95d9d70]
-  - @agent-native/recap-cli@0.5.7
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

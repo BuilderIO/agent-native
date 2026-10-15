@@ -189,7 +189,7 @@ interface DeletedFileSnapshot {
   filename: string;
   content: string;
   fileType: string;
-  createdAt: string;
+  createdAt: string | null;
   updatedAt: string;
   geometry?: Record<string, unknown>;
   screenMetadata?: Record<string, unknown>;
@@ -277,14 +277,16 @@ function snapshotDeletedFile(
     updatedAt: string | null;
   },
   data: Record<string, unknown>,
+  restoreSourceFileId = file.id,
 ): DeletedFileSnapshot {
   return {
     id: file.id,
     filename: file.filename,
     content: file.content,
     fileType: file.fileType,
-    createdAt: file.createdAt ?? "",
+    createdAt: file.createdAt,
     updatedAt: file.updatedAt ?? "",
+    restoreSourceFileId,
     ...deletedFileMetadataSnapshot(data, file.id),
   };
 }
@@ -299,13 +301,20 @@ function hasConnectionId(value: unknown): boolean {
 
 function screenRestoreClaimSnapshot(
   snapshot: DeletedFileSnapshot,
+  fileOrderKey: string = snapshot.id,
 ):
   | (Pick<
       DeletedFileSnapshot,
       "filename" | "fileType" | "screenMetadata" | "localhostScreen"
-    > & { contentHashes: string[] })
+    > & {
+      contentHashes: string[];
+      createdAt: string | null;
+      fileOrderKey: string;
+    })
   | null {
   if (
+    snapshot.fileType !== "html" &&
+    snapshot.fileType !== "jsx" &&
     !hasConnectionId(snapshot.screenMetadata) &&
     !hasConnectionId(snapshot.localhostScreen)
   ) {
@@ -315,6 +324,8 @@ function screenRestoreClaimSnapshot(
   return {
     filename: snapshot.filename,
     fileType: snapshot.fileType,
+    createdAt: snapshot.createdAt,
+    fileOrderKey,
     contentHashes: screenRestoreContentHashes(
       snapshot.content,
       snapshot.fileType,
@@ -326,6 +337,32 @@ function screenRestoreClaimSnapshot(
       ? { localhostScreen: { ...snapshot.localhostScreen } }
       : {}),
   };
+}
+
+function restoreFileOrderKey(snapshot: string, sourceFileId: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(snapshot);
+  } catch {
+    fail("This Screen restore is no longer available.", {
+      errorCode: "screen_restore_claim_invalid",
+      statusCode: 409,
+    });
+  }
+  if (!isRecord(parsed)) {
+    fail("This Screen restore is no longer available.", {
+      errorCode: "screen_restore_claim_invalid",
+      statusCode: 409,
+    });
+  }
+  if (parsed.fileOrderKey === undefined) return sourceFileId;
+  if (typeof parsed.fileOrderKey !== "string" || !parsed.fileOrderKey) {
+    fail("This Screen restore is no longer available.", {
+      errorCode: "screen_restore_claim_invalid",
+      statusCode: 409,
+    });
+  }
+  return parsed.fileOrderKey;
 }
 
 export async function deleteDesignFilesByOperationSourcePrefix(
@@ -543,6 +580,52 @@ export default defineAction({
                       snapshotBlobHandles: [],
                     };
                   }
+                  const targetIds = currentTargetFiles.map(
+                    (candidate) => candidate.id,
+                  );
+                  const priorRestoreClaims = await tx
+                    .select({
+                      sourceFileId:
+                        schema.designScreenRestoreClaims.sourceFileId,
+                      restoredFileId:
+                        schema.designScreenRestoreClaims.restoredFileId,
+                      snapshot: schema.designScreenRestoreClaims.snapshot,
+                    })
+                    .from(schema.designScreenRestoreClaims)
+                    .where(
+                      and(
+                        eq(
+                          schema.designScreenRestoreClaims.designId,
+                          file.designId,
+                        ),
+                        inArray(
+                          schema.designScreenRestoreClaims.restoredFileId,
+                          targetIds,
+                        ),
+                      ),
+                    )
+                    .for("update");
+                  const fileOrderKeyByRestoredId = new Map<string, string>();
+                  for (const claim of priorRestoreClaims) {
+                    if (!claim.restoredFileId) continue;
+                    const fileOrderKey = restoreFileOrderKey(
+                      claim.snapshot,
+                      claim.sourceFileId,
+                    );
+                    const previous = fileOrderKeyByRestoredId.get(
+                      claim.restoredFileId,
+                    );
+                    if (previous && previous !== fileOrderKey) {
+                      fail("This Screen restore is no longer available.", {
+                        errorCode: "screen_restore_claim_invalid",
+                        statusCode: 409,
+                      });
+                    }
+                    fileOrderKeyByRestoredId.set(
+                      claim.restoredFileId,
+                      fileOrderKey,
+                    );
+                  }
                   const [design] = await tx
                     .select({
                       id: schema.designs.id,
@@ -631,8 +714,11 @@ export default defineAction({
                     snapshotDeletedFile(candidate, data),
                   );
                   for (const deletedFile of deletedFiles) {
-                    const trustedSnapshot =
-                      screenRestoreClaimSnapshot(deletedFile);
+                    const trustedSnapshot = screenRestoreClaimSnapshot(
+                      deletedFile,
+                      fileOrderKeyByRestoredId.get(deletedFile.id) ??
+                        deletedFile.id,
+                    );
                     if (!trustedSnapshot) continue;
                     const restoreClaimId = nanoid();
                     await tx.insert(schema.designScreenRestoreClaims).values({
@@ -644,9 +730,6 @@ export default defineAction({
                     deletedFile.restoreClaimId = restoreClaimId;
                     deletedFile.restoreSourceFileId = deletedFile.id;
                   }
-                  const targetIds = currentTargetFiles.map(
-                    (candidate) => candidate.id,
-                  );
                   const snapshotRows = await tx
                     .select({
                       blobHandle: schema.designVisualEditSnapshots.blobHandle,

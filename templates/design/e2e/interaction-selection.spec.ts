@@ -935,8 +935,7 @@ test.describe("marquee semantics", () => {
     expectOnlyChanged(before, await app.savedNodes(id), []);
   });
 
-  // fixme: product bug: Cmd+marquee selects an ancestor together with its descendants: Layers shows [Card, Kid B, Kid A], inspector '3 selected'. The bridge's
-  test.fixme("cmd+marquee over Card reaches into Kid A and Kid B", async ({
+  test("cmd+marquee over Card reaches into Kid A and Kid B", async ({
     app,
     page,
   }) => {

@@ -77,7 +77,10 @@ class FakeMediaRecorder extends EventTarget {
   }
 }
 
-async function startedEngine(onLocalCopyFailed = vi.fn()) {
+async function startedEngine(
+  onLocalCopyFailed = vi.fn(),
+  recordingPlatform?: "web" | "mobile",
+) {
   const engine = new RecorderEngine({
     recordingId: "__pending__",
     mode: "screen",
@@ -86,7 +89,11 @@ async function startedEngine(onLocalCopyFailed = vi.fn()) {
     onLocalCopyFailed,
   });
   engine.setLocalOnlyTarget("local-1");
-  engine.setBackupDetails({ ownerEmail: "me@example.com", title: "Demo" });
+  engine.setBackupDetails({
+    ownerEmail: "me@example.com",
+    title: "Demo",
+    ...(recordingPlatform ? { recordingPlatform } : {}),
+  });
   (engine as unknown as { displayStream: FakeMediaStream }).displayStream =
     new FakeMediaStream([new FakeVideoTrack()]);
   await engine.start();
@@ -266,5 +273,20 @@ describe("RecorderEngine local copy", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("stores the recorder's platform with the local copy and its in-memory source", async () => {
+    const engine = await startedEngine(vi.fn(), "mobile");
+    FakeMediaRecorder.instance!.emitChunk(new Blob(["a"]));
+    await flush(engine);
+
+    expect(vi.mocked(putRecordingBackupMeta).mock.calls[0]?.[0]).toMatchObject({
+      recordingId: "local-1",
+      recordingPlatform: "mobile",
+    });
+    await engine.stop();
+    expect(engine.getBufferedRecordingSource()).toMatchObject({
+      recordingPlatform: "mobile",
+    });
   });
 });

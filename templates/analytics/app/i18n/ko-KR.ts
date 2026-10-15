@@ -50,6 +50,104 @@ export default {
     moveDashboard: "대시보드 이동",
     folderCreateFailed: "폴더를 만들지 못했습니다",
     moveFailed: "대시보드를 이동하지 못했습니다",
+    importFromSigma: "Sigma에서 가져오기",
+    sigmaConnection: "Sigma 연결",
+    sigmaConnectedTo: "{{name}}에 연결됨",
+    sigmaChooseConnection: "Sigma 연결",
+    sigmaChooseConnectionPlaceholder: "연결 선택",
+    sigmaChooseConnectionDescription:
+      "워크북을 찾아볼 Sigma 작업공간을 선택하세요.",
+    sigmaNoConnection: "Sigma가 연결되지 않았습니다",
+    sigmaClientId: "클라이언트 ID",
+    sigmaClientSecret: "클라이언트 시크릿",
+    sigmaBaseUrl: "API 기본 URL(선택 사항)",
+    sigmaBaseUrlPlaceholder: "https://aws-api.sigmacomputing.com",
+    sigmaConnect: "Sigma 연결",
+    sigmaConnecting: "Sigma 연결 중…",
+    sigmaConnectFailed:
+      "Sigma 연결을 확인할 수 없습니다. 자격 증명과 API 리전을 확인한 후 다시 시도하세요.",
+    sigmaCredentialStageFailed:
+      "임시 Sigma 자격 증명을 저장하지 못했습니다. Vault 액세스 권한을 확인한 후 다시 시도하세요.",
+    sigmaCredentialsRequired:
+      "먼저 Sigma 클라이언트 ID와 클라이언트 시크릿을 저장하세요.",
+    sigmaBaseUrlInvalid:
+      "sigmacomputing.com 도메인의 HTTPS Sigma API URL을 사용하세요.",
+    sigmaPersistenceUnavailable:
+      "현재 Analytics에서 Sigma 연결을 안전하게 저장할 수 없습니다. 다시 시도하세요.",
+    sigmaPolicyInvalid:
+      "기존 Analytics Sigma 연결의 액세스 정책이 예상과 다릅니다. 다시 시도하기 전에 Dispatch에서 다시 연결하세요.",
+    sigmaSaveFailed:
+      "Sigma 자격 증명은 확인되었지만 Analytics에서 저장하지 못했습니다. 이전 연결은 변경되지 않았습니다. 다시 시도하세요.",
+    sigmaCleanupPending:
+      "정리가 완료될 때까지 임시 Sigma 설정 자격 증명이 남아 있습니다.",
+    sigmaCleanupFailed:
+      "임시 Sigma 자격 증명을 지우지 못했습니다. 정리를 다시 시도하세요.",
+    sigmaRetryCleanup: "정리 재시도",
+    sigmaDirectCredentialsUnavailable:
+      "Analytics에 저장된 Sigma 자격 증명을 읽을 수 없습니다. 조직 관리자가 Dispatch에서 다시 연결하거나 Analytics에서 자격 증명을 다시 입력할 수 있습니다.",
+    sigmaNoConnectionDescription:
+      "여기에 자격 증명을 입력하면 Analytics 전용 연결을 만들 수 있습니다. Dispatch에서 Analytics에 허용된 Sigma 연결은 여기에 자동으로 표시되며, 자격 증명을 직접 저장할 수 있는 사용자는 조직 관리자뿐입니다.",
+    sigmaOpenDispatch: "Dispatch에서 연결",
+    sigmaOpenVault: "Vault 열기",
+    sigmaWorkbooksLoadFailed: "Sigma 워크북을 불러오지 못했습니다",
+    sigmaRetryConnection: "연결을 확인한 후 다시 시도하세요.",
+    sigmaRetry: "다시 시도",
+    sigmaNoWorkbooks: "사용할 수 있는 Sigma 워크북이 없습니다.",
+    sigmaWorkbook: "워크북",
+    sigmaChooseWorkbook: "워크북 선택",
+    sigmaStatusNotImported: "가져오지 않음",
+    sigmaStatusImporting: "가져오는 중",
+    sigmaStatusImported: "가져옴",
+    sigmaStatusFailed: "가져오지 못함",
+    sigmaArchived: "보관됨",
+    sigmaPreviewTitle: "워크북 내용",
+    sigmaPreviewFailed: "이 워크북을 미리 볼 수 없습니다",
+    sigmaRetryPreview: "워크북 미리보기를 다시 불러오세요.",
+    sigmaImportableCount: "가져올 수 있음 {{count}}개",
+    sigmaUnsupportedCount: "지원되지 않음 {{count}}개",
+    sigmaImportable: "가져올 수 있음",
+    sigmaUnsupported: "지원되지 않음",
+    sigmaNoElements: "워크북 요소를 찾지 못했습니다.",
+    sigmaPreviewOnly:
+      "현재는 미리보기만 가능합니다. Sigma는 Analytics가 확인할 수 있는 BigQuery 프로젝트 매핑을 제공하지 않으므로 해당 매핑을 확인할 수 있을 때까지 가져오기가 비활성화됩니다.",
+    sigmaPreviewTruncated: "{{total}}개 중 {{shown}}개 요소 표시 중입니다.",
+    sigmaImportWorkbook: "워크북 가져오기",
+    sigmaImporting: "워크북 가져오는 중…",
+    sigmaImportInProgress: "이 워크북을 이미 가져오는 중입니다.",
+    sigmaMigrationFailed: "이 워크북을 가져오지 못했습니다. 다시 시도하세요.",
+    sigmaMigrationResultInvalid:
+      "가져오기 응답이 완전하지 않았습니다. 상태를 확인하려면 워크북 목록을 새로고침하세요.",
+    sigmaImportComplete: "대시보드 생성됨",
+    sigmaImportSummary:
+      "{{imported}}개 요소를 가져왔으며 지원되지 않는 {{unsupported}}개 요소는 검토 안내로 남겼습니다.",
+    sigmaAlreadyImported: "이 워크북은 이미 가져왔습니다.",
+    sigmaImportedNoDashboard:
+      "대시보드를 가져왔지만 이 계정에서는 열 수 없습니다.",
+    sigmaReviewRequiredCount: "{{count}}개 검토 필요",
+    sigmaBetaRepresentationWarning:
+      "베타 가져오기에서는 일부 시각화가 Sigma와 다르게 표시될 수 있습니다.",
+    sigmaReasonUnsupportedElement: "이 요소 유형은 가져올 수 없습니다.",
+    sigmaReasonUnsupportedSource: "이 요소는 가져올 수 없는 소스를 사용합니다.",
+    sigmaReasonSourceMappingRequired:
+      "Sigma가 Analytics에서 확인할 수 있는 BigQuery 프로젝트 매핑을 제공하지 않아 이 SQL을 아직 가져올 수 없습니다.",
+    sigmaReasonSourceUnavailable:
+      "Sigma가 이 소스 연결에 대한 액세스를 허용하지 않았습니다. 권한을 확인하세요.",
+    sigmaReasonQueryUnavailable:
+      "Sigma가 이 요소에 사용할 수 있는 쿼리를 반환하지 않았습니다.",
+    sigmaReasonUnsafeSql: "이 쿼리 패턴은 안전하게 가져올 수 없습니다.",
+    sigmaReasonVisualizationReview:
+      "데이터는 가져올 수 있지만 가져온 후 시각화를 확인하세요.",
+    sigmaRetryOwnerOnly: "이 가져오기를 시작한 사람만 다시 시도할 수 있습니다.",
+    sigmaImportedByTeammate: "팀원이 가져옴",
+    sigmaFlaggedCount: "{{count}}개 검토 표시됨",
+    sigmaMoreWorkbooksFailed: "추가 워크북을 불러오지 못했습니다",
+    sigmaLoadingMore: "워크북 불러오는 중…",
+    sigmaLoadMore: "워크북 더 불러오기",
+    sigmaOpenDashboard: "대시보드 열기",
+    sigmaReviewWithAgent: "에이전트와 검토",
+    sigmaReviewContext: "가져온 Sigma 대시보드",
+    sigmaReviewPrompt:
+      "가져온 Sigma 대시보드 {{name}}을 검토하세요. 가져온 패널과 지원되지 않는 요소를 확인하고 수정 사항을 제안하세요.",
   },
   sidebar: {
     collapseSidebar: "사이드바 접기",
@@ -1162,6 +1260,7 @@ export default {
     saveViewFailed: "보기를 저장하지 못했습니다",
     saveViewFailedWithMessage: "보기를 저장하지 못했습니다: {{message}}",
     clearAll: "모두 지우기",
+    resetFilters: "필터 초기화",
     collapseFilters: "필터 접기",
     expandFilters: "필터 확장",
     filterSeries: "Filter",
@@ -1194,6 +1293,9 @@ export default {
     copyTable: "표 복사",
     multiColumnSortHelp:
       "클릭하여 정렬합니다. Shift 키를 누른 채 클릭하면 다른 정렬을 추가합니다.",
+    chartPointLimitNewest: "{{total}}개 중 최신 {{shown}}개 포인트 표시 중",
+    chartPointLimitFirst: "{{total}}개 중 처음 {{shown}}개 포인트 표시 중",
+    chartPointLimitLast: "{{total}}개 중 마지막 {{shown}}개 포인트 표시 중",
     exportToGoogleSheets: "Google Sheets로 내보내기",
     exportingToGoogleSheets: "Google Sheets로 내보내는 중...",
     googleSheetsExported: "Google Sheets로 내보냈습니다",

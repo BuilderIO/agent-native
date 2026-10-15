@@ -2501,6 +2501,7 @@ const hiIN = {
     advancedRuntime: "उन्नत: runtime बढ़ाएं",
     templatesSection: "ऐप्स",
     gettingStarted: "शुरुआत",
+    createWithAgent: "एजेंट के साथ बनाएं",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Agent-Native क्या है?",

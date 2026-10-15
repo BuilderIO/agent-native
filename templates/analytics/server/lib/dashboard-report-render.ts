@@ -19,6 +19,14 @@ import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { formatDollars } from "../../shared/format-dollars";
 import {
+  chartPointLimit,
+  limitChartRows,
+  orderPanelSeries,
+  resolveSeriesColors,
+  seriesColorSlots,
+  type ChartPointLimit,
+} from "../../shared/panel-render-contract";
+import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
@@ -70,7 +78,6 @@ type ReportAttachment = RenderedReportEmail["attachments"][number];
 
 const DEFAULT_PANEL_TIMEOUT_MS = DASHBOARD_REPORT_ACTION_TIMEOUT_MS;
 const EMAIL_TABLE_ROW_CAP = 50;
-const MAX_CHART_POINTS = 400;
 const CHART_WIDTH = 920;
 const CHART_HEIGHT = 360;
 const CHART_RASTER_SCALE = 2;
@@ -370,11 +377,13 @@ function detectChartKeys(
   return { xKey, yKeys };
 }
 
-function chartColor(config: SqlPanel["config"], index: number): string {
-  const configured = config?.colors?.[index];
-  return configured && !configured.includes("var(")
-    ? configured
-    : CHART_COLORS[index % CHART_COLORS.length];
+// The image has no CSS, so a configured `var(...)` color takes the palette color in its slot.
+function reportPalette(config: SqlPanel["config"]): string[] {
+  const configured = config?.colors;
+  if (!configured?.length) return CHART_COLORS;
+  return configured.map((color, index) =>
+    color.includes("var(") ? CHART_COLORS[index % CHART_COLORS.length] : color,
+  );
 }
 
 function formatReportSeriesLabel(panel: SqlPanel, value: string): string {
@@ -443,7 +452,7 @@ function pivotPanelRows(
 type ChartInput = {
   labels: string[];
   series: ReportChartSeries[];
-  droppedPoints: number;
+  pointLimit: ChartPointLimit | null;
 };
 
 function buildChartInput(
@@ -453,17 +462,26 @@ function buildChartInput(
   forcedYKeys: string[] | undefined,
 ): ChartInput | null {
   const config = panel.config;
-  const { xKey, yKeys } = detectChartKeys(rows, config, forcedYKeys);
-  if (!xKey || yKeys.length === 0) return null;
+  const detected = detectChartKeys(rows, config, forcedYKeys);
+  const xKey = detected.xKey;
+  if (!xKey || detected.yKeys.length === 0) return null;
 
-  const droppedPoints = Math.max(0, rows.length - MAX_CHART_POINTS);
-  const visible = droppedPoints ? rows.slice(-MAX_CHART_POINTS) : rows;
+  const visible = limitChartRows(rows, panel.chartType, xKey);
+  const yKeys = orderPanelSeries(visible, detected.yKeys, panel);
   const labels = visible.map((row) =>
     typeof row[xKey] === "string"
       ? row[xKey]
-      : (JSON.stringify(row[xKey]) ?? ""),
+      : row[xKey] == null
+        ? ""
+        : (JSON.stringify(row[xKey]) ?? ""),
   );
   const plotted = chartType === "pie" ? yKeys.slice(0, 1) : yKeys;
+  const colors = resolveSeriesColors(
+    plotted,
+    seriesColorSlots(plotted, detected.yKeys, panel),
+    panel,
+    reportPalette(config),
+  );
   const dualAxis = resolveDualAxis(plotted, config);
   const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
     dualAxis.formatterFor(key);
@@ -473,11 +491,11 @@ function buildChartInput(
     series: plotted.map((key, index) => ({
       label: formatReportSeriesLabel(panel, key),
       data: visible.map((row) => toNumber(row[key])),
-      color: chartColor(config, index),
+      color: colors[index],
       ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
       ...(formatterFor(key) ? { formatter: formatterFor(key) } : {}),
     })),
-    droppedPoints,
+    pointLimit: chartPointLimit(rows, panel.chartType, xKey),
   };
 }
 
@@ -847,9 +865,9 @@ async function renderChartBlock(args: {
   }
 
   const subtitleParts = [description].filter(Boolean);
-  if (input.droppedPoints) {
+  if (input.pointLimit) {
     subtitleParts.push(
-      `showing the last ${input.labels.length} of ${input.labels.length + input.droppedPoints} points`,
+      `showing the ${input.pointLimit.keeps} ${input.pointLimit.shown} of ${input.pointLimit.total} points`,
     );
   }
   const subtitle = subtitleParts.join(" · ");

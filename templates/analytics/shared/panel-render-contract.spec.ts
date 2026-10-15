@@ -4,17 +4,25 @@ import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analyt
 import {
   PANEL_CHART_TYPES,
   PANEL_TOP_LEVEL_KEYS,
+  chartPointLimit,
   clipHead,
   duplicatePanelIds,
   editDistance,
   isNumericLikeValue,
   limitChartRows,
   missingKeysFromColumns,
+  orderPanelSeries,
   planPanelRender,
+  resolveSeriesColors,
   stableStringify,
   unknownPanelConfigKeys,
   validatePanelContract,
 } from "./panel-render-contract";
+import {
+  APP_SERIES_COLORS,
+  NON_APP_SERIES_COLORS,
+  UNKNOWN_APP_COLOR,
+} from "./tokens/app-series-colors";
 
 const wideRows = [
   { week: "2026-09-01", app_a: 3, app_b: 4, viral_coefficient: 0.3 },
@@ -678,6 +686,485 @@ describe("PANEL_TOP_LEVEL_KEYS", () => {
       "columns",
       "config",
       "tab",
+    ]);
+  });
+});
+
+describe("orderPanelSeries", () => {
+  const rows = [
+    { day: "2026-09-01", other: 900, mail: 5, slides: 50, "(unknown)": 1 },
+    { day: "2026-09-02", other: 900, mail: 5, slides: 50, "(unknown)": 1 },
+  ];
+  const keys = ["other", "mail", "slides", "(unknown)"];
+
+  it("puts the largest stacked series first and catch-all buckets last", () => {
+    expect(
+      orderPanelSeries(rows, keys, {
+        chartType: "area",
+        config: { stacked: true },
+      }),
+    ).toEqual(["slides", "mail", "other", "(unknown)"]);
+  });
+
+  it("treats a legacy stacked-bar chart type like a bar", () => {
+    expect(
+      orderPanelSeries(rows, keys, {
+        chartType: "stacked-bar" as never,
+        config: { stacked: true },
+      }),
+    ).toEqual(["slides", "mail", "other", "(unknown)"]);
+  });
+
+  it("keeps result order when the chart is not stacked", () => {
+    expect(
+      orderPanelSeries(rows, keys, { chartType: "line", config: {} }),
+    ).toEqual(keys);
+    expect(
+      orderPanelSeries(rows, keys, { chartType: "bar", config: {} }),
+    ).toEqual(keys);
+  });
+
+  it("keeps an explicit yKeys list as written", () => {
+    expect(
+      orderPanelSeries(rows, ["mail", "slides"], {
+        chartType: "bar",
+        config: { stacked: true, yKeys: ["mail", "slides"] },
+      }),
+    ).toEqual(["mail", "slides"]);
+  });
+
+  it("draws pivot.seriesOrder first, then ranks the rest", () => {
+    expect(
+      orderPanelSeries(rows, keys, {
+        chartType: "bar",
+        config: {
+          stacked: true,
+          pivot: {
+            xKey: "day",
+            seriesKey: "app",
+            valueKey: "n",
+            seriesOrder: ["other", "absent"],
+          },
+        },
+      }),
+    ).toEqual(["other", "slides", "mail", "(unknown)"]);
+  });
+
+  it("orders a pivoted stacked area by series total", () => {
+    const plan = planPanelRender(
+      [
+        { date: "2026-09-01", template: "mail", count: 2 },
+        { date: "2026-09-01", template: "analytics", count: 40 },
+        { date: "2026-09-01", template: "unknown", count: 100 },
+        { date: "2026-09-02", template: "mail", count: 3 },
+        { date: "2026-09-02", template: "slides", count: 12 },
+      ],
+      {
+        chartType: "area",
+        config: {
+          stacked: true,
+          pivot: { xKey: "date", seriesKey: "template", valueKey: "count" },
+        },
+      },
+    );
+
+    expect(plan.yKeys).toEqual(["analytics", "slides", "mail", "unknown"]);
+  });
+
+  it("keeps each series' configured color when ranking moves it", () => {
+    const plan = planPanelRender(
+      [
+        { model: "a", sentiment: "positive", responses: 5 },
+        { model: "a", sentiment: "negative", responses: 20 },
+        { model: "b", sentiment: "positive", responses: 10 },
+        { model: "b", sentiment: "negative", responses: 18 },
+      ],
+      {
+        chartType: "bar",
+        config: {
+          stacked: true,
+          colors: ["#10b981", "#ef4444"],
+          pivot: {
+            xKey: "model",
+            seriesKey: "sentiment",
+            valueKey: "responses",
+          },
+        },
+      },
+    );
+
+    expect(plan.yKeys).toEqual(["negative", "positive"]);
+    expect(plan.colorSlots).toEqual([1, 0]);
+  });
+
+  it("anchors colors to pivot.seriesOrder whatever order rows arrive in", () => {
+    const plan = planPanelRender(
+      [
+        { model: "a", sentiment: "negative", responses: 20 },
+        { model: "a", sentiment: "positive", responses: 5 },
+        { model: "b", sentiment: "neutral", responses: 1 },
+      ],
+      {
+        chartType: "bar",
+        config: {
+          stacked: true,
+          colors: ["#10b981", "#ef4444", "#94a3b8"],
+          pivot: {
+            xKey: "model",
+            seriesKey: "sentiment",
+            valueKey: "responses",
+            seriesOrder: ["positive", "negative"],
+          },
+        },
+      },
+    );
+
+    expect(plan.yKeys).toEqual(["positive", "negative", "neutral"]);
+    expect(plan.colorSlots).toEqual([0, 1, 2]);
+  });
+});
+
+describe("resolveSeriesColors", () => {
+  const PALETTE = ["#06b6d4", "#ef4444", "#f59e0b"];
+  const byApp = {
+    chartType: "area" as const,
+    config: {
+      stacked: true,
+      pivot: { xKey: "day", seriesKey: "template", valueKey: "visitors" },
+    },
+  };
+
+  function colorsByKey(
+    rows: Record<string, unknown>[],
+    panel: Parameters<typeof planPanelRender>[1],
+    palette = PALETTE,
+  ) {
+    const plan = planPanelRender(rows, panel);
+    const colors = resolveSeriesColors(
+      plan.yKeys,
+      plan.colorSlots,
+      panel,
+      palette,
+    );
+    return plan.yKeys.map((key, index) => [key, colors[index]]);
+  }
+
+  it("keeps each app's color when result order, stack order and the app set change", () => {
+    const first = colorsByKey(
+      [
+        { day: "2026-10-01", template: "slides", visitors: 2 },
+        { day: "2026-10-01", template: "mail", visitors: 9 },
+        { day: "2026-10-01", template: "brain", visitors: 1 },
+      ],
+      byApp,
+    );
+    const second = colorsByKey(
+      [
+        { day: "2026-10-01", template: "mail", visitors: 2 },
+        { day: "2026-10-01", template: "slides", visitors: 9 },
+      ],
+      byApp,
+    );
+
+    expect(first).toEqual([
+      ["mail", APP_SERIES_COLORS.mail],
+      ["slides", APP_SERIES_COLORS.slides],
+      ["brain", APP_SERIES_COLORS.brain],
+    ]);
+    expect(second).toEqual([
+      ["slides", APP_SERIES_COLORS.slides],
+      ["mail", APP_SERIES_COLORS.mail],
+    ]);
+  });
+
+  it("draws every other series of an app chart muted, never a palette color", () => {
+    const rows = [
+      { day: "2026-10-01", template: "website", visitors: 4 },
+      { day: "2026-10-01", template: "unknown", visitors: 3 },
+      { day: "2026-10-01", template: "forms", visitors: 9 },
+      { day: "2026-10-01", template: "docs", visitors: 2 },
+    ];
+    const expected = [
+      ["forms", APP_SERIES_COLORS.forms],
+      ["website", NON_APP_SERIES_COLORS[0]],
+      ["docs", NON_APP_SERIES_COLORS[1]],
+      ["unknown", UNKNOWN_APP_COLOR],
+    ];
+
+    expect(colorsByKey(rows, byApp)).toEqual(expected);
+    expect(colorsByKey(rows, byApp, ["var(--brand-blue)", "#0d9488"])).toEqual(
+      expected,
+    );
+  });
+
+  it("keeps the palette by slot on a chart with no app series", () => {
+    expect(
+      colorsByKey(
+        [
+          { day: "2026-10-01", template: "production", visitors: 2 },
+          { day: "2026-10-01", template: "unknown", visitors: 9 },
+        ],
+        byApp,
+      ),
+    ).toEqual([
+      ["production", "#06b6d4"],
+      ["unknown", "#ef4444"],
+    ]);
+  });
+
+  it("keeps the palette on a chart split by another column, whatever its series are named", () => {
+    const byChannel = {
+      ...byApp,
+      config: {
+        ...byApp.config,
+        pivot: { xKey: "day", seriesKey: "channel", valueKey: "visitors" },
+      },
+    };
+    expect(
+      colorsByKey(
+        [
+          { day: "2026-10-01", channel: "chat", visitors: 9 },
+          { day: "2026-10-01", channel: "email", visitors: 2 },
+        ],
+        byChannel,
+      ),
+    ).toEqual([
+      ["chat", "#06b6d4"],
+      ["email", "#ef4444"],
+    ]);
+  });
+
+  it("reads an `app` pivot column in any case, and app-named columns alone stay on the palette", () => {
+    const appColors = [APP_SERIES_COLORS.mail, APP_SERIES_COLORS.slides];
+    for (const seriesKey of ["app", " App "]) {
+      const panel = {
+        ...byApp,
+        config: {
+          ...byApp.config,
+          pivot: { xKey: "day", seriesKey, valueKey: "visitors" },
+        },
+      };
+      expect(
+        resolveSeriesColors(["mail", "slides"], [0, 1], panel, PALETTE),
+      ).toEqual(appColors);
+    }
+    const unpivoted = {
+      chartType: "line" as const,
+      config: { xKey: "day", yKeys: ["mail", "slides"] },
+    };
+    expect(
+      resolveSeriesColors(["mail", "slides"], [0, 1], unpivoted, PALETTE),
+    ).toEqual(["#06b6d4", "#ef4444"]);
+  });
+
+  it("lets config.colors override the app colors", () => {
+    const panel = {
+      ...byApp,
+      config: { ...byApp.config, colors: PALETTE },
+    };
+    expect(
+      colorsByKey(
+        [
+          { day: "2026-10-01", template: "mail", visitors: 9 },
+          { day: "2026-10-01", template: "slides", visitors: 2 },
+        ],
+        panel,
+      ),
+    ).toEqual([
+      ["mail", "#06b6d4"],
+      ["slides", "#ef4444"],
+    ]);
+  });
+});
+
+describe("chart point limit", () => {
+  const rows = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({ n: index }));
+
+  it("keeps the newest points of a time series and says so", () => {
+    const days = Array.from({ length: 601 }, (_, index) => ({
+      date: new Date(Date.UTC(2025, 0, 1 + index)).toISOString().slice(0, 10),
+    }));
+    expect(chartPointLimit(days, "line", "date")).toEqual({
+      shown: 400,
+      total: 601,
+      keeps: "newest",
+    });
+    expect(limitChartRows(days, "area", "date")[0]).toEqual(days[201]);
+  });
+
+  it("keeps the last points of a line chart over anything but ordered dates, and calls them last", () => {
+    const pages = Array.from({ length: 450 }, (_, index) => ({
+      page: `/page-${index}`,
+    }));
+    const busiest = Array.from({ length: 450 }, (_, index) => ({
+      date: new Date(Date.UTC(2025, 0, 1 + ((index * 7) % 450)))
+        .toISOString()
+        .slice(0, 10),
+    }));
+    const cases: [Record<string, unknown>[], string | undefined][] = [
+      [pages, "page"],
+      [rows(601), "n"],
+      [rows(601), undefined],
+      [busiest, "date"],
+    ];
+    for (const [data, xKey] of cases) {
+      for (const chartType of ["line", "area", "combo", "heatmap"]) {
+        expect(chartPointLimit(data, chartType, xKey)?.keeps).toBe("last");
+      }
+      expect(limitChartRows(data, "line", xKey)[0]).toEqual(
+        data[data.length - 400],
+      );
+    }
+  });
+
+  it("treats an eight-digit id as a number, not a date", () => {
+    const orders = Array.from({ length: 450 }, (_, index) => ({
+      order_id: String(10_000_001 + index),
+    }));
+    expect(chartPointLimit(orders, "bar", "order_id")?.keeps).toBe("first");
+    expect(chartPointLimit(orders, "line", "order_id")?.keeps).toBe("last");
+  });
+
+  it("keeps the first points of a category chart and says so", () => {
+    const categories = Array.from({ length: 450 }, (_, index) => ({
+      domain: `site-${index}.example`,
+    }));
+    expect(chartPointLimit(categories, "bar", "domain")).toEqual({
+      shown: 400,
+      total: 450,
+      keeps: "first",
+    });
+    expect(chartPointLimit(categories, "stacked-bar", "domain")?.keeps).toBe(
+      "first",
+    );
+    const kept = limitChartRows(categories, "bar", "domain");
+    expect(kept[kept.length - 1]).toEqual({ domain: "site-399.example" });
+  });
+
+  it("keeps the newest points of a bar chart over dates", () => {
+    const days = Array.from({ length: 450 }, (_, index) => ({
+      date: new Date(Date.UTC(2025, 0, 1 + index)).toISOString().slice(0, 10),
+      count: index,
+    }));
+    expect(chartPointLimit(days, "bar", "date")?.keeps).toBe("newest");
+    const kept = limitChartRows(days, "bar", "date");
+    expect(kept[0]?.date).toBe("2025-02-20");
+    expect(kept[kept.length - 1]?.date).toBe("2026-03-26");
+  });
+
+  it("keeps the newest points when dates run newest-first", () => {
+    const days = Array.from({ length: 450 }, (_, index) => ({
+      date: new Date(Date.UTC(2025, 0, 1 + index)).toISOString().slice(0, 10),
+      count: index,
+    })).reverse();
+    for (const chartType of ["bar", "line"]) {
+      const kept = limitChartRows(days, chartType, "date");
+      expect(kept[0]?.date).toBe("2026-03-26");
+      expect(kept[kept.length - 1]?.date).toBe("2025-02-20");
+    }
+  });
+
+  it("keeps the newest of newest-first weeks", () => {
+    const weeks = Array.from({ length: 450 }, (_, index) => ({
+      week: `${2026 - Math.floor(index / 52)}-W${String(52 - (index % 52)).padStart(2, "0")}`,
+      count: index,
+    }));
+    expect(chartPointLimit(weeks, "bar", "week")?.keeps).toBe("newest");
+    expect(limitChartRows(weeks, "bar", "week")[0]?.week).toBe("2026-W52");
+  });
+
+  it("keeps the first points of a bar chart whose date order is unknown", () => {
+    const days = Array.from({ length: 450 }, (_, index) => ({
+      day: `Oct ${String((index % 28) + 1).padStart(2, "0")}`,
+      count: index,
+    }));
+    expect(chartPointLimit(days, "bar", "day")?.keeps).toBe("first");
+    expect(limitChartRows(days, "bar", "day")[0]).toEqual(days[0]);
+  });
+
+  it("keeps the newest points of a bar chart over month-name dates with a year", () => {
+    const days = Array.from(
+      { length: 450 },
+      (_, index) => new Date(Date.UTC(2025, 0, 1 + index)),
+    ).map((day) => ({
+      day: day.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      }),
+    }));
+    expect(chartPointLimit(days, "bar", "day")?.keeps).toBe("newest");
+    expect(limitChartRows(days, "bar", "day")[0]).toEqual(days[50]);
+  });
+
+  it("keeps the first points of a bar chart over dates sorted by value", () => {
+    const busiest = Array.from({ length: 450 }, (_, index) => ({
+      date: new Date(Date.UTC(2025, 0, 1 + ((index * 7) % 450)))
+        .toISOString()
+        .slice(0, 10),
+      count: 450 - index,
+    }));
+    expect(chartPointLimit(busiest, "bar", "date")?.keeps).toBe("first");
+    expect(limitChartRows(busiest, "bar", "date")[0]).toEqual(busiest[0]);
+  });
+
+  it("keeps the first points of a bar chart over numeric ids", () => {
+    const accounts = Array.from({ length: 500 }, (_, index) => ({
+      account_id: 9000 - index,
+      revenue: 500 - index,
+    }));
+    expect(chartPointLimit(accounts, "bar", "account_id")?.keeps).toBe("first");
+    expect(limitChartRows(accounts, "bar", "account_id")[0]).toEqual({
+      account_id: 9000,
+      revenue: 500,
+    });
+  });
+
+  it("has no limit at or under the cap, or for tables", () => {
+    expect(chartPointLimit(rows(400), "line")).toBeNull();
+    expect(chartPointLimit(rows(5000), "table")).toBeNull();
+  });
+
+  it("is part of the render plan", () => {
+    const plan = planPanelRender(
+      Array.from({ length: 601 }, (_, index) => ({
+        date: new Date(Date.UTC(2025, 0, 1 + index)).toISOString().slice(0, 10),
+        n: index,
+      })),
+      { chartType: "line", config: { xKey: "date", yKey: "n" } },
+    );
+
+    expect(plan.renderedRowCount).toBe(601);
+    expect(plan.pointLimit).toEqual({
+      shown: 400,
+      total: 601,
+      keeps: "newest",
+    });
+  });
+});
+
+describe("pivot.seriesOrder shape", () => {
+  const pivotPanel = (pivot: Record<string, unknown>) => ({
+    id: "p",
+    title: "P",
+    chartType: "bar",
+    config: { pivot },
+  });
+  const pivot = { xKey: "day", seriesKey: "app", valueKey: "n" };
+
+  it("accepts a list of series values", () => {
+    expect(
+      unknownPanelConfigKeys(pivotPanel({ ...pivot, seriesOrder: ["mail"] })),
+    ).toEqual([]);
+  });
+
+  it("flags a seriesOrder that is not a list of strings", () => {
+    expect(
+      unknownPanelConfigKeys(pivotPanel({ ...pivot, seriesOrder: "mail" })),
+    ).toEqual([
+      expect.objectContaining({ kind: "invalid-value", key: "pivot" }),
     ]);
   });
 });

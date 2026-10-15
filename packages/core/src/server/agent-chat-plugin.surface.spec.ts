@@ -1267,6 +1267,19 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
     expect(availabilityLine).not.toContain("`run-code`");
   });
 
+  it("puts the provider-side retrieval ladder before the scan guidance", () => {
+    const prompt = generateCorpusToolsPrompt({
+      "provider-api-request": noopTool,
+      "run-code": noopTool,
+    } as never);
+
+    const ladder = prompt.indexOf("Retrieval ladder");
+    const scan = prompt.indexOf("fetch every relevant page");
+    expect(ladder).toBeGreaterThan(-1);
+    expect(scan).toBeGreaterThan(ladder);
+    expect(prompt).toContain("native search, semantic, or MCP tool");
+  });
+
   it("includes every corpus tool name when the full set is registered", () => {
     const registry = {
       "provider-api-catalog": noopTool,
@@ -1326,10 +1339,10 @@ describe("delegated tool surfaces in dev", () => {
       return branch.slice(0, elseAt);
     };
 
-    expect(devBranch("const a2aActions = attachToolSearch(")).toContain(
+    expect(devBranch("const a2aRegisteredActions = devActive")).toContain(
       "...templateScripts,",
     );
-    expect(devBranch("const mcpActions = attachToolSearch(")).toContain(
+    expect(devBranch("const mcpRegisteredActions = devActiveMcp")).toContain(
       "...templateScripts,",
     );
 
