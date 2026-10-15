@@ -16,6 +16,7 @@ const SEEK_MATCH_SECONDS = 0.001;
 interface FrameMetadata {
   mediaTime: number;
   presentedFrames: number;
+  presentationTime: number;
 }
 
 type FrameCallbackVideo = HTMLVideoElement & {
@@ -47,10 +48,11 @@ export function frameTimeMs(mediaTimeSeconds: number): number {
  */
 export class VideoFrameClock {
   private handle: number | null = null;
-  private last: FrameMetadata | null = null;
+  private last: Omit<FrameMetadata, "presentationTime"> | null = null;
   /** Start of the frame playback presented just before `last`. */
   private previousStart: number | null = null;
   private seekPending = false;
+  private seekStartedAt = 0;
   private durations: number[] = [];
   private waiters = new Set<(mediaTime: number | null) => void>();
 
@@ -84,6 +86,7 @@ export class VideoFrameClock {
 
   private onSeeking = () => {
     this.seekPending = true;
+    this.seekStartedAt = performance.now();
   };
 
   private onEmptied = () => {
@@ -93,6 +96,12 @@ export class VideoFrameClock {
   };
 
   private onFrame = (_now: number, metadata: FrameMetadata) => {
+    this.handle = this.video.requestVideoFrameCallback!(this.onFrame);
+    // A frame shown just before a seek can report after it starts; it still
+    // shows the old position, so it mustn't settle the seek.
+    if (this.seekPending && metadata.presentationTime < this.seekStartedAt) {
+      return;
+    }
     const previous = this.last;
     const consecutive =
       previous !== null &&
@@ -108,7 +117,6 @@ export class VideoFrameClock {
       presentedFrames: metadata.presentedFrames,
     };
     this.settleWaiters(metadata.mediaTime);
-    this.handle = this.video.requestVideoFrameCallback!(this.onFrame);
   };
 
   private settleWaiters(mediaTime: number | null) {
@@ -240,7 +248,11 @@ export async function stepVideoFrame(
     seekMs(
       direction < 0 ? beforeCut(targetMs, target.excludedRanges) : targetMs,
     );
-    return true;
+    // Let each seek finish, so queued presses show every frame rather than
+    // one jump.
+    const fallbackSought = video.currentTime;
+    if (video.seeking) await nextEvent(video, "seeked");
+    return !overtaken(video, fallbackSought);
   }
   const sought = video.currentTime;
   // Stepping from the seek target instead would override a seek still in

@@ -9,7 +9,11 @@ import {
 
 type FrameCallback = (
   now: number,
-  metadata: { mediaTime: number; presentedFrames: number },
+  metadata: {
+    mediaTime: number;
+    presentedFrames: number;
+    presentationTime: number;
+  },
 ) => void;
 
 /**
@@ -21,6 +25,8 @@ class FakeVideo {
   seeking = false;
   /** Seeks start but never finish, as on a stalled network. */
   stalled = false;
+  /** Report a seek done before presenting its frame, as Firefox may. */
+  seekedFirst = false;
   duration: number;
   private time = 0;
   private presented = 0;
@@ -46,14 +52,20 @@ class FakeVideo {
     const seek = ++this.seeks;
     this.emit("seeking");
     if (this.stalled) return;
+    const finish = () => {
+      this.seeking = false;
+      this.emit("seeked");
+    };
     // Chromium presents the sought frame before it reports the seek done.
+    const [first, second] = this.seekedFirst
+      ? [finish, () => this.present()]
+      : [() => this.present(), finish];
     setTimeout(() => {
       if (seek !== this.seeks) return;
-      this.present();
+      first();
       setTimeout(() => {
         if (seek !== this.seeks) return;
-        this.seeking = false;
-        this.emit("seeked");
+        second();
       }, 0);
     }, 0);
   }
@@ -62,6 +74,11 @@ class FakeVideo {
   playTo(seconds: number) {
     this.time = seconds;
     this.present();
+  }
+
+  /** Delivers a late callback for a frame presented at `presentedAt`. */
+  reportFrame(mediaTime: number, presentedAt: number) {
+    this.deliver(mediaTime, presentedAt);
   }
 
   private emit(type: string) {
@@ -100,14 +117,18 @@ class FakeVideo {
   }
 
   private present() {
+    this.deliver(this.frames[this.shownFrame()], performance.now());
+  }
+
+  private deliver(mediaTime: number, presentationTime: number) {
     const callbacks = [...this.callbacks.values()];
     this.callbacks.clear();
     this.presented++;
-    const mediaTime = this.frames[this.shownFrame()];
     for (const callback of callbacks) {
       callback(performance.now(), {
         mediaTime,
         presentedFrames: this.presented,
+        presentationTime,
       });
     }
   }
@@ -313,6 +334,21 @@ describe("stepVideoFrame", () => {
     }
   });
 
+  it("ignores a frame from before a seek that reports after it", async () => {
+    const frames = frameStarts(24, 48, true);
+    const { fake, clock, step, goToFrame, seekMs } = setup(frames);
+    await goToFrame(5);
+    await clock?.settledFrameStart();
+    fake.seekedFirst = true;
+    const shownBeforeSeek = performance.now() - 1;
+
+    seekMs(frameTimeMs(frames[20]));
+    fake.reportFrame(frames[5], shownBeforeSeek);
+    await step(1);
+
+    expect(fake.shownFrame()).toBe(21);
+  });
+
   it("steps onto the last frame before a cut, then across it", async () => {
     // Frame 11 (458 ms) shows for 7 ms before the cut, inside the first probe.
     const frames = frameStarts(24, 48, true);
@@ -387,6 +423,26 @@ describe("stepVideoFrame", () => {
     await stepVideoFrame(target, -1);
 
     expect(seeks).toEqual([1034, 967]);
+  });
+
+  it("falls back to steps that wait for each seek to finish", async () => {
+    const fake = new FakeVideo(frameStarts(30, 60), false);
+
+    const kept = await stepVideoFrame(
+      {
+        video: fake as unknown as HTMLVideoElement,
+        clock: null,
+        seekMs: (ms) => {
+          fake.currentTime = ms / 1000;
+        },
+        excludedRanges: [],
+      },
+      1,
+    );
+
+    expect(kept).toBe(true);
+    expect(fake.seeking).toBe(false);
+    expect(fake.shownFrame()).toBe(1);
   });
 
   it("falls back to a step back that clears a cut", async () => {
