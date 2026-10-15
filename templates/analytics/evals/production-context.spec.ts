@@ -55,12 +55,12 @@ describe("Analytics production eval context", () => {
       appId: "analytics",
       initialToolNames: expect.arrayContaining([
         "find-data",
-        "query-dbt-semantic-metric",
         "bigquery",
         "search-bigquery-schema",
         "tool-search",
       ]),
     });
+    expect(context.initialToolNames).not.toContain("query-dbt-semantic-metric");
     expect(context.finalResponseGuard).toBeTypeOf("function");
     expect(context.systemPrompt).toContain("REAL DATA");
     expect(context.actions["find-data"]?.readOnly).toBe(true);
