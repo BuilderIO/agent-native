@@ -80,12 +80,12 @@ export default {
     sigmaSaveFailed:
       "Die Sigma-Zugangsdaten wurden überprüft, aber Analytics konnte sie nicht speichern. Die vorherige Verbindung ist unverändert. Versuche es erneut.",
     sigmaCleanupPending:
-      "Sigma ist verbunden, aber temporäre Einrichtungsdaten bleiben bestehen, bis die Bereinigung erfolgreich ist.",
+      "Temporäre Sigma-Einrichtungsdaten bleiben bestehen, bis die Bereinigung erfolgreich ist.",
     sigmaCleanupFailed:
       "Die temporären Sigma-Zugangsdaten konnten nicht gelöscht werden. Versuche die Bereinigung erneut.",
     sigmaRetryCleanup: "Bereinigung erneut versuchen",
     sigmaDirectCredentialsUnavailable:
-      "Die gespeicherten Analytics-Sigma-Zugangsdaten konnten nicht gelesen werden. Verbinde Sigma in Dispatch neu oder gib die Zugangsdaten erneut ein.",
+      "Die gespeicherten Analytics-Sigma-Zugangsdaten konnten nicht gelesen werden. Ein Organisationsadmin kann Sigma in Dispatch erneut verbinden oder die Zugangsdaten in Analytics neu eingeben.",
     sigmaNoConnectionDescription:
       "Gib hier Zugangsdaten ein, um eine nur für Analytics verfügbare Verbindung zu erstellen. In Dispatch für Analytics freigegebene Sigma-Verbindungen erscheinen hier automatisch; nur Organisationsadmins können Zugangsdaten direkt speichern.",
     sigmaOpenDispatch: "In Dispatch verbinden",

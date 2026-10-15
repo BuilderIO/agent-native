@@ -209,12 +209,11 @@ export default {
       "現有的 Analytics Sigma 連線具有非預期的存取政策。請先在 Dispatch 中重新連線，再試一次。",
     sigmaSaveFailed:
       "Sigma 認證資料已驗證，但 Analytics 無法儲存。先前的連線未變更。請再試一次。",
-    sigmaCleanupPending:
-      "Sigma 已連線，但暫存設定認證資料會保留，直到清理成功。",
+    sigmaCleanupPending: "Sigma 暫存設定認證資料會保留，直到清理成功。",
     sigmaCleanupFailed: "無法清除 Sigma 臨時認證資料。請重試清理。",
     sigmaRetryCleanup: "重試清理",
     sigmaDirectCredentialsUnavailable:
-      "無法讀取已儲存的 Analytics Sigma 認證資料。請在 Dispatch 中重新連線，或重新輸入認證資料。",
+      "無法讀取 Analytics 儲存的 Sigma 認證資料。組織管理員可以在 Dispatch 重新連線，或在 Analytics 重新輸入認證資料。",
     sigmaNoConnectionDescription:
       "在此輸入認證資料以建立僅供 Analytics 使用的連線。在 Dispatch 中授權 Analytics 使用的 Sigma 連線會自動顯示於此；只有組織管理員可以直接儲存認證資料。",
     sigmaOpenDispatch: "在 Dispatch 中連線",

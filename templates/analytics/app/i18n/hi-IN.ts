@@ -75,13 +75,12 @@ export default {
       "मौजूदा Analytics Sigma कनेक्शन की ऐक्सेस नीति अनपेक्षित है। फिर कोशिश करने से पहले Dispatch में इसे दोबारा कनेक्ट करें।",
     sigmaSaveFailed:
       "Sigma क्रेडेंशियल सत्यापित हो गए, लेकिन Analytics उन्हें सेव नहीं कर सका। पिछला कनेक्शन अपरिवर्तित है। फिर कोशिश करें।",
-    sigmaCleanupPending:
-      "Sigma कनेक्ट है, लेकिन क्लीनअप सफल होने तक अस्थायी सेटअप क्रेडेंशियल बने रहेंगे।",
+    sigmaCleanupPending: "क्लीनअप सफल होने तक अस्थायी Sigma सेटअप क्रेडेंशियल बने रहेंगे।",
     sigmaCleanupFailed:
       "अस्थायी Sigma क्रेडेंशियल हटाए नहीं जा सके। क्लीनअप फिर से आज़माएँ।",
     sigmaRetryCleanup: "क्लीनअप फिर से आज़माएँ",
     sigmaDirectCredentialsUnavailable:
-      "सेव किए गए Analytics Sigma क्रेडेंशियल पढ़े नहीं जा सके। Dispatch में फिर से कनेक्ट करें या क्रेडेंशियल दोबारा दर्ज करें।",
+      "Analytics में सेव किए गए Sigma क्रेडेंशियल पढ़े नहीं जा सके। संगठन एडमिन Dispatch में फिर से कनेक्ट कर सकता है या Analytics में क्रेडेंशियल दोबारा दर्ज कर सकता है।",
     sigmaNoConnectionDescription:
       "Analytics-only कनेक्शन बनाने के लिए यहाँ क्रेडेंशियल दर्ज करें। Dispatch में Analytics के लिए अधिकृत Sigma कनेक्शन यहाँ अपने-आप दिखते हैं; केवल संगठन के एडमिन सीधे क्रेडेंशियल सेव कर सकते हैं।",
     sigmaOpenDispatch: "Dispatch में कनेक्ट करें",

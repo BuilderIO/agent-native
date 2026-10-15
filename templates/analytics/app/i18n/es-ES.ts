@@ -80,12 +80,12 @@ export default {
     sigmaSaveFailed:
       "Las credenciales de Sigma se verificaron, pero Analytics no pudo guardarlas. La conexión anterior no ha cambiado. Inténtalo de nuevo.",
     sigmaCleanupPending:
-      "Sigma está conectado, pero las credenciales temporales de configuración permanecerán hasta que la limpieza se complete correctamente.",
+      "Las credenciales temporales de configuración de Sigma permanecerán hasta que la limpieza se complete correctamente.",
     sigmaCleanupFailed:
       "No se pudieron borrar las credenciales temporales de Sigma. Vuelve a intentar la limpieza.",
     sigmaRetryCleanup: "Reintentar limpieza",
     sigmaDirectCredentialsUnavailable:
-      "No se pudieron leer las credenciales guardadas de Sigma para Analytics. Vuelve a conectarlo en Dispatch o introduce de nuevo las credenciales.",
+      "No se pudieron leer las credenciales de Sigma guardadas en Analytics. Un administrador de la organización puede volver a conectarlo en Dispatch o introducirlas de nuevo en Analytics.",
     sigmaNoConnectionDescription:
       "Introduce aquí las credenciales para crear una conexión exclusiva de Analytics. Las conexiones de Sigma autorizadas para Analytics en Dispatch aparecen aquí automáticamente; solo los administradores de la organización pueden guardar credenciales directamente.",
     sigmaOpenDispatch: "Conectar en Dispatch",

@@ -79,12 +79,12 @@ export default {
     sigmaSaveFailed:
       "Sigma 자격 증명은 확인되었지만 Analytics에서 저장하지 못했습니다. 이전 연결은 변경되지 않았습니다. 다시 시도하세요.",
     sigmaCleanupPending:
-      "Sigma가 연결되었지만 정리가 성공할 때까지 임시 설정 자격 증명이 남아 있습니다.",
+      "정리가 완료될 때까지 임시 Sigma 설정 자격 증명이 남아 있습니다.",
     sigmaCleanupFailed:
       "임시 Sigma 자격 증명을 지우지 못했습니다. 정리를 다시 시도하세요.",
     sigmaRetryCleanup: "정리 재시도",
     sigmaDirectCredentialsUnavailable:
-      "저장된 Analytics Sigma 자격 증명을 읽을 수 없습니다. Dispatch에서 다시 연결하거나 자격 증명을 다시 입력하세요.",
+      "Analytics에 저장된 Sigma 자격 증명을 읽을 수 없습니다. 조직 관리자가 Dispatch에서 다시 연결하거나 Analytics에서 자격 증명을 다시 입력할 수 있습니다.",
     sigmaNoConnectionDescription:
       "여기에 자격 증명을 입력하면 Analytics 전용 연결을 만들 수 있습니다. Dispatch에서 Analytics에 허용된 Sigma 연결은 여기에 자동으로 표시되며, 자격 증명을 직접 저장할 수 있는 사용자는 조직 관리자뿐입니다.",
     sigmaOpenDispatch: "Dispatch에서 연결",

@@ -133,9 +133,10 @@ async function readSigmaDirectCredentials(
         credentialRef.scope !== "org" ||
         credentialRef.provider !== "sigma"
       ) {
-        throw new Error(
-          "The Analytics Sigma connection access policy is invalid.",
-        );
+        fail("The Analytics Sigma connection access policy is invalid.", {
+          errorCode: "sigma_connection_policy_invalid",
+          statusCode: 409,
+        });
       }
 
       const resolution = await resolveWorkspaceConnectionCredentialForApp({
@@ -167,14 +168,21 @@ async function readSigmaDirectCredentials(
         provenance.credentialRef.provider !== "sigma" ||
         provenance.secretScope !== "org"
       ) {
-        throw new Error(
+        fail(
           "The Analytics Sigma connection credential reference is invalid.",
+          {
+            errorCode: "sigma_connection_policy_invalid",
+            statusCode: 409,
+          },
         );
       }
 
       const credentials = parseSigmaDirectCredentials(resolution.value);
       if (!credentials) {
-        throw new Error("The Analytics Sigma credentials are invalid.");
+        fail("The saved Analytics Sigma credential bundle could not be read.", {
+          errorCode: "sigma_direct_credentials_unavailable",
+          statusCode: 503,
+        });
       }
       return {
         kind: "direct",

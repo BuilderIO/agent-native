@@ -203,6 +203,8 @@ export function SigmaMigrationDialog({
   const listResultIsValid = listData ? isWorkbookListResult(listData) : false;
   const listHasError =
     workbookList.isError || Boolean(listData && !listResultIsValid);
+  const connectionPolicyInvalid =
+    actionErrorCode(workbookList.error) === "sigma_connection_policy_invalid";
   const directCredentialsUnavailable =
     actionErrorCode(workbookList.error) ===
     "sigma_direct_credentials_unavailable";
@@ -719,6 +721,81 @@ export function SigmaMigrationDialog({
         : t("dashboardOverview.sigmaLoadMore")}
     </Button>
   ) : null;
+  const sigmaCredentialForm = canManageOrg ? (
+    <form className="space-y-3" onSubmit={handleSigmaConnect}>
+      <div className="space-y-2">
+        <Label htmlFor="sigma-client-id">
+          {t("dashboardOverview.sigmaClientId")}
+        </Label>
+        <Input
+          id="sigma-client-id"
+          autoComplete="off"
+          required
+          value={sigmaClientId}
+          onChange={(event) => setSigmaClientId(event.currentTarget.value)}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="sigma-client-secret">
+          {t("dashboardOverview.sigmaClientSecret")}
+        </Label>
+        <Input
+          id="sigma-client-secret"
+          type="password"
+          autoComplete="new-password"
+          required
+          value={sigmaClientSecret}
+          onChange={(event) => setSigmaClientSecret(event.currentTarget.value)}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="sigma-base-url">
+          {t("dashboardOverview.sigmaBaseUrl")}
+        </Label>
+        <Input
+          id="sigma-base-url"
+          type="url"
+          autoComplete="url"
+          placeholder={t("dashboardOverview.sigmaBaseUrlPlaceholder")}
+          value={sigmaBaseUrl}
+          onChange={(event) => setSigmaBaseUrl(event.currentTarget.value)}
+        />
+      </div>
+      {sigmaSetupError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {sigmaSetupError}
+        </p>
+      ) : null}
+      <Button
+        className="w-full"
+        type="submit"
+        disabled={savingSigmaCredentials || saveSigmaConnection.isPending}
+      >
+        {savingSigmaCredentials || saveSigmaConnection.isPending ? (
+          <IconLoader2 className="animate-spin" />
+        ) : null}
+        {savingSigmaCredentials || saveSigmaConnection.isPending
+          ? t("dashboardOverview.sigmaConnecting")
+          : t("dashboardOverview.sigmaConnect")}
+      </Button>
+    </form>
+  ) : null;
+  const sigmaConnectionManagementLinks = (
+    <div className="flex flex-wrap gap-2">
+      <Button asChild type="button" variant="outline" size="sm">
+        <a href={dispatchHref} target="_blank" rel="noreferrer">
+          {t("dashboardOverview.sigmaOpenDispatch")}
+          <IconExternalLink />
+        </a>
+      </Button>
+      <Button asChild type="button" variant="ghost" size="sm">
+        <a href={dispatchVaultHref} target="_blank" rel="noreferrer">
+          {t("dashboardOverview.sigmaOpenVault")}
+          <IconExternalLink />
+        </a>
+      </Button>
+    </div>
+  );
 
   return (
     <>
@@ -764,19 +841,27 @@ export function SigmaMigrationDialog({
                 detail={
                   directCredentialsUnavailable
                     ? t("dashboardOverview.sigmaDirectCredentialsUnavailable")
-                    : t("dashboardOverview.sigmaRetryConnection")
+                    : connectionPolicyInvalid
+                      ? t("dashboardOverview.sigmaPolicyInvalid")
+                      : t("dashboardOverview.sigmaRetryConnection")
                 }
                 action={
-                  <div className="flex flex-wrap gap-2">
-                    {chooseConnectionButton}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void workbookList.refetch()}
-                    >
-                      {t("dashboardOverview.sigmaRetry")}
-                    </Button>
+                  <div className="w-full space-y-4">
+                    {directCredentialsUnavailable ? sigmaCredentialForm : null}
+                    {directCredentialsUnavailable || connectionPolicyInvalid
+                      ? sigmaConnectionManagementLinks
+                      : null}
+                    <div className="flex flex-wrap gap-2">
+                      {chooseConnectionButton}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void workbookList.refetch()}
+                      >
+                        {t("dashboardOverview.sigmaRetry")}
+                      </Button>
+                    </div>
                   </div>
                 }
               />
@@ -787,96 +872,8 @@ export function SigmaMigrationDialog({
                 detail={t("dashboardOverview.sigmaNoConnectionDescription")}
                 action={
                   <div className="w-full space-y-4">
-                    {canManageOrg ? (
-                      <form className="space-y-3" onSubmit={handleSigmaConnect}>
-                        <div className="space-y-2">
-                          <Label htmlFor="sigma-client-id">
-                            {t("dashboardOverview.sigmaClientId")}
-                          </Label>
-                          <Input
-                            id="sigma-client-id"
-                            autoComplete="off"
-                            required
-                            value={sigmaClientId}
-                            onChange={(event) =>
-                              setSigmaClientId(event.currentTarget.value)
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="sigma-client-secret">
-                            {t("dashboardOverview.sigmaClientSecret")}
-                          </Label>
-                          <Input
-                            id="sigma-client-secret"
-                            type="password"
-                            autoComplete="new-password"
-                            required
-                            value={sigmaClientSecret}
-                            onChange={(event) =>
-                              setSigmaClientSecret(event.currentTarget.value)
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="sigma-base-url">
-                            {t("dashboardOverview.sigmaBaseUrl")}
-                          </Label>
-                          <Input
-                            id="sigma-base-url"
-                            type="url"
-                            autoComplete="url"
-                            placeholder={t(
-                              "dashboardOverview.sigmaBaseUrlPlaceholder",
-                            )}
-                            value={sigmaBaseUrl}
-                            onChange={(event) =>
-                              setSigmaBaseUrl(event.currentTarget.value)
-                            }
-                          />
-                        </div>
-                        {sigmaSetupError ? (
-                          <p className="text-sm text-destructive" role="alert">
-                            {sigmaSetupError}
-                          </p>
-                        ) : null}
-                        <Button
-                          className="w-full"
-                          type="submit"
-                          disabled={
-                            savingSigmaCredentials ||
-                            saveSigmaConnection.isPending
-                          }
-                        >
-                          {savingSigmaCredentials ||
-                          saveSigmaConnection.isPending ? (
-                            <IconLoader2 className="animate-spin" />
-                          ) : null}
-                          {savingSigmaCredentials ||
-                          saveSigmaConnection.isPending
-                            ? t("dashboardOverview.sigmaConnecting")
-                            : t("dashboardOverview.sigmaConnect")}
-                        </Button>
-                      </form>
-                    ) : null}
-                    <div className="flex flex-wrap gap-2">
-                      <Button asChild type="button" variant="outline" size="sm">
-                        <a href={dispatchHref} target="_blank" rel="noreferrer">
-                          {t("dashboardOverview.sigmaOpenDispatch")}
-                          <IconExternalLink />
-                        </a>
-                      </Button>
-                      <Button asChild type="button" variant="ghost" size="sm">
-                        <a
-                          href={dispatchVaultHref}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {t("dashboardOverview.sigmaOpenVault")}
-                          <IconExternalLink />
-                        </a>
-                      </Button>
-                    </div>
+                    {sigmaCredentialForm}
+                    {sigmaConnectionManagementLinks}
                   </div>
                 }
               />

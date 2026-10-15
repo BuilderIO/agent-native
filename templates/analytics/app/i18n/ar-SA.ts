@@ -79,12 +79,12 @@ export default {
     sigmaSaveFailed:
       "تم التحقق من بيانات اعتماد Sigma، لكن تعذر على Analytics حفظها. لم يتغير الاتصال السابق. حاول مرة أخرى.",
     sigmaCleanupPending:
-      "تم الاتصال بـ Sigma، لكن بيانات اعتماد الإعداد المؤقتة ستظل موجودة حتى تكتمل عملية التنظيف بنجاح.",
+      "ستظل بيانات اعتماد إعداد Sigma المؤقتة موجودة حتى تكتمل عملية التنظيف بنجاح.",
     sigmaCleanupFailed:
       "تعذر مسح بيانات اعتماد Sigma المؤقتة. أعد محاولة التنظيف.",
     sigmaRetryCleanup: "إعادة محاولة التنظيف",
     sigmaDirectCredentialsUnavailable:
-      "تعذرت قراءة بيانات اعتماد Sigma المحفوظة في Analytics. أعد الاتصال عبر Dispatch أو أدخل بيانات الاعتماد مرة أخرى.",
+      "تعذرت قراءة بيانات اعتماد Sigma المحفوظة في Analytics. يمكن لمسؤول المؤسسة إعادة الاتصال عبر Dispatch أو إدخال بيانات الاعتماد مجددًا في Analytics.",
     sigmaNoConnectionDescription:
       "أدخل بيانات الاعتماد هنا لإنشاء اتصال مخصص لـ Analytics. تظهر هنا تلقائيًا اتصالات Sigma الممنوحة لـ Analytics في Dispatch؛ ولا يمكن حفظ بيانات الاعتماد مباشرةً إلا لمسؤولي المؤسسة.",
     sigmaOpenDispatch: "الاتصال عبر Dispatch",

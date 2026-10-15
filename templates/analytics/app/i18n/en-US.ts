@@ -245,12 +245,12 @@ export default {
     sigmaSaveFailed:
       "Sigma credentials were verified, but Analytics couldn't save them. Your previous connection is unchanged. Try again.",
     sigmaCleanupPending:
-      "Sigma is connected, but temporary setup credentials remain until cleanup succeeds.",
+      "Temporary Sigma setup credentials remain until cleanup succeeds.",
     sigmaCleanupFailed:
       "Couldn't clear temporary Sigma setup credentials. Try cleanup again.",
     sigmaRetryCleanup: "Retry cleanup",
     sigmaDirectCredentialsUnavailable:
-      "Couldn't read Analytics's saved Sigma credentials. Reconnect in Dispatch or enter them again.",
+      "Couldn't read Analytics's saved Sigma credentials. An organization admin can reconnect in Dispatch or enter them again in Analytics.",
     sigmaNoConnectionDescription:
       "Enter credentials here to create an Analytics-only connection. Dispatch connections granted to Analytics appear here automatically; only organization admins can save credentials directly.",
     sigmaOpenDispatch: "Connect in Dispatch",

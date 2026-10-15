@@ -80,12 +80,12 @@ export default {
     sigmaSaveFailed:
       "Sigma の認証情報は検証されましたが、Analytics で保存できませんでした。以前の接続は変更されていません。もう一度お試しください。",
     sigmaCleanupPending:
-      "Sigma は接続済みですが、クリーンアップが完了するまで一時的な設定認証情報は残ります。",
+      "クリーンアップが完了するまで、一時的な Sigma 設定認証情報は残ります。",
     sigmaCleanupFailed:
       "Sigma の一時認証情報を消去できませんでした。クリーンアップを再試行してください。",
     sigmaRetryCleanup: "クリーンアップを再試行",
     sigmaDirectCredentialsUnavailable:
-      "保存済みの Analytics Sigma 認証情報を読み取れませんでした。Dispatch で再接続するか、認証情報を再入力してください。",
+      "Analytics に保存された Sigma 認証情報を読み取れませんでした。組織の管理者は Dispatch で再接続するか、Analytics で認証情報を再入力できます。",
     sigmaNoConnectionDescription:
       "ここに認証情報を入力すると Analytics 専用の接続を作成できます。Dispatch で Analytics に許可された Sigma 接続はここに自動で表示されます。認証情報を直接保存できるのは組織管理者のみです。",
     sigmaOpenDispatch: "Dispatch で接続",

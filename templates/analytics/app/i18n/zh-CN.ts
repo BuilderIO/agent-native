@@ -75,11 +75,11 @@ export default {
       "现有 Analytics Sigma 连接的访问策略异常。请先在 Dispatch 中重新连接，然后重试。",
     sigmaSaveFailed:
       "Sigma 凭据已验证，但 Analytics 无法保存。之前的连接未更改。请重试。",
-    sigmaCleanupPending: "Sigma 已连接，但临时设置凭据会保留，直到清理成功。",
+    sigmaCleanupPending: "临时 Sigma 设置凭据会保留，直到清理成功。",
     sigmaCleanupFailed: "无法清除临时 Sigma 凭据。请重试清理。",
     sigmaRetryCleanup: "重试清理",
     sigmaDirectCredentialsUnavailable:
-      "无法读取已保存的 Analytics Sigma 凭据。请在 Dispatch 中重新连接，或重新输入凭据。",
+      "无法读取 Analytics 保存的 Sigma 凭据。组织管理员可以在 Dispatch 中重新连接，或在 Analytics 中重新输入凭据。",
     sigmaNoConnectionDescription:
       "在此输入凭据以创建仅供 Analytics 使用的连接。已在 Dispatch 中授权 Analytics 使用的 Sigma 连接会自动显示在这里；只有组织管理员可以直接保存凭据。",
     sigmaOpenDispatch: "在 Dispatch 中连接",
