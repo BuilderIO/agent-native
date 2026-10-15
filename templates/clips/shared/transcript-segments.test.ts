@@ -71,27 +71,56 @@ describe("normalizeTranscriptSegments", () => {
     }
   });
 
-  it("preserves source and speaker when a single long segment is resynthesized from fullText", () => {
+  it("keeps a lone short segment where it is in the clip", () => {
+    const cue = {
+      startMs: 30_000,
+      endMs: 34_000,
+      text: "The chart shows three bugs.",
+    };
+    expect(
+      normalizeTranscriptSegments({
+        segments: [cue],
+        fullText: cue.text,
+        durationMs: 120_000,
+      }),
+    ).toEqual([cue]);
+  });
+
+  it("splits a lone long segment inside its own span", () => {
     const longText =
       "This is a fairly long sentence spoken by the recording owner into their microphone during the call.";
     const result = normalizeTranscriptSegments({
       segments: [
         {
-          startMs: 0,
-          endMs: 10_000,
+          startMs: 30_000,
+          endMs: 40_000,
           text: longText,
           source: "mic",
           speaker: "Me",
         },
       ],
       fullText: longText,
+      durationMs: 120_000,
     });
 
     expect(result.length).toBeGreaterThan(1);
+    expect(result[0].startMs).toBe(30_000);
+    expect(result[result.length - 1].endMs).toBe(40_000);
     for (const segment of result) {
       expect(segment.source).toBe("mic");
       expect(segment.speaker).toBe("Me");
     }
+  });
+
+  it("spreads text with no segments across the clip", () => {
+    const result = normalizeTranscriptSegments({
+      segments: [],
+      fullText: "Hello there, this transcript arrived without any timing.",
+      durationMs: 20_000,
+    });
+
+    expect(result[0].startMs).toBe(0);
+    expect(result[result.length - 1].endMs).toBe(20_000);
   });
 });
 

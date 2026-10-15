@@ -114,19 +114,11 @@ export function normalizeTranscriptSegments({
   const validSegments = segments.filter((segment) => segment.text.trim());
   if (!shouldRechunkSegments(validSegments, fullText)) return validSegments;
 
-  const sourceText =
-    fullText?.trim() ||
-    validSegments
-      .map((segment) => segment.text.trim())
-      .join(" ")
-      .trim();
-  if (validSegments.length <= 1) {
-    return buildCaptionSegmentsFromText(
-      sourceText,
-      durationMs,
-      validSegments[0]?.source,
-      validSegments[0]?.speaker,
-    );
+  // Only text with no segments at all is spread across the clip. A lone
+  // segment keeps its own span: an imported one-cue file at 0:30 must not
+  // play from 0:00.
+  if (validSegments.length === 0) {
+    return buildCaptionSegmentsFromText(fullText?.trim() ?? "", durationMs);
   }
 
   return validSegments.flatMap(splitTimedSegmentIntoCaptions);
@@ -205,10 +197,7 @@ function shouldRechunkSegments(
   fullText: string | null | undefined,
 ): boolean {
   if (segments.length === 0) return Boolean(fullText?.trim());
-  if (
-    segments.some((segment) => countWords(segment.text) > MAX_WORDS_PER_CAPTION)
-  )
-    return true;
-  if (segments.length === 1 && countWords(segments[0].text) > 3) return true;
-  return false;
+  return segments.some(
+    (segment) => countWords(segment.text) > MAX_WORDS_PER_CAPTION,
+  );
 }
