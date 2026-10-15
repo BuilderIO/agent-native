@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   canPersistDashboardFilterPreference,
   dashboardFilterPreferenceSaveState,
+  dashboardFilterPreferenceUpdate,
+  dashboardViewsRestoreState,
   matchesDashboardFilterRestoreState,
   resolveDashboardFilterRestoreStep,
   type DashboardFilterRestoreProgress,
@@ -265,6 +267,37 @@ describe("resolveDashboardFilterRestoreStep", () => {
     ).toEqual({ filters: {}, viewId: "q3", source: "personal" });
   });
 
+  it("waits for refetched views before reopening a cached saved view", () => {
+    const refetching = dashboardViewsRestoreState({
+      isSuccess: true,
+      isSettled: true,
+      isFetching: true,
+    });
+    expect(refetching).toBe("loading");
+    expect(
+      resolveStep({
+        defaultView: undefined,
+        savedViewId: "q3",
+        viewsState: refetching,
+      }),
+    ).toEqual({ progress: { status: "pending" }, restore: null });
+
+    expect(
+      dashboardViewsRestoreState({
+        isSuccess: true,
+        isSettled: true,
+        isFetching: false,
+      }),
+    ).toBe("success");
+    expect(
+      dashboardViewsRestoreState({
+        isSuccess: false,
+        isSettled: true,
+        isFetching: false,
+      }),
+    ).toBe("error");
+  });
+
   it("leaves the dashboard default ahead of a saved personal view", () => {
     expect(resolveStep({ savedViewId: "q3" }).restore).toEqual({
       filters: defaultView.filters,
@@ -277,5 +310,34 @@ describe("resolveDashboardFilterRestoreStep", () => {
     expect(
       resolveStep({ defaultView: undefined, savedFilters: undefined }),
     ).toEqual({ progress: { status: "complete" }, restore: null });
+  });
+});
+
+describe("dashboardFilterPreferenceUpdate", () => {
+  it("saves an open view when the URL has no filters", () => {
+    expect(
+      dashboardFilterPreferenceUpdate({}, new URLSearchParams("view=q3")),
+    ).toEqual({ filters: {}, viewId: "q3" });
+    expect(
+      dashboardFilterPreferenceUpdate(
+        { filters: {}, viewId: "q3" },
+        new URLSearchParams("view=q3"),
+      ),
+    ).toBeNull();
+  });
+
+  it("saves nothing for an unfiltered dashboard with no view open", () => {
+    expect(
+      dashboardFilterPreferenceUpdate({}, new URLSearchParams("tab=activity")),
+    ).toBeNull();
+  });
+
+  it("drops the view once it is closed", () => {
+    expect(
+      dashboardFilterPreferenceUpdate(
+        { filters: personalFilters, viewId: "q3" },
+        new URLSearchParams("f_timeRange=7d&f_emailFilter=all"),
+      ),
+    ).toEqual({ filters: personalFilters });
   });
 });

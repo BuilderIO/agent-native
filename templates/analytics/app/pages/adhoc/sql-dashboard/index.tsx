@@ -143,9 +143,10 @@ import {
   canPersistDashboardFilterPreference,
   dashboardFilterParams,
   dashboardFilterPreferenceSaveState,
+  dashboardFilterPreferenceUpdate,
+  dashboardViewsRestoreState,
   matchesDashboardFilterRestoreState,
   resolveDashboardFilterRestoreStep,
-  sameDashboardFilterMap,
   type DashboardFilterPreferenceSaveGuard,
   type DashboardFilterRestoreProgress,
 } from "./dashboard-filter-restore";
@@ -958,8 +959,14 @@ function SqlDashboardPageContent({
     views,
     isSuccess: dashboardViewsLoaded,
     isSettled: dashboardViewsSettled,
+    isFetching: dashboardViewsFetching,
     saveView,
   } = useDashboardViews(dashboardId ?? undefined);
+  const dashboardViewsState = dashboardViewsRestoreState({
+    isSuccess: dashboardViewsLoaded,
+    isSettled: dashboardViewsSettled,
+    isFetching: dashboardViewsFetching,
+  });
   const defaultView = views.find((view) => view.isDefault);
   // A deleted view must not come back as a dangling `view` param.
   const savedViewId = views.some((view) => view.id === savedFilters?.viewId)
@@ -1089,11 +1096,7 @@ function SqlDashboardPageContent({
       defaultView,
       savedFilters: savedFilters?.filters,
       savedViewId,
-      viewsState: dashboardViewsLoaded
-        ? "success"
-        : dashboardViewsSettled
-          ? "error"
-          : "loading",
+      viewsState: dashboardViewsState,
       savedFiltersState: filtersLoaded
         ? "success"
         : filtersError
@@ -1165,8 +1168,7 @@ function SqlDashboardPageContent({
   }, [
     filtersLoaded,
     filtersError,
-    dashboardViewsLoaded,
-    dashboardViewsSettled,
+    dashboardViewsState,
     loaded,
     dashboard,
     defaultView,
@@ -1178,11 +1180,12 @@ function SqlDashboardPageContent({
   ]);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Not gated on filter definitions: the pref also holds the open view, and a
+  // dashboard without filters can still have one open.
   useEffect(() => {
     if (
       reportScreenshot ||
       !loaded ||
-      !dashboard?.filters?.length ||
       !dashboardId ||
       !canPersistDashboardFilterPreference(
         filterRestoreProgress.current,
@@ -1193,15 +1196,9 @@ function SqlDashboardPageContent({
       return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      const currentFilters: Record<string, string> = {};
-      searchParams.forEach((v, k) => {
-        if (k.startsWith(FILTER_PARAM_PREFIX)) {
-          currentFilters[k] = v;
-        }
-      });
       const filterPreferenceSaveState = dashboardFilterPreferenceSaveState(
         skipFilterPreferenceSave.current,
-        currentFilters,
+        dashboardFilterParams(searchParams),
         searchParams.get("view") ?? undefined,
       );
       if (filterPreferenceSaveState === "applied") {
@@ -1212,32 +1209,23 @@ function SqlDashboardPageContent({
       if (filterPreferenceSaveState === "changed") {
         skipFilterPreferenceSave.current = null;
       }
-      const viewId = searchParams.get("view") ?? undefined;
-      if (
-        sameDashboardFilterMap(savedFilters?.filters, currentFilters) &&
-        savedFilters?.viewId === viewId
-      ) {
-        return;
-      }
-      saveFilterPref(
-        viewId
-          ? { filters: currentFilters, viewId }
-          : { filters: currentFilters },
+      const update = dashboardFilterPreferenceUpdate(
+        savedFilters,
+        searchParams,
       );
+      if (update) saveFilterPref(update);
     }, 1500);
     return () => clearTimeout(saveTimer.current);
   }, [
     searchParams,
     loaded,
-    dashboard?.filters,
     dashboardId,
     savedFilters,
     saveFilterPref,
     reportScreenshot,
     filtersLoaded,
     filtersError,
-    dashboardViewsLoaded,
-    dashboardViewsSettled,
+    dashboardViewsState,
   ]);
 
   const enqueueDashboardSave = useCallback(

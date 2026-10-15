@@ -76,6 +76,29 @@ export function dashboardFilterParams(
   return filters;
 }
 
+export function dashboardFilterPreferenceUpdate(
+  saved: { filters?: Record<string, string>; viewId?: string },
+  searchParams: URLSearchParams,
+): { filters: Record<string, string>; viewId?: string } | null {
+  const filters = dashboardFilterParams(searchParams);
+  const viewId = searchParams.get("view") ?? undefined;
+  if (sameDashboardFilterMap(saved.filters, filters) && saved.viewId === viewId)
+    return null;
+  return viewId ? { filters, viewId } : { filters };
+}
+
+// A cached list can still hold a view someone has since deleted, so a refetch
+// in flight counts as loading: restoring from it would put that view in the URL.
+export function dashboardViewsRestoreState(views: {
+  isSuccess: boolean;
+  isSettled: boolean;
+  isFetching: boolean;
+}): "loading" | "error" | "success" {
+  if (views.isFetching) return "loading";
+  if (views.isSuccess) return "success";
+  return views.isSettled ? "error" : "loading";
+}
+
 export function sameDashboardFilterMap(
   a: Record<string, string> | undefined,
   b: Record<string, string> | undefined,
