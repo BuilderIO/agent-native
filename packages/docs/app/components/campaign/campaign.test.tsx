@@ -546,14 +546,14 @@ describe("public campaign frontend", () => {
       [resources[1].label, resources[1].url],
     ]);
     for (const link of links) {
-      expect(link.classList.contains("underline")).toBe(true);
+      expect(link.classList.contains("campaign-inline-link")).toBe(true);
       expect(link.classList.contains("text-[var(--docs-accent)]")).toBe(true);
     }
     const partOf = [...document.querySelectorAll("p")]
       .find((paragraph) => paragraph.textContent?.startsWith("Part of:"))!
       .querySelector("a")!;
     expect(partOf.getAttribute("href")).toBe(links[0].getAttribute("href"));
-    expect(partOf.classList.contains("underline")).toBe(true);
+    expect(partOf.classList.contains("campaign-inline-link")).toBe(true);
     expect(partOf.classList.contains("text-[var(--docs-accent)]")).toBe(true);
   });
 

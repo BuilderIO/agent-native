@@ -325,6 +325,11 @@ a:hover {
   text-decoration: none;
 }
 
+a.campaign-inline-link {
+  text-decoration: underline;
+  text-underline-offset: 0.25rem;
+}
+
 code:where(:not(.builder-brand-tokens *)) {
   font-family: var(--font-mono);
   font-size: 0.875em;

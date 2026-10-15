@@ -219,7 +219,7 @@ export function ArticlePage({
                   `${USE_CASES_BASE}/${useCase.slug}`,
                   locale,
                 )}
-                className="text-[var(--docs-accent)] underline underline-offset-4"
+                className="campaign-inline-link text-[var(--docs-accent)]"
               >
                 {useCase.title}
               </Link>
@@ -237,7 +237,7 @@ export function ArticlePage({
                         `${USE_CASES_BASE}/${useCase.slug}`,
                         locale,
                       )}
-                      className="text-[var(--docs-accent)] underline underline-offset-4"
+                      className="campaign-inline-link text-[var(--docs-accent)]"
                     >
                       {useCase.title}
                     </Link>
@@ -251,14 +251,14 @@ export function ArticlePage({
                         href.startsWith("/") ? (
                           <Link
                             to={campaignHref(href, locale)}
-                            className="text-[var(--docs-accent)] underline underline-offset-4"
+                            className="campaign-inline-link text-[var(--docs-accent)]"
                           >
                             {resource.label}
                           </Link>
                         ) : (
                           <a
                             href={href}
-                            className="text-[var(--docs-accent)] underline underline-offset-4"
+                            className="campaign-inline-link text-[var(--docs-accent)]"
                           >
                             {resource.label}
                           </a>
