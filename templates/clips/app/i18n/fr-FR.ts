@@ -33,7 +33,7 @@ const messages = {
       "Impossible d’accéder au stockage de Rewind. Vérifiez l’espace disque et les autorisations du dossier, puis réessayez.",
     rewindConsentTitle: "Activer Rewind ?",
     rewindConsentBody:
-      "Clips enregistre continuellement votre écran et le conserve sur cet appareil. Les agents reçoivent des extraits de texte, et la vidéo n’est partagée qu’après votre accord.",
+      "Lorsque Rewind est activé, Clips enregistre continuellement votre écran et conserve l’historique récent sur cet appareil. Les agents connectés peuvent demander des images de cet historique ; Clips les leur transmet sans nouvelle approbation, et leur utilisation dépend du service de l’agent. Si vous choisissez une durée pour inclure l’écran précédent, Clips l’ajoute automatiquement à chaque nouveau Clip enregistré dans votre compte, selon les paramètres de partage de ce Clip. Désactiver Rewind arrête les nouveaux enregistrements, mais conserve l’historique ; utilisez l’option de suppression totale pour l’effacer. Par défaut, les demandes vidéo passent par une étape de vérification distincte.",
     rewindConsentCancel: "Pas maintenant",
     rewindConsentConfirm: "Activer Rewind",
     rewindConsentBusy: "Activation de Rewind…",

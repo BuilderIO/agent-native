@@ -31,7 +31,7 @@ const messages = {
       "Couldn't access Rewind's storage. Check disk space and folder permissions, then try again.",
     rewindConsentTitle: "Turn on Rewind?",
     rewindConsentBody:
-      "Clips will continuously record your screen and keep it on this device. Agents get text excerpts, and video is shared only when you approve it.",
+      "While Rewind is on, Clips continuously records your screen and keeps recent history on this device. Connected agents can request screen images from that history; Clips shares them without another approval, and how the agent handles them depends on that service. If you set a duration for earlier screen time, Clips automatically adds that amount to each new Clip saved to your account, following that Clip's sharing settings. Turning Rewind off stops new recording but keeps saved history; use Delete all to erase it. Video requests have a separate review step by default.",
     rewindConsentCancel: "Not now",
     rewindConsentConfirm: "Turn on Rewind",
     rewindConsentBusy: "Turning on…",

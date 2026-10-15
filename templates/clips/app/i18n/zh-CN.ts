@@ -28,7 +28,7 @@ const messages = {
       "无法访问 Rewind 存储空间。请检查磁盘空间和文件夹权限后重试。",
     rewindConsentTitle: "开启 Rewind？",
     rewindConsentBody:
-      "Clips 会持续录制你的屏幕，并将内容保留在此设备上。智能体会获取文本摘录，只有你批准后才会分享视频。",
+      "Rewind 开启时，Clips 会持续录制屏幕，并将近期记录保存在此设备上。已连接的智能体可以请求查看这段记录中的屏幕图像；Clips 会直接将图像提供给智能体，不会再次征求你的同意。智能体如何处理这些图像取决于该服务。如果你设置了要包含的较早屏幕时长，Clips 会自动将这段时长添加到每个保存到你账户的新 Clip 中，并遵循该 Clip 的分享设置。关闭 Rewind 会停止新的录制，但已保存的记录仍会保留；使用“全部删除”选项即可清除。默认情况下，视频请求会经过单独的审核步骤。",
     rewindConsentCancel: "暂不",
     rewindConsentConfirm: "开启 Rewind",
     rewindConsentBusy: "正在开启 Rewind…",

@@ -29,7 +29,7 @@ const messages = {
       "無法存取 Rewind 儲存空間。請檢查磁碟空間和資料夾權限後再試一次。",
     rewindConsentTitle: "開啟 Rewind？",
     rewindConsentBody:
-      "Clips 會持續錄製你的螢幕，並將內容保留在此裝置上。代理程式會取得文字摘錄，只有在你核准後才會分享影片。",
+      "Rewind 開啟時，Clips 會持續錄製螢幕，並將近期記錄保存在此裝置上。已連線的代理程式可以要求查看這段記錄中的螢幕影像；Clips 會直接將影像提供給代理程式，不會再次徵求你的同意。代理程式如何處理影像取決於該服務。如果你設定要包含的較早螢幕時長，Clips 會自動將這段時間加入每個儲存到你帳戶的新 Clip，並遵循該 Clip 的分享設定。關閉 Rewind 會停止新的錄製，但已儲存的記錄仍會保留；使用「全部刪除」選項即可清除。預設情況下，影片要求會經過個別審核步驟。",
     rewindConsentCancel: "暫不",
     rewindConsentConfirm: "開啟 Rewind",
     rewindConsentBusy: "正在開啟 Rewind…",

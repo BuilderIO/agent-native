@@ -33,7 +33,7 @@ const messages = {
       "Não foi possível acessar o armazenamento do Rewind. Confira o espaço em disco e as permissões da pasta e tente novamente.",
     rewindConsentTitle: "Ativar o Rewind?",
     rewindConsentBody:
-      "O Clips gravará sua tela continuamente e a manterá neste dispositivo. Os agentes recebem trechos de texto, e o vídeo só é compartilhado quando você aprova.",
+      "Enquanto o Rewind estiver ativado, o Clips grava sua tela continuamente e mantém o histórico recente neste dispositivo. Agentes conectados podem solicitar imagens desse histórico; o Clips as compartilha sem pedir outra aprovação, e o uso dessas imagens depende do serviço do agente. Se você definir uma duração para incluir tempo de tela anterior, o Clips adiciona esse período automaticamente a cada novo Clip salvo na sua conta, seguindo as configurações de compartilhamento do Clip. Desativar o Rewind interrompe novas gravações, mas mantém o histórico salvo; use a opção de excluir tudo para apagá-lo. Por padrão, solicitações de vídeo passam por uma etapa de revisão separada.",
     rewindConsentCancel: "Agora não",
     rewindConsentConfirm: "Ativar o Rewind",
     rewindConsentBusy: "Ativando o Rewind…",
