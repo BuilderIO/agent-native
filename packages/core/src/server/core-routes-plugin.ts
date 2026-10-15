@@ -5933,8 +5933,6 @@ export function createCoreRoutesPlugin(
                     const chatEligible = await isAgentChatAiSetupReady({
                       status: engineStatus,
                       detectFromUserSecrets: deps.detectFromUserSecrets,
-                      allowChatGPTSubscriptionInOrg:
-                        directLoopbackRequest && agentChatDevModeEnabled,
                     });
                     return { ...engineStatus, chatEligible };
                   },

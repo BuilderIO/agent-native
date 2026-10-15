@@ -418,15 +418,15 @@ describe("request-scoped action surface", () => {
       "isDirectLoopbackRequest: isDirectLoopbackRequest(event)",
     );
     expect(route).toContain("runWithRequestContext(titleRequestContext");
-    expect(route).toContain("requireAgentChatAiSetup({");
-    expect(route).toContain("allowChatGPTSubscriptionInOrg:");
+    expect(route).toContain("requireAgentChatAiSetup()");
+    expect(route).not.toContain("allowChatGPTSubscriptionInOrg");
     expect(route.indexOf("const now = Date.now();")).toBeLessThan(
       route.indexOf(
         "const request = chatTitleRequestFromBody(await readBody(event));",
       ),
     );
     expect(route.indexOf("const now = Date.now();")).toBeLessThan(
-      route.indexOf("requireAgentChatAiSetup({"),
+      route.indexOf("requireAgentChatAiSetup()"),
     );
     expect(route).toContain(
       "generateChatTitle({ ...request, appId: options?.appId })",
@@ -435,26 +435,19 @@ describe("request-scoped action surface", () => {
     expect(route).not.toContain("cleanMessage.trim().slice(0, 60)");
   });
 
-  it("uses the live dev-mode and direct-loopback proof at send readiness", () => {
+  it("preserves request context without granting an org entitlement exception", () => {
     // source-read-ok: This guards the trusted direct-loopback context contract across nested handlers.
     const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
-    const readiness = source.slice(
-      source.indexOf("const requireAgentChatAiSetupForRequest"),
-      source.indexOf("// Resolve the framework's own tool surface"),
-    );
     const productionHandler = source.slice(
       source.indexOf("const prodHandler ="),
       source.indexOf("const anonymousHandler ="),
     );
 
-    expect(readiness).toContain("isAgentChatDevModeEnabled(nitroApp)");
-    expect(readiness).toContain(
-      "getRequestContext()?.isDirectLoopbackRequest === true",
-    );
+    expect(source).not.toContain("allowChatGPTSubscriptionInOrg");
     expect(productionHandler).toContain(
-      "assertAiSetupReady: requireAgentChatAiSetupForRequest",
+      "assertAiSetupReady: requireAgentChatAiSetup",
     );
 
     const queueStart = source.indexOf('isThreadSubroute("queued")');

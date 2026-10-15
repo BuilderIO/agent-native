@@ -225,18 +225,6 @@ describe("Agent-Native chat AI setup gate", () => {
     expect(credentialMocks.chatGPTReady).not.toHaveBeenCalled();
   });
 
-  it("allows org ChatGPT readiness when the caller supplies the local dev gate", async () => {
-    credentialMocks.chatGPTReady.mockResolvedValue(true);
-
-    await expect(
-      isAgentChatAiSetupReady({
-        status: { configured: false } as AgentEngineStatusResponse,
-        detectFromUserSecrets: async () => null,
-        allowChatGPTSubscriptionInOrg: true,
-      }),
-    ).resolves.toBe(true);
-  });
-
   it("accepts a usable saved Builder OAuth credential", async () => {
     credentialMocks.builderReady.mockResolvedValue(true);
 

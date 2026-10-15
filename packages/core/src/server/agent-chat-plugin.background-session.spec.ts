@@ -316,7 +316,7 @@ afterAll(async () => {
 });
 
 describe("background agent sessions through the agent-chat plugin", () => {
-  it("allows ChatGPT readiness for a direct local-dev org send", async () => {
+  it("does not pass loopback as an org ChatGPT readiness exception", async () => {
     const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "0";
     try {
@@ -334,9 +334,7 @@ describe("background agent sessions through the agent-chat plugin", () => {
 
       expect(response.status).toBe(200);
       await response.text();
-      expect(harness.readinessInputs).toContainEqual({
-        allowChatGPTSubscriptionInOrg: true,
-      });
+      expect(harness.readinessInputs).toEqual([undefined]);
     } finally {
       if (previousDurableFlag === undefined) {
         delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
