@@ -1,0 +1,81 @@
+slug: ask-your-database-in-plain-english
+job_id: job-database-questions
+app: analytics
+audience: technical
+title: "Ask your Postgres database questions in plain English"
+subhead: "Connect PostgreSQL to Analytics, ask questions the way you'd ask a teammate, and keep the answers in dashboards you can share. The agent turns your questions into SQL."
+meta_description: "Connect PostgreSQL to Analytics, ask questions in plain English, and save the answers as shareable dashboards. Open-source Analytics from Agent-Native."
+cta_label: "Try Analytics"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://analytics.agent-native.com"
+screenshot_alt: "An Analytics product overview dashboard with metric cards, a weekly active users chart, an activation funnel, and the agent chat open"
+old_way:
+  heading: "How most people do it today"
+  body: "Every question about the data becomes a request for whoever knows SQL. The answer comes back later as a screenshot, and the next question starts the wait again."
+replaces:
+  - "Looker"
+new_way:
+  heading: "How it works in Analytics"
+  steps:
+    - "Connect PostgreSQL in Analytics with its connection URL. BigQuery is supported too."
+    - "Ask a question in plain English. The agent turns your question into SQL against your tables."
+    - "Save the answers as a dashboard. Dashboards are private by default, and you can share one with a teammate or your whole organization."
+todays_stack:
+  heading: "Where data questions go today"
+  items:
+    - text: "**A SQL client** can answer anything, but only for the people who write SQL."
+    - text: "**A BI tool, like Looker,** covers the questions someone planned for, and new ones wait for a data request."
+    - text: "**A chat assistant with a CSV export** can answer a question, but every answer starts with exporting the data again."
+  in_app: "In Analytics, your database answers plain-English questions, and the answers stay in dashboards your team can open."
+frequency: weekly
+how_often_label: "Weekly"
+roles: [engineering, product, founders]
+connects_to: ["PostgreSQL", "BigQuery"]
+next_jobs: [startup-kpi-dashboard, find-where-users-drop-off]
+recipes:
+  - id: first-question
+    title: "Ask your first question"
+    when: "Someone asks a question you'd normally send to the data team."
+    do: "Connect PostgreSQL, then ask in plain English."
+    prompt: "How many accounts signed up last week, by plan?"
+    you_get: "An answer built from SQL the agent writes against your tables."
+    save: "Add your metrics and tables to the data dictionary, so the agent uses the right column names next time."
+    how_often: "Weekly"
+  - id: build-dashboard
+    title: "Turn repeat questions into a dashboard"
+    when: "You keep answering the same question."
+    do: "Ask the agent to build a dashboard."
+    prompt: "Build a dashboard for weekly signups by plan"
+    you_get: "A dashboard with filters and saved views that you can share as a viewer, editor, or admin."
+    how_often: "Weekly"
+  - id: daily-email
+    title: "Get the dashboard by email"
+    when: "You want the numbers without opening the app."
+    do: "Subscribe the dashboard to a daily email snapshot."
+    you_get: "A daily email with the dashboard's charts as images and its tables and metrics as real email content."
+    how_often: "Daily"
+story: null
+faqs:
+  - q: "Which databases can I connect?"
+    a: "Analytics lists PostgreSQL and BigQuery among its 23 data sources, along with product, billing, and CRM tools like Stripe and HubSpot."
+  - q: "Do I need to write SQL?"
+    a: "No. You ask in plain English, and the agent turns your question into SQL."
+  - q: "Can Claude, Codex, or ChatGPT use Analytics?"
+    a: "Every Agent-Native app exposes an MCP URL that Claude, Claude Code, Codex, ChatGPT, and Cursor can connect to. Connected agents use the app's own actions. ChatGPT custom MCP apps require a supported ChatGPT web workspace."
+  - q: "I'm building my own Agent-Native app. Can its agent query the app's database?"
+    a: "Yes. By default, a production agent can read the app's database with SQL, through the db-schema and db-query tools, and must use the app's actions for writes. Write access is opt-in, and you can turn raw database tools off."
+  - q: "Who can see my dashboards?"
+    a: "Dashboards are private by default. You can share one with a teammate or your whole organization as a viewer, editor, or admin."
+  - q: "Is Analytics open source?"
+    a: "Yes. Analytics is an open-source replacement for Amplitude, Mixpanel, and Looker."
+cta_band_heading: "Ask your database a question"
+cta_band_subhead: "Connect PostgreSQL and ask in plain English."
+updated: 2026-10-15
+internal:
+  job: "Ask a database questions without writing SQL"
+  recurs_when: "Weekly"
+  first_session: "Connect PostgreSQL, ask one question"
+  return_signal: "Second question or a dashboard within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "ai data analyst (US 700/mo, KD 22); text to sql (450, KD 17); mcp database (150, KD 12); chat with your data (100, KD 1); natural language to sql (70, KD 4)"
+  basis: "Search Console query on agent-native.com: 'can i give my claude agent access to my production database for real-time queries without building custom api middleware?'"
+  sources: "/docs/template-analytics-connectors/, /docs/template-analytics-dashboards/, /docs/template-analytics/, /docs/external-agents/, /docs/actions-agent-tools/"

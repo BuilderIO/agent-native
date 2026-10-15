@@ -16,7 +16,7 @@ new_way:
   heading: "How it works in Analytics"
   steps:
     - "Connect HubSpot. Gong, Apollo, Clay, and Common Room are available as data sources too."
-    - "Ask a question in plain English. The agent writes and validates the queries and returns a chart, table, or metric."
+    - "Ask a question in plain English. The agent turns your question into SQL."
     - "Save the answers as a dashboard and share it before your pipeline review."
 todays_stack:
   heading: "Four tools for one pipeline review"
@@ -37,7 +37,7 @@ recipes:
     when: "Pipeline review is this week."
     do: "Connect HubSpot and ask which open deals haven't moved."
     prompt: "Which open deals haven't changed stage in the last 30 days?"
-    you_get: "A list of deals to talk about, with the query the agent wrote."
+    you_get: "A list of deals to talk about."
     save: "Your HubSpot connection stays in place for next week's review."
     how_often: "Weekly"
   - id: pipeline-dashboard
@@ -57,11 +57,11 @@ faqs:
   - q: "Which GTM data sources can I connect?"
     a: "Analytics includes connectors for HubSpot, Gong, Apollo, Clay, and Common Room, along with product and revenue sources like Stripe."
   - q: "Do I need to write SQL?"
-    a: "No. The agent writes and validates the queries. You can also use the SQL query explorer to run them yourself."
+    a: "No. You ask in plain English, and the agent turns your question into SQL."
   - q: "Can I trust the numbers?"
     a: "Check the first few answers against your CRM before you rely on them. Clear field definitions in the data dictionary help."
   - q: "Who can see my dashboards?"
-    a: "You can share dashboards per user or per organization, with viewer, editor, or admin roles."
+    a: "Dashboards are private by default. You can share one with a teammate or your whole organization as a viewer, editor, or admin."
 cta_band_heading: "Walk into pipeline review with the answers"
 cta_band_subhead: "Connect HubSpot and ask your first question."
 updated: 2026-10-15

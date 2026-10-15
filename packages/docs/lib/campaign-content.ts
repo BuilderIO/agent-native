@@ -156,7 +156,8 @@ const useCaseSchema = z.object({
 });
 const articleSchema = z.object({
   ...common,
-  use_case: slug,
+  use_case: slug.optional(),
+  screenshot_alt: text.optional(),
   topic,
   apps: z.array(app).optional(),
   published: date,
@@ -224,7 +225,7 @@ export function parseCampaignContent(
   const bySlug = new Map(useCases.map((item) => [item.slug, item]));
   const articles = parseFiles(sources.articles, articleSchema, true)
     .filter((article) => {
-      const linked = bySlug.get(article.use_case);
+      const linked = article.use_case ? bySlug.get(article.use_case) : undefined;
       if (!linked || linked.job_id === article.job_id) return true;
       console.error(
         `[campaign-content] ${article.slug}: job_id does not match use_case; article skipped`,

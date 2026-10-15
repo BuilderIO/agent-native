@@ -125,7 +125,7 @@ export function CampaignScreenshot({ item }: { item: UseCase | Article }) {
         <TemplateScreenshot
           variants={TEMPLATE_SCREENSHOTS[appKey]}
           frame
-          alt={item.screenshot_alt}
+          alt={item.screenshot_alt ?? item.title}
           scaleX={getScreenshotTileScaleX(appKey)}
           sizes="(max-width: 767px) 100vw, 1200px"
         />

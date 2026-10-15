@@ -46,7 +46,7 @@ MRR is monthly recurring revenue: the monthly value of your active subscriptions
 ## How do you build one with Analytics?
 
 1. Connect a data source. Analytics has connectors for services like Stripe, HubSpot, and BigQuery.
-2. Ask for a metric in plain English. The agent writes and validates the SQL and returns a chart, table, or metric.
+2. Ask for a metric in plain English. The agent turns your question into SQL.
 3. Save the panels as a dashboard with filters and saved views.
 4. Share it with specific people or your whole organization.
 
@@ -74,7 +74,7 @@ Recurring revenue, churn, revenue retention, activation, and retention cover mos
 
 ### Do I need to write SQL to build a dashboard?
 
-No. In Analytics, the agent writes and validates the SQL. You can use the SQL query explorer if you want to run queries directly.
+No. In Analytics, you ask in plain English, and the agent turns your question into SQL.
 
 ### Is Analytics free?
 

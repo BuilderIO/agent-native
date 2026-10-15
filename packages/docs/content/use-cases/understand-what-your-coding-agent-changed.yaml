@@ -15,7 +15,7 @@ old_way:
 new_way:
   heading: "How it works in Plans"
   steps:
-    - "Add the planning skills to your coding agent with the install command from the Plans page, then complete the authentication step for your client."
+    - "Add the planning skills to your coding agent by running npx @agent-native/core@latest skills add visual-plan."
     - "Run the visual recap command on a pull request, commit, branch, or diff."
     - "Read the walkthrough: the behavior that changed, the files it touched, and annotated code. Leave comments, or share it for teammates to review."
 todays_stack:
@@ -32,7 +32,7 @@ faqs:
   - q: "Does the recap replace reading the code?"
     a: "No. It's a guide for your review. You still read the actual code and check the tests."
   - q: "Where are recaps saved, and can I share them?"
-    a: "The default installation connects your agent to the hosted Plans app. New hosted plans are private until you share them. Teammates can review shared plans in the browser, and commenting requires an account."
+    a: "Plans are stored in the hosted Plans app by default. A local-files mode keeps them off it, and you can export plans as HTML, Markdown, or JSON. People you share a plan with can open and edit it as guests, without signing up. You sign in to save or share your own plans."
   - q: "Is Plans free?"
     a: "Yes. Plans is free and open source. It's labeled alpha, so expect rough edges."
 cta_band_heading: "Review your next change visually"
@@ -62,12 +62,12 @@ recipes:
   - id: share-recap
     title: "Share the recap with a reviewer"
     when: "Someone else needs to review the change."
-    do: "Share the recap. Teammates review it in the browser, and commenting requires an account."
+    do: "Share the recap. People you share it with can open it in the browser without signing up."
     you_get: "A reviewer who knows where to look first."
     how_often: "Every pull request"
-  - id: recap-branch
-    title: "Recap a branch before you merge"
-    when: "A branch has grown over several sessions."
-    do: "Run the visual recap command on the branch or a diff."
-    you_get: "One explanation of everything that changed, to guide your review of the code and tests."
-    how_often: "Before merges"
+  - id: recap-every-pr
+    title: "Recap every pull request automatically"
+    when: "You want a recap on every pull request without asking for one."
+    do: "Run npx @agent-native/core@latest skills add visual-plan --with-github-action, then npx @agent-native/recap-cli@latest recap setup. Commit the workflow and open a pull request."
+    you_get: "A comment on each pull request with a screenshot and a link to the recap. It's informational and never blocks merging."
+    how_often: "Every pull request"

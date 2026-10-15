@@ -20,7 +20,7 @@ new_way:
   heading: "How it works in Analytics"
   steps:
     - "Connect a data source. Analytics has connectors for services like Stripe, HubSpot, and BigQuery."
-    - "Ask a question in plain English, like how many signups you got last week. The agent writes and validates the SQL and returns a chart, table, or metric."
+    - "Ask a question in plain English, like how many signups you got last week. The agent turns your question into SQL."
     - "Save it as a dashboard with filters and saved views, and share it with specific people or your whole organization."
 todays_stack:
   heading: "Four tools for one set of numbers"
@@ -35,13 +35,13 @@ faqs:
   - q: "What is Agent-Native Analytics?"
     a: "Agent-Native Analytics is an open-source app for asking analytics questions in plain English and getting charts, dashboards, and re-runnable investigations back. You own the code, the queries, and the data."
   - q: "Which data sources can I connect?"
-    a: "Analytics includes connectors for services like BigQuery, GA4, Mixpanel, Amplitude, PostHog, HubSpot, Stripe, GitHub, Jira, and more, plus a built-in first-party event collector. The agent can write new connectors on request."
+    a: "Analytics lists 23 data sources, including first-party events, BigQuery, Google Analytics (GA4), Amplitude, Mixpanel, PostHog, PostgreSQL, Stripe, HubSpot, GitHub, and Jira."
   - q: "Do I need to write SQL?"
-    a: "No. The agent writes and validates the SQL for you. You can also use the SQL query explorer if you want to run queries directly."
+    a: "No. You ask in plain English, and the agent turns your question into SQL."
   - q: "Can I trust the numbers?"
     a: "Check a few answers against a source you already trust before you rely on them. The agent works from your data and a data dictionary, so clear column names and definitions help."
   - q: "Who can see my dashboards?"
-    a: "You can share dashboards per user or per organization with viewer, editor, or admin roles."
+    a: "Dashboards are private by default. You can share one with a teammate or your whole organization as a viewer, editor, or admin."
 cta_band_heading: "Build your first dashboard"
 cta_band_subhead: "Connect your data and ask a question."
 updated: 2026-10-14
@@ -65,7 +65,7 @@ recipes:
     when: "Someone asks how revenue is trending."
     do: "Connect Stripe, then ask in plain English."
     prompt: "What's our MRR this month, and how did it change from last month?"
-    you_get: "A chart or metric, with the SQL the agent wrote."
+    you_get: "An answer built from SQL the agent writes against your data."
     save: "Your Stripe connection stays in place for the next question."
     how_often: "Weekly"
   - id: why-it-moved

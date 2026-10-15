@@ -15,7 +15,7 @@ old_way:
 new_way:
   heading: "How it works in Plans"
   steps:
-    - "Add the planning skills to your coding agent with the install command from the Plans page."
+    - "Add the planning skills to your coding agent by running npx @agent-native/core@latest skills add visual-plan."
     - "Ask your agent for a visual plan of the screen. The plan includes wireframes and annotated code."
     - "Pin comments to the wireframes, then ask the agent to read them and revise the plan before it builds."
 todays_stack:
@@ -57,7 +57,7 @@ faqs:
   - q: "Is Plans a design tool?"
     a: "No. Plans is for reviewing what your coding agent will build. For a polished, on-brand prototype, use Design."
   - q: "Where are plans saved, and can I share them?"
-    a: "The default installation connects your agent to the hosted Plans app. New hosted plans are private until you share them, and commenting requires an account."
+    a: "Plans are stored in the hosted Plans app by default. A local-files mode keeps them off it, and you can export plans as HTML, Markdown, or JSON. People you share a plan with can open and edit it as guests, without signing up. You sign in to save or share your own plans."
   - q: "Is Plans free?"
     a: "Yes. Plans is free and open source. It's labeled alpha, so expect rough edges."
 cta_band_heading: "Wireframe your next screen first"

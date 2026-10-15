@@ -1,4 +1,9 @@
 export const ARTICLE_TOPICS = {
+  "agentic-apps": {
+    name: "Agentic apps",
+    description:
+      "What agent-native apps are, how they work, and when to build one.",
+  },
   "coding-agents": {
     name: "Working with coding agents",
     description:

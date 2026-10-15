@@ -13,7 +13,7 @@ app_cta_url: "https://clips.agent-native.com"
 cta_label: "Record a clip"
 screenshot_alt: "The Clips library with recordings, and the recorder panel open with screen, camera, and microphone options and Library, Meetings, Dictate, and Settings tabs"
 cta_band_heading: "Record your next bug"
-cta_band_subhead: "Capture the video, the console errors, and the failed requests behind one link."
+cta_band_subhead: "Capture the video, the console messages, and request details behind one link."
 related_resources:
   - label: "Agent-Native Clips"
     url: "https://www.agent-native.com/apps/clips/"
@@ -70,7 +70,7 @@ Evidence:
 
 In Chrome, open DevTools and reproduce the bug while you watch two tabs. The Console tab shows errors, so copy the error text. The Network tab shows requests, so note any that failed, with the URL and status code. If the page reloads, turn on "Preserve log" first, or the evidence disappears.
 
-Clips does this for you. With its Chrome extension, it captures console errors and failed network requests alongside a screen recording. The capture is redacted, and it never includes headers, bodies, or cookies.
+Clips does this for you. With its Chrome extension, it saves console messages and basic per-request info alongside a screen recording, only from the tab you're recording and only while you record. It never captures request or response bodies, headers, or cookies.
 
 ## When should you record the bug instead of writing it?
 

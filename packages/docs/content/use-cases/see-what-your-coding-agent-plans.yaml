@@ -15,7 +15,7 @@ old_way:
 new_way:
   heading: "How it works in Plans"
   steps:
-    - "Add the planning skills to your coding agent with the install command from the Plans page, then complete the authentication step for your client. The guide covers Claude Code and Codex."
+    - "Add the planning skills to your coding agent by running npx @agent-native/core@latest skills add visual-plan. Claude Code and Codex also have plugin installs."
     - "Ask your agent for a visual plan. Review the diagrams, wireframes, and annotated code."
     - "Comment on the text or pin feedback to a visual, then ask the agent to read the comments and revise the plan."
 todays_stack:
@@ -32,7 +32,7 @@ faqs:
   - q: "Can my agent revise a plan based on my comments?"
     a: "Yes. Leave comments on the text or pin them to a visual, then ask your agent to read and address the feedback. It can update the plan and reply to review threads. This supports your review process. It does not automatically stop the agent from changing code."
   - q: "Where are plans saved, and can I share them?"
-    a: "The default installation connects your agent to the hosted Plans app. New hosted plans are private until you share them. Teammates can review shared plans in the browser, and commenting requires an account. Local workflows are also available through the setup guide."
+    a: "Plans are stored in the hosted Plans app by default. A local-files mode keeps them off it, and you can export plans as HTML, Markdown, or JSON. People you share a plan with can open and edit it as guests, without signing up. You sign in to save or share your own plans."
   - q: "Is Plans free?"
     a: "Yes. Plans is free and open source. It's labeled alpha, so expect rough edges."
 cta_band_heading: "Review your next plan visually"
@@ -55,7 +55,7 @@ recipes:
   - id: install-once
     title: "Add the planning skills once"
     when: "Before your first plan."
-    do: "Run the install command from the Plans page in your coding agent, then complete the authentication step for your client."
+    do: "Run npx @agent-native/core@latest skills add visual-plan in your project. It also registers the hosted Plans connector for your agent."
     you_get: "Visual plans and recaps available in your agent."
     save: "It stays installed, so every plan after this is one command."
     how_often: "Once"

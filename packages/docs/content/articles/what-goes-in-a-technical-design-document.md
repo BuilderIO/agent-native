@@ -71,7 +71,7 @@ Rollout and testing:
 
 If your coding agent writes the plan, the review is the same: read the approach before it touches code. A plan in a terminal is hard to review, so use something you can see.
 
-1. Add the Plans skills to your agent with the install command from the Plans page.
+1. Add the Plans skills to your agent by running `npx @agent-native/core@latest skills add visual-plan`.
 2. Ask your agent for a visual plan. You get diagrams, wireframes, and annotated code instead of a wall of text.
 3. Comment on the text, or pin feedback to a specific spot in a visual.
 4. Ask the agent to read the comments and revise the plan.
@@ -82,7 +82,7 @@ If your coding agent writes the plan, the review is the same: read the approach 
 
 ## What should you check before you rely on it?
 
-Comments on a plan support your review. They don't automatically stop the agent from changing code, so read the plan before you tell it to build. New hosted plans are private until you share them, and commenting requires an account. Plans is labeled alpha, so expect rough edges.
+Comments on a plan support your review. They don't automatically stop the agent from changing code, so read the plan before you tell it to build. People you share a plan with can open and edit it as guests, and you sign in to save or share your own. Plans is labeled alpha, so expect rough edges.
 
 ## Frequently asked questions
 

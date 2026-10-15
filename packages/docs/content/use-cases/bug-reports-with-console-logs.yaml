@@ -3,8 +3,8 @@ job_id: job-bug-report
 app: clips
 audience: technical
 title: "Bug reports your engineers and coding agents can act on"
-subhead: "Record the bug once. With the Clips Chrome extension, the console errors and failed requests come along with the video, so nobody has to ask you to open DevTools."
-meta_description: "Record a bug with its console errors and failed requests, then share one link an engineer or coding agent can use. Free, open-source Clips from Agent-Native."
+subhead: "Record the bug once. With the Clips Chrome extension, console messages and request details from the tab you record come along with the video, so nobody has to ask you to open DevTools."
+meta_description: "Record a bug with its console messages and request details, then share one link an engineer or coding agent can use. Free, open-source Clips from Agent-Native."
 cta_label: "Record a clip"
 secondary_cta_label: "See how it works"
 app_cta_url: "https://clips.agent-native.com"
@@ -16,7 +16,7 @@ new_way:
   heading: "How it works in Clips"
   steps:
     - "Record the bug in your browser and say what you expected as you go. Connect Builder or your own storage so the recording uploads and gets a share link."
-    - "Stop. Clips transcribes the recording. With the Chrome extension, it also captures console errors and failed requests from the tab you recorded."
+    - "Stop. Clips transcribes the recording. With the Chrome extension, it also saves console messages and basic per-request info from the tab you recorded, while you record."
     - "Share the link. People watch the video. Your agent gets the transcript and timestamped images, and you can open the clip in Claude, Claude Code, or Codex from the clip page."
 todays_stack:
   heading: "Four tools for one bug"
@@ -25,13 +25,13 @@ todays_stack:
     - text: "**Browser DevTools** has those errors, but you have to copy them out by hand, and it's easy to grab the wrong one."
     - text: "**A ticket tracker** holds the write-up, so the video, the logs, and the steps end up in three different places."
     - text: "**Your coding agent** only sees what you paste into its chat. It never sees the moment things broke."
-  in_app: "In Clips, the recording, the transcript, and, with the Chrome extension, the console errors and failed requests sit behind one link that people and agents can both use."
+  in_app: "In Clips, the recording, the transcript, and, with the Chrome extension, the console messages and request details sit behind one link that people and agents can both use."
 story: null
 faqs:
   - q: "Do I need the Chrome extension to record a bug?"
     a: "No. You can record in the Clips web app. Use the Chrome extension when you also want console messages and network diagnostics from the tab you're demonstrating."
   - q: "What does the extension capture?"
-    a: "Console errors and failed network requests, redacted. It never captures headers, bodies, or cookies."
+    a: "Console messages and basic information about each request, only from the tab you're recording and only while you record. It never captures request or response bodies, headers, or cookies."
   - q: "Do I need to connect storage?"
     a: "Clips needs somewhere to store recordings. Connect Builder or your own storage so recordings upload and get a share link. Without one, Clips offers the recording as a download."
   - q: "Can an AI agent use my recording?"
@@ -41,10 +41,10 @@ faqs:
   - q: "Is Clips free?"
     a: "Yes. Clips is free and open source. It's labeled alpha, so expect rough edges."
 cta_band_heading: "Record your next bug"
-cta_band_subhead: "Capture the video, the console errors, and the failed requests behind one link."
+cta_band_subhead: "Capture the video, the console messages, and request details behind one link."
 updated: 2026-10-14
 internal:
-  job: "Bug report with console errors and failed requests, for an engineer or coding agent"
+  job: "Bug report with console messages and request details, for an engineer or coding agent"
   recurs_when: "Every bug"
   first_session: "Record a bug in the browser, paste the link into an agent"
   return_signal: "Second clip shared with an agent within 7 days (proposal, confirm with Alice and Michael)"
@@ -61,7 +61,7 @@ recipes:
     title: "Record a bug with its logs"
     when: "You can reproduce the bug in the browser."
     do: "Turn on the Clips Chrome extension, record the bug, and say what you expected as you go."
-    you_get: "One link with the video, the transcript, the console errors, and the failed requests."
+    you_get: "One link with the video, the transcript, the console messages, and request details."
     save: "Keep the extension pinned, so the next bug is one click."
     how_often: "Every bug"
   - id: hand-to-agent
