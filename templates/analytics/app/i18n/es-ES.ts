@@ -1273,6 +1273,7 @@ export default {
     saveViewFailed: "No se pudo guardar la vista",
     saveViewFailedWithMessage: "No se pudo guardar la vista: {{message}}",
     clearAll: "Borrar todo",
+    resetFilters: "Restablecer filtros",
     collapseFilters: "Contraer filtros",
     expandFilters: "Ampliar filtros",
     filterSeries: "Filter",

@@ -1166,6 +1166,51 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
   );
 }
 
+export function isExpectedCleanupRecoveryPageBrowserSessionError(
+  message: string,
+  candidates: Array<{
+    url: string;
+    pathname: string;
+    method: string;
+    requestAgeMs: number;
+    failureAgeMs: number;
+    sameOrigin: boolean;
+    competingClaimStartedAfterFailure: boolean;
+  }>,
+) {
+  const corsUrl =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
+      message,
+    )?.[1] ?? null;
+  const knownFailure =
+    message ===
+      "[Agent-Native browser session] poll failed: TypeError: Load failed" ||
+    corsUrl !== null;
+  if (!knownFailure) return false;
+  const taggedPoll =
+    message ===
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+
+  return (
+    candidates.filter(
+      (candidate) =>
+        candidate.method === "POST" &&
+        /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+          candidate.pathname,
+        ) &&
+        (candidate.sameOrigin ||
+          taggedPoll ||
+          (corsUrl !== null && candidate.url === corsUrl)) &&
+        !candidate.competingClaimStartedAfterFailure &&
+        candidate.requestAgeMs >= 0 &&
+        candidate.requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
+        candidate.failureAgeMs >= 0 &&
+        candidate.failureAgeMs <= retiredBrowserSessionPollConsoleGraceMs &&
+        (corsUrl === null || candidate.url === corsUrl),
+    ).length === 1
+  );
+}
+
 export function isExpectedCleanupBrowserSessionHeartbeatConsoleError(
   message: string,
   candidates: WatchedRequestNavigationCandidate[],
@@ -1433,6 +1478,35 @@ export interface AuthoringFuzzPersistence {
   reloadedHtml: string;
 }
 
+export function authoringFuzzListTagForOperation(
+  operation: AuthoringFuzzOperation,
+): "OL" | "UL" | null {
+  if (operation.kind === "list") {
+    return operation.value === "ul"
+      ? "UL"
+      : operation.value === "ol"
+        ? "OL"
+        : null;
+  }
+  if (operation.kind === "slash") {
+    return operation.value === "bulletList"
+      ? "UL"
+      : operation.value === "orderedList"
+        ? "OL"
+        : null;
+  }
+  return operation.kind === "shortcut" && operation.result === "ordered"
+    ? "OL"
+    : null;
+}
+
+export function authoringFuzzPrecedingListMergePreservesIdentity(
+  candidateId: string,
+  resultId: string | null,
+) {
+  return resultId === candidateId;
+}
+
 export async function canonicalizeAuthoringFuzzPersistence(
   persistence: AuthoringFuzzPersistence,
   canonicalize: (html: string) => string | Promise<string>,
@@ -1500,6 +1574,20 @@ export function assertByteIdenticalHtml(
   }
 }
 
+export function requireUndoHistoryStats(
+  stats: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!stats || typeof stats.initialStateEvicted !== "boolean") {
+    throw new Error(
+      "authoring fuzz could not inspect undo history before undo-all",
+    );
+  }
+  if (stats.initialStateEvicted) {
+    throw new Error("undo history evicted the original state before undo-all");
+  }
+  return stats;
+}
+
 export function assertAuthoringPersistence(
   persistence: AuthoringFuzzPersistence,
 ) {
@@ -1545,6 +1633,25 @@ const SLASH_COMMANDS = [
   ["quote", "quote"],
   ["divider", "divider"],
 ] as const;
+
+export function authoringFuzzSlashArrowDownCount(
+  activeCommand: string | null,
+  targetCommand: string,
+) {
+  const activeIndex = SLASH_COMMANDS.findIndex(
+    ([value]) => value === activeCommand,
+  );
+  const targetIndex = SLASH_COMMANDS.findIndex(
+    ([value]) => value === targetCommand,
+  );
+  if (activeIndex < 0)
+    throw new Error("slash menu did not expose its active command");
+  if (targetIndex < 0)
+    throw new Error(`unknown slash command ${targetCommand}`);
+  return (
+    (targetIndex - activeIndex + SLASH_COMMANDS.length) % SLASH_COMMANDS.length
+  );
+}
 
 const RANDOM_KINDS: AuthoringFuzzOperation["kind"][] = [
   "type",
@@ -2050,6 +2157,7 @@ export async function runAuthoringFuzz(
   let conflictResourceErrors = 0;
   let activeIndex = -1;
   let activePhase = "setup";
+  let slashHoverThemesChecked = false;
   currentBrowserSessionId = uniquePendingBrowserSessionId(
     [...watchedRequests.keys()].map((request) => ({
       method: request.method(),
@@ -2794,21 +2902,21 @@ export async function runAuthoringFuzz(
     phase: "capture" | "assert",
     operation: AuthoringFuzzOperation,
     requireMerge = false,
-  ) =>
-    page.evaluate(
+  ) => {
+    const result = await page.evaluate(
       ({
         selector,
         phase,
         operation,
         requireMerge,
-        operationIndex,
+        listTag,
         styleProperties,
       }: {
         selector: string;
         phase: "capture" | "assert";
         operation: AuthoringFuzzOperation;
         requireMerge: boolean;
-        operationIndex: number;
+        listTag: "OL" | "UL" | null;
         styleProperties: string[];
       }) => {
         const root = document.querySelector(selector);
@@ -2832,6 +2940,26 @@ export async function runAuthoringFuzz(
               emptyInlineLink: boolean;
             }>;
             targets: HTMLElement[];
+            originalListRows: Element[];
+            emptyListExit?: {
+              list: HTMLElement;
+              item: HTMLElement;
+              expectedMoves: Element[];
+              paragraphs: HTMLElement[];
+              listStyles: Record<string, string>;
+              listAttributes: string;
+            };
+            listMerge?: {
+              tagName: "OL" | "UL";
+              originalRows: Element[];
+              adjacent: Array<{
+                side: "before" | "after";
+                node: HTMLElement;
+                rows: HTMLElement[];
+                attributes: string;
+                styles: Record<string, string>;
+              }>;
+            };
             merge?: {
               direction: "backward" | "forward";
               source: HTMLElement;
@@ -2880,6 +3008,32 @@ export async function runAuthoringFuzz(
                       candidate !== element && element.contains(candidate),
                   ),
               );
+        if (
+          phase === "capture" &&
+          operation.kind === "delete-list-edge" &&
+          targets[0]?.tagName === "LI"
+        ) {
+          const followingItem = targets[0].nextElementSibling;
+          if (followingItem?.tagName === "LI")
+            targets.push(followingItem as HTMLElement);
+        }
+        if (phase === "capture" && operation.kind === "backspace-list-edge") {
+          const isStyledBulletRow = (element: Element | null) => {
+            const marker = element?.firstElementChild;
+            return (
+              element?.tagName === "DIV" &&
+              getComputedStyle(element).display === "flex" &&
+              marker?.tagName === "SPAN" &&
+              /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "") &&
+              element.lastElementChild?.tagName === "SPAN"
+            );
+          };
+          const row = targets[0];
+          const previousRow = row?.previousElementSibling;
+          if (isStyledBulletRow(row) && isStyledBulletRow(previousRow)) {
+            targets.unshift(previousRow as HTMLElement);
+          }
+        }
         const activeItem =
           targets[0]?.tagName === "LI" ? targets[0] : targets[0]?.closest("li");
         const activeList = activeItem?.parentElement ?? null;
@@ -2899,7 +3053,9 @@ export async function runAuthoringFuzz(
         if (
           phase === "assert" &&
           (operation.kind === "backspace-block-edge" ||
-            operation.kind === "delete-block-edge") &&
+            operation.kind === "delete-block-edge" ||
+            operation.kind === "empty-list-exit" ||
+            previous?.listMerge) &&
           previous?.root === root
         ) {
           targets = previous.targets;
@@ -3157,7 +3313,9 @@ export async function runAuthoringFuzz(
           node instanceof Element &&
           (node.tagName === "LI" || isListGroup(node));
         const originalListRows = new Set<Element>();
-        if (listShortcut) {
+        if (phase === "assert" && previous?.root === root) {
+          previous.originalListRows.forEach((row) => originalListRows.add(row));
+        } else if (listShortcut) {
           for (const target of targets) {
             let candidate = target.parentElement;
             while (candidate && candidate !== root) {
@@ -3174,6 +3332,96 @@ export async function runAuthoringFuzz(
             }
           }
         }
+        const emptyListExit =
+          phase === "capture" &&
+          operation.kind === "empty-list-exit" &&
+          activeItem &&
+          activeList &&
+          /^(OL|UL)$/.test(activeList.tagName)
+            ? (() => {
+                const rows = Array.from(activeList.children).filter(
+                  (child) => child.tagName === "LI",
+                );
+                const itemIndex = rows.indexOf(activeItem);
+                if (itemIndex < 0) {
+                  throw new Error(
+                    "empty-list-exit setup could not find its active list item",
+                  );
+                }
+                const before = rows.slice(0, itemIndex);
+                const after = rows.slice(itemIndex + 1);
+                const expectedMoves =
+                  activeList === root
+                    ? rows.filter((row) => row !== activeItem)
+                    : before.length && after.length
+                      ? after
+                      : [];
+                return {
+                  list: activeList,
+                  item: activeItem,
+                  expectedMoves,
+                  paragraphs: [
+                    ...(root.matches("p") ? [root] : []),
+                    ...root.querySelectorAll<HTMLElement>("p"),
+                  ],
+                  listStyles: styleValues(activeList),
+                  listAttributes: authoredAttributes(activeList),
+                };
+              })()
+            : phase === "assert"
+              ? previous?.emptyListExit
+              : undefined;
+        const listMerge =
+          phase === "capture" &&
+          listTag &&
+          targets[0] instanceof HTMLElement &&
+          targets[0] !== root &&
+          !targets[0].closest("li,ol,ul")
+            ? (() => {
+                const target = targets[0] as HTMLElement;
+                const adjacent = [
+                  {
+                    side: "before" as const,
+                    node: target.previousElementSibling,
+                  },
+                  {
+                    side: "after" as const,
+                    node: target.nextElementSibling,
+                  },
+                ]
+                  .filter(
+                    (
+                      candidate,
+                    ): candidate is {
+                      side: "before" | "after";
+                      node: HTMLElement;
+                    } =>
+                      candidate.node instanceof HTMLElement &&
+                      candidate.node.tagName === listTag,
+                  )
+                  .map(({ side, node }) => ({
+                    side,
+                    node,
+                    rows: Array.from(node.children).filter(
+                      (child): child is HTMLElement =>
+                        child instanceof HTMLElement && child.tagName === "LI",
+                    ),
+                    attributes: authoredAttributes(node),
+                    styles: styleValues(node),
+                  }));
+                return adjacent.length
+                  ? {
+                      tagName: listTag,
+                      originalRows: Array.from(
+                        root.querySelectorAll<HTMLElement>("li"),
+                      ),
+                      adjacent,
+                    }
+                  : undefined;
+              })()
+            : phase === "assert"
+              ? previous?.listMerge
+              : undefined;
         const isEmptyAuthorStyleSpan = (element: Element): boolean =>
           isEditorInlineStyleSpan(element) &&
           !element.textContent &&
@@ -3251,15 +3499,22 @@ export async function runAuthoringFuzz(
             root,
             records,
             targets: [...targets],
+            originalListRows: [...originalListRows],
+            emptyListExit,
+            listMerge,
             merge,
           };
-          return [];
+          return { failures: [], listIdentityChecks: [] };
         }
         const baseline = previous;
         if (!baseline) {
           throw new Error("editor sibling snapshot was not captured");
         }
         const failures: string[] = [];
+        const listIdentityChecks: Array<{
+          candidateId: string;
+          resultId: string | null;
+        }> = [];
         const mergeAssertion =
           baseline.merge &&
           ((operation.kind === "backspace-block-edge" &&
@@ -3274,6 +3529,98 @@ export async function runAuthoringFuzz(
           !mergeAssertion
         ) {
           failures.push("block-edge operation did not capture its block pair");
+        }
+        const mergedListContainers = new Set<Element>();
+        const mergedListRows = new Set<Element>();
+        const mergedListContainerContentChanges = new Set<Element>();
+        if (
+          baseline.listMerge &&
+          listTag === baseline.listMerge.tagName &&
+          activeList?.tagName === baseline.listMerge.tagName &&
+          activeItem
+        ) {
+          const resultRows = Array.from(activeList.children).filter(
+            (child) => child.tagName === "LI",
+          );
+          const generatedRows = resultRows.filter(
+            (row) => !baseline.listMerge?.originalRows.includes(row),
+          );
+          const expectedGeneratedRows = operation.kind === "list" ? 2 : 1;
+          const generatedIndexes = generatedRows.map((row) =>
+            resultRows.indexOf(row),
+          );
+          const generatedRowsAreContiguous = generatedIndexes.every(
+            (index, position) =>
+              position === 0 || index === generatedIndexes[position - 1]! + 1,
+          );
+          const generatedRowsContainCaret = generatedRows.includes(activeItem);
+          const compatibleAttributes = (element: Element) =>
+            Array.from(element.attributes)
+              .filter(({ name }) => name !== "id")
+              .map(({ name, value }) => `${name}=${value}`)
+              .sort()
+              .join("\n");
+          if (
+            generatedRows.length === expectedGeneratedRows &&
+            generatedRowsAreContiguous &&
+            generatedRowsContainCaret
+          ) {
+            const firstGeneratedIndex = generatedIndexes[0] ?? -1;
+            const lastGeneratedIndex = generatedIndexes.at(-1) ?? -1;
+            for (const candidate of baseline.listMerge.adjacent) {
+              const rowIndexes = candidate.rows.map((row) =>
+                resultRows.indexOf(row),
+              );
+              const rowsPreserved = rowIndexes.every(
+                (index, position) =>
+                  index >= 0 &&
+                  (position === 0 || index === rowIndexes[position - 1]! + 1),
+              );
+              const rowsOnExpectedSide =
+                candidate.side === "before"
+                  ? rowIndexes.every((index) => index < firstGeneratedIndex)
+                  : rowIndexes.every((index) => index > lastGeneratedIndex);
+              const sameListAttributes =
+                compatibleAttributes(candidate.node) ===
+                compatibleAttributes(activeList);
+              const sourceAttributesPreserved =
+                authoredAttributes(candidate.node) === candidate.attributes;
+              const listWasMerged =
+                candidate.node === activeList || !root.contains(candidate.node);
+              if (
+                candidate.side === "before" &&
+                candidate.node.hasAttribute("id") &&
+                listWasMerged
+              ) {
+                listIdentityChecks.push({
+                  candidateId: candidate.node.getAttribute("id") ?? "",
+                  resultId: activeList.getAttribute("id"),
+                });
+              }
+              const leftListCarriesIdentity =
+                candidate.side !== "after" ||
+                !candidate.node.hasAttribute("id");
+              const resultStyleMatches =
+                changedStyleProperties(activeList, candidate.styles).length ===
+                0;
+              if (
+                candidate.node.tagName === baseline.listMerge.tagName &&
+                sameListAttributes &&
+                sourceAttributesPreserved &&
+                listWasMerged &&
+                leftListCarriesIdentity &&
+                rowsPreserved &&
+                rowsOnExpectedSide &&
+                resultStyleMatches
+              ) {
+                mergedListContainers.add(candidate.node);
+                candidate.rows.forEach((row) => mergedListRows.add(row));
+                if (candidate.node === activeList) {
+                  mergedListContainerContentChanges.add(candidate.node);
+                }
+              }
+            }
+          }
         }
         const path = (node: Node) => {
           const parts: string[] = [];
@@ -3296,6 +3643,13 @@ export async function runAuthoringFuzz(
         const equivalentReplacements = new Set<Element>();
         for (const record of baseline.records) {
           if (isTarget(record.node)) continue;
+          if (
+            record.node instanceof Element &&
+            mergedListContainers.has(record.node) &&
+            record.node !== activeList
+          ) {
+            continue;
+          }
           if (!root.contains(record.node)) {
             if (
               mergeAssertion &&
@@ -3367,17 +3721,30 @@ export async function runAuthoringFuzz(
             newParent.children.length === 2 &&
             newParent.firstElementChild?.tagName === "H2" &&
             newParent.lastElementChild === record.node;
+          const expectedEmptyListMove =
+            operation.kind === "empty-list-exit" &&
+            record.node instanceof Element &&
+            baseline.emptyListExit?.expectedMoves.includes(record.node) &&
+            isListContainer(record.parent) &&
+            record.node.parentNode &&
+            isListContainer(record.node.parentNode);
+          const expectedListMergeMove =
+            record.node instanceof Element &&
+            mergedListRows.has(record.node) &&
+            record.node.parentNode === activeList;
           if (
             moved &&
             !(
               promotedHeadingLine ||
               wrappedSiblingText ||
+              expectedListMergeMove ||
               (listShortcut &&
                 record.node instanceof Element &&
                 originalListRows.has(record.node) &&
                 isListContainer(record.parent) &&
                 record.node.parentNode &&
-                isListContainer(record.node.parentNode))
+                isListContainer(record.node.parentNode)) ||
+              expectedEmptyListMove
             )
           ) {
             const structure = (node: Node) =>
@@ -3437,11 +3804,8 @@ export async function runAuthoringFuzz(
             if (structureIndex >= 0) changes.splice(structureIndex, 1);
           }
           if (
-            operation.kind === "empty-list-exit" &&
-            record.node instanceof HTMLElement &&
-            /^(OL|UL)$/.test(record.node.tagName) &&
-            record.node.textContent?.includes(`list${operationIndex}`) &&
-            record.node.nextElementSibling?.tagName === "P"
+            record.node instanceof Element &&
+            mergedListContainerContentChanges.has(record.node)
           ) {
             const textIndex = changes.indexOf("text");
             if (textIndex >= 0) changes.splice(textIndex, 1);
@@ -3468,6 +3832,32 @@ export async function runAuthoringFuzz(
             failures.push(
               `changed ${record.node.nodeName} at ${path(record.node)} (${changes.join(", ")}${changes.includes("text") ? `, content signature length=${record.contentSignature.length}->${changedTextLength}` : ""}${styleDetails.length ? `: ${styleDetails.join(", ")}` : ""})`,
             );
+          }
+        }
+        if (baseline.emptyListExit && baseline.emptyListExit.list !== root) {
+          const { list, listStyles, listAttributes } = baseline.emptyListExit;
+          if (!root.contains(list)) {
+            failures.push(
+              "empty-list-exit removed its existing list container",
+            );
+          } else {
+            const changed = changedStyleProperties(list, listStyles);
+            if (changed.length) {
+              failures.push(
+                `empty-list-exit changed list container style: ${changed
+                  .slice(0, 6)
+                  .map(
+                    (property) =>
+                      `${property}=${listStyles[property] ?? ""}->${getComputedStyle(list).getPropertyValue(property)}`,
+                  )
+                  .join(", ")}`,
+              );
+            }
+            if (authoredAttributes(list) !== listAttributes) {
+              failures.push(
+                "empty-list-exit changed list container attributes",
+              );
+            }
           }
         }
         if (mergeAssertion) {
@@ -3566,19 +3956,35 @@ export async function runAuthoringFuzz(
         ) {
           failures.push("reordered sibling blocks");
         }
-        return failures.length
-          ? [...failures, `authoring targets: ${targetPaths}`]
-          : failures;
+        return {
+          failures: failures.length
+            ? [...failures, `authoring targets: ${targetPaths}`]
+            : failures,
+          listIdentityChecks,
+        };
       },
       {
         selector: editorSelector,
         phase,
         operation,
         requireMerge,
-        operationIndex: activeIndex,
+        listTag: authoringFuzzListTagForOperation(operation),
         styleProperties: AUTHORING_FUZZ_STYLE_PROPERTIES,
       },
     );
+    return [
+      ...result.failures,
+      ...result.listIdentityChecks.flatMap(
+        (check: { candidateId: string; resultId: string | null }) =>
+          authoringFuzzPrecedingListMergePreservesIdentity(
+            check.candidateId,
+            check.resultId,
+          )
+            ? []
+            : ["adjacent-list merge lost the preceding list's authored id"],
+      ),
+    ];
+  };
   const assertOutsideUnchanged = async () => {
     await page.evaluate(
       () =>
@@ -3802,6 +4208,98 @@ export async function runAuthoringFuzz(
           return 0;
       }
     }, result);
+  const inlineShortcutText = (result: string, value: string) => {
+    if (result === "bold" || result === "strike") return value.slice(2, -2);
+    if (result === "italic" || result === "code") return value.slice(1, -1);
+    return null;
+  };
+  const inlineShortcutIsActive = async (
+    format: string,
+    value: string,
+    expectedTextLength: number,
+  ) =>
+    editor.evaluate(
+      (
+        root: HTMLElement,
+        expected: { format: string; text: string; textLength: number },
+      ) => {
+        const selection = window.getSelection();
+        const anchor =
+          selection?.anchorNode instanceof HTMLElement
+            ? selection.anchorNode
+            : selection?.anchorNode?.parentElement;
+        const block =
+          anchor?.closest<HTMLElement>(
+            "p,li,blockquote,pre,h1,h2,h3,h4,h5,h6,div",
+          ) ?? root;
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+        const nodes: Text[] = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          nodes.push(node as Text);
+        }
+        const text = nodes.map((node) => node.data).join("");
+        if (text.length !== expected.textLength) return false;
+        const tokenStart = text.length - expected.text.length;
+        if (tokenStart < 0 || !text.endsWith(expected.text)) return false;
+
+        const hasFormat = (node: Text) => {
+          for (
+            let element = node.parentElement;
+            element && root.contains(element);
+            element = element.parentElement
+          ) {
+            const style = window.getComputedStyle(element);
+            if (expected.format === "bold") {
+              const weight = style.fontWeight;
+              if (
+                element.tagName === "B" ||
+                element.tagName === "STRONG" ||
+                weight === "bold" ||
+                (Number.parseFloat(weight) || 0) >= 600
+              ) {
+                return true;
+              }
+            } else if (expected.format === "italic") {
+              if (
+                element.tagName === "I" ||
+                element.tagName === "EM" ||
+                style.fontStyle === "italic" ||
+                style.fontStyle === "oblique"
+              ) {
+                return true;
+              }
+            } else if (expected.format === "strike") {
+              if (
+                element.tagName === "S" ||
+                element.tagName === "DEL" ||
+                style.textDecorationLine.includes("line-through") ||
+                style.textDecoration.includes("line-through")
+              ) {
+                return true;
+              }
+            } else if (element.tagName === "CODE") {
+              return true;
+            }
+            if (element === block) break;
+          }
+          return false;
+        };
+
+        let offset = 0;
+        let checked = 0;
+        for (const node of nodes) {
+          const end = offset + node.data.length;
+          if (end > tokenStart && offset < text.length) {
+            if (!hasFormat(node)) return false;
+            checked +=
+              Math.min(end, text.length) - Math.max(offset, tokenStart);
+          }
+          offset = end;
+        }
+        return checked === expected.text.length;
+      },
+      { format, text: value, textLength: expectedTextLength },
+    );
   const shortcutState = async () =>
     editor.evaluate((root: HTMLElement) => {
       const selection = window.getSelection();
@@ -3857,10 +4355,20 @@ export async function runAuthoringFuzz(
   const assertShortcut = async (
     result: string,
     before: number,
-    beforeTrigger?: unknown,
+    value: string,
+    beforeTrigger: Awaited<ReturnType<typeof shortcutState>>,
   ) => {
     const after = await shortcutResultCount(result);
-    if (after <= before) {
+    const content = inlineShortcutText(result, value);
+    const produced =
+      content === null
+        ? after > before
+        : await inlineShortcutIsActive(
+            result,
+            content,
+            beforeTrigger.blockTextLength - (value.length - 1 - content.length),
+          );
+    if (!produced) {
       const state = await shortcutState();
       throw new Error(
         `markdown shortcut did not produce ${result} (${before} -> ${after}; before trigger=${JSON.stringify(beforeTrigger)}; after=${JSON.stringify(state)})`,
@@ -3975,42 +4483,196 @@ export async function runAuthoringFuzz(
     });
   const newPlainLine = async (label = "authoring operation") => {
     await editor.evaluate((root: HTMLElement) => {
-      root.focus();
+      if (document.activeElement !== root) root.focus();
       const selection = window.getSelection();
       if (!selection) throw new Error("editor has no text selection");
-      const range = document.createRange();
-      const textNodes = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      let lastText: Text | null = null;
-      for (let node = textNodes.nextNode(); node; node = textNodes.nextNode()) {
-        lastText = node as Text;
+      const isVisible = (range: Range) => {
+        const rangeRect = range.getBoundingClientRect();
+        const anchor =
+          range.startContainer instanceof Element
+            ? range.startContainer
+            : range.startContainer.parentElement;
+        const rect =
+          rangeRect.height > 0 ? rangeRect : anchor?.getBoundingClientRect();
+        return (
+          !!rect &&
+          rect.height > 0 &&
+          rect.left >= 0 &&
+          rect.left <= window.innerWidth &&
+          rect.top >= 0 &&
+          rect.bottom <= window.innerHeight
+        );
+      };
+      const blockEdgeRange = (block: HTMLElement, end: boolean) => {
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+        let firstText: Text | null = null;
+        let lastText: Text | null = null;
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node as Text;
+          if (!text.length) continue;
+          firstText ??= text;
+          lastText = text;
+        }
+        const range = document.createRange();
+        const text = end ? lastText : firstText;
+        if (text) range.setStart(text, end ? text.length : 0);
+        else range.selectNodeContents(block);
+        range.collapse(end);
+        return range;
+      };
+      let emptyPlainRange: Range | null = null;
+      let plainEndRange: Range | null = null;
+      let plainStartRange: Range | null = null;
+      const plainBlocks = [
+        ...(root.matches("p,div") ? [root] : []),
+        ...root.querySelectorAll<HTMLElement>("p,div"),
+      ];
+      for (const block of plainBlocks) {
+        if (
+          block.querySelector("p,div,li,ul,ol,blockquote,h1,h2,h3,h4,h5,h6,pre")
+        )
+          continue;
+        if (block.closest("li,ul,ol,blockquote,h1,h2,h3,h4,h5,h6,pre"))
+          continue;
+        const marker = block.firstElementChild;
+        if (
+          getComputedStyle(block).display === "flex" &&
+          marker?.tagName === "SPAN" &&
+          /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "") &&
+          block.lastElementChild?.tagName === "SPAN"
+        )
+          continue;
+        if (block.querySelector("img,svg,video,canvas,picture,iframe,input,hr"))
+          continue;
+        const text = (block.textContent ?? "")
+          .replaceAll(/[\u200b\ufeff]/g, "")
+          .replaceAll("\u00a0", "");
+        const endRange = blockEdgeRange(block, true);
+        if (isVisible(endRange)) {
+          if (!text) {
+            emptyPlainRange = endRange;
+            break;
+          }
+          plainEndRange ??= endRange;
+          continue;
+        }
+        if (!text) continue;
+        const startRange = blockEdgeRange(block, false);
+        if (isVisible(startRange)) plainStartRange ??= startRange;
       }
-      if (lastText) range.setStart(lastText, lastText.length);
-      else {
+      let range = emptyPlainRange ?? plainEndRange ?? plainStartRange;
+      if (!range) {
+        const headings = [
+          ...(root.matches("h1,h2,h3,h4,h5,h6") ? [root] : []),
+          ...root.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6"),
+        ];
+        for (const heading of headings) {
+          const candidate = blockEdgeRange(heading, true);
+          if (isVisible(candidate)) {
+            range = candidate;
+            break;
+          }
+        }
+      }
+      if (!range) {
+        const textBlocks = Array.from(
+          root.querySelectorAll<HTMLElement>(
+            "li,blockquote,pre,h1,h2,h3,h4,h5,h6,ol,ul",
+          ),
+        ).reverse();
+        for (const block of textBlocks) {
+          const candidate = blockEdgeRange(block, true);
+          if (isVisible(candidate)) {
+            range = candidate;
+            break;
+          }
+        }
+      }
+      if (!range) {
+        range = document.createRange();
         range.selectNodeContents(root);
         range.collapse(false);
       }
-      range.collapse(true);
       selection.removeAllRanges();
       selection.addRange(range);
-      const caretTarget =
-        range.startContainer instanceof Element
-          ? range.startContainer
-          : range.startContainer.parentElement;
-      (caretTarget ?? root).scrollIntoView({
+      const caretTarget = range.startContainer.parentElement ?? root;
+      caretTarget.scrollIntoView({
         block: "nearest",
         inline: "nearest",
       });
+      const rangeRect = range.getBoundingClientRect();
+      const caretRect =
+        rangeRect.height > 0
+          ? rangeRect
+          : range.startContainer instanceof Element
+            ? range.startContainer.getBoundingClientRect()
+            : range.startContainer.parentElement?.getBoundingClientRect();
+      if (
+        !caretRect ||
+        caretRect.height <= 0 ||
+        caretRect.left < 0 ||
+        caretRect.left > window.innerWidth ||
+        caretRect.top < 0 ||
+        caretRect.bottom > window.innerHeight
+      ) {
+        throw new Error("authoring fuzz could not place its caret in view");
+      }
     });
     let state = await plainLineState();
+    const setupStates = [state];
     let attempts = 0;
     for (let attempt = 0; !state.valid && attempt < 8; attempt += 1) {
-      await editor.press("Enter");
+      await page.keyboard.press("Enter");
+      await editor.evaluate((root: HTMLElement) => {
+        const selection = window.getSelection();
+        if (!selection?.rangeCount) return;
+        const range = selection.getRangeAt(0);
+        if (!root.contains(range.startContainer)) return;
+        const caretTarget = range.startContainer.parentElement ?? root;
+        caretTarget.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+        });
+      });
       state = await plainLineState();
+      setupStates.push(state);
       attempts += 1;
     }
     if (!state.valid)
       throw new Error(
-        `${label} setup did not reach an empty plain line (${JSON.stringify({ attempts, state })})`,
+        `${label} setup did not reach an empty plain line (${JSON.stringify({ attempts, state, setupStates })})`,
+      );
+    const finalCaret = await editor.evaluate((root: HTMLElement) => {
+      const selection = window.getSelection();
+      if (!selection?.rangeCount || !root.contains(selection.focusNode))
+        return null;
+      const range = selection.getRangeAt(0);
+      const rangeRect = range.getBoundingClientRect();
+      const anchor =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      const rect =
+        rangeRect.height > 0 ? rangeRect : anchor?.getBoundingClientRect();
+      if (!rect) return null;
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        withinViewport:
+          rect.height > 0 &&
+          rect.left >= 0 &&
+          rect.left <= window.innerWidth &&
+          rect.top >= 0 &&
+          rect.bottom <= window.innerHeight,
+      };
+    });
+    if (!finalCaret?.withinViewport)
+      throw new Error(
+        `${label} setup left the caret outside the viewport (${JSON.stringify(finalCaret)})`,
       );
     const operation = plan[activeIndex];
     if (!operation) throw new Error("authoring operation is unavailable");
@@ -4030,6 +4692,123 @@ export async function runAuthoringFuzz(
     tracePhase("slash.wait-visible:end");
     if ((await options.count()) !== SLASH_COMMANDS.length)
       throw new Error("slash menu did not expose all eight commands");
+    const initialOptionId = await editor.getAttribute("aria-activedescendant");
+    const initialCommand = initialOptionId
+      ? await page
+          .locator(`[id=${JSON.stringify(initialOptionId)}]`)
+          .getAttribute("data-value")
+      : null;
+    await options.nth(1).hover();
+    if (!slashHoverThemesChecked) {
+      const originalTheme = await page.evaluate(() => ({
+        light: document.documentElement.classList.contains("light"),
+        dark: document.documentElement.classList.contains("dark"),
+      }));
+      try {
+        for (const theme of ["light", "dark"] as const) {
+          await page.evaluate((nextTheme: "light" | "dark") => {
+            const root = document.documentElement;
+            root.classList.toggle("light", nextTheme === "light");
+            root.classList.toggle("dark", nextTheme === "dark");
+          }, theme);
+          const hoverState = await editor.evaluate((root: HTMLElement) => {
+            const activeId = root.getAttribute("aria-activedescendant");
+            const activeOption = activeId
+              ? document.getElementById(activeId)
+              : null;
+            const hoveredOption = document.querySelector<HTMLElement>(
+              '[role="option"]:hover',
+            );
+            const activeBackground = activeOption
+              ? getComputedStyle(activeOption).backgroundColor
+              : null;
+            const hoveredBackground = hoveredOption
+              ? getComputedStyle(hoveredOption).backgroundColor
+              : null;
+            const surfaceBackgrounds: string[] = [];
+            for (
+              let ancestor = hoveredOption?.parentElement ?? null;
+              ancestor;
+              ancestor = ancestor.parentElement
+            ) {
+              surfaceBackgrounds.push(
+                getComputedStyle(ancestor).backgroundColor,
+              );
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = 1;
+            canvas.height = 1;
+            const context = canvas.getContext("2d", {
+              willReadFrequently: true,
+            });
+            const renderOverSurface = (foreground: string | null) => {
+              if (
+                !context ||
+                !foreground ||
+                !CSS.supports("color", foreground) ||
+                surfaceBackgrounds.some(
+                  (background) => !CSS.supports("color", background),
+                )
+              ) {
+                return null;
+              }
+              context.clearRect(0, 0, 1, 1);
+              for (const background of [...surfaceBackgrounds].reverse()) {
+                context.fillStyle = background;
+                context.fillRect(0, 0, 1, 1);
+              }
+              context.fillStyle = foreground;
+              context.fillRect(0, 0, 1, 1);
+              const { data } = context.getImageData(0, 0, 1, 1);
+              return [data[0], data[1], data[2]] as [number, number, number];
+            };
+            const activeRendered = renderOverSurface(activeBackground);
+            const hoveredRendered = renderOverSurface(hoveredBackground);
+            return {
+              focused: document.activeElement === root,
+              activeCommand: activeOption?.getAttribute("data-value") ?? null,
+              hoveredCommand: hoveredOption?.getAttribute("data-value") ?? null,
+              activeBackground,
+              hoveredBackground,
+              surfaceBackgrounds,
+              backgroundDifference:
+                activeRendered && hoveredRendered
+                  ? Math.max(
+                      ...activeRendered.map((channel, index) =>
+                        Math.abs(channel - hoveredRendered[index]),
+                      ),
+                    )
+                  : null,
+            };
+          });
+          if (
+            !initialCommand ||
+            !hoverState.focused ||
+            hoverState.activeCommand !== initialCommand ||
+            !hoverState.hoveredCommand ||
+            hoverState.hoveredCommand === initialCommand ||
+            !hoverState.activeBackground ||
+            !hoverState.hoveredBackground ||
+            hoverState.backgroundDifference === null ||
+            hoverState.backgroundDifference < 24
+          ) {
+            throw new Error(
+              `slash menu hover changed or lacks clear contrast from keyboard selection in ${theme} theme (${JSON.stringify({ initialCommand, hoverState })})`,
+            );
+          }
+        }
+      } finally {
+        await page.evaluate(
+          ({ light, dark }: { light: boolean; dark: boolean }) => {
+            const root = document.documentElement;
+            root.classList.toggle("light", light);
+            root.classList.toggle("dark", dark);
+          },
+          originalTheme,
+        );
+      }
+      slashHoverThemesChecked = true;
+    }
     const focused = await editor.evaluate(
       (root: HTMLElement) => document.activeElement === root,
     );
@@ -4075,24 +4854,50 @@ export async function runAuthoringFuzz(
     return listbox;
   };
   const waitForControlledSlashListbox = async () => {
-    await page.waitForFunction(
-      (selector: string) => {
-        const editingEl = document.querySelector<HTMLElement>(selector);
-        const listboxId = editingEl?.getAttribute("aria-controls");
-        const optionId = editingEl?.getAttribute("aria-activedescendant");
+    try {
+      await page.waitForFunction(
+        (selector: string) => {
+          const editingEl = document.querySelector<HTMLElement>(selector);
+          const listboxId = editingEl?.getAttribute("aria-controls");
+          const optionId = editingEl?.getAttribute("aria-activedescendant");
+          const listbox = listboxId ? document.getElementById(listboxId) : null;
+          const activeOption = optionId
+            ? document.getElementById(optionId)
+            : null;
+          return (
+            listbox?.getAttribute("role") === "listbox" &&
+            activeOption?.getAttribute("role") === "option" &&
+            listbox.contains(activeOption)
+          );
+        },
+        editorSelector,
+        { timeout: 5000 },
+      );
+    } catch (error) {
+      const state = await editor.evaluate((root: HTMLElement) => {
+        const listboxId = root.getAttribute("aria-controls");
+        const activeId = root.getAttribute("aria-activedescendant");
         const listbox = listboxId ? document.getElementById(listboxId) : null;
-        const activeOption = optionId
-          ? document.getElementById(optionId)
+        const activeOption = activeId
+          ? document.getElementById(activeId)
           : null;
-        return (
-          listbox?.getAttribute("role") === "listbox" &&
-          activeOption?.getAttribute("role") === "option" &&
-          listbox.contains(activeOption)
-        );
-      },
-      editorSelector,
-      { timeout: 5000 },
-    );
+        return {
+          focused: document.activeElement === root,
+          controls: listboxId,
+          activeDescendant: activeId,
+          listboxRole: listbox?.getAttribute("role") ?? null,
+          activeRole: activeOption?.getAttribute("role") ?? null,
+          activeValue: activeOption?.getAttribute("data-value") ?? null,
+          contained:
+            !!listbox && !!activeOption && listbox.contains(activeOption),
+          listboxes: document.querySelectorAll('[role="listbox"]').length,
+          options: document.querySelectorAll('[role="option"]').length,
+        };
+      });
+      throw new Error(
+        `slash menu did not expose a controlled active option (${JSON.stringify(state)}); ${String(error)}`,
+      );
+    }
     const listboxId = await editor.getAttribute("aria-controls");
     if (!listboxId) throw new Error("slash menu did not expose its listbox");
     return page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`);
@@ -4240,21 +5045,136 @@ export async function runAuthoringFuzz(
     key: "Enter" | "Tab" = "Enter",
   ) => {
     const listbox = await openSlashMenu();
-    const commandIndex = SLASH_COMMANDS.findIndex(
-      ([value]) => value === command,
+    const currentOptionId = await editor.getAttribute("aria-activedescendant");
+    const activeCommand = await listbox
+      .locator('[role="option"]')
+      .evaluateAll(
+        (options: Element[], activeId: string | null) =>
+          options
+            .find((option) => option.getAttribute("id") === activeId)
+            ?.getAttribute("data-value") ?? null,
+        currentOptionId,
+      );
+    const arrowDownCount = authoringFuzzSlashArrowDownCount(
+      activeCommand,
+      command,
     );
-    if (commandIndex < 0) throw new Error(`unknown slash command ${command}`);
     tracePhase(`slash.navigate:start:${command}`);
-    for (let index = 0; index < commandIndex; index += 1)
-      await page.keyboard.press("ArrowDown");
+    let selectedIndex = SLASH_COMMANDS.findIndex(
+      ([value]) => value === activeCommand,
+    );
+    await page.evaluate((selector: string) => {
+      const trace: Array<{
+        keyCode: number;
+        isComposing: boolean;
+        activeBefore: string | null;
+        defaultPreventedAfter?: boolean;
+        activeAfter?: string | null;
+      }> = [];
+      const listener = (event: KeyboardEvent) => {
+        if (event.key !== "ArrowDown") return;
+        const editingEl = document.querySelector<HTMLElement>(selector);
+        if (!editingEl) return;
+        const activeValue = () => {
+          const id = editingEl.getAttribute("aria-activedescendant");
+          return id
+            ? (document.getElementById(id)?.getAttribute("data-value") ?? null)
+            : null;
+        };
+        const entry: {
+          keyCode: number;
+          isComposing: boolean;
+          activeBefore: string | null;
+          defaultPreventedAfter?: boolean;
+          activeAfter?: string | null;
+        } = {
+          keyCode: event.keyCode,
+          isComposing: event.isComposing,
+          activeBefore: activeValue(),
+        };
+        trace.push(entry);
+        requestAnimationFrame(() => {
+          entry.defaultPreventedAfter = event.defaultPrevented;
+          entry.activeAfter = activeValue();
+        });
+      };
+      document.addEventListener("keydown", listener, true);
+      (
+        window as Window & {
+          __slidesSlashNavigationTrace?: {
+            trace: typeof trace;
+            listener: typeof listener;
+          };
+        }
+      ).__slidesSlashNavigationTrace = { trace, listener };
+    }, editorSelector);
+    try {
+      for (let index = 0; index < arrowDownCount; index += 1) {
+        selectedIndex = (selectedIndex + 1) % SLASH_COMMANDS.length;
+        const expectedCommand = SLASH_COMMANDS[selectedIndex][0];
+        await page.keyboard.press("ArrowDown");
+        try {
+          await page.waitForFunction(
+            ({ selector, value }: { selector: string; value: string }) => {
+              const editingEl = document.querySelector<HTMLElement>(selector);
+              const activeId = editingEl?.getAttribute("aria-activedescendant");
+              const activeOption = activeId
+                ? document.getElementById(activeId)
+                : null;
+              return activeOption?.getAttribute("data-value") === value;
+            },
+            { selector: editorSelector, value: expectedCommand },
+            { timeout: 5000 },
+          );
+        } catch (error) {
+          const navigationState = await page.evaluate((selector: string) => {
+            const editingEl = document.querySelector<HTMLElement>(selector);
+            const activeId = editingEl?.getAttribute("aria-activedescendant");
+            const activeOption = activeId
+              ? document.getElementById(activeId)
+              : null;
+            const traceOwner = window as Window & {
+              __slidesSlashNavigationTrace?: {
+                trace: Array<Record<string, unknown>>;
+              };
+            };
+            return {
+              current: activeOption?.getAttribute("data-value") ?? null,
+              trace: traceOwner.__slidesSlashNavigationTrace?.trace ?? [],
+            };
+          }, editorSelector);
+          throw new Error(
+            `slash navigation to ${command} from ${activeCommand} stalled at ${index + 1}/${arrowDownCount}; expected ${expectedCommand}, current ${navigationState.current}, key trace=${JSON.stringify(navigationState.trace.slice(-8))}; ${String(error)}`,
+          );
+        }
+      }
+    } finally {
+      await page.evaluate(() => {
+        const traceOwner = window as Window & {
+          __slidesSlashNavigationTrace?: {
+            trace: unknown[];
+            listener: EventListener;
+          };
+        };
+        const trace = traceOwner.__slidesSlashNavigationTrace;
+        if (trace)
+          document.removeEventListener("keydown", trace.listener, true);
+        delete traceOwner.__slidesSlashNavigationTrace;
+      });
+    }
     const activeOptionId = await listbox
       .locator(`[role="option"][data-value="${command}"]`)
       .getAttribute("id");
+    const selectedCommand = await listbox
+      .locator('[role="option"][aria-selected="true"]')
+      .getAttribute("data-value");
     if (
       !activeOptionId ||
       (await editor.getAttribute("aria-activedescendant")) !== activeOptionId
     ) {
-      throw new Error(`slash menu did not select ${command}`);
+      throw new Error(
+        `slash menu did not select ${command} (started at ${activeCommand}, moved ${arrowDownCount}, selected ${selectedCommand ?? "none"})`,
+      );
     }
     const withTrigger = await inspectSelection();
     const listboxId = await slashListboxId(listbox);
@@ -4335,6 +5255,43 @@ export async function runAuthoringFuzz(
   const placeCaretAtToken = async (token: string, edge: "start" | "end") => {
     await selectToken(token, edge);
   };
+  const listCaretState = async (token: string) =>
+    editor.evaluate((root: HTMLElement, value: string) => {
+      const selection = window.getSelection();
+      const anchorNode = selection?.anchorNode ?? null;
+      const anchor =
+        anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement;
+      const activeItem = anchor?.closest<HTMLElement>("li") ?? null;
+      const tokenItem =
+        Array.from(root.querySelectorAll<HTMLElement>("li")).find((item) =>
+          item.textContent?.includes(value),
+        ) ?? null;
+      const itemState = (item: HTMLElement | null) =>
+        item
+          ? {
+              connected: item.isConnected,
+              parentTag: item.parentElement?.tagName ?? null,
+              textLength: item.textContent?.length ?? 0,
+            }
+          : null;
+      return {
+        focused: document.activeElement === root,
+        selectionCollapsed: selection?.isCollapsed ?? false,
+        anchorTag:
+          anchorNode instanceof Element
+            ? anchorNode.tagName
+            : (anchorNode?.parentElement?.tagName ?? null),
+        anchorOffset: selection?.anchorOffset ?? null,
+        activeItem: itemState(activeItem),
+        tokenItem: itemState(tokenItem),
+        caretInTokenItem: !!activeItem && activeItem === tokenItem,
+        caretInSiblingItem:
+          !!activeItem &&
+          !!tokenItem &&
+          activeItem !== tokenItem &&
+          activeItem.parentElement === tokenItem.parentElement,
+      };
+    }, token);
   const listRowCount = async (kind: "styled" | "ul" | "ol") =>
     editor.evaluate((root: HTMLElement, type: string) => {
       if (type === "styled") {
@@ -4376,9 +5333,30 @@ export async function runAuthoringFuzz(
       await runSlashCommand(kind === "ul" ? "bulletList" : "orderedList");
       await typeText(firstToken);
     }
+    const caretAfterFirst =
+      kind === "styled" ? null : await listCaretState(firstToken);
+    if (caretAfterFirst && !caretAfterFirst.caretInTokenItem) {
+      throw new Error(
+        `${kind} caret left its list item after typing (${JSON.stringify(caretAfterFirst)})`,
+      );
+    }
     const afterFirst = await listRowCount(kind);
     await editor.press(lineEndKey);
+    const caretAfterLineEnd =
+      kind === "styled" ? null : await listCaretState(firstToken);
+    if (caretAfterLineEnd && !caretAfterLineEnd.caretInTokenItem) {
+      throw new Error(
+        `${kind} caret left its list item at the line end (${JSON.stringify(caretAfterLineEnd)})`,
+      );
+    }
     await editor.press("Enter");
+    const caretAfterEnter =
+      kind === "styled" ? null : await listCaretState(firstToken);
+    if (caretAfterEnter && !caretAfterEnter.caretInSiblingItem) {
+      throw new Error(
+        `${kind} Enter did not move the caret into a sibling list item (${JSON.stringify(caretAfterEnter)})`,
+      );
+    }
     await typeText(secondToken);
     const after = await listRowCount(kind);
     const siblingEntries = await editor.evaluate(
@@ -4386,31 +5364,49 @@ export async function runAuthoringFuzz(
         root: HTMLElement,
         values: { kind: string; first: string; second: string },
       ) => {
-        const entryFor = (token: string) => {
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-            if (!(node as Text).data.includes(token)) continue;
-            let entry = (node as Text).parentElement;
-            if (values.kind === "styled") {
-              while (entry && entry !== root) {
-                const marker = entry.firstElementChild;
-                if (
-                  getComputedStyle(entry).display === "flex" &&
-                  marker?.tagName === "SPAN" &&
-                  /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "")
-                ) {
-                  return entry.textContent?.includes(token) ? entry : null;
-                }
-                entry = entry.parentElement;
-              }
-              return null;
-            }
-            const item = entry?.closest<HTMLElement>("li");
-            return item?.parentElement?.tagName === values.kind.toUpperCase()
-              ? item
-              : null;
+        const points: Array<{ text: Text; offset: number }> = [];
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let visible = "";
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node as Text;
+          for (let offset = 0; offset < text.length; offset += 1) {
+            if (text.data[offset] === "\u200b") continue;
+            points.push({ text, offset });
+            visible += text.data[offset] === "\u00a0" ? " " : text.data[offset];
           }
-          return null;
+        }
+        const entryFor = (token: string) => {
+          const start = visible.lastIndexOf(token);
+          if (start < 0) return null;
+          const firstPoint = points[start];
+          const lastPoint = points[start + token.length - 1];
+          if (!firstPoint || !lastPoint) return null;
+          const firstElement = firstPoint.text.parentElement;
+          const lastElement = lastPoint.text.parentElement;
+          if (values.kind === "styled") {
+            let entry = firstElement;
+            while (entry && entry !== root) {
+              const marker = entry.firstElementChild;
+              if (
+                getComputedStyle(entry).display === "flex" &&
+                marker?.tagName === "SPAN" &&
+                /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "")
+              ) {
+                return entry.contains(lastElement) &&
+                  entry.textContent?.includes(token)
+                  ? entry
+                  : null;
+              }
+              entry = entry.parentElement;
+            }
+            return null;
+          }
+          const item = firstElement?.closest<HTMLElement>("li");
+          return item &&
+            item.contains(lastElement) &&
+            item.parentElement?.tagName === values.kind.toUpperCase()
+            ? item
+            : null;
         };
         const first = entryFor(values.first);
         const second = entryFor(values.second);
@@ -4430,24 +5426,48 @@ export async function runAuthoringFuzz(
           const anchor = selection?.anchorNode;
           const element =
             anchor instanceof HTMLElement ? anchor : anchor?.parentElement;
-          const tokenBlock = (token: string) => {
+          const tokenLocation = (token: string) => {
             const walker = document.createTreeWalker(
               root,
               NodeFilter.SHOW_TEXT,
             );
+            const points: Array<{ text: Text; offset: number }> = [];
+            let visible = "";
             for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-              if (!(node as Text).data.includes(token)) continue;
-              const block = (node as Text).parentElement?.closest<HTMLElement>(
-                "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
-              );
-              const text = block?.textContent ?? "";
-              return {
-                tag: block?.tagName ?? null,
-                length: text.length,
-                shortcutPrefixRemains: text.includes(`- ${token}`),
-              };
+              const text = node as Text;
+              for (let offset = 0; offset < text.length; offset += 1) {
+                if (text.data[offset] === "\u200b") continue;
+                points.push({ text, offset });
+                visible +=
+                  text.data[offset] === "\u00a0" ? " " : text.data[offset];
+              }
             }
-            return null;
+            const start = visible.lastIndexOf(token);
+            const firstPoint = start < 0 ? null : points[start];
+            const lastPoint =
+              start < 0 ? null : points[start + token.length - 1];
+            if (!firstPoint || !lastPoint) return null;
+            const firstElement = firstPoint.text.parentElement;
+            const item = firstElement?.closest("li");
+            const lastElement = lastPoint.text.parentElement;
+            const ancestors: string[] = [];
+            for (
+              let current: Element | null = firstElement;
+              current && root.contains(current);
+              current = current.parentElement
+            ) {
+              ancestors.push(current.tagName);
+              if (current === root) break;
+            }
+            return {
+              ancestors,
+              blockTag:
+                firstElement?.closest(
+                  "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
+                )?.tagName ?? null,
+              listTag: item?.parentElement?.tagName ?? null,
+              sameListItem: !!item && item.contains(lastElement),
+            };
           };
           const rows = [
             ...(root.matches("div") ? [root] : []),
@@ -4496,13 +5516,14 @@ export async function runAuthoringFuzz(
             })(),
             firstTokenPresent: root.textContent?.includes(tokens[0] ?? ""),
             secondTokenPresent: root.textContent?.includes(tokens[1] ?? ""),
-            firstTokenBlock: tokenBlock(tokens[0] ?? ""),
+            firstTokenLocation: tokenLocation(tokens[0] ?? ""),
+            secondTokenLocation: tokenLocation(tokens[1] ?? ""),
           };
         },
         [firstToken, secondToken],
       );
       throw new Error(
-        `${kind} Enter did not create a sibling list item (${JSON.stringify({ before, afterShortcut, afterFirst, after, siblingEntries, state })})`,
+        `${kind} Enter did not create a sibling list item (${JSON.stringify({ before, afterShortcut, afterFirst, after, siblingEntries, caretAfterFirst, caretAfterLineEnd, caretAfterEnter, state })})`,
       );
     }
     return { firstToken, secondToken };
@@ -4531,12 +5552,27 @@ export async function runAuthoringFuzz(
       }
       return null;
     }, token);
-  const paste = async (html: string | null, text: string) =>
+  const slideClipboardType = "application/x-agent-native-slide-text";
+  const paste = async (
+    html: string | null,
+    text: string,
+    slideClipboard?: string,
+  ) =>
     editor.evaluate(
-      (root: HTMLElement, data: { html: string | null; text: string }) => {
+      (
+        root: HTMLElement,
+        data: {
+          html: string | null;
+          text: string;
+          slideClipboard?: string;
+          slideClipboardType: string;
+        },
+      ) => {
         const clipboard = new DataTransfer();
         clipboard.setData("text/plain", data.text);
         if (data.html) clipboard.setData("text/html", data.html);
+        if (data.slideClipboard)
+          clipboard.setData(data.slideClipboardType, data.slideClipboard);
         const event = new Event("paste", {
           bubbles: true,
           cancelable: true,
@@ -4557,10 +5593,15 @@ export async function runAuthoringFuzz(
           selectionCollapsed: selection?.isCollapsed ?? null,
         };
       },
-      { html, text },
+      {
+        html,
+        text,
+        slideClipboardType,
+        ...(slideClipboard ? { slideClipboard } : {}),
+      },
     );
   const copySelection = async () =>
-    editor.evaluate((root: HTMLElement) => {
+    editor.evaluate((root: HTMLElement, type: string) => {
       const clipboard = new DataTransfer();
       const event = new Event("copy", {
         bubbles: true,
@@ -4574,8 +5615,9 @@ export async function runAuthoringFuzz(
       return {
         html: clipboard.getData("text/html"),
         text: clipboard.getData("text/plain"),
+        slideClipboard: clipboard.getData(type),
       };
-    });
+    }, slideClipboardType);
   const assertRichPasteStructure = async (suffix: string) => {
     const state = await editor.evaluate(
       (root: HTMLElement, tokenSuffix: string) => {
@@ -4680,30 +5722,117 @@ export async function runAuthoringFuzz(
       [firstToken, secondToken],
     );
   };
+  const placeReplacementCaret = async () =>
+    editor.evaluate((root: HTMLElement) => {
+      if (document.activeElement !== root) root.focus();
+      const selection = window.getSelection();
+      if (!selection) throw new Error("replacement has no browser selection");
+      const isVisible = (element: HTMLElement) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.visibility !== "collapse" &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
+      };
+      let lastText: Text | null = null;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node as Text;
+        if (
+          text.length &&
+          text.parentElement &&
+          isVisible(text.parentElement)
+        ) {
+          lastText = text;
+        }
+      }
+      const range = document.createRange();
+      if (lastText) {
+        range.setStart(lastText, lastText.length);
+        range.collapse(true);
+      } else {
+        const emptyBlock = [
+          ...(root.matches("p,div,li,blockquote,h1,h2,h3,h4,h5,h6,pre")
+            ? [root]
+            : []),
+          ...root.querySelectorAll<HTMLElement>(
+            "p,div,li,blockquote,h1,h2,h3,h4,h5,h6,pre",
+          ),
+        ]
+          .reverse()
+          .find(
+            (element) =>
+              !element.textContent?.replaceAll(/[\u200b\ufeff\s]/g, "") &&
+              isVisible(element),
+          );
+        range.selectNodeContents(emptyBlock ?? root);
+        range.collapse(false);
+      }
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const caretTarget =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      caretTarget?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (!root.contains(selection.focusNode) || !selection.isCollapsed) {
+        throw new Error("replacement could not place a caret in the editor");
+      }
+    });
   const dispatchReplacement = async () => {
-    await newPlainLine("replacement");
+    const initial = await inspectSelection();
+    if (!initial.inside || !initial.collapsed) await placeReplacementCaret();
     const before = await inspectSelection();
     if (!before.inside || !before.collapsed)
       throw new Error("replacement needs a caret in the editor");
     await typeText("teh");
-    const state = await inspectSelection();
-    if (!state.inside) throw new Error("autocorrect sample left the editor");
-    await selectToken("teh");
-    const selected = await inspectSelection();
+    const typed = await inspectSelection();
+    if (
+      !typed.inside ||
+      !typed.collapsed ||
+      typed.start !== before.start + "teh".length
+    )
+      throw new Error("autocorrect sample did not stay at the original caret");
+    const replacementStart = typed.start - "teh".length;
     const expected =
-      selected.text.slice(0, selected.start) +
+      typed.text.slice(0, replacementStart) +
       "the" +
-      selected.text.slice(selected.end);
-    await editor.evaluate((root: HTMLElement) => {
-      const selection = window.getSelection();
-      if (!selection?.rangeCount)
-        throw new Error("autocorrect selection is unavailable");
-      const target = selection.getRangeAt(0).cloneRange();
+      typed.text.slice(typed.start);
+    await editor.evaluate((root: HTMLElement, targetStart: number) => {
+      const points: Array<{ text: Text; offset: number }> = [];
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let visible = "";
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node as Text;
+        for (let offset = 0; offset < text.length; offset += 1) {
+          if (text.data[offset] === "\u200b") continue;
+          points.push({ text, offset });
+          visible += text.data[offset] === "\u00a0" ? " " : text.data[offset];
+        }
+      }
+      if (visible.slice(targetStart, targetStart + 3) !== "teh") {
+        throw new Error(
+          "autocorrect sample could not be found at the typed caret",
+        );
+      }
+      const first = points[targetStart];
+      const last = points[targetStart + 2];
+      if (!first || !last)
+        throw new Error("autocorrect target range is unavailable");
+      const target = document.createRange();
+      target.setStart(first.text, first.offset);
+      target.setEnd(last.text, last.offset + 1);
       if (target.toString().replaceAll("\u200b", "") !== "teh") {
         throw new Error(
           "autocorrect target range did not select the typed token",
         );
       }
+      const selection = window.getSelection();
+      if (!selection) throw new Error("browser selection is unavailable");
       selection.collapse(root, root.childNodes.length);
       const event = new InputEvent("beforeinput", {
         inputType: "insertReplacementText",
@@ -4715,12 +5844,13 @@ export async function runAuthoringFuzz(
         value: () => [target],
       });
       root.dispatchEvent(event);
-    });
+    }, replacementStart);
     const after = await inspectSelection();
     if (
       !after.inside ||
+      !after.collapsed ||
       after.text !== expected ||
-      after.start !== selected.start + "the".length
+      after.start !== typed.start
     )
       throw new Error(
         "insertReplacementText did not replace the selected token at its range",
@@ -4757,7 +5887,12 @@ export async function runAuthoringFuzz(
             await typeBurst(prefix, operation.result !== "divider");
             const beforeTrigger = await shortcutState();
             await typeBurst(trigger, false);
-            await assertShortcut(operation.result, before, beforeTrigger);
+            await assertShortcut(
+              operation.result,
+              before,
+              operation.value,
+              beforeTrigger,
+            );
             await typeBurst("q", true);
           }
           break;
@@ -4915,7 +6050,7 @@ export async function runAuthoringFuzz(
           await listbox
             .locator('[role="option"]')
             .first()
-            .waitFor({ state: "visible", timeout: 1500 });
+            .waitFor({ state: "visible", timeout: 5000 });
           const listboxId = await slashListboxId(listbox);
           await page.keyboard.press("Enter");
           await waitForSlashMenuHidden(listboxId);
@@ -4927,6 +6062,64 @@ export async function runAuthoringFuzz(
         }
         case "heading-backspace":
         case "quote-backspace": {
+          if (operation.kind === "quote-backspace") {
+            await newPlainLine();
+            await runSlashCommand("quote");
+            const leadingSpaceToken = `space${activeIndex}`;
+            await typeText(` ${leadingSpaceToken}`);
+            await placeCaretAtToken(leadingSpaceToken, "start");
+            const quoteState = async () =>
+              editor.evaluate((root: HTMLElement, token: string) => {
+                const quotes = [
+                  ...(root.matches("blockquote") ? [root] : []),
+                  ...Array.from(
+                    root.querySelectorAll<HTMLElement>("blockquote"),
+                  ),
+                ];
+                const quote = quotes
+                  .reverse()
+                  .find((block) => block.textContent?.includes(token));
+                const text =
+                  quote?.textContent
+                    ?.replaceAll("\u200b", "")
+                    .replaceAll("\u00a0", " ") ?? null;
+                const tokenStart = text?.indexOf(token) ?? -1;
+                return {
+                  text,
+                  tag: quote?.tagName ?? null,
+                  prefix: tokenStart < 0 ? null : text?.slice(0, tokenStart),
+                };
+              }, leadingSpaceToken);
+            const quoteBeforeDelete = await quoteState();
+            if (
+              quoteBeforeDelete.tag !== "BLOCKQUOTE" ||
+              quoteBeforeDelete.prefix !== " "
+            ) {
+              throw new Error(
+                `${operation.kind} setup did not place the token after a leading space in a quote (${JSON.stringify(quoteBeforeDelete)})`,
+              );
+            }
+            await snapshotEditorSiblings("capture", operation);
+            await editor.press("Backspace");
+            const whitespaceDelete = await quoteState();
+            if (
+              whitespaceDelete.tag !== "BLOCKQUOTE" ||
+              whitespaceDelete.text !== leadingSpaceToken
+            ) {
+              throw new Error(
+                `${operation.kind} did not preserve native leading-space deletion (${JSON.stringify({ before: quoteBeforeDelete, after: whitespaceDelete })})`,
+              );
+            }
+            const whitespaceSiblingChanges = await snapshotEditorSiblings(
+              "assert",
+              operation,
+            );
+            if (whitespaceSiblingChanges.length) {
+              throw new Error(
+                `${operation.kind} moved or restyled a sibling while deleting leading whitespace: ${whitespaceSiblingChanges.slice(0, 5).join(", ")}`,
+              );
+            }
+          }
           await newPlainLine();
           await runSlashCommand(
             operation.kind === "heading-backspace" ? "heading2" : "quote",
@@ -5107,13 +6300,65 @@ export async function runAuthoringFuzz(
           await typeText(token);
           await editor.press(lineEndKey);
           await editor.press("Enter");
-          const plainSibling = await editor.evaluate((root: HTMLElement) =>
-            Array.from(root.querySelectorAll("h2")).some(
-              (heading) => heading.nextElementSibling?.tagName === "P",
-            ),
+          const headingState = await editor.evaluate(
+            (root: HTMLElement, value: string) => {
+              const headings = [
+                ...(root.matches("h2") ? [root] : []),
+                ...Array.from(root.querySelectorAll<HTMLElement>("h2")),
+              ];
+              const heading = headings.find((candidate) =>
+                candidate.textContent?.includes(value),
+              );
+              const selection = window.getSelection();
+              let caretBlock = selection?.anchorNode ?? null;
+              while (
+                caretBlock &&
+                caretBlock !== root &&
+                !(
+                  caretBlock instanceof HTMLElement &&
+                  caretBlock.tagName === "P"
+                )
+              ) {
+                caretBlock = caretBlock.parentNode;
+              }
+              const paragraph =
+                caretBlock instanceof HTMLElement && caretBlock.tagName === "P"
+                  ? caretBlock
+                  : null;
+              let createdParagraph = false;
+              const headingPath: Array<{
+                tag: string;
+                nextTag: string | null;
+              }> = [];
+              for (
+                let current: HTMLElement | null = heading ?? null;
+                current && current !== root;
+                current = current.parentElement
+              ) {
+                headingPath.push({
+                  tag: current.tagName,
+                  nextTag: current.nextElementSibling?.tagName ?? null,
+                });
+                if (paragraph && current.nextElementSibling === paragraph) {
+                  createdParagraph = true;
+                  break;
+                }
+              }
+              return {
+                createdParagraph,
+                headingFound: !!heading,
+                headingPath,
+                caretBlockTag:
+                  caretBlock instanceof HTMLElement ? caretBlock.tagName : null,
+              };
+            },
+            token,
           );
-          if (!plainSibling)
-            throw new Error("Enter at heading end did not create a paragraph");
+          if (!headingState.createdParagraph) {
+            throw new Error(
+              `Enter at heading end did not create a paragraph (${JSON.stringify(headingState)})`,
+            );
+          }
           break;
         }
         case "quote-exit": {
@@ -5160,24 +6405,73 @@ export async function runAuthoringFuzz(
           break;
         }
         case "empty-list-exit": {
-          await runSlashCommand("bulletList");
-          const token = `list${activeIndex}`;
-          await typeText(token);
-          await editor.press(lineEndKey);
-          await editor.press("Enter");
-          await editor.press("Enter");
-          const exited = await editor.evaluate(
-            (root: HTMLElement, expected: string) =>
-              Array.from(root.querySelectorAll("ul,ol")).some(
-                (list) =>
-                  list.textContent?.includes(expected) &&
-                  list.nextElementSibling?.tagName === "P",
-              ),
-            token,
-          );
-          if (!exited)
+          const { secondToken } = await createList("ul");
+          await placeCaretAtToken(secondToken, "end");
+          const beforeEnter = await listCaretState(secondToken);
+          await page.keyboard.press(lineEndKey);
+          const afterLineEnd = await listCaretState(secondToken);
+          await page.keyboard.press("Enter");
+          const afterFirstEnter = await listCaretState(secondToken);
+          if (
+            !afterFirstEnter.activeItem ||
+            afterFirstEnter.caretInTokenItem ||
+            afterFirstEnter.activeItem.parentTag !== "UL"
+          ) {
             throw new Error(
-              "Enter on an empty list item did not exit the list",
+              `Enter did not create an empty list item (${JSON.stringify({ beforeEnter, afterLineEnd, afterFirstEnter })})`,
+            );
+          }
+          await snapshotEditorSiblings("capture", operation);
+          await page.keyboard.press("Enter");
+          const result = await editor.evaluate(
+            (root: HTMLElement, expected: string) =>
+              (() => {
+                const state = window as Window & {
+                  __authoringFuzzSiblingSnapshot?: {
+                    emptyListExit?: {
+                      item: HTMLElement;
+                      paragraphs: HTMLElement[];
+                    };
+                  };
+                };
+                const emptyListExit =
+                  state.__authoringFuzzSiblingSnapshot?.emptyListExit;
+                const item = emptyListExit?.item;
+                const existingParagraphs = new Set(
+                  emptyListExit?.paragraphs ?? [],
+                );
+                const list = Array.from(root.querySelectorAll("ul,ol")).find(
+                  (candidate) => candidate.textContent?.includes(expected),
+                );
+                const paragraph = list?.nextElementSibling;
+                const selection = window.getSelection();
+                const caretParagraph =
+                  selection?.focusNode instanceof Element
+                    ? selection.focusNode.closest("p")
+                    : selection?.focusNode?.parentElement?.closest("p");
+                return {
+                  itemRemoved: !!item && !root.contains(item),
+                  listFollowedByNewParagraph:
+                    paragraph?.tagName === "P" &&
+                    !existingParagraphs.has(paragraph as HTMLElement),
+                  caretInNewParagraph:
+                    paragraph?.tagName === "P" &&
+                    caretParagraph === paragraph &&
+                    selection?.isCollapsed === true &&
+                    root.contains(selection.focusNode),
+                  editorKeptFocus: document.activeElement === root,
+                };
+              })(),
+            secondToken,
+          );
+          if (
+            !result.itemRemoved ||
+            !result.listFollowedByNewParagraph ||
+            !result.caretInNewParagraph ||
+            !result.editorKeptFocus
+          )
+            throw new Error(
+              `Enter on an empty list item did not exit the list (${JSON.stringify(result)})`,
             );
           break;
         }
@@ -5325,6 +6619,7 @@ export async function runAuthoringFuzz(
         }
         case "enter-list-edge":
           await createList("ul");
+          await snapshotEditorSiblings("capture", operation);
           {
             const before = await listRowCount("ul");
             await editor.press(lineEndKey);
@@ -5338,6 +6633,7 @@ export async function runAuthoringFuzz(
             const { firstToken, secondToken } = await createList("styled");
             const before = await listRowCount("styled");
             await placeCaretAtToken(secondToken, "start");
+            await snapshotEditorSiblings("capture", operation);
             await editor.press("Backspace");
             const afterDemotion = await listRowCount("styled");
             const firstPressState = await editor.evaluate(
@@ -5438,6 +6734,7 @@ export async function runAuthoringFuzz(
             const { firstToken, secondToken } = await createList("ol");
             const before = await listRowCount("ol");
             await placeCaretAtToken(firstToken, "end");
+            await snapshotEditorSiblings("capture", operation);
             await editor.press("Delete");
             const text = (await inspectSelection()).text;
             if (
@@ -5452,6 +6749,7 @@ export async function runAuthoringFuzz(
         case "tab": {
           const { secondToken } = await createList(operation.list);
           await placeCaretAtToken(secondToken, "end");
+          await snapshotEditorSiblings("capture", operation);
           if (operation.list === "styled") {
             const before = await rowIndent(secondToken);
             await editor.press("Tab");
@@ -5472,6 +6770,7 @@ export async function runAuthoringFuzz(
             const original = await rowIndent(secondToken);
             await editor.press("Tab");
             const indented = await rowIndent(secondToken);
+            await snapshotEditorSiblings("capture", operation);
             await page.keyboard.press("Shift+Tab");
             const outdented = await rowIndent(secondToken);
             if (
@@ -5490,6 +6789,7 @@ export async function runAuthoringFuzz(
             if (!(await isNestedListToken(secondToken)))
               throw new Error(`Tab did not nest the ${operation.list} item`);
             await placeCaretAtToken(secondToken, "end");
+            await snapshotEditorSiblings("capture", operation);
             await page.keyboard.press("Shift+Tab");
             if (await isNestedListToken(secondToken))
               throw new Error(
@@ -5889,11 +7189,13 @@ export async function runAuthoringFuzz(
         }
         case "select-cross-block-type": {
           await makeCrossBlockSelection();
+          await snapshotEditorSiblings("capture", operation);
           await typeText("R");
           break;
         }
         case "select-cross-block-delete": {
           await makeCrossBlockSelection();
+          await snapshotEditorSiblings("capture", operation);
           const selected = await inspectSelection();
           const expected =
             selected.text.slice(0, selected.start) +
@@ -5954,18 +7256,102 @@ export async function runAuthoringFuzz(
           await typeText(token);
           await selectToken(token);
           await page.keyboard.press(`${modifier}+B`);
+          const selectedWeight = await editor.evaluate((root: HTMLElement) => {
+            const selection = window.getSelection();
+            const node = selection?.anchorNode;
+            const element =
+              node instanceof Element ? node : node?.parentElement;
+            return element && root.contains(element)
+              ? getComputedStyle(element).fontWeight
+              : null;
+          });
+          const numericWeight =
+            selectedWeight === "bold" || selectedWeight === "bolder"
+              ? 700
+              : Number.parseInt(selectedWeight ?? "400", 10);
+          if (numericWeight < 600) {
+            await page.keyboard.press(`${modifier}+B`);
+          }
+          const finalSelectedWeight = await editor.evaluate(
+            (root: HTMLElement) => {
+              const selection = window.getSelection();
+              const node = selection?.anchorNode;
+              const element =
+                node instanceof Element ? node : node?.parentElement;
+              return element && root.contains(element)
+                ? getComputedStyle(element).fontWeight
+                : null;
+            },
+          );
           const copied = await copySelection();
-          const copiedBold =
-            /<(?:strong|b)\b|<span\b[^>]*style="[^"]*font-weight\s*:/i.test(
-              copied.html,
-            );
+          const copiedBold = await editor.evaluate(
+            (_root: HTMLElement, html: string) => {
+              const document = new DOMParser().parseFromString(
+                html,
+                "text/html",
+              );
+              return Array.from(
+                document.querySelectorAll<HTMLElement>(
+                  "strong,b,span[style*='font-weight']",
+                ),
+              ).some((mark) => {
+                const weight = mark.style.fontWeight.trim();
+                if (/^(?:normal|400)$/i.test(weight)) return false;
+                return (
+                  mark.matches("strong,b") ||
+                  weight === "bold" ||
+                  Number.parseInt(weight, 10) >= 600
+                );
+              });
+            },
+            copied.html,
+          );
           if (!copiedBold) {
+            const copyState = await editor.evaluate((root: HTMLElement) => {
+              const selection = window.getSelection();
+              const range = selection?.rangeCount
+                ? selection.getRangeAt(0)
+                : null;
+              const holder = document.createElement("div");
+              if (range) holder.append(range.cloneContents());
+              const selectedText = range?.toString() ?? "";
+              const selectedNodes: Array<{
+                text: string;
+                weight: string | null;
+                markup: string | null;
+              }> = [];
+              const walker = document.createTreeWalker(
+                root,
+                NodeFilter.SHOW_TEXT,
+              );
+              for (
+                let node = walker.nextNode();
+                node;
+                node = walker.nextNode()
+              ) {
+                if (!range?.intersectsNode(node)) continue;
+                const element = node.parentElement;
+                selectedNodes.push({
+                  text: node.textContent ?? "",
+                  weight: element ? getComputedStyle(element).fontWeight : null,
+                  markup: element?.outerHTML ?? null,
+                });
+              }
+              return {
+                selectedText,
+                selectedHtml: holder.innerHTML,
+                selectedNodes,
+              };
+            });
             throw new Error(
-              `copy did not preserve the selected bold mark (HTML present: ${Boolean(copied.html)})`,
+              `copy did not preserve the selected bold mark (${JSON.stringify({ selectedWeight, finalSelectedWeight, html: copied.html, copyState })})`,
             );
           }
+          if (!copied.slideClipboard) {
+            throw new Error("copy did not preserve the slide clipboard marker");
+          }
           await newPlainLine();
-          await paste(copied.html, copied.text);
+          await paste(copied.html, copied.text, copied.slideClipboard);
           const pastedMark = await editor.evaluate(
             (root: HTMLElement, value: string) => {
               const mark = Array.from(
@@ -5986,6 +7372,8 @@ export async function runAuthoringFuzz(
                       600),
                 tag: mark?.tagName ?? null,
                 textLength: mark?.textContent?.length ?? 0,
+                fontWeight: mark ? getComputedStyle(mark).fontWeight : null,
+                html: mark?.outerHTML ?? null,
                 tokenIncluded:
                   mark?.textContent
                     ?.replaceAll("\u200b", "")
@@ -5997,7 +7385,7 @@ export async function runAuthoringFuzz(
           );
           if (!pastedMark.preserved) {
             throw new Error(
-              `pasting copied rich text lost its bold mark (${JSON.stringify(pastedMark)})`,
+              `pasting copied rich text lost its bold mark (${JSON.stringify({ pastedMark, copiedHtml: copied.html, slideClipboard: copied.slideClipboard })})`,
             );
           }
           break;
@@ -6220,10 +7608,10 @@ export async function runAuthoringFuzz(
     const stableHistoryProbeLimit = 3;
     const maxHistoryCalls = historyLimit + stableHistoryProbeLimit;
     const beforeKeyboardUndo = await readHistoryState();
-    const undoDepthBefore = historyDepthFromStats(
+    const historyStats = requireUndoHistoryStats(
       beforeKeyboardUndo.historyStats,
-      "undo",
     );
+    const undoDepthBefore = historyDepthFromStats(historyStats, "undo");
     let stableUndo = 0;
     let undoCalls = 0;
     await page.keyboard.press(`${modifier}+Z`);
@@ -6601,6 +7989,25 @@ export async function runAuthoringFuzz(
             prefixEmpty: prefix.length === 0,
             prefixEndsInWhitespace: /\s$/.test(prefix),
             slashOffset: prefix.lastIndexOf("/"),
+            caretRect: (() => {
+              if (!selection?.rangeCount) return null;
+              const rect = selection.getRangeAt(0).getBoundingClientRect();
+              return {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+                width: rect.width,
+                height: rect.height,
+              };
+            })(),
+          },
+          viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            scrollX: window.scrollX,
+            scrollY: window.scrollY,
+            documentHeight: document.documentElement.scrollHeight,
           },
           slashMenu: {
             count: listboxes.length,
@@ -6614,6 +8021,63 @@ export async function runAuthoringFuzz(
               listbox.getClientRects().length > 0,
             optionCount:
               listbox?.querySelectorAll('[role="option"]').length ?? 0,
+            activeOption: (() => {
+              const activeId =
+                root instanceof HTMLElement
+                  ? root.getAttribute("aria-activedescendant")
+                  : null;
+              const active = activeId
+                ? document.getElementById(activeId)
+                : null;
+              const activeStyle = active ? getComputedStyle(active) : null;
+              const activeRect = active?.getBoundingClientRect();
+              return {
+                id: activeId,
+                exists: !!active,
+                role: active?.getAttribute("role") ?? null,
+                contained: !!(listbox && active && listbox.contains(active)),
+                text: active?.textContent?.trim().slice(0, 100) ?? null,
+                display: activeStyle?.display ?? null,
+                visibility: activeStyle?.visibility ?? null,
+                opacity: activeStyle?.opacity ?? null,
+                clientRects: active?.getClientRects().length ?? 0,
+                rect: activeRect
+                  ? {
+                      left: activeRect.left,
+                      top: activeRect.top,
+                      right: activeRect.right,
+                      bottom: activeRect.bottom,
+                      width: activeRect.width,
+                      height: activeRect.height,
+                    }
+                  : null,
+              };
+            })(),
+            options: Array.from(
+              listbox?.querySelectorAll<HTMLElement>('[role="option"]') ?? [],
+            ).map((option) => {
+              const style = getComputedStyle(option);
+              const rect = option.getBoundingClientRect();
+              return {
+                id: option.id,
+                text: option.textContent?.trim().slice(0, 100) ?? null,
+                selected:
+                  option.getAttribute("aria-selected") ??
+                  option.getAttribute("data-selected"),
+                display: style.display,
+                visibility: style.visibility,
+                opacity: style.opacity,
+                clientRects: option.getClientRects().length,
+                rect: {
+                  left: rect.left,
+                  top: rect.top,
+                  right: rect.right,
+                  bottom: rect.bottom,
+                  width: rect.width,
+                  height: rect.height,
+                },
+              };
+            }),
             listboxes: listboxes.map((menu) => {
               const style = getComputedStyle(menu);
               const rect = menu.getBoundingClientRect();

@@ -1253,6 +1253,7 @@ export default {
     saveViewFailed: "ビューを保存できませんでした",
     saveViewFailedWithMessage: "ビューを保存できませんでした：{{message}}",
     clearAll: "すべてクリア",
+    resetFilters: "フィルターをリセット",
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
     filterSeries: "Filter",

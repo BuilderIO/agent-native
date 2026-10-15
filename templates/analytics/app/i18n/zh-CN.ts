@@ -1185,6 +1185,7 @@ export default {
     saveViewFailed: "无法保存视图",
     saveViewFailedWithMessage: "无法保存视图：{{message}}",
     clearAll: "全部清除",
+    resetFilters: "重置筛选器",
     collapseFilters: "折叠过滤器",
     expandFilters: "展开过滤器",
     filterSeries: "Filter",

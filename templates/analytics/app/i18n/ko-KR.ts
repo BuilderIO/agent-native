@@ -1232,6 +1232,7 @@ export default {
     saveViewFailed: "보기를 저장하지 못했습니다",
     saveViewFailedWithMessage: "보기를 저장하지 못했습니다: {{message}}",
     clearAll: "모두 지우기",
+    resetFilters: "필터 초기화",
     collapseFilters: "필터 접기",
     expandFilters: "필터 확장",
     filterSeries: "Filter",

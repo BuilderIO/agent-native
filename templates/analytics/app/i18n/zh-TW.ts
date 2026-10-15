@@ -1268,6 +1268,7 @@ export default {
     saveViewFailed: "無法儲存檢視",
     saveViewFailedWithMessage: "無法儲存檢視：{{message}}",
     clearAll: "全部清除",
+    resetFilters: "重設篩選器",
     collapseFilters: "折疊過濾器",
     expandFilters: "展開過濾器",
     filterSeries: "篩選",

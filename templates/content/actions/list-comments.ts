@@ -7,34 +7,11 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-
-type Mention = { email: string; name: string };
-
-function parseMentions(value: string | null): Mention[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed)) return [];
-    const mentions: Mention[] = [];
-    for (const entry of parsed) {
-      if (!entry || typeof entry !== "object") continue;
-      const email = (entry as Record<string, unknown>).email;
-      const name = (entry as Record<string, unknown>).name;
-      if (typeof email !== "string" || !email) continue;
-      mentions.push({
-        email,
-        name: typeof name === "string" ? name : "",
-      });
-    }
-    return mentions;
-  } catch {
-    return [];
-  }
-}
+import { readStoredCommentMentions } from "../shared/comment-mentions.js";
 
 export default defineAction({
   description:
-    "List every access-scoped comment on one document in thread order, including anchors, authors, replies, resolution state, emoji reactions, and timestamps.",
+    "List every access-scoped comment on one document in thread order, including anchors, authors, mentions, replies, resolution state, emoji reactions, and timestamps.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -104,16 +81,18 @@ export default defineAction({
       anchor_suffix: row.anchorSuffix,
       anchor_start_offset:
         row.anchorStartOffset == null ? null : Number(row.anchorStartOffset),
-      mentions: parseMentions(row.mentionsJson),
+      mentions: readStoredCommentMentions(row.mentionsJson),
       author_email: row.authorEmail,
       submission_source: row.submissionSource,
       submission_run_id: row.submissionRunId,
+      submission_thread_id: row.submissionThreadId,
       actor_kind:
         row.actorKind ??
         (row.submissionSource === "agent" || row.submissionSource === "mcp"
           ? "agent"
           : "human"),
       author_model: row.authorModel,
+      author_effort: row.authorEffort,
       author_name: resolveUserProfileName(
         row.authorEmail,
         row.authorName,

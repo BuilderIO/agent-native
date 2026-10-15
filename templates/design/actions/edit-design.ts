@@ -259,6 +259,13 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  // replace-file writes a fixed end state; search-replace can re-match its own
+  // replacement text, so a replay after a lost result may apply an edit twice.
+  retrySafe: (input) =>
+    (input.mode ??
+      (input.replacementContent !== undefined
+        ? "replace-file"
+        : "search-replace")) === "replace-file",
   run: async (
     {
       designId,

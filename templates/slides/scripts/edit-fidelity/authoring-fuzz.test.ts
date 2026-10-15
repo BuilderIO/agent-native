@@ -5,7 +5,11 @@ import {
   assertByteIdenticalHtml,
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
+  requireUndoHistoryStats,
   AUTHORING_FUZZ_STYLE_PROPERTIES,
+  authoringFuzzPrecedingListMergePreservesIdentity,
+  authoringFuzzListTagForOperation,
+  authoringFuzzSlashArrowDownCount,
   createRetiredBrowserSessionErrorCorrelator,
   browserSessionNavigationRequestIdentity,
   browserSessionIdAfterRequest,
@@ -39,6 +43,7 @@ import {
   isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
+  isExpectedCleanupRecoveryPageBrowserSessionError,
   isExpectedCleanupNavigationError,
   isExpectedWatchedRequestCorsError,
   isFirefoxBrowserSessionConsoleError,
@@ -891,6 +896,30 @@ it("requires byte-identical HTML for undo and redo snapshots", () => {
   ).toThrow("undo-all did not restore byte-identical HTML");
 });
 
+it("requires undo-history diagnostics before the history replay gate", () => {
+  expect(() => requireUndoHistoryStats(null)).toThrow(
+    "authoring fuzz could not inspect undo history before undo-all",
+  );
+  expect(() => requireUndoHistoryStats({})).toThrow(
+    "authoring fuzz could not inspect undo history before undo-all",
+  );
+  expect(() => requireUndoHistoryStats({ initialStateEvicted: true })).toThrow(
+    "undo history evicted the original state before undo-all",
+  );
+  expect(requireUndoHistoryStats({ initialStateEvicted: false })).toMatchObject(
+    { initialStateEvicted: false },
+  );
+});
+
+it("navigates slash choices from the menu's current active command", () => {
+  expect(authoringFuzzSlashArrowDownCount("paragraph", "heading1")).toBe(1);
+  expect(authoringFuzzSlashArrowDownCount("heading1", "paragraph")).toBe(7);
+  expect(authoringFuzzSlashArrowDownCount("quote", "quote")).toBe(0);
+  expect(() => authoringFuzzSlashArrowDownCount(null, "paragraph")).toThrow(
+    "slash menu did not expose its active command",
+  );
+});
+
 it("creates reproducible authoring plans with full command coverage", () => {
   const first = createAuthoringFuzzPlan(42, 500);
   expect(first).toEqual(createAuthoringFuzzPlan(42, 500));
@@ -946,6 +975,71 @@ it("creates reproducible authoring plans with full command coverage", () => {
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),
   ).toThrow("safe integer");
   expect(() => createAuthoringFuzzPlan(42, 0)).toThrow("positive integer");
+});
+
+it("classifies only semantic list commands for adjacent-list merge checks", () => {
+  expect(authoringFuzzListTagForOperation({ kind: "list", value: "ul" })).toBe(
+    "UL",
+  );
+  expect(authoringFuzzListTagForOperation({ kind: "list", value: "ol" })).toBe(
+    "OL",
+  );
+  expect(
+    authoringFuzzListTagForOperation({ kind: "list", value: "styled" }),
+  ).toBeNull();
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "slash",
+      value: "bulletList",
+      result: "bullet list",
+    }),
+  ).toBe("UL");
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "slash",
+      value: "orderedList",
+      result: "numbered list",
+    }),
+  ).toBe("OL");
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "slash",
+      value: "paragraph",
+      result: "paragraph",
+    }),
+  ).toBeNull();
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "shortcut",
+      value: "1. ",
+      result: "ordered",
+    }),
+  ).toBe("OL");
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "shortcut",
+      value: "- ",
+      result: "bullet",
+    }),
+  ).toBeNull();
+});
+
+it("requires an adjacent-list merge to carry a preceding list id forward", () => {
+  expect(
+    authoringFuzzPrecedingListMergePreservesIdentity(
+      "source-list",
+      "source-list",
+    ),
+  ).toBe(true);
+  expect(
+    authoringFuzzPrecedingListMergePreservesIdentity("source-list", null),
+  ).toBe(false);
+  expect(
+    authoringFuzzPrecedingListMergePreservesIdentity(
+      "source-list",
+      "other-list",
+    ),
+  ).toBe(false);
 });
 
 it("runs vertical caret fidelity in the committed absolute profile", () => {
@@ -1595,6 +1689,92 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError("another poll error", [
       candidate,
+    ]),
+  ).toBe(false);
+});
+
+it("filters only a correlated failed browser-session claim on a cleanup recovery page", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    requestAgeMs: 100,
+    failureAgeMs: 20,
+    sameOrigin: true,
+    competingClaimStartedAfterFailure: false,
+  };
+
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [candidate],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+      [candidate],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [{ ...candidate, sameOrigin: false }],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+      [{ ...candidate, sameOrigin: false }],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      candidate,
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "TypeError: Failed to fetch",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "NetworkError when attempting to fetch resource.",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, sameOrigin: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, competingClaimStartedAfterFailure: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, failureAgeMs: 251 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, pathname: "/_agent-native/actions/delete-deck" },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/actions/delete-deck due to access control checks.",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      candidate,
+      { ...candidate, requestAgeMs: 110 },
     ]),
   ).toBe(false);
 });
