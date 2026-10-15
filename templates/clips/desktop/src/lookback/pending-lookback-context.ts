@@ -17,3 +17,12 @@ export function takePendingLookbackContext(
   contexts.delete(recordingId);
   return pending;
 }
+
+export function takePendingLookbackContextAfterStop(
+  contexts: Map<string, PendingLookbackContext>,
+  recordingId: string,
+  stoppedRecordingId: string,
+): PendingLookbackContext | null {
+  if (recordingId !== stoppedRecordingId) return null;
+  return takePendingLookbackContext(contexts, recordingId);
+}

@@ -281,6 +281,7 @@ import {
 import { LookbackRow } from "./lookback/LookbackRow";
 import {
   takePendingLookbackContext,
+  takePendingLookbackContextAfterStop,
   type PendingLookbackContext,
 } from "./lookback/pending-lookback-context";
 import { processRecordingContextItem } from "./lookback/worker";
@@ -3963,6 +3964,18 @@ export function App({
           },
           onCaptureStartFailed: (recordingId) =>
             removeLookbackContext(recordingId),
+          onStartupAbortStop: (recordingId, stopPromise) => {
+            void stopPromise.then(
+              (result) =>
+                takePendingLookbackContextAfterStop(
+                  lookbackContextRef.current,
+                  recordingId,
+                  result.recordingId,
+                ),
+              // The recorder logs this failure and removes the failed request.
+              () => {},
+            );
+          },
         },
         audioCue,
       );
