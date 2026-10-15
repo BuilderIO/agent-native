@@ -44,6 +44,7 @@ jobs:
       design_canvas_broad_workflows: ${{ steps.scope.outputs.design_canvas_broad_workflows }}
       pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
+      design_canvas_e2e_diagnostic_specs: ${{ steps.scope.outputs.design_canvas_e2e_diagnostic_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
@@ -756,7 +757,7 @@ jobs:
   design-canvas-changed-spec-diagnostics:
     name: Design changed-spec diagnostics (${{ matrix.shard }})
     needs: change-scope
-    if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]'
+    if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]' && needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 19
     strategy:
@@ -840,7 +841,7 @@ jobs:
         timeout-minutes: 15
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs }}
           E2E_LOG_TEST_PROGRESS: "1"
           PW_TEST_DEBUG_REPORTERS: "1"
         run: |

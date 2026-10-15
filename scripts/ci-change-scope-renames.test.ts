@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -69,7 +75,8 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     });
     const pureRename = scopeFor(pureRenameHead);
     assert.deepEqual(pureRename.pureRenames, [pureRenamePath]);
-    assert.deepEqual(pureRename.scope.designCanvasE2eSpecs, []);
+    assert.deepEqual(pureRename.scope.designCanvasE2eSpecs, [pureRenamePath]);
+    assert.deepEqual(pureRename.scope.designCanvasE2eDiagnosticSpecs, []);
     assert.deepEqual(pureRename.changedPaths, [pureRenamePath]);
     assert.equal(pureRename.scope.checks.design_canvas_core_regression, true);
 
@@ -87,7 +94,9 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     const editedRename = scopeFor(editedRenameHead);
     assert.deepEqual(editedRename.pureRenames, []);
     assert.ok(
-      editedRename.scope.designCanvasE2eSpecs.includes(editedRenamePath),
+      editedRename.scope.designCanvasE2eDiagnosticSpecs.includes(
+        editedRenamePath,
+      ),
     );
 
     const crossDirectoryPath =
@@ -104,7 +113,7 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     const crossDirectoryRename = scopeFor(crossDirectoryHead);
     assert.deepEqual(crossDirectoryRename.pureRenames, []);
     assert.ok(
-      crossDirectoryRename.scope.designCanvasE2eSpecs.includes(
+      crossDirectoryRename.scope.designCanvasE2eDiagnosticSpecs.includes(
         crossDirectoryPath,
       ),
     );
@@ -118,7 +127,9 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     const modeChangeRename = scopeFor(modeChangeHead);
     assert.deepEqual(modeChangeRename.pureRenames, []);
     assert.ok(
-      modeChangeRename.scope.designCanvasE2eSpecs.includes(modeChangePath),
+      modeChangeRename.scope.designCanvasE2eDiagnosticSpecs.includes(
+        modeChangePath,
+      ),
     );
 
     const introducedSpecPath = "templates/design/e2e/introduced-spec.spec.ts";
@@ -131,7 +142,9 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     const introducedSpec = scopeFor(introducedSpecHead);
     assert.deepEqual(introducedSpec.pureRenames, []);
     assert.ok(
-      introducedSpec.scope.designCanvasE2eSpecs.includes(introducedSpecPath),
+      introducedSpec.scope.designCanvasE2eDiagnosticSpecs.includes(
+        introducedSpecPath,
+      ),
     );
 
     const titleEditHead = commitFromBase("edit Design spec title", () => {
@@ -143,19 +156,28 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     const titleEdit = scopeFor(titleEditHead);
     assert.deepEqual(titleEdit.pureRenames, []);
     assert.deepEqual(titleEdit.scope.designCanvasE2eSpecs, [sourcePath]);
+    assert.deepEqual(titleEdit.scope.designCanvasE2eDiagnosticSpecs, [
+      sourcePath,
+    ]);
   } finally {
     rmSync(repoPath, { recursive: true, force: true });
   }
 });
 
 test("classification retains the path but excludes supplied pure renames", () => {
-  const pureRenamePath = "templates/design/e2e/renamed-interaction.spec.ts";
+  const pureRenamePath =
+    "templates/design/e2e/interaction-responsive-music-app.spec.ts";
   const pureRenameScope = classifyChangedPaths(
     [pureRenamePath],
     [pureRenamePath],
   );
   assert.deepEqual(
     pureRenameScope.designCanvasE2eSpecs,
+    [pureRenamePath],
+    "workflow gates must still see the renamed Design spec",
+  );
+  assert.deepEqual(
+    pureRenameScope.designCanvasE2eDiagnosticSpecs,
     [],
     "a pure same-directory rename should not launch changed-spec diagnostics",
   );
@@ -168,5 +190,42 @@ test("classification retains the path but excludes supplied pure renames", () =>
     pureRenameScope.checks.design_canvas_core_regression,
     true,
     "the required Design regression gate must still run for a renamed spec",
+  );
+  assert.equal(
+    pureRenameScope.checks.design_canvas_broad_workflows,
+    true,
+    "the corresponding dedicated Design workflow shard must remain selected",
+  );
+});
+
+test("only diagnostics use the filtered Design spec list", () => {
+  const workflow = readFileSync(
+    join(process.cwd(), ".github/workflows/ci.yml"),
+    "utf8",
+  );
+  const broadStart = workflow.indexOf("  design-canvas-broad-workflows:\n");
+  const diagnosticsStart = workflow.indexOf(
+    "  design-canvas-changed-spec-diagnostics:\n",
+  );
+  const diagnosticsEnd = workflow.indexOf(
+    "\n  pre-auth-session-replay-smoke:",
+    diagnosticsStart,
+  );
+  assert.notEqual(broadStart, -1);
+  assert.notEqual(diagnosticsStart, -1);
+
+  const broadJob = workflow.slice(broadStart, diagnosticsStart);
+  const diagnosticsJob = workflow.slice(
+    diagnosticsStart,
+    diagnosticsEnd === -1 ? undefined : diagnosticsEnd,
+  );
+  assert.ok(
+    broadJob.includes("needs.change-scope.outputs.design_canvas_e2e_specs"),
+  );
+  assert.doesNotMatch(broadJob, /design_canvas_e2e_diagnostic_specs/u);
+  assert.ok(
+    diagnosticsJob.includes(
+      "needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs",
+    ),
   );
 });
