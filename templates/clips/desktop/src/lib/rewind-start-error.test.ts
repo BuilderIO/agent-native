@@ -9,6 +9,10 @@ describe("getRewindStartErrorKind", () => {
       "permission",
     ],
     ["Screen capture permission is required.", "permission"],
+    [
+      "Screen Memory visuals + audio could not start its required ScreenCaptureKit screen, system-audio, and microphone sources: Content unavailable: The user declined TCCs for application, window, display capture",
+      "permission",
+    ],
     ["Screen Memory capture is currently macOS-only.", "unsupported"],
     ["Not enough disk space to start Screen Memory.", "diskSpace"],
     [

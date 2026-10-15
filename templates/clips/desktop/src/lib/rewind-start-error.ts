@@ -13,6 +13,8 @@ export function getRewindStartErrorKind(error: unknown): RewindStartErrorKind {
   if (
     normalized.includes("screen recording permission") ||
     normalized.includes("screen capture permission") ||
+    normalized.includes("declined tcc") ||
+    normalized.includes("window, display capture") ||
     (normalized.includes("screen recording") &&
       (normalized.includes("permission") || normalized.includes("privacy")))
   ) {
