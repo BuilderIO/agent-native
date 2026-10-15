@@ -126,6 +126,7 @@ describe("agent-engine/status route failure handling", () => {
 
     expect(body).toContain("setResponseStatus(event, 503)");
     expect(body).toContain("isDirectLoopbackRequest: directLoopbackRequest");
+    expect(body).toContain("isAgentChatDevModeEnabled(nitroApp)");
     expect(body).toContain("requestOrigin,");
     expect(body).toContain("isLoopbackRequest: loopbackRequest");
     expect(body).not.toContain("shareAgentEngineStatusLookup");

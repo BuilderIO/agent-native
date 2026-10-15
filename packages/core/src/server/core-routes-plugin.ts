@@ -160,6 +160,7 @@ import {
   isAgentChatAiSetupReady,
   isBuilderChatSetupReady,
 } from "./agent-chat-ai-setup.js";
+import { isAgentChatDevModeEnabled } from "./agent-chat-mode.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import { createAgentEngineDisconnectHandler } from "./agent-engine-default-model-route.js";
 import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
@@ -5930,6 +5931,9 @@ export function createCoreRoutesPlugin(
                     const chatEligible = await isAgentChatAiSetupReady({
                       status: engineStatus,
                       detectFromUserSecrets: deps.detectFromUserSecrets,
+                      allowChatGPTSubscriptionInOrg:
+                        directLoopbackRequest &&
+                        isAgentChatDevModeEnabled(nitroApp),
                     });
                     return { ...engineStatus, chatEligible };
                   },

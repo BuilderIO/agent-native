@@ -39,12 +39,13 @@ export function isBuilderChatSetupReady(input: {
 
 /**
  * Chat accepts the Builder gateway/OAuth lane, a usable BYOK API key, or a
- * configured OpenAI-compatible/Ollama endpoint, or a usable local ChatGPT
+ * configured OpenAI-compatible/Ollama endpoint, or a usable personal ChatGPT
  * subscription account. Engine selection by itself is not readiness.
  */
 export async function isAgentChatAiSetupReady(input?: {
   status?: AgentEngineStatusResult;
   detectFromUserSecrets?: () => Promise<AgentEngineEntry | null>;
+  allowChatGPTSubscriptionInOrg?: boolean;
 }): Promise<boolean> {
   if (input?.status && input.detectFromUserSecrets) {
     const entry = input.status.engine
@@ -68,7 +69,13 @@ export async function isAgentChatAiSetupReady(input?: {
       unreadable ||= readiness.unreadable;
     }
     const ownerEmail = getRequestUserEmail();
-    if (ownerEmail && (await hasChatGPTSubscriptionCredential(ownerEmail))) {
+    if (
+      ownerEmail &&
+      (await hasEligibleChatGPTSubscription(
+        ownerEmail,
+        input.allowChatGPTSubscriptionInOrg,
+      ))
+    ) {
       return true;
     }
     if (unreadable) throwAgentChatSetupReadUnavailable();
@@ -158,10 +165,26 @@ export async function isAgentChatAiSetupReady(input?: {
     throwAgentChatSetupReadUnavailable();
   }
 
-  if (ownerEmail && (await hasChatGPTSubscriptionCredential(ownerEmail))) {
+  if (
+    ownerEmail &&
+    (await hasEligibleChatGPTSubscription(
+      ownerEmail,
+      input?.allowChatGPTSubscriptionInOrg,
+    ))
+  ) {
     return true;
   }
   return false;
+}
+
+async function hasEligibleChatGPTSubscription(
+  ownerEmail: string,
+  allowOrgScope = false,
+): Promise<boolean> {
+  // A personal subscription cannot make an org-scoped composer ready when its
+  // model selection is unavailable in that scope.
+  if (getRequestOrgId() && !allowOrgScope) return false;
+  return hasChatGPTSubscriptionCredential(ownerEmail);
 }
 
 async function checkProviderEntryReadiness(
@@ -253,8 +276,10 @@ export function isAgentChatAiSetupRequiredError(
   return data?.code === AGENT_CHAT_AI_SETUP_REQUIRED_CODE;
 }
 
-export async function requireAgentChatAiSetup(): Promise<void> {
-  if (await isAgentChatAiSetupReady()) return;
+export async function requireAgentChatAiSetup(input?: {
+  allowChatGPTSubscriptionInOrg?: boolean;
+}): Promise<void> {
+  if (await isAgentChatAiSetupReady(input)) return;
 
   throw createError({
     statusCode: 403,
