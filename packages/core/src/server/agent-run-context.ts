@@ -1,6 +1,9 @@
 import { createError, getHeader, type H3Event } from "h3";
 
-import { AGENT_CHAT_BROWSER_SESSION_ID_FIELD } from "../agent/durable-background.js";
+import {
+  AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
+  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+} from "../agent/durable-background.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   ANALYTICS_CLIENT_PLATFORM_HEADER,
@@ -14,6 +17,7 @@ import {
   CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
   isCredentialMembershipUnavailable,
 } from "./credential-membership-unavailable.js";
+import { isLoopbackRequest } from "./loopback.js";
 import {
   getRequestContext,
   getRequestIdentityAuthenticatedAtMs,
@@ -21,6 +25,7 @@ import {
   runWithRequestContext,
   type RequestContext,
 } from "./request-context.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 
 const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
   (...args) =>
@@ -323,6 +328,27 @@ export async function resolveAgentRunRequestContext(options: {
   const clientPlatform = readAnalyticsClientPlatformHeader(options.event);
   const isSyntheticTraffic = readSyntheticTrafficHeader(options.event);
   const waitUntil = requestWaitUntil(options.event);
+  const durableBody = options.isBackgroundWorker
+    ? (eventContext(options.event as EventWithAgentRunContext)[
+        "__agentChatBackgroundBody"
+      ] as Record<string, unknown> | undefined)
+    : undefined;
+  const durableRequestContext = durableBody?.[AGENT_CHAT_REQUEST_CONTEXT_FIELD];
+  const durableOrigin =
+    durableRequestContext &&
+    typeof durableRequestContext === "object" &&
+    !Array.isArray(durableRequestContext) &&
+    typeof (durableRequestContext as Record<string, unknown>).requestOrigin ===
+      "string"
+      ? (durableRequestContext as Record<string, string>).requestOrigin
+      : undefined;
+  const durableLoopback = Boolean(
+    durableRequestContext &&
+    typeof durableRequestContext === "object" &&
+    !Array.isArray(durableRequestContext) &&
+    (durableRequestContext as Record<string, unknown>).isLoopbackRequest ===
+      true,
+  );
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
     ...(waitUntil ? { waitUntil } : {}),
@@ -349,6 +375,12 @@ export async function resolveAgentRunRequestContext(options: {
     ...(browserSessionId ? { browserSessionId } : {}),
     ...(clientPlatform ? { clientPlatform } : {}),
     ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
+    requestOrigin: options.isBackgroundWorker
+      ? durableOrigin
+      : getForwardedRequestOrigin(options.event),
+    isLoopbackRequest: options.isBackgroundWorker
+      ? durableLoopback
+      : isLoopbackRequest(options.event),
     ...(browserTabId ? { run: { ...run, browserTabId } } : {}),
     ...(!browserTabId && Object.keys(run).length > 0 ? { run } : {}),
   };

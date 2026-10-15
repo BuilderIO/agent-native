@@ -33,6 +33,7 @@ const credentialMocks = vi.hoisted(() => ({
         throwOnReadError?: boolean;
       }) => Promise<unknown>
     >(),
+  chatGPTReady: vi.fn<() => Promise<boolean>>(),
 }));
 
 vi.mock("./credential-provider.js", () => ({
@@ -52,6 +53,10 @@ vi.mock("./credential-provider.js", () => ({
 vi.mock("./builder-oauth.js", () => ({
   hasUsableBuilderOAuthSessionForReadiness: () =>
     credentialMocks.builderReady(),
+}));
+
+vi.mock("./chatgpt-subscription-oauth.js", () => ({
+  hasChatGPTSubscriptionCredential: () => credentialMocks.chatGPTReady(),
 }));
 
 vi.mock("./request-context.js", () => ({
@@ -153,6 +158,7 @@ describe("Agent-Native chat AI setup gate", () => {
       lookupFailed: false,
     });
     credentialMocks.authFailure.mockResolvedValue(null);
+    credentialMocks.chatGPTReady.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -172,6 +178,25 @@ describe("Agent-Native chat AI setup gate", () => {
     );
     expect(isAgentChatAiSetupRequiredError(refusal)).toBe(true);
     expect(isAgentChatAiSetupRequiredError(new Error("other"))).toBe(false);
+  });
+
+  it("accepts a usable local ChatGPT plan account as chat setup", async () => {
+    credentialMocks.chatGPTReady.mockResolvedValue(true);
+
+    await expect(isAgentChatAiSetupReady()).resolves.toBe(true);
+    expect(credentialMocks.chatGPTReady).toHaveBeenCalledOnce();
+    await expect(requireAgentChatAiSetup()).resolves.toBeUndefined();
+  });
+
+  it("reports local ChatGPT plan eligibility in the engine status snapshot", async () => {
+    credentialMocks.chatGPTReady.mockResolvedValue(true);
+
+    await expect(
+      isAgentChatAiSetupReady({
+        status: { configured: false } as AgentEngineStatusResponse,
+        detectFromUserSecrets: async () => null,
+      }),
+    ).resolves.toBe(true);
   });
 
   it("accepts a usable saved Builder OAuth credential", async () => {

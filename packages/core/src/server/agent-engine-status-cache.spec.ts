@@ -40,6 +40,25 @@ describe("memoizeAgentEngineStatus", () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps loopback-only readiness separate from remote status", async () => {
+    const load = vi.fn(async () => ({ chatEligible: true }));
+    const identity = { userEmail: "steve@example.test", orgId: "org-1" };
+
+    await memoizeAgentEngineStatus(
+      { ...identity, isLoopbackRequest: true },
+      load,
+    );
+    await expect(
+      getMemoizedAgentEngineStatus({ ...identity, isLoopbackRequest: false }),
+    ).toBeUndefined();
+    await memoizeAgentEngineStatus(
+      { ...identity, isLoopbackRequest: false },
+      load,
+    );
+
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it("expires the answer after one second and clears it after a credential change", async () => {
     let configured = false;
     const load = vi.fn(async () => ({ chatEligible: configured }));

@@ -312,6 +312,7 @@ import {
   isAllowedUploadMimeType,
 } from "./h3-helpers.js";
 import { handleIdentitySso } from "./identity-sso.js";
+import { isLoopbackRequest } from "./loopback.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import {
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
@@ -338,6 +339,7 @@ import {
   hasRequestContext,
   runWithRequestContext,
 } from "./request-context.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 import { isSameOriginRequest } from "./request-origin.js";
 import {
   findUnsupportedScopedKeyNames,
@@ -5902,11 +5904,17 @@ export function createCoreRoutesPlugin(
             const statusStartedAt = Date.now();
             const { userEmail, orgId } =
               await resolveAgentEngineStatusIdentity(event);
+            const loopbackRequest = isLoopbackRequest(event);
             const status = await memoizeAgentEngineStatus(
-              { userEmail, orgId },
+              { userEmail, orgId, isLoopbackRequest: loopbackRequest },
               async () =>
                 await runWithRequestContext(
-                  { userEmail, orgId },
+                  {
+                    userEmail,
+                    orgId,
+                    requestOrigin: getForwardedRequestOrigin(event),
+                    isLoopbackRequest: loopbackRequest,
+                  },
                   async (): Promise<AgentEngineStatusResponse> => {
                     const deps = requestAgentEngineStatusDeps();
                     const engineStatus = await resolveAgentEngineStatus(deps);

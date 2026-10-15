@@ -125,6 +125,10 @@ describe("agent-engine/status route failure handling", () => {
     const body = handler.slice(0, handler.indexOf("${P}/track"));
 
     expect(body).toContain("setResponseStatus(event, 503)");
+    expect(body).toContain(
+      "{ userEmail, orgId, isLoopbackRequest: loopbackRequest }",
+    );
+    expect(body).toContain("isLoopbackRequest: loopbackRequest");
     expect(body).not.toContain("shareAgentEngineStatusLookup");
     expect(body).not.toMatch(
       /catch\s*(\([^)]*\))?\s*\{[^}]*\}\s*return\s*\{\s*configured:\s*false/,

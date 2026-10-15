@@ -4,9 +4,19 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const getTurnInitiatorByRunMock = vi.hoisted(() => vi.fn());
+const isLoopbackRequestMock = vi.hoisted(() => vi.fn());
+const getForwardedRequestOriginMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./auth.js", () => ({
   getSession: getSessionMock,
+}));
+
+vi.mock("./loopback.js", () => ({
+  isLoopbackRequest: isLoopbackRequestMock,
+}));
+
+vi.mock("./request-origin.js", () => ({
+  getForwardedRequestOrigin: getForwardedRequestOriginMock,
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -18,7 +28,10 @@ vi.mock("../agent/run-store.js", () => ({
   getTurnInitiatorByRun: getTurnInitiatorByRunMock,
 }));
 
-import { AGENT_CHAT_BROWSER_SESSION_ID_FIELD } from "../agent/durable-background.js";
+import {
+  AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
+  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+} from "../agent/durable-background.js";
 import {
   resolveAgentRunOrgId,
   resolveAgentRunRequestContext,
@@ -54,10 +67,14 @@ describe("server/agent-run-context", () => {
     getOrgContextMock.mockReset();
     resolveOrgIdForEmailMock.mockReset();
     getTurnInitiatorByRunMock.mockReset();
+    isLoopbackRequestMock.mockReset();
+    getForwardedRequestOriginMock.mockReset();
     getSessionMock.mockResolvedValue(null);
     getOrgContextMock.mockResolvedValue({ orgId: null });
     resolveOrgIdForEmailMock.mockResolvedValue(null);
     getTurnInitiatorByRunMock.mockResolvedValue(null);
+    isLoopbackRequestMock.mockReturnValue(false);
+    getForwardedRequestOriginMock.mockReturnValue("http://localhost:3000");
   });
 
   it("resolves and caches a signed-in owner from the session", async () => {
@@ -234,6 +251,23 @@ describe("server/agent-run-context", () => {
     });
   });
 
+  it("captures the request origin and real-socket loopback signal for a foreground run", async () => {
+    const event = makeEvent();
+    getForwardedRequestOriginMock.mockReturnValue("http://127.0.0.1:8080");
+    isLoopbackRequestMock.mockReturnValue(true);
+
+    const requestContext = await resolveAgentRunRequestContext({
+      event,
+      ownerContext: { owner: "alice@example.com", anonymous: false },
+    });
+
+    expect(requestContext).toMatchObject({
+      requestOrigin: "http://127.0.0.1:8080",
+      isLoopbackRequest: true,
+    });
+    expect(isLoopbackRequestMock).toHaveBeenCalledWith(event);
+  });
+
   it("restores the browser session captured in a durable run payload", async () => {
     const event = makeEvent({
       "x-agent-native-session-id": "dispatch-session",
@@ -249,6 +283,44 @@ describe("server/agent-run-context", () => {
     });
 
     expect(requestContext.browserSessionId).toBe("origin-session");
+  });
+
+  it("restores loopback eligibility only from the authenticated durable payload", async () => {
+    const event = makeEvent();
+    event.context.__agentChatBackgroundBody = {
+      [AGENT_CHAT_REQUEST_CONTEXT_FIELD]: {
+        requestOrigin: "http://127.0.0.1:8080",
+        isLoopbackRequest: true,
+      },
+    };
+    isLoopbackRequestMock.mockReturnValue(false);
+
+    await expect(
+      resolveAgentRunRequestContext({
+        event,
+        ownerContext: { owner: "alice@example.com", anonymous: false },
+        isBackgroundWorker: true,
+      }),
+    ).resolves.toMatchObject({
+      requestOrigin: "http://127.0.0.1:8080",
+      isLoopbackRequest: true,
+    });
+    expect(isLoopbackRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("does not infer durable loopback eligibility from worker request headers", async () => {
+    const event = makeEvent();
+    event.context.__agentChatBackgroundBody = {};
+    isLoopbackRequestMock.mockReturnValue(true);
+
+    await expect(
+      resolveAgentRunRequestContext({
+        event,
+        ownerContext: { owner: "alice@example.com", anonymous: false },
+        isBackgroundWorker: true,
+      }),
+    ).resolves.toMatchObject({ isLoopbackRequest: false });
+    expect(isLoopbackRequestMock).not.toHaveBeenCalled();
   });
 
   it("does not use dispatch headers when the durable run had no browser session", async () => {

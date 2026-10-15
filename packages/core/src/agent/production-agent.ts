@@ -200,6 +200,7 @@ import {
 } from "./context-xray/manifest.js";
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
+  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_RECOVERY_OF_RUN_FIELD,
@@ -11120,6 +11121,11 @@ export function createProductionAgentHandler(
       // A client can submit this private field, so overwrite it at the boundary.
       mutableBody[AGENT_CHAT_BROWSER_SESSION_ID_FIELD] =
         getRequestContext()?.browserSessionId ?? null;
+      const requestContext = getRequestContext();
+      mutableBody[AGENT_CHAT_REQUEST_CONTEXT_FIELD] = {
+        requestOrigin: requestContext?.requestOrigin ?? null,
+        isLoopbackRequest: requestContext?.isLoopbackRequest === true,
+      };
       delete mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD];
     }
     if (dispatchToBackground) {
@@ -13840,7 +13846,7 @@ export function createProductionAgentHandler(
               label: `Running approved ${exactApprovedToolCall.name} action`,
               tool: exactApprovedToolCall.name,
             });
-            await executeAgentToolCall({
+            const approvedExecution = await executeAgentToolCall({
               actions: requestActions,
               name: exactApprovedToolCall.name,
               input: exactApprovedToolCall.input,
@@ -13862,7 +13868,47 @@ export function createProductionAgentHandler(
               isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
               send,
             });
-            return;
+            if (
+              approvedExecution.status === "approval_required" ||
+              (approvedExecution.status === "failed" &&
+                approvedExecution.terminalError)
+            ) {
+              return;
+            }
+            if (isBackgroundWorker) return;
+
+            const pausedResults = agentLoopOpts.messages.flatMap((message) =>
+              message.content.filter(
+                (part) =>
+                  part.type === "tool-result" &&
+                  part.toolCallId === exactApprovedToolCall.callId &&
+                  part.approvalPause === true,
+              ),
+            );
+            if (pausedResults.length !== 1) {
+              send({
+                type: "error",
+                error:
+                  "The approved action ran, but its result could not be restored to chat history.",
+                errorCode: "approved_tool_call_result_missing",
+                recoverable: false,
+              });
+              return;
+            }
+            const [pausedResult] = pausedResults;
+            if (pausedResult?.type !== "tool-result") {
+              throw new Error("Approved tool result changed unexpectedly.");
+            }
+            pausedResult.content = approvedExecution.output;
+            if (approvedExecution.status === "failed") {
+              pausedResult.isError = true;
+            } else {
+              delete pausedResult.isError;
+            }
+            delete pausedResult.approvalPause;
+            delete pausedResult.approvalAskId;
+            delete agentLoopOpts.approvedToolCalls;
+            delete agentLoopOpts.approvedToolCallAskId;
           }
           try {
             const { getObservabilityConfig, instrumentAgentLoop } =

@@ -292,6 +292,7 @@ import {
   getRequestRunContext,
   ensureRequestRunContext,
 } from "./request-context.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
@@ -5531,8 +5532,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       ) => {
         registerBuiltinEngines();
         const availableEngines = listAgentEngines();
+        const loopbackRequest = isLoopbackRequest(event);
         const chatGPTEnabled =
-          !ctx.orgId &&
+          loopbackRequest &&
+          (!ctx.orgId || isDevMode()) &&
           !!ctx.userEmail &&
           availableEngines.some(
             (entry) => entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME,
@@ -5573,7 +5576,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           {
             userEmail: ctx.userEmail,
             orgId: ctx.orgId ?? undefined,
-            requestOrigin: getOrigin(event),
+            requestOrigin: getForwardedRequestOrigin(event),
             isLoopbackRequest: isLoopbackRequest(event),
           },
           async () => {
@@ -5714,7 +5717,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             };
           }
           if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
-            if (ctx.orgId) {
+            if (ctx.orgId && !(isDevMode() && isLoopbackRequest(event))) {
               setResponseStatus(event, 400);
               return {
                 error:
@@ -5736,7 +5739,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               {
                 userEmail: ctx.userEmail,
                 orgId: ctx.orgId ?? undefined,
-                requestOrigin: getOrigin(event),
+                requestOrigin: getForwardedRequestOrigin(event),
                 isLoopbackRequest: isLoopbackRequest(event),
               },
               () => listChatGPTSubscriptionModels(ctx.userEmail),
