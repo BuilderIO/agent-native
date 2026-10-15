@@ -206,6 +206,16 @@ const textDocument = {
     },
   ],
 };
+const textDocumentV2 = {
+  version: 2 as const,
+  animations: textDocument.animations.map((animation) => ({
+    ...animation,
+    animationDirection: "in" as const,
+    order: "left-to-right" as const,
+    ignoreSpaces: true,
+    delayMs: 0,
+  })),
+};
 
 const request = {
   designId: "design-1",
@@ -573,8 +583,7 @@ describe("apply-motion-edit localhost React source", () => {
     );
     expect(mocks.insertedRows[0]).toMatchObject({ tracks: "[]" });
     expect(JSON.parse(mocks.insertedRows[0].textDocument as string)).toEqual({
-      ...textDocument,
-      animations: [{ ...textDocument.animations[0], delayMs: 0 }],
+      ...textDocumentV2,
     });
     expect(result).toMatchObject({
       trackCount: 0,

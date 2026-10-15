@@ -376,6 +376,26 @@ const captionTextDocument = {
   ],
 };
 
+function upgradeLegacyTextDocument(document: {
+  version: 1;
+  animations: Array<{
+    direction: "forward" | "reverse";
+    [key: string]: unknown;
+  }>;
+}) {
+  return {
+    version: 2 as const,
+    animations: document.animations.map((animation) => ({
+      ...animation,
+      animationDirection: "in" as const,
+      order:
+        animation.direction === "reverse" ? "right-to-left" : "left-to-right",
+      ignoreSpaces: true,
+      delayMs: 0,
+    })),
+  };
+}
+
 const animationStyles = [
   {
     id: "fade-in",
@@ -440,7 +460,7 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
       animationStyleCount: 1,
     });
     expect(readback.timelines[0]).toMatchObject({
-      textDocument,
+      textDocument: upgradeLegacyTextDocument(textDocument),
       animationStyles: hiddenStyles,
     });
   });
@@ -463,16 +483,16 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     expect(readback.timelines).toHaveLength(1);
     expect(readback.timelines[0]).toMatchObject({
       tracks: [],
-      textDocument: captionTextDocument,
+      textDocument: upgradeLegacyTextDocument(captionTextDocument),
       durationMs: 600,
       compiledHash: saved.compiledHash,
       cssHash: saved.compiledHash,
     });
     expect(currentFileRef().content).toContain(
-      'data-agent-native-motion-text-source="v1"',
+      'data-agent-native-motion-text-source="v2"',
     );
     expect(currentFileRef().content).toContain(
-      'data-agent-native-motion-text-runtime="v1"',
+      'data-agent-native-motion-text-runtime="v2"',
     );
   });
 
@@ -490,11 +510,22 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
         blurEnabled: true,
       },
     };
+    const textDocument = {
+      version: 2 as const,
+      animations: captionTextDocument.animations.map((animation) => ({
+        ...animation,
+        animationDirection: "in" as const,
+        order: "left-to-right" as const,
+        overlapPercent: 92,
+        ignoreSpaces: false,
+        delayMs: 0,
+      })),
+    };
     const saved = await action.run({
       designId: DESIGN_ID,
       fileId: FILE_ID,
       tracks: [],
-      textDocument: captionTextDocument,
+      textDocument,
       nativeStyles: [nativeStyle],
       durationMs: 600,
     } as never);
@@ -517,7 +548,7 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
       ).toEqual(["opacity", "filter", "translate"]);
     }
     expect(readback.timelines[0]).toMatchObject({
-      textDocument: captionTextDocument,
+      textDocument,
       nativeStyles: [nativeStyle],
     });
   });
@@ -635,7 +666,7 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     } as never);
     expect(preserved.timelines[0]).toMatchObject({
       tracks: oneTrack(),
-      textDocument: captionTextDocument,
+      textDocument: upgradeLegacyTextDocument(captionTextDocument),
     });
 
     const cleared = await action.run({
