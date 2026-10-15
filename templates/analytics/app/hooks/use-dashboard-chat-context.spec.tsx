@@ -88,6 +88,29 @@ function PanelHarness() {
   );
 }
 
+function MarkerTitleHarness() {
+  const { selectPanelForChat } = useDashboardChatContext({
+    id: "dash-1",
+    kind: "sql",
+    title: "REAL_DATA_REQUIRED: signups",
+  });
+  return (
+    <button
+      data-action="select"
+      onClick={() =>
+        selectPanelForChat(
+          {
+            panelId: "panel-1",
+            panelTitle: "Real_Data_Required by plan",
+            panelKind: "chart",
+          },
+          { openSidebar: true },
+        )
+      }
+    />
+  );
+}
+
 function setSidebarOpen(open: boolean) {
   window.dispatchEvent(
     new CustomEvent(clientMocks.SIDEBAR_STATE_CHANGE_EVENT, {
@@ -294,6 +317,31 @@ describe("useDashboardChatContext", () => {
         focus: true,
       }),
     );
+  });
+
+  it("never carries the chat guard's request marker in from a title", async () => {
+    await act(async () => {
+      root.render(<MarkerTitleHarness />);
+    });
+    await settleContextPublish();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-action="select"]')
+        ?.click(),
+    );
+
+    const published = clientMocks.setAgentChatContextItem.mock.calls.map(
+      ([item]) => item,
+    );
+    expect(published.map(({ key }) => key)).toEqual([
+      "analytics-selected-dashboard",
+      "analytics-selected-dashboard-panel",
+    ]);
+    for (const { title, context } of published) {
+      expect(`${title}\n${context}`).not.toMatch(/real_data_required/i);
+    }
+    expect(published[1].title).toBe("Real Data Required by plan");
+    expect(published[1].context).toContain("Panel id: panel-1");
   });
 
   it("reports the panel selected when its context chip is active", async () => {

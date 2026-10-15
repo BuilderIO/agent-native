@@ -1,6 +1,8 @@
 import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
 
-export const REAL_DATA_REQUIRED_MARKER = "REAL_DATA_REQUIRED";
+import { REAL_DATA_REQUIRED_MARKER } from "../../shared/real-data-marker.js";
+
+export { REAL_DATA_REQUIRED_MARKER };
 
 const INJECTED_CONTEXT_BLOCKS = [
   "current-screen",

@@ -6,6 +6,7 @@ import {
   useAgentChatContext,
 } from "@agent-native/core/client/agent-chat";
 import { setClientAppState } from "@agent-native/core/client/hooks";
+import { REAL_DATA_REQUIRED_MARKER } from "@shared/real-data-marker";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -49,6 +50,16 @@ export interface DashboardChatContextResult {
     panel: DashboardPanelChatContextArgs,
     options?: SelectDashboardPanelOptions,
   ) => void;
+}
+
+const REQUEST_MARKER = new RegExp(REAL_DATA_REQUIRED_MARKER, "gi");
+
+/**
+ * Dashboard and panel titles are free text, and the chat guard reads any chat
+ * context carrying the request marker as the request itself.
+ */
+function displayTitle(title: string): string {
+  return title.replace(REQUEST_MARKER, (marker) => marker.replace(/_/g, " "));
 }
 
 function dashboardContext(
@@ -142,8 +153,10 @@ export function useDashboardChatContext(
       if (!id) return;
       if (options.openSidebar !== true && !isAgentSidebarOpen) return;
       suppressDashboardContextRef.current = false;
-      const displayDashboardTitle = title?.trim() || id;
-      const displayPanelTitle = panel.panelTitle.trim() || panel.panelId;
+      const displayDashboardTitle = displayTitle(title?.trim() || id);
+      const displayPanelTitle = displayTitle(
+        panel.panelTitle.trim() || panel.panelId,
+      );
       const contextLines = [
         panelSelectionMarker(id, panel.panelId),
         `The user selected this ${panel.panelKind} on the Analytics dashboard "${displayDashboardTitle}".`,
@@ -237,16 +250,16 @@ export function useDashboardChatContext(
   useEffect(() => {
     if (!id) return;
     suppressDashboardContextRef.current = false;
-    const displayTitle = title?.trim() || id;
+    const dashboardTitle = displayTitle(title?.trim() || id);
     const timer = setTimeout(() => {
       if (suppressDashboardContextRef.current) return;
       setAgentChatContextItem({
         key: DASHBOARD_CONTEXT_KEY,
-        title: `Dashboard: ${displayTitle}`,
+        title: `Dashboard: ${dashboardTitle}`,
         context: dashboardContext({
           id,
           kind,
-          title: displayTitle,
+          title: dashboardTitle,
           panelCount,
           canEdit,
         }),
@@ -260,12 +273,12 @@ export function useDashboardChatContext(
   useEffect(() => {
     if (!id || hasSelectedPanel) return;
     if (suppressDashboardContextRef.current) return;
-    const displayTitle = title?.trim() || id;
+    const dashboardTitle = displayTitle(title?.trim() || id);
     const selection: SelectedDashboardObject = {
       type: "dashboard",
       id,
       kind,
-      title: displayTitle,
+      title: dashboardTitle,
       panelCount,
       canEdit,
       [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
