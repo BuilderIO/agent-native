@@ -1957,16 +1957,21 @@ fn discard_excluded_mode_change_artifacts(
 ) -> Result<(), String> {
     let (active, state_result) = {
         let state = app.state::<ScreenMemoryState>();
-        match state.inner.lock() {
-            Ok(mut runtime) => {
+        let state_result = state
+            .inner
+            .lock()
+            .map(|mut runtime| {
                 begin_exclusion_gap(&mut runtime, gap_started_at, capture_mode);
                 let active = runtime.active.take();
                 if let Some(active) = active.as_ref() {
                     begin_exclusion_gap(&mut runtime, active.started_at, active.capture_mode);
                 }
-                (active, Ok(()))
-            }
-            Err(error) => (None, Err(error.to_string())),
+                active
+            })
+            .map_err(|error| error.to_string());
+        match state_result {
+            Ok(active) => (active, Ok(())),
+            Err(error) => (None, Err(error)),
         }
     };
     if let Some(active) = active {
