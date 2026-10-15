@@ -975,7 +975,6 @@ test("a new motion preset applies to every selected target", async ({
     .sort();
   expect(scaleTargetIds).toEqual([
     "e2e-motion-reference-rectangle",
-    "e2e-motion-reference-rectangle",
     "e2e-motion-reference-rectangle-2",
   ]);
 });
