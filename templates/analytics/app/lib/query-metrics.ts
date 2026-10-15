@@ -10,6 +10,19 @@ export interface QueryMetricsResult {
   schema?: { name: string; type: string }[];
 }
 
+export function queryRunTelemetry(
+  result: QueryMetricsResult | undefined,
+  queryError?: unknown,
+) {
+  const failed = Boolean(result?.error || queryError);
+  return {
+    query_status: failed ? "error" : "success",
+    row_count: failed ? 0 : (result?.rows.length ?? 0),
+    column_count: failed ? 0 : (result?.schema?.length ?? 0),
+    ...(failed ? { error_category: "query_error" } : {}),
+  };
+}
+
 export async function queryMetrics(sql: string): Promise<QueryMetricsResult> {
   const token = await getIdToken();
   const res = await fetch(appApiPath("/api/query"), {

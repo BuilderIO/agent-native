@@ -6,6 +6,7 @@ import {
   matchSearchFields,
   paginateSearchResults,
   semanticScopeCompatibility,
+  semanticScopeForDictionaryEntry,
   semanticScopeForSearch,
   stripNonPositiveInstructions,
   unrelatedNameTerms,
@@ -97,6 +98,15 @@ describe("Analytics term matching", () => {
     expect(semanticScopeForSearch("active workspace users")).toBe("membership");
     expect(semanticScopeForSearch("active organizations")).toBe("organization");
     expect(semanticScopeForSearch("active users")).toBe("product_activity");
+    expect(semanticScopeForSearch("weekly active users by organization")).toBe(
+      "active_user_activity",
+    );
+    expect(semanticScopeForSearch("monthly active users by organization")).toBe(
+      "active_user_activity",
+    );
+    expect(
+      semanticScopeForSearch("unique active users since July 1 by workspace"),
+    ).toBe("active_user_activity");
     expect(semanticScopeForSearch("workspace member roles")).toBe(
       "membership_roster",
     );
@@ -133,7 +143,7 @@ describe("Analytics term matching", () => {
       semanticScopeForSearch("Builder.io product monthly active user count"),
     ).toBe("product_activity");
     expect(semanticScopeForSearch("monthly active users by region")).toBe(
-      "product_activity",
+      "active_user_activity",
     );
     expect(semanticScopeForSearch("who has access to the workspace")).toBe(
       "membership_roster",
@@ -222,6 +232,49 @@ describe("Analytics term matching", () => {
     expect(semanticScopeForSearch("Analytics application users")).toBe(
       "analytics_user",
     );
+    expect(
+      semanticScopeForSearch("weekly Agent-Native Analytics app opens"),
+    ).toBe("analytics_user");
+    expect(
+      semanticScopeForSearch("weekly active Builder users by organization"),
+    ).toBe("product_activity");
+    expect(
+      semanticScopeForDictionaryEntry({
+        metric: "Active Users (Weekly)",
+        definition:
+          "Distinct active_user_id values per week; activity includes page views and AI chat.",
+        table: "dbt_analytics.active_users",
+        columnsUsed: "active_user_id, root_org_id, event_date, event_type",
+        grain: "One row per active user, organization, date, and event type",
+        semanticScope: "analytics_user",
+      }),
+    ).toBe("product_activity");
+    expect(
+      semanticScopeForDictionaryEntry({
+        metric: "weekly_active_builders",
+        definition:
+          "Distinct real Builder users with a content edit or code edit event each week.",
+        semanticModel: "builder_product_activity",
+        semanticScope: "analytics_user",
+      }),
+    ).toBe("product_activity");
+    expect(
+      semanticScopeForDictionaryEntry({
+        metric: "weekly_active_users",
+        definition:
+          "Distinct signed-in users who opened the Agent-Native Analytics app in each week.",
+        semanticModel: "analytics_app_open_events",
+        semanticScope: "product_activity",
+      }),
+    ).toBe("analytics_user");
+    expect(
+      semanticScopeForDictionaryEntry({
+        metric: "Agent-Native Analytics Users",
+        definition: "One row per person using the Analytics app.",
+        table: "analytics.users",
+        semanticScope: "analytics_user",
+      }),
+    ).toBe("analytics_user");
   });
 
   it("binds page cursors to the query and reports the searched result window", () => {

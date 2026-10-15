@@ -166,7 +166,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "Report available Analytics sources without exposing secrets, including first-party events and granted workspace connections. Use `query-agent-native-analytics` for first-party events. Each provider includes a setup link; key accepts a credential name or provider alias.",
+    "Report Analytics source status without secrets. `ready` indicates a query path is configured because required local credentials are present or an Analytics workspace connection is marked connected; it is not a live health check. `credentialsConfigured` reports required local credential presence and `connectionHealth` reports workspace connection state. First-party Analytics events are built in; use `query-agent-native-analytics` to query them. Each provider includes a setup link; key accepts a credential name or provider alias.",
   schema: z.object({
     key: z
       .string()
@@ -324,6 +324,16 @@ export default defineAction({
             : hasRequiredCredentials ||
               workspaceGrantState === "connected" ||
               workspaceGrantState === "granted";
+        const connectionStatuses = new Set(workspaceConnection.statuses ?? []);
+        const connectionHealth = workspace.error
+          ? "error"
+          : workspaceGrantState === "connected"
+            ? "connected"
+            : connectionStatuses.has("needs_reauth")
+              ? "needs_reauth"
+              : connectionStatuses.has("error")
+                ? "error"
+                : "not_connected";
         const ready = hasRequiredCredentials
           ? true
           : workspace.error
@@ -334,6 +344,7 @@ export default defineAction({
           label: provider.label,
           setupLink: dataSourceSetupLink(provider.provider),
           configured: configured ? true : workspace.error ? null : false,
+          connectionHealth,
           ready,
           credentialsConfigured:
             provider.provider === "bigquery"

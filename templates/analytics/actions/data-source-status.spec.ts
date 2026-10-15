@@ -30,6 +30,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core", () => ({
   defineAction: (config: unknown) => config,
 }));
+vi.mock("@agent-native/core/action", () => ({
+  defineAction: (config: unknown) => config,
+}));
 
 vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: vi.fn(
@@ -118,6 +121,15 @@ vi.mock("../server/lib/provider-credentials", () => ({
 const { default: dataSourceStatus } = await import("./data-source-status");
 
 describe("data-source-status", () => {
+  it("describes readiness as configuration rather than live provider health", () => {
+    expect(dataSourceStatus.description).toContain(
+      "it is not a live health check",
+    );
+    expect(dataSourceStatus.description).toContain(
+      "required local credential presence",
+    );
+  });
+
   beforeEach(() => {
     mocks.hasCredential.mockReset();
     mocks.getGitHubAccessToken.mockReset();
@@ -323,6 +335,7 @@ describe("data-source-status", () => {
       configured: true,
       configuredKeys: ["HUBSPOT_ACCESS_TOKEN"],
       missingRequiredKeys: [],
+      connectionHealth: "not_connected",
     });
   });
 
@@ -366,6 +379,7 @@ describe("data-source-status", () => {
     expect(hubspot).toMatchObject({
       configured: true,
       ready: true,
+      connectionHealth: "connected",
       credentialsConfigured: false,
       configuredKeys: [],
       setupLink:
@@ -423,6 +437,7 @@ describe("data-source-status", () => {
     expect(hubspot).toMatchObject({
       configured: true,
       ready: false,
+      connectionHealth: "error",
       credentialsConfigured: false,
       configuredKeys: [],
       workspaceConnection: {
@@ -442,6 +457,32 @@ describe("data-source-status", () => {
       connectedExternalDataSources: [],
       hasConnectedExternalDataSources: false,
       connectedExternalDataSourceCount: 0,
+    });
+  });
+
+  it("reports a workspace reauthorization need separately from credential readiness", async () => {
+    mocks.workspaceSummary = {
+      ...mocks.workspaceSummary,
+      grantState: "granted",
+      grantAvailability: "available",
+      connectionCount: 1,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 0,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: false,
+      statuses: ["needs_reauth"],
+      connections: [{ id: "analytics-grant", status: "needs_reauth" }],
+    };
+
+    const result = (await dataSourceStatus.run({ key: "hubspot" })) as any;
+    const hubspot = result.providers.find(
+      (provider: any) => provider.provider === "hubspot",
+    );
+
+    expect(hubspot).toMatchObject({
+      connectionHealth: "needs_reauth",
+      workspaceConnection: { statuses: ["needs_reauth"] },
     });
   });
 

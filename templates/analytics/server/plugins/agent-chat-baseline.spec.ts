@@ -73,6 +73,8 @@ const LAZY_TOOLS = [
   "provider-api-request",
   "provider-corpus-job",
   "query-staged-dataset",
+  "query-dbt-semantic-metric",
+  "data-source-status",
   "update-dashboard",
   "compose-dashboard",
   "generate-chart",
@@ -358,9 +360,16 @@ describe("Analytics first-request baseline", () => {
   });
 
   it("leaves every dropped tool one tool-search away", () => {
-    const found = searchToolRegistry(leanRegistry, { names: LAZY_TOOLS });
+    const batches = Array.from(
+      { length: Math.ceil(LAZY_TOOLS.length / 20) },
+      (_, index) => LAZY_TOOLS.slice(index * 20, (index + 1) * 20),
+    );
     const callable = new Set(
-      found.results.filter((result) => result.callable).map((r) => r.name),
+      batches.flatMap((names) =>
+        searchToolRegistry(leanRegistry, { names })
+          .results.filter((result) => result.callable)
+          .map((result) => result.name),
+      ),
     );
 
     expect(LAZY_TOOLS.filter((name) => !callable.has(name))).toEqual([]);

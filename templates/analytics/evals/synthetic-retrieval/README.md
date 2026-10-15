@@ -2,7 +2,7 @@
 
 This deterministic benchmark compares the current shared Analytics query-catalog
 matcher and ranker with the implementation in `origin/main` at pinned revision
-`75e39e8547b408aa09605e54872d9a8ef6522df9`. Case names, questions, expected
+`f99e655433a40fcd5d82e3e84667a8e8576c956a`. Case names, questions, expected
 outcomes, panel SQL, table names, columns, and values are synthetic. These rows
 are not historical chats, production data, or production end-to-end results.
 
@@ -15,7 +15,7 @@ baseline rankings and the current ranker. To reproduce or re-measure the
 baseline, install the pinned revision in a separate checkout and pass its path:
 
 ```sh
-git worktree add --detach /tmp/analytics-eval-before 75e39e8547b408aa09605e54872d9a8ef6522df9
+git worktree add --detach /tmp/analytics-eval-before f99e655433a40fcd5d82e3e84667a8e8576c956a
 pnpm --dir /tmp/analytics-eval-before install --frozen-lockfile
 ANALYTICS_BASELINE_ROOT=/tmp/analytics-eval-before \
   pnpm --filter analytics exec tsx evals/synthetic-retrieval/measure-baseline.ts
@@ -26,19 +26,27 @@ pinned revision and rejects edits to the two baseline ranker files. Re-measure
 the baseline when changing the comparison base; do not update the revision
 without running the measurement command.
 
-The twelve cases cover a built-in dictionary alias (`MRR`), a term found only
+The fourteen cases cover a built-in dictionary alias (`MRR`), a term found only
 in panel SQL, semantic-scope selection, approved versus generated dictionary
 trust, a synthetic product-user directory versus organization membership grain,
 a role-aware roster versus a period aggregate, product activity versus
 membership metadata, aggregate retrieval for a highest-count question,
 active-only membership versus product events, bare active members versus product
-events, and two non-positive count forms on a row-level membership request. The
-CSV marks every row `SYNTHETIC` and records the expected candidate's rank under
-both implementations. This measures retrieval ranking only; it does not
+events, two non-positive count forms on a row-level membership request, and a
+time-scoped active-user metric versus monthly seats and publishing-only activity.
+The CSV marks every row `SYNTHETIC` and records the expected candidate's rank under
+both implementations. Its active-user cases distinguish Builder product events
+from Agent-Native app opens. Ambiguous active-user wording retains both source
+definitions so the agent can ask which population is intended. This measures
+retrieval ranking only; it does not
 measure answer quality, latency, or the mounted production chat path.
 
-Across these twelve cases, top-1 improves from 5/12 to 12/12, hit@5 improves
-from 10/12 to 12/12, and mean reciprocal rank improves from 0.625 to 1.00.
+`SYNTHETIC-analytics-retrieval-v7.csv` is retained as the preceding synthetic
+case snapshot. Version 8 is the current benchmark and adds the app-open routing
+case.
+
+Across these fourteen cases, top-1 improves from 13/14 to 14/14, hit@5 improves
+from 13/14 to 14/14, and mean reciprocal rank improves from 13/14 to 1.00.
 
 From the repository root, regenerate the checked-in CSV with:
 

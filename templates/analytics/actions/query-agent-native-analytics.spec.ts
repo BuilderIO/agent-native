@@ -250,6 +250,11 @@ describe("query-agent-native-analytics", () => {
     );
     expect(action.description).toMatch(/bounded recent drill-downs/i);
     expect(action.description).toMatch(/all-time|lifetime/i);
+    expect(action.description).toMatch(/do not call DIV\(\)/i);
+    expect(action.description).toContain("/ NULLIF(denominator, 0)");
+    expect(action.description).toContain("properties::jsonb ->> 'key'");
+    expect(action.description).toContain("LATERAL/unnest/generate_series");
+    expect(action.description).toContain("Use `||` explicitly between strings");
     expect(action.schema.shape.sql.description).toMatch(
       /unbounded raw-event scan/i,
     );

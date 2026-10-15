@@ -2972,6 +2972,134 @@ describe("analytics query catalog", () => {
     ).toEqual(["organization-user-events"]);
   });
 
+  it("routes explicit Builder activity questions to the weekly product-activity definition", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "weekly active Builder product users by organization",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "synthetic-workspace-seat-count",
+          metric: "Monthly User Count",
+          definition: "A monthly snapshot of workspace membership seats.",
+          table: "synthetic_workspace_seat_counts",
+          columnsUsed: "month, organization_id, user_count",
+          grain: "One row per organization per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "synthetic-publishing-active-user",
+          metric: "Publishing Active User",
+          definition: "Distinct users who published a production event.",
+          table: "synthetic_publish_events",
+          columnsUsed: "user_id, organization_id, event_time, event_type",
+          semanticScope: "product_activity",
+          approved: true,
+        },
+        {
+          id: "synthetic-active-builders-weekly",
+          metric: "Weekly Active Builders",
+          definition:
+            "Distinct real Builder users with content edit or code edit events each week.",
+          table: "synthetic_builder_activity",
+          columnsUsed: "user_id, root_org_id, event_date, event_type",
+          grain: "One row per user, organization, date, and event type",
+          timeDimension: "event_date",
+          semanticScope: "analytics_user",
+          sourceKind: "dbt",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "synthetic-active-builders-weekly",
+      semanticScope: "product_activity",
+    });
+    expect(
+      results.map((candidate) =>
+        candidate.kind === "data-dictionary" ? candidate.id : candidate.panelId,
+      ),
+    ).not.toContain("synthetic-workspace-seat-count");
+    expect(
+      results[0]?.kind === "data-dictionary"
+        ? results[0].id
+        : results[0]?.panelId,
+    ).not.toBe("synthetic-publishing-active-user");
+  });
+
+  it("routes explicit Analytics app-open questions to the app-user metric", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "weekly Agent-Native Analytics app opens",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "synthetic-active-builders-weekly",
+          metric: "Weekly Active Builders",
+          definition:
+            "Distinct real Builder users with content edit or code edit events each week.",
+          table: "synthetic_builder_activity",
+          columnsUsed: "user_id, root_org_id, event_date, event_type",
+          timeDimension: "event_date",
+          semanticScope: "product_activity",
+          approved: true,
+        },
+        {
+          id: "synthetic-analytics-app-opens-weekly",
+          metric: "Weekly Active Users",
+          definition:
+            "Distinct signed-in users who opened the Agent-Native Analytics app each week.",
+          table: "synthetic_analytics_app_opens",
+          columnsUsed: "user_key, app_id, event_date",
+          timeDimension: "event_date",
+          semanticScope: "product_activity",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "synthetic-analytics-app-opens-weekly",
+      semanticScope: "analytics_user",
+    });
+  });
+
+  it("keeps both product and Analytics app definitions discoverable for ambiguous active-user wording", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "weekly active users",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "synthetic-active-builders-weekly",
+          metric: "Weekly Active Builders",
+          definition:
+            "Weekly active users of the Builder product, counted from code and content edit events.",
+          table: "synthetic_builder_activity",
+          semanticScope: "product_activity",
+          approved: true,
+        },
+        {
+          id: "synthetic-analytics-app-opens-weekly",
+          metric: "Weekly Active Users",
+          definition:
+            "Weekly active users who opened the Agent-Native Analytics app.",
+          table: "synthetic_analytics_app_opens",
+          semanticScope: "analytics_user",
+          approved: true,
+        },
+      ],
+    });
+    const resultIds = results.map((candidate) =>
+      candidate.kind === "data-dictionary" ? candidate.id : candidate.panelId,
+    );
+
+    expect(resultIds).toContain("synthetic-active-builders-weekly");
+    expect(resultIds).toContain("synthetic-analytics-app-opens-weekly");
+  });
+
   it("penalizes off-topic terms in metric names when query coverage is equal", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "organization Builder.io users",

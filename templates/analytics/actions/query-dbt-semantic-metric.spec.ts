@@ -75,6 +75,9 @@ const metricByNameEval = syntheticEvalRows.find(
 const jobRunRefusedEval = syntheticEvalRows.find(
   (row) => row[1] === "job-run-refused",
 )!;
+const groupedMetricEval = syntheticEvalRows.find(
+  (row) => row[1] === "grouped-metric-by-name",
+)!;
 
 const connection = {
   id: "dbt-workspace-connection",
@@ -89,6 +92,21 @@ const connection = {
 
 function providerResult(json: unknown, status = 200, ok = true) {
   return { response: { ok, status, json } };
+}
+
+function metricMetadataResult(
+  name = "active_workspaces",
+  dimensions: unknown[] = [],
+) {
+  return providerResult({
+    data: {
+      metricsPaginated: {
+        items: [{ name, dimensions, queryableGranularities: ["DAY", "WEEK"] }],
+        totalItems: 1,
+        totalPages: 1,
+      },
+    },
+  });
 }
 
 function providerRequestTimeoutError() {
@@ -193,6 +211,424 @@ describe("query-dbt-semantic-metric", () => {
         }),
       }),
     );
+  });
+
+  it("groups an exact metric by returned dimensions and preserves its bounded time range across pages", async () => {
+    const dimensions = [
+      {
+        name: "root_org_id",
+        description: "Synthetic organization identifier",
+        type: "CATEGORICAL",
+        queryableGranularities: [],
+      },
+    ];
+    const metricTimeRange = { startDate: "2026-07-01", endDate: "2026-07-31" };
+    const groupBy = [
+      { name: "metric_time", grain: "WEEK" },
+      { name: "root_org_id" },
+    ];
+    const rows = Array.from({ length: 25 }, (_, index) => [
+      `2026-07-${String(index + 1).padStart(2, "0")}`,
+      `org-${index + 1}`,
+      index + 1,
+    ]);
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(
+        metricMetadataResult("weekly_active_product_users", dimensions),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: { createQuery: { queryId: "fake_group_query" } },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: rows }),
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            metricsPaginated: {
+              items: [
+                {
+                  name: "weekly_active_product_users",
+                  description: "Synthetic active product users per week",
+                  type: "simple",
+                  dimensions,
+                  queryableGranularities: ["DAY", "WEEK"],
+                },
+              ],
+              totalItems: 1,
+              totalPages: 1,
+            },
+          },
+        }),
+      )
+      .mockResolvedValue(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: rows }),
+            },
+          },
+        }),
+      );
+
+    const first = (await action.run({
+      metricName: "weekly_active_product_users",
+      groupBy,
+      timeRange: metricTimeRange,
+      limit: 20,
+    })) as any;
+
+    expect(first).toMatchObject({
+      status: "success",
+      metric: {
+        name: "weekly_active_product_users",
+        dimensionsCount: 1,
+        dimensionsTruncated: false,
+        dimensions: [
+          {
+            name: "root_org_id",
+            type: "CATEGORICAL",
+            queryableGranularities: [],
+          },
+        ],
+        queryableGranularities: ["DAY", "WEEK"],
+      },
+      querySpec: { groupBy, timeRange: metricTimeRange },
+      rows: rows.slice(0, 20),
+      rowCount: 20,
+      truncated: true,
+      queryId: "fake_group_query",
+    });
+    expect(action.outputSchema.parse(first)).toEqual(first);
+
+    const createRequest = mocks.executeProviderApiRequest.mock.calls[1]?.[0];
+    expect(createRequest?.body.variables).toMatchObject({
+      environmentId: "123456",
+      metricName: "weekly_active_product_users",
+      groupBy,
+      where: [
+        {
+          sql: "{{ TimeDimension('metric_time', 'day') }} >= '2026-07-01'",
+        },
+        {
+          sql: "{{ TimeDimension('metric_time', 'day') }} <= '2026-07-31'",
+        },
+      ],
+      queryRowCap: 1_000,
+    });
+
+    const second = (await action.run({
+      metricName: "weekly_active_product_users",
+      queryId: first.queryId,
+      nextPage: first.nextPage,
+      limit: 20,
+    })) as any;
+    expect(second).toMatchObject({
+      status: "success",
+      metric: {
+        name: "weekly_active_product_users",
+        dimensionsCount: 1,
+        dimensions: [{ name: "root_org_id" }],
+        queryableGranularities: ["DAY", "WEEK"],
+      },
+      querySpec: { groupBy, timeRange: metricTimeRange },
+      rows: rows.slice(20),
+      rowCount: 5,
+      truncated: false,
+    });
+    expect(action.outputSchema.parse(second)).toEqual(second);
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(5);
+    expect(
+      mocks.executeProviderApiRequest.mock.calls[3]?.[0].body.query,
+    ).toContain("query AnalyticsMetricLookup");
+    expect(
+      mocks.executeProviderApiRequest.mock.calls[4]?.[0].body.query,
+    ).toContain("query AnalyticsMetricResult");
+  });
+
+  it("returns the known synthetic grouped metric answer", async () => {
+    const expectedValue = groupedMetricEval[7]!;
+    const [metricTime, organizationId, value] = expectedValue.split("|");
+    const groupBy = [
+      { name: "metric_time", grain: "WEEK" as const },
+      { name: "root_org_id" },
+    ];
+    const timeRange = { startDate: "2026-07-01", endDate: "2026-07-31" };
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            metricsPaginated: {
+              items: [
+                {
+                  name: groupedMetricEval[3],
+                  description: "Synthetic weekly product users by organization",
+                  type: "simple",
+                  dimensions: [
+                    {
+                      name: "root_org_id",
+                      type: "CATEGORICAL",
+                      queryableGranularities: [],
+                    },
+                  ],
+                  queryableGranularities: ["DAY", "WEEK"],
+                },
+              ],
+              totalItems: 1,
+              totalPages: 1,
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: { createQuery: { queryId: "fake_grouped_answer" } },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({
+                data: [
+                  {
+                    metric_time__WEEK: metricTime,
+                    root_org_id: organizationId,
+                    [groupedMetricEval[3]!]: Number(value),
+                  },
+                ],
+              }),
+            },
+          },
+        }),
+      );
+
+    const result = await action.run({
+      metricName: groupedMetricEval[3]!,
+      groupBy,
+      timeRange,
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({
+      status: groupedMetricEval[5],
+      metric: { name: groupedMetricEval[6] },
+      querySpec: { groupBy, timeRange },
+      rows: [
+        {
+          metric_time__WEEK: metricTime,
+          root_org_id: organizationId,
+          [groupedMetricEval[3]!]: Number(value),
+        },
+      ],
+      rowCount: 1,
+      truncated: false,
+    });
+    expect(action.outputSchema.parse(result)).toEqual(result);
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(
+      Number(groupedMetricEval[8]),
+    );
+  });
+
+  it("refuses unknown dimensions and unsupported grains before creating a query", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValueOnce(
+      providerResult({
+        data: {
+          metricsPaginated: {
+            items: [
+              {
+                name: "weekly_active_product_users",
+                dimensions: [
+                  {
+                    name: "event_date",
+                    type: "TIME",
+                    queryableGranularities: ["DAY"],
+                  },
+                ],
+                queryableGranularities: ["DAY", "WEEK"],
+              },
+            ],
+            totalItems: 1,
+            totalPages: 1,
+          },
+        },
+      }),
+    );
+
+    await expect(
+      action.run({
+        metricName: "weekly_active_product_users",
+        groupBy: [{ name: "unknown_org_id" }],
+        timeRange: { startDate: "2026-07-01", endDate: "2026-07-31" },
+        limit: 20,
+      }),
+    ).rejects.toMatchObject({ errorCode: "dbt_metric_dimension_invalid" });
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(1);
+
+    mocks.executeProviderApiRequest.mockReset();
+    mocks.executeProviderApiRequest.mockResolvedValueOnce(
+      providerResult({
+        data: {
+          metricsPaginated: {
+            items: [
+              {
+                name: "weekly_active_product_users",
+                dimensions: [
+                  {
+                    name: "event_date",
+                    type: "TIME",
+                    queryableGranularities: ["DAY"],
+                  },
+                ],
+                queryableGranularities: ["DAY", "WEEK"],
+              },
+            ],
+            totalItems: 1,
+            totalPages: 1,
+          },
+        },
+      }),
+    );
+
+    await expect(
+      action.run({
+        metricName: "weekly_active_product_users",
+        groupBy: [{ name: "event_date", grain: "WEEK" }],
+        timeRange: { startDate: "2026-07-01", endDate: "2026-07-31" },
+        limit: 20,
+      }),
+    ).rejects.toMatchObject({ errorCode: "dbt_metric_grain_unsupported" });
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("validates date bounds, duplicate dimensions, and continuations at the action boundary", () => {
+    for (const timeRange of [
+      { startDate: "2026-02-30", endDate: "2026-03-01" },
+      { startDate: "2025-01-01", endDate: "2026-01-02" },
+      { startDate: "2026-07-31", endDate: "2026-07-01" },
+    ]) {
+      expect(
+        action.schema.safeParse({
+          metricName: "weekly_active_product_users",
+          timeRange,
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      action.schema.safeParse({
+        metricName: "weekly_active_product_users",
+        groupBy: [{ name: "root_org_id" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        metricName: "weekly_active_product_users",
+        groupBy: [{ name: "root_org_id" }, { name: "root_org_id" }],
+        timeRange: { startDate: "2026-07-01", endDate: "2026-07-31" },
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        metricName: "weekly_active_product_users",
+        queryId: "fake_group_query",
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        metricName: "weekly_active_product_users",
+        queryId: "fake_group_query",
+        nextPage: "metric-results-v3.eyJ0ZXN0IjoidHJ1ZSJ9",
+        groupBy: [{ name: "root_org_id" }],
+        timeRange: { startDate: "2026-07-01", endDate: "2026-07-31" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("reports truncated metric dimensions and granularity metadata", async () => {
+    const dimensions = Array.from({ length: 31 }, (_, index) => ({
+      name: `synthetic_dimension_${index + 1}`,
+      type: "CATEGORICAL",
+      queryableGranularities: [],
+    }));
+    const granularities = [
+      "DAY",
+      "WEEK",
+      "MONTH",
+      "QUARTER",
+      "YEAR",
+      "HOUR",
+      "MINUTE",
+      "SECOND",
+      "DECADE",
+      "CENTURY",
+      "MILLENNIUM",
+    ];
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            metricsPaginated: {
+              items: [
+                {
+                  name: "synthetic_metric",
+                  dimensions,
+                  queryableGranularities: granularities,
+                },
+              ],
+              totalItems: 1,
+              totalPages: 1,
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: [[42]] }),
+            },
+          },
+        }),
+      );
+
+    await expect(
+      action.run({ metricName: "synthetic_metric", limit: 20 }),
+    ).resolves.toMatchObject({
+      status: "success",
+      metric: {
+        dimensionsCount: 31,
+        dimensionsTruncated: true,
+        dimensions: expect.arrayContaining([
+          {
+            name: "synthetic_dimension_1",
+            type: "CATEGORICAL",
+            queryableGranularities: [],
+          },
+        ]),
+        queryableGranularities: granularities.slice(0, 10),
+        queryableGranularitiesCount: 11,
+        queryableGranularitiesTruncated: true,
+      },
+    });
   });
 
   it("returns a clear deployment state when the environment has no successful run", async () => {
@@ -458,6 +894,7 @@ describe("query-dbt-semantic-metric", () => {
           },
         }),
       )
+      .mockResolvedValueOnce(metricMetadataResult())
       .mockResolvedValueOnce(
         providerResult({
           data: {
@@ -469,6 +906,7 @@ describe("query-dbt-semantic-metric", () => {
           },
         }),
       )
+      .mockResolvedValueOnce(metricMetadataResult())
       .mockResolvedValueOnce(
         providerResult({
           data: {
@@ -529,8 +967,10 @@ describe("query-dbt-semantic-metric", () => {
       ),
     ).toBe(true);
     expect(requests[2]?.body.variables.pageNum).toBe(1);
-    expect(requests[3]?.body.variables.pageNum).toBe(1);
-    expect(requests[4]?.body.variables.pageNum).toBe(2);
+    expect(requests[3]?.body.query).toContain("query AnalyticsMetricLookup");
+    expect(requests[4]?.body.variables.pageNum).toBe(1);
+    expect(requests[5]?.body.query).toContain("query AnalyticsMetricLookup");
+    expect(requests[6]?.body.variables.pageNum).toBe(2);
     expect(requests[1]?.body.variables.queryRowCap).toBe(1_000);
     expect(requests[1]?.body.variables.limit).toBeUndefined();
   });
@@ -552,16 +992,18 @@ describe("query-dbt-semantic-metric", () => {
       .mockResolvedValueOnce(
         providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
       )
-      .mockResolvedValue(
-        providerResult({
-          data: {
-            query: {
-              status: "SUCCESSFUL",
-              totalPages: 1,
-              jsonResult: JSON.stringify({ data: cappedRows }),
-            },
-          },
-        }),
+      .mockImplementation(async (request: { body: { query: string } }) =>
+        request.body.query.includes("AnalyticsMetricLookup")
+          ? metricMetadataResult()
+          : providerResult({
+              data: {
+                query: {
+                  status: "SUCCESSFUL",
+                  totalPages: 1,
+                  jsonResult: JSON.stringify({ data: cappedRows }),
+                },
+              },
+            }),
       );
 
     const receivedRows: unknown[] = [];
@@ -642,6 +1084,14 @@ describe("query-dbt-semantic-metric", () => {
 
   it("keeps a timed-out poll pending with its query ID and result cursor", async () => {
     const firstPageRows = Array.from({ length: 25 }, (_, index) => [index + 1]);
+    const alternateConnection = {
+      ...connection,
+      id: "other-dbt-workspace-connection",
+      label: "Other dbt workspace",
+    };
+    mocks.listWorkspaceConnectionsForApp
+      .mockResolvedValueOnce([connection, alternateConnection])
+      .mockResolvedValueOnce([connection, alternateConnection]);
     mocks.executeProviderApiRequest
       .mockResolvedValueOnce(
         providerResult({
@@ -668,10 +1118,12 @@ describe("query-dbt-semantic-metric", () => {
           },
         }),
       )
+      .mockResolvedValueOnce(metricMetadataResult())
       .mockRejectedValueOnce(providerRequestTimeoutError());
 
     const first = (await action.run({
       metricName: "active_workspaces",
+      connectionId: connection.id,
       limit: 20,
     })) as any;
     const pending = await action.run({
@@ -688,7 +1140,63 @@ describe("query-dbt-semantic-metric", () => {
       connection: { id: connection.id },
       source: "dbt-semantic-layer",
     });
+    expect(
+      mocks.resolveWorkspaceConnectionCredentialForApp,
+    ).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ connectionId: connection.id }),
+    );
     expect(action.outputSchema.parse(pending)).toEqual(pending);
+  });
+
+  it("does not resume a metric cursor from a connection outside the caller's app scope", async () => {
+    const alternateConnection = {
+      ...connection,
+      id: "other-dbt-workspace-connection",
+      label: "Other dbt workspace",
+    };
+    mocks.listWorkspaceConnectionsForApp
+      .mockResolvedValueOnce([connection])
+      .mockResolvedValueOnce([alternateConnection]);
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({
+                data: Array.from({ length: 25 }, (_, index) => [index + 1]),
+              }),
+            },
+          },
+        }),
+      );
+
+    const first = (await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    })) as any;
+
+    await expect(
+      action.run({
+        metricName: "active_workspaces",
+        queryId: first.queryId,
+        nextPage: first.nextPage,
+        limit: 20,
+      }),
+    ).rejects.toMatchObject({
+      agentConnectionRequired: true,
+      provider: "dbt",
+    });
+    expect(
+      mocks.resolveWorkspaceConnectionCredentialForApp,
+    ).toHaveBeenCalledTimes(1);
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(3);
   });
 
   it("returns a connection error for a provider timeout before query creation", async () => {
@@ -707,19 +1215,47 @@ describe("query-dbt-semantic-metric", () => {
   });
 
   it("keeps an HTTP 504 during a resumable poll pending", async () => {
-    mocks.executeProviderApiRequest.mockResolvedValueOnce(
-      providerResult({ errors: [{ message: "Gateway timeout" }] }, 504, false),
-    );
+    const rows = Array.from({ length: 25 }, (_, index) => [index + 1]);
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: rows }),
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult(
+          { errors: [{ message: "Gateway timeout" }] },
+          504,
+          false,
+        ),
+      );
 
+    const first = (await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    })) as any;
     const result = await action.run({
       metricName: "active_workspaces",
-      queryId: "fake_query_1",
+      queryId: first.queryId,
+      nextPage: first.nextPage,
       limit: 20,
     });
 
     expect(result).toMatchObject({
       status: "pending",
-      queryId: "fake_query_1",
+      queryId: first.queryId,
+      nextPage: first.nextPage,
       message: expect.stringContaining("HTTP 504"),
     });
     expect(action.outputSchema.parse(result)).toEqual(result);

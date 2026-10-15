@@ -10,6 +10,7 @@ import {
   matchSearchFields as matchScore,
   paginateSearchResults,
   semanticScopeCompatibility,
+  semanticScopeForDictionaryEntry,
   semanticScopeForSearch,
   searchTerms,
   stripNonPositiveInstructions,
@@ -2373,20 +2374,7 @@ export function candidateSemanticScope(
     return "unknown";
   }
   if (candidate.kind === "data-dictionary") {
-    const declared = candidate.semanticScope;
-    if (declared && declared !== "unknown" && SEMANTIC_SCOPES.has(declared)) {
-      return declared;
-    }
-    return inferSemanticScope(
-      [
-        candidate.metric,
-        candidate.definition,
-        candidate.source,
-        candidate.table,
-      ]
-        .filter(Boolean)
-        .join(" "),
-    );
+    return semanticScopeForDictionaryEntry(candidate);
   }
   if (hasMembershipRosterEvidence(candidate)) return "membership_roster";
   return inferSemanticScope(
@@ -2586,15 +2574,7 @@ function dictionaryCandidates(
     if (rawScore <= 0) return [];
     const score = Math.max(1, rawScore - metricNamePenalty);
     const isSourceIndex = entry.sourceIndex === true;
-    const declaredScope = text(entry.semanticScope);
-    const semanticScope =
-      declaredScope && declaredScope !== "unknown"
-        ? declaredScope
-        : inferSemanticScope(
-            [entry.metric, entry.definition, entry.source, entry.table]
-              .filter(Boolean)
-              .join(" "),
-          );
+    const semanticScope = semanticScopeForDictionaryEntry(entry);
     const entrySourceKind = sourceKind(entry.sourceKind);
     const entryType = sourceEntryType(entry.entryType);
     const status = sourceEntryStatus(entry.status);
@@ -2914,7 +2894,9 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
-  const excludesMembershipForActivity = requestedScope === "product_activity";
+  const excludesMembershipForActivity =
+    requestedScope === "product_activity" ||
+    requestedScope === "active_user_activity";
   const excludesActiveOnlyMembership =
     !requestedActiveMembers &&
     (rosterRequest || plainMembershipRequest || activeMemberIntent.negated);

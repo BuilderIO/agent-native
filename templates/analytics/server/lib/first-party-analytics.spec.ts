@@ -985,6 +985,7 @@ describe("validateFirstPartyAnalyticsSql", () => {
       "SELECT ts_stat('SELECT * FROM analytics_events') FROM session_recordings LIMIT 1",
       "SELECT pg_sleep(1) FROM analytics_events",
       "SELECT public.sum(event_count) FROM analytics_event_daily_rollups",
+      "SELECT DIV(COUNT(*), NULLIF(COUNT(*), 0)) FROM analytics_event_daily_rollups",
     ]) {
       expect(() => validateFirstPartyAnalyticsSql(sql)).toThrow(
         "cannot call unapproved SQL function",
@@ -1001,6 +1002,11 @@ describe("validateFirstPartyAnalyticsSql", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE 1.0 * COUNT(*) FILTER (WHERE event_date IS NOT NULL) / COUNT(*) END AS rate FROM analytics_events",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT 100.0 * COUNT(*) FILTER (WHERE event_name = 'signup') / NULLIF(COUNT(*), 0) AS rate FROM analytics_event_daily_rollups",
       ),
     ).not.toThrow();
     expect(() =>

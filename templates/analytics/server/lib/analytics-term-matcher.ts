@@ -253,6 +253,26 @@ export function semanticScopeForSearch(value: string): string {
   const intent = stripNonPositiveInstructions(value);
   const terms = new Set(searchTerms(intent));
   const has = (...values: string[]) => values.some((term) => terms.has(term));
+  const asksForAnalyticsAppOpens =
+    /\b(?:agent[ -]?native|analytics)\b/i.test(intent) &&
+    /\b(?:app|application|open(?:ed|ing|s)?|launch(?:ed|ing|es)?)\b/i.test(
+      intent,
+    );
+  if (asksForAnalyticsAppOpens) return "analytics_user";
+  const asksForTimeScopedActiveUsers =
+    /\b(?:active|activity|dau|wau|mau)\b/i.test(intent) &&
+    /\b(?:users?|people|persons?)\b/i.test(intent) &&
+    /\b(?:dau|wau|mau|daily|weekly|monthly|unique|distinct|trend|timeline|rolling|calendar|over|during|since|last|past)\b/i.test(
+      intent,
+    ) &&
+    !/\b(?:members?|membership|seats?|roster|permissions?|access|licenses?|billable)\b/i.test(
+      intent,
+    );
+  if (asksForTimeScopedActiveUsers) {
+    return /\b(?:builder(?:\.io)?|product)\b/i.test(intent)
+      ? "product_activity"
+      : "active_user_activity";
+  }
   if (
     ((has("agent") && has("native")) || has("analytics", "analytic")) &&
     has("user", "person", "people", "member")
@@ -322,6 +342,59 @@ export function semanticScopeForSearch(value: string): string {
   return "unknown";
 }
 
+export function semanticScopeForDictionaryEntry(
+  entry: Record<string, unknown>,
+): string {
+  const declared =
+    typeof entry.semanticScope === "string" && entry.semanticScope !== "unknown"
+      ? entry.semanticScope
+      : "";
+  const evidence = [
+    entry.metric,
+    entry.definition,
+    entry.source,
+    entry.table,
+    entry.columnsUsed,
+    entry.grain,
+    entry.primaryEntity,
+    entry.timeDimension,
+    entry.semanticModel,
+    entry.queryTemplate,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  const isAnalyticsAppActivity =
+    /\b(?:agent[\s-]*native|analytics)\b/.test(evidence) &&
+    /\b(?:app|application|open(?:ed|ing|s)?|launch(?:ed|ing|es)?)\b/.test(
+      evidence,
+    );
+  const isActiveUserActivityMetric =
+    /\bactive user(?:s| id)?\b|\bactive builders?\b/.test(evidence) &&
+    /\b(?:event|activity|usage|page\s+views?|sessions?|ai chat)\b/.test(
+      evidence,
+    ) &&
+    /\b(?:date|time|day|week|month|period|timestamp|daily|weekly|monthly)\b/.test(
+      evidence,
+    );
+
+  if (
+    isAnalyticsAppActivity &&
+    (!declared || declared === "product_activity")
+  ) {
+    return "analytics_user";
+  }
+  if (
+    isActiveUserActivityMetric &&
+    (!declared || declared === "analytics_user")
+  ) {
+    return "product_activity";
+  }
+  if (declared) return declared;
+  return semanticScopeForSearch(evidence);
+}
+
 export function stripNonPositiveInstructions(value: string): string {
   const keepPositiveContinuation = (match: string) => {
     const actionContinuation =
@@ -373,6 +446,11 @@ export function semanticScopeCompatibility(
   candidateScope: string,
   requestedScope: string,
 ): number {
+  if (requestedScope === "active_user_activity") {
+    return ["product_activity", "analytics_user"].includes(candidateScope)
+      ? 1
+      : 0;
+  }
   if (candidateScope === "unknown" || requestedScope === "unknown") return 1;
   if (candidateScope === requestedScope) return 2;
   if (requestedScope === "membership_roster") return 0;

@@ -29,6 +29,9 @@ const incidentSkill = readMarkdown(
 const analysisWorkspaceSkill = readMarkdown(
   "../../.agents/skills/analysis-workspace/SKILL.md",
 );
+const dataQueryingSkill = readMarkdown(
+  "../../.agents/skills/data-querying/SKILL.md",
+);
 
 const {
   agentChatPluginOptions,
@@ -510,7 +513,47 @@ describe("Analytics agent Plan mode policy", () => {
       "never repeat an identical failed call",
     );
     expect(ruleText("real-data")).toContain("live data-source query");
+    expect(ruleText("real-data")).toContain(
+      "A matching aggregate does not prove a filter or policy",
+    );
     expect(ruleText("sources")).toContain("authoritative for the turn");
+    expect(ruleText("sources")).toContain("load `data-source-status`");
+    expect(ruleText("sources")).toContain(
+      "`connectionHealth` (stored workspace state)",
+    );
+    expect(ruleText("sources")).toContain(
+      "use `tool-search` to load `query-dbt-semantic-metric`",
+    );
+    expect(ruleText("sources")).toContain("configured query-path hint");
+    expect(ruleText("sources")).toContain("not a live health check");
+    expect(ruleText("sources")).toContain(
+      "A connected provider tool does not prove the workspace connection is healthy",
+    );
+    expect(ruleText("understand-the-ask")).toContain(
+      "Builder product activity or Agent-Native app opens",
+    );
+    expect(ruleText("understand-the-ask")).toContain(
+      "never combine or silently substitute them",
+    );
+  });
+
+  it("keeps event families, exclusion rules, and bounded absence claims evidence-based", () => {
+    expect(dataQueryingSkill).toContain(
+      "grouped MetricFlow queries require an inclusive `timeRange`",
+    );
+    expect(dataQueryingSkill).toContain(
+      "keep the populations separate and ask which one the user intends",
+    );
+    expect(dataQueryingSkill).toContain(
+      "Keep event families separate unless the dbt metric or exact saved query defines their union",
+    );
+    expect(dataQueryingSkill).toContain(
+      "Similar aggregate totals do not prove that a model excludes staff",
+    );
+    expect(dataQueryingSkill).toContain("does not establish absence elsewhere");
+    expect(dataQueryingSkill).toContain(
+      "distinguish configured credentials from a healthy workspace connection",
+    );
   });
 
   it("keeps every clause of the understand-the-ask rule", () => {
@@ -722,7 +765,6 @@ describe("Analytics agent Plan mode policy", () => {
         "inspect-dashboard-panel",
         "search-dashboard-references",
         "find-data",
-        "query-dbt-semantic-metric",
         "query-agent-native-analytics",
         "bigquery",
         "search-bigquery-schema",
@@ -746,6 +788,8 @@ describe("Analytics agent Plan mode policy", () => {
       "provider-api-catalog",
       "account-deep-dive",
       "gong-calls",
+      "query-dbt-semantic-metric",
+      "data-source-status",
     ]) {
       expect(INITIAL_TOOL_NAMES).not.toContain(lazy);
     }
