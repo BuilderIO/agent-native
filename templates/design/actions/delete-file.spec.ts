@@ -245,6 +245,13 @@ describe("delete-file", () => {
         { caller: "mcp", actionName: "delete-file" },
       ),
     ).toBe(true);
+    // MCP checks approval on raw tool args before schema boolean coercion.
+    expect(
+      await action.needsApproval?.(
+        { id: "file-b", allowLockedLayers: "true" } as never,
+        { caller: "mcp", actionName: "delete-file" },
+      ),
+    ).toBe(true);
     expect(
       await action.needsApproval?.(
         { id: "file-b", allowLockedLayers: false },

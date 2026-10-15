@@ -30,16 +30,20 @@ describe("isDirectLoopbackRequest", () => {
     expect(isDirectLoopbackRequest(makeEvent())).toBe(true);
   });
 
-  it.each(["x-forwarded-host", "x-forwarded-proto"])(
-    "rejects a loopback peer carrying %s",
-    (header) => {
-      expect(
-        isDirectLoopbackRequest(
-          makeEvent({ host: "127.0.0.1:3000", [header]: "" }),
-        ),
-      ).toBe(false);
-    },
-  );
+  it.each([
+    "forwarded",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-port",
+    "x-forwarded-prefix",
+    "x-forwarded-proto",
+  ])("rejects a loopback peer carrying %s", (header) => {
+    expect(
+      isDirectLoopbackRequest(
+        makeEvent({ host: "127.0.0.1:3000", [header]: "spoofed" }),
+      ),
+    ).toBe(false);
+  });
 
   it("requires the socket to have connected to the loopback interface", () => {
     expect(

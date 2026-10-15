@@ -411,7 +411,13 @@ describe("request-scoped action surface", () => {
     );
     expect(route).toContain("runWithRequestContext");
     expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");
-    expect(route).toContain("{ userEmail: ownerEmail, orgId }");
+    expect(route).toContain("const titleRequestContext = {");
+    expect(route).toContain("requestOrigin: getForwardedRequestOrigin(event)");
+    expect(route).toContain("isLoopbackRequest: isLoopbackRequest(event)");
+    expect(route).toContain(
+      "isDirectLoopbackRequest: isDirectLoopbackRequest(event)",
+    );
+    expect(route).toContain("runWithRequestContext(titleRequestContext");
     expect(route).toContain("requireAgentChatAiSetup({");
     expect(route).toContain("allowChatGPTSubscriptionInOrg:");
     expect(route.indexOf("const now = Date.now();")).toBeLessThan(
@@ -427,6 +433,42 @@ describe("request-scoped action surface", () => {
     );
     expect(route).toContain("setResponseStatus(event, 502);");
     expect(route).not.toContain("cleanMessage.trim().slice(0, 60)");
+  });
+
+  it("uses the live dev-mode and direct-loopback proof at send readiness", () => {
+    // source-read-ok: This guards the trusted direct-loopback context contract across nested handlers.
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const readiness = source.slice(
+      source.indexOf("const requireAgentChatAiSetupForRequest"),
+      source.indexOf("// Resolve the framework's own tool surface"),
+    );
+    const productionHandler = source.slice(
+      source.indexOf("const prodHandler ="),
+      source.indexOf("const anonymousHandler ="),
+    );
+
+    expect(readiness).toContain("isAgentChatDevModeEnabled(nitroApp)");
+    expect(readiness).toContain(
+      "getRequestContext()?.isDirectLoopbackRequest === true",
+    );
+    expect(productionHandler).toContain(
+      "assertAiSetupReady: requireAgentChatAiSetupForRequest",
+    );
+
+    const queueStart = source.indexOf('isThreadSubroute("queued")');
+    const queueEnd = source.indexOf("let result: Awaited<", queueStart);
+    const queueMutation = source.slice(queueStart, queueEnd);
+    expect(queueMutation).toContain(
+      "requestOrigin: getForwardedRequestOrigin(event)",
+    );
+    expect(queueMutation).toContain(
+      "isLoopbackRequest: isLoopbackRequest(event)",
+    );
+    expect(queueMutation).toContain(
+      "isDirectLoopbackRequest: isDirectLoopbackRequest(event)",
+    );
   });
 
   it("keeps local coding tools available while scoping app actions in dev", () => {

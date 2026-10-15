@@ -234,7 +234,10 @@ import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
 import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
-import { registerAgentChatDevModeResolver } from "./agent-chat-mode.js";
+import {
+  isAgentChatDevModeEnabled,
+  registerAgentChatDevModeResolver,
+} from "./agent-chat-mode.js";
 import {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,
@@ -1222,6 +1225,12 @@ export function createAgentChatPlugin(
       // function means "the user currently has dev mode ON" (live).
       const isDevMode = () => currentDevMode;
       registerAgentChatDevModeResolver(nitroApp, isDevMode);
+      const requireAgentChatAiSetupForRequest = () =>
+        requireAgentChatAiSetup({
+          allowChatGPTSubscriptionInOrg:
+            isAgentChatDevModeEnabled(nitroApp) &&
+            getRequestContext()?.isDirectLoopbackRequest === true,
+        });
 
       // Resolve the framework's own tool surface once, folding the deprecated
       // `databaseTools` / `extensionTools` into `frameworkTools` so every
@@ -4730,7 +4739,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
       const prodHandlerActions = leanPrompt ? leanActions : prodActions;
       const prodHandler = createProductionAgentHandler({
-        assertAiSetupReady: requireAgentChatAiSetup,
+        assertAiSetupReady: requireAgentChatAiSetupForRequest,
         actions: prodHandlerActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
@@ -4958,7 +4967,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const anonymousHandler =
         options?.anonymousOwner && options.anonymousReadOnly !== false
           ? createProductionAgentHandler({
-              assertAiSetupReady: requireAgentChatAiSetup,
+              assertAiSetupReady: requireAgentChatAiSetupForRequest,
               actions: anonymousReadOnlyActions,
               systemPrompt: async (event: any) => {
                 const { extra } = await prepareRun(event);
@@ -5142,7 +5151,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         devRunCodeToolActions = devActions;
         reservedActionRegistries.push(devActions);
         devHandler = createProductionAgentHandler({
-          assertAiSetupReady: requireAgentChatAiSetup,
+          assertAiSetupReady: requireAgentChatAiSetupForRequest,
           actions: devActions,
           resolveAdditionalActions: (details) =>
             getRequestScopedActions(
@@ -6501,17 +6510,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "message is required" };
           }
           const orgId = await getOrgIdFromEvent(event);
-          await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+          const titleRequestContext = {
+            userEmail: ownerEmail,
+            orgId,
+            requestOrigin: getForwardedRequestOrigin(event),
+            isLoopbackRequest: isLoopbackRequest(event),
+            isDirectLoopbackRequest: isDirectLoopbackRequest(event),
+          };
+          await runWithRequestContext(titleRequestContext, () =>
             requireAgentChatAiSetup({
               allowChatGPTSubscriptionInOrg:
-                isDevMode() && isDirectLoopbackRequest(event),
+                isAgentChatDevModeEnabled(nitroApp) &&
+                isDirectLoopbackRequest(event),
             }),
           );
 
           try {
-            const title = await runWithRequestContext(
-              { userEmail: ownerEmail, orgId },
-              () => generateChatTitle({ ...request, appId: options?.appId }),
+            const title = await runWithRequestContext(titleRequestContext, () =>
+              generateChatTitle({ ...request, appId: options?.appId }),
             );
             return { title };
           } catch (error) {
@@ -7473,11 +7489,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   mutation.type === "moveToTop" ||
                   mutation.type === "claim")
               ) {
-                await runWithRequestContext({ userEmail: owner, orgId }, () =>
-                  requireAgentChatAiSetup({
-                    allowChatGPTSubscriptionInOrg:
-                      isDevMode() && isDirectLoopbackRequest(event),
-                  }),
+                await runWithRequestContext(
+                  {
+                    userEmail: owner,
+                    orgId,
+                    requestOrigin: getForwardedRequestOrigin(event),
+                    isLoopbackRequest: isLoopbackRequest(event),
+                    isDirectLoopbackRequest: isDirectLoopbackRequest(event),
+                  },
+                  () =>
+                    requireAgentChatAiSetup({
+                      allowChatGPTSubscriptionInOrg:
+                        isAgentChatDevModeEnabled(nitroApp) &&
+                        isDirectLoopbackRequest(event),
+                    }),
                 );
               }
               let result: Awaited<

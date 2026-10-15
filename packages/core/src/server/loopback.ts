@@ -26,12 +26,18 @@ export function isDirectLoopbackRequest(event: H3Event): boolean {
   const headers = request?.headers;
   const host = headers?.host;
   const socket = request?.socket;
+  const hasForwardedHeader = Object.keys(headers ?? {}).some((name) => {
+    const normalizedName = name.toLowerCase();
+    return (
+      normalizedName === "forwarded" ||
+      normalizedName.startsWith("x-forwarded-")
+    );
+  });
   if (
     !isLoopbackRequest(event) ||
     typeof host !== "string" ||
     !/^127\.0\.0\.1(?::\d{1,5})?$/.test(host) ||
-    headers?.["x-forwarded-host"] !== undefined ||
-    headers?.["x-forwarded-proto"] !== undefined ||
+    hasForwardedHeader ||
     !socket ||
     ("encrypted" in socket && socket.encrypted) ||
     (socket.localAddress !== "127.0.0.1" &&
