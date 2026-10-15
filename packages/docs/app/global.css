@@ -353,6 +353,9 @@ a.campaign-inline-link {
   h2:not(:where(.campaign-article-content .docs-content h2)) {
   font-family: var(--font-sans);
   font-size: var(--b-t-heading-4);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
 
 .campaign-page .campaign-card-title {
@@ -370,7 +373,7 @@ a.campaign-inline-link {
   font-weight: 400;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--b-text-muted);
+  color: var(--b-text-secondary);
 }
 
 .campaign-page .campaign-frequency-tag {
@@ -388,7 +391,7 @@ a.campaign-inline-link {
   text-transform: none;
   white-space: normal;
   overflow-wrap: anywhere;
-  color: var(--b-text-muted);
+  color: var(--b-text-secondary);
 }
 
 .campaign-page .campaign-frequency-tag > svg {
@@ -402,6 +405,17 @@ a.campaign-inline-link {
 .campaign-page .campaign-faq > div > div:first-child {
   padding-block: var(--spacing-12);
   padding-inline: var(--spacing-8);
+}
+
+.campaign-page .campaign-faq > div > div:first-child > p {
+  font-size: var(--b-t-label-1);
+  letter-spacing: 0.08em;
+  color: var(--b-text-eyebrow);
+}
+
+.campaign-page .campaign-faq [role="region"] .text-lg {
+  font-size: var(--b-t-paragraph-2);
+  line-height: 1.4;
 }
 
 .grid.gap-px[class~="bg-[var(--docs-border)]"] {

@@ -741,8 +741,12 @@ describe("public campaign frontend", () => {
     const card = page.querySelector(
       `a[href="${sitePathForLocale(`${ARTICLES_BASE}/${related.slug}`)}"]`,
     )!;
-    expect(card.querySelector("h3")?.textContent).toBe(
-      `${CATEGORY_NAMES[related.category]}${related.title}`,
+    expect(card.querySelector("h3")?.textContent).toBe(related.title);
+    expect(card.querySelector(".campaign-label")?.textContent).toBe(
+      CATEGORY_NAMES[related.category],
+    );
+    expect(card.querySelector("h3")!.previousElementSibling?.textContent).toBe(
+      CATEGORY_NAMES[related.category],
     );
     expect(card.textContent).toContain(related.meta_description);
     expect(

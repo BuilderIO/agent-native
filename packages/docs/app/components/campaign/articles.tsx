@@ -292,14 +292,12 @@ export function ArticlePage({
                   `${ARTICLES_BASE}/${item.slug}`,
                   locale,
                 )}
-                title={
-                  <>
-                    <span className="campaign-label mb-3 block">
-                      {CATEGORY_NAMES[item.category]}
-                    </span>
-                    {item.title}
-                  </>
+                eyebrow={
+                  <span className="campaign-label">
+                    {CATEGORY_NAMES[item.category]}
+                  </span>
                 }
+                title={item.title}
                 body={item.meta_description}
               />
             ))}
