@@ -283,19 +283,17 @@ describe("CanvasContextMenu edit with agent", () => {
     await view.cleanup();
   });
 
-  it("uses the theme-aware layer hover token for items and submenu triggers", async () => {
+  it("keeps the subtle menu hover instead of the selection highlight", async () => {
     const view = await renderContextMenu({
       selectedCount: 1,
       onAgentPreset: vi.fn(),
     });
     const submenuTrigger = view.findButton("Edit with Agent");
-    expect(submenuTrigger?.className).toContain(
-      "focus:bg-[var(--design-editor-layer-hover-color)]",
+    expect(submenuTrigger).toBeDefined();
+    expect(submenuTrigger?.className ?? "").not.toContain(
+      "--design-editor-selection-color",
     );
-    expect(submenuTrigger?.className).toContain(
-      "data-[state=open]:bg-[var(--design-editor-layer-hover-color)]",
-    );
-    expect(submenuTrigger?.className).not.toContain("focus:bg-accent");
+    expect(submenuTrigger?.className ?? "").not.toContain("focus:text-white");
     await view.cleanup();
   });
 });

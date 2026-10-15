@@ -30,13 +30,7 @@ import {
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 
-import { CanvasMenuItem } from "./context-menu-item";
-import {
-  MENU_CONTENT_CLASS,
-  MENU_ITEM_CLASS,
-  MENU_SEPARATOR_CLASS,
-  MENU_SUB_TRIGGER_CLASS,
-} from "./context-menu-styles";
+import { CanvasMenuItem, MENU_CONTENT_CLASS } from "./context-menu-item";
 import { IconText } from "./inspector/design-icons";
 import { formatShortcutLabel } from "./keyboard-shortcuts";
 import type { CanvasLayerHitCandidate } from "./types";
@@ -733,7 +727,7 @@ export const CanvasContextMenu = forwardRef<
               <>
                 <ContextMenuGroup>
                   <ContextMenuSub>
-                    <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
+                    <ContextMenuSubTrigger>
                       {labels.selectLayer}
                     </ContextMenuSubTrigger>
                     <ContextMenuSubContent
@@ -760,7 +754,6 @@ export const CanvasContextMenu = forwardRef<
               {!isHiddenAction("edit-with-agent") ? (
                 <ContextMenuSub>
                   <ContextMenuSubTrigger
-                    className={MENU_SUB_TRIGGER_CLASS}
                     onClick={(event) => {
                       preventContextMenuFocusRestoreRef.current = true;
                       runAction("explore-with-agent", event.nativeEvent);
@@ -795,13 +788,9 @@ export const CanvasContextMenu = forwardRef<
               ) : null}
               {onSendTo ? (
                 <ContextMenuSub>
-                  <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
-                    {labels.sendTo}
-                  </ContextMenuSubTrigger>
+                  <ContextMenuSubTrigger>{labels.sendTo}</ContextMenuSubTrigger>
                   <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
-                    <ContextMenuLabel className="px-2 py-1 text-[11px] font-normal text-muted-foreground">
-                      {labels.sendToAgents}
-                    </ContextMenuLabel>
+                    <ContextMenuLabel>{labels.sendToAgents}</ContextMenuLabel>
                     {SEND_TO_AGENTS.map(({ id, label }) => (
                       <CanvasMenuItem
                         key={id}
@@ -853,7 +842,6 @@ export const CanvasContextMenu = forwardRef<
                         canRun("paste-over", canPasteOver)
                       )
                     }
-                    className={MENU_SUB_TRIGGER_CLASS}
                   >
                     {labels.copyAs}
                   </ContextMenuSubTrigger>
@@ -986,7 +974,6 @@ export const CanvasContextMenu = forwardRef<
                 <ContextMenuSub>
                   <ContextMenuSubTrigger
                     disabled={!canRun("boolean-subtract", true)}
-                    className={MENU_SUB_TRIGGER_CLASS}
                   >
                     {labels.booleanOperations}
                   </ContextMenuSubTrigger>
@@ -1034,7 +1021,6 @@ export const CanvasContextMenu = forwardRef<
                       canRun("send-to-back", canReorder)
                     )
                   }
-                  className={MENU_SUB_TRIGGER_CLASS}
                 >
                   {labels.arrange}
                 </ContextMenuSubTrigger>
@@ -1066,7 +1052,6 @@ export const CanvasContextMenu = forwardRef<
                       canRun("flip-vertical", canFlipVertical)
                     )
                   }
-                  className={MENU_SUB_TRIGGER_CLASS}
                 >
                   {labels.transform}
                 </ContextMenuSubTrigger>
@@ -1193,10 +1178,7 @@ function CanvasLayerCandidateItem({
             ? IconComponents
             : IconFrame;
   return (
-    <ContextMenuItem
-      className={cn(MENU_ITEM_CLASS, "gap-2")}
-      onSelect={onSelect}
-    >
+    <ContextMenuItem onSelect={onSelect}>
       <Icon className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate">{candidate.label}</span>
     </ContextMenuItem>
@@ -1204,5 +1186,5 @@ function CanvasLayerCandidateItem({
 }
 
 function CanvasMenuSeparator() {
-  return <ContextMenuSeparator className={MENU_SEPARATOR_CLASS} />;
+  return <ContextMenuSeparator />;
 }
