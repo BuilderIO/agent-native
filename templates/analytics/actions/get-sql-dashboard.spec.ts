@@ -448,7 +448,14 @@ describe("get-sql-dashboard seed fallback", () => {
       kind: "sql",
       config: {
         name: "Customer",
-        panels: [],
+        panels: [
+          {
+            id: "signups",
+            title: "Signups",
+            chartType: "line",
+            sql: "SELECT 1",
+          },
+        ],
         annotations: { hiddenKeyDateSets: ["launches"] },
       },
       ownerEmail: "customer@example.com",
@@ -504,6 +511,22 @@ describe("get-sql-dashboard seed fallback", () => {
     expect((review as { keyDates: unknown }).keyDates).toEqual([
       { date: "2026-10-11", label: "Visitor source kept" },
     ]);
+
+    // As the summary and list-key-dates: none where no chart can draw them.
+    mocks.getDashboardForReview.mockResolvedValueOnce({
+      ...customerDashboard,
+      config: {
+        ...customerDashboard.config,
+        panels: [{ ...customerDashboard.config.panels[0], chartType: "table" }],
+      },
+    });
+    const tableOnly = await getSqlDashboard.run({
+      id: "customer-dashboard",
+      includeConfig: true,
+      reviewPreview: true,
+      reviewOrgId: "org-b",
+    });
+    expect((tableOnly as { keyDates: unknown }).keyDates).toEqual([]);
 
     mocks.listKeyDateSets.mockClear();
     mocks.getDashboard.mockResolvedValue(customerDashboard);

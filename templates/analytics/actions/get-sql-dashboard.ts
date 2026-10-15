@@ -8,7 +8,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import type { DashboardAnnotations } from "../app/pages/adhoc/sql-dashboard/types";
+import type {
+  DashboardAnnotations,
+  SqlPanel,
+} from "../app/pages/adhoc/sql-dashboard/types";
 import {
   buildDashboardAgentContext,
   buildDashboardSeedAgentContext,
@@ -25,7 +28,7 @@ import {
 } from "../server/lib/dashboards-store";
 import { listDataNotes } from "../server/lib/data-notes-store";
 import { listKeyDateSets } from "../server/lib/key-dates-store";
-import { keyDateEvents } from "../shared/key-dates";
+import { drawsKeyDates, keyDateEvents } from "../shared/key-dates";
 
 export default defineAction({
   description:
@@ -176,12 +179,15 @@ export default defineAction({
       listKeyDateSets(annotationScope.scope),
       listDataNotes(annotationScope.scope),
     ]);
+    const config = dashboard.config as {
+      panels?: SqlPanel[];
+      annotations?: DashboardAnnotations;
+    };
     return {
       ...context,
-      keyDates: keyDateEvents(
-        sets,
-        dashboard.config.annotations as DashboardAnnotations | undefined,
-      ),
+      keyDates: drawsKeyDates(config.panels ?? [])
+        ? keyDateEvents(sets, config.annotations)
+        : [],
       dataNotes: dataNotesForReader(notes, dashboard),
     };
   },
