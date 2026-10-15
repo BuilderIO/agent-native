@@ -2155,6 +2155,53 @@ describe("clipboard source placement", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
+  it("does not repeat a relative source without captured insets", async () => {
+    const relative =
+      '<div data-agent-native-node-id="relative" style="position:relative">Relative</div>';
+    const absolute =
+      '<section data-agent-native-node-id="absolute" style="position:absolute;left:340px;top:80px">Absolute</section>';
+    const { args, runtimeInsertRequests } = harness({
+      files: [designFile("live", "live.html", "https://example.com/live")],
+      activeFileId: "live",
+      entries: [
+        { html: relative, rootNodeId: "relative", sourceFileId: "home" },
+        { html: absolute, rootNodeId: "absolute", sourceFileId: "home" },
+      ],
+    });
+    args.viewModeRef.current = "single";
+    toastError.mockClear();
+
+    await runPasteSelection(args, { x: 200, y: 220 });
+
+    const firstCopy = new DOMParser().parseFromString(
+      runtimeInsertRequests[0]!.html,
+      "text/html",
+    ).body.firstElementChild as HTMLElement;
+    const firstCopyId = firstCopy.getAttribute("data-agent-native-node-id")!;
+    const selector = `[data-agent-native-node-id="${firstCopyId}"]`;
+    args.selectedElement = {
+      ...selected(firstCopyId),
+      runtimeSourceId: firstCopyId,
+      runtimeSelector: selector,
+      computedStyles: {
+        position: "relative",
+        left: "auto",
+        right: "auto",
+        top: "auto",
+        bottom: "auto",
+      },
+    };
+    args.selectedCanvasSelector = selector;
+
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(1);
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.layerMoveFailed",
+      { duration: 4000 },
+    );
+  });
+
   it.each(["absolute", "relative"] as const)(
     "preserves an unmoved relative root when repeating beside an unmoved selected %s clone",
     async (selectedRootPosition) => {

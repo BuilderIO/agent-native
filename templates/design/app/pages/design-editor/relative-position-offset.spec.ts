@@ -144,6 +144,18 @@ it("leaves relative containing-block direction unavailable when display is unsup
 });
 
 describe("effective relative position offset", () => {
+  it("keeps missing insets distinct from computed auto insets", () => {
+    expect(effectiveRelativePositionOffset({})).toBeNull();
+    expect(
+      effectiveRelativePositionOffset({
+        left: "auto",
+        right: "auto",
+        top: "auto",
+        bottom: "auto",
+      }),
+    ).toEqual({ x: 0, y: 0 });
+  });
+
   it("uses the actual RTL parent's right inset when both horizontal sides are set", () => {
     expect(
       effectiveRelativePositionOffset(

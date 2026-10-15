@@ -53,10 +53,14 @@ type RelativeInsetValues = {
   bottom?: string;
 };
 
-type ParsedInset = { kind: "auto" } | { kind: "value"; value: number } | null;
+type ParsedInset =
+  | { kind: "auto" }
+  | { kind: "missing" }
+  | { kind: "value"; value: number }
+  | null;
 
 function parsePixelInset(value: string | undefined): ParsedInset {
-  if (value === undefined) return { kind: "auto" };
+  if (value === undefined) return { kind: "missing" };
   const normalized = value.trim().toLowerCase();
   if (normalized === "auto" || normalized === "") {
     return { kind: "auto" };
@@ -78,6 +82,12 @@ function resolveAxis(
   const start = parsePixelInset(startInset);
   const end = parsePixelInset(endInset);
   if (!start || !end) return null;
+  if (
+    (start.kind === "missing" && end.kind !== "value") ||
+    (end.kind === "missing" && start.kind !== "value")
+  ) {
+    return null;
+  }
   if (start.kind === "value" && end.kind === "value") {
     if (direction !== "ltr" && direction !== "rtl") return null;
     const useEnd = startSign === 1 && direction === "rtl";
