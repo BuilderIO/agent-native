@@ -268,7 +268,7 @@ export function DashboardFilterBar({
       <Collapsible
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
-        className="group rounded-lg bg-card px-3 py-2"
+        className="group @container rounded-lg bg-card px-3 py-2"
       >
         <div className="flex flex-wrap items-end justify-between gap-3">
           <span className="self-center text-xs font-medium text-muted-foreground group-data-[state=open]:hidden">
@@ -334,7 +334,9 @@ export function DashboardFilterBar({
                     className="flex items-center gap-1 px-2 text-xs text-muted-foreground"
                   >
                     <IconUser className="h-3 w-3" />
-                    <span className="hidden sm:inline">
+                    {/* Below this bar width the text pushes four filters onto a
+                        second row each time a filter changes, moving the page. */}
+                    <span className="sr-only @min-[68rem]:not-sr-only">
                       {t("dashboardFilterScope.onlyYou")}
                     </span>
                   </span>
