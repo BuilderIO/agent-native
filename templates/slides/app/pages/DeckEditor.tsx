@@ -88,7 +88,9 @@ import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
 import { MissingDeckAccessPane } from "@/components/editor/MissingDeckAccessPane";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
-import SlideEditor from "@/components/editor/SlideEditor";
+import SlideEditor, {
+  type SlideCanvasCommands,
+} from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import {
@@ -192,7 +194,10 @@ import {
   shouldBlockPendingDeckNavigation,
   usePendingDeckUnloadGuard,
 } from "@/lib/pending-deck-changes";
-import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
+import {
+  NO_ANIMATION_TARGETS,
+  type SelectedAnimationTarget,
+} from "@/lib/slide-animation-elements";
 import {
   getSlideClipboardNativeMarker,
   hasClipboardPayloadBeyondSlideMarker,
@@ -777,6 +782,7 @@ export default function DeckEditor() {
   const hasPendingDeckWrites = id ? hasUnsavedDeckChanges(id) : hasUnsavedSave;
   const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
   const inlineEditFlushRef = useRef<(() => boolean) | null>(null);
+  const canvasCommandsRef = useRef<SlideCanvasCommands | null>(null);
   const presentNavigationRef = useRef(false);
   const generationHomeNavigationRef = useRef(false);
   const generationHomeExitInFlightRef = useRef(false);
@@ -951,12 +957,12 @@ export default function DeckEditor() {
   const [imageGenOpen, setImageGenOpen] = useState(false);
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const historyButtonRef = useRef<HTMLButtonElement>(null);
+  const panelAnchorRef = useRef<HTMLDivElement>(null);
   const [sidePanel, setSidePanel] = useState<EditorSidePanel>(null);
   const [animationsOpen, setAnimationsOpen] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
-  const [animationTarget, setAnimationTarget] =
-    useState<SelectedAnimationTarget | null>(null);
+  const [animationTargets, setAnimationTargets] =
+    useState<SelectedAnimationTarget[]>(NO_ANIMATION_TARGETS);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [transitionPreviewOpen, setTransitionPreviewOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
@@ -970,7 +976,7 @@ export default function DeckEditor() {
     useState(0);
 
   const openAnimationsForTarget = useCallback(
-    (target: SelectedAnimationTarget) => {
+    (targets: SelectedAnimationTarget[]) => {
       if (!animationsOpen) {
         trackEvent("slide_panel_opened", {
           app_name: "slides",
@@ -979,7 +985,7 @@ export default function DeckEditor() {
         });
       }
       setLayersOpen(false);
-      setAnimationTarget(target);
+      setAnimationTargets(targets);
       setAnimationsOpen(true);
     },
     [animationsOpen],
@@ -993,7 +999,7 @@ export default function DeckEditor() {
       });
     }
     setLayersOpen(false);
-    setAnimationTarget(null);
+    setAnimationTargets(NO_ANIMATION_TARGETS);
     setAnimationsOpen((open) => !open);
   }, [animationsOpen]);
 
@@ -1006,7 +1012,7 @@ export default function DeckEditor() {
       });
     }
     setAnimationsOpen(false);
-    setAnimationTarget(null);
+    setAnimationTargets(NO_ANIMATION_TARGETS);
     setLayersOpen((open) => !open);
   }, [layersOpen]);
 
@@ -1175,7 +1181,7 @@ export default function DeckEditor() {
     : null;
 
   useEffect(() => {
-    setAnimationTarget(null);
+    setAnimationTargets(NO_ANIMATION_TARGETS);
   }, [activeSlideId]);
 
   useEffect(() => {
@@ -5007,6 +5013,15 @@ export default function DeckEditor() {
   const currentSlide =
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
+  const previousSlide = deck.slides[currentIndex - 1];
+  const nextSlide =
+    currentIndex >= 0 ? deck.slides[currentIndex + 1] : undefined;
+  const menuSlideIds =
+    activeSlideId && !selectedSlideIds.includes(activeSlideId)
+      ? [activeSlideId]
+      : selectedSlideIds;
+  const canDeleteMenuSlides =
+    deck.slides.length > menuSlideIds.length && menuSlideIds.length > 0;
   const canPreviewTransition =
     transitionPreviewPair(deck.slides, currentIndex) !== null;
   currentSlideRef.current = currentSlide;
@@ -5173,7 +5188,7 @@ export default function DeckEditor() {
           }
           setHistoryOpen((open) => !open);
         }}
-        historyButtonRef={historyButtonRef}
+        panelAnchorRef={panelAnchorRef}
         onPresent={handlePresent}
         currentSlide={currentSlide}
         layersOpen={layersOpen}
@@ -5184,6 +5199,25 @@ export default function DeckEditor() {
         canRedo={canRedo}
         onUndo={canEdit ? () => undo(id) : undefined}
         onRedo={canEdit ? () => redo(id) : undefined}
+        canvasCommandsRef={canvasCommandsRef}
+        onDuplicateSlides={
+          canEdit && menuSlideIds.length > 0
+            ? () => handleDuplicateSlideFromRail(menuSlideIds)
+            : undefined
+        }
+        onDeleteSlides={
+          canEdit && canDeleteMenuSlides
+            ? () => handleDeleteSlideFromRail(menuSlideIds)
+            : undefined
+        }
+        onPreviousSlide={
+          previousSlide
+            ? () => handleSlideSelection(previousSlide.id)
+            : undefined
+        }
+        onNextSlide={
+          nextSlide ? () => handleSlideSelection(nextSlide.id) : undefined
+        }
         onWideContextToolbarSlotChange={setWideContextToolbarSlot}
         onDownloadBackup={handleDownloadDeckBackup}
         onImportDeckBackup={handleImportDeckBackup}
@@ -5568,6 +5602,7 @@ export default function DeckEditor() {
               return flushDeckSave(id);
             }}
             flushInlineEditRef={inlineEditFlushRef}
+            canvasCommandsRef={canvasCommandsRef}
             onPasteSlideClipboard={handlePasteSlideClipboard}
             readOnly={!canEdit}
             canComment={canComment}
@@ -5779,7 +5814,7 @@ export default function DeckEditor() {
             layersOpen={layersOpen}
             onCloseLayers={() => setLayersOpen(false)}
             onOpenAnimations={openAnimationsForTarget}
-            onSelectedAnimationTargetChange={setAnimationTarget}
+            onSelectedAnimationTargetsChange={setAnimationTargets}
             slideId={currentSlide.id}
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
@@ -5824,7 +5859,7 @@ export default function DeckEditor() {
         {animationsOpen && currentSlide && (
           <AnimationsPanel
             slide={currentSlide}
-            selectedTarget={animationTarget}
+            selectedTargets={animationTargets}
             onUpdateSlide={(updates) =>
               updateSlide(id, currentSlide.id, updates)
             }
@@ -5868,7 +5903,7 @@ export default function DeckEditor() {
       <ImageGenPanel
         open={imageGenOpen}
         onOpenChange={setImageGenOpen}
-        anchorRef={historyButtonRef}
+        anchorRef={panelAnchorRef}
         referenceImageUrls={imageStyleReferenceUrls}
         slideContext={
           currentSlide
@@ -5886,7 +5921,7 @@ export default function DeckEditor() {
       <AssetLibraryPanel
         open={assetLibraryOpen}
         onOpenChange={setAssetLibraryOpen}
-        anchorRef={historyButtonRef}
+        anchorRef={panelAnchorRef}
         onSelectAsset={
           replaceImageSrc
             ? (newUrl) => {
@@ -5907,7 +5942,7 @@ export default function DeckEditor() {
         open={historyOpen}
         onOpenChange={setHistoryOpen}
         canRestore={canEdit}
-        anchorRef={historyButtonRef}
+        anchorRef={panelAnchorRef}
       />
 
       <AlertDialog open={pendingDeckNavigationWarningOpen}>
