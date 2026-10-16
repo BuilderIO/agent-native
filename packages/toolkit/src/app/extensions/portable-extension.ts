@@ -1,6 +1,9 @@
 import { buildSessionReplayIframeBootstrap } from "@agent-native/core/client/host";
 import { AGENT_NATIVE_HOST_MESSAGE_TYPES } from "@agent-native/core/client/host";
-import { EXTENSION_IFRAME_META_CSP } from "@agent-native/core/extensions/html-shell";
+import {
+  buildExtensionExternalLinkBootstrap,
+  EXTENSION_IFRAME_META_CSP,
+} from "@agent-native/core/extensions/html-shell";
 
 export const AGENT_NATIVE_EXTENSION_MESSAGE_TYPES = {
   STORAGE_REQUEST: "agentNative.extension.storage",
@@ -437,7 +440,10 @@ export function normalizeAgentNativeExtensionSandbox(
   sandbox: string | undefined,
 ): string {
   const tokens = new Set(
-    (sandbox ?? "allow-scripts allow-forms allow-popups allow-downloads")
+    (
+      sandbox ??
+      "allow-scripts allow-forms allow-popups allow-downloads allow-top-navigation-by-user-activation"
+    )
       .split(/\s+/)
       .filter(Boolean),
   );
@@ -522,6 +528,7 @@ export function buildAgentNativeExtensionHtml({
       padding: 0;
     }
   </style>
+  ${buildExtensionExternalLinkBootstrap()}
   <script>
     (function() {
       var messageTypes = ${messageTypesJson};

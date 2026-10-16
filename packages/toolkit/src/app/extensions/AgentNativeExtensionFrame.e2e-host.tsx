@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { AgentNativeExtensionSlot } from "./AgentNativeExtensionFrame.js";
 
 const extensionContent = `
+<a id="external-metric-link" href="https://external.example.test/metric">Open metric</a>
 <div id="status">pending</div>
 <pre id="results"></pre>
 <script>

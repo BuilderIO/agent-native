@@ -4,6 +4,7 @@ import {
   EmbeddedExtension,
   ExtensionSlot,
 } from "@agent-native/toolkit/app/extensions";
+import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import {
   isCategoryAxis,
   planCategoryAxis,
@@ -1413,9 +1414,13 @@ export function SqlChart({
     return (
       <div className="px-1 py-2">
         {panel.config?.description && (
-          <p className="text-sm text-muted-foreground">
-            {panel.config.description}
-          </p>
+          <InlineMarkdown
+            inline
+            content={panel.config.description}
+            className="text-sm text-muted-foreground"
+            linkClassName="text-current underline underline-offset-2 hover:opacity-80"
+            renderLink={renderDashboardMarkdownLink}
+          />
         )}
       </div>
     );
@@ -1817,9 +1822,13 @@ function MetricRenderer({
     <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
       <div className="text-3xl font-bold">{value}</div>
       {panel.config?.description && (
-        <p className="text-xs text-muted-foreground mt-1">
-          {panel.config.description}
-        </p>
+        <InlineMarkdown
+          inline
+          content={panel.config.description}
+          className="mt-1 text-xs text-muted-foreground"
+          linkClassName="text-current underline underline-offset-2 hover:opacity-80"
+          renderLink={renderDashboardMarkdownLink}
+        />
       )}
     </div>
   );
@@ -1974,6 +1983,25 @@ export function safeDashboardLinkHref(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+export function renderDashboardMarkdownLink(
+  href: string,
+  children: ReactNode,
+  className: string,
+): ReactNode {
+  const safeHref = safeDashboardLinkHref(href);
+  if (!safeHref) return children;
+  return (
+    <a
+      href={safeHref}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={className}
+    >
+      {children}
+    </a>
+  );
 }
 
 function renderDeltaCell(value: unknown): ReactNode {
@@ -3851,7 +3879,13 @@ function CalloutRenderer({ rows }: { rows: Record<string, unknown>[] }) {
             className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${wrapper}`}
           >
             <Icon className="h-4 w-4 mt-0.5 shrink-0" />
-            <span className="break-words">{message}</span>
+            <InlineMarkdown
+              inline
+              content={message}
+              className="min-w-0 flex-1"
+              linkClassName="text-current underline underline-offset-2 hover:opacity-80"
+              renderLink={renderDashboardMarkdownLink}
+            />
           </div>
         );
       })}

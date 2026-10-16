@@ -101,9 +101,10 @@ export function extensionIframeMetaCspFromDisplaySources(
  *      include `allow-same-origin`. The viewer (`ExtensionViewer.tsx`,
  *      `EmbeddedExtension.tsx`) normalizes the sandbox through
  *      `normalizeAgentNativeExtensionSandbox()`, which permits scripts, forms,
- *      popups, and downloads but strips `allow-same-origin`. Adding
- *      `allow-same-origin` would give the extension full DOM access to the
- *      parent window via cross-frame script.
+ *      popups, downloads, and top-level navigation after a user activation,
+ *      but strips `allow-same-origin`. Adding `allow-same-origin` would give
+ *      the extension full DOM access to the parent window via cross-frame
+ *      script.
  *
  *   2. Every reachable parent action must treat the postMessage payload as
  *      hostile. The bridge in `iframe-bridge.ts` enforces a path allowlist,
@@ -155,6 +156,32 @@ export interface ExtensionRenderBinding {
     sql?: boolean;
     externalFetch?: boolean;
   };
+}
+
+export function buildExtensionExternalLinkBootstrap(): string {
+  return `<script>
+    document.addEventListener('click', function(event) {
+      var target = event.target;
+      if (!target || typeof target.closest !== 'function') return;
+      var link = target.closest('a[href]');
+      if (!link || link.hasAttribute('download')) return;
+      var linkTarget = (link.getAttribute('target') || '').trim().toLowerCase();
+      if (linkTarget && linkTarget !== '_self') return;
+
+      var href = link.getAttribute('href');
+      if (!href || href.charAt(0) === '#') return;
+      var base = document.createElement('a');
+      base.href = document.baseURI;
+      var destination = document.createElement('a');
+      destination.href = href;
+      if (
+        (destination.protocol === 'http:' || destination.protocol === 'https:') &&
+        destination.origin !== base.origin
+      ) {
+        link.setAttribute('target', '_top');
+      }
+    }, true);
+  </script>`;
 }
 
 export function buildExtensionHtml(
@@ -245,6 +272,7 @@ export function buildExtensionHtml(
       _collectError(msg, stack);
     });
   </script>
+  ${buildExtensionExternalLinkBootstrap()}
   <!--
     SECURITY: pinned to exact patch versions + SRI integrity hashes. A
     malicious republish of @tailwindcss/browser@4.x or alpinejs@3.x would

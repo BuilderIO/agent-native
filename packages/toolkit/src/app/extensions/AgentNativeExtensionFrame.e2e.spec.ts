@@ -125,6 +125,7 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
     const sandbox = await frames[0].getAttribute("sandbox");
     expect(sandbox).toContain("allow-scripts");
     expect(sandbox).not.toContain("allow-same-origin");
+    expect(sandbox).toContain("allow-top-navigation-by-user-activation");
 
     const result = await page.evaluate(
       () => window.__extensionE2EResult as ExtensionE2EResult,
@@ -180,6 +181,17 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
     });
     expect(result.blockedStorageScope.ok).toBe(false);
     expect(result.blockedStorageScope.error).toContain('scope "org"');
+
+    await page.route("https://external.example.test/metric", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<!doctype html><title>Metric target</title><p>Metric target</p>",
+      }),
+    );
+    await page.frameLocator("iframe").locator("#external-metric-link").click();
+    await page.waitForURL("https://external.example.test/metric");
+    expect(await page.locator("body").textContent()).toContain("Metric target");
 
     await page.close();
   }, 60_000);

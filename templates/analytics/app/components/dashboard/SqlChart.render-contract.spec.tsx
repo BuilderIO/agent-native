@@ -123,6 +123,62 @@ describe("SqlChart render contract parity", () => {
     expect(await renderText(target, rows)).not.toContain(BANNER);
   });
 
+  it("renders safe Markdown links in callout messages", async () => {
+    const target = panel({ chartType: "callout" });
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={target}
+          resultOverride={{
+            rows: [
+              {
+                severity: "info",
+                message:
+                  "Read [the docs](https://example.com/guide) or [unsafe](javascript:alert(1)).",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const links = container.querySelectorAll("a");
+    expect(links).toHaveLength(1);
+    expect(links[0]?.getAttribute("href")).toBe("https://example.com/guide");
+    expect(links[0]?.getAttribute("target")).toBe("_blank");
+    expect(links[0]?.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(container.textContent).toContain("unsafe");
+  });
+
+  it("renders safe Markdown links in metric descriptions", async () => {
+    const target = panel({
+      chartType: "metric",
+      config: { description: "Read [the definition](/docs/metrics)." },
+    });
+    await act(async () => {
+      root.render(
+        <SqlChart panel={target} resultOverride={{ rows: [{ value: 42 }] }} />,
+      );
+    });
+
+    expect(container.querySelector('a[href="/docs/metrics"]')).not.toBeNull();
+    expect(container.textContent).toContain("42");
+  });
+
+  it("renders safe Markdown links in section descriptions", async () => {
+    const target = panel({
+      chartType: "section",
+      config: { description: "Read [the guide](https://example.com/guide)." },
+    });
+    await act(async () => {
+      root.render(<SqlChart panel={target} />);
+    });
+
+    expect(
+      container.querySelector('a[href="https://example.com/guide"]'),
+    ).not.toBeNull();
+  });
+
   it("shows No data for a funnel exactly when the plan says the funnel is empty", async () => {
     const funnel = panel({
       chartType: "funnel",

@@ -65,6 +65,18 @@ describe("buildExtensionHtml", () => {
     );
   });
 
+  it("routes clicked external extension links through the top-level page", () => {
+    const html = buildExtensionHtml(
+      '<a href="https://docs.example.com/metric">Metric docs</a>',
+      ":root{}",
+      false,
+      "extension-1",
+    );
+
+    expect(html).toContain("link.setAttribute('target', '_top')");
+    expect(html).toContain("document.addEventListener('click'");
+  });
+
   it("keeps frame-ancestors in the HTTP header CSP only", () => {
     const html = buildExtensionHtml(
       "<div>Hello</div>",
