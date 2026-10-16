@@ -184,6 +184,13 @@ export function redactBrowserSessionRequestPath(pathname: string) {
   );
 }
 
+export function redactBrowserSessionSensitiveText(value: string) {
+  return value.replace(
+    /(\/_agent-native\/browser-sessions\/)[^/?#\s"'<>]+/g,
+    "$1:session",
+  );
+}
+
 export function authoringFuzzBrowserSessionCorsHeaders(
   origin?: string,
 ): Record<string, string> {
@@ -487,6 +494,27 @@ export function isExpectedReadOnlyStatusProbeAbort(
   requestAgeMs: number,
   navigation: ReadOnlyStatusProbeNavigationEvidence | null,
 ) {
+  return (
+    navigationAbortErrors.includes(errorText) &&
+    isExpectedReadOnlyStatusProbeNavigation(
+      method,
+      pathname,
+      activePhase,
+      requestSameOrigin,
+      requestAgeMs,
+      navigation,
+    )
+  );
+}
+
+function isExpectedReadOnlyStatusProbeNavigation(
+  method: string,
+  pathname: string,
+  activePhase: string,
+  requestSameOrigin: boolean,
+  requestAgeMs: number,
+  navigation: ReadOnlyStatusProbeNavigationEvidence | null,
+) {
   const navigationStartedForReload =
     navigation?.reloadNavigationStartedAt !== null &&
     navigation?.reloadNavigationStartedAt !== undefined &&
@@ -524,7 +552,6 @@ export function isExpectedReadOnlyStatusProbeAbort(
     method === "GET" &&
     requestSameOrigin &&
     readOnlyStatusProbePaths.includes(pathname) &&
-    navigationAbortErrors.includes(errorText) &&
     requestAgeMs >= 0 &&
     requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
     navigation !== null &&
@@ -532,6 +559,44 @@ export function isExpectedReadOnlyStatusProbeAbort(
       requestStartedDuringOutgoingReload) &&
     requestBelongsToOutgoingDocument &&
     failedAlongsideNavigation
+  );
+}
+
+export function isExpectedReadOnlyStatusProbeCorsConsoleError(
+  message: string,
+  activePhase: string,
+  candidates: Array<{
+    url: string;
+    pathname: string;
+    method: string;
+    ageMs: number;
+    sameOrigin: boolean;
+    observedAt: number;
+    navigation: ReadOnlyStatusProbeNavigationEvidence;
+  }>,
+  now: number,
+) {
+  const corsUrl =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
+      message,
+    )?.[1] ?? null;
+  if (!corsUrl) return false;
+
+  return (
+    candidates.filter(
+      (candidate) =>
+        candidate.url === corsUrl &&
+        now >= candidate.observedAt &&
+        now - candidate.observedAt < reloadNavigationConsoleGraceMs &&
+        isExpectedReadOnlyStatusProbeNavigation(
+          candidate.method,
+          candidate.pathname,
+          activePhase,
+          candidate.sameOrigin,
+          candidate.ageMs,
+          candidate.navigation,
+        ),
+    ).length === 1
   );
 }
 // Browser-session requests abort after at least ten seconds; leave timer slack.
@@ -2207,6 +2272,7 @@ export function controlledSlashMenuIdWhenReady(state: {
 export function isSlashCommandNavigationStateReady(
   state: {
     current: string | null;
+    listboxRole: string | null;
     activeRole: string | null;
     contained: boolean;
     listboxVisible: boolean;
@@ -2216,6 +2282,7 @@ export function isSlashCommandNavigationStateReady(
 ) {
   return (
     state.current === expectedCommand &&
+    state.listboxRole === "listbox" &&
     state.activeRole === "option" &&
     state.contained &&
     state.listboxVisible &&
@@ -2534,6 +2601,15 @@ export async function runAuthoringFuzz(
     any,
     { startedAt: number; settledAt: number; details: WatchedRequestDetails }
   >();
+  const recentExpectedStatusProbeAborts: Array<{
+    url: string;
+    pathname: string;
+    method: string;
+    ageMs: number;
+    sameOrigin: boolean;
+    observedAt: number;
+    navigation: ReadOnlyStatusProbeNavigationEvidence;
+  }> = [];
   const inFlightBrowserSessionRequests = new Map<
     any,
     {
@@ -2722,7 +2798,9 @@ export async function runAuthoringFuzz(
       );
       if (outcome !== "unexpected") continue;
       reloadNavigationRequests.delete(request);
-      const error = `watched request failed: ${request.method()} ${request.url()} (${candidate.failureText})`;
+      const error = redactBrowserSessionSensitiveText(
+        `watched request failed: ${request.method()} ${request.url()} (${candidate.failureText})`,
+      );
       pageErrors.push(error);
       errors.push(error);
     }
@@ -2798,6 +2876,77 @@ export async function runAuthoringFuzz(
         competingSameTypeRequest: hasCompetingOutgoingSessionRequest(request),
       };
     });
+  const readOnlyStatusProbeNavigationEvidence = (
+    startedAt: number,
+    details: WatchedRequestDetails,
+    failedAt: number,
+    requestWasPendingAtReloadNavigation: boolean,
+  ): ReadOnlyStatusProbeNavigationEvidence => ({
+    requestStartedAt: startedAt,
+    requestSourceIsMainFrame: details.requestSourceIsMainFrame,
+    requestFrameUrl: details.requestFrameUrl,
+    reloadNavigationStartedAt:
+      reloadNavigationStartedAt ?? details.reloadNavigationStartedAt,
+    outgoingDocumentUrl:
+      outgoingDocumentUrlAtReload ?? details.outgoingDocumentUrl,
+    requestWasPendingAtReloadNavigation,
+    mainFrameNavigationStartedAt,
+    mainFrameNavigationUrl,
+    mainFrameNavigationCommittedAtAtRequest:
+      details.mainFrameNavigationCommittedAt,
+    mainFrameNavigationCommittedAt,
+    failedAt,
+  });
+  const readOnlyStatusProbeCorsCandidatesAt = (now: number) => {
+    const candidates: Array<{
+      url: string;
+      pathname: string;
+      method: string;
+      ageMs: number;
+      sameOrigin: boolean;
+      observedAt: number;
+      navigation: ReadOnlyStatusProbeNavigationEvidence;
+    }> = [];
+    for (const [request, startedAt] of watchedRequests) {
+      const url = new URL(request.url());
+      if (!readOnlyStatusProbePaths.includes(url.pathname)) continue;
+      const details = watchedRequestDetails.get(request);
+      if (!details) continue;
+      const navigationCandidate = reloadNavigationRequests.get(request);
+      candidates.push({
+        url: url.href,
+        pathname: url.pathname,
+        method: request.method(),
+        ageMs: now - startedAt,
+        sameOrigin: url.origin === authoringPageOrigin,
+        observedAt: now,
+        navigation: readOnlyStatusProbeNavigationEvidence(
+          startedAt,
+          details,
+          now,
+          navigationCandidate?.requestWasPendingAtNavigation ??
+            (reloadNavigationStartedAt !== null &&
+              startedAt <= reloadNavigationStartedAt),
+        ),
+      });
+    }
+    for (
+      let index = recentExpectedStatusProbeAborts.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      const candidate = recentExpectedStatusProbeAborts[index];
+      if (
+        !candidate ||
+        now - candidate.observedAt >= reloadNavigationConsoleGraceMs
+      ) {
+        recentExpectedStatusProbeAborts.splice(index, 1);
+        continue;
+      }
+      candidates.push(candidate);
+    }
+    return candidates;
+  };
   const pendingSaveConflicts: Promise<void>[] = [];
   const pendingConsoleInspections = new Set<Promise<void>>();
   const conflictResponsePaths: string[] = [];
@@ -2857,13 +3006,15 @@ export async function runAuthoringFuzz(
       message.type() === "debug" &&
       message.text().startsWith("[authoring-fuzz heartbeat]")
     ) {
-      console.log(message.text());
+      console.log(redactBrowserSessionSensitiveText(message.text()));
       return;
     }
     if (message.type() !== "error") return;
     if (traceEnabled) {
       console.log(
-        `[edit-fidelity] console error phase=${activePhase} location=${JSON.stringify(message.location())}: ${message.text()}`,
+        redactBrowserSessionSensitiveText(
+          `[edit-fidelity] console error phase=${activePhase} location=${JSON.stringify(message.location())}: ${message.text()}`,
+        ),
       );
     }
     if (isConflictResourceConsoleError(message.text())) {
@@ -2920,11 +3071,22 @@ export async function runAuthoringFuzz(
           consoleSessionId,
           competingSessionTraffic,
         );
-      pageErrors.push(...retiredSessionPollResult.errors);
+      pageErrors.push(
+        ...retiredSessionPollResult.errors.map(
+          redactBrowserSessionSensitiveText,
+        ),
+      );
       if (retiredSessionPollResult.matched) {
         return;
       }
+      const corsCheckedAt = Date.now();
       if (
+        isExpectedReadOnlyStatusProbeCorsConsoleError(
+          text,
+          consolePhase,
+          readOnlyStatusProbeCorsCandidatesAt(corsCheckedAt),
+          corsCheckedAt,
+        ) ||
         (await isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace(
           text,
           consolePhase,
@@ -2942,9 +3104,11 @@ export async function runAuthoringFuzz(
       // Diagnostic only: CI runs without tracing. consoleTiming was captured when
       // the console event arrived, so deferred Firefox messages report the same state.
       console.log(
-        `[edit-fidelity] unexpected console error phase=${consolePhase} sinceReloadMs=${consoleTiming.sinceReloadMs ?? "n/a"} text=${JSON.stringify(text.slice(0, 240))} reloadMap=${JSON.stringify(consoleTiming.reloadMap)} watched=${JSON.stringify(consoleTiming.watched)}`,
+        redactBrowserSessionSensitiveText(
+          `[edit-fidelity] unexpected console error phase=${consolePhase} sinceReloadMs=${consoleTiming.sinceReloadMs ?? "n/a"} text=${JSON.stringify(text.slice(0, 240))} reloadMap=${JSON.stringify(consoleTiming.reloadMap.map((candidate) => ({ ...candidate, pathname: redactBrowserSessionRequestPath(candidate.pathname) })))} watched=${JSON.stringify(consoleTiming.watched.map((candidate) => ({ ...candidate, pathname: redactBrowserSessionRequestPath(candidate.pathname) })))}`,
+        ),
       );
-      pageErrors.push(text);
+      pageErrors.push(redactBrowserSessionSensitiveText(text));
     };
     let inspection: Promise<void>;
     inspection = (async () => {
@@ -2966,21 +3130,40 @@ export async function runAuthoringFuzz(
         now,
         hasCompetingNewBrowserSessionTraffic(),
       );
-    pageErrors.push(...retiredSessionPageErrorResult.errors);
+    pageErrors.push(
+      ...retiredSessionPageErrorResult.errors.map(
+        redactBrowserSessionSensitiveText,
+      ),
+    );
     if (retiredSessionPageErrorResult.matched) {
       if (traceEnabled) {
         console.log(
-          `[edit-fidelity] correlated WebKit page error from the retired browser-session claim during reload (${browserSessionIdAtReload})`,
+          "[edit-fidelity] correlated WebKit page error from the retired browser-session claim during reload",
         );
       }
       return;
     }
+    const corsCheckedAt = Date.now();
+    if (
+      isExpectedReadOnlyStatusProbeCorsConsoleError(
+        pageErrorText,
+        activePhase,
+        readOnlyStatusProbeCorsCandidatesAt(corsCheckedAt),
+        corsCheckedAt,
+      )
+    ) {
+      return;
+    }
     if (traceEnabled) {
       console.log(
-        `[edit-fidelity] page error phase=${activePhase}: ${error.stack ?? error.message}`,
+        redactBrowserSessionSensitiveText(
+          `[edit-fidelity] page error phase=${activePhase}: ${error.stack ?? error.message}`,
+        ),
       );
     }
-    pageErrors.push(error.stack ?? error.message);
+    pageErrors.push(
+      redactBrowserSessionSensitiveText(error.stack ?? error.message),
+    );
   };
   const onRequestFailed = (request: any) => {
     const failedAt = Date.now();
@@ -3059,7 +3242,9 @@ export async function runAuthoringFuzz(
           })}`
         : "";
       console.log(
-        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestAgeMs ?? "unknown"} startOffsetMsFromLastReload=${requestStartedAt === undefined || lastReloadStartedAt === null ? "n/a" : requestStartedAt - lastReloadStartedAt}${navigationFacts}`,
+        redactBrowserSessionSensitiveText(
+          `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestAgeMs ?? "unknown"} startOffsetMsFromLastReload=${requestStartedAt === undefined || lastReloadStartedAt === null ? "n/a" : requestStartedAt - lastReloadStartedAt}${navigationFacts}`,
+        ),
       );
     }
     if (
@@ -3135,6 +3320,36 @@ export async function runAuthoringFuzz(
         requestStartedAt === undefined
           ? Number.POSITIVE_INFINITY
           : Date.now() - requestStartedAt;
+      if (watchedRequestDetailsAtStart && requestStartedAt !== undefined) {
+        const statusProbeNavigation = readOnlyStatusProbeNavigationEvidence(
+          requestStartedAt,
+          watchedRequestDetailsAtStart,
+          failedAt,
+          navigationCandidate?.requestWasPendingAtNavigation ??
+            requestPendingAtReloadNavigation,
+        );
+        if (
+          isExpectedReadOnlyStatusProbeAbort(
+            request.method(),
+            pathname,
+            errorText,
+            activePhase,
+            requestUrl.origin === authoringPageOrigin,
+            probeAgeMs,
+            statusProbeNavigation,
+          )
+        ) {
+          recentExpectedStatusProbeAborts.push({
+            url,
+            pathname,
+            method: request.method(),
+            ageMs: probeAgeMs,
+            sameOrigin: requestUrl.origin === authoringPageOrigin,
+            observedAt: failedAt,
+            navigation: statusProbeNavigation,
+          });
+        }
+      }
       if (
         !isExpectedReadOnlyStatusProbeAbort(
           request.method(),
@@ -3168,7 +3383,9 @@ export async function runAuthoringFuzz(
         )
       ) {
         pageErrors.push(
-          `watched request failed: ${request.method()} ${url} (${errorText})`,
+          redactBrowserSessionSensitiveText(
+            `watched request failed: ${request.method()} ${url} (${errorText})`,
+          ),
         );
       }
     }
@@ -3497,7 +3714,7 @@ export async function runAuthoringFuzz(
       .filter((request) => Date.now() - request.startedAt >= 10_000)
       .map(
         (request) =>
-          `${request.method} ${request.path} ${Date.now() - request.startedAt}ms`,
+          `${request.method} ${redactBrowserSessionRequestPath(request.path)} ${Date.now() - request.startedAt}ms`,
       );
     console.log(
       `[edit-fidelity] trace seed=${seed} node-heartbeat step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${activePhase}/${lastTracePhase} pending=${pending.length ? pending.join(" | ") : "none"}`,
@@ -3510,7 +3727,9 @@ export async function runAuthoringFuzz(
       if (waitMs === null) return;
       await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
       pageErrors.push(
-        ...retiredSessionErrorCorrelator.flushExpired(Date.now()),
+        ...retiredSessionErrorCorrelator
+          .flushExpired(Date.now())
+          .map(redactBrowserSessionSensitiveText),
       );
     }
   };
@@ -6079,6 +6298,7 @@ export async function runAuthoringFuzz(
               };
               return {
                 current: activeOption?.getAttribute("data-value") ?? null,
+                listboxRole: listbox?.getAttribute("role") ?? null,
                 expected,
                 activeRole: activeOption?.getAttribute("role") ?? null,
                 contained:
@@ -8760,7 +8980,7 @@ export async function runAuthoringFuzz(
         });
         if (traceEnabled) {
           console.log(
-            `[edit-fidelity] reload pending ${request.method()} ${new URL(request.url()).pathname} ageMs=${Date.now() - startedAt}`,
+            `[edit-fidelity] reload pending ${request.method()} ${redactBrowserSessionRequestPath(new URL(request.url()).pathname)} ageMs=${Date.now() - startedAt}`,
           );
         }
       }
@@ -8818,7 +9038,11 @@ export async function runAuthoringFuzz(
     }
     assertAuthoringPersistence(persistence);
     await checkPageErrors();
-    pageErrors.push(...retiredSessionErrorCorrelator.clear());
+    pageErrors.push(
+      ...retiredSessionErrorCorrelator
+        .clear()
+        .map(redactBrowserSessionSensitiveText),
+    );
     reloadNavigationStartedAt = null;
     browserSessionIdAtReload = null;
     await checkPageErrors();

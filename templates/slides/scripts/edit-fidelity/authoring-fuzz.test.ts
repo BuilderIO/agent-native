@@ -24,6 +24,7 @@ import {
   authoringFuzzBrowserSessionCorsHeaders,
   authoringFuzzBrowserSessionResponse,
   redactBrowserSessionRequestPath,
+  redactBrowserSessionSensitiveText,
   authoringFuzzLineNavigationKeys,
   authoringFuzzProfileIndex,
   authoringFuzzUnavailableExitCode,
@@ -52,6 +53,7 @@ import {
   isExpectedSaveReloadRetiredBrowserSessionPollWarning,
   isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
   isExpectedReadOnlyStatusProbeAbort,
+  isExpectedReadOnlyStatusProbeCorsConsoleError,
   isRecentReadOnlyStatusProbeSettle,
   readOnlyStatusProbeFailureEvidence,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
@@ -984,6 +986,7 @@ it("accepts a slash-menu timeout only when the complete visible state now matche
 it("accepts a slash-navigation timeout only when the expected option remains visible", () => {
   const visibleState = {
     current: "heading2",
+    listboxRole: "listbox",
     activeRole: "option",
     contained: true,
     listboxVisible: true,
@@ -1002,6 +1005,12 @@ it("accepts a slash-navigation timeout only when the expected option remains vis
   expect(
     isSlashCommandNavigationStateReady(
       { ...visibleState, current: "paragraph" },
+      "heading2",
+    ),
+  ).toBe(false);
+  expect(
+    isSlashCommandNavigationStateReady(
+      { ...visibleState, listboxRole: null },
       "heading2",
     ),
   ).toBe(false);
@@ -1218,6 +1227,19 @@ it("redacts browser-session ids from request paths", () => {
   expect(
     redactBrowserSessionRequestPath("/_agent-native/browser-sessions-extra"),
   ).toBe("/_agent-native/browser-sessions-extra");
+});
+
+it("redacts browser-session ids from diagnostic text and URLs", () => {
+  const error =
+    "Fetch API cannot load https://localhost/_agent-native/browser-sessions/private-session-id/requests/claim due to access control checks.";
+  expect(redactBrowserSessionSensitiveText(error)).toBe(
+    "Fetch API cannot load https://localhost/_agent-native/browser-sessions/:session/requests/claim due to access control checks.",
+  );
+  expect(
+    redactBrowserSessionSensitiveText(
+      "page error at /_agent-native/browser-sessions/private-session-id",
+    ),
+  ).toBe("page error at /_agent-native/browser-sessions/:session");
 });
 
 it("isolates authoring fuzz from the unrelated browser-session service", () => {
@@ -4369,6 +4391,83 @@ it("ignores a read-only status probe abort only when the outgoing document is re
         requestWasPendingAtReloadNavigation: false,
         mainFrameNavigationCommittedAtAtRequest: 115,
       },
+    ),
+  ).toBe(false);
+});
+
+it("matches a status-probe CORS warning only to the reloading outgoing document", () => {
+  const url =
+    "http://localhost/_agent-native/actions/get-deck-access-status?deck=deck-1";
+  const message =
+    "Fetch API cannot load " + url + " due to access control checks.";
+  const navigation: NonNullable<
+    Parameters<typeof isExpectedReadOnlyStatusProbeAbort>[6]
+  > = {
+    requestStartedAt: 90,
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost/deck/deck-1?slide=2",
+    requestWasPendingAtReloadNavigation: true,
+    reloadNavigationStartedAt: 100,
+    outgoingDocumentUrl: "http://localhost/deck/deck-1?slide=2",
+    mainFrameNavigationStartedAt: 110,
+    mainFrameNavigationUrl: "http://localhost/deck/deck-1?slide=1",
+    mainFrameNavigationCommittedAtAtRequest: 85,
+    mainFrameNavigationCommittedAt: null,
+    failedAt: 150,
+  };
+  const candidate = {
+    url,
+    pathname: "/_agent-native/actions/get-deck-access-status",
+    method: "GET",
+    ageMs: 60,
+    sameOrigin: true,
+    observedAt: 150,
+    navigation,
+  };
+
+  expect(
+    isExpectedReadOnlyStatusProbeCorsConsoleError(
+      message,
+      "save/reload",
+      [candidate],
+      151,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedReadOnlyStatusProbeCorsConsoleError(
+      message,
+      "save/reload",
+      [
+        {
+          ...candidate,
+          navigation: { ...navigation, requestSourceIsMainFrame: false },
+        },
+      ],
+      151,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedReadOnlyStatusProbeCorsConsoleError(
+      message,
+      "save/reload",
+      [candidate, { ...candidate, observedAt: 151 }],
+      151,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedReadOnlyStatusProbeCorsConsoleError(
+      message,
+      "save/reload",
+      [{ ...candidate, pathname: "/_agent-native/actions/other" }],
+      151,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedReadOnlyStatusProbeCorsConsoleError(
+      message,
+      "save/reload",
+      [candidate],
+      1_151,
     ),
   ).toBe(false);
 });

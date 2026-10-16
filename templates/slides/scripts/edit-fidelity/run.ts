@@ -40,6 +40,7 @@ import {
   normalizeFirefoxBrowserSessionConsoleError,
   recordCleanupRequestOutcome,
   redactBrowserSessionRequestPath,
+  redactBrowserSessionSensitiveText,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
@@ -6044,7 +6045,9 @@ async function runAuthoringFuzzQa(
         target: Page | null = lastCleanupPage,
       ) => {
         cleanupErrors.push(
-          formatAuthoringFuzzCleanupIssue(label, deckId, error),
+          redactBrowserSessionSensitiveText(
+            formatAuthoringFuzzCleanupIssue(label, deckId, error),
+          ),
         );
         if (
           target &&
@@ -6183,28 +6186,45 @@ async function runAuthoringFuzzQa(
           const shouldIgnore = (normalized: string) =>
             isExpectedCleanupNavigationError(target, normalized);
           if (!isFirefoxBrowserSessionConsoleError(text)) {
-            if (!shouldIgnore(text)) cleanupErrors.push(`console: ${text}`);
+            if (!shouldIgnore(text))
+              cleanupErrors.push(
+                redactBrowserSessionSensitiveText(`console: ${text}`),
+              );
             return;
           }
           let inspection: Promise<void>;
           inspection = normalizeFirefoxBrowserSessionConsoleError(message)
             .then((normalized) => {
               if (!shouldIgnore(normalized))
-                cleanupErrors.push(`console: ${normalized}`);
+                cleanupErrors.push(
+                  redactBrowserSessionSensitiveText(`console: ${normalized}`),
+                );
             })
             .catch((error: unknown) => {
-              cleanupErrors.push(`console: ${text} (${String(error)})`);
+              cleanupErrors.push(
+                redactBrowserSessionSensitiveText(
+                  `console: ${text} (${String(error)})`,
+                ),
+              );
             })
             .finally(() => pendingCleanupConsoleInspections.delete(inspection));
           pendingCleanupConsoleInspections.add(inspection);
         };
         const onPageError = (error: Error) => {
           if (isExpectedCleanupNavigationError(target, error.message)) return;
-          cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
+          cleanupErrors.push(
+            redactBrowserSessionSensitiveText(
+              `pageerror: ${error.stack ?? String(error)}`,
+            ),
+          );
         };
         const onResponse = (response: { status(): number; url(): string }) => {
           if (response.status() >= 400) {
-            cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
+            cleanupErrors.push(
+              redactBrowserSessionSensitiveText(
+                `HTTP ${response.status()} ${response.url()}`,
+              ),
+            );
           }
         };
         target.on("console", onConsole);
