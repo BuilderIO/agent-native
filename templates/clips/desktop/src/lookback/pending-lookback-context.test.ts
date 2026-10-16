@@ -4,6 +4,7 @@ import type { RecordingContextItem } from "./context-api";
 import {
   hasPendingFailedLookbackRemoval,
   isLookbackContextAwaitingStop,
+  pendingFailedLookbackContexts,
   settlePendingLookbackContextAfterStop,
   takePendingLookbackContext,
   takePendingLookbackContextAfterStop,
@@ -14,6 +15,7 @@ function pending(recordingId: string): PendingLookbackContext {
   return {
     recordingId,
     target: { serverUrl: "https://clips.example.test", authToken: "" },
+    account: "person@example.test",
     item: Promise.resolve(null),
   };
 }
@@ -39,6 +41,50 @@ describe("hasPendingFailedLookbackRemoval", () => {
 
     contexts.delete(failed.recordingId);
     expect(hasPendingFailedLookbackRemoval(contexts)).toBe(false);
+  });
+
+  it("scopes the warning to the current server and account", () => {
+    const context = pendingWithItem("recording-a");
+    context.stopFailed = true;
+    const contexts = new Map([[context.recordingId, context]]);
+
+    expect(
+      hasPendingFailedLookbackRemoval(contexts, {
+        serverUrl: "https://clips.example.test/another-path",
+        account: "PERSON@example.test",
+      }),
+    ).toBe(true);
+    expect(
+      hasPendingFailedLookbackRemoval(contexts, {
+        serverUrl: "https://clips.other.test",
+        account: "person@example.test",
+      }),
+    ).toBe(false);
+    expect(
+      hasPendingFailedLookbackRemoval(contexts, {
+        serverUrl: "https://clips.example.test",
+        account: "other@example.test",
+      }),
+    ).toBe(false);
+  });
+
+  it("retries failed removals only for the current server and account", () => {
+    const context = pendingWithItem("recording-a");
+    context.stopFailed = true;
+    const contexts = new Map([[context.recordingId, context]]);
+
+    expect(
+      pendingFailedLookbackContexts(contexts, {
+        serverUrl: "https://clips.example.test",
+        account: "other@example.test",
+      }),
+    ).toEqual([]);
+    expect(
+      pendingFailedLookbackContexts(contexts, {
+        serverUrl: "https://clips.example.test",
+        account: "person@example.test",
+      }),
+    ).toEqual([context]);
   });
 });
 
@@ -100,7 +146,11 @@ describe("settlePendingLookbackContextAfterStop", () => {
       removeItem,
     );
 
-    expect(removeItem).toHaveBeenCalledWith(context.target, "context-1");
+    expect(removeItem).toHaveBeenCalledWith(
+      context.target,
+      "context-1",
+      "person@example.test",
+    );
     expect(contexts.has(context.recordingId)).toBe(false);
   });
 
@@ -128,6 +178,7 @@ describe("settlePendingLookbackContextAfterStop", () => {
       true,
     );
     expect(hasPendingFailedLookbackRemoval(contexts)).toBe(true);
+    expect(context.removalItemId).toBe("context-1");
 
     await settlePendingLookbackContextAfterStop(
       contexts,

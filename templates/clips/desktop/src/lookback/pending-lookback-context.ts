@@ -1,18 +1,37 @@
 import type { ClipsActionTarget } from "../lib/clips-action";
 import type { RecordingContextItem } from "./context-api";
+import { sameLookbackRemovalScope } from "./pending-lookback-removal";
 
 export interface PendingLookbackContext {
   recordingId: string;
   target: ClipsActionTarget;
+  account: string;
   item: Promise<RecordingContextItem | null>;
   stopFailed?: boolean;
+  removalItemId?: string;
   removalInProgress?: boolean;
+}
+
+export function pendingFailedLookbackContexts(
+  contexts: Map<string, PendingLookbackContext>,
+  scope?: { serverUrl: string; account: string | null },
+): PendingLookbackContext[] {
+  return [...contexts.values()].filter(
+    (context) =>
+      context.stopFailed &&
+      (!scope ||
+        sameLookbackRemovalScope(
+          { serverUrl: context.target.serverUrl, account: context.account },
+          scope,
+        )),
+  );
 }
 
 export function hasPendingFailedLookbackRemoval(
   contexts: Map<string, PendingLookbackContext>,
+  scope?: { serverUrl: string; account: string | null },
 ): boolean {
-  return [...contexts.values()].some((context) => context.stopFailed);
+  return pendingFailedLookbackContexts(contexts, scope).length > 0;
 }
 
 export function takePendingLookbackContext(
@@ -46,7 +65,11 @@ export async function settlePendingLookbackContextAfterStop(
   contexts: Map<string, PendingLookbackContext>,
   recordingId: string | null | undefined,
   stopSucceeded: boolean,
-  removeItem: (target: ClipsActionTarget, itemId: string) => Promise<unknown>,
+  removeItem: (
+    target: ClipsActionTarget,
+    itemId: string,
+    account: string,
+  ) => Promise<unknown>,
 ): Promise<void> {
   if (!recordingId) return;
   const pending = contexts.get(recordingId);
@@ -61,7 +84,10 @@ export async function settlePendingLookbackContextAfterStop(
   pending.removalInProgress = true;
   try {
     const item = await pending.item;
-    if (item) await removeItem(pending.target, item.id);
+    if (item) {
+      pending.removalItemId = item.id;
+      await removeItem(pending.target, item.id, pending.account);
+    }
     if (contexts.get(recordingId) === pending) contexts.delete(recordingId);
   } finally {
     pending.removalInProgress = false;

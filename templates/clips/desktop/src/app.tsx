@@ -283,10 +283,20 @@ import { LookbackRow } from "./lookback/LookbackRow";
 import {
   hasPendingFailedLookbackRemoval,
   isLookbackContextAwaitingStop,
+  pendingFailedLookbackContexts,
   settlePendingLookbackContextAfterStop,
   takePendingLookbackContextAfterStop,
   type PendingLookbackContext,
 } from "./lookback/pending-lookback-context";
+import {
+  hasPendingLookbackRemovalWarning,
+  persistPendingLookbackRemoval,
+  readPendingLookbackRemovals,
+  retryPendingLookbackRemovals,
+  sameLookbackRemovalScope,
+  shouldProcessLookbackItem,
+  type LookbackRemovalStorage,
+} from "./lookback/pending-lookback-removal";
 import { processRecordingContextItem } from "./lookback/worker";
 import { PillLogo } from "./overlays/pill-logo";
 import {
@@ -1237,6 +1247,8 @@ export function App({
   const [videoStorageStatus, setVideoStorageStatus] =
     useState<VideoStorageStatus>("checking");
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
+  const signedInAsRef = useRef(signedInAs);
+  signedInAsRef.current = signedInAs;
   const [signInPending, setSignInPending] = useState<
     "google" | "magic-link" | null
   >(null);
@@ -1904,6 +1916,68 @@ export function App({
     return { serverUrl, authToken: loadDesktopAuthToken(serverUrl) };
   }
 
+  function lookbackRemovalStorage(): LookbackRemovalStorage {
+    return {
+      getItem: (key) => window.localStorage.getItem(key),
+      setItem: (key, value) => window.localStorage.setItem(key, value),
+      removeItem: (key) => window.localStorage.removeItem(key),
+    };
+  }
+
+  const updateLookbackRemovalWarning = useCallback(() => {
+    const activeServerUrl = authServerUrlRef.current;
+    const activeAccount = signedInAsRef.current;
+    if (!activeAccount) {
+      setLookbackRemovalFailed(false);
+      return;
+    }
+    const scope = { serverUrl: activeServerUrl, account: activeAccount };
+    const stored = readPendingLookbackRemovals(
+      lookbackRemovalStorage(),
+      activeServerUrl,
+      activeAccount,
+    );
+    setLookbackRemovalFailed(
+      hasPendingFailedLookbackRemoval(lookbackContextRef.current, scope) ||
+        hasPendingLookbackRemovalWarning(stored),
+    );
+  }, []);
+
+  useEffect(() => {
+    updateLookbackRemovalWarning();
+  }, [serverUrl, signedInAs, updateLookbackRemovalWarning]);
+
+  async function removeFailedLookbackItem(
+    target: PendingLookbackContext["target"],
+    itemId: string,
+    account: string,
+  ): Promise<void> {
+    const storage = lookbackRemovalStorage();
+    persistPendingLookbackRemoval(storage, target.serverUrl, account, itemId);
+    if (
+      !sameLookbackRemovalScope(
+        { serverUrl: target.serverUrl, account },
+        {
+          serverUrl: authServerUrlRef.current,
+          account: signedInAsRef.current,
+        },
+      )
+    ) {
+      return;
+    }
+    updateLookbackRemovalWarning();
+    const state = await retryPendingLookbackRemovals({
+      storage,
+      serverUrl: target.serverUrl,
+      account,
+      target,
+      removeItem: removeRecordingContext,
+    });
+    if (state.status !== "ready" || state.pendingIds.has(itemId)) {
+      throw new Error("Earlier screen time removal is still pending.");
+    }
+  }
+
   // Runs beside the recording, never ahead of it: a failed request only raises
   // the notice, and the recording continues.
   function requestLookbackForRecording(seconds: number) {
@@ -1921,6 +1995,12 @@ export function App({
       );
       setLookbackNotice(t("lookbackContext.requestFailed"));
     };
+    if (!signedInAs) {
+      onRequestError(
+        new Error("An account is required for earlier screen time."),
+      );
+      return;
+    }
     try {
       const target = lookbackTarget();
       const item = requestRecordingContext(target, {
@@ -1935,6 +2015,7 @@ export function App({
       lookbackContextRef.current.set(recordingId, {
         recordingId,
         target,
+        account: signedInAs,
         item,
       });
     } catch (error) {
@@ -1954,19 +2035,15 @@ export function App({
       lookbackContextRef.current,
       recordingId,
       stopSucceeded,
-      removeRecordingContext,
+      removeFailedLookbackItem,
     )
-      .then(() => {
-        setLookbackRemovalFailed(
-          hasPendingFailedLookbackRemoval(lookbackContextRef.current),
-        );
-      })
+      .then(updateLookbackRemovalWarning)
       .catch((error: unknown) => {
         console.error(
           "[clips-popover] removing earlier screen time failed:",
           error,
         );
-        setLookbackRemovalFailed(true);
+        updateLookbackRemovalWarning();
       });
   }
 
@@ -2021,15 +2098,16 @@ export function App({
   );
 
   useEffect(() => {
-    if (authStatus !== "authed") return;
+    if (authStatus !== "authed" || !signedInAs) return;
     let cancelled = false;
     let inFlight = false;
     const poll = async () => {
       if (inFlight) return;
       inFlight = true;
       try {
-        const failedStops = [...lookbackContextRef.current.values()].filter(
-          (context) => context.stopFailed,
+        const failedStops = pendingFailedLookbackContexts(
+          lookbackContextRef.current,
+          { serverUrl, account: signedInAs },
         );
         await Promise.allSettled(
           failedStops.map((context) =>
@@ -2037,14 +2115,45 @@ export function App({
               lookbackContextRef.current,
               context.recordingId,
               false,
-              removeRecordingContext,
+              removeFailedLookbackItem,
             ),
           ),
         );
         if (cancelled) return;
-        setLookbackRemovalFailed(
-          hasPendingFailedLookbackRemoval(lookbackContextRef.current),
+        const storage = lookbackRemovalStorage();
+        const storedRemovals = readPendingLookbackRemovals(
+          storage,
+          serverUrl,
+          signedInAs,
         );
+        setLookbackRemovalFailed(
+          hasPendingFailedLookbackRemoval(lookbackContextRef.current, {
+            serverUrl,
+            account: signedInAs,
+          }) || hasPendingLookbackRemovalWarning(storedRemovals),
+        );
+        if (storedRemovals.status === "unreadable") return;
+        const pendingRemovalIds = new Set(
+          [...lookbackContextRef.current.values()]
+            .map((context) => context.removalItemId)
+            .filter((id): id is string => Boolean(id)),
+        );
+        const pendingRemovals = await retryPendingLookbackRemovals({
+          storage,
+          serverUrl,
+          account: signedInAs,
+          target: { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
+          skipIds: pendingRemovalIds,
+          removeItem: removeRecordingContext,
+        });
+        if (cancelled) return;
+        setLookbackRemovalFailed(
+          hasPendingFailedLookbackRemoval(lookbackContextRef.current, {
+            serverUrl,
+            account: signedInAs,
+          }) || hasPendingLookbackRemovalWarning(pendingRemovals),
+        );
+        if (pendingRemovals.status === "unreadable") return;
         if (!lookbackLabEnabled || !rewindOn) return;
 
         const items = await listPendingRecordingContext(
@@ -2058,6 +2167,7 @@ export function App({
         );
         if (cancelled) return;
         for (const item of items) {
+          if (!shouldProcessLookbackItem(item.id, pendingRemovals)) continue;
           if (processingLookbackIdsRef.current.has(item.id)) continue;
           if (
             isLookbackContextAwaitingStop(
@@ -2107,6 +2217,7 @@ export function App({
     processLookbackItem,
     rewindOn,
     serverUrl,
+    signedInAs,
   ]);
 
   useEffect(() => {
