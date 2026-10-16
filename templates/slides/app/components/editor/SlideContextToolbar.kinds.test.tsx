@@ -70,7 +70,7 @@ describe("contextual toolbar kinds", () => {
     renderToolbar({ leading: <button type="button">Insert</button> });
     expect(screen.getByRole("button", { name: "Insert" })).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Edit with agent" }),
+      screen.queryByRole("button", { name: "Edit with Agent" }),
     ).toBeNull();
   });
 
@@ -91,7 +91,7 @@ describe("contextual toolbar kinds", () => {
       onOpenAgent,
       onAgentQuickPick,
     });
-    fireEvent.keyDown(screen.getByRole("button", { name: "Edit with agent" }), {
+    fireEvent.keyDown(screen.getByRole("button", { name: "Edit with Agent" }), {
       key: "Enter",
     });
     expect(onOpenAgent).toHaveBeenCalled();
