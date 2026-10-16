@@ -1299,23 +1299,22 @@ function SqlDashboardPageContent({
         skipFilterPreferenceSave.current = null;
       }
       const failed = failedFilterPreference.current;
-      const update = dashboardFilterPreferenceUpdate({
+      const result = dashboardFilterPreferenceUpdate({
         saved: savedFilters,
         savedState: savedFiltersState,
         viewsState: dashboardViewsState,
         searchParams,
         failed: failed?.dashboardId === dashboardId ? failed.update : null,
       });
-      if (update) {
-        saveFilterPref(update, {
-          onSuccess: () => {
-            failedFilterPreference.current = null;
-          },
-          onError: () => {
-            failedFilterPreference.current = { dashboardId, update };
-          },
-        });
-      }
+      if (result.status === "unread" || result.status === "failed") return;
+      failedFilterPreference.current = null;
+      if (result.status === "saved") return;
+      const { update } = result;
+      saveFilterPref(update, {
+        onError: () => {
+          failedFilterPreference.current = { dashboardId, update };
+        },
+      });
     }, 1500);
     return () => clearTimeout(saveTimer.current);
   }, [

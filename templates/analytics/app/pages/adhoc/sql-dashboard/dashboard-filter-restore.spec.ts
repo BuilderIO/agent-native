@@ -330,13 +330,24 @@ describe("dashboardFilterPreferenceUpdate", () => {
     });
   }
 
+  const saved = { status: "saved" };
+  const changed = (update: {
+    filters: Record<string, string>;
+    viewId?: string;
+  }) => ({
+    status: "changed",
+    update,
+  });
+
   it("saves an open view when the URL has no filters", () => {
-    expect(update({}, "view=q3")).toEqual({ filters: {}, viewId: "q3" });
-    expect(update({ filters: {}, viewId: "q3" }, "view=q3")).toBeNull();
+    expect(update({}, "view=q3")).toEqual(
+      changed({ filters: {}, viewId: "q3" }),
+    );
+    expect(update({ filters: {}, viewId: "q3" }, "view=q3")).toEqual(saved);
   });
 
   it("saves nothing for an unfiltered dashboard with no view open", () => {
-    expect(update({}, "tab=activity")).toBeNull();
+    expect(update({}, "tab=activity")).toEqual(saved);
   });
 
   it("drops the view once it is closed", () => {
@@ -345,7 +356,7 @@ describe("dashboardFilterPreferenceUpdate", () => {
         { filters: personalFilters, viewId: "q3" },
         "f_timeRange=7d&f_emailFilter=all",
       ),
-    ).toEqual({ filters: personalFilters });
+    ).toEqual(changed({ filters: personalFilters }));
   });
 
   it.each(["error", "loading"] as const)(
@@ -358,10 +369,12 @@ describe("dashboardFilterPreferenceUpdate", () => {
           "success",
           viewsState,
         ),
-      ).toEqual({
-        filters: { f_timeRange: "30d", f_emailFilter: "all" },
-        viewId: "q3",
-      });
+      ).toEqual(
+        changed({
+          filters: { f_timeRange: "30d", f_emailFilter: "all" },
+          viewId: "q3",
+        }),
+      );
     },
   );
 
@@ -373,25 +386,54 @@ describe("dashboardFilterPreferenceUpdate", () => {
         "success",
         "error",
       ),
-    ).toBeNull();
+    ).toEqual(saved);
   });
 
   it("doesn't resend a write that just failed until the filters or view change", () => {
     const failed = { filters: { f_timeRange: "30d" }, viewId: "q3" };
-    const saved = { filters: personalFilters, viewId: "q3" };
+    const savedPref = { filters: personalFilters, viewId: "q3" };
     expect(
-      update(saved, "view=q3&f_timeRange=30d", "success", "success", failed),
-    ).toBeNull();
+      update(
+        savedPref,
+        "view=q3&f_timeRange=30d",
+        "success",
+        "success",
+        failed,
+      ),
+    ).toEqual({ status: "failed" });
     expect(
-      update(saved, "view=q3&f_timeRange=90d", "success", "success", failed),
-    ).toEqual({ filters: { f_timeRange: "90d" }, viewId: "q3" });
+      update(
+        savedPref,
+        "view=q3&f_timeRange=90d",
+        "success",
+        "success",
+        failed,
+      ),
+    ).toEqual(changed({ filters: { f_timeRange: "90d" }, viewId: "q3" }));
     expect(
-      update(saved, "f_timeRange=30d", "success", "success", failed),
-    ).toEqual({ filters: { f_timeRange: "30d" } });
+      update(savedPref, "f_timeRange=30d", "success", "success", failed),
+    ).toEqual(changed({ filters: { f_timeRange: "30d" } }));
+  });
+
+  it("tells a move back to the saved preference apart from the failed write", () => {
+    const failed = { filters: { f_timeRange: "30d" }, viewId: "q3" };
+    expect(
+      update(
+        { filters: personalFilters, viewId: "q3" },
+        "view=q3&f_timeRange=7d&f_emailFilter=all",
+        "success",
+        "success",
+        failed,
+      ),
+    ).toEqual(saved);
   });
 
   it("writes nothing until the preference has been read", () => {
-    expect(update({}, "view=q3&f_timeRange=7d", "loading")).toBeNull();
-    expect(update({}, "view=q3&f_timeRange=7d", "error")).toBeNull();
+    expect(update({}, "view=q3&f_timeRange=7d", "loading")).toEqual({
+      status: "unread",
+    });
+    expect(update({}, "view=q3&f_timeRange=7d", "error")).toEqual({
+      status: "unread",
+    });
   });
 });

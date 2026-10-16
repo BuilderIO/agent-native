@@ -81,6 +81,12 @@ export interface DashboardFilterPreference {
   viewId?: string;
 }
 
+export type DashboardFilterPreferenceUpdate =
+  | { status: "unread" }
+  | { status: "failed" }
+  | { status: "saved" }
+  | { status: "changed"; update: DashboardFilterPreference };
+
 export function dashboardFilterPreferenceUpdate({
   saved,
   savedState,
@@ -94,12 +100,14 @@ export function dashboardFilterPreferenceUpdate({
   searchParams: URLSearchParams;
   // The last write, if it failed. A failed write rereads the old preference,
   // and resending it on every reread would retry forever while saving is
-  // down; a change to the filters or the open view retries it.
+  // down, so it reads as `failed` until the filters or the open view move off
+  // it. The caller must forget it on any other status: coming back to it
+  // later, even through the saved preference, is a new change to write.
   failed: DashboardFilterPreference | null;
-}): DashboardFilterPreference | null {
+}): DashboardFilterPreferenceUpdate {
   // An unread preference (still loading, or failed) is not an empty one: skip
   // the write rather than compare against the `{}` the hook returns meanwhile.
-  if (savedState !== "success") return null;
+  if (savedState !== "success") return { status: "unread" };
   const filters = dashboardFilterParams(searchParams);
   // Until the views list is read (a refetch counts as unread), the page can't
   // reopen the saved view, so its absence from the URL doesn't mean it was
@@ -112,10 +120,13 @@ export function dashboardFilterPreferenceUpdate({
     sameDashboardFilterMap(failed.filters, filters) &&
     failed.viewId === viewId
   )
-    return null;
+    return { status: "failed" };
   if (sameDashboardFilterMap(saved.filters, filters) && saved.viewId === viewId)
-    return null;
-  return viewId ? { filters, viewId } : { filters };
+    return { status: "saved" };
+  return {
+    status: "changed",
+    update: viewId ? { filters, viewId } : { filters },
+  };
 }
 
 // A cached read can be out of date (a view deleted since, a preference another
