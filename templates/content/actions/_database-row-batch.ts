@@ -189,23 +189,21 @@ export async function renumberDatabaseRows(
   database: typeof schema.contentDatabases.$inferSelect,
   now: string,
 ) {
+  // Trashed rows keep their slot: renumbering only the visible rows lets a
+  // visible row take a trashed row's number, and the restored row then sorts
+  // after it. The tiebreaks match the collection read's.
   const rows = await db
     .select({
       id: schema.contentDatabaseItems.id,
       documentId: schema.contentDatabaseItems.documentId,
     })
     .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.documents,
-      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.databaseId, database.id),
-        isNull(schema.documents.trashedAt),
-      ),
-    )
-    .orderBy(asc(schema.contentDatabaseItems.position));
+    .where(eq(schema.contentDatabaseItems.databaseId, database.id))
+    .orderBy(
+      asc(schema.contentDatabaseItems.position),
+      asc(schema.contentDatabaseItems.createdAt),
+      asc(schema.contentDatabaseItems.id),
+    );
   if (rows.length === 0) return;
 
   const itemIds = rows.map((row) => row.id);

@@ -14,6 +14,7 @@ vi.mock("drizzle-orm", async (importOriginal) => {
 
 const mutationLock = vi.hoisted(() => vi.fn());
 const membershipLock = vi.hoisted(() => vi.fn());
+const pageLock = vi.hoisted(() => vi.fn(async () => []));
 
 vi.mock("./_content-database-mutation-lock.js", () => ({
   lockContentDatabaseMutation: mutationLock,
@@ -22,6 +23,11 @@ vi.mock("./_content-database-mutation-lock.js", () => ({
 
 vi.mock("./_database-membership-lock.js", () => ({
   lockDatabaseMemberships: membershipLock,
+}));
+
+vi.mock("./_row-lock-order.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./_row-lock-order.js")>()),
+  lockDocumentRows: pageLock,
 }));
 
 const { schema } = vi.hoisted(() => ({
@@ -159,6 +165,7 @@ describe("deleteDocumentRecursive", () => {
   beforeEach(() => {
     mutationLock.mockReset();
     membershipLock.mockReset();
+    pageLock.mockClear();
     deleteCalls = [];
     selectRows = {
       documents: [],
@@ -228,6 +235,10 @@ describe("deleteDocumentRecursive", () => {
     await deleteDocumentRecursive(db, "row-document", "owner-a@example.com");
 
     expect(mutationLock).toHaveBeenCalledWith(db, "parent-database");
+    expect(pageLock).toHaveBeenCalledWith(db, ["row-document"]);
+    expect(membershipLock.mock.invocationCallOrder[0]).toBeLessThan(
+      pageLock.mock.invocationCallOrder[0]!,
+    );
     const parentDatabaseDeletes = deleteCalls.filter(
       (call) => call.table === "contentDatabases",
     );

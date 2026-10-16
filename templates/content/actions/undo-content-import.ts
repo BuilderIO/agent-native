@@ -13,10 +13,7 @@ import { importedStateFingerprint } from "../server/lib/content-import.js";
 import { requireDocumentRequestActor } from "../server/lib/document-attribution.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
-import {
-  lockDatabasesForTrash,
-  trashDocumentSubtree,
-} from "./delete-document.js";
+import { lockLifecycleGroup, trashDocumentSubtree } from "./delete-document.js";
 
 export default defineAction({
   description:
@@ -90,6 +87,19 @@ export default defineAction({
         );
       }
       const importedIds = new Set(records.map((record) => record.documentId));
+      // Collections before pages: every imported page and its subtree, in
+      // the one row-lock order Trash and restore use.
+      const owners = await tx
+        .select({
+          id: schema.documents.id,
+          ownerEmail: schema.documents.ownerEmail,
+        })
+        .from(schema.documents)
+        .where(inArray(schema.documents.id, [...importedIds]));
+      const locks = await lockLifecycleGroup(tx, {
+        operation: "trash",
+        roots: owners,
+      });
       const current = await tx
         .select({
           id: schema.documents.id,
@@ -104,8 +114,7 @@ export default defineAction({
           trashedAt: schema.documents.trashedAt,
         })
         .from(schema.documents)
-        .where(inArray(schema.documents.id, [...importedIds]))
-        .for("update");
+        .where(inArray(schema.documents.id, [...importedIds]));
       const collections = await tx
         .select({ documentId: schema.contentDatabases.documentId })
         .from(schema.contentDatabases)
@@ -133,17 +142,12 @@ export default defineAction({
         if (changed.includes(page)) continue;
         // The page's owner now, not at import: moving a page between
         // workspaces makes the mover its owner.
-        const lockedDatabaseIds = await lockDatabasesForTrash(
-          tx,
-          page.id,
-          page.ownerEmail,
-        );
         const subtree = await trashDocumentSubtree(
           tx,
           page.id,
           page.ownerEmail,
           undefined,
-          lockedDatabaseIds,
+          locks.databaseIds,
           ctx?.caller,
         );
         if (!subtree.includes(page.id)) {

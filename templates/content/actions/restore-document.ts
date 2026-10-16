@@ -15,7 +15,7 @@ import {
 } from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
-  lockDatabasesForRestore,
+  lockLifecycleGroup,
   restoreDocumentSubtree,
 } from "./delete-document.js";
 
@@ -52,11 +52,10 @@ async function restoreDocumentWithReceipt(
   const ownerEmail = access.resource.ownerEmail as string;
   const result = await getDb().transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
-    const lockedDatabaseIds = await lockDatabasesForRestore(
-      tx,
-      input.id,
-      ownerEmail,
-    );
+    const locks = await lockLifecycleGroup(tx, {
+      operation: "restore",
+      roots: [{ id: input.id, ownerEmail }],
+    });
     const before = await lockLifecycleDocument(tx, input.id, ownerEmail);
     const { claim, replay } = await claimDocumentLifecycleIntent(
       tx,
@@ -84,7 +83,7 @@ async function restoreDocumentWithReceipt(
       tx,
       input.id,
       ownerEmail,
-      lockedDatabaseIds,
+      locks,
     );
     const after = await lockLifecycleDocument(tx, input.id, ownerEmail);
     if (after.trashedAt || !restored.includes(input.id))

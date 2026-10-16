@@ -21,6 +21,7 @@ import {
   nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 async function assertParentIsNotDescendant({
   db,
@@ -319,22 +320,18 @@ export default defineAction({
     const runMoveTransaction = () =>
       db.transaction(async (tx) => {
         let blockDatabaseIdToDetach: string | null = null;
+        // The moved page and every sibling it renumbers, in id order.
+        const pageIds = [
+          id,
+          ...(normalizedSiblingPositions ?? []).map((document) => document.id),
+        ];
         if (args.parentId !== undefined) {
           const lockedDatabaseId = await lockDocumentMetadataDatabase({
             db: tx,
             documentId: id,
             ownerEmail,
           });
-          await tx
-            .select({ id: schema.documents.id })
-            .from(schema.documents)
-            .where(
-              and(
-                eq(schema.documents.id, id),
-                eq(schema.documents.ownerEmail, ownerEmail),
-              ),
-            )
-            .for("update");
+          await lockDocumentRows(tx, pageIds);
           const current = (
             await assertDocumentMutationAccess(id, "editor", "id")
           ).resource;
@@ -379,6 +376,8 @@ export default defineAction({
                 ),
               );
           }
+        } else {
+          await lockDocumentRows(tx, pageIds);
         }
         await tx
           .update(schema.documents)

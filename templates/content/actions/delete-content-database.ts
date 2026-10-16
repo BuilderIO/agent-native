@@ -12,10 +12,7 @@ import {
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
-import {
-  lockDatabasesForTrash,
-  trashDocumentSubtree,
-} from "./delete-document.js";
+import { lockLifecycleGroup, trashDocumentSubtree } from "./delete-document.js";
 
 export default defineAction({
   description:
@@ -68,11 +65,15 @@ export default defineAction({
         role: "admin",
         includeDeleted: true,
         lock: async (tx) => {
-          lockedIds = await lockDatabasesForTrash(
-            tx,
-            database.documentId,
-            database.ownerEmail,
-          );
+          lockedIds = (
+            await lockLifecycleGroup(tx, {
+              operation: "trash",
+              roots: [
+                { id: database.documentId, ownerEmail: database.ownerEmail },
+              ],
+              alsoLockDatabaseIds: [database.id],
+            })
+          ).databaseIds;
         },
         apply: async (tx, context) => {
           if (context.database.ownerDocumentId)
@@ -120,17 +121,17 @@ export default defineAction({
     const deletedAt = database.deletedAt ?? new Date().toISOString();
     const deletedDocumentIds = await db.transaction(async (tx) => {
       const transactionDb = tx as unknown as ReturnType<typeof getDb>;
-      const lockedDatabaseIds = await lockDatabasesForTrash(
-        transactionDb,
-        database.documentId,
-        database.ownerEmail,
-      );
+      const locks = await lockLifecycleGroup(transactionDb, {
+        operation: "trash",
+        roots: [{ id: database.documentId, ownerEmail: database.ownerEmail }],
+        alsoLockDatabaseIds: [database.id],
+      });
       return trashDocumentSubtree(
         transactionDb,
         database.documentId,
         database.ownerEmail,
         deletedAt,
-        lockedDatabaseIds,
+        locks.databaseIds,
       );
     });
 

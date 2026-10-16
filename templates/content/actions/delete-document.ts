@@ -29,6 +29,7 @@ import {
   usesDocumentLifecycleProtocol,
 } from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
+import { lockDocumentRows, sortRowIds } from "./_row-lock-order.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -477,29 +478,140 @@ async function lockPermanentDeleteScope(
   ) {
     throw new PermanentDeleteScopeChangedError();
   }
+  await lockDocumentRows(db, lockedScope.documentIds);
   return lockedScope;
 }
 
-export async function lockDatabasesForTrash(
+export type LifecycleGroupLocks = {
+  databaseIds: ReadonlySet<string>;
+  documentIds: ReadonlySet<string>;
+};
+
+type LifecycleRoot = { id: string; ownerEmail: string };
+
+async function collectTrashScope(
   db: ReturnType<typeof getDb>,
-  id: string,
-  ownerEmail: string,
+  root: LifecycleRoot,
 ) {
-  const subtree = await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  const subtree = await collectDocumentSubtreeForDelete(
+    db,
+    root.id,
+    root.ownerEmail,
+  );
   const memberships = await selectMembershipsForDocuments(
     db,
     subtree.documentIds,
   );
-  const databaseIds = [
-    ...new Set([
-      ...memberships.map((membership) => membership.databaseId),
+  return {
+    documentIds: subtree.documentIds,
+    databaseIds: [
       ...subtree.ownedDatabaseIds,
-    ]),
-  ].sort();
+      ...memberships.map((membership) => membership.databaseId),
+    ],
+  };
+}
+
+/** The collection rows `renumberDatabaseRows` rewrites `documents.position` for. */
+async function selectRenumberedDocumentIds(
+  db: ReturnType<typeof getDb>,
+  databaseIds: string[],
+) {
+  const rows: Array<{ id: string }> = [];
+  for (const batch of chunks(databaseIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({ id: schema.documents.id })
+        .from(schema.contentDatabaseItems)
+        .innerJoin(
+          schema.contentDatabases,
+          eq(
+            schema.contentDatabases.id,
+            schema.contentDatabaseItems.databaseId,
+          ),
+        )
+        .innerJoin(
+          schema.documents,
+          and(
+            eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+            eq(schema.documents.parentId, schema.contentDatabases.documentId),
+            eq(schema.documents.ownerEmail, schema.contentDatabases.ownerEmail),
+          ),
+        )
+        .where(inArray(schema.contentDatabaseItems.databaseId, batch))),
+    );
+  }
+  return rows.map((row) => row.id);
+}
+
+/**
+ * Locks every row a Trash move or restore writes, in Content's row-lock order
+ * (`_row-lock-order.ts`): the group's collections, then, for a restore, the
+ * memberships it renumbers, then the pages. Trash writes no membership, so it
+ * locks none. Taking a membership after a page is what deadlocked a restore
+ * against an edit, which locks memberships before the page.
+ *
+ * A restore's group is every page with the root's trashRootId, which can
+ * differ from the root's current subtree once a member moves.
+ */
+export async function lockLifecycleGroup(
+  db: ReturnType<typeof getDb>,
+  args: {
+    operation: "trash" | "restore";
+    roots: LifecycleRoot[];
+    alsoLockDatabaseIds?: readonly string[];
+    alsoLockDocumentIds?: readonly string[];
+  },
+): Promise<LifecycleGroupLocks> {
+  const collectScope = async () => {
+    const documentIds = new Set<string>();
+    const databaseIds = new Set<string>();
+    for (const root of args.roots) {
+      const scope =
+        args.operation === "trash"
+          ? await collectTrashScope(db, root)
+          : await collectRestoreScope(db, root.id, root.ownerEmail);
+      for (const id of scope.documentIds) documentIds.add(id);
+      for (const id of scope.databaseIds) databaseIds.add(id);
+    }
+    return { documentIds, databaseIds };
+  };
+
+  const initialScope = await collectScope();
+  const databaseIds = sortRowIds([
+    ...initialScope.databaseIds,
+    ...(args.alsoLockDatabaseIds ?? []),
+  ]);
   for (const databaseId of databaseIds) {
     await lockContentDatabaseMutation(db, databaseId);
   }
-  return new Set(databaseIds);
+  const lockedDatabaseIds = new Set(databaseIds);
+
+  const scope = await collectScope();
+  if ([...scope.databaseIds].some((id) => !lockedDatabaseIds.has(id))) {
+    setupError(
+      "LIFECYCLE_SCOPE_CHANGED",
+      args.operation === "trash"
+        ? "The pages changed while moving to Trash. Retry."
+        : "The Trash item changed while restoring. Retry.",
+    );
+  }
+
+  const documentIds = [
+    ...scope.documentIds,
+    ...args.roots.map((root) => root.id),
+    ...(args.alsoLockDocumentIds ?? []),
+  ];
+  if (args.operation === "restore") {
+    await lockDatabaseMemberships(
+      db,
+      await selectMembershipIdsForDatabases(db, databaseIds),
+    );
+    documentIds.push(...(await selectRenumberedDocumentIds(db, databaseIds)));
+  }
+  return {
+    databaseIds: lockedDatabaseIds,
+    documentIds: new Set(await lockDocumentRows(db, documentIds)),
+  };
 }
 
 export async function trashDocumentSubtree(
@@ -664,50 +776,32 @@ async function collectRestoreScope(
   };
 }
 
-/**
- * A restore's group is every page with this trashRootId, which can differ from
- * the root's current subtree once a member moves. Lock the group's collections
- * here, before any page row, so every restore path takes them in one order.
- */
-export async function lockDatabasesForRestore(
-  db: ReturnType<typeof getDb>,
-  rootId: string,
-  ownerEmail: string,
-  alsoLockDatabaseIds: readonly string[] = [],
-) {
-  const scope = await collectRestoreScope(db, rootId, ownerEmail);
-  const databaseIds = [
-    ...new Set([...scope.databaseIds, ...alsoLockDatabaseIds]),
-  ].sort();
-  for (const databaseId of databaseIds) {
-    await lockContentDatabaseMutation(db, databaseId);
-  }
-  return new Set(databaseIds);
-}
-
 export async function restoreDocumentSubtree(
   db: ReturnType<typeof getDb>,
   rootId: string,
   ownerEmail: string,
-  lockedDatabaseIds?: ReadonlySet<string>,
+  lockedGroup?: LifecycleGroupLocks,
 ): Promise<string[]> {
-  const lockedDatabaseIdSet =
-    lockedDatabaseIds ??
-    (await lockDatabasesForRestore(db, rootId, ownerEmail));
+  const locks =
+    lockedGroup ??
+    (await lockLifecycleGroup(db, {
+      operation: "restore",
+      roots: [{ id: rootId, ownerEmail }],
+    }));
   const restoreScope = await collectRestoreScope(db, rootId, ownerEmail);
   const documentIds = restoreScope.documentIds;
   if (documentIds.length === 0) return [];
   if (
     restoreScope.databaseIds.some(
-      (databaseId) => !lockedDatabaseIdSet.has(databaseId),
-    )
+      (databaseId) => !locks.databaseIds.has(databaseId),
+    ) ||
+    documentIds.some((documentId) => !locks.documentIds.has(documentId))
   ) {
-    throw new Error("Document restore scope changed; retry restoration.");
+    setupError(
+      "LIFECYCLE_SCOPE_CHANGED",
+      "The Trash item changed while restoring. Retry.",
+    );
   }
-  await lockDatabaseMemberships(
-    db,
-    await selectMembershipIdsForDatabases(db, [...lockedDatabaseIdSet].sort()),
-  );
 
   const now = new Date().toISOString();
   for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
@@ -1231,11 +1325,10 @@ async function trashDocumentWithReceipt(
   const ownerEmail = access.resource.ownerEmail as string;
   const result = await getDb().transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
-    const lockedDatabaseIds = await lockDatabasesForTrash(
-      tx,
-      input.id,
-      ownerEmail,
-    );
+    const locks = await lockLifecycleGroup(tx, {
+      operation: "trash",
+      roots: [{ id: input.id, ownerEmail }],
+    });
     const before = await lockLifecycleDocument(tx, input.id, ownerEmail);
     const { claim, replay } = await claimDocumentLifecycleIntent(
       tx,
@@ -1258,7 +1351,7 @@ async function trashDocumentWithReceipt(
       input.id,
       ownerEmail,
       undefined,
-      lockedDatabaseIds,
+      locks.databaseIds,
       origin,
     );
     const after = await lockLifecycleDocument(tx, input.id, ownerEmail);
@@ -1363,17 +1456,17 @@ export default defineAction({
     }
     const deleted = await db.transaction(async (tx) => {
       const transactionDb = tx as unknown as ReturnType<typeof getDb>;
-      const lockedDatabaseIds = await lockDatabasesForTrash(
-        transactionDb,
-        id,
-        existing.ownerEmail as string,
-      );
+      const ownerEmail = existing.ownerEmail as string;
+      const locks = await lockLifecycleGroup(transactionDb, {
+        operation: "trash",
+        roots: [{ id, ownerEmail }],
+      });
       return trashDocumentSubtree(
         transactionDb,
         id,
-        existing.ownerEmail as string,
+        ownerEmail,
         undefined,
-        lockedDatabaseIds,
+        locks.databaseIds,
         ctx?.caller,
       );
     });

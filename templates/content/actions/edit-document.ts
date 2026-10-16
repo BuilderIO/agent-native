@@ -34,7 +34,10 @@ import {
   recordContentSaveOutcome,
   type ContentSaveOutcomeDimensions,
 } from "./_content-save-outcomes.js";
-import { mutateDocumentBody } from "./_document-edit-mutation.js";
+import {
+  assertEditableDocument,
+  mutateDocumentBody,
+} from "./_document-edit-mutation.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 
 interface TextEdit {
@@ -390,6 +393,7 @@ export default defineAction({
       return result;
     }
 
+    assertEditableDocument(existing);
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;

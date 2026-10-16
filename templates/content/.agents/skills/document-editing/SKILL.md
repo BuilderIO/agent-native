@@ -155,6 +155,10 @@ literally empty, pass non-whitespace `initializeContent` instead of `find` or `e
 Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
 
+A page in Trash refuses edits with `DOCUMENT_NOT_FOUND`, the same way
+`get-document` refuses to read it, including a page moved to Trash while the
+edit commits. Restore it before editing.
+
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External

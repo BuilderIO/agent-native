@@ -17,7 +17,8 @@ import {
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
 import {
-  lockDatabasesForRestore,
+  type LifecycleGroupLocks,
+  lockLifecycleGroup,
   restoreDocumentSubtree,
 } from "./delete-document.js";
 import pullDocumentAction from "./pull-document.js";
@@ -81,7 +82,7 @@ export default defineAction({
       const { database } = await assertContentDatabaseLifecycleAccess(
         input.target.databaseId,
       );
-      let lockedDatabaseIds: ReadonlySet<string> | undefined;
+      let locks: LifecycleGroupLocks | undefined;
       const result = await runDatabaseSetupMutation({
         operation: "restore-content-database",
         input,
@@ -89,12 +90,13 @@ export default defineAction({
         role: "admin",
         includeDeleted: true,
         lock: async (tx) => {
-          lockedDatabaseIds = await lockDatabasesForRestore(
-            tx,
-            database.documentId,
-            database.ownerEmail,
-            [database.id],
-          );
+          locks = await lockLifecycleGroup(tx, {
+            operation: "restore",
+            roots: [
+              { id: database.documentId, ownerEmail: database.ownerEmail },
+            ],
+            alsoLockDatabaseIds: [database.id],
+          });
         },
         apply: async (tx, context) => {
           if (context.database.ownerDocumentId)
@@ -116,7 +118,7 @@ export default defineAction({
             tx,
             context.database.documentId,
             context.database.ownerEmail,
-            lockedDatabaseIds,
+            locks,
           );
           return {
             outcome: context.database.deletedAt
@@ -146,6 +148,17 @@ export default defineAction({
     });
 
     await db.transaction(async (tx) => {
+      const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+      const locks = await lockLifecycleGroup(transactionDb, {
+        operation: "restore",
+        roots: [
+          {
+            id: ownership.database.documentId,
+            ownerEmail: ownership.database.ownerEmail,
+          },
+        ],
+        alsoLockDatabaseIds: [databaseId],
+      });
       const [backingDocument] = await tx
         .select({
           trashedAt: schema.documents.trashedAt,
@@ -165,9 +178,10 @@ export default defineAction({
       }
 
       const restoredDocumentIds = await restoreDocumentSubtree(
-        tx as unknown as ReturnType<typeof getDb>,
+        transactionDb,
         ownership.database.documentId,
         ownership.database.ownerEmail,
+        locks,
       );
       if (
         backingDocument.trashedAt &&
