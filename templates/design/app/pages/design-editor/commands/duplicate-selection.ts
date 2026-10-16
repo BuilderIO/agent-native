@@ -370,6 +370,7 @@ export function runDuplicateSelection({
     let activeLocalUndoStackTopBefore: ContentHistoryChange | undefined;
     let activeContentHistoryTopBefore: ContentHistoryEntry | undefined;
     let activeContentAfter: string | undefined;
+    let activeYjsHistoryRecorded = false;
 
     if (!canEditDesign) return;
 
@@ -516,8 +517,10 @@ export function runDuplicateSelection({
       });
       if (publication.status !== "accepted") continue;
       selectedScreenIds.push(file.id);
-      if (tracksActiveSelectionHistory)
+      if (tracksActiveSelectionHistory) {
         activeContentAfter = publication.content;
+        activeYjsHistoryRecorded = publication.yjsHistoryRecorded === true;
+      }
       const finalProjection = projectAcceptedSource(publication, source);
       insertedRootNodeIds.forEach((rootNodeId) => {
         const submittedNode = submittedProjection.nodes.find(
@@ -566,7 +569,7 @@ export function runDuplicateSelection({
           );
           stampYjsUndoSelectionAfter(
             undoManagerRef.current,
-            activeUndoStackTopBefore,
+            activeYjsHistoryRecorded,
             selectionAfterDuplicate,
           );
           if (localContentUndoStackRef) {

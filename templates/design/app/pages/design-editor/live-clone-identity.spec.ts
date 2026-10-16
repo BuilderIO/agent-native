@@ -142,6 +142,7 @@ function duplicateThroughBridgeMessage() {
       activeFile,
       applyLocalContentUpdate: (content) => {
         nextContent = content;
+        return { status: "accepted", content, nodeIdMap: new Map() };
       },
       canEditDesign: true,
       getFreshActiveContent: () => nextContent,
@@ -257,6 +258,7 @@ describe("alt-drag clone identity", () => {
         componentLinks: componentContext("screen-a", docs),
         applyLocalContentUpdate: (content) => {
           nextContent = content;
+          return { status: "accepted", content, nodeIdMap: new Map() };
         },
         canEditDesign: true,
         getFreshActiveContent: () => nextContent,

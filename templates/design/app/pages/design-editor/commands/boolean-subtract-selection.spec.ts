@@ -113,7 +113,11 @@ describe("runBooleanSubtractSelection", () => {
         before,
         after: publication.content,
       });
-      return { status: "accepted" as const, ...publication };
+      return {
+        status: "accepted" as const,
+        ...publication,
+        yjsHistoryRecorded: true,
+      };
     });
 
     runBooleanSubtractSelection({

@@ -147,7 +147,7 @@ export function runBooleanSubtractSelection({
   setSelectedElement(wrapperInfo);
   stampYjsUndoSelectionAfter(
     undoManagerRef.current,
-    undoStackTopBeforeBoolean,
+    publication.yjsHistoryRecorded === true,
     {
       selectedElement: wrapperInfo,
       selectedLayerIds: [acceptedWrapper.id],

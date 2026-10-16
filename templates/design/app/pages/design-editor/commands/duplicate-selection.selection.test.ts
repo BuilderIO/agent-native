@@ -291,6 +291,7 @@ describe("runDuplicateSelection selection tracking", () => {
           status: "accepted",
           content: publication.content,
           nodeIdMap: publication.nodeIdMap,
+          yjsHistoryRecorded: true,
         };
       },
       applyLocalContentUpdate: vi.fn(),

@@ -212,7 +212,7 @@ export function runGroupSelection({
     setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));
     stampYjsUndoSelectionAfter(
       undoManagerRef.current,
-      undoStackTopBeforeGroup,
+      publication.yjsHistoryRecorded === true,
       {
         selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
         selectedLayerIds: [wrapperNode.id],

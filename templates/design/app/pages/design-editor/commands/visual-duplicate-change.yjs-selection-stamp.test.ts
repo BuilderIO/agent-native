@@ -54,8 +54,14 @@ describe("runVisualDuplicateChange — stamps the pre-duplicate (original) selec
   it("stamps the ORIGINAL node's selection onto a NEW undo-stack item, not the stale copy selection", () => {
     const priorItem = { meta: new Map<unknown, unknown>() };
     const undoManagerRef = { current: { undoStack: [priorItem] } };
-    const applyLocalContentUpdate = vi.fn(() => {
+    const applyLocalContentUpdate = vi.fn((content: string) => {
       undoManagerRef.current.undoStack.push({ meta: new Map() });
+      return {
+        status: "accepted",
+        content,
+        nodeIdMap: new Map(),
+        yjsHistoryRecorded: true,
+      };
     });
 
     const { args } = baseArgs({ undoManagerRef, applyLocalContentUpdate });
@@ -79,7 +85,12 @@ describe("runVisualDuplicateChange — stamps the pre-duplicate (original) selec
     const priorItem = { meta: new Map<unknown, unknown>() };
     priorItem.meta.set("design-editor-selection-before", "earlier-gesture");
     const undoManagerRef = { current: { undoStack: [priorItem] } };
-    const applyLocalContentUpdate = vi.fn();
+    const applyLocalContentUpdate = vi.fn((content: string) => ({
+      status: "accepted",
+      content,
+      nodeIdMap: new Map(),
+      yjsHistoryRecorded: false,
+    }));
 
     const { args } = baseArgs({ undoManagerRef, applyLocalContentUpdate });
 
@@ -104,6 +115,12 @@ describe("runVisualDuplicateChange — stamps the pre-duplicate (original) selec
     let updatedContent = CONTENT;
     const applyLocalContentUpdate = vi.fn((content: string) => {
       updatedContent = content;
+      return {
+        status: "accepted",
+        content,
+        nodeIdMap: new Map(),
+        yjsHistoryRecorded: true,
+      };
     });
     const { args } = baseArgs({ undoManagerRef, applyLocalContentUpdate });
     const copyElementInfo = {

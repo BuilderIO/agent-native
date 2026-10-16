@@ -75,6 +75,7 @@ import { runPublishAgentSelectionContext } from "../effects/publish-agent-select
 import { loadDesignSystemGenerationContext } from "../generation-prompt-directives";
 import {
   captureContentUndoStackTop,
+  captureYjsUndoHistoryUpdate,
   captureYjsUndoStackTop,
   type ContentUndoStackTop,
 } from "../history";
@@ -780,7 +781,11 @@ export function useEditorToolsAndVectors({
         localContentUndoStackRef.current[
           localContentUndoStackRef.current.length - 1
         ];
-      const result = handleCreatePrimitive(activeFile.id, primitive);
+      const yjsHistoryUpdate = captureYjsUndoHistoryUpdate(
+        undoManagerRef.current,
+        () => handleCreatePrimitive(activeFile.id, primitive),
+      );
+      const result = yjsHistoryUpdate.result;
       if (!result) return false;
       const resultNodeId = typeof result === "string" ? result : nodeId;
       handlePrimitiveCreated(
@@ -803,6 +808,7 @@ export function useEditorToolsAndVectors({
             undoManagerRef,
             undoStackTopBefore: yjsUndoStackTopBefore,
             selectionBefore: yjsSelectionBefore,
+            recorded: yjsHistoryUpdate.recorded,
           },
           localContentUndoSelection: {
             undoStackRef: localContentUndoStackRef,

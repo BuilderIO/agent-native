@@ -76,6 +76,7 @@ export interface PrimitiveCreatedHistorySelectionArgs {
     undoManagerRef: RefObject<Y.UndoManager | null>;
     undoStackTopBefore: YjsUndoStackTop;
     selectionBefore: YjsUndoSelectionSnapshot;
+    recorded: boolean;
   };
   localContentUndoSelection?: {
     undoStackRef: RefObject<ContentHistoryChange[]>;
@@ -142,14 +143,14 @@ export function runPrimitiveCreated(
 
   if (historySelection) {
     if (historySelection.yjsUndoSelection) {
-      const { undoManagerRef, undoStackTopBefore, selectionBefore } =
+      const { undoManagerRef, undoStackTopBefore, selectionBefore, recorded } =
         historySelection.yjsUndoSelection;
       stampYjsUndoSelection(
         undoManagerRef.current,
         undoStackTopBefore,
         selectionBefore,
       );
-      stampYjsUndoSelectionAfter(undoManagerRef.current, undoStackTopBefore, {
+      stampYjsUndoSelectionAfter(undoManagerRef.current, recorded, {
         selectedElement: null,
         selectedLayerIds: [nodeId],
       });

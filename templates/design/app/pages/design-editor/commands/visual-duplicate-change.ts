@@ -31,6 +31,7 @@ import type { GeometryHistorySelection } from "@/pages/design-editor/history";
 import { captureHistorySelectionSources } from "@/pages/design-editor/history-identity";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
 import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
 
 export interface VisualDuplicateChangeArgs {
@@ -51,7 +52,7 @@ export interface VisualDuplicateChangeArgs {
       clipboardMutation?: ClipboardContentMutationPublication;
       selectionBefore?: YjsUndoSelectionSnapshot;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   canEditLiveScreen?: boolean;
   getFreshActiveContent: () => string;
@@ -222,7 +223,7 @@ export function runVisualDuplicateChange(
   const undoStackTopBeforeDuplicate = captureYjsUndoStackTop(
     undoManagerRef.current,
   );
-  applyLocalContentUpdate(nextContent, {
+  const publication = applyLocalContentUpdate(nextContent, {
     refreshPreview: false,
     forcePreviewFullDocument: true,
     historyBeforeContent: baseContent,
@@ -258,7 +259,8 @@ export function runVisualDuplicateChange(
   }
   stampYjsUndoSelectionAfter(
     undoManagerRef.current,
-    undoStackTopBeforeDuplicate,
+    publication.status === "accepted" &&
+      publication.yjsHistoryRecorded === true,
     selectionAfterDuplicate,
   );
   return true;

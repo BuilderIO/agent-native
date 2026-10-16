@@ -511,7 +511,6 @@ test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadab
   });
 });
 
-// oracle: none — only the paint type controls changed (Gradient button, Type select); no Figma behavior is claimed.
 test("vector fill gradient renders in the inspector, source, SVG and PNG exports", async ({
   app,
   page,

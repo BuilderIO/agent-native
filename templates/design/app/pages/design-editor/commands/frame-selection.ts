@@ -454,7 +454,7 @@ export function runFrameSelection({
     setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));
     stampYjsUndoSelectionAfter(
       undoManagerRef.current,
-      undoStackTopBeforeFrame,
+      publication.yjsHistoryRecorded === true,
       {
         selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
         selectedLayerIds: [wrapperNode.id],

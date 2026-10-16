@@ -31,6 +31,26 @@ export function captureYjsUndoStackTop(
   return stack?.[stack.length - 1];
 }
 
+export function captureYjsUndoHistoryUpdate<T>(
+  undoManager: Y.UndoManager | null | undefined,
+  run: () => T,
+): { result: T; recorded: boolean } {
+  if (!undoManager) return { result: run(), recorded: false };
+
+  let recorded = false;
+  const markRecorded = () => {
+    recorded = true;
+  };
+  undoManager.on("stack-item-added", markRecorded);
+  undoManager.on("stack-item-updated", markRecorded);
+  try {
+    return { result: run(), recorded };
+  } finally {
+    undoManager.off("stack-item-added", markRecorded);
+    undoManager.off("stack-item-updated", markRecorded);
+  }
+}
+
 export function stampYjsUndoSelection(
   undoManager: Y.UndoManager | null | undefined,
   previousTop: YjsUndoStackTop,
@@ -54,9 +74,10 @@ export const YJS_REDO_SELECTION_META_KEY = "design-editor-selection-after";
 
 export function stampYjsUndoSelectionAfter(
   undoManager: Y.UndoManager | null | undefined,
-  _previousTop: YjsUndoStackTop,
+  recorded: boolean,
   snapshot: YjsUndoSelectionSnapshot,
 ): void {
+  if (!recorded) return;
   const stack = undoManager?.undoStack;
   const top = stack?.[stack.length - 1];
   if (!top) return;

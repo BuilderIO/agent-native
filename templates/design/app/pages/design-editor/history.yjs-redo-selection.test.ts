@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import * as Y from "yjs";
 
 import {
+  captureYjsUndoHistoryUpdate,
   captureYjsUndoStackTop,
   forwardYjsUndoStackItemMeta,
   readYjsRedoSelection,
@@ -42,7 +44,7 @@ describe("stampYjsUndoSelectionAfter / readYjsRedoSelection", () => {
     };
 
     stampYjsUndoSelection(um as any, before, beforeSnap);
-    stampYjsUndoSelectionAfter(um as any, before, afterSnap);
+    stampYjsUndoSelectionAfter(um as any, true, afterSnap);
 
     expect(readYjsUndoSelection(um.undoStack[0])).toEqual(beforeSnap);
     expect(readYjsRedoSelection(um.undoStack[0])).toEqual(afterSnap);
@@ -67,10 +69,29 @@ describe("stampYjsUndoSelectionAfter / readYjsRedoSelection", () => {
     item.meta.set("design-editor-selection-after", firstAfterSnap);
     um.undoStack.push(item);
 
-    stampYjsUndoSelectionAfter(um as any, item, latestAfterSnap);
+    stampYjsUndoSelectionAfter(um as any, true, latestAfterSnap);
 
     expect(readYjsUndoSelection(item)).toEqual(beforeSnap);
     expect(readYjsRedoSelection(item)).toEqual(latestAfterSnap);
+  });
+
+  it("leaves an unrelated Yjs item unchanged when creation used local fallback history", () => {
+    const um = fakeUndoManager();
+    const item = { meta: new Map<unknown, unknown>() };
+    const existingAfterSnap = {
+      selectedElement: null,
+      selectedLayerIds: ["earlier"],
+    };
+    const unrelatedAfterSnap = {
+      selectedElement: null,
+      selectedLayerIds: ["local-fallback-create"],
+    };
+    item.meta.set("design-editor-selection-after", existingAfterSnap);
+    um.undoStack.push(item);
+
+    stampYjsUndoSelectionAfter(um as any, false, unrelatedAfterSnap);
+
+    expect(readYjsRedoSelection(item)).toEqual(existingAfterSnap);
   });
 });
 
@@ -83,7 +104,7 @@ describe("forwardYjsUndoStackItemMeta", () => {
       selectedElement: { selector: "#group-1" } as any,
       selectedLayerIds: ["group-1"],
     };
-    stampYjsUndoSelectionAfter(um as any, before, afterSnap);
+    stampYjsUndoSelectionAfter(um as any, true, afterSnap);
 
     const undone = simulateUndo(um);
     expect(readYjsRedoSelection(um.redoStack[0])).toBeUndefined();
@@ -102,5 +123,36 @@ describe("forwardYjsUndoStackItemMeta", () => {
     expect(() => forwardYjsUndoStackItemMeta(item, undefined)).not.toThrow();
     expect(() => forwardYjsUndoStackItemMeta(item, item)).not.toThrow();
     expect(item.meta.get("k")).toBe("v");
+  });
+});
+
+describe("captureYjsUndoHistoryUpdate", () => {
+  it("reports added and coalesced items, but not a fallback-only operation", () => {
+    const doc = new Y.Doc();
+    const text = doc.getText("content");
+    const undoManager = new Y.UndoManager(text, {
+      trackedOrigins: new Set(["local"]),
+      captureTimeout: 60_000,
+    });
+
+    const added = captureYjsUndoHistoryUpdate(undoManager, () => {
+      doc.transact(() => text.insert(0, "a"), "local");
+      return "added";
+    });
+    const firstItem = undoManager.undoStack[0];
+    const updated = captureYjsUndoHistoryUpdate(undoManager, () => {
+      doc.transact(() => text.insert(1, "b"), "local");
+      return "updated";
+    });
+    const fallback = captureYjsUndoHistoryUpdate(undoManager, () => "fallback");
+
+    expect(added).toEqual({ result: "added", recorded: true });
+    expect(updated).toEqual({ result: "updated", recorded: true });
+    expect(undoManager.undoStack).toHaveLength(1);
+    expect(undoManager.undoStack[0]).toBe(firstItem);
+    expect(fallback).toEqual({ result: "fallback", recorded: false });
+
+    undoManager.destroy();
+    doc.destroy();
   });
 });

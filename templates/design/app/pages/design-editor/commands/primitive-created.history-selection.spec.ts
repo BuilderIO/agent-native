@@ -74,6 +74,7 @@ it("stamps the selection established by primitive creation into content and Yjs 
       undoManagerRef,
       undoStackTopBefore: previousYjsItem,
       selectionBefore,
+      recorded: true,
     },
   });
 
@@ -145,6 +146,7 @@ it("keeps the first undo selection and advances redo selection when creations co
       undoManagerRef,
       undoStackTopBefore,
       selectionBefore,
+      recorded: true,
     },
   });
 
