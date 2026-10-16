@@ -239,6 +239,31 @@ describe("Page browser journal recovery", () => {
     ]);
   });
 
+  it("asks again which tabs are open before acting on an entry written since", async () => {
+    state.entries = [entry("closed-tab", "Saved body")];
+    await act(async () => render());
+    expect(state.entries).toEqual([]);
+
+    state.entries = [
+      { ...entry("new-tab", "Typed in the new tab"), writtenAt: 2 },
+    ];
+    state.live.mockResolvedValue(new Set(["new-tab"]));
+    state.draft = {
+      version: 1,
+      title: "Saved",
+      content: "Typed in the new tab",
+      baseDocumentUpdatedAt: "v2",
+      editorSessionId: "new-tab",
+      editGeneration: 1,
+    };
+    await act(async () => render());
+
+    expect(state.cleared).not.toHaveBeenCalledWith("new-tab");
+    expect(state.entries.map((item) => item.scope.writerId)).toEqual([
+      "new-tab",
+    ]);
+  });
+
   it("shows a failure, not the editor, when open tabs cannot be read", async () => {
     state.entries = [entry("other-tab", "Typed in the other tab")];
     state.live.mockRejectedValue(new Error("lock manager unavailable"));

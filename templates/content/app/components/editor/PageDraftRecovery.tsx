@@ -113,14 +113,16 @@ export function PageDraftRecovery({
   const [journalRevision, setJournalRevision] = useState(0);
   // Another tab's open editor settles its own journal entries; replaying one
   // here races its save queue and sends a save for text nobody typed here.
+  // A query only knows the editors open when it ran, so it holds for the
+  // entry it was taken for; a tab opened since writes entries it misses.
   const [liveWriters, setLiveWriters] = useState<{
     scopeKey: string;
+    entryKey: string;
     writerIds: ReadonlySet<string>;
   } | null>(null);
-  const skippedWriterIds =
-    liveWriters && liveWriters.scopeKey === scopeKey
-      ? liveWriters.writerIds
-      : undefined;
+  const scopeLiveWriters =
+    liveWriters && liveWriters.scopeKey === scopeKey ? liveWriters : null;
+  const skippedWriterIds = scopeLiveWriters?.writerIds;
   const journalAttemptRef = useRef<string | null>(null);
   const automaticRecoveryRef = useRef<string | null>(null);
   const automaticLegacyRecoveryRef = useRef<string | null>(null);
@@ -211,14 +213,19 @@ export function PageDraftRecovery({
       setJournalState("ready");
       return;
     }
-    if (!skippedWriterIds && scopeKey) {
+    const entryKey = `${entry.scope.writerId}:${entry.snapshot.editGeneration}:${entry.writtenAt}`;
+    if (scopeKey && scopeLiveWriters?.entryKey !== entryKey) {
       let cancelled = false;
       void liveDraftWriterIds().then(
         (writerIds) => {
           // Without Web Locks no writer reads as live, so every entry
           // replays, as it did before writer locks.
           if (!cancelled)
-            setLiveWriters({ scopeKey, writerIds: writerIds ?? new Set() });
+            setLiveWriters({
+              scopeKey,
+              entryKey,
+              writerIds: writerIds ?? new Set(),
+            });
         },
         () => {
           if (!cancelled) setJournalState("failed");
@@ -500,10 +507,10 @@ export function PageDraftRecovery({
     journalRevision,
     journalState,
     scopeKey,
+    scopeLiveWriters,
     scopeVerified,
     session?.email,
     session?.orgId,
-    skippedWriterIds,
   ]);
 
   useEffect(() => {
