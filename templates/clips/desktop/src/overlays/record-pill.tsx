@@ -58,7 +58,10 @@ import {
 } from "../lib/pill-completion-actions";
 import { toolbarEnabledEffect } from "../lib/pill-session";
 import type { PillMode } from "../lib/pill-session";
-import { RECORDER_DISCARD_EVENT } from "../lib/recorder-events";
+import {
+  RECORDER_DISCARD_EVENT,
+  RECORDER_MIC_TRACK_ENDED_EVENT,
+} from "../lib/recorder-events";
 import {
   removeRecordingContext,
   setRecordingContextWindow,
@@ -763,6 +766,7 @@ export function RecordingPill() {
     let microphoneEnabled: boolean | null = null;
     let hasHeardAudio = false;
     let lastAudibleAt = performance.now();
+    let lastMicSignalAt = lastAudibleAt;
     let micSilenceTimer: ReturnType<typeof setTimeout> | null = null;
     const clearMicSilenceTimer = () => {
       if (!micSilenceTimer) return;
@@ -777,6 +781,20 @@ export function RecordingPill() {
         return;
       }
       const now = performance.now();
+      if (hasHeardAudio && !recordingPaused && microphoneEnabled === true) {
+        const signalAge = now - lastMicSignalAt;
+        if (signalAge >= MIC_SILENCE_WARNING_MS) {
+          hasHeardAudio = false;
+          setMicLevel(0);
+        } else {
+          setMicWarning(null);
+          micSilenceTimer = setTimeout(
+            syncMicWarning,
+            MIC_SILENCE_WARNING_MS - signalAge,
+          );
+          return;
+        }
+      }
       const warning = micSignalWarning({
         microphoneEnabled,
         paused: recordingPaused,
@@ -784,12 +802,7 @@ export function RecordingPill() {
         hasHeardAudio,
       });
       setMicWarning(warning);
-      if (
-        warning ||
-        recordingPaused ||
-        microphoneEnabled !== true ||
-        hasHeardAudio
-      ) {
+      if (warning || recordingPaused || microphoneEnabled !== true) {
         return;
       }
       micSilenceTimer = setTimeout(
@@ -813,7 +826,10 @@ export function RecordingPill() {
           const nextPaused = !!payload.paused;
           const resumed = recordingPaused && !nextPaused;
           recordingPaused = nextPaused;
-          if (resumed) lastAudibleAt = performance.now();
+          if (resumed) {
+            lastAudibleAt = performance.now();
+            lastMicSignalAt = lastAudibleAt;
+          }
           if (nextPaused) setMicLevel(0);
           syncMicWarning();
           const pending = pauseTransitionRef.current;
@@ -836,6 +852,7 @@ export function RecordingPill() {
         recordingPaused = false;
         microphoneEnabled = null;
         hasHeardAudio = false;
+        lastMicSignalAt = performance.now();
         syncMicWarning();
         if (modeRef.current === "done") {
           if (stallTimerRef.current) {
@@ -869,9 +886,11 @@ export function RecordingPill() {
         if (recordingActive) {
           if (!wasRecordingActive) hasHeardAudio = false;
           lastAudibleAt = performance.now();
+          lastMicSignalAt = lastAudibleAt;
         } else {
           hasHeardAudio = false;
           microphoneEnabled = null;
+          lastMicSignalAt = performance.now();
         }
         syncMicWarning();
         setEnabled(!!payload);
@@ -935,6 +954,7 @@ export function RecordingPill() {
           nextMicrophoneEnabled !== microphoneEnabled
         ) {
           lastAudibleAt = performance.now();
+          lastMicSignalAt = lastAudibleAt;
         }
         if (payload?.recordingId !== sessionRef.current.recordingId) {
           hasHeardAudio = false;
@@ -946,6 +966,16 @@ export function RecordingPill() {
       }),
     );
     track(
+      safeListen(RECORDER_MIC_TRACK_ENDED_EVENT, () => {
+        if (!recordingActive) return;
+        hasHeardAudio = false;
+        lastAudibleAt = performance.now() - MIC_SILENCE_WARNING_MS;
+        lastMicSignalAt = lastAudibleAt;
+        setMicLevel(0);
+        syncMicWarning();
+      }),
+    );
+    track(
       safeListen<{ level?: number; source?: "mic" | "system" }>(
         "voice:audio-level",
         (payload) => {
@@ -953,6 +983,7 @@ export function RecordingPill() {
           const incoming = Number(payload?.level);
           if (!Number.isFinite(incoming)) return;
           const level = Math.max(0, Math.min(1, incoming));
+          lastMicSignalAt = performance.now();
           setMicLevel(level);
           if (
             recordingActive &&
@@ -961,7 +992,7 @@ export function RecordingPill() {
             level >= MIC_AUDIBLE_LEVEL
           ) {
             hasHeardAudio = true;
-            lastAudibleAt = performance.now();
+            lastAudibleAt = lastMicSignalAt;
           }
           syncMicWarning();
         },

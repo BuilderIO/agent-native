@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { completionActionCopy } from "../i18n/completion-en-US";
+import { RECORDER_MIC_TRACK_ENDED_EVENT } from "../lib/recorder-events";
 
 const tauriEvents = vi.hoisted(() => {
   const listeners = new Map<
@@ -356,7 +357,15 @@ describe("completion card actions", () => {
     );
     expect(audioWarning()).toBeNull();
 
-    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    await act(async () => {
+      for (let i = 0; i < 10; i += 1) {
+        await vi.advanceTimersByTimeAsync(1_000);
+        await tauriEvents.emit("voice:audio-level", {
+          source: "mic",
+          level: 0,
+        });
+      }
+    });
     expect(audioWarning()).toBeNull();
 
     await act(async () => tauriEvents.emit("clips:toolbar-preparing", {}));
@@ -368,6 +377,46 @@ describe("completion card actions", () => {
       });
       await vi.advanceTimersByTimeAsync(5_001);
     });
+    expect(audioWarning()).not.toBeNull();
+  });
+
+  it("warns when mic audio signals stop after audible input", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        recordingId: "signal-loss",
+        microphoneEnabled: true,
+      });
+      await tauriEvents.emit("voice:audio-level", {
+        source: "mic",
+        level: 0.1,
+      });
+    });
+    expect(audioWarning()).toBeNull();
+
+    await act(async () => vi.advanceTimersByTimeAsync(5_001));
+
+    expect(audioWarning()).not.toBeNull();
+  });
+
+  it("warns when the browser microphone track ends after audible input", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        recordingId: "track-ended",
+        microphoneEnabled: true,
+      });
+      await tauriEvents.emit("voice:audio-level", {
+        source: "mic",
+        level: 0.1,
+      });
+    });
+    expect(audioWarning()).toBeNull();
+
+    await act(async () => tauriEvents.emit(RECORDER_MIC_TRACK_ENDED_EVENT, {}));
+
     expect(audioWarning()).not.toBeNull();
   });
 
