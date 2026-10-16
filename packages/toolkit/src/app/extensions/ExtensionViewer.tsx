@@ -1320,7 +1320,7 @@ export function ExtensionViewer({
           <iframe
             {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
             ref={iframeRef}
-            key={`${extension.updatedAt}-${refreshKey}-${frameKey}`}
+            key={`${extension.updatedAt}-${refreshKey}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
             src={
               !usesSrcDoc && linkNonce
                 ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)

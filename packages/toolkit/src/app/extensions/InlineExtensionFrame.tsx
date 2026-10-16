@@ -703,7 +703,7 @@ export function InlineExtensionFrame({
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
-        key={`${resolvedId}-${extension.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}-${frameKey}`}
+        key={`${resolvedId}-${extension.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
         src={
           !isTransient && iframeSrc && linkNonce
             ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)

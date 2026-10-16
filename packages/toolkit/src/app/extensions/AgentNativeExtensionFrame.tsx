@@ -600,7 +600,7 @@ export const AgentNativeExtensionFrame = forwardRef<
     <iframe
       {...iframeProps}
       {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-      key={extensionFrameKey}
+      key={`${extensionFrameKey}-${linkNonce ?? "no-link-nonce"}`}
       ref={(node) => {
         iframeRef.current = node;
         setForwardedRef(forwardedRef, node);

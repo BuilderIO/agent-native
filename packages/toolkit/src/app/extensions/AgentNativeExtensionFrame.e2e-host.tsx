@@ -84,6 +84,7 @@ function RouteLinkFrame() {
   return (
     <iframe
       ref={iframeRef}
+      key={linkNonce ?? "no-link-nonce"}
       src={
         linkNonce
           ? extensionFrameUrlWithLinkNonce("/__extension-e2e-route", linkNonce)

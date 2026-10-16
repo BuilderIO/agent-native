@@ -118,6 +118,11 @@ describe("portable extension runtime", () => {
     ).toBe("allow-scripts allow-downloads");
     expect(
       normalizeAgentNativeExtensionSandbox(
+        "ALLOW-SCRIPTS ALLOW-POPUPS ALLOW-POPUPS-TO-ESCAPE-SANDBOX",
+      ),
+    ).toBe("allow-scripts allow-downloads");
+    expect(
+      normalizeAgentNativeExtensionSandbox(
         "allow-scripts allow-top-navigation-by-user-activation",
       ),
     ).toBe(

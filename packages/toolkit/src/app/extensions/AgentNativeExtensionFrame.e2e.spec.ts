@@ -330,6 +330,17 @@ describe("AgentNativeExtensionFrame browser links", () => {
             ?.getAttribute("data-link-channel-ready") === "true",
         { timeout: 10_000 },
       );
+      await page
+        .frameLocator('iframe[data-e2e-route-link="true"]')
+        .locator("body")
+        .evaluate(() => window.location.reload());
+      await page.waitForFunction(
+        () =>
+          document
+            .querySelector('iframe[data-e2e-route-link="true"]')
+            ?.getAttribute("data-link-channel-ready") === "true",
+        { timeout: 10_000 },
+      );
       const extensionFrame = page.frameLocator(
         'iframe[data-e2e-route-link="true"]',
       );

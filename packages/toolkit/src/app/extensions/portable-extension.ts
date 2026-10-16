@@ -443,7 +443,8 @@ export function normalizeAgentNativeExtensionSandbox(
   const tokens = new Set(
     (sandbox ?? "allow-scripts allow-forms allow-downloads")
       .split(/\s+/)
-      .filter(Boolean),
+      .filter(Boolean)
+      .map((token) => token.toLowerCase()),
   );
   tokens.delete("allow-same-origin");
   tokens.delete("allow-popups");

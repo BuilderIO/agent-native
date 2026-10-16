@@ -474,7 +474,7 @@ export function EmbeddedExtension({
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
-        key={`${iframeKey}-${frameKey}`}
+        key={`${iframeKey}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
         src={
           linkNonce
             ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)
