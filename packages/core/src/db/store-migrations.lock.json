@@ -1,0 +1,562 @@
+{
+  "a2a_continuations": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "backfill-legacy-completed-deliveries",
+      "checksum": null
+    },
+    {
+      "name": "backfill-progress-ref-owners",
+      "checksum": null
+    },
+    {
+      "name": "indexes-after-backfill",
+      "checksum": null
+    }
+  ],
+  "a2a_tasks": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "agent_harness_sessions": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "agent_runs": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    }
+  ],
+  "agent_team_run_queue": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "agent_tool_approval_policies": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "tool-revision",
+      "checksum": null
+    }
+  ],
+  "agent_tool_approvals": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "tool-revision",
+      "checksum": null
+    }
+  ],
+  "app_resource_changes": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "app_secrets": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "application_state": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    },
+    {
+      "name": "indexes",
+      "checksum": null
+    }
+  ],
+  "audit": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "auth_sessions": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    }
+  ],
+  "automation_run_history": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "automation_webhook_tokens": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "awaiting_inputs": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "browser_sessions": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "chat_threads": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    },
+    {
+      "name": "indexes",
+      "checksum": null
+    }
+  ],
+  "checkpoints": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "collab_awareness": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "collab_docs": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "computer_approvals": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "conversation_scopes": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "custom_api_providers": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    }
+  ],
+  "data_programs": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "email_log": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    },
+    {
+      "name": "columns-and-indexes",
+      "checksum": null
+    }
+  ],
+  "embed_sessions": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "extension_slots": [
+    {
+      "name": "baseline",
+      "checksum": "2324076d4536f1ed"
+    }
+  ],
+  "extensions": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "migrate-misnamed-extensions-table",
+      "checksum": null
+    },
+    {
+      "name": "tool-data-tables",
+      "checksum": null
+    },
+    {
+      "name": "backfill-tool-data-scope-key",
+      "checksum": "8f373b58c3c33f5e"
+    },
+    {
+      "name": "drop-legacy-tool-data-index",
+      "checksum": "4218fe7cb07d6a1c"
+    },
+    {
+      "name": "extension-indexes-and-tables",
+      "checksum": null
+    }
+  ],
+  "identity_links": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "identity_retired_emails": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "identity_sso": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "integration_campaigns": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "integration_configs": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "integration_controls": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "integration_installations": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "mcp_approvals": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "mcp_connect": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "mcp_oauth": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "notifications": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "oauth_tokens": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "backfill-owner",
+      "checksum": null
+    },
+    {
+      "name": "backfill-revision",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    }
+  ],
+  "observability": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "observational_memory": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    }
+  ],
+  "pending_tasks": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "progress": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "provider_corpus_jobs": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    },
+    {
+      "name": "indexes",
+      "checksum": null
+    }
+  ],
+  "provider_quota_cooldowns": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "recap_images": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "remote_commands": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "remote_devices": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "remote_push": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "remote_run_events": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "resource_access_requests": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "resource_versions": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "resources": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    },
+    {
+      "name": "visibility-expires-index",
+      "checksum": null
+    },
+    {
+      "name": "path-pattern-index",
+      "checksum": null
+    }
+  ],
+  "review": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "review_suggestions": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "sandbox_executions": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "scheduler_health": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "search_resources": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "service_principal_policies": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "settings": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    },
+    {
+      "name": "indexes",
+      "checksum": null
+    }
+  ],
+  "staged_datasets": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    },
+    {
+      "name": "indexes",
+      "checksum": null
+    }
+  ],
+  "sync_events": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "seed-sync-version",
+      "checksum": null
+    }
+  ],
+  "sync_events_prune_state": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "thread_mappings": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "usage": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "widen-bigint",
+      "checksum": null
+    },
+    {
+      "name": "indexes",
+      "checksum": null
+    }
+  ],
+  "usage_alerts": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "usage_budgets": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "workspace_connections": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "workspace_user_groups": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ]
+}

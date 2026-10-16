@@ -1356,10 +1356,9 @@ it("keeps replies and mentions across composer remounts and isolates documents a
     await show("document-one", "ordinary-thread");
     await act(async () => {
       drafts.setText("ordinary-thread", "Unsent @Example reply");
-      drafts.addMention("ordinary-thread", {
-        email: "example@example.test",
-        name: "Example",
-      });
+      drafts.setMentions("ordinary-thread", [
+        { email: "example@example.test", name: "Example" },
+      ]);
       drafts.setText("suggestion-thread", "Unsent suggestion reply");
     });
     await show("document-one", "ordinary-thread", false);
@@ -1707,6 +1706,76 @@ it("keeps decided suggestion history readable and replies only to pending thread
     expect(replyMutate.mock.calls[1][0].clientOperationId).toBe(
       firstOperationId,
     );
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("mentions only the people a suggestion reply names as a whole @name", async () => {
+  replyMutate.mockClear();
+  const suggestions = [
+    suggestionFixture({
+      id: "pending-suggestion",
+      revision: 1,
+      threadId: "thread-pending-suggestion",
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations: [
+        {
+          ordinal: 0,
+          kind: "replace_text",
+          before: { changedText: "original" },
+          after: { changedText: "proposal" },
+          schemaVersion: 1,
+        },
+      ],
+    }),
+  ];
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  let drafts!: ReturnType<typeof useCommentReplyDrafts>;
+  function Harness() {
+    drafts = useCommentReplyDrafts("document-reply-mentions");
+    return (
+      <CommentsSidebar
+        replyDrafts={drafts}
+        documentId="document-reply-mentions"
+        suggestions={suggestions}
+        presentation="history"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const replyButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "comments.reply",
+    );
+    await act(async () => replyButton?.click());
+    await act(async () => {
+      drafts.setText(
+        "thread-pending-suggestion",
+        "Ask @Samantha, not `@Sam`, and @Samantha again",
+      );
+      drafts.setMentions("thread-pending-suggestion", [
+        { email: "sam@example.test", name: "Sam" },
+        { email: "samantha@example.test", name: "Samantha" },
+      ]);
+    });
+    const submit = [...container.querySelectorAll("button")].find(
+      (button) => button.getAttribute("aria-label") === "comments.submit",
+    );
+    await act(async () => submit?.click());
+
+    expect(replyMutate).toHaveBeenCalledTimes(1);
+    expect(replyMutate.mock.calls[0][0].mentions).toEqual([
+      { email: "samantha@example.test", label: "Samantha" },
+    ]);
   } finally {
     await act(async () => root.unmount());
     container.remove();

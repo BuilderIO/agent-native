@@ -65,8 +65,7 @@ test("dragging a button over its sibling's far half reorders the row and changes
   );
 });
 
-// fixme: product bug: The element leaves the row and is saved on the page as position:absolute (left:266px; top:40px). Expected per auto-layout semantics
-test.fixme("dropping a button in the empty end of its auto-layout row keeps it in the row as the last child", async ({
+test("dropping a button in the empty end of its auto-layout row keeps it in the row as the last child", async ({
   app,
 }) => {
   const id = await app.seed(ROW_AND_CONTAINERS);

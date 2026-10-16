@@ -94,6 +94,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "internal transactional-email worker configuration and cursors",
   "clips:clips_transactional_email_jobs":
     "internal transactional-email queue and delivery history",
+  "clips:clips_hosted_clip_allowances":
+    "anti-abuse and retained-byte ledger accessed only through atomic allowance actions",
   "clips:workspace_members": "membership join rows scoped through workspaces",
   "plan:plan_comments": "child rows scoped through plans",
   "plan:plan_edition_stories": "child rows scoped through plans",

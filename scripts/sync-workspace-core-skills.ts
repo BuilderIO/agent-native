@@ -267,6 +267,7 @@ const workspaceSkillExcludes = [
   "concurrent-agents",
   "delegating-work",
   "fix-at-the-boundary",
+  "framework-stores",
   "multi-frontier-desktop",
   "new-branch",
   "ship",

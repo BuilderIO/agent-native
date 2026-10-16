@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
 import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
+import { usePersonalColumnWidths } from "@/lib/personal-column-widths";
 import {
   DASHBOARD_SESSION_LOADING_SCOPE,
   dashboardCacheScope,
@@ -169,6 +170,22 @@ export function SqlChartCard({
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
   );
+  // While viewing, dragging a column edge sizes it for this person only. A
+  // table offers rename, reorder, and format whenever it gets onSaveColumns,
+  // so only edit mode passes it on.
+  const personalColumnWidths = usePersonalColumnWidths(
+    dashboardId,
+    panel.id,
+    panel.config?.columns,
+  );
+  const tableColumnProps = editable
+    ? { onSaveColumns }
+    : dashboardId && panel.chartType === "table"
+      ? {
+          columnWidths: personalColumnWidths.widths,
+          onColumnWidthChange: personalColumnWidths.setWidth,
+        }
+      : {};
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -851,7 +868,7 @@ export function SqlChartCard({
             dashboardId={dashboardId}
             onExportCsvChange={handleExportCsvChange}
             onCopyTableChange={handleCopyTableChange}
-            onSaveColumns={onSaveColumns}
+            {...tableColumnProps}
             extensionContext={extensionContext}
           />
         </CardContent>
@@ -872,7 +889,7 @@ export function SqlChartCard({
                 reportScreenshot={reportScreenshot}
                 refreshToken={refreshToken}
                 onRefreshRequested={handleRefresh}
-                onSaveColumns={onSaveColumns}
+                {...tableColumnProps}
                 dashboardId={dashboardId}
                 extensionContext={extensionContext}
               />

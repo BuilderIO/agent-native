@@ -37,8 +37,10 @@ import {
   sourceIndexScanCoverage,
   sourceIndexDictionaryEntries,
   sourceIndexFreshness,
+  sourceIndexSourcesFreshness,
   type SourceIndexScanCoverage,
   type SourceIndexFreshness,
+  type SourceIndexSourcesFreshness,
 } from "./source-index-store";
 
 const DATA_DICTIONARY_KEY_PREFIX = "data-dict-";
@@ -47,6 +49,25 @@ const MAX_CATALOG_DASHBOARD_HYDRATION = 24;
 // ponytail: scan the 200 most recently updated summaries; a search-backed index is the upgrade path if larger workspaces need older references.
 const MAX_CATALOG_DASHBOARD_SUMMARIES = 200;
 const MAX_CATALOG_DICTIONARY_ENTRIES = 200;
+const DASHBOARD_USER_DIMENSION_NAMES = new Set([
+  "user",
+  "users",
+  "member",
+  "members",
+  "person",
+  "persons",
+  "people",
+]);
+const DASHBOARD_ORGANIZATION_DIMENSION_NAMES = new Set([
+  "organization",
+  "organizations",
+  "org",
+  "orgs",
+  "workspace",
+  "workspaces",
+  "team",
+  "teams",
+]);
 const RETIRED_CATALOG_STATES = new Set([
   "deprecated",
   "obsolete",
@@ -153,7 +174,18 @@ export type AnalyticsQueryCatalogCandidate =
       sourceIndexAgeDays?: number;
       sourceIndexStaleAfterDays?: number;
       sourceIndexStale?: boolean;
+      sourceIndexFreshnessUnknown?: boolean;
     };
+
+type DashboardPanelCandidate = Extract<
+  AnalyticsQueryCatalogCandidate,
+  { kind: "dashboard-panel" }
+>;
+
+const dashboardMembershipOutputCache = new WeakMap<
+  DashboardPanelCandidate,
+  { query: string; result: boolean }
+>();
 
 export type AnalyticsQueryCatalogSearchResult = {
   candidates: AnalyticsQueryCatalogCandidate[];
@@ -176,6 +208,7 @@ export type AnalyticsQueryCatalogSearchResult = {
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
   sourceIndexScanCoverage: SourceIndexScanCoverage | null;
   sourceIndexFreshness: SourceIndexFreshness | null;
+  sourceIndexSourcesFreshness: SourceIndexSourcesFreshness | null;
 };
 
 export type AnalyticsDictionarySearchResult = {
@@ -190,6 +223,7 @@ export type AnalyticsDictionarySearchResult = {
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
   sourceIndexScanCoverage: SourceIndexScanCoverage | null;
   sourceIndexFreshness: SourceIndexFreshness | null;
+  sourceIndexSourcesFreshness: SourceIndexSourcesFreshness | null;
 };
 
 function text(value: unknown): string {
@@ -309,6 +343,62 @@ function isMembershipRosterRequest(search: string): boolean {
   return inferSemanticScope(search) === "membership_roster";
 }
 
+function requestedTemporalUnit(search: string): string | null {
+  const match = search.match(
+    /\b(?:last|past|previous|prior|this|current|next|since|before|after)\s+(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+)?(day|week|month|quarter|year)s?\b/i,
+  );
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function isExplicitMembershipSnapshotRequest(search: string): boolean {
+  return /\b(?:as of|at (?:the )?end of|snapshot|snapshots|historical|history|month[- ]end)\b/i.test(
+    search,
+  );
+}
+
+function requestedHistoricalTemporalUnit(search: string): string | null {
+  const unit =
+    requestedTemporalUnit(search) ??
+    (/\b(?:as of|at (?:the )?end of)\s+(?:the\s+)?month[- ]end\b/i.test(search)
+      ? "month"
+      : null);
+  const hasUnmarkedPastCalendarPeriod =
+    /\b(?:last|past|previous|prior)\s+(?:month|quarter|year)\b/i.test(search) &&
+    !/\b(?:joined|signed\s+up|created|added|invited|started)\b/i.test(search);
+  if (
+    !unit ||
+    (!isExplicitMembershipSnapshotRequest(search) &&
+      !hasUnmarkedPastCalendarPeriod) ||
+    (!/\b(?:last|past|previous|prior)\b/i.test(search) &&
+      !/\b(?:as of|at (?:the )?end of)\b/i.test(search)) ||
+    /\b(?:this|current|next)\s+(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+)?(?:day|week|month|quarter|year)s?\b/i.test(
+      search,
+    )
+  ) {
+    return null;
+  }
+  return unit;
+}
+
+function isAggregateRequest(search: string): boolean {
+  const asksForAggregation =
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trends?|rate|percentage|share|distribution|breakdowns?|split\s+by|growth|grow(?:s|n|ing)?|grew|increases?|increased|decreases?|decreased|declines?|declined|changes?|changed|variance|delta)\b|\b(?:month|year)[- ]over[- ](?:month|year)\b|\bover time\b/i.test(
+      search,
+    );
+  const asksForTemporalGrouping =
+    /\b(?:(?:group(?:ed)?\s+)?by|per)\s+(?:date|day|week|month|quarter|year)\b/i.test(
+      search,
+    );
+  const recurringCadence =
+    /\b(?:daily|weekly|monthly|quarterly|yearly)\b/i.test(search);
+  const explicitSnapshot = isExplicitMembershipSnapshotRequest(search);
+  return (
+    asksForAggregation ||
+    (!explicitSnapshot && asksForTemporalGrouping) ||
+    (!explicitSnapshot && recurringCadence)
+  );
+}
+
 function candidateTextFields(
   candidate: AnalyticsQueryCatalogCandidate,
 ): string[] {
@@ -332,7 +422,7 @@ function candidateTextFields(
     candidate.panelDescription,
     candidate.query
       ? typeof candidate.query === "string"
-        ? candidate.query
+        ? (stripSqlComments(candidate.query) ?? candidate.query)
         : JSON.stringify(candidate.query)
       : "",
   ].filter((value): value is string => Boolean(value));
@@ -346,6 +436,158 @@ function normalizedCandidateText(candidate: AnalyticsQueryCatalogCandidate) {
     .replace(/[_-]+/g, " ");
 }
 
+function hasTemporalMembershipSnapshotShape(
+  candidate: AnalyticsQueryCatalogCandidate,
+) {
+  if (candidate.kind !== "data-dictionary") return false;
+  const normalize = (value: string | undefined) =>
+    (value ?? "").toLowerCase().replace(/[_-]+/g, " ");
+  const grain = normalize(candidate.grain);
+  const hasMembershipRowGrain = hasDeclaredMembershipRowGrain(candidate);
+  const explicitTemporalGrain =
+    /\b(?:one|single)\s+row\s+per\s+(?:date|day|week|month|quarter|year)\b/.test(
+      grain,
+    ) ||
+    /\b(?:per|by)\s+(?:date|day(?:ly)?|week(?:ly)?|month(?:ly)?|quarter(?:ly)?|year(?:ly)?)\b/.test(
+      grain,
+    ) ||
+    /\b(?:snapshot|snapshots)\s+(?:by|per)\s+(?:date|day|week|month|quarter|year)\b/.test(
+      grain,
+    ) ||
+    /\b(?:historical|history)\b/.test(grain);
+  const describesExplicitSnapshot = (value: string | undefined) => {
+    const normalized = normalize(value);
+    return (
+      /\b(?:historical|history)\b[\s\S]{0,60}\bsnapshots?\b|\bsnapshots?\b[\s\S]{0,60}\b(?:historical|history)\b/.test(
+        normalized,
+      ) ||
+      /\b(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)(?:\s+(?:user|member|membership|workspace|organization|org|team|role)){0,2}\s+snapshots?\b/.test(
+        normalized,
+      ) ||
+      /\b(?:month|quarter|year)[ -]end\s+snapshots?\b/.test(normalized) ||
+      /\bsnapshots?\s+(?:by|per)\s+(?:date|day|week|month|quarter|year)\b/.test(
+        normalized,
+      )
+    );
+  };
+  const definitionDescribesSnapshot = describesExplicitSnapshot(
+    candidate.definition,
+  );
+  const structuredDescriptor = [
+    candidate.metric,
+    candidate.primaryEntity,
+    candidate.semanticModel,
+  ]
+    .map(normalize)
+    .filter(Boolean)
+    .join(" ");
+  const structuredDescriptorDescribesSnapshot =
+    describesExplicitSnapshot(structuredDescriptor);
+  // A declared membership grain describes the row shape. Refresh cadence in
+  // descriptive prose must not turn that current-state relation into a
+  // historical snapshot. Only explicit temporal grain or snapshot labels can do so.
+  if (
+    hasMembershipRowGrain &&
+    !explicitTemporalGrain &&
+    !definitionDescribesSnapshot &&
+    !structuredDescriptorDescribesSnapshot
+  ) {
+    return false;
+  }
+  const descriptor = [
+    structuredDescriptor,
+    definitionDescribesSnapshot ? normalize(candidate.definition) : "",
+  ].join(" ");
+  return (
+    explicitTemporalGrain ||
+    /\b(?:per\s+)?(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b/.test(
+      grain,
+    ) ||
+    /\b(?:month end|as of (?:the )?(?:day|week|month|quarter|year))\b/.test(
+      descriptor,
+    ) ||
+    /\b(?:historical|history)\b[\s\S]{0,60}\bsnapshots?\b|\bsnapshots?\b[\s\S]{0,60}\b(?:historical|history)\b/.test(
+      descriptor,
+    ) ||
+    /\b(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b[\s\S]{0,40}\bsnapshots?\b/.test(
+      descriptor,
+    ) ||
+    /\bsnapshots?\s+(?:by|per)\s+(?:date|day|week|month|quarter|year)\b/.test(
+      descriptor,
+    )
+  );
+}
+
+function hasDeclaredRowLevelMembershipGrain(
+  candidate: AnalyticsQueryCatalogCandidate,
+) {
+  return (
+    hasDeclaredMembershipRowGrain(candidate) &&
+    !hasTemporalMembershipSnapshotShape(candidate)
+  );
+}
+
+function hasDeclaredMembershipRowGrain(
+  candidate: AnalyticsQueryCatalogCandidate,
+) {
+  if (candidate.kind !== "data-dictionary" || !candidate.grain?.trim()) {
+    return false;
+  }
+  const declaredShape = candidate.grain.toLowerCase().replace(/[_-]+/g, " ");
+  return (
+    /\b(?:one|single)\s+row\s+per\b/.test(declaredShape) &&
+    /\b(?:users?|people|persons?|members?)\b/.test(declaredShape) &&
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(declaredShape)
+  );
+}
+
+function hasMatchingHistoricalMembershipSnapshot(
+  candidate: AnalyticsQueryCatalogCandidate,
+  search: string,
+) {
+  const requestedScope = requestedSemanticScope(search);
+  const requestedUnit = requestedHistoricalTemporalUnit(search);
+  if (
+    candidate.kind !== "data-dictionary" ||
+    !["membership", "membership_roster"].includes(requestedScope) ||
+    !requestedUnit ||
+    !hasDeclaredMembershipRowGrain(candidate) ||
+    !hasTemporalMembershipSnapshotShape(candidate)
+  ) {
+    return false;
+  }
+
+  const temporalDescriptor = [
+    candidate.metric,
+    candidate.table,
+    candidate.columnsUsed,
+    candidate.grain,
+    candidate.definition,
+    candidate.primaryEntity,
+    candidate.semanticModel,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  const unitPattern: Record<string, RegExp> = {
+    day: /\b(?:day|daily)\b/,
+    week: /\b(?:week|weekly)\b/,
+    month: /\b(?:month|monthly)\b/,
+    quarter: /\b(?:quarter|quarterly)\b/,
+    year: /\b(?:year|yearly|annual)\b/,
+  };
+  return unitPattern[requestedUnit]?.test(temporalDescriptor) ?? false;
+}
+
+function isHistoricalMembershipRequest(search: string) {
+  return (
+    !isAggregateRequest(search) &&
+    requestedHistoricalTemporalUnit(search) !== null &&
+    ["membership", "membership_roster"].includes(requestedSemanticScope(search))
+  );
+}
+
 function hasAggregateShape(candidate: AnalyticsQueryCatalogCandidate) {
   const fields =
     candidate.kind === "data-dictionary"
@@ -355,34 +597,23 @@ function hasAggregateShape(candidate: AnalyticsQueryCatalogCandidate) {
           candidate.columnsUsed,
           candidate.grain,
         ]
-      : [candidate.query ? JSON.stringify(candidate.query) : ""];
+      : [
+          typeof candidate.query === "string"
+            ? (stripSqlComments(candidate.query) ?? candidate.query)
+            : candidate.query
+              ? JSON.stringify(candidate.query)
+              : "",
+        ];
   const searchable = fields
     .filter(Boolean)
     .join(" ")
     .toLowerCase()
     .replace(/[_-]+/g, " ");
   if (candidate.kind === "data-dictionary") {
-    const grain = (candidate.grain ?? "").toLowerCase().replace(/[_-]+/g, " ");
-    const declaredRosterRowGrain =
-      /\b(?:one|single)\s+row\s+per\b/.test(grain) &&
-      /\b(?:users?|people|persons?|members?)\b/.test(grain) &&
-      /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(grain);
-    const temporalDefinition = [candidate.definition]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .replace(/[_-]+/g, " ");
-    const temporalMembershipGrain =
-      /\b(?:per\s+)?(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b/.test(
-        grain,
-      ) ||
-      /\b(?:historical|history|month end|as of (?:the )?(?:day|week|month|quarter|year))\b|\b(?:daily|weekly|monthly|quarterly|yearly)\s+snapshots?\b|\bsnapshots?\s+(?:by|per)\s+(?:date|day|week|month|quarter|year)\b/.test(
-        temporalDefinition,
-      );
-    if (temporalMembershipGrain) return true;
+    if (hasTemporalMembershipSnapshotShape(candidate)) return true;
     // An explicit user-organization row grain is stronger than incidental
     // field names such as member_count. Temporal grains remain snapshots.
-    if (declaredRosterRowGrain) return false;
+    if (hasDeclaredRowLevelMembershipGrain(candidate)) return false;
   }
   if (
     /\b(?:aggregate|aggregated|rollup|summary|snapshot|count|total|average|avg|sum|median)\b/.test(
@@ -528,7 +759,7 @@ function hasMembershipRosterEvidence(
     const hasUserKey = hasMembershipIdentityKey(queryText);
     const hasOrganizationKey = hasOrganizationIdentityKey(queryText);
     return (
-      !hasAggregateShape(candidate) &&
+      hasRowLevelDashboardMembershipOutput(candidate) &&
       hasUserKey &&
       hasOrganizationKey &&
       hasMembershipRelationEvidence(queryText)
@@ -561,15 +792,1370 @@ function dashboardQueryText(
   >,
 ): string {
   return typeof candidate.query === "string"
-    ? candidate.query.toLowerCase().replace(/[_-]+/g, " ")
+    ? (stripSqlComments(candidate.query) ?? candidate.query)
+        .toLowerCase()
+        .replace(/[_-]+/g, " ")
     : JSON.stringify(candidate.query ?? "")
         .toLowerCase()
         .replace(/[_-]+/g, " ");
 }
 
+function isSqlWordCharacter(value: string | undefined): boolean {
+  return value !== undefined && /[a-z0-9_$]/i.test(value);
+}
+
+function sqlKeywordEndAt(
+  sql: string,
+  index: number,
+  keyword: string,
+): number | null {
+  if (isSqlWordCharacter(sql[index - 1])) return null;
+  let cursor = index;
+  const words = keyword.toLowerCase().split(" ");
+  for (const [wordIndex, word] of words.entries()) {
+    if (sql.slice(cursor, cursor + word.length).toLowerCase() !== word) {
+      return null;
+    }
+    cursor += word.length;
+    if (isSqlWordCharacter(sql[cursor])) return null;
+    if (wordIndex < words.length - 1) {
+      const whitespaceStart = cursor;
+      while (/\s/.test(sql[cursor] ?? "")) cursor += 1;
+      if (cursor === whitespaceStart) return null;
+    }
+  }
+  return cursor;
+}
+
+function findTopLevelSqlKeyword(
+  sql: string,
+  keyword: string,
+  start = 0,
+): { start: number; end: number } | null {
+  let depth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (sql[index + 1] === quote) {
+          index += 1;
+        } else {
+          quote = null;
+        }
+      } else if (character === "\\") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character === ")") {
+      depth -= 1;
+      if (depth < 0) return null;
+      continue;
+    }
+    if (depth === 0 && index >= start) {
+      const end = sqlKeywordEndAt(sql, index, keyword);
+      if (end !== null) return { start: index, end };
+    }
+  }
+  return null;
+}
+
+function splitTopLevelSqlList(value: string): string[] | null {
+  const expressions: string[] = [];
+  let depth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  let expressionStart = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (value[index + 1] === quote) {
+          index += 1;
+        } else {
+          quote = null;
+        }
+      } else if (character === "\\") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth -= 1;
+      if (depth < 0) return null;
+    } else if (character === "," && depth === 0) {
+      expressions.push(value.slice(expressionStart, index).trim());
+      expressionStart = index + 1;
+    }
+  }
+  if (quote || depth !== 0) return null;
+  expressions.push(value.slice(expressionStart).trim());
+  return expressions.some((expression) => !expression) ? null : expressions;
+}
+
+function stripSqlComments(sql: string): string | null {
+  const output: string[] = [];
+  let quote: "'" | '"' | "`" | null = null;
+  let blockComment = false;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index]!;
+    if (blockComment) {
+      if (character === "*" && sql[index + 1] === "/") {
+        blockComment = false;
+        output.push(" ");
+        index += 1;
+      } else if (character === "\n") {
+        output.push("\n");
+      }
+      continue;
+    }
+    if (quote) {
+      output.push(character);
+      if (character === quote) {
+        if (sql[index + 1] === quote) {
+          output.push(sql[index + 1]!);
+          index += 1;
+        } else {
+          quote = null;
+        }
+      } else if (character === "\\") {
+        if (sql[index + 1] !== undefined) {
+          output.push(sql[index + 1]!);
+          index += 1;
+        }
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      output.push(character);
+    } else if (character === "-" && sql[index + 1] === "-") {
+      while (index < sql.length && sql[index] !== "\n") index += 1;
+      if (sql[index] === "\n") output.push("\n");
+    } else if (character === "#") {
+      while (index < sql.length && sql[index] !== "\n") index += 1;
+      if (sql[index] === "\n") output.push("\n");
+    } else if (character === "/" && sql[index + 1] === "*") {
+      blockComment = true;
+      output.push(" ");
+      index += 1;
+    } else {
+      output.push(character);
+    }
+  }
+  return blockComment ? null : output.join("");
+}
+
+function maskSqlStringLiterals(sql: string): string {
+  const output: string[] = [];
+  let inString = false;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index]!;
+    if (!inString) {
+      if (character === "'") {
+        inString = true;
+        output.push(" ");
+      } else {
+        output.push(character);
+      }
+      continue;
+    }
+    if (character === "'" && sql[index + 1] === "'") {
+      output.push("  ");
+      index += 1;
+    } else if (character === "\\" && sql[index + 1] !== undefined) {
+      output.push("  ");
+      index += 1;
+    } else if (character === "'") {
+      inString = false;
+      output.push(" ");
+    } else {
+      output.push(character === "\n" ? "\n" : " ");
+    }
+  }
+  return output.join("");
+}
+
+function stripSingleTrailingSqlTerminator(sql: string): string | null {
+  const semicolonPositions: number[] = [];
+  let quote: "'" | '"' | "`" | null = null;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (sql[index + 1] === quote) {
+          index += 1;
+        } else {
+          quote = null;
+        }
+      } else if (character === "\\") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === ";") {
+      semicolonPositions.push(index);
+    }
+  }
+  if (quote) return null;
+  if (semicolonPositions.length === 0) return sql.trim();
+  const finalNonWhitespace = sql.trimEnd().length - 1;
+  if (
+    semicolonPositions.length !== 1 ||
+    semicolonPositions[0] !== finalNonWhitespace
+  ) {
+    return null;
+  }
+  return sql.slice(0, finalNonWhitespace).trim();
+}
+
+function splitTopLevelSqlSetOperations(sql: string): string[] | null {
+  const parts: string[] = [];
+  let start = 0;
+  while (start < sql.length) {
+    const operator = ["union", "intersect", "except"]
+      .map((keyword) => findTopLevelSqlKeyword(sql, keyword, start))
+      .filter(
+        (match): match is { start: number; end: number } => match !== null,
+      )
+      .sort((left, right) => left.start - right.start)[0];
+    if (!operator) break;
+    const part = sql.slice(start, operator.start).trim();
+    if (!part) return null;
+    parts.push(part);
+
+    let next = operator.end;
+    const modifier = sql.slice(next).match(/^\s+(?:all|distinct)\b/i);
+    if (modifier) next += modifier[0].length;
+    start = next;
+  }
+  const finalPart = sql.slice(start).trim();
+  if (!finalPart) return null;
+  parts.push(finalPart);
+  return parts;
+}
+
+function parseSimpleDashboardMembershipSelect(sql: string): {
+  sql: string;
+  selectExpressions: string[];
+  groupByExpressions: string[] | null;
+  qualifyExpression: string | null;
+} | null {
+  const statement = sql.trim();
+  if (!statement) return null;
+  if (!splitTopLevelSqlList(statement)) return null;
+  const select = findTopLevelSqlKeyword(statement, "select");
+  const from = select
+    ? findTopLevelSqlKeyword(statement, "from", select.end)
+    : null;
+  if (
+    !select ||
+    !from ||
+    findTopLevelSqlKeyword(statement, "select", select.end)
+  ) {
+    return null;
+  }
+  const selectList = statement.slice(select.end, from.start);
+  const selectModifier = selectList.match(/^\s*(?:all|distinct)\b\s*/i);
+  const selectExpressions = splitTopLevelSqlList(
+    selectList.slice(selectModifier?.[0].length ?? 0),
+  );
+  if (!selectExpressions) return null;
+
+  const groupBy = findTopLevelSqlKeyword(statement, "group by", from.end);
+  const having = findTopLevelSqlKeyword(statement, "having", from.end);
+  const qualify = findTopLevelSqlKeyword(statement, "qualify", from.end);
+  const qualifyEnd = qualify
+    ? ["order by", "limit", "fetch"]
+        .map((keyword) =>
+          findTopLevelSqlKeyword(statement, keyword, qualify.end),
+        )
+        .filter(
+          (match): match is { start: number; end: number } => match !== null,
+        )
+        .reduce((end, match) => Math.min(end, match.start), statement.length)
+    : null;
+  const qualifyExpression =
+    qualify && qualifyEnd !== null
+      ? statement.slice(qualify.end, qualifyEnd).trim()
+      : null;
+  if (qualify && !qualifyExpression) return null;
+  if (!groupBy) {
+    if (having) return null;
+    return {
+      sql: statement,
+      selectExpressions,
+      groupByExpressions: null,
+      qualifyExpression,
+    };
+  }
+  const clauseEnd = ["order by", "having", "qualify", "limit", "fetch"]
+    .map((keyword) => findTopLevelSqlKeyword(statement, keyword, groupBy.end))
+    .filter((match): match is { start: number; end: number } => match !== null)
+    .reduce((end, match) => Math.min(end, match.start), statement.length);
+  const rawGroupByExpressions = splitTopLevelSqlList(
+    statement.slice(groupBy.end, clauseEnd),
+  );
+  if (!rawGroupByExpressions) return null;
+  const groupByExpressions = rawGroupByExpressions.map((expression) => {
+    const position = /^\d+$/.test(expression) ? Number(expression) : 0;
+    return position > 0 && position <= selectExpressions.length
+      ? selectExpressions[position - 1]!
+      : expression;
+  });
+  if (rawGroupByExpressions.some((expression) => /^\d+$/.test(expression))) {
+    if (
+      rawGroupByExpressions.some(
+        (expression) =>
+          /^\d+$/.test(expression) &&
+          (Number(expression) < 1 ||
+            Number(expression) > selectExpressions.length),
+      )
+    ) {
+      return null;
+    }
+  }
+  return {
+    sql: statement,
+    selectExpressions,
+    groupByExpressions,
+    qualifyExpression,
+  };
+}
+
+function parseSimpleDashboardMembershipQuery(sql: string): Array<{
+  sql: string;
+  selectExpressions: string[];
+  groupByExpressions: string[] | null;
+  qualifyExpression: string | null;
+}> | null {
+  const withoutComments = stripSqlComments(sql);
+  const statement = withoutComments
+    ? stripSingleTrailingSqlTerminator(withoutComments)
+    : null;
+  if (!statement || !statement.trim()) return null;
+  const branches = splitTopLevelSqlSetOperations(statement);
+  if (!branches) return null;
+  const parsed = branches.map(parseSimpleDashboardMembershipSelect);
+  if (parsed.some((branch) => branch === null)) return null;
+  return parsed as Array<{
+    sql: string;
+    selectExpressions: string[];
+    groupByExpressions: string[] | null;
+    qualifyExpression: string | null;
+  }>;
+}
+
+function splitDashboardProjectionAlias(expression: string): {
+  expression: string;
+  alias: string | null;
+} {
+  const trimmed = expression.trim();
+  const asKeyword = findTopLevelSqlKeyword(trimmed, "as");
+  const identifier = (value: string) => {
+    const match = value
+      .trim()
+      .match(
+        /^(?:"([a-z_][a-z0-9_$]*)"|`([a-z_][a-z0-9_$]*)`|([a-z_][a-z0-9_$]*))$/i,
+      );
+    return match ? (match[1] ?? match[2] ?? match[3]!).toLowerCase() : null;
+  };
+  if (asKeyword) {
+    const source = trimmed.slice(0, asKeyword.start).trim();
+    const alias = identifier(trimmed.slice(asKeyword.end));
+    if (source && alias) return { expression: source, alias };
+  }
+
+  const implicitAlias = trimmed.match(
+    /^(.*\S)\s+(?:"([a-z_][a-z0-9_$]*)"|`([a-z_][a-z0-9_$]*)`|([a-z_][a-z0-9_$]*))$/i,
+  );
+  if (implicitAlias) {
+    return {
+      expression: implicitAlias[1]!.trim(),
+      alias: (
+        implicitAlias[2] ??
+        implicitAlias[3] ??
+        implicitAlias[4]!
+      ).toLowerCase(),
+    };
+  }
+  return { expression: trimmed, alias: null };
+}
+
+type DashboardCteDefinition = {
+  query: string;
+  columns: string[] | null;
+};
+
+type DashboardRelationReference = {
+  name: string;
+  alias: string;
+  derived: boolean;
+  start: number;
+  end: number;
+  joinKind: string | null;
+};
+
+const DERIVED_DASHBOARD_RELATION = "__derived_relation__";
+const DASHBOARD_RELATION_ALIAS_KEYWORDS = new Set([
+  "cross",
+  "fetch",
+  "full",
+  "group",
+  "having",
+  "inner",
+  "join",
+  "left",
+  "limit",
+  "on",
+  "order",
+  "outer",
+  "right",
+  "qualify",
+  "where",
+  "window",
+  "union",
+]);
+
+function skipSqlWhitespace(sql: string, start: number): number {
+  let cursor = start;
+  while (/\s/.test(sql[cursor] ?? "")) cursor += 1;
+  return cursor;
+}
+
+function readSqlIdentifier(
+  sql: string,
+  start: number,
+): {
+  value: string;
+  end: number;
+} | null {
+  const cursor = skipSqlWhitespace(sql, start);
+  const match = sql
+    .slice(cursor)
+    .match(
+      /^(?:"([a-z_][a-z0-9_$]*)"|`([a-z_][a-z0-9_$]*)`|([a-z_][a-z0-9_$]*))/i,
+    );
+  if (!match) return null;
+  return {
+    value: (match[1] ?? match[2] ?? match[3]!).toLowerCase(),
+    end: cursor + match[0].length,
+  };
+}
+
+function readSqlIdentifierPath(
+  sql: string,
+  start: number,
+): {
+  value: string;
+  end: number;
+} | null {
+  const cursor = skipSqlWhitespace(sql, start);
+  const match = sql
+    .slice(cursor)
+    .match(
+      /^(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*)(?:\s*\.\s*(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*))*/i,
+    );
+  if (!match) return null;
+  return {
+    value: match[0]
+      .replace(/["`]/g, "")
+      .split(".")
+      .slice(-1)[0]!
+      .trim()
+      .toLowerCase(),
+    end: cursor + match[0].length,
+  };
+}
+
+function matchingSqlParenthesis(sql: string, openIndex: number): number | null {
+  let depth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  for (let index = openIndex; index < sql.length; index += 1) {
+    const character = sql[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (sql[index + 1] === quote) index += 1;
+        else quote = null;
+      } else if (character === "\\") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth -= 1;
+      if (depth === 0) return index;
+      if (depth < 0) return null;
+    }
+  }
+  return null;
+}
+
+function dashboardCteDefinitions(
+  query: string,
+): Map<string, DashboardCteDefinition> | null {
+  const definitions = new Map<string, DashboardCteDefinition>();
+  const sql = stripSqlComments(query);
+  if (!sql) return definitions;
+  let cursor = skipSqlWhitespace(sql, 0);
+  const withEnd = sqlKeywordEndAt(sql, cursor, "with");
+  if (withEnd === null) return definitions;
+  cursor = skipSqlWhitespace(sql, withEnd);
+
+  const recursiveEnd = sqlKeywordEndAt(sql, cursor, "recursive");
+  if (recursiveEnd !== null) cursor = skipSqlWhitespace(sql, recursiveEnd);
+
+  while (cursor < sql.length) {
+    const name = readSqlIdentifier(sql, cursor);
+    if (!name || definitions.has(name.value)) return null;
+    cursor = skipSqlWhitespace(sql, name.end);
+    let columns: string[] | null = null;
+    if (sql[cursor] === "(") {
+      const close = matchingSqlParenthesis(sql, cursor);
+      if (close === null) return null;
+      const parsedColumns = splitTopLevelSqlList(sql.slice(cursor + 1, close));
+      if (!parsedColumns) return null;
+      columns = parsedColumns.map((column) => {
+        const identifier = readSqlIdentifier(column, 0);
+        return identifier?.value ?? "";
+      });
+      if (columns.some((column) => !column)) return null;
+      cursor = skipSqlWhitespace(sql, close + 1);
+    }
+
+    const asEnd = sqlKeywordEndAt(sql, cursor, "as");
+    if (asEnd === null) return null;
+    cursor = skipSqlWhitespace(sql, asEnd);
+    const materializedEnd = sqlKeywordEndAt(sql, cursor, "materialized");
+    if (materializedEnd !== null)
+      cursor = skipSqlWhitespace(sql, materializedEnd);
+    else {
+      const notMaterializedEnd = sqlKeywordEndAt(
+        sql,
+        cursor,
+        "not materialized",
+      );
+      if (notMaterializedEnd !== null) {
+        cursor = skipSqlWhitespace(sql, notMaterializedEnd);
+      }
+    }
+    if (sql[cursor] !== "(") return null;
+    const close = matchingSqlParenthesis(sql, cursor);
+    if (close === null) return null;
+    definitions.set(name.value, {
+      query: sql.slice(cursor + 1, close),
+      columns,
+    });
+    cursor = skipSqlWhitespace(sql, close + 1);
+    if (sql[cursor] === ",") {
+      cursor = skipSqlWhitespace(sql, cursor + 1);
+      if (cursor >= sql.length) return null;
+      continue;
+    }
+    if (sqlKeywordEndAt(sql, cursor, "select") === null) return null;
+    return definitions;
+  }
+  return null;
+}
+
+function dashboardTopLevelRelationReferences(
+  query: string,
+): DashboardRelationReference[] {
+  const sql = stripSqlComments(query);
+  if (!sql) return [];
+  const relations: DashboardRelationReference[] = [];
+  let searchStart = 0;
+  while (searchStart < sql.length) {
+    const next = ["from", "join"]
+      .map((keyword) => findTopLevelSqlKeyword(sql, keyword, searchStart))
+      .filter(
+        (match): match is { start: number; end: number } => match !== null,
+      )
+      .map((match) => ({
+        ...match,
+        keyword:
+          sqlKeywordEndAt(sql, match.start, "from") === match.end
+            ? "from"
+            : "join",
+      }))
+      .sort((left, right) => left.start - right.start)[0];
+    if (!next) break;
+
+    let cursor = skipSqlWhitespace(sql, next.end);
+    let name: string;
+    let alias: string;
+    let derived = false;
+    if (sql[cursor] === "(") {
+      const close = matchingSqlParenthesis(sql, cursor);
+      if (close === null) return [];
+      cursor = skipSqlWhitespace(sql, close + 1);
+      const asEnd = sqlKeywordEndAt(sql, cursor, "as");
+      if (asEnd !== null) cursor = skipSqlWhitespace(sql, asEnd);
+      const derivedAlias = readSqlIdentifier(sql, cursor);
+      name = DERIVED_DASHBOARD_RELATION;
+      alias = derivedAlias?.value ?? name;
+      if (derivedAlias) cursor = derivedAlias.end;
+      derived = true;
+    } else {
+      const relation = readSqlIdentifierPath(sql, cursor);
+      if (!relation) {
+        searchStart = next.end;
+        continue;
+      }
+      name = relation.value;
+      cursor = skipSqlWhitespace(sql, relation.end);
+      const asEnd = sqlKeywordEndAt(sql, cursor, "as");
+      if (asEnd !== null) cursor = skipSqlWhitespace(sql, asEnd);
+      const candidateAlias = readSqlIdentifier(sql, cursor);
+      alias =
+        candidateAlias &&
+        !DASHBOARD_RELATION_ALIAS_KEYWORDS.has(candidateAlias.value)
+          ? candidateAlias.value
+          : name;
+      if (alias !== name && candidateAlias) cursor = candidateAlias.end;
+    }
+    const joinPrefix = sql
+      .slice(0, next.start)
+      .match(
+        /\b((?:(?:natural)\s+)?(?:cross|inner|left|right|full)(?:\s+outer)?|natural)\s*$/i,
+      );
+    relations.push({
+      name,
+      alias,
+      derived,
+      start: next.start,
+      end: cursor,
+      joinKind:
+        next.keyword === "join"
+          ? (joinPrefix?.[1]?.toLowerCase().replace(/\s+/g, " ") ?? "inner")
+          : null,
+    });
+    searchStart = Math.max(next.end, cursor);
+  }
+  return relations;
+}
+
+function dashboardRelationAliases(query: string): Map<string, string> {
+  const aliases = new Map<string, string>();
+  for (const relation of dashboardTopLevelRelationReferences(query)) {
+    aliases.set(relation.alias, relation.name);
+    if (!relation.derived) aliases.set(relation.name, relation.name);
+  }
+  return aliases;
+}
+
+function simpleSqlIdentifierPath(expression: string): string[] | null {
+  const pathPattern =
+    /^(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*)(?:\s*\.\s*(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*))*$/i;
+  if (!pathPattern.test(expression.trim())) return null;
+  return expression
+    .trim()
+    .split(".")
+    .map((part) => part.trim().replace(/["`]/g, "").toLowerCase());
+}
+
+function dashboardCteProjection(
+  definition: DashboardCteDefinition,
+  column: string,
+): Array<{
+  expression: string;
+  query: string;
+  selectExpressions: string[];
+}> | null {
+  const branches = parseSimpleDashboardMembershipQuery(definition.query);
+  if (!branches?.length) return null;
+  const firstBranch = branches[0]!;
+  const outputNames = firstBranch.selectExpressions.map((expression) => {
+    const parsed = splitDashboardProjectionAlias(expression);
+    if (parsed.alias) return parsed.alias;
+    const path = simpleSqlIdentifierPath(parsed.expression);
+    return path?.[path.length - 1] ?? null;
+  });
+  const columnNames = definition.columns ?? outputNames;
+  const position = columnNames.findIndex(
+    (name) => name === column.toLowerCase(),
+  );
+  if (position < 0) return null;
+  const projections = branches.map((branch) => {
+    const expression = branch.selectExpressions[position];
+    return expression
+      ? {
+          expression,
+          query: branch.sql,
+          selectExpressions: branch.selectExpressions,
+        }
+      : null;
+  });
+  return projections.every(Boolean)
+    ? projections.filter(
+        (
+          projection,
+        ): projection is {
+          expression: string;
+          query: string;
+          selectExpressions: string[];
+        } => projection !== null,
+      )
+    : null;
+}
+
+function dashboardPhysicalRelationNames(
+  query: string,
+  inheritedCtes: Map<string, DashboardCteDefinition> = new Map(),
+  visiting = new Set<string>(),
+): string[] {
+  const ctes = new Map(inheritedCtes);
+  const queryCtes = dashboardCteDefinitions(query);
+  if (queryCtes === null) return [];
+  for (const [name, definition] of queryCtes) {
+    ctes.set(name, definition);
+  }
+  return dashboardTopLevelRelationReferences(query).flatMap((relation) =>
+    dashboardPhysicalRelationNamesForReference(relation, ctes, visiting),
+  );
+}
+
+function dashboardPhysicalRelationNamesForReference(
+  relation: DashboardRelationReference,
+  inheritedCtes: Map<string, DashboardCteDefinition>,
+  visiting: Set<string> = new Set(),
+): string[] {
+  if (relation.derived) return [];
+  const definition = inheritedCtes.get(relation.name);
+  if (!definition || visiting.has(relation.name)) return [relation.name];
+  const nextVisiting = new Set(visiting).add(relation.name);
+  const branches = parseSimpleDashboardMembershipQuery(definition.query);
+  return (
+    branches?.flatMap((branch) =>
+      dashboardPhysicalRelationNames(branch.sql, inheritedCtes, nextVisiting),
+    ) ?? []
+  );
+}
+
+function dashboardJoinOnExpression(
+  query: string,
+  relation: DashboardRelationReference,
+): string | null {
+  const clauseEnd = [
+    "join",
+    "where",
+    "group by",
+    "having",
+    "qualify",
+    "order by",
+    "limit",
+    "fetch",
+    "union",
+    "intersect",
+    "except",
+  ]
+    .map((keyword) => findTopLevelSqlKeyword(query, keyword, relation.end))
+    .filter((match): match is { start: number; end: number } => match !== null)
+    .reduce((end, match) => Math.min(end, match.start), query.length);
+  const joinBody = query.slice(relation.end, clauseEnd);
+  const on = findTopLevelSqlKeyword(joinBody, "on");
+  if (!on) return null;
+  return joinBody.slice(on.end).trim();
+}
+
+function dashboardJoinIdentityRole(
+  column: string,
+  role: "user" | "organization",
+  relationNames: string[],
+): boolean {
+  const normalizedColumn = column.replace(/[_-]+/g, " ").toLowerCase();
+  if (!isCanonicalDashboardIdentityDimension(relationNames, role)) return false;
+  if (role === "user") {
+    return /^(?:id|user id|member id|person id|user key|member key|person key)$/.test(
+      normalizedColumn,
+    );
+  }
+  return /^(?:id|organization id|org id|workspace id|team id|organization key|org key|workspace key|team key)$/.test(
+    normalizedColumn,
+  );
+}
+
+function isCanonicalDashboardIdentityDimension(
+  relationNames: string[],
+  entity: "user" | "organization",
+): boolean {
+  if (relationNames.length !== 1) return false;
+  const leaf = relationNames[0]!.split(".").pop() ?? "";
+  const normalized = leaf
+    .replace(/["`]/g, "")
+    .toLowerCase()
+    .replace(/^(?:dim|dimension)_/, "");
+  const canonicalNames =
+    entity === "user"
+      ? DASHBOARD_USER_DIMENSION_NAMES
+      : DASHBOARD_ORGANIZATION_DIMENSION_NAMES;
+  return canonicalNames.has(normalized);
+}
+
+function dashboardJoinEqualityPairs(expression: string): Array<{
+  leftAlias: string;
+  leftColumn: string;
+  rightAlias: string;
+  rightColumn: string;
+}> {
+  const safeExpression = maskSqlStringLiterals(expression);
+  if (/\bor\b/i.test(safeExpression)) return [];
+  const identifier =
+    '(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*)';
+  const equality = new RegExp(
+    `(${identifier})\\s*\\.\\s*(${identifier})\\s*=\\s*(${identifier})\\s*\\.\\s*(${identifier})`,
+    "gi",
+  );
+  return Array.from(safeExpression.matchAll(equality), (match) => ({
+    leftAlias: match[1]!.replace(/["`]/g, "").toLowerCase(),
+    leftColumn: match[2]!.replace(/["`]/g, "").toLowerCase(),
+    rightAlias: match[3]!.replace(/["`]/g, "").toLowerCase(),
+    rightColumn: match[4]!.replace(/["`]/g, "").toLowerCase(),
+  }));
+}
+
+function dashboardJoinConnectsMembershipIdentity(
+  expression: string,
+  joinedAlias: string,
+  joinedRole: "user" | "organization",
+  joinedRelations: string[],
+  membershipAliases: Map<string, string[]>,
+): boolean {
+  for (const pair of dashboardJoinEqualityPairs(expression)) {
+    const otherAlias =
+      pair.leftAlias === joinedAlias
+        ? pair.rightAlias
+        : pair.rightAlias === joinedAlias
+          ? pair.leftAlias
+          : null;
+    const otherColumn =
+      pair.leftAlias === joinedAlias
+        ? pair.rightColumn
+        : pair.rightAlias === joinedAlias
+          ? pair.leftColumn
+          : null;
+    const joinedColumn =
+      pair.leftAlias === joinedAlias
+        ? pair.leftColumn
+        : pair.rightAlias === joinedAlias
+          ? pair.rightColumn
+          : null;
+    if (!otherAlias || !otherColumn || !joinedColumn) continue;
+    const membershipRelations = membershipAliases.get(otherAlias);
+    if (
+      !membershipRelations?.some((relation) =>
+        hasDashboardIdentityColumnAtSource(otherColumn, relation, joinedRole),
+      ) ||
+      !dashboardJoinIdentityRole(joinedColumn, joinedRole, joinedRelations)
+    ) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+function dashboardJoinConnectsJoinedMembership(
+  expression: string,
+  joinedAlias: string,
+  joinedMembershipRelations: string[],
+  joinedRoles: Map<string, "user" | "organization">,
+  physicalRelationsByAlias: Map<string, string[]>,
+): boolean {
+  for (const pair of dashboardJoinEqualityPairs(expression)) {
+    const otherAlias =
+      pair.leftAlias === joinedAlias
+        ? pair.rightAlias
+        : pair.rightAlias === joinedAlias
+          ? pair.leftAlias
+          : null;
+    const membershipColumn =
+      pair.leftAlias === joinedAlias
+        ? pair.leftColumn
+        : pair.rightAlias === joinedAlias
+          ? pair.rightColumn
+          : null;
+    const identityColumn =
+      pair.leftAlias === joinedAlias
+        ? pair.rightColumn
+        : pair.rightAlias === joinedAlias
+          ? pair.leftColumn
+          : null;
+    const role = otherAlias ? joinedRoles.get(otherAlias) : null;
+    if (!otherAlias || !membershipColumn || !identityColumn || !role) continue;
+    if (
+      joinedMembershipRelations.some((relation) =>
+        hasDashboardIdentityColumnAtSource(membershipColumn, relation, role),
+      ) &&
+      dashboardJoinIdentityRole(
+        identityColumn,
+        role,
+        physicalRelationsByAlias.get(otherAlias) ?? [],
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function dashboardJoinsPreserveMembershipIdentity(
+  query: string,
+  inheritedCtes: Map<string, DashboardCteDefinition>,
+): boolean {
+  const relations = dashboardTopLevelRelationReferences(query);
+  const joins = relations.filter((relation) => relation.joinKind !== null);
+  if (!joins.length) return true;
+  if (
+    joins.some((relation) =>
+      /\b(?:cross|natural|right|full)\b/.test(relation.joinKind ?? ""),
+    )
+  ) {
+    return false;
+  }
+
+  const memberships = new Map<string, string[]>();
+  const joinedRoles = new Map<string, "user" | "organization">();
+  const physicalRelationsByAlias = new Map<string, string[]>();
+  for (const relation of relations) {
+    const physical = dashboardPhysicalRelationNamesForReference(
+      relation,
+      inheritedCtes,
+    );
+    if (
+      hasMembershipRelationEvidence(physical.join(" ").replace(/[_-]+/g, " "))
+    ) {
+      memberships.set(relation.alias, physical);
+      continue;
+    }
+    const normalized = physical.join(" ").replace(/[_-]+/g, " ");
+    const isUser = /\b(?:users?|members?|people|persons?)\b/i.test(normalized);
+    const isOrganization =
+      /\b(?:organizations?|orgs?|workspaces?|teams?)\b/i.test(normalized);
+    if (isUser === isOrganization) continue;
+    physicalRelationsByAlias.set(relation.alias, physical);
+    joinedRoles.set(relation.alias, isUser ? "user" : "organization");
+  }
+  if (!memberships.size) return false;
+
+  const sql = stripSqlComments(query);
+  if (!sql) return false;
+  for (const join of joins) {
+    const membershipRelations = memberships.get(join.alias);
+    if (membershipRelations) {
+      const on = dashboardJoinOnExpression(sql, join);
+      if (
+        join.joinKind !== "inner" ||
+        !on ||
+        !dashboardJoinConnectsJoinedMembership(
+          on,
+          join.alias,
+          membershipRelations,
+          joinedRoles,
+          physicalRelationsByAlias,
+        )
+      ) {
+        return false;
+      }
+      continue;
+    }
+    const role = joinedRoles.get(join.alias);
+    const on = dashboardJoinOnExpression(sql, join);
+    if (
+      !role ||
+      !on ||
+      !dashboardJoinConnectsMembershipIdentity(
+        on,
+        join.alias,
+        role,
+        physicalRelationsByAlias.get(join.alias) ?? [],
+        memberships,
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function hasDashboardIdentityColumnAtSource(
+  column: string,
+  relation: string,
+  entity: "user" | "organization",
+): boolean {
+  const normalizedColumn = column.replace(/[_-]+/g, " ");
+  const normalizedRelation = relation.replace(/[_-]+/g, " ");
+  const isUserTable = /\b(?:users?|members?|people|persons?)\b/.test(
+    normalizedRelation,
+  );
+  const isOrganizationTable =
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(normalizedRelation);
+  const isMembershipTable = hasMembershipRelationEvidence(normalizedRelation);
+
+  if (entity === "user") {
+    if (hasMembershipIdentityKey(normalizedColumn)) {
+      return isMembershipTable || isUserTable;
+    }
+    if (/\b(?:user|member|person)\s+(?:email|key)\b/.test(normalizedColumn)) {
+      return isMembershipTable || isUserTable;
+    }
+    return (
+      isUserTable &&
+      /^(?:id|email|email_address|full_name|display_name|name)$/.test(column)
+    );
+  }
+
+  if (hasOrganizationIdentityKey(normalizedColumn)) {
+    return isMembershipTable || isOrganizationTable;
+  }
+  if (
+    /\b(?:organization|org|workspace|team)\s+(?:key|name)\b/.test(
+      normalizedColumn,
+    )
+  ) {
+    return isMembershipTable || isOrganizationTable;
+  }
+  return isOrganizationTable && /^(?:id|name|slug|key)$/.test(column);
+}
+
+function dashboardProjectionExpressionHasIdentity(
+  expression: string,
+  entity: "user" | "organization",
+  query: string,
+  aliasExpressions: string[],
+  inheritedCtes: Map<string, DashboardCteDefinition>,
+  visitedAliases: Set<string>,
+  visitedCtes: Set<string>,
+): boolean {
+  const parsed = splitDashboardProjectionAlias(expression);
+  const path = simpleSqlIdentifierPath(parsed.expression);
+  if (!path) return false;
+  const ctes = new Map(inheritedCtes);
+  const queryCtes = dashboardCteDefinitions(query);
+  if (queryCtes === null) return false;
+  for (const [name, definition] of queryCtes) {
+    ctes.set(name, definition);
+  }
+
+  const selectedAliases = new Map<string, string>();
+  for (const projection of aliasExpressions) {
+    const alias = splitDashboardProjectionAlias(projection);
+    if (alias.alias) selectedAliases.set(alias.alias, alias.expression);
+  }
+  if (path.length === 1 && selectedAliases.has(path[0]!)) {
+    const alias = path[0]!;
+    if (visitedAliases.has(alias)) return false;
+    return dashboardProjectionExpressionHasIdentity(
+      selectedAliases.get(alias)!,
+      entity,
+      query,
+      aliasExpressions,
+      ctes,
+      new Set(visitedAliases).add(alias),
+      visitedCtes,
+    );
+  }
+
+  const relations = dashboardTopLevelRelationReferences(query);
+  const relationAliases = dashboardRelationAliases(query);
+  const relation =
+    path.length > 1
+      ? relationAliases.get(path[path.length - 2]!)
+      : relations.length === 1
+        ? relations[0]!.name
+        : undefined;
+  if (!relation || relation === DERIVED_DASHBOARD_RELATION) return false;
+
+  const column = path[path.length - 1]!;
+  const cte = ctes.get(relation);
+  if (cte) {
+    if (visitedCtes.has(relation)) return false;
+    const projections = dashboardCteProjection(cte, column);
+    if (!projections?.length) return false;
+    const nextVisited = new Set(visitedCtes).add(relation);
+    return projections.every((projection) =>
+      dashboardProjectionExpressionHasIdentity(
+        projection.expression,
+        entity,
+        projection.query,
+        projection.selectExpressions,
+        ctes,
+        new Set(),
+        nextVisited,
+      ),
+    );
+  }
+  return hasDashboardIdentityColumnAtSource(column, relation, entity);
+}
+
+function hasDashboardProjectionEntity(
+  expressions: string[],
+  entity: "user" | "organization",
+  query: string,
+  aliasExpressions = expressions,
+  inheritedCtes: Map<string, DashboardCteDefinition> = new Map(),
+): boolean {
+  const ctes = new Map(inheritedCtes);
+  const queryCtes = dashboardCteDefinitions(query);
+  if (queryCtes === null) return false;
+  for (const [name, definition] of queryCtes) {
+    ctes.set(name, definition);
+  }
+  return expressions.some((projection) =>
+    dashboardProjectionExpressionHasIdentity(
+      projection,
+      entity,
+      query,
+      aliasExpressions,
+      ctes,
+      new Set(),
+      new Set(),
+    ),
+  );
+}
+
+function hasRowLevelDashboardMembershipOutput(
+  candidate: DashboardPanelCandidate,
+) {
+  if (typeof candidate.query !== "string") return false;
+  const cached = dashboardMembershipOutputCache.get(candidate);
+  if (cached?.query === candidate.query) return cached.result;
+  const parsed = parseSimpleDashboardMembershipQuery(candidate.query);
+  if (!parsed) {
+    dashboardMembershipOutputCache.set(candidate, {
+      query: candidate.query,
+      result: false,
+    });
+    return false;
+  }
+  const inheritedCtes = dashboardCteDefinitions(candidate.query);
+  if (inheritedCtes === null) {
+    dashboardMembershipOutputCache.set(candidate, {
+      query: candidate.query,
+      result: false,
+    });
+    return false;
+  }
+  const result = parsed.every((branch) => {
+    const physicalRelations = dashboardPhysicalRelationNames(
+      branch.sql,
+      inheritedCtes,
+    );
+    if (
+      dashboardHasTopLevelCommaJoin(branch.sql) ||
+      !dashboardJoinsPreserveMembershipIdentity(branch.sql, inheritedCtes) ||
+      !physicalRelations.length ||
+      !hasMembershipRelationEvidence(
+        physicalRelations
+          .map((relation) => relation.replace(/[_-]+/g, " "))
+          .join(" "),
+      ) ||
+      !hasDashboardProjectionEntity(
+        branch.selectExpressions,
+        "user",
+        branch.sql,
+        branch.selectExpressions,
+        inheritedCtes,
+      ) ||
+      !hasDashboardProjectionEntity(
+        branch.selectExpressions,
+        "organization",
+        branch.sql,
+        branch.selectExpressions,
+        inheritedCtes,
+      )
+    ) {
+      return false;
+    }
+    if (
+      branch.qualifyExpression &&
+      !hasRowLevelMembershipQualify(
+        branch.qualifyExpression,
+        branch.sql,
+        branch.selectExpressions,
+        inheritedCtes,
+      )
+    ) {
+      return false;
+    }
+    if (!branch.groupByExpressions) {
+      return !hasAggregateSelectExpression(branch.selectExpressions);
+    }
+    const normalizedGroupBy = branch.groupByExpressions
+      .join(" ")
+      .toLowerCase()
+      .replace(/[_-]+/g, " ");
+    if (
+      /\b(?:date|day|week|month|quarter|year|period|snapshot)\b/.test(
+        normalizedGroupBy,
+      )
+    ) {
+      return false;
+    }
+    return (
+      hasDashboardProjectionEntity(
+        branch.groupByExpressions,
+        "user",
+        branch.sql,
+        branch.selectExpressions,
+        inheritedCtes,
+      ) &&
+      hasDashboardProjectionEntity(
+        branch.groupByExpressions,
+        "organization",
+        branch.sql,
+        branch.selectExpressions,
+        inheritedCtes,
+      )
+    );
+  });
+  dashboardMembershipOutputCache.set(candidate, {
+    query: candidate.query,
+    result,
+  });
+  return result;
+}
+
+function dashboardHasTopLevelCommaJoin(query: string): boolean {
+  const sql = stripSqlComments(query);
+  if (!sql) return true;
+  const from = findTopLevelSqlKeyword(sql, "from");
+  if (!from) return true;
+  const clauseEnd = [
+    "where",
+    "group by",
+    "having",
+    "qualify",
+    "order by",
+    "limit",
+    "fetch",
+    "union",
+    "intersect",
+    "except",
+  ]
+    .map((keyword) => findTopLevelSqlKeyword(sql, keyword, from.end))
+    .filter((match): match is { start: number; end: number } => match !== null)
+    .reduce((end, match) => Math.min(end, match.start), sql.length);
+  const fromClause = sql.slice(from.end, clauseEnd);
+  return (splitTopLevelSqlList(fromClause)?.length ?? 0) > 1;
+}
+
+function hasAggregateSelectExpression(expressions: string[]): boolean {
+  return expressions.some((expression) => {
+    const sql = maskNestedDashboardSubqueries(
+      maskSqlStringLiterals(expression),
+    );
+    const aggregateCalls = /\b(?:count|sum|avg|average|min|max|median)\s*\(/gi;
+    for (const aggregate of sql.matchAll(aggregateCalls)) {
+      const openParen = aggregate.index! + aggregate[0].lastIndexOf("(");
+      const closeParen = matchingSqlParenthesis(sql, openParen);
+      if (closeParen === null) return true;
+
+      let cursor = skipSqlWhitespace(sql, closeParen + 1);
+      const filterEnd = sqlKeywordEndAt(sql, cursor, "filter");
+      if (filterEnd !== null) {
+        cursor = skipSqlWhitespace(sql, filterEnd);
+        if (sql[cursor] !== "(") return true;
+        const filterClose = matchingSqlParenthesis(sql, cursor);
+        if (filterClose === null) return true;
+        cursor = skipSqlWhitespace(sql, filterClose + 1);
+      }
+
+      const overEnd = sqlKeywordEndAt(sql, cursor, "over");
+      if (overEnd === null || sql[skipSqlWhitespace(sql, overEnd)] !== "(") {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+function maskNestedDashboardSubqueries(sql: string): string {
+  const output = sql.split("");
+  for (let index = 0; index < sql.length; index += 1) {
+    if (sql[index] !== "(") continue;
+    const close = matchingSqlParenthesis(sql, index);
+    if (close === null) continue;
+    const queryStart = skipSqlWhitespace(sql, index + 1);
+    if (
+      sqlKeywordEndAt(sql, queryStart, "select") === null &&
+      sqlKeywordEndAt(sql, queryStart, "with") === null
+    ) {
+      continue;
+    }
+    for (let cursor = index; cursor <= close; cursor += 1) {
+      if (output[cursor] !== "\n") output[cursor] = " ";
+    }
+    index = close;
+  }
+  return output.join("");
+}
+
+function hasRowLevelMembershipQualify(
+  qualifyExpression: string,
+  query: string,
+  selectExpressions: string[],
+  inheritedCtes: Map<string, DashboardCteDefinition>,
+): boolean {
+  const rowNumber = /\brow_number\s*\(\s*\)\s*over\s*\(/i.exec(
+    qualifyExpression,
+  );
+  if (!rowNumber) return false;
+  const openParen = rowNumber.index + rowNumber[0].lastIndexOf("(");
+  const closeParen = matchingSqlParenthesis(qualifyExpression, openParen);
+  if (
+    closeParen === null ||
+    !/^\s*(?:=|<=)\s*1\b/i.test(qualifyExpression.slice(closeParen + 1))
+  ) {
+    return false;
+  }
+  const window = qualifyExpression.slice(openParen + 1, closeParen);
+  const partition = findTopLevelSqlKeyword(window, "partition by");
+  if (!partition) return false;
+  const orderBy = findTopLevelSqlKeyword(window, "order by", partition.end);
+  const partitionExpressions = splitTopLevelSqlList(
+    window.slice(partition.end, orderBy?.start ?? window.length),
+  );
+  return (
+    partitionExpressions !== null &&
+    hasDashboardProjectionEntity(
+      partitionExpressions,
+      "user",
+      query,
+      selectExpressions,
+      inheritedCtes,
+    ) &&
+    hasDashboardProjectionEntity(
+      partitionExpressions,
+      "organization",
+      query,
+      selectExpressions,
+      inheritedCtes,
+    )
+  );
+}
+
 function hasMembershipRelationEvidence(value: string): boolean {
   return (
-    /\bmembership\b/.test(value) ||
+    /\bmemberships?\b/.test(value) ||
     /\b(?:(?:user|member)\s+)?(?:organization|org|workspace|team)\s+memberships?\b/.test(
       value,
     ) ||
@@ -614,7 +2200,11 @@ function hasExplicitActivityEvidence(
           candidate.table,
           candidate.semanticModel,
         ]
-      : [candidate.query];
+      : [
+          typeof candidate.query === "string"
+            ? (stripSqlComments(candidate.query) ?? candidate.query)
+            : candidate.query,
+        ];
   const searchable = values
     .filter((value): value is string => typeof value === "string")
     .join(" ")
@@ -651,7 +2241,13 @@ function hasActiveOnlyMembershipEvidence(
           candidate.table,
           candidate.semanticModel,
         ]
-      : [candidate.panelTitle, candidate.panelDescription, candidate.query];
+      : [
+          candidate.panelTitle,
+          candidate.panelDescription,
+          typeof candidate.query === "string"
+            ? (stripSqlComments(candidate.query) ?? candidate.query)
+            : candidate.query,
+        ];
   const searchable = values
     .filter((value): value is string => typeof value === "string")
     .join(" ")
@@ -760,14 +2356,14 @@ function rosterCandidateSupportsRequestedDetail(
     return false;
   }
   const requestsRoleDetail = requestsMembershipRoleDetail(search);
+  const hasRosterEvidence =
+    hasMembershipRosterEvidence(candidate) ||
+    hasMatchingHistoricalMembershipSnapshot(candidate, search);
   if (requestsRoleDetail) {
-    return (
-      hasMembershipRosterEvidence(candidate) &&
-      hasMembershipRoleField(candidate)
-    );
+    return hasRosterEvidence && hasMembershipRoleField(candidate);
   }
   if (isRosterDimensionCandidate(candidate)) return true;
-  return hasMembershipRosterEvidence(candidate);
+  return hasRosterEvidence;
 }
 
 export function candidateSemanticScope(
@@ -1109,6 +2705,9 @@ function dictionaryCandidates(
         ...(typeof entry.sourceIndexStale === "boolean"
           ? { sourceIndexStale: entry.sourceIndexStale }
           : {}),
+        ...(typeof entry.sourceIndexFreshnessUnknown === "boolean"
+          ? { sourceIndexFreshnessUnknown: entry.sourceIndexFreshnessUnknown }
+          : {}),
       },
     ];
   });
@@ -1207,12 +2806,11 @@ export function candidateQueryPriority(
 } {
   const rankingIntent = stripNonPositiveInstructions(search);
   const requestedScope = requestedSemanticScope(rankingIntent);
-  const aggregateRequest =
-    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
-      rankingIntent,
-    );
+  const aggregateRequest = isAggregateRequest(rankingIntent);
   const plainMembershipRequest =
     requestedScope === "membership" && !aggregateRequest;
+  const historicalMembershipRequest =
+    isHistoricalMembershipRequest(rankingIntent);
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const requestedActiveMembers =
@@ -1221,11 +2819,14 @@ export function candidateQueryPriority(
     requestsActiveMembers(rankingIntent);
   const requestedTerms = new Set(searchTerms(rankingIntent));
   const staleSourceIndex = isStaleGeneratedSourceIndexEntry(candidate);
+  const hasRosterEvidence =
+    hasMembershipRosterEvidence(candidate) ||
+    hasMatchingHistoricalMembershipSnapshot(candidate, rankingIntent);
 
   return {
     rosterSpecificity:
       !staleSourceIndex && rosterRequest
-        ? hasMembershipRosterEvidence(candidate) &&
+        ? hasRosterEvidence &&
           (!requestsRoleDetail || hasMembershipRoleField(candidate))
           ? 2
           : !requestsRoleDetail && isRosterDimensionCandidate(candidate)
@@ -1234,8 +2835,8 @@ export function candidateQueryPriority(
         : 0,
     membershipRowSpecificity:
       !staleSourceIndex &&
-      plainMembershipRequest &&
-      hasMembershipRosterEvidence(candidate)
+      (plainMembershipRequest || historicalMembershipRequest) &&
+      hasRosterEvidence
         ? 1
         : 0,
     rankingTier: candidateQueryRankingTierForTerms(candidate, requestedTerms),
@@ -1303,12 +2904,13 @@ export function rankAnalyticsQueryCatalogPage(args: {
     (requestedScope === "membership" ||
       requestedScope === "membership_roster") &&
     requestsActiveMembers(rankingIntent);
-  const aggregateRequest =
-    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
-      rankingIntent,
-    );
+  const aggregateRequest = isAggregateRequest(rankingIntent);
   const plainMembershipRequest =
     requestedScope === "membership" && !aggregateRequest;
+  const historicalMembershipRequest =
+    isHistoricalMembershipRequest(rankingIntent);
+  const aggregateMembershipIsNotRelevant =
+    plainMembershipRequest || historicalMembershipRequest;
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
@@ -1333,8 +2935,22 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const eligibleCandidates = rankedCandidates.filter(
     ({ candidate }) =>
       !(
+        historicalMembershipRequest &&
+        !hasMatchingHistoricalMembershipSnapshot(candidate, rankingIntent)
+      ) &&
+      !(
         excludesActiveOnlyMembership &&
         hasActiveOnlyMembershipEvidence(candidate)
+      ) &&
+      !(
+        aggregateMembershipIsNotRelevant &&
+        hasAggregateShape(candidate) &&
+        !hasDeclaredRowLevelMembershipGrain(candidate) &&
+        !hasMatchingHistoricalMembershipSnapshot(candidate, rankingIntent) &&
+        !(
+          candidate.kind === "dashboard-panel" &&
+          hasRowLevelDashboardMembershipOutput(candidate)
+        )
       ) &&
       !(
         excludesMembershipForActivity &&
@@ -1451,6 +3067,7 @@ async function listDictionaryEntries(args: {
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
   sourceIndexScanCoverage: SourceIndexScanCoverage | null;
   sourceIndexFreshness: SourceIndexFreshness | null;
+  sourceIndexSourcesFreshness: SourceIndexSourcesFreshness | null;
 }> {
   const entries: DictionaryEntry[] = [];
   const seen = new Map<string, number>();
@@ -1517,11 +3134,19 @@ async function listDictionaryEntries(args: {
     | "available" = "unavailable";
   let sourceIndexCoverage: SourceIndexScanCoverage | null = null;
   let sourceIndexFreshnessMetadata: SourceIndexFreshness | null = null;
+  let sourceIndexSourcesFreshnessMetadata: SourceIndexSourcesFreshness | null =
+    null;
   if (sourceIndexResult.status === "fulfilled") {
     sourceIndexStatus = sourceIndexResult.value.status;
     if (sourceIndexResult.value.status === "available") {
+      const now = Date.now();
       sourceIndexFreshnessMetadata = sourceIndexFreshness(
         sourceIndexResult.value.bundle.generatedAt,
+        now,
+      );
+      sourceIndexSourcesFreshnessMetadata = sourceIndexSourcesFreshness(
+        sourceIndexResult.value.bundle,
+        now,
       );
       sourceIndexCoverage = sourceIndexScanCoverage(
         sourceIndexResult.value.bundle,
@@ -1576,6 +3201,7 @@ async function listDictionaryEntries(args: {
     sourceIndexStatus,
     sourceIndexScanCoverage: sourceIndexCoverage,
     sourceIndexFreshness: sourceIndexFreshnessMetadata,
+    sourceIndexSourcesFreshness: sourceIndexSourcesFreshnessMetadata,
   };
 }
 
@@ -1616,6 +3242,7 @@ export async function searchAnalyticsDictionaryCatalog(args: {
     sourceIndexStatus: dictionary.sourceIndexStatus,
     sourceIndexScanCoverage: dictionary.sourceIndexScanCoverage,
     sourceIndexFreshness: dictionary.sourceIndexFreshness,
+    sourceIndexSourcesFreshness: dictionary.sourceIndexSourcesFreshness,
   };
 }
 
@@ -1928,6 +3555,10 @@ export async function searchAnalyticsQueryCatalog(args: {
     sourceIndexFreshness:
       dictionaryResult.status === "fulfilled"
         ? dictionaryResult.value.sourceIndexFreshness
+        : null,
+    sourceIndexSourcesFreshness:
+      dictionaryResult.status === "fulfilled"
+        ? dictionaryResult.value.sourceIndexSourcesFreshness
         : null,
   };
 }

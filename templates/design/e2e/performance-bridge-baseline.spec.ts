@@ -445,8 +445,7 @@ test.use({ viewport: { width: 1500, height: 1000 } });
 
 // The budget: a deep marquee over a large screen costs one full-DOM scan per screen it crosses, plus one
 // style-snapshot pass per screen whose layers end up selected, however many pointer moves the drag has.
-// fixme: product bug: Every budget assertion passes. The Cmd-marquee started on empty canvas selects each screen's main container plus every descendant (262
-test.fixme("a Cmd-marquee across a large screen and a small one scans each crossed screen once and commits the selection once", async ({
+test("a Cmd-marquee across a large screen and a small one scans each crossed screen once and commits the selection once", async ({
   app,
   page,
 }) => {
@@ -491,6 +490,8 @@ test.fixme("a Cmd-marquee across a large screen and a small one scans each cross
     profiler.finalSelectionIds.length,
     "precondition: the marquee selected the cards it crossed",
   ).toBeGreaterThanOrEqual(24);
+  const compareFrameIds = (left: string, right: string) =>
+    left < right ? -1 : left > right ? 1 : 0;
   expect(
     profiler.collectionRequests
       .map((request) => ({
@@ -499,11 +500,13 @@ test.fixme("a Cmd-marquee across a large screen and a small one scans each cross
         deep: request.deep,
         atPoint: request.hasAtPoint,
       }))
-      .sort((a, b) =>
-        `${a.frameId}${a.styles}`.localeCompare(`${b.frameId}${b.styles}`),
+      .sort(
+        (a, b) =>
+          compareFrameIds(a.frameId, b.frameId) ||
+          Number(a.styles) - Number(b.styles),
       ),
   ).toStrictEqual(
-    [...fixture.fileIds].sort().flatMap((frameId) => [
+    [...fixture.fileIds].sort(compareFrameIds).flatMap((frameId) => [
       { frameId, styles: false, deep: true, atPoint: false },
       { frameId, styles: true, deep: true, atPoint: false },
     ]),

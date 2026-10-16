@@ -62,7 +62,6 @@ vi.mock("./trash-recording.js", () => ({
   default: { run: async (args: { id: string }) => ({ id: args.id }) },
 }));
 
-import { DIRECT_SHARE_REWIND_ERROR } from "./make-recording-private-for-rewind";
 import action from "./request-recording-context";
 
 const ENDED_AT = "2026-10-01T12:00:00.000Z";
@@ -165,39 +164,25 @@ describe("request-recording-context", () => {
     expect(await countItems("rec_1")).toBe(0);
   });
 
-  it("makes an unshared non-private Clip private before adding context", async () => {
+  it("leaves the Clip's visibility and direct shares alone", async () => {
     await seedRecording(client, { id: "rec_org", visibility: "org" });
+    await seedDirectShare(client, "rec_org");
     mocks.roles = { rec_org: "owner" };
 
-    await action.run({
+    const item = await action.run({
       recordingId: "rec_org",
       seconds: 30,
       endedAt: ENDED_AT,
     });
 
-    expect(await visibilityOf("rec_org")).toBe("private");
-    expect(await countItems("rec_org")).toBe(1);
-  });
-
-  it("refuses a non-private Clip that is still shared directly and leaves it unchanged", async () => {
-    await seedRecording(client, { id: "rec_org", visibility: "org" });
-    await seedDirectShare(client, "rec_org");
-    mocks.roles = { rec_org: "owner" };
-
-    await expect(
-      action.run({ recordingId: "rec_org", seconds: 30, endedAt: ENDED_AT }),
-    ).rejects.toThrow(DIRECT_SHARE_REWIND_ERROR);
+    expect(item.status).toBe("pending");
     expect(await visibilityOf("rec_org")).toBe("org");
-    expect(await countItems("rec_org")).toBe(0);
-  });
-
-  it("refuses a private Clip that is still shared directly", async () => {
-    await seedDirectShare(client, "rec_1");
-
-    await expect(
-      action.run({ recordingId: "rec_1", seconds: 30, endedAt: ENDED_AT }),
-    ).rejects.toThrow(DIRECT_SHARE_REWIND_ERROR);
-    expect(await countItems("rec_1")).toBe(0);
+    expect(await countItems("rec_org")).toBe(1);
+    const shares = await client.query(
+      `SELECT id FROM recording_shares WHERE resource_id = $1`,
+      ["rec_org"],
+    );
+    expect(shares.rows).toHaveLength(1);
   });
 
   it("returns the existing active item instead of creating another", async () => {
@@ -307,64 +292,7 @@ describe("request-recording-context", () => {
     ).resolves.toMatchObject({ endedAt: at(-120_000), status: "pending" });
   });
 
-  it("removes the new item when a direct share lands after it was inserted", async () => {
-    // Stands in for a grant that commits after the first share check: the
-    // trigger writes a share the moment the item is inserted.
-    await client.exec(`
-      CREATE FUNCTION share_on_context_insert() RETURNS trigger AS $$
-      BEGIN
-        INSERT INTO recording_shares (id, resource_id) VALUES ('race_share', NEW.recording_id);
-        RETURN NEW;
-      END
-      $$ LANGUAGE plpgsql;
-      CREATE TRIGGER share_on_context_insert AFTER INSERT ON recording_context_items
-        FOR EACH ROW EXECUTE FUNCTION share_on_context_insert();
-    `);
-    try {
-      await expect(
-        action.run({ recordingId: "rec_1", seconds: 30, endedAt: ENDED_AT }),
-      ).rejects.toThrow(DIRECT_SHARE_REWIND_ERROR);
-    } finally {
-      await client.exec(`
-        DROP TRIGGER share_on_context_insert ON recording_context_items;
-        DROP FUNCTION share_on_context_insert();
-      `);
-    }
-
-    expect(await countItems("rec_1")).toBe(0);
-    expect(await countItems("rec_1", true)).toBe(1);
-  });
-
-  it("removes the new item and refuses when the Clip goes non-private after the insert", async () => {
-    // Stands in for a visibility write that commits after the pre-insert gate:
-    // the trigger makes the Clip org-visible the moment the item is inserted.
-    await client.exec(`
-      CREATE FUNCTION visibility_on_context_insert() RETURNS trigger AS $$
-      BEGIN
-        UPDATE recordings SET visibility = 'org' WHERE id = NEW.recording_id;
-        RETURN NEW;
-      END
-      $$ LANGUAGE plpgsql;
-      CREATE TRIGGER visibility_on_context_insert AFTER INSERT ON recording_context_items
-        FOR EACH ROW EXECUTE FUNCTION visibility_on_context_insert();
-    `);
-    try {
-      await expect(
-        action.run({ recordingId: "rec_1", seconds: 30, endedAt: ENDED_AT }),
-      ).rejects.toThrow(DIRECT_SHARE_REWIND_ERROR);
-    } finally {
-      await client.exec(`
-        DROP TRIGGER visibility_on_context_insert ON recording_context_items;
-        DROP FUNCTION visibility_on_context_insert();
-      `);
-    }
-
-    expect(await visibilityOf("rec_1")).toBe("org");
-    expect(await countItems("rec_1")).toBe(0);
-    expect(await countItems("rec_1", true)).toBe(1);
-  });
-
-  it("keeps the item when a write after the insert leaves the Clip private", async () => {
+  it("keeps the item when an unrelated write lands after the insert", async () => {
     // Stands in for an unrelated recordings write that commits after the insert.
     await client.exec(`
       CREATE FUNCTION touch_on_context_insert() RETURNS trigger AS $$

@@ -3605,7 +3605,13 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: vi.fn(async () => "unavailable"),
+        checkWorkspaceAppAccess: vi.fn(async () => ({
+          status: "unavailable",
+          reason: "registry-http-error",
+          upstreamStatus: 401,
+          audience: "https://workspace.example.test/dispatch",
+          detail: "Unauthorized",
+        })),
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3624,6 +3630,10 @@ describe("server/auth", () => {
 
       await expect(guard(event)).resolves.toEqual({
         error: "Workspace app access is temporarily unavailable.",
+        code: "registry-http-error",
+        upstreamStatus: 401,
+        audience: "https://workspace.example.test/dispatch",
+        detail: "Unauthorized",
       });
       expect(event.res.status).toBe(503);
     });
@@ -3636,7 +3646,7 @@ describe("server/auth", () => {
       defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
       const checkAppAccess = vi.fn(async () => false);
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: checkAppAccess,
+        checkWorkspaceAppAccess: checkAppAccess,
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3700,7 +3710,7 @@ describe("server/auth", () => {
       });
       const checkAppAccess = vi.fn(async () => false);
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: checkAppAccess,
+        checkWorkspaceAppAccess: checkAppAccess,
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -12202,6 +12212,7 @@ describe("server/auth", () => {
     async function resolveLegacySession(userRows: {
       combined: Record<string, unknown> | undefined;
       verification?: Record<string, unknown>;
+      canonicalEmail?: string;
     }) {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -12237,7 +12248,11 @@ describe("server/auth", () => {
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       const resolveCanonicalUserForLegacySession = vi.fn(async () => ({
-        user: { id: "user-1", email: "person@example.com", name: "Canonical" },
+        user: {
+          id: "user-1",
+          email: userRows.canonicalEmail ?? "person@example.com",
+          name: "Canonical",
+        },
         accounts: [],
       }));
       vi.doMock("./legacy-auth-migration.js", () => ({
@@ -12268,6 +12283,8 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         emailVerified: true,
         token: "legacy-token",
         name: "Person",
@@ -12291,6 +12308,8 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         emailVerified: false,
         token: "legacy-token",
         name: "Canonical",
@@ -12307,12 +12326,28 @@ describe("server/auth", () => {
 
       expect(session).toEqual({
         email: "person@example.com",
+        authUserId: "user-1",
+        userId: "user-1",
         token: "legacy-token",
         name: "Canonical",
       });
       expect(resolveCanonicalUserForLegacySession).toHaveBeenCalledWith(
         "person@example.com",
       );
+    });
+
+    it("does not attach a canonical ID for a different email", async () => {
+      const { session } = await resolveLegacySession({
+        combined: undefined,
+        verification: { email_verified: true },
+        canonicalEmail: "another-person@example.com",
+      });
+
+      expect(session).toEqual({
+        email: "person@example.com",
+        emailVerified: true,
+        token: "legacy-token",
+      });
     });
   });
 });

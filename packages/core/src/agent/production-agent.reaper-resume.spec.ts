@@ -99,6 +99,7 @@ async function recover(
   withAttachment = false,
   onEmailWrite?: () => void,
   withCustomAgent = false,
+  retrySafe = false,
 ) {
   sequence++;
   const threadId = `reaper-thread-${sequence}`;
@@ -248,6 +249,7 @@ async function recover(
         },
         readOnly: false,
         run: sendEmail,
+        ...(retrySafe ? { retrySafe: true } : {}),
         ...(failFinalization === "validation"
           ? defineAction({
               description: "Send email",
@@ -707,6 +709,23 @@ describe("reaper successor resume context", () => {
       expect(next.sendEmail).toHaveBeenCalledTimes(1);
     },
   );
+  it("lets a retry-safe write be corrected and re-run after a handler error", async () => {
+    const result = await recover(
+      [],
+      "verify-live",
+      false,
+      "action",
+      undefined,
+      false,
+      undefined,
+      false,
+      true,
+    );
+    expect(result.sendEmail).toHaveBeenCalledTimes(2);
+    expect(result.run?.terminalReason).not.toBe(
+      "error:write_tool_outcome_unknown",
+    );
+  });
   it.each(["precondition", "connection"] as const)(
     "does not certify a direct typed handler failure as unexecuted (%s)",
     async (failure) => {

@@ -9,6 +9,7 @@ import {
   elementInfoForSelectionSnapshot,
   getOverviewScreenContentKey,
   explicitOverviewScreenSelectionForHistory,
+  reconcileSelectedLayerIdsForOverviewScreens,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
   isUserOriginatedSelectionIntent,
@@ -23,6 +24,7 @@ import {
   shouldClearSelectionForReviewThreadTarget,
   shouldDisableExportsUntilCanvasFramesExist,
   shouldEscapeToOverview,
+  shouldResetBreakpointAfterOverviewSelectionClear,
   updateExplicitOverviewScreenSelection,
 } from "./selection-state";
 
@@ -444,6 +446,122 @@ describe("pendingEditTargetsSelectedElement", () => {
   });
 });
 
+describe("reconcileSelectedLayerIdsForOverviewScreens", () => {
+  it("normalizes legacy screen IDs while retaining selected IDs and child layers", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: [
+          "home",
+          "code:home",
+          "about",
+          "code:about",
+          "code:child",
+          "layer:hero",
+        ],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: ["about"],
+      }),
+    ).toEqual(["about", "code:about", "code:child", "layer:hero"]);
+  });
+
+  it("clears legacy screen IDs after an empty marquee without dropping child IDs", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: ["code:home", "code:about", "code:child"],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: [],
+      }),
+    ).toEqual(["code:child"]);
+  });
+
+  it("removes deselected file IDs but keeps selected screens and owner-derived layers", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: ["home", "about", "layer:hero", "layer:card"],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: ["about"],
+      }),
+    ).toEqual(["about", "layer:hero", "layer:card"]);
+  });
+
+  it("clears stale file IDs when the accepted canvas selection is empty", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: ["home", "about", "layer:hero"],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: [],
+      }),
+    ).toEqual(["layer:hero"]);
+  });
+});
+
+describe("shouldResetBreakpointAfterOverviewSelectionClear", () => {
+  const base = {
+    activeBreakpointWidth: 480,
+    previousSelectedScreenIds: ["screen-a"],
+    selectedScreenIds: [],
+    viewMode: "overview" as const,
+  };
+
+  it("resets after a completed empty-canvas marquee", () => {
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: {
+          source: "marquee",
+          final: true,
+          additive: false,
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the breakpoint when Shift explicitly deselects a screen title", () => {
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: {
+          source: "pointer",
+          additive: true,
+          shiftKey: true,
+          screenSelectionToggle: {
+            screenId: "screen-a",
+            selected: false,
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("does not reset for a cancelled/additive marquee or an initial empty echo", () => {
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: { source: "marquee", final: true, cancelled: true },
+      }),
+    ).toBe(false);
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: { source: "marquee", final: true, additive: true },
+      }),
+    ).toBe(false);
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        previousSelectedScreenIds: [],
+        intent: { source: "marquee", final: true },
+      }),
+    ).toBe(false);
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: undefined,
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("shouldEscapeToOverview", () => {
   const base = {
     activeTool: "move" as const,
@@ -563,6 +681,46 @@ describe("isUserOriginatedSelectionIntent", () => {
 describe("resolveMarqueeAdditive", () => {
   it("preserves Shift additive semantics for pointer picks", () => {
     expect(resolveMarqueeAdditive({ shiftKey: true, source: "pointer" })).toBe(
+      true,
+    );
+  });
+
+  it("treats Meta or Ctrl alone as deep-select replacement despite legacy additive flags", () => {
+    expect(
+      resolveMarqueeAdditive({
+        additive: true,
+        metaKey: true,
+        shiftKey: false,
+      }),
+    ).toBe(false);
+    expect(
+      resolveMarqueeAdditive({
+        additive: true,
+        ctrlKey: true,
+        shiftKey: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps Shift and range additive with deep modifiers", () => {
+    expect(
+      resolveMarqueeAdditive({
+        additive: false,
+        metaKey: true,
+        shiftKey: true,
+      }),
+    ).toBe(true);
+    expect(
+      resolveMarqueeAdditive({
+        additive: false,
+        ctrlKey: true,
+        range: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("honors an additive marquee intent when no deep modifier is held", () => {
+    expect(resolveMarqueeAdditive({ additive: true, source: "marquee" })).toBe(
       true,
     );
   });
