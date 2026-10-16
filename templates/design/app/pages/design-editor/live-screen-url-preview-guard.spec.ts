@@ -102,7 +102,7 @@ describe("live screen URL preview guard", () => {
 
     expect(section).toContain(guard);
     expect(section.indexOf(guard)).toBeLessThan(
-      section.indexOf("if (stateId === null)"),
+      section.indexOf("setSelectedStateId(stateId)"),
     );
     expect(section).toMatch(
       /if \(isStandaloneHttpUrl\(activeContent\)\) \{[\s\S]*?designStateLiveScreen[\s\S]*?return;\s*\}/,

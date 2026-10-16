@@ -1,3 +1,4 @@
+import { assertNoInlineImageBytes } from "@agent-native/core/testing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const setAgentChatContextItemMock = vi.hoisted(() => vi.fn());
@@ -85,5 +86,41 @@ describe("runMirrorSelectionToAgentChat", () => {
     const polledHtml = '<div style="color:green">A</div>';
     runMirrorSelectionToAgentChat(baseArgs(refs, polledHtml));
     expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sanitizes published HTML and CSS excerpts while preserving UTF-8 and normal image URLs", () => {
+    const refs = makeRefs();
+    const inlineGif = "DATA:image/gif;base64,R0lGODlhAQABAIAA";
+    const inlineSvg =
+      "data:image/svg+xml;charset=utf-8,%3Csvg%20aria-label%3D%22caf%C3%A9%22%3E";
+    const imageUrl = "https://cdn.example.test/hero.png";
+    const html =
+      `<div data-agent-native-node-id="node-source-7" ` +
+      `style="background-image: url('${inlineSvg}')">` +
+      `<img src="${inlineGif}"><img src="${imageUrl}">` +
+      `<span>café &amp; résumé</span></div>`;
+    const args = {
+      ...baseArgs(refs, html),
+      selectedElement: {
+        ...selectedElement,
+        textContent: "café & résumé",
+        sourceId: "node-source-7",
+        selector: "#hero-image",
+      } as ElementInfo,
+    };
+
+    runMirrorSelectionToAgentChat(args);
+
+    expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
+    const published = setAgentChatContextItemMock.mock.calls[0]![0];
+    expect(published.title).toBe("café & résumé");
+    expect(published.context).toContain("targetNodeId: node-source-7");
+    expect(published.context).toContain("targetSelector: #node-1");
+    expect(published.context).toContain("café &amp; résumé");
+    expect(published.context).toContain("[inline image/gif data omitted]");
+    expect(published.context).toContain("[inline image/svg+xml data omitted]");
+    expect(published.context).toContain(imageUrl);
+    expect(published.context).not.toMatch(/data:image|base64,/i);
+    expect(() => assertNoInlineImageBytes(published)).not.toThrow();
   });
 });

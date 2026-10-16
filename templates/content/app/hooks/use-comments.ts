@@ -2,14 +2,15 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import {
+  parseCommentMentions,
+  type CommentMention,
+} from "@shared/comment-mentions";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useContentActionMutation } from "./use-content-action-mutation";
 
-export interface CommentMention {
-  email: string;
-  name: string;
-}
+export type { CommentMention };
 
 export interface CommentMutationState {
   operationId: string;
@@ -45,9 +46,13 @@ export interface Comment {
   notion_comment_id: string | null;
   submission_source?: string | null;
   submission_run_id?: string | null;
+  /** The agent conversation whose run wrote this comment. */
+  submission_thread_id?: string | null;
   /** Emoji reactions in first-reacted order. */
   reactions?: CommentReaction[];
   author_model?: string | null;
+  /** The thinking effort the writing run resolved, when one was recorded. */
+  author_effort?: string | null;
   mutation?: CommentMutationState;
 }
 
@@ -302,32 +307,6 @@ function updateComments(
   return withComments(response, update(commentsFrom(response)));
 }
 
-function parsedMentions(value: string): CommentMention[] {
-  if (!value.trim()) return [];
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed)) {
-      throw new Error("Comment mentions metadata must be an array");
-    }
-    return parsed.map((entry) => {
-      if (!entry || typeof entry !== "object") {
-        throw new Error("Comment mentions metadata contains an invalid entry");
-      }
-      const email = (entry as Record<string, unknown>).email;
-      const name = (entry as Record<string, unknown>).name;
-      if (typeof email !== "string" || !email) {
-        throw new Error("Comment mention email is required");
-      }
-      return { email, name: typeof name === "string" ? name : "" };
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Comment mention")) {
-      throw error;
-    }
-    throw new Error("Comment mentions metadata is not valid JSON");
-  }
-}
-
 function authorName(author: CommentAuthor): string | null {
   const explicit = author.name?.trim();
   if (explicit) return explicit;
@@ -446,7 +425,7 @@ export function useCreateComment(author: CommentAuthor = {}) {
         mentions:
           variables.mentions === undefined
             ? []
-            : parsedMentions(variables.mentions),
+            : parseCommentMentions(variables.mentions),
         author_email: author.email?.trim() ?? "",
         author_name: authorName(author),
         actorKind: "human",
@@ -664,7 +643,7 @@ function useOptimisticCommentUpdate<
             mentions:
               editVariables.mentions === undefined
                 ? undefined
-                : parsedMentions(editVariables.mentions),
+                : parseCommentMentions(editVariables.mentions),
           });
         } else {
           const resolveVariables = variables as ResolveCommentVariables;
@@ -818,7 +797,7 @@ export function useEditComment() {
       mentions:
         variables.mentions === undefined
           ? comment.mentions
-          : parsedMentions(variables.mentions),
+          : parseCommentMentions(variables.mentions),
       updated_at: new Date().toISOString(),
     }),
   );

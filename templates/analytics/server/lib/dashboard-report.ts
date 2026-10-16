@@ -1,12 +1,16 @@
+import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { getAppProductionUrl, sendEmail } from "@agent-native/core/server";
 
 import { normalizeMultiSelectValue } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
 import { listReportablePanelIds } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import type {
+  DashboardAnnotations,
   DashboardFilter,
   FilterType,
   SqlDashboardConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
+import { dataNotesForPanel } from "../../shared/data-notes";
+import { keyDateEvents } from "../../shared/key-dates";
 import {
   fetchReportPanelData,
   renderReportEmail,
@@ -14,12 +18,14 @@ import {
 } from "./dashboard-report-render";
 import {
   getReportDashboard,
-  normalizeDashboardReportRecipients,
+  normalizeDashboardReportDestinations,
   type AccessCtx,
   type DashboardReportCaptureOutcome,
   type DashboardReportSubscription,
 } from "./dashboard-report-subscriptions";
+import { listDataNotes } from "./data-notes-store";
 import { ANALYTICS_DASHBOARD_REPORT_EMAIL_ID } from "./emails";
+import { listKeyDateSets } from "./key-dates-store";
 
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
   "date",
@@ -38,7 +44,10 @@ export type DashboardReportResult = {
   reportMode: DashboardReportMode;
   degradedPanelIds: string[];
   reportError?: string;
-  emailsSent: boolean;
+  // False only when a degraded report was held back for a scheduled retry.
+  delivered: boolean;
+  /** Set when email went out but the Slack post did not; retrying would resend the email. */
+  slackError?: string;
 };
 
 function daysAgo(n: number): string {
@@ -108,6 +117,7 @@ function dashboardConfigFromRecord(raw: Record<string, unknown>) {
         : undefined,
     columns: typeof raw.columns === "number" ? raw.columns : undefined,
     panels: Array.isArray(raw.panels) ? (raw.panels as any[]) : [],
+    annotations: raw.annotations as DashboardAnnotations | undefined,
   } satisfies SqlDashboardConfig;
 }
 
@@ -158,6 +168,8 @@ export async function collectReportSnapshot(
   };
   // Links keep a cleared multi-select's marker, because a link without it reopens with the default selected. The query and filter line read the normalized map.
   const filters = normalizeReportFilters(config.filters, linkFilters);
+  const scope = dashboard.annotationScope;
+  const dataNotes = await listDataNotes(scope);
 
   return {
     dashboardId: sub.dashboardId,
@@ -171,13 +183,25 @@ export async function collectReportSnapshot(
     generatedAt: new Date().toISOString(),
     panelIds: listReportablePanelIds(config.panels),
     panels: config.panels,
+    keyDates: keyDateEvents(await listKeyDateSets(scope), config.annotations),
+    dataNotesByPanel: Object.fromEntries(
+      config.panels.flatMap((panel) => {
+        const notes = dataNotesForPanel(
+          dataNotes,
+          sub.dashboardId,
+          panel,
+          config.annotations,
+        );
+        return notes.length > 0 ? [[panel.id, notes]] : [];
+      }),
+    ),
     variables: config.variables,
   };
 }
 
-function reportDeliveryReserveMs(recipientCount: number): number {
+function reportDeliveryReserveMs(destinationCount: number): number {
   return (
-    recipientCount * DASHBOARD_REPORT_EMAIL_TIMEOUT_MS +
+    destinationCount * DASHBOARD_REPORT_EMAIL_TIMEOUT_MS +
     DASHBOARD_REPORT_EMAIL_OVERHEAD_RESERVE_MS
   );
 }
@@ -227,14 +251,17 @@ export async function sendDashboardReportSubscription(
     ) => Promise<void>;
   } = {},
 ): Promise<DashboardReportResult> {
-  const recipients = normalizeDashboardReportRecipients(sub.recipients);
+  const { recipients, slackWebhookUrl } =
+    normalizeDashboardReportDestinations(sub);
   const snapshot = await runWithinReportDeadline(
     "Dashboard report snapshot",
     () => collectReportSnapshot(sub),
     options.deadlineAt,
   );
 
-  const emailReserveMs = reportDeliveryReserveMs(recipients.length);
+  const emailReserveMs = reportDeliveryReserveMs(
+    recipients.length + (slackWebhookUrl ? 1 : 0),
+  );
   const panelData = await fetchReportPanelData({
     ownerEmail: sub.ownerEmail,
     orgId: sub.orgId,
@@ -300,7 +327,7 @@ export async function sendDashboardReportSubscription(
       recipientCount: recipients.length,
       reportMode,
       degradedPanelIds: rendered.degradedPanelIds,
-      emailsSent: false,
+      delivered: false,
       ...(reportError ? { reportError } : {}),
     };
   }
@@ -332,12 +359,84 @@ export async function sendDashboardReportSubscription(
     });
   }
 
+  let slackError: string | undefined;
+  if (slackWebhookUrl) {
+    try {
+      await postReportToSlack(
+        sub,
+        snapshot,
+        slackWebhookUrl,
+        reportError,
+        rendered.text,
+      );
+    } catch (err) {
+      // A Slack-only report has sent nothing yet, so it must retry. Once
+      // email went out, throwing would retry the subscription and resend it.
+      if (!recipients.length) throw err;
+      slackError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
   return {
     dashboardUrl: snapshot.dashboardUrl,
     recipientCount: recipients.length,
     reportMode,
     degradedPanelIds: rendered.degradedPanelIds,
-    emailsSent: true,
+    delivered: true,
+    ...(slackError ? { slackError } : {}),
     ...(reportError ? { reportError } : {}),
   };
+}
+
+// Core caps notification bodies at 2,000 characters; the link leads so a long
+// report is truncated after it rather than cutting the link off.
+const SLACK_REPORT_BODY_LIMIT = 1_900;
+
+function slackReportBody(
+  snapshot: ReportSnapshot,
+  reportError: string | undefined,
+  reportText: string,
+): string {
+  const head = [
+    reportDate(snapshot),
+    ...(reportError ? [`Incomplete: ${reportError}`] : []),
+    `Dashboard: ${snapshot.dashboardUrl}`,
+  ].join("\n");
+  const room = SLACK_REPORT_BODY_LIMIT - head.length - 2;
+  const summary = reportText.trim();
+  if (!summary || room <= 0) return head;
+  return `${head}\n\n${
+    summary.length > room ? `${summary.slice(0, room - 1)}…` : summary
+  }`;
+}
+
+// Posts the summary and dashboard link to the subscription's Slack webhook
+// through the shared notification channel. Only the `slack` channel is
+// selected, so the workspace default webhook never receives a report.
+async function postReportToSlack(
+  sub: DashboardReportSubscription,
+  snapshot: ReportSnapshot,
+  slackWebhookUrl: string,
+  reportError: string | undefined,
+  reportText: string,
+): Promise<void> {
+  const delivery = await notifyWithDelivery(
+    {
+      severity: "info",
+      title: `Daily dashboard: ${snapshot.title}`,
+      body: slackReportBody(snapshot, reportError, reportText),
+      channels: ["slack"],
+      metadata: {
+        kind: "dashboard_report",
+        subscriptionId: sub.id,
+        delivery: { slackWebhookUrl },
+      },
+    },
+    { owner: sub.ownerEmail },
+  );
+  // notifyWithDelivery logs channel failures instead of throwing, so the
+  // delivered-channel list is the only signal that the post landed.
+  if (!delivery.deliveredChannels.includes("slack")) {
+    throw new Error("Slack delivery of the dashboard report failed");
+  }
 }

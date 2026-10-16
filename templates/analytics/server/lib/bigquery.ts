@@ -9,7 +9,7 @@ import {
   requireRequestCredentialContext,
   type CredentialContext,
 } from "./credentials-context";
-import { getAccessToken, raceWithAbort } from "./gcloud";
+import { getBigQueryAccessToken, raceWithAbort } from "./gcloud";
 import { assertReadOnlySql } from "./read-only-sql";
 
 async function getProjectContext(signal?: AbortSignal): Promise<{
@@ -26,9 +26,13 @@ async function getProjectContext(signal?: AbortSignal): Promise<{
   if (!projectId) throw new Error("BIGQUERY_PROJECT_ID not configured");
   return {
     projectId,
-    cacheScope: credentialCacheScope("BIGQUERY_PROJECT_ID", ctx),
+    cacheScope: cacheScopeForContext(ctx),
     ctx,
   };
+}
+
+function cacheScopeForContext(ctx: CredentialContext): string {
+  return credentialCacheScope("BIGQUERY_PROJECT_ID", ctx);
 }
 
 export async function getBigQueryProjectId(
@@ -218,7 +222,7 @@ export async function bigQueryGet<T>(
   url: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const token = await getAccessToken();
+  const token = await getBigQueryAccessToken({ signal });
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -342,7 +346,7 @@ export async function getBigQueryTableMetadata(
   signal?: AbortSignal,
   { fresh = false }: { fresh?: boolean } = {},
 ): Promise<BigQueryTableMetadata> {
-  const key = `${credentialCacheScope("BIGQUERY_PROJECT_ID")}\n${ref.projectId}.${ref.datasetId}.${ref.tableId}`;
+  const key = `${cacheScopeForContext(requireRequestCredentialContext("BIGQUERY_PROJECT_ID"))}\n${ref.projectId}.${ref.datasetId}.${ref.tableId}`;
   const hit = tableMetadataCache.get(key);
   if (!fresh && hit && hit.expiresAt > Date.now()) return hit.metadata;
   const metadata = await bigQueryGet<BigQueryTableMetadata>(
@@ -645,15 +649,31 @@ async function beginCacheQuery(
   };
 }
 
+function toIsoTimestamp(value: unknown): string | undefined {
+  if (typeof value !== "string" && !(value instanceof Date)) return undefined;
+  const time = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isFinite(time) ? new Date(time).toISOString() : undefined;
+}
+
 async function getL2(key: string): Promise<QueryResult | null> {
   const db = getDbExec();
   const { rows } = await db.execute({
-    sql: "SELECT result FROM bigquery_cache WHERE key = $1 AND expires_at > $2",
+    sql: "SELECT result, created_at FROM bigquery_cache WHERE key = $1 AND expires_at > $2",
     args: [key, new Date().toISOString()],
   });
   if (!rows.length) return null;
-  const raw = (rows[0] as { result: string }).result;
-  return JSON.parse(raw) as QueryResult;
+  const entry = rows[0] as { result: string; created_at?: unknown };
+  const result = JSON.parse(entry.result) as QueryResult;
+  // Rows cached before fetchedAt was persisted fall back to the row's
+  // created_at, when the app cached the result; an unreadable one stays absent
+  // rather than becoming "now".
+  const fetchedAt =
+    toIsoTimestamp(result.fetchedAt) ?? toIsoTimestamp(entry.created_at);
+  if (fetchedAt === undefined) {
+    const { fetchedAt: _unreadable, ...rest } = result;
+    return rest;
+  }
+  return { ...result, fetchedAt };
 }
 
 async function finishCacheQuery(
@@ -794,6 +814,14 @@ export interface QueryResult {
   bytesProcessed: number;
   cached?: boolean;
   truncated?: boolean;
+  /**
+   * When the app first received this result from BigQuery; preserved across
+   * app-cache hits. Not when the warehouse computed it: a provider cache hit
+   * can return an older BigQuery result.
+   */
+  fetchedAt?: string;
+  /** BigQuery getQueryResults `cacheHit` for the original request; absent means unknown. */
+  providerCacheHit?: boolean;
 }
 
 export interface RunQueryOptions {
@@ -815,6 +843,7 @@ interface BigQueryGetQueryResultsResponse {
   totalRows?: string;
   jobComplete?: boolean;
   totalBytesProcessed?: string;
+  cacheHit?: boolean;
   errorResult?: { message?: string; reason?: string };
   errors?: Array<{ message?: string; reason?: string }>;
 }
@@ -1035,7 +1064,7 @@ export async function dryRunQuerySchema(
       appEventsTable,
       options.signal,
     );
-    token = await getAccessToken(options.signal);
+    token = await getBigQueryAccessToken({ signal: options.signal });
   } catch (error) {
     if (
       options.signal?.aborted ||
@@ -1185,7 +1214,7 @@ export async function runQuery(
   let token: string | null = null;
   let cancelJob = false;
   try {
-    token = await getAccessToken(signal);
+    token = await getBigQueryAccessToken({ signal });
     throwIfAborted(signal);
     jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
     jobCreatedAfter = Date.now();
@@ -1330,6 +1359,7 @@ export async function runQuery(
       throw new BigQueryQueryTimeoutError();
     }
 
+    const fetchedAt = new Date().toISOString();
     const fields = data.schema?.fields ?? [];
     const schema = fields.map((f) => ({
       name: f.name,
@@ -1349,6 +1379,10 @@ export async function runQuery(
       totalRows,
       schema,
       bytesProcessed,
+      fetchedAt,
+      ...(typeof data.cacheHit === "boolean"
+        ? { providerCacheHit: data.cacheHit }
+        : {}),
       ...(totalRows > rows.length ? { truncated: true } : {}),
     };
 
@@ -1363,7 +1397,8 @@ export async function runQuery(
       else await releaseCacheQuery(cacheKey, cacheFence);
     }
 
-    return result;
+    // The cached copy stays unflagged: every read of it sets `cached: true`.
+    return { ...result, cached: false };
   } catch (error) {
     if (jobId) cancelJob = true;
     if (cancelJob && jobId && token) {

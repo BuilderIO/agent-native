@@ -38,11 +38,11 @@ import {
   isFederationMembershipValidatedForEvent,
   resolveOrgIdForEmail,
 } from "../org/context.js";
-import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
-  WORKSPACE_APP_ACCESS_UNAVAILABLE,
-  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
-} from "../org/workspace-app-access.js";
+  isWorkspaceAppAccessUnavailable,
+  workspaceAppAccessUnavailableBody,
+} from "../org/workspace-app-access-outcome.js";
+import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
   ACTION_BROWSER_PERSIST_ALLOW,
   ACTION_BROWSER_PERSIST_HEADER,
@@ -144,6 +144,7 @@ function currentBuildId(): string {
 
 import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
+import { isDirectLoopbackRequest } from "./loopback.js";
 import {
   getVerifiedServiceIdentityFromEvent,
   getRequestIdentityAuthenticatedAtMs,
@@ -623,7 +624,10 @@ async function denyWithoutWorkspaceAppAccess(
   ownerContext: AgentRunOwnerContext,
   resolvedCaller: ActionRouteResolvedCaller | null,
   resolveOrgId: MountActionRoutesInternalOptions["resolveOrgId"],
-): Promise<{ status: 403 | 503; error: string } | null> {
+): Promise<{
+  status: 403 | 503;
+  body: { error: string } & Record<string, unknown>;
+} | null> {
   const workspaceOrgId = resolvedCaller
     ? resolvedCaller.orgId === null
       ? undefined
@@ -638,13 +642,16 @@ async function denyWithoutWorkspaceAppAccess(
     email: ownerContext.owner,
     orgId: workspaceOrgId,
   });
-  if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
-    return { status: 503, error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
+  if (isWorkspaceAppAccessUnavailable(workspaceAppAccess)) {
+    return {
+      status: 503,
+      body: workspaceAppAccessUnavailableBody(workspaceAppAccess),
+    };
   }
   if (workspaceAppAccess === false) {
     return {
       status: 403,
-      error: "You do not have access to this workspace app.",
+      body: { error: "You do not have access to this workspace app." },
     };
   }
   return null;
@@ -950,7 +957,7 @@ function mountActionRoutesInternal(
               );
               if (denied) {
                 setResponseStatus(event, denied.status);
-                return { error: denied.error };
+                return denied.body;
               }
             } catch (error) {
               if (!isAuthResolutionFailure(error)) throw error;
@@ -967,7 +974,7 @@ function mountActionRoutesInternal(
             );
             if (denied) {
               setResponseStatus(event, denied.status);
-              return { error: denied.error };
+              return denied.body;
             }
           }
         }
@@ -1010,7 +1017,7 @@ function mountActionRoutesInternal(
           );
           if (denied) {
             setResponseStatus(event, denied.status);
-            return { error: denied.error };
+            return denied.body;
           }
         }
         if (
@@ -1201,6 +1208,7 @@ function mountActionRoutesInternal(
             federationMembershipValidated:
               isFederationMembershipValidatedForEvent(event, userEmail, orgId),
             isLoopbackRequest: isLoopbackRequest(event),
+            isDirectLoopbackRequest: isDirectLoopbackRequest(event),
           },
           async () => {
             if (typeof entry.maxBodyBytes === "number" && method !== "GET") {

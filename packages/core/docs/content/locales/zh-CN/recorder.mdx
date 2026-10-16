@@ -1,0 +1,259 @@
+---
+title: "记录器"
+description: "记录器是一份简短、已脱敏、只保存在内存中的记录，内容是应用刚刚做了什么。它可以变成一份报告，交给应用的智能体、Clips、Sentry 或你注册的任何目标。"
+---
+
+# 记录器
+
+记录器是一份简短、已脱敏、只保存在内存中的记录，内容是 Agent-Native 应用刚刚做了什么。每个应用都会记录最近两分钟内的 action、`application_state` 写入、路由变化、错误和错误 toast，无需任何应用代码。出现问题时，这份记录会变成一份报告，供应用的智能体、Clips 录制、Sentry 或你自己的目标读取。
+
+```ts
+import { recorder } from "@agent-native/core/client/recorder";
+
+const report = recorder.report();
+```
+
+在报告被发送到某处之前，服务器上不会存储任何内容，也不会有任何数据离开浏览器。记录器本身不会发出任何网络请求。
+
+## 记录的内容 {#captured}
+
+| 类型     | 来源                                                                                                            | 示例                                                                           |
+| -------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `action` | 每次 `useActionQuery()`、`useActionMutation()` 和 `callAction()` 调用。批量读取中的每个 action 都是单独的事件。 | `list-folders` 在一个返回 `200` 的批量请求中以 `403` 和 `forbidden_scope` 失败 |
+| `state`  | 每次 `application_state` 写入和删除，包括失败或被取消的操作                                                     | `design-selection` 的 `state` 从 `hover` 变为 `focus`                          |
+| `nav`    | 路由变化。只保留路径。                                                                                          | `/design/d_8f2c1a`                                                             |
+| `error`  | 未捕获的错误和未处理的 Promise 拒绝，附带第一个栈帧                                                             | `/app/pages/design-editor/commands/undo.ts:1715` 处的 `TypeError`              |
+| `toast`  | 用户看到的错误和警告 toast                                                                                      | `This screen changed elsewhere. Your edit was not saved.`                      |
+| `log`    | 应用通过 `recorder.log()` 添加的事件                                                                            | `screen.restored` 从 `f_1` 到 `f_9`                                            |
+
+每个事件都有相同的字段：
+
+| 字段        | 含义                                                                              |
+| ----------- | --------------------------------------------------------------------------------- |
+| `t`         | 距报告生成时的秒数。该值为负数。                                                  |
+| `at`        | Unix 纪元毫秒数。Clips 诊断使用同一个时钟。                                       |
+| `type`      | `action`、`state`、`nav`、`error`、`toast` 或 `log`                               |
+| `name`      | action 名称、状态键、路由路径、错误类型、toast 级别或日志名称                     |
+| `ok`        | action 或状态写入是否成功                                                         |
+| `status`    | HTTP 状态码（如果有）                                                             |
+| `errorCode` | action 的错误码。应用取消的调用或写入带有 `errorCode: "cancelled"`。              |
+| `ms`        | action 或状态写入的耗时                                                           |
+| `requestId` | 服务器的请求 ID，它也会出现在服务器日志和对应的 Sentry 事件中                     |
+| `data`      | 已脱敏、有大小上限的详细信息。action 会包含其 HTTP 方法，失败时还会包含错误消息。 |
+
+状态写入只记录自该键上次保存的值以来发生的变化。某个键的第一次写入会记录 `data.value`。之后的写入会记录 `data.changed`，其中被移除的字段显示为 `"[removed]"`。没有任何变化的写入会记录 `data.unchanged`，删除会记录 `data.deleted`。失败的写入还会带有 `data.error`，而下一次写入仍会与上次成功保存的值进行比较。
+
+## 报告 {#reports}
+
+报告包含时间窗口内的事件，以及应用正在监视的值和仍在进行中的工作。
+
+```json
+{
+  "app": "design",
+  "build": "59929e9",
+  "url": "/design/d_8f2c1a?file=[redacted]",
+  "at": "2026-10-14T16:20:05.120Z",
+  "reason": "user",
+  "windowSeconds": 120,
+  "events": [
+    {
+      "t": -12.4,
+      "at": 1791994792720,
+      "type": "state",
+      "name": "design-selection",
+      "ok": true,
+      "ms": 41,
+      "data": { "changed": { "state": "hover" } }
+    },
+    {
+      "t": -10.9,
+      "at": 1791994794220,
+      "type": "action",
+      "name": "update-file",
+      "ok": true,
+      "status": 200,
+      "ms": 180,
+      "requestId": "req_a1",
+      "data": { "method": "POST" }
+    }
+  ],
+  "watched": {
+    "inspector": {
+      "state": "focus",
+      "fields": [{ "label": "Opacity", "shown": "91%" }]
+    }
+  },
+  "pending": [],
+  "dropped": 0
+}
+```
+
+- **app**：应用 ID。如果没有，就使用页面的主机，例如 `localhost:8080`，因此它永远不会为空。
+- **url**：路由路径。所有查询参数值都会被脱敏，hash 部分会被省略。
+- **windowSeconds**：报告覆盖的秒数。
+- **pending**：仍在进行中的 action 和状态写入，每一项都带有其 `ageMs`。
+- **dropped**：自页面加载或用户退出登录以来，因上限而丢失的事件。因超出时间窗口而过期的事件不计入。
+
+## SDK {#sdk}
+
+### `recorder.report()` {#report}
+
+`recorder.report()` 返回当前报告。它是同步的。它接受一个可选对象：
+
+- **seconds**：只保留时间窗口中最近 `seconds` 秒的内容。
+- **reason**：`"user"`、`"error"`、`"test"` 或 `"manual"`。默认值是 `"manual"`。
+
+```ts
+const report = recorder.report();
+```
+
+传入 `seconds` 可以获取更短的片段，例如录制开始前的半分钟：
+
+```ts
+const before = recorder.report({ seconds: 30 });
+```
+
+除 `"manual"` 之外的所有原因，都会把报告同时发送给 `recorder.onReport()` 的监听器。普通的 `recorder.report()` 调用绝不会这样做，因此监听器可以生成报告而不会陷入循环。
+
+### `recorder.log()` {#log}
+
+`recorder.log()` 用应用自己的话添加一个事件。它接受一个名称和可选的数据。不是普通对象的数据会被记录为 `{ value }`。
+
+Design 会记录撤销操作恢复的每个屏幕的新 ID，因为撤销会用新 ID 重新创建已删除的屏幕：
+
+```ts
+recorder.log("screen.restored", { from: file.id, to: result.id });
+```
+
+### `recorder.watch()` {#watch}
+
+`recorder.watch()` 向每份报告添加一个实时值。它接受一个名称和一个返回该值的函数，并返回一个用于停止监视的函数。
+
+Design 的检查器会添加它正在显示的内容，以及它正在编辑的交互状态。这两者都不在 `application_state` 中，所以没有这一步，报告就无法显示它们：
+
+```tsx
+useEffect(
+  () =>
+    recorder.watch("inspector", () => ({
+      state: interactionState ?? "default",
+      fields: readVisualScrubInputs(),
+    })),
+  [interactionState],
+);
+```
+
+抛出异常的函数会被报告为 `{ unreadable: "<message>" }`，而不会被省略。
+
+### `recorder.onReport()` {#on-report}
+
+`recorder.onReport()` 把报告发送到某个目标。它接受一个监听器，并返回一个用于移除它的函数。监听器会收到所有以 `"manual"` 以外的原因生成的报告。这包括“报告问题”（`"user"`）、未捕获的错误（`"error"`）和测试（`"test"`）。
+
+```ts
+recorder.onReport((report) => posthog.capture("problem_report", report));
+```
+
+```ts
+recorder.onReport((report) =>
+  navigator.sendBeacon("/api/logs", JSON.stringify(report)),
+);
+```
+
+未捕获的错误每十秒最多发送一份报告，因此错误循环不会淹没目标。抛出异常的监听器会被记录到日志，其他监听器仍会照常运行。
+
+### `recorder.redact()` {#redact}
+
+`recorder.redact()` 会在调用之后记录的每个事件以及每个被监视的值中隐藏更多字段。传入字段名，或以事件名称开头的点分路径。`*` 匹配任意一个字段。
+
+```ts
+recorder.redact("email");
+recorder.redact("compose.body", "payment.*");
+```
+
+### `recorder.pending()` {#pending}
+
+`recorder.pending()` 列出仍在进行中的 action 和状态写入。测试用它来等待真正的空闲，而不是固定时长的休眠。Design 的端到端测试会在 `app.settled()` 中等待它变为空，并把 `recorder.json` 附加到每个失败的测试上。
+
+```ts
+await expect
+  .poll(() =>
+    page.evaluate(
+      () => window.__agentNativeRecorder?.report({ seconds: 0 }).pending,
+    ),
+  )
+  .toEqual([]);
+```
+
+### `recorder.disable()` {#disable}
+
+`recorder.disable()` 会关闭记录器。它的效果与 `configureRecorder({ enabled: false })` 相同。
+
+## `configureRecorder()` {#configure}
+
+`configureRecorder()` 是一次可选的调用。以下是默认值：
+
+```ts
+import { configureRecorder } from "@agent-native/core/client/recorder";
+
+configureRecorder({
+  windowSeconds: 120,
+  maxEvents: 2000,
+  sentry: true,
+  enabled: true,
+});
+```
+
+- **windowSeconds**：记录器保留多长时间内的事件。
+- **maxEvents**：最多保留的事件数。达到上限时，最旧的事件会被丢弃，并计入 `dropped`。
+- **sentry**：Sentry 错误是否附带最近的事件。只有当应用使用浏览器端 Sentry 时才会生效。
+- **enabled**：记录器是否运行。
+
+如果时间窗口或上限不是正数，会抛出 `RangeError`，而不是回退到默认值。无论 `maxEvents` 是多少，记录器还会把总大小限制在约 512 KB 的 JSON 以内，从而让每个标签页的内存占用保持在 2 MB 以下。
+
+## 报告目标 {#destinations}
+
+### 报告问题 {#report-a-problem}
+
+每个应用都有**报告问题**。它位于侧边栏底部、智能体面板的选项菜单以及命令菜单（⌘K）中。
+
+- 它会询问是否附上应用在最近两分钟内做过的事，并预览数量、失败和最初的几个事件。每次都会询问。
+- 用户同意后，完整报告会存为只有该用户能读取的私有文件。应用的智能体会收到一份简短摘要和该文件的引用。
+- 智能体通过 `read-problem-report` action 读取报告的更多内容，可按事件类型或时间筛选。
+- 当页面没有智能体聊天时，按钮会改为复制摘要和引用。
+- 报告需要文件存储。没有文件存储时，对话框会提示报告未附上，且不会发送任何内容。
+
+### Sentry {#sentry}
+
+当应用通过 Agent-Native 配置了浏览器端 Sentry（参见[错误报告](/docs/observability#sentry)）时，每个 Sentry 错误事件都会获得：
+
+- 最近 100 个事件，作为 `recorder.action`、`recorder.state` 等类别下的面包屑，每个都带有结果、状态和请求 ID
+- 完整报告，作为 `recorder.json` 附件
+
+这不需要任何应用代码。`configureRecorder({ sentry: false })` 可以关闭它。
+
+### 你自己的目标 {#own-destination}
+
+用 [`recorder.onReport()`](#on-report) 注册一个监听器。
+
+### Clips 和浏览器扩展 {#extensions}
+
+页面会暴露 `window.__agentNativeRecorder.report()`。浏览器扩展从页面的主世界读取它。
+
+开启开发者日志后，Clips 扩展会在录制开始时（最近 30 秒）和停止时，在被录制的标签页中读取它。这些事件与录制的控制台和网络条目按同一时钟合并，片段的智能体会收到失败摘要。参见 [Clips 浏览器日志](/docs/template-clips-features#chrome-extension-browser-logs)。
+
+## 隐私 {#privacy}
+
+- **数据留在浏览器中。** 只有当某个目标发送报告时，报告才会离开浏览器：用户同意后的“报告问题”、用户开始的 Clips 录制、Sentry，或开发者注册的监听器。
+- **机密信息会被移除。** 名称看起来像机密信息的字段（`password`、`token`、`secret`、`apiKey`、`authorization`、`cookie`、`session`、`card`、`cvv`）会显示为 `"[redacted]"`。任何值中看起来像令牌的文本，例如 JWT、Bearer 令牌和提供商 API 密钥，也会被替换为 `[redacted]`。这些与 core 用于错误报告的脱敏器相同。
+- **值有大小上限。** 字符串会在 200 个字符处截断，每个事件在约 2 KB 处截断。截断处会注明丢弃了什么。请求体和响应体从不会被记录。
+- **它会遗忘。** 它只保留时间窗口内的内容，且不超过上限。页面重新加载和退出登录时都会清空。
+- **没有新的访问权限。** 记录器只能看到已经经过应用的内容。action 调用本来就会发送到服务器，`application_state` 本来就会被存储并由智能体读取。
+
+## 关闭记录器 {#off}
+
+```ts
+import { configureRecorder } from "@agent-native/core/client/recorder";
+
+configureRecorder({ enabled: false });
+```
+
+被禁用的记录器会忘掉它保存的内容，停止监听，并从页面中移除 `window.__agentNativeRecorder`。此时它的 `recorder.report()` 不返回任何事件和监视值，也不会向监听器发送任何内容。`configureRecorder({ enabled: true })` 会重新启动它。

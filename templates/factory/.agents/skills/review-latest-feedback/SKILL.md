@@ -19,7 +19,7 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
    before investigating any of it.
 1. **Answer the people who answered you.** Older open questions first.
 2. **Fix** what the evidence actually proves, at the owning boundary.
-3. **Reply**, under a hard question budget, then recap.
+3. **Reply** with useful questions, then recap.
 
 Output is fixes. Reply in-thread for every workflow reaction added this run;
 continuing work gets a concrete progress reply, and resolved work gets a final
@@ -53,12 +53,16 @@ Resolve known duplicate clusters before claiming. For an eligible item, add
 the Slack ownership gate. Post **In progress** only when work continues beyond
 this run.
 
-**Defects are in scope: fix them or ask for the one detail needed to fix them.**
-Investigate first; ask what they saw or did in plain language. Gather request
-details and logs yourself; don't send reporters to developer tools.
+**Fix defects or ask directly for the exact reporter-only fact or action
+needed to unblock the next step.** If reporter input gates progress, state the
+specific question and why. Never substitute **Open**, a symptom recap, a
+source-access note, or a vague details request for the ask. Without a reporter
+gate, ask no filler: continue internal investigation or fix, then report the
+concrete action when a reply is due. Inspect supplied logs and evidence
+yourself; never ask for IDs or tool details already given.
 
-The proposed remedy may be wrong while the bug is real. Trace the failure to
-its owning boundary; do not reject it because the suggestion is unsuitable.
+A reporter's proposed remedy may be wrong while the bug is real. Trace the
+failure to its owner.
 
 Record each symptom's disposition; subjective or out-of-scope feedback
 doesn't close a separate defect. Tie each reaction to the scope it marks.
@@ -76,19 +80,23 @@ routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
 **Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
 Follow the reply reference before marking an item replied.
 
-For every concrete objective defect, attempt to reproduce it before recording
-an evidence limit or asking the reporter for more information. A screenshot,
-error message, URL, or visible flow is enough to start tracing its owner; don't
-wait for details that would not change the reproduction attempt. Phase 2's
-local reproduction procedure applies to all defect reports, not only bashes.
+Before recording an evidence limit or asking, try to reproduce the defect from
+the supplied artifact, URL, error, run ID, or logs. Investigate our access,
+config, observability, and deployment gaps. For each defect, continue internal
+work unless one reporter-only fact changes the next action; then ask one direct
+question naming the fact and why it gates progress. Never request supplied
+evidence, generic details, or answers to unrelated questions. Without a
+reporter gate, state the internal action and owner. After four days unanswered,
+record **Abandoned - no answer in 4 days**.
 
-If no safe repo-owned fix is evident after that attempt, record the specific
-evidence limit. Ask only a question whose answer could change the reproduction
-or unblock a fix; after four days without an answer, record **Abandoned - no
-answer in 4 days**.
+For supplied run IDs, query Thread Debug for exact events and tool results. If
+unavailable, query the app's first-party Analytics by exact ID for tool calls,
+model requests, and errors. Dispatch status or an empty failed-run list is not
+an exact trace. Try both sources before recording the lookup error. Never ask
+for supplied IDs, logs, or tool details, and do not infer the run is absent.
 
-Use **Skipped** only for non-defects, never breakage. **Open - no question**
-means you found neither a fix nor a useful question; state why in the thread.
+Use **Skipped** only for non-defects. **Open - no question** is ledger-only:
+name the internal next action and owner; never send it as a Slack reply.
 
 ### Authoritative disposition vocabulary
 
@@ -118,8 +126,8 @@ record source, target, owner, exact action, and verification. Don't reopen
 closed fixes.
 **Clustered** closes one row but retains it.
 
-Enumerate channel parents newest backward through `next_cursor` until older
-than 5 days. Check reactions first; skip marked messages.
+Enumerate channel parents newest-first for five days. For a permalink plus
+newer scope, follow the [checked inventory procedure](references/channel-inventory.md).
 
 **`slack_search` can rank and truncate.** Use channel reads to enumerate parents
 and put their count in the recap. Sort targeted searches oldest-first and follow
@@ -330,6 +338,11 @@ correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
 at their boundary; record external, deployment, or unclear issues without
 inventing a fix.
 
+### Chat run health
+
+Run outcomes never reach Sentry; follow
+[`chat-run-health.md`](references/chat-run-health.md).
+
 ### Deployment, release, and publish failures
 
 Scan app/template, desktop, and package lanes every sweep, even without linked
@@ -448,10 +461,14 @@ instruction or prompt exception.
 
 ## Phase 3: reply
 
-Thank issue reporters for opening it and Slack reporters for sharing. Give the
-status or ask a useful question. Follow `address-feedback-with-replies` for
-Slack voice. End each Slack reply with `this was sent from a bot.` after its
-plain-language status.
+Thank issue reporters for opening it and Slack reporters for sharing. While
+work continues, name the concrete action and owner. If reporter input blocks a
+fix, ask the direct question and say why the answer matters. Never send
+**Open**/**pending** with only a symptom or evidence description. For
+inaccessible artifacts, ask for the required access grant or share setting;
+don't request a new link when the current one works. Follow
+`address-feedback-with-replies`. End Slack replies with
+`this was sent from a bot.`.
 
 Short replies: say the change, limits, and next step. Link merged PRs and say
 they're merged. Keep hashes, branches, CI, publisher, and run details in recap.
@@ -474,32 +491,20 @@ needed. Do not reopen Slack in later runs to reply.
   observations may be silent; merged Slack fixes still get the reply above.
   **Shipped** is for upvoted improvements.
 - **In progress** — name continuing work and its owner; ask nothing.
-- **A question** — subject to the budget below.
+- **A question** — follow the rules below.
 
-Unclaimed scope/noise gets an internal recap row. Ask about an unverified defect
-only when one answer would unblock it; otherwise record **Open - no question**
-once. Cluster duplicates. Before re-reading any thread to reply, apply the Slack
-ownership gate; stay out of marked messages and active human work.
+Unclaimed scope/noise gets an internal recap row. Cluster duplicates. Before
+replying, apply the Slack ownership gate; stay out of marked messages and active
+human work.
 
-### The question budget
+### Ask only answerable questions
 
-**At most three questions per run, across all sources.** Most runs ask zero or
-one.
-
-So rank before you ask. For each candidate, state: *if I get this answer, I
-can ship the fix.* Ask the three with the strongest answer. If fewer than
-three clear that bar, ask fewer. Everything below the cut is an internal open
-item, not a message.
-
-Never ask for supplied/inspectable evidence, irrelevant IDs/build numbers,
-subjective choices, or internal blockers. If a user-visible link or ID is the
-sole blocker, ask plainly and say where to find it.
-
-At most one clarification question may be pending per thread at a time. Once it
-is answered or resolved, attempt the fix; if that exposes a different required
-detail, ask at most one new, non-repeating question. Never stack questions or
-repeat a pending one. If a needed artifact is inaccessible to you, ask for a
-fresh link - not for its contents again.
+Ask one direct question per blocked defect when the answer changes reproduction
+or unblocks the fix; there is no per-run cap. Keep one pending question per
+thread and try the fix before any follow-up. Never request supplied logs/IDs,
+internal access/config/tooling, subjective choices, or irrelevant details. If a
+missing user-visible link or ID blocks reproduction, ask for it and say where
+to find it. For an inaccessible artifact, request a fresh link.
 
 ## Verification and identity
 
@@ -563,7 +568,7 @@ Messages: product N · QA N · dev N (total N)
 Deployment cursor: <timestamp> · carried active run IDs/rows: <ids/count>
 Release lanes: N inspected · failed/stale N · target verified N
 Reaction-gated skips: N · claimed N · answered N
-Questions asked: N/3 · Dropped at 4 days: N
+Questions asked: N · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
@@ -576,12 +581,9 @@ Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complet
 Unavailable or unverified: ...
 ```
 
-`Open - no question` is a last resort, not a success state. It requires that
-you worked the defect, could not fix it, and could not form a question that would
-unblock it; a run whose ledger is mostly `Open - no question` has under-asked, not
-finished. It keeps our eye and has no checkmark. "Nothing
-matched" is valid only after each source was queried successfully, with the
-cursor stated.
+**Open - no question** is ledger-only when reporter input cannot change the
+internal next step; name the step and owner. Keep `👀`, no `✅`. If an answer
+changes it, ask. "Nothing matched" requires successful queries and a cursor.
 
 ## Related skills
 

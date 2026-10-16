@@ -16,6 +16,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -27,10 +28,16 @@ import {
 } from "@/components/ui/popover";
 import {
   MAX_BROWSER_FIG_BYTES,
+  MAX_BROWSER_FIG_GB,
   MAX_BROWSER_FIG_MB,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
 import { importResultNotification } from "@/lib/design-import";
+import {
+  FIGMA_IMPORT_FORMAT,
+  importFormatsAccept,
+  requestImportFile,
+} from "@/lib/design-import-file-picker";
 import { FIGMA_ACCESS_TOKEN_SECRET_KEY } from "@/lib/figma-connection";
 import {
   claimFigImportToast,
@@ -40,6 +47,8 @@ import {
   setPendingDesignImport,
   updateFigImportToast,
 } from "@/lib/pending-import";
+
+const HOME_IMPORT_FORMATS = [FIGMA_IMPORT_FORMAT];
 
 export function HomeImportButton() {
   const t = useT();
@@ -66,7 +75,17 @@ export function HomeImportButton() {
   const pickFile = () => {
     if (pending.current) return;
     setOpen(false);
-    fileInput.current?.click();
+    requestImportFile({
+      formats: HOME_IMPORT_FORMATS,
+      allSupportedLabel: t("designEditor.import.allSupportedFiles"),
+      openFallbackInput: () => fileInput.current?.click(),
+      onFile: (file) => void importFile(file),
+      onError: (error) =>
+        toast.error(t("designEditor.import.errors.uploadFailed"), {
+          description:
+            error instanceof Error ? error.message : t("common.genericError"),
+        }),
+    });
   };
   const importFile = async (file: File | undefined) => {
     if (!file || pending.current) return;
@@ -96,6 +115,7 @@ export function HomeImportButton() {
         title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
         projectType: "prototype",
         designSystemId: null,
+        creationMethod: "import_figma",
       });
       if (!result.id) throw new Error(t("home.failedToCreateDesign"));
       setPendingDesignImport(result.id, { kind: "file", file });
@@ -120,7 +140,7 @@ export function HomeImportButton() {
       <input
         ref={fileInput}
         type="file"
-        accept=".fig"
+        accept={importFormatsAccept(HOME_IMPORT_FORMATS)}
         hidden
         aria-label={t("home.figmaFile")}
         onChange={(event) => {
@@ -159,6 +179,11 @@ export function HomeImportButton() {
                 <DropdownMenuGroup>
                   <DropdownMenuItem onSelect={pickFile}>
                     {t("home.figmaFile")}
+                    <DropdownMenuShortcut>
+                      {t("home.figmaFileMaxSize", {
+                        max: formatters.formatNumber(MAX_BROWSER_FIG_GB),
+                      })}
+                    </DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -197,9 +222,29 @@ export function HomeImportButton() {
                   throw new Error(
                     t("designEditor.import.errors.figmaImportFailed"),
                   );
+                const fidelityWarnings: string[] = [];
+                const imageFallbackCount =
+                  result.fidelityReport?.imageFallbacks.length;
+                if (imageFallbackCount) {
+                  fidelityWarnings.push(
+                    t("designEditor.import.figmaImageFallbackWarning", {
+                      count: formatters.formatNumber(imageFallbackCount),
+                    }),
+                  );
+                }
+                const approximatedCount =
+                  result.fidelityReport?.approximated.length;
+                if (approximatedCount) {
+                  fidelityWarnings.push(
+                    t("designEditor.import.figmaApproximationWarning", {
+                      count: formatters.formatNumber(approximatedCount),
+                    }),
+                  );
+                }
                 const notification = importResultNotification(
                   result,
                   t("designEditor.import.figmaUrlSuccess"),
+                  { fidelityWarnings },
                 );
                 toast[notification.variant](notification.title, {
                   description: notification.description,

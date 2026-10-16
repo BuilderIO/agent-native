@@ -4,8 +4,12 @@ import type {
   BlockRenderContext,
 } from "@agent-native/core/blocks/server";
 import { IconPencil } from "@tabler/icons-react";
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { Suspense, useState, type MouseEvent as ReactMouseEvent } from "react";
 
+import {
+  BlockRenderErrorBoundary,
+  BlockRenderSuspenseFallback,
+} from "./BlockRenderErrorBoundary.js";
 import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 
 export function blockEditSurface(
@@ -22,6 +26,7 @@ export function BlockView({
   onChange,
   ctx,
   compactVisuals,
+  interactive = false,
 }: {
   spec: BlockSpec<any>;
   block: { id: string; title?: string; summary?: string; data: unknown };
@@ -30,18 +35,35 @@ export function BlockView({
   onChange?: (nextData: unknown, meta?: BlockDataChangeMeta) => void;
   ctx: BlockRenderContext;
   compactVisuals?: boolean;
+  interactive?: boolean;
 }) {
   const [panelHovered, setPanelHovered] = useState(false);
   const Read = spec.Read;
   const readNode = (
-    <Read
-      data={block.data}
+    <BlockRenderErrorBoundary
       blockId={block.id}
-      title={block.title}
-      summary={block.summary}
-      ctx={ctx}
-      compactVisuals={compactVisuals}
-    />
+      blockType={spec.type}
+      resetKey={block.data}
+      interactive={interactive}
+    >
+      <Suspense
+        fallback={
+          <BlockRenderSuspenseFallback
+            blockId={block.id}
+            blockType={spec.type}
+          />
+        }
+      >
+        <Read
+          data={block.data}
+          blockId={block.id}
+          title={block.title}
+          summary={block.summary}
+          ctx={ctx}
+          compactVisuals={compactVisuals}
+        />
+      </Suspense>
+    </BlockRenderErrorBoundary>
   );
 
   const canEdit =
@@ -62,25 +84,43 @@ export function BlockView({
   };
 
   const Edit = spec.Edit;
-  const formNode = Edit ? (
-    <Edit
-      data={block.data}
-      onChange={commit}
-      editable
+  const formNode = (
+    <BlockRenderErrorBoundary
       blockId={block.id}
-      title={block.title}
-      summary={block.summary}
-      ctx={ctx}
-    />
-  ) : (
-    <SchemaBlockEditor
-      data={block.data}
-      onChange={commit}
-      schema={spec.schema}
-      editable
-      blockId={block.id}
-      ctx={ctx}
-    />
+      blockType={spec.type}
+      resetKey={block.data}
+      interactive={interactive}
+    >
+      <Suspense
+        fallback={
+          <BlockRenderSuspenseFallback
+            blockId={block.id}
+            blockType={spec.type}
+          />
+        }
+      >
+        {Edit ? (
+          <Edit
+            data={block.data}
+            onChange={commit}
+            editable
+            blockId={block.id}
+            title={block.title}
+            summary={block.summary}
+            ctx={ctx}
+          />
+        ) : (
+          <SchemaBlockEditor
+            data={block.data}
+            onChange={commit}
+            schema={spec.schema}
+            editable
+            blockId={block.id}
+            ctx={ctx}
+          />
+        )}
+      </Suspense>
+    </BlockRenderErrorBoundary>
   );
 
   if (blockEditSurface(spec) === "panel" && ctx.renderEditSurface) {

@@ -5,11 +5,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  cancelActiveScrubInputs,
   VisualColorPicker,
   VisualScrubInput,
   VisualSegmentedControl,
   parseScrubExpression,
   parseScrubRelativeExpression,
+  readVisualScrubInputs,
 } from "./visual-style-controls.js";
 
 describe("visual style controls", () => {
@@ -108,6 +110,36 @@ describe("visual style controls", () => {
     },
   );
 
+  it("reads what each mounted scrub input shows until it unmounts", () => {
+    act(() => {
+      root.render(
+        <>
+          <VisualScrubInput
+            label="Opacity"
+            value={91}
+            unit="%"
+            onChange={vi.fn()}
+          />
+          <VisualScrubInput
+            label="Opacity"
+            value={40}
+            unit="%"
+            onChange={vi.fn()}
+          />
+        </>,
+      );
+    });
+
+    expect(readVisualScrubInputs()).toEqual([
+      { label: "Opacity", shown: "91%" },
+      { label: "Opacity", shown: "40%" },
+    ]);
+
+    act(() => root.render(<></>));
+
+    expect(readVisualScrubInputs()).toEqual([]);
+  });
+
   it("starts a base-rate scrub when Option-drag begins on the numeric input", () => {
     const onChange = vi.fn();
     act(() => {
@@ -192,6 +224,175 @@ describe("visual style controls", () => {
     );
     expect(dragContainer.releasePointerCapture).toHaveBeenCalledWith(1);
     expect(input.value).toBe("10");
+  });
+
+  it("cancels active scrubs before history and ignores stale pointerup", () => {
+    const onChange = vi.fn();
+    act(() => {
+      root.render(
+        <VisualScrubInput label="Width" value={10} onChange={onChange} />,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    const dragContainer = container.firstElementChild as HTMLDivElement;
+    dragContainer.setPointerCapture = vi.fn();
+    dragContainer.hasPointerCapture = vi.fn(() => true);
+    dragContainer.releasePointerCapture = vi.fn();
+    const pointer = (type: string, pointerId: number, clientX: number) =>
+      Object.assign(new Event(type, { bubbles: true }), {
+        pointerId,
+        clientX,
+        button: 0,
+        altKey: true,
+      }) as unknown as PointerEvent;
+
+    act(() => input.dispatchEvent(pointer("pointerdown", 1, 0)));
+    act(() => dragContainer.dispatchEvent(pointer("pointermove", 1, 10)));
+    expect(onChange).toHaveBeenLastCalledWith(
+      20,
+      expect.objectContaining({ source: "scrub", phase: "preview" }),
+    );
+
+    act(() => cancelActiveScrubInputs());
+    expect(onChange.mock.calls.slice(-2)).toEqual([
+      [10, expect.objectContaining({ source: "scrub", phase: "preview" })],
+      [10, expect.objectContaining({ source: "scrub", phase: "cancel" })],
+    ]);
+    act(() => dragContainer.dispatchEvent(pointer("pointerup", 1, 10)));
+    expect(onChange).not.toHaveBeenCalledWith(
+      20,
+      expect.objectContaining({ phase: "commit" }),
+    );
+
+    act(() => input.dispatchEvent(pointer("pointerdown", 2, 0)));
+    act(() => dragContainer.dispatchEvent(pointer("pointermove", 2, 10)));
+    act(() => dragContainer.dispatchEvent(pointer("pointerup", 2, 10)));
+    expect(onChange).toHaveBeenLastCalledWith(
+      20,
+      expect.objectContaining({ source: "scrub", phase: "commit" }),
+    );
+  });
+
+  it("uses a pending committed value as the next scrub cancel baseline", () => {
+    const onChange = vi.fn();
+    act(() => {
+      root.render(
+        <VisualScrubInput label="Width" value={10} onChange={onChange} />,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    const label = container.querySelector("label")!;
+    const dragContainer = container.firstElementChild as HTMLDivElement;
+    dragContainer.setPointerCapture = vi.fn();
+    dragContainer.hasPointerCapture = vi.fn(() => true);
+    dragContainer.releasePointerCapture = vi.fn();
+    const pointer = (type: string, clientX: number): PointerEvent =>
+      Object.assign(new Event(type, { bubbles: true }), {
+        pointerId: 1,
+        clientX,
+        button: 0,
+        altKey: false,
+        shiftKey: false,
+      }) as unknown as PointerEvent;
+
+    act(() => input.focus());
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(input, "20");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      20,
+      expect.objectContaining({ source: "commit", phase: "commit" }),
+    );
+    expect(input.value).toBe("20");
+
+    act(() => label.dispatchEvent(pointer("pointerdown", 0)));
+    act(() => dragContainer.dispatchEvent(pointer("pointermove", 8)));
+    expect(onChange).toHaveBeenLastCalledWith(
+      28,
+      expect.objectContaining({ source: "scrub", phase: "preview" }),
+    );
+
+    act(() => dragContainer.dispatchEvent(pointer("pointercancel", 8)));
+    expect(onChange).toHaveBeenLastCalledWith(
+      20,
+      expect.objectContaining({ source: "scrub", phase: "cancel" }),
+    );
+  });
+
+  it("uses a pending committed text value as the next scrub cancel baseline", () => {
+    const onChange = vi.fn();
+    const onTextCommit = vi.fn(() => ({
+      accepted: true as const,
+      displayValue: "150%",
+    }));
+    act(() => {
+      root.render(
+        <VisualScrubInput
+          label="Line height"
+          value={1.5}
+          textValue="100%"
+          onChange={onChange}
+          onTextCommit={onTextCommit}
+        />,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    const label = container.querySelector("label")!;
+    const dragContainer = container.firstElementChild as HTMLDivElement;
+    dragContainer.setPointerCapture = vi.fn();
+    dragContainer.hasPointerCapture = vi.fn(() => true);
+    dragContainer.releasePointerCapture = vi.fn();
+    const pointer = (type: string, clientX: number): PointerEvent =>
+      Object.assign(new Event(type, { bubbles: true }), {
+        pointerId: 1,
+        clientX,
+        button: 0,
+        altKey: false,
+        shiftKey: false,
+      }) as unknown as PointerEvent;
+
+    act(() => input.focus());
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(input, "150%");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onTextCommit).toHaveBeenLastCalledWith(
+      "150%",
+      expect.objectContaining({ source: "commit", phase: "commit" }),
+    );
+
+    act(() => label.dispatchEvent(pointer("pointerdown", 0)));
+    act(() => dragContainer.dispatchEvent(pointer("pointermove", 8)));
+    act(() => dragContainer.dispatchEvent(pointer("pointercancel", 8)));
+
+    expect(onTextCommit).toHaveBeenLastCalledWith(
+      "150%",
+      expect.objectContaining({ source: "scrub", phase: "cancel" }),
+    );
   });
 
   it("restores the source text for a canceled scrub of a keyword-backed field", () => {

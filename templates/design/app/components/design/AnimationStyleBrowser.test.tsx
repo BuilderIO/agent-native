@@ -1,0 +1,421 @@
+// @vitest-environment happy-dom
+
+import type {
+  MotionAnimationStyleDefinition,
+  MotionAnimationStyleMetadata,
+  MotionAnimationStyleTrackDefinition,
+} from "@shared/motion-animation-styles";
+import { MOTION_BUILT_IN_RECIPES } from "@shared/motion-built-in-recipes";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { MotionAnimationStyle } from "@/pages/design-editor/motion-animation-style";
+
+import { AnimationStyleBrowser } from "./AnimationStyleBrowser";
+
+vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+
+const styles: MotionAnimationStyleDefinition[] = [
+  {
+    id: "fade-in",
+    name: "Fade In",
+    category: "enter",
+    description: "A short opacity entrance",
+    tracks: [
+      {
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0", ease: "ease-out" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "float-cycle",
+    name: "Float",
+    category: "cycle",
+    tracks: [
+      {
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "0px -12px" },
+        ],
+      },
+    ],
+  },
+];
+
+const selectedTargetTracks: MotionAnimationStyleTrackDefinition[] = [
+  {
+    property: "opacity",
+    keyframes: [
+      { t: 0, value: "0", ease: "ease-out" },
+      { t: 1, value: "1" },
+    ],
+  },
+];
+
+const basicStyles = [
+  {
+    label: "Position",
+    kind: "individual" as const,
+    preset: {
+      property: "translate",
+      label: "Position",
+      group: "primary" as const,
+    },
+  },
+  {
+    label: "Opacity",
+    kind: "individual" as const,
+    preset: {
+      property: "opacity",
+      label: "Opacity",
+      group: "primary" as const,
+    },
+  },
+];
+
+const messages: Record<string, string> = {
+  "designEditor.motion.animationStyles.title": "Animations",
+  "designEditor.motion.animationStyles.search": "Search animation styles",
+  "designEditor.motion.animationStyles.searchPlaceholder": "Search",
+  "designEditor.motion.animationStyles.filter": "Filter animation styles",
+  "designEditor.motion.animationStyles.list": "Animation styles",
+  "designEditor.motion.animationStyles.all": "All",
+  "designEditor.motion.animationStyles.basic": "Basic",
+  "designEditor.motion.animationStyles.enter": "Enter",
+  "designEditor.motion.animationStyles.cycle": "Cycle",
+  "designEditor.motion.animationStyles.exit": "Exit",
+  "designEditor.motion.animationStyles.tempo.fast": "Fast",
+  "designEditor.motion.animationStyles.tempo.medium": "Medium",
+  "designEditor.motion.animationStyles.tempo.slow": "Slow",
+  "designEditor.motion.animationStyles.create": "Create style",
+  "designEditor.motion.animationStyles.close": "Close",
+  "designEditor.motion.animationStyles.createTitle":
+    "Create new animation style",
+  "designEditor.motion.animationStyles.addAnimation": "Add animation",
+  "designEditor.motion.animationStyles.animation": "Animation",
+  "designEditor.motion.animationStyles.text": "Text",
+  "designEditor.motion.animationStyles.position": "Position",
+  "designEditor.motion.animationStyles.scale": "Scale",
+  "designEditor.motion.animationStyles.rotation": "Rotation",
+  "designEditor.motion.animationStyles.size": "Size",
+  "designEditor.motion.animationStyles.opacity": "Opacity",
+  "designEditor.motion.animationStyles.path": "Path",
+  "designEditor.motion.animationStyles.empty": "No animation styles",
+  "designEditor.motion.animationStyles.noResults": "No matching styles",
+  "designEditor.motion.animationStyles.noAnimations": "Add an animation",
+  "designEditor.motion.animationStyles.name": "Name",
+  "designEditor.motion.animationStyles.description": "Description",
+  "designEditor.motion.animationStyles.hide": "Hide",
+  "designEditor.motion.animationStyles.show": "Show",
+  "designEditor.motion.animationStyles.removeAnimation": "Remove animation",
+  "designEditor.motion.animationStyles.save": "Create style",
+  "designEditor.motion.builtInRecipes.enter.recipe04": "Builder Arrival 04",
+};
+
+function translateTestKey(key: string): string {
+  const recipe = MOTION_BUILT_IN_RECIPES.find((entry) => entry.nameKey === key);
+  if (recipe) {
+    const labelPrefix = {
+      enter: "Builder Arrival",
+      cycle: "Builder Loop",
+      exit: "Builder Departure",
+    }[recipe.category];
+    const sequence = recipe.id.match(/recipe-(\d+)$/)?.[1];
+    if (sequence) return `${labelPrefix} ${sequence.padStart(2, "0")}`;
+  }
+  return messages[key] ?? key;
+}
+
+describe("AnimationStyleBrowser", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    document.body.replaceChildren();
+  });
+
+  async function render(
+    overrides: Partial<{
+      styles: MotionAnimationStyleDefinition[];
+      basicStyles: typeof basicStyles;
+      selectedTargetTracks: MotionAnimationStyleTrackDefinition[];
+      disabled: boolean;
+      onApply: (style: MotionAnimationStyleDefinition) => void;
+      onApplyRecipe: (recipe: (typeof MOTION_BUILT_IN_RECIPES)[number]) => void;
+      onApplyPreset: (style: MotionAnimationStyle) => void;
+      onSaveStyle: (
+        metadata: MotionAnimationStyleMetadata,
+        tracks: MotionAnimationStyleTrackDefinition[],
+      ) => void;
+      onClose: () => void;
+    }> = {},
+  ) {
+    await act(async () => {
+      root.render(
+        <AnimationStyleBrowser
+          styles={styles}
+          basicStyles={basicStyles}
+          selectedTargetTracks={selectedTargetTracks}
+          onApply={vi.fn()}
+          onApplyRecipe={vi.fn()}
+          onApplyPreset={vi.fn()}
+          onSaveStyle={vi.fn()}
+          onClose={vi.fn()}
+          t={translateTestKey}
+          {...overrides}
+        />,
+      );
+    });
+  }
+
+  async function setValue(input: HTMLInputElement, value: string) {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  async function selectCategory(category: string) {
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Filter animation styles"]',
+    );
+    await act(async () => trigger?.click());
+    const option = Array.from(
+      document.body.querySelectorAll<HTMLElement>("[role='option']"),
+    ).find((item) => item.textContent === category);
+    expect(option).not.toBeNull();
+    await act(async () => option!.click());
+  }
+
+  it("filters saved styles by category and searchable metadata", async () => {
+    await render();
+
+    expect(container.textContent).toContain("Fade In");
+    expect(container.textContent).toContain("Float");
+    expect(container.textContent).toContain("Position");
+
+    await selectCategory("Enter");
+    expect(container.textContent).toContain("Fade In");
+    expect(container.textContent).not.toContain("Float");
+    expect(container.textContent).not.toContain("Position");
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search animation styles"]',
+    );
+    expect(search).not.toBeNull();
+    await setValue(search!, "opacity entrance");
+    expect(container.textContent).toContain("Fade In");
+
+    await setValue(search!, "not a style");
+    expect(container.textContent).toContain("No matching styles");
+  });
+
+  it("browses every built-in recipe and filters by category, name, and tempo", async () => {
+    await render();
+
+    const recipeRows = () =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          "[data-motion-recipe-id]",
+        ),
+      );
+    expect(recipeRows()).toHaveLength(36);
+    expect(recipeRows().map((row) => row.dataset.motionRecipeId)).toEqual(
+      MOTION_BUILT_IN_RECIPES.map((recipe) => recipe.id),
+    );
+    expect(recipeRows().map((row) => row.dataset.motionRecipeTempo)).toEqual(
+      MOTION_BUILT_IN_RECIPES.map((recipe) => recipe.tempo),
+    );
+    expect(
+      container.querySelectorAll("[data-motion-recipe-glyph]"),
+    ).toHaveLength(36);
+    expect(container.textContent).toContain("Fast");
+    expect(container.textContent).toContain("Medium");
+    expect(container.textContent).toContain("Slow");
+
+    await selectCategory("Enter");
+    expect(recipeRows()).toHaveLength(12);
+    expect(
+      recipeRows().every((row) =>
+        row.dataset.motionRecipeId?.startsWith("enter."),
+      ),
+    ).toBe(true);
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search animation styles"]',
+    );
+    expect(search).not.toBeNull();
+    await setValue(search!, "Builder Arrival 04");
+    expect(recipeRows().map((row) => row.dataset.motionRecipeId)).toEqual([
+      "enter.recipe-04",
+    ]);
+
+    await selectCategory("All");
+    await setValue(search!, "Position");
+    expect(recipeRows()).toHaveLength(0);
+    expect(
+      Array.from(container.querySelectorAll("button")).filter(
+        (button) => button.textContent === "Position",
+      ),
+    ).toHaveLength(1);
+
+    await setValue(search!, "Enter");
+    expect(recipeRows()).toHaveLength(0);
+    expect(container.textContent).toContain("No matching styles");
+
+    await setValue(search!, "Slow");
+    expect(recipeRows()).toHaveLength(0);
+    expect(container.textContent).toContain("No matching styles");
+  });
+
+  it("forwards the selected recipe unchanged with its ordered track rows", async () => {
+    const onApplyRecipe = vi.fn();
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (entry) => entry.id === "enter.recipe-04",
+    );
+    expect(recipe).toBeDefined();
+    await render({ onApplyRecipe });
+
+    const recipeRow = container.querySelector<HTMLButtonElement>(
+      '[data-motion-recipe-id="enter.recipe-04"]',
+    );
+    expect(recipeRow?.disabled).toBe(false);
+    await act(async () => recipeRow?.click());
+
+    expect(onApplyRecipe).toHaveBeenCalledOnce();
+    expect(onApplyRecipe.mock.calls[0]?.[0]).toBe(recipe);
+    expect(onApplyRecipe.mock.calls[0]?.[0].tracks).toEqual(recipe?.tracks);
+  });
+
+  it("keeps the recipe catalog searchable when applying is read-only", async () => {
+    await render({ disabled: true });
+
+    const recipeRow = container.querySelector<HTMLButtonElement>(
+      '[data-motion-recipe-id="enter.recipe-04"]',
+    );
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search animation styles"]',
+    );
+    const filter = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Filter animation styles"]',
+    );
+
+    expect(container.querySelectorAll("[data-motion-recipe-id]")).toHaveLength(
+      36,
+    );
+    expect(recipeRow?.disabled).toBe(true);
+    expect(search?.disabled).toBe(false);
+    expect(filter?.disabled).toBe(false);
+  });
+
+  it("applies a saved style when its row is clicked", async () => {
+    const onApply = vi.fn();
+    await render({ onApply });
+
+    const styleRow = container.querySelector<HTMLButtonElement>("#fade-in");
+    expect(styleRow).not.toBeNull();
+    await act(async () => styleRow!.click());
+    expect(onApply).toHaveBeenCalledWith(styles[0]);
+  });
+
+  it("applies basic properties directly", async () => {
+    const onApplyPreset = vi.fn();
+    await render({ onApplyPreset });
+
+    const positionRow = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "Position");
+    expect(positionRow).not.toBeNull();
+    await act(async () => positionRow!.click());
+    expect(onApplyPreset).toHaveBeenCalledWith(basicStyles[0]);
+  });
+
+  it("does not show a disabled Path placeholder among basic actions", async () => {
+    await render();
+
+    const basicHeading = Array.from(container.querySelectorAll("h3")).find(
+      (heading) => heading.textContent === "Basic",
+    );
+    const basicActions = Array.from(
+      basicHeading?.parentElement?.querySelectorAll<HTMLButtonElement>(
+        "button",
+      ) ?? [],
+    ).map((button) => button.textContent?.trim());
+
+    expect(basicActions).toEqual(["Position", "Opacity"]);
+    expect(container.textContent).not.toContain("Path");
+  });
+
+  it("creates a source style from selected animation tracks", async () => {
+    const onSaveStyle = vi.fn();
+    await render({ onSaveStyle });
+
+    const createButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Create style"]',
+    );
+    expect(createButton?.disabled).toBe(false);
+    await act(async () => createButton!.click());
+
+    const nameInput =
+      document.body.querySelector<HTMLInputElement>("#motion-style-name");
+    const descriptionInput = document.body.querySelector<HTMLInputElement>(
+      "#motion-style-description",
+    );
+    expect(nameInput).not.toBeNull();
+    expect(descriptionInput).not.toBeNull();
+    await setValue(nameInput!, "  Fade Up  ");
+    await setValue(descriptionInput!, "Starts just below the final position");
+
+    const addAnimation = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add animation"]',
+    );
+    await act(async () => addAnimation?.click());
+    const opacityItem = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("[role='menuitem']"),
+    ).find((item) => item.textContent === "Opacity");
+    expect(opacityItem?.disabled).toBe(false);
+    await act(async () => opacityItem!.click());
+
+    const saveButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "Create style");
+    expect(saveButton?.disabled).toBe(false);
+    await act(async () => saveButton!.click());
+
+    expect(onSaveStyle).toHaveBeenCalledOnce();
+    expect(onSaveStyle).toHaveBeenCalledWith(
+      {
+        name: "Fade Up",
+        category: "basic",
+        description: "Starts just below the final position",
+      },
+      selectedTargetTracks,
+    );
+  });
+
+  it("disables style creation without selected target tracks", async () => {
+    await render({ selectedTargetTracks: [] });
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Create style"]',
+      )?.disabled,
+    ).toBe(true);
+  });
+});

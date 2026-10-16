@@ -8,7 +8,7 @@ order: 24
 roadmap_status: "partially_implemented"
 summary: "Resolve or create one canonical Page in the chosen Collection, preserve provenance, and hand it to that Collection's Rules and agents."
 example_workflow: "Someone shares a customer interview URL from their phone to the Research Collection; Content reuses the canonical Source Page, preserves the transcript and provenance, and lets the Collection's Rules extract companies and open questions."
-works_today: "Content can already import or create Pages from files, URLs, providers, local Sources, and Agent Actions, with useful provenance and Collection destinations in several paths."
+works_today: "Content can import or create Pages from files, URLs, providers, local Sources, and Agent Actions, with provenance and Collection destinations in several paths. Markdown file import now previews conversion losses, records source provenance, and offers guarded Undo through the UI or Action (#6865, #6902)."
 remains: "Every entrance needs one Capture contract with remembered destination, canonical deduplication, idempotency, snapshot handling, Template application, receipts, and clean downstream enrichment."
 required_capabilities:
   ["content.capture.enrich", "content.source.catalog", "content.job.durable"]
@@ -16,7 +16,7 @@ enhancing_capabilities: ["content.rule.deterministic", "content.template.graph"]
 increments: []
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-12"
 ---
 
 # Feature 24: Capture into action

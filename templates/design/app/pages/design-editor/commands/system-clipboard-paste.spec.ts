@@ -161,6 +161,23 @@ describe("runContextMenuPaste", () => {
     );
   });
 
+  it("pastes layers at the board point when the overview resolves one", async () => {
+    const a = {
+      ...args(),
+      clipboardFiles: [],
+      resolveBoardPoint: vi.fn(() => ({ x: 500, y: 700 })),
+    };
+    await runContextMenuPaste(a, {
+      clientX: 300,
+      clientY: 200,
+      canvasX: 40,
+      canvasY: 60,
+      screenId: "screen-2",
+    });
+    expect(a.resolveBoardPoint).toHaveBeenCalledWith({ x: 300, y: 200 });
+    expect(a.handlePasteSelection).toHaveBeenCalledWith({ x: 500, y: 700 });
+  });
+
   it("anchors on the pointer when the menu opened over the canvas background", async () => {
     const a = args();
     await runContextMenuPaste(a, { clientX: 300, clientY: 200 });

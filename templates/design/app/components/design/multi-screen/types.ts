@@ -12,6 +12,8 @@ import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
 import type { VectorEndpointStyle } from "@shared/vector-endpoints";
 import type { ReactNode, RefObject } from "react";
 
+import type { TextCommitStatus } from "@/pages/design-editor/command-types";
+
 import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
@@ -185,6 +187,8 @@ export interface MultiScreenCanvasProps {
   interactMode?: boolean;
   interactScreenId?: string | null;
   focusedInteractViewport?: { width: number; height: number } | null;
+  /** The corner class of the focused Interact frame; a string, so the memoised canvas compares it by value. */
+  focusedInteractCornerClass?: string | null;
   readOnly?: boolean;
   editableScreenIds?: ReadonlySet<string>;
   activeScreenHasHoveredChild?: boolean;
@@ -355,7 +359,7 @@ export interface MultiScreenCanvasProps {
       row: number;
       rowEnd: number;
     };
-    targetAnchorRect?: CrossScreenHitTestAnchorRect;
+    targetAbsoluteOrigin?: CrossScreenHitTestOrigin;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
     targetOutsideBoardContentBounds?: boolean;
@@ -496,7 +500,7 @@ export interface MultiScreenCanvasProps {
     value: string,
     info?: ElementInfo,
     details?: { html?: string },
-  ) => void;
+  ) => TextCommitStatus | void;
   vectorEdit?: VectorEditOverlayState | null;
   gradientEditTarget?: GradientEditOverlayTarget | null;
   onDropFiles?: (
@@ -505,6 +509,7 @@ export interface MultiScreenCanvasProps {
   ) => void;
   cameraCommand?: {
     fitBounds: FrameBounds;
+    canvasZoom?: number;
     paddingScreenPx?: number;
     nonce: number;
   } | null;
@@ -1020,6 +1025,11 @@ export interface CrossScreenHitTestAnchorRect {
   height: number;
 }
 
+export interface CrossScreenHitTestOrigin {
+  left: number;
+  top: number;
+}
+
 export interface CrossScreenHitTestResult {
   targetAnchorProvenance?: SourceNodeProvenance;
   anchorNodeId?: string;
@@ -1032,6 +1042,7 @@ export interface CrossScreenHitTestResult {
   dropMode?: CrossScreenDropMode;
   anchorRect?: CrossScreenHitTestAnchorRect;
   guideRect?: CrossScreenHitTestAnchorRect;
+  absoluteOrigin?: CrossScreenHitTestOrigin;
   gridPlacement?: {
     column: number;
     columnEnd: number;

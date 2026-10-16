@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AgentKitClient } from "../../../agentkit/src/client/client.js";
 import { selectAgentSuggestions } from "../../../agentkit/src/client/state.js";
+import { AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID } from "../../../agentkit/src/protocol/index.js";
 import { identifyFollowUpSuggestions } from "../agent/follow-up-suggestions.js";
 import {
   buildAssistantMessage,
@@ -80,9 +81,11 @@ async function coldLoad(repo: unknown) {
             updatedAt: new Date(epoch + 10_000).toISOString(),
             threadData: JSON.stringify(repo),
           }
-        : url.endsWith("/runs/active?threadId=thread-1")
-          ? { active: false }
-          : undefined;
+        : url.endsWith("/capabilities")
+          ? { [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true }
+          : url.endsWith("/runs/active?threadId=thread-1")
+            ? { active: false }
+            : undefined;
       if (!body) throw new Error(`Unexpected cold-load request: ${url}`);
       return new Response(JSON.stringify(body), {
         headers: { "content-type": "application/json" },
@@ -242,7 +245,10 @@ describe("server-authored follow-up snapshot", () => {
       type: "text",
       text: "Finished run-1.",
     });
-    expect(restored.requests).toHaveLength(2);
+    expect(restored.requests).toHaveLength(3);
+    expect(restored.requests.map(([input]) => String(input))).toEqual(
+      expect.arrayContaining([expect.stringMatching(/\/capabilities$/)]),
+    );
   });
 
   it("keeps only the latest run's chips and preserves unrelated thread metadata", async () => {

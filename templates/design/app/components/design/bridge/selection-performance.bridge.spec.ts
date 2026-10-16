@@ -31,6 +31,20 @@ ${marker}`,
   return withFactory;
 }
 
+function hydratedBridgeWithSelectableCount(): string {
+  const script = hydratedBridge();
+  const marker = "  function collectSelectableElementInfos(";
+  const instrumented = script.replace(
+    marker,
+    "  window.__testCollectSelectableCount = function () { return collectSelectableElements(true).length; };\n" +
+      marker,
+  );
+  if (instrumented === script) {
+    throw new Error("selectable collection test hook insertion point changed");
+  }
+  return instrumented;
+}
+
 const CARDS = 60;
 const LARGE_CANDIDATES = 849;
 const LARGE_DOM_ELEMENTS = 883;
@@ -50,6 +64,14 @@ function fixture(): string {
     </div>`;
   }
   return `${html}</body></html>`;
+}
+
+function tenThousandSiblingFixture(): string {
+  let html = '<!doctype html><html><body style="margin:0"><main id="root">';
+  for (let index = 0; index < 10_000; index += 1) {
+    html += `<div data-agent-native-node-id="sibling-${index}" style="position:absolute;left:${index * 13}px;top:0;width:12px;height:12px"></div>`;
+  }
+  return `${html}</main></body></html>`;
 }
 
 function largeFixture(): string {
@@ -544,6 +566,60 @@ describe("overview marquee selectable-rects collection", () => {
           (info) => (info.portableStyleSnapshot?.nodes?.length ?? 0) > 0,
         ),
       ).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+});
+
+describe("large sibling marquee collection", () => {
+  it("checks template ownership in work proportional to ten thousand siblings", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 800 },
+      });
+      await page.setContent(tenThousandSiblingFixture());
+      await page.evaluate(() => {
+        const root = document.querySelector<HTMLElement>("#root")!;
+        const children = root.children;
+        const windowWithCount = window as typeof window & {
+          __siblingReads?: number;
+        };
+        windowWithCount.__siblingReads = 0;
+        Object.defineProperty(root, "children", {
+          configurable: true,
+          get: () =>
+            new Proxy(children, {
+              get(target, property, receiver) {
+                if (property === "length") {
+                  return (windowWithCount.__siblingReads ?? 0) >= 100_000
+                    ? 0
+                    : Reflect.get(target, property, target);
+                }
+                if (
+                  typeof property === "string" &&
+                  /^(0|[1-9]\d*)$/.test(property)
+                ) {
+                  windowWithCount.__siblingReads =
+                    (windowWithCount.__siblingReads ?? 0) + 1;
+                }
+                return Reflect.get(target, property, target);
+              },
+            }),
+        });
+      });
+      await page.addScriptTag({ content: hydratedBridgeWithSelectableCount() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const { selectedCount, siblingReads } = await page.evaluate(() => ({
+        selectedCount: (window as any).__testCollectSelectableCount(),
+        siblingReads: (window as typeof window & { __siblingReads?: number })
+          .__siblingReads,
+      }));
+
+      expect(selectedCount).toBe(10_001);
+      expect(siblingReads).toBeLessThan(50_000);
     } finally {
       await browser.close();
     }

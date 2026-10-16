@@ -4682,6 +4682,7 @@ describe("SSE event processor tool id matching", () => {
             tool: "send-email",
             id: "approve-1",
             result: "Awaiting human approval — did NOT execute.",
+            approvalPause: true,
           },
           { type: "done" },
         ]),
@@ -4698,6 +4699,326 @@ describe("SSE event processor tool id matching", () => {
       approvalKey: 'send-email:{"to":"a@b.com"}',
       allowPersistentApproval: false,
     });
+    expect(part?.approvalPause).toBe(true);
+  });
+
+  it("updates a paused tool result when the approved execution reuses its call id", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-approved",
+            input: { to: "a@b.com" },
+          },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            id: "call-approved",
+            approvalKey: 'send-email:{"to":"a@b.com"}',
+            input: { to: "a@b.com" },
+          },
+          {
+            type: "tool_done",
+            tool: "send-email",
+            id: "call-approved",
+            result: "Awaiting human approval. This action did NOT execute.",
+          },
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-approved",
+            input: { to: "a@b.com" },
+          },
+          {
+            type: "tool_done",
+            tool: "send-email",
+            id: "call-approved",
+            result:
+              "Audit note: the report contains ‘awaiting human approval’ and ‘did not execute’.",
+            completedSideEffect: true,
+            approvalPause: false,
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const part = content.find(
+      (candidate: any) =>
+        candidate.type === "tool-call" &&
+        candidate.toolCallId === "call-approved",
+    );
+    expect(part).toMatchObject({
+      result:
+        "Audit note: the report contains ‘awaiting human approval’ and ‘did not execute’.",
+      completedSideEffect: true,
+    });
+    expect(part.approval).toBeUndefined();
+    expect(part.approvalPause).toBeUndefined();
+  });
+
+  it("updates the pause result when an approved call pauses again", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            input: { version: "1.2.3" },
+          },
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            approvalKey: 'publish-release:{"version":"1.2.3"}',
+            askId: "ask-first",
+            input: { version: "1.2.3" },
+          },
+          {
+            type: "tool_done",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            result: "Awaiting first approval. This action did NOT execute.",
+            approvalPause: true,
+          },
+          {
+            type: "tool_start",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            input: { version: "1.2.3" },
+          },
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            approvalKey: 'publish-release:{"version":"1.2.3"}',
+            askId: "ask-renewed",
+            input: { version: "1.2.3" },
+          },
+          {
+            type: "tool_done",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            result: "Awaiting renewed approval. This action did NOT execute.",
+            approvalPause: true,
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    expect(
+      content.find((part: any) => part.type === "tool-call"),
+    ).toMatchObject({
+      result: "Awaiting renewed approval. This action did NOT execute.",
+      approvalPause: true,
+      approval: {
+        askId: "ask-renewed",
+      },
+    });
+  });
+
+  it("matches an id-less approval by its exact input", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-1",
+            input: { to: "first@example.test" },
+          },
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-2",
+            input: { to: "second@example.test" },
+          },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: 'send-email:{"to":"second@example.test"}',
+            input: { to: "second@example.test" },
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const byId = (id: string) =>
+      content.find(
+        (part: any) => part.type === "tool-call" && part.toolCallId === id,
+      );
+    expect(byId("call-1")?.approval).toBeUndefined();
+    expect(byId("call-2")?.approval).toEqual({
+      approvalKey: 'send-email:{"to":"second@example.test"}',
+    });
+  });
+
+  it("does not attach a server-id approval to a reader-local call with different input", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "send-email",
+            input: { to: "first@example.test" },
+          },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "server-call-1",
+            approvalKey: 'send-email:{"to":"second@example.test"}',
+            input: { to: "second@example.test" },
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    expect(content[0]).toMatchObject({
+      type: "tool-call",
+      toolCallId: "tc_1",
+      toolName: "send-email",
+      args: { to: "first@example.test" },
+    });
+    expect(content[0]?.approval).toBeUndefined();
+  });
+
+  it("matches a server-id approval to a reader-local call with the same input", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "send-email",
+            input: { to: "second@example.test" },
+          },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "server-call-1",
+            approvalKey: 'send-email:{"to":"second@example.test"}',
+            input: { to: "second@example.test" },
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    expect(content[0]?.approval).toEqual({
+      approvalKey: 'send-email:{"to":"second@example.test"}',
+    });
+  });
+
+  it("matches id-less approvals with nested input values", async () => {
+    const approvalInput = {
+      recipients: ["first@example.test", { address: "second@example.test" }],
+      options: { retry: 2, notify: false },
+    };
+    const otherInput = {
+      recipients: ["first@example.test", { address: "other@example.test" }],
+      options: { retry: 2, notify: false },
+    };
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-1",
+            input: otherInput,
+          },
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-2",
+            input: approvalInput,
+          },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: "send-email:nested",
+            input: approvalInput,
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const byId = (id: string) =>
+      content.find(
+        (part: any) => part.type === "tool-call" && part.toolCallId === id,
+      );
+    expect(byId("call-1")?.approval).toBeUndefined();
+    expect(byId("call-2")?.approval).toEqual({
+      approvalKey: "send-email:nested",
+    });
+  });
+
+  it("leaves an id-less approval unmatched when identical calls are ambiguous", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-1",
+            input: { to: "same@example.test" },
+          },
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-2",
+            input: { to: "same@example.test" },
+          },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: 'send-email:{"to":"same@example.test"}',
+            input: { to: "same@example.test" },
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    expect(
+      content
+        .filter((part: any) => part.type === "tool-call")
+        .map((part: any) => part.approval),
+    ).toEqual([undefined, undefined]);
   });
 
   it("prefers toolCallId over id when an approval carries both", async () => {
@@ -4749,6 +5070,7 @@ describe("SSE event processor tool id matching", () => {
             tool: "send-email",
             id: "call-1",
             result: "Awaiting human approval — did NOT execute.",
+            approvalPause: true,
           },
           { type: "tool_start", tool: "send-email", id: "call-2", input: {} },
           {

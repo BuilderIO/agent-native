@@ -18,7 +18,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 ```
 
 Evite importar componentes UI do pacote `@agent-native/core` simples. Usar
@@ -619,7 +619,7 @@ modelo de recurso de espaço de trabalho que alimenta a guia Espaço de trabalho
 O painel completo não precisa de acessórios:
 
 ```tsx
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 
 <ResourcesPanel />;
 ```
@@ -631,6 +631,8 @@ import { useState } from "react";
 import {
   ResourceEditor,
   ResourceTree,
+} from "@agent-native/toolkit/app/resources";
+import {
   useResource,
   useResourceTree,
   useUpdateResource,
@@ -669,16 +671,16 @@ function WorkspaceResources() {
 
 ## Outro UI público {#other-ui}
 
-| Área             | APIs                                                            | Caminho de importação                     |
-| ---------------- | --------------------------------------------------------------- | ----------------------------------------- |
-| Compartilhamento | `<ShareButton>`, `<ShareDialog>`                                | `@agent-native/core/client/sharing`       |
-| Sharing UI       | `<VisibilityBadge>`                                             | `@agent-native/toolkit/sharing`           |
-| Notificações     | `<NotificationsBell>`                                           | `@agent-native/core/client/notifications` |
-| Progresso        | `<RunsTray>`, ganchos e tipos de progresso                      | `@agent-native/core/client/progress`      |
-| Integração       | `useOnboarding()`, ganchos de painel integrados                 | `@agent-native/core/client/onboarding`    |
-| Observabilidade  | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                  | `@agent-native/toolkit/app/observability` |
-| Recursos         | `<ResourcesPanel>`, `<ResourceTree>`, ganchos de recursos       | `@agent-native/core/client/resources`     |
-| Editor avançado  | `<SharedRichEditor>`, comandos de barra, ganchos de nó de bloco | `@agent-native/toolkit/editor`            |
+| Área                  | APIs                                                              | Caminho de importação                                                       |
+| --------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Compartilhamento      | `<ShareButton>`, `<ShareDialog>`                                  | `@agent-native/toolkit/app/sharing`                                         |
+| Sharing UI            | `<VisibilityBadge>`                                               | `@agent-native/toolkit/sharing`                                             |
+| Notificações          | `<NotificationsBell>`                                             | `@agent-native/toolkit/app/notifications`                                   |
+| Registro de execuções | `<RunsTray>`, tipos de execução e funções do registro no servidor | `@agent-native/toolkit/app/progress + @agent-native/core/progress`          |
+| Integração            | `useOnboarding()`, ganchos de painel integrados                   | `@agent-native/core/client/onboarding`                                      |
+| Observabilidade       | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                    | `@agent-native/toolkit/app/observability`                                   |
+| Recursos              | `<ResourcesPanel>`, `<ResourceTree>`, ganchos de recursos         | `@agent-native/toolkit/app/resources + @agent-native/core/client/resources` |
+| Editor avançado       | `<SharedRichEditor>`, comandos de barra, ganchos de nó de bloco   | `@agent-native/toolkit/editor`                                              |
 
 ## Completamento de texto único {#one-off-text-completion}
 

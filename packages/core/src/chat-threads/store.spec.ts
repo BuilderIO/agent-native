@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+
 const executeMock = vi.hoisted(() => vi.fn());
 const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
 
@@ -13,14 +15,29 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
+// The store's widen-bigint migration reads the catalog; a recorded migration
+// surfaces that read's failure instead of swallowing it.
+function storeBootstrapResult(sql: string) {
+  if (/FROM information_schema\.columns/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
+  return storeLedgerResult(sql);
+}
+
 vi.mock("./emitter.js", () => ({
   emitChatThreadChange: emitChatThreadChangeMock,
 }));
 
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+} from "@agent-native/agentkit/protocol";
+
+import {
   applySubmittedUserMessage,
   buildUserMessage,
 } from "../agent/thread-data-builder.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-started.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import {
   adoptThreadScopeIfUnscoped,
@@ -108,6 +125,8 @@ describe("chat thread store", () => {
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -1548,6 +1567,92 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
+  it("excludes a duplicated assistant snapshot beside its durable reply", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-duplicate",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done.\nDone." }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-duplicate-with-trailing-whitespace",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done.\nDone.\n" }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-extended",
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Done.\nHere is the full diff: ..." },
+            ],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-unmatched-reasoning",
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Done.\nDone." },
+              { type: "reasoning", text: "extra reasoning" },
+            ],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-unmatched-tool-call",
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Done.\nDone." },
+              {
+                type: "tool-call",
+                toolCallId: "tool-unmatched",
+                toolName: "search",
+                args: { query: "extra content" },
+                result: { ok: true },
+              },
+            ],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-canonical",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(5);
+  });
+
   it("counts an identical root and AgentKit assistant mirror once", async () => {
     const repository = {
       messages: [
@@ -1591,6 +1696,44 @@ describe("chat thread store", () => {
     );
 
     expect(row!.message_count).toBe(2);
+  });
+
+  it("excludes failed run notices hidden during hydration from message counts", async () => {
+    const runId = "failed-before-start";
+    const repository = {
+      messages: [
+        { message: { ...userMessage } },
+        {
+          message: {
+            id: "not-started-notice",
+            role: "assistant",
+            content: [{ type: "text", text: "The run could not start." }],
+            metadata: {
+              runId,
+              custom: { [RUN_NOT_STARTED_METADATA_KEY]: true },
+            },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [],
+        runs: [
+          { id: runId, status: "failed", error: { message: "Unavailable" } },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(1);
   });
 
   it("counts a mirrored reply when the completed run no longer has message events", async () => {
@@ -2154,6 +2297,99 @@ describe("chat thread store", () => {
     expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([queued]);
   });
 
+  it("drops an expired retry before it can be appended or promoted", async () => {
+    const submissionExpiresAt = Date.now() - 1;
+    const metadata = {
+      custom: {
+        [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: submissionExpiresAt,
+      },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+
+    const appended = await mutateThreadQueuedMessages("thread-1", {
+      type: "append",
+      message: {
+        id: "queued-expired-retry",
+        text: "Retry the original prompt",
+        metadata,
+      },
+    });
+    expect(appended?.submissionExpired).toBe(true);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+
+    row!.thread_data = JSON.stringify({
+      queuedMessages: [
+        {
+          id: "queued-expired-retry",
+          text: "Retry the original prompt",
+          metadata,
+          promotionClaim: { id: "tab-old", expiresAt: Date.now() + 60_000 },
+        },
+      ],
+    });
+    const claim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: "queued-expired-retry",
+      claimId: "tab-new",
+    });
+    expect(claim?.submissionExpired).toBe(true);
+    expect(claim?.claimedMessage).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+  });
+
+  it("anchors a queued retry lifetime to server time before persisting it", async () => {
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+    try {
+      const appended = await mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-retry-with-ttl",
+          text: "Retry the prompt",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 99_999_999,
+              [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 1_200,
+            },
+          },
+        },
+      });
+
+      expect(appended?.message?.metadata?.custom).toEqual({
+        [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 11_200,
+      });
+      expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("allows cleanup of an expired queue item with a live promotion claim", async () => {
+    row!.thread_data = JSON.stringify({
+      queuedMessages: [
+        {
+          id: "queued-expired-retry",
+          text: "Retry the original prompt",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: Date.now() - 1,
+            },
+          },
+          promotionClaim: { id: "tab-old", expiresAt: Date.now() + 60_000 },
+        },
+      ],
+    });
+
+    const removed = await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: "queued-expired-retry",
+    });
+
+    expect(removed?.promotionBusy).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+  });
+
   it("keeps a promotion claim taken while a full-thread save was in flight", async () => {
     const queued = { id: "queued-in-flight-save", text: "Answer me next" };
     const messages = [
@@ -2303,6 +2539,8 @@ describe("chat thread store", () => {
   it("searches thread text with literal LIKE metacharacters", async () => {
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -2346,6 +2584,8 @@ describe("chat thread store", () => {
     };
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -2395,6 +2635,8 @@ describe("chat thread store", () => {
     };
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
         return { rows: [summaryRow], rowsAffected: 0 };
       }
@@ -2457,6 +2699,8 @@ describe("chat thread store", () => {
 
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -2525,6 +2769,8 @@ describe("chat thread store", () => {
     let repairScans = 0;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -2600,6 +2846,8 @@ describe("chat thread store", () => {
     const rows = new Map<string, ChatThreadRow>();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -2975,6 +3223,8 @@ describe("chat thread store", () => {
     ]);
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -3082,6 +3332,8 @@ describe("chat thread store", () => {
     ]);
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -3176,6 +3428,8 @@ describe("chat thread store", () => {
     let insertedThreadData: string | undefined;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -3288,6 +3542,8 @@ describe("adoptThreadScopeIfUnscoped", () => {
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };

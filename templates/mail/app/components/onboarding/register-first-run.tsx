@@ -27,6 +27,7 @@ registerFirstRunOnboardingExtension({
   component: MailTriageFirstRun,
   placement: "before-setup",
   stepCount: 3,
+  optional: true,
 });
 
 export function MailTriageSorting({
@@ -49,4 +50,5 @@ registerFirstRunOnboardingExtension({
   component: MailTriageSorting,
   placement: "after-setup",
   stepCount: 1,
+  optional: true,
 });

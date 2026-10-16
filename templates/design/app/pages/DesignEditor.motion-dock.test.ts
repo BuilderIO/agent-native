@@ -1,6 +1,45 @@
+import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
+import { MotionDock } from "@/components/design/MotionDock";
+
 import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+import { renderMotionDockPanel } from "./design-editor/view/motion-dock-panel";
+
+function renderRestoredMotionDock(motionLabEnabled: boolean) {
+  return renderMotionDockPanel({
+    editorCore: { hostOwnsChrome: false },
+    editorHistory: {
+      motionDockMounted: true,
+      motionDockOpen: true,
+      hiddenLayerIds: new Set<string>(),
+    },
+    editorGenerationAndAccess: { motionAutosavePending: false },
+    editorActiveScreenAndGeometry: {
+      activeFile: { id: "active-screen" },
+    },
+    editorCanvasAndScreens: { canvasIframeRef: { current: null } },
+    editorLayerActions: { handleToggleLayerHidden: () => {} },
+    editorLiveEditsAndPresence: {
+      initialGenerationChromeLimited: false,
+      motionLabEnabled,
+      motionTracks: [],
+      activeCodeLayerProjection: { nodes: [] },
+      motionDurationMs: 1000,
+      motionDefaultEase: "ease",
+      motionAutoKeyframeEnabled: false,
+      setMotionAutoKeyframeEnabled: () => {},
+      motionPlayhead: 0,
+      setMotionPlayhead: () => {},
+      motionSelectedTarget: null,
+    },
+    editorContentAndComponents: {
+      handleMotionTracksChange: () => {},
+      handleMotionDurationChange: () => {},
+      motionLivePlayheadRef: { current: null },
+    },
+  } as unknown as Parameters<typeof renderMotionDockPanel>[0]);
+}
 
 describe("DesignEditor motion dock transition", () => {
   const source = readDesignEditorSource();
@@ -40,18 +79,37 @@ describe("DesignEditor motion dock transition", () => {
     expect(source).toContain("clearMotionDockOpenAnimationFrame();\n    },");
   });
 
-  it("keeps the motion dock behind the secondary-panel experiment", () => {
+  it("keeps the motion dock behind the Motion Lab without reserving space", () => {
     expect(source).toContain(
-      "SHOW_DESIGN_SECONDARY_LEFT_PANELS &&\n      !initialGenerationChromeLimited &&\n      activeFile &&\n      motionDockMounted",
+      "motionLabEnabled &&\n      !initialGenerationChromeLimited &&\n      activeFile &&\n      motionDockMounted",
     );
+    expect(source).toContain('t("designEditor.motion.openDock")');
+    expect(source).toContain("editorLiveEditsAndPresence.motionLabEnabled ? (");
+  });
+
+  it("switches the inspector to Motion while the dock is open for a selected layer", () => {
+    expect(source).toContain(
+      "motionInspector:\n      editorLiveEditsAndPresence.motionLabEnabled &&\n      motionDockOpen &&\n      Boolean(activeFile?.id) &&\n      selectedInspectorElements.length > 0,",
+    );
+    expect(source).not.toContain("setActiveInspectorTab");
+  });
+
+  it("requires design edit access for both Motion write gates", () => {
+    expect(source).toContain(
+      "const canWriteMotion =\n    canEditDesign && editorContentAndComponents.motionControlsWritable;",
+    );
+    expect(source).toContain(
+      "onToggleMotionKeyframe:\n      editorLiveEditsAndPresence.motionLabEnabled &&\n      canEditDesign &&\n      canWriteMotion",
+    );
+    expect(source).toContain("motionWriteUnavailable: !canWriteMotion,");
   });
 
   it("keeps inspector motion controls gated and preserves explicit collapse", () => {
     expect(source).toContain(
-      "motionKeyframeState: SHOW_DESIGN_SECONDARY_LEFT_PANELS\n      ? motionKeyframeState\n      : undefined,",
+      "motionKeyframeState:\n      editorLiveEditsAndPresence.motionLabEnabled && canWriteMotion\n        ? motionKeyframeState\n        : undefined,",
     );
     expect(source).toContain(
-      "onToggleMotionKeyframe:\n      SHOW_DESIGN_SECONDARY_LEFT_PANELS && canEditDesign\n        ? handleToggleMotionKeyframe",
+      "onToggleMotionKeyframe:\n      editorLiveEditsAndPresence.motionLabEnabled &&\n      canEditDesign &&\n      canWriteMotion\n        ? handleToggleMotionKeyframe",
     );
     expect(source).toContain(
       'if (!initialGenerationChromeLimited) return;\n    setActiveLeftPanel("agent");\n  }, [initialGenerationChromeLimited]);',
@@ -59,5 +117,25 @@ describe("DesignEditor motion dock transition", () => {
     expect(source).toContain(
       "if (panel === null && initialGenerationChromeLimited) return;",
     );
+  });
+
+  it("does not mount a restored open dock while the Motion Lab is off", () => {
+    const panel = renderRestoredMotionDock(false);
+
+    expect(isValidElement(panel)).toBe(true);
+    const children = (panel as ReactElement<{ children?: ReactNode }>).props
+      .children;
+    expect(children).toBeNull();
+
+    const enabledPanel = renderRestoredMotionDock(true);
+
+    expect(isValidElement(enabledPanel)).toBe(true);
+    const enabledChildren = (
+      enabledPanel as ReactElement<{ children?: ReactNode }>
+    ).props.children;
+    expect(isValidElement(enabledChildren)).toBe(true);
+    if (isValidElement(enabledChildren)) {
+      expect(enabledChildren.type).toBe(MotionDock);
+    }
   });
 });

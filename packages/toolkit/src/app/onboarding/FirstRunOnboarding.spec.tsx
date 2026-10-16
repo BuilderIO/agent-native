@@ -406,6 +406,68 @@ describe("FirstRunOnboarding", () => {
     ).not.toBeNull();
   });
 
+  const viewedOptional = () =>
+    Object.fromEntries(
+      mocks.trackOnboardingEvent.mock.calls
+        .filter(([event]) => event === "onboarding_step_viewed")
+        .map(([, properties]) => {
+          const step = properties as { step_id: string; optional: boolean };
+          return [step.step_id, step.optional];
+        }),
+    );
+
+  it("marks only the screens that offer a skip as optional", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      document.body.querySelector("[data-testid='first-run-setup-skip']"),
+    ).toBeNull();
+    expect(viewedOptional()).toEqual({ role: true, choice: false });
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_skipped",
+      expect.objectContaining({ step_id: "role", optional: true }),
+    );
+  });
+
+  it("marks setup optional in Clips, the one app that offers its skip", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: { appId: "clips", appName: "Clips", capabilities: [] },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      document.body.querySelector("[data-testid='first-run-setup-skip']"),
+    ).not.toBeNull();
+    expect(viewedOptional()).toEqual({ role: true, choice: true });
+  });
+
   it("records the current step when setup is abandoned on page exit", () => {
     act(() => {
       root.render(
@@ -425,6 +487,7 @@ describe("FirstRunOnboarding", () => {
         flow: "first_run",
         step_id: "role",
         step_index: 0,
+        optional: true,
         reason: "page_exit",
       },
     );
@@ -2687,5 +2750,66 @@ describe("FirstRunOnboarding", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/record", {
       replace: true,
     });
+  });
+
+  it("carries an extension's optional flag on its step events", () => {
+    registerFirstRunOnboardingExtension({
+      id: "test-extension",
+      optional: true,
+      component: ({ onSkip }) => (
+        <button type="button" onClick={onSkip}>
+          Extension Skip
+        </button>
+      ),
+    });
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-builder-sign-in']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Extension Skip")
+        ?.click();
+    });
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_viewed",
+      expect.objectContaining({
+        step_id: "extension:test-extension:1",
+        extension_id: "test-extension",
+        optional: true,
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_skipped",
+      expect.objectContaining({
+        step_id: "extension:test-extension:1",
+        optional: true,
+      }),
+    );
   });
 });

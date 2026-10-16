@@ -6,7 +6,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@agent-native/toolkit/ui/tooltip";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -61,6 +61,7 @@ describe("AppSidebar (router links)", () => {
       "Slides",
       "Decks",
       "Settings",
+      "Report a problem",
       "Expand sidebar",
     ]);
 
@@ -72,6 +73,26 @@ describe("AppSidebar (router links)", () => {
       expect(labels).toContain(element.getAttribute("aria-label"));
       act(() => element.blur());
     }
+  });
+
+  it("offers Report a problem beside the feedback row and hides it with feedback", () => {
+    const renderSidebar = (feedback: ReactNode) => (
+      <MemoryRouter>
+        <AppSidebar
+          showBadge={false}
+          brandName="Slides"
+          items={[{ label: "Decks", to: "/home" }]}
+          feedback={feedback}
+        />
+      </MemoryRouter>
+    );
+
+    act(() => root.render(renderSidebar(<span>Send feedback</span>)));
+    expect(container.textContent).toContain("Send feedback");
+    expect(container.textContent).toContain("Report a problem");
+
+    act(() => root.render(renderSidebar(null)));
+    expect(container.textContent).not.toContain("Report a problem");
   });
 
   it("keeps rail and settings-gear tooltip links mounted across rerenders", () => {

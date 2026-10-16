@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { __resetStoreLedgerSnapshotForTests } from "../db/store-registry.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
@@ -44,6 +45,7 @@ const {
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   rawClient.execute.mockClear();
   __resetReviewInitForTests();
   await ensureReviewTables();

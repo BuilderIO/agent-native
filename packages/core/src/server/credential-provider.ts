@@ -33,6 +33,7 @@ import {
   getRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
+  getRequestBuilderStorageCredentialOrgId,
 } from "./request-context.js";
 
 const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
@@ -410,6 +411,20 @@ async function resolveOrgIdForRequestEmail(
   }
 }
 
+function getRequestBuilderCredentialScope(): {
+  orgId: string | null | undefined;
+  storageOnly: boolean;
+} {
+  const requestOrgId = getRequestOrgId();
+  if (requestOrgId !== undefined) {
+    return { orgId: requestOrgId, storageOnly: false };
+  }
+  const storageOrgId = getRequestBuilderStorageCredentialOrgId();
+  return storageOrgId === undefined
+    ? { orgId: undefined, storageOnly: false }
+    : { orgId: storageOrgId, storageOnly: true };
+}
+
 /**
  * A member's personal Builder key pair (user row, or the pre-org solo row) is
  * unused while their org restricts personal API keys. Mirrors the resolvers'
@@ -419,9 +434,10 @@ async function resolveOrgIdForRequestEmail(
 function isPersonalBuilderCredentialRestricted(
   email: string,
   identity?: BuilderCredentialLookupIdentity,
+  requestOrgId?: string | null,
 ): Promise<boolean> {
   if (identity === undefined)
-    return isPersonalProviderKeyUseRestricted({ email });
+    return isPersonalProviderKeyUseRestricted({ email, orgId: requestOrgId });
   if (identity.orgId === null) return Promise.resolve(false);
   const orgId = identity.orgId?.trim();
   return isPersonalProviderKeyUseRestricted(
@@ -455,18 +471,48 @@ async function resolveScopedBuilderCredential(
   let orgLookupCause: unknown;
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
+    const requestScope =
+      identity === undefined
+        ? getRequestBuilderCredentialScope()
+        : { orgId: undefined, storageOnly: false };
+    const requestOrgId = requestScope.orgId;
+
+    if (requestScope.storageOnly) {
+      if (!requestOrgId) return NOT_FOUND;
+      for (const scope of ["org", "workspace"] as const) {
+        scopeAttempted = scope;
+        const secret = await readAppSecret({
+          key,
+          scope,
+          scopeId: requestOrgId,
+        });
+        if (secret) {
+          return {
+            value: secret.value,
+            source: scope,
+            lookupFailed: false,
+          };
+        }
+      }
+      return NOT_FOUND;
+    }
 
     const personalRestricted = await isPersonalBuilderCredentialRestricted(
       email,
       identity,
+      requestOrgId,
     );
 
     let orgId: string | null | undefined =
-      identity === undefined ? getRequestOrgId() : identity.orgId?.trim();
+      identity === undefined ? requestOrgId : identity.orgId?.trim();
     let orgSource: "request" | "email-fallback" | "none" = orgId
       ? "request"
       : "none";
-    if (!orgId && !(identity !== undefined && identity.orgId === null)) {
+    if (
+      !orgId &&
+      requestOrgId !== null &&
+      !(identity !== undefined && identity.orgId === null)
+    ) {
       const resolved = await resolveOrgIdForRequestEmail(email);
       orgLookupCause = resolved.cause;
       orgId = resolved.orgId;
@@ -637,17 +683,45 @@ async function resolveScopedBuilderCredentials(
       );
     };
 
+    const requestScope =
+      identity === undefined
+        ? getRequestBuilderCredentialScope()
+        : { orgId: undefined, storageOnly: false };
+    const requestOrgId = requestScope.orgId;
+
+    if (requestScope.storageOnly) {
+      if (!requestOrgId) return { creds: null, lookupFailed: false };
+      for (const scope of ["org", "workspace"] as const) {
+        scopeAttempted = scope;
+        const creds = await readBuilderCredentialScope(
+          readAppSecrets,
+          scope,
+          requestOrgId,
+        );
+        await traceScope(creds, requestOrgId);
+        if (await isCompleteBuilderConnection(creds)) {
+          return { creds, lookupFailed: false };
+        }
+      }
+      return { creds: null, lookupFailed: false };
+    }
+
     const personalRestricted = await isPersonalBuilderCredentialRestricted(
       email,
       identity,
+      requestOrgId,
     );
 
     let orgId: string | null | undefined =
-      identity === undefined ? getRequestOrgId() : identity.orgId?.trim();
+      identity === undefined ? requestOrgId : identity.orgId?.trim();
     let orgSource: "request" | "email-fallback" | "none" = orgId
       ? "request"
       : "none";
-    if (!orgId && !(identity !== undefined && identity.orgId === null)) {
+    if (
+      !orgId &&
+      requestOrgId !== null &&
+      !(identity !== undefined && identity.orgId === null)
+    ) {
       const resolved = await resolveOrgIdForRequestEmail(email);
       orgLookupCause = resolved.cause;
       orgId = resolved.orgId;
@@ -739,9 +813,12 @@ export async function resolveBuilderCredential(
 ): Promise<string | null> {
   const scoped = await resolveScopedBuilderCredential(key, identity);
   if (scoped.value) return scoped.value;
-  const envValue = canUseBuilderDeployCredentialFallbackForRequest()
-    ? (readDeployCredentialEnv(key) ?? null)
-    : null;
+  const storageOnly =
+    identity === undefined && getRequestBuilderCredentialScope().storageOnly;
+  const envValue =
+    !storageOnly && canUseBuilderDeployCredentialFallbackForRequest()
+      ? (readDeployCredentialEnv(key) ?? null)
+      : null;
   if (envValue) {
     // A deploy fallback is still useful, but it must not turn a transient
     // credential-store failure into a clean connected result for Builder.
@@ -843,7 +920,10 @@ export async function resolveBuilderCredentialsDetailed(
       lookupFailed: false,
     };
   }
-  const canUseEnv = canUseBuilderDeployCredentialFallbackForRequest();
+  const canUseEnv =
+    !(
+      identity === undefined && getRequestBuilderCredentialScope().storageOnly
+    ) && canUseBuilderDeployCredentialFallbackForRequest();
   const privateKey = canUseEnv
     ? (readDeployCredentialEnv("BUILDER_PRIVATE_KEY") ?? null)
     : null;
@@ -1018,6 +1098,12 @@ export async function resolveBuilderGatewayCredentialsDetailed(
   if (scoped.privateKey && scoped.publicKey) {
     return { ...scoped, lane: "identity" };
   }
+  if (
+    identity === undefined &&
+    getRequestBuilderCredentialScope().storageOnly
+  ) {
+    return { ...scoped, lane: null };
+  }
   const gateway = await resolveUsableBuilderGatewayDeployCredentials();
   if (gateway) {
     // Same discipline as `resolveBuilderCredential`: a deploy fallback must not
@@ -1119,22 +1205,28 @@ export async function resolveBuilderGatewayAuth(
 ): Promise<BuilderGatewayAuth | null> {
   const ownerEmail =
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
-  const orgId = identity === undefined ? getRequestOrgId() : identity.orgId;
+  const credentialScope =
+    identity === undefined
+      ? getRequestBuilderCredentialScope()
+      : { orgId: identity.orgId, storageOnly: false };
+  const orgId = credentialScope.orgId;
   let hasOAuthSession = false;
   if (ownerEmail) {
     try {
-      hasOAuthSession = await hasBuilderOAuthSession(ownerEmail, orgId);
+      hasOAuthSession = credentialScope.storageOnly
+        ? await hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
+        : await hasBuilderOAuthSession(ownerEmail, orgId);
     } catch (error) {
       throw new BuilderCredentialLookupError(error);
     }
   }
   if (ownerEmail && hasOAuthSession) {
     try {
-      const session = await getBuilderOAuthSession(
-        ownerEmail,
-        orgId,
-        BUILDER_OAUTH_SCOPE,
-      );
+      const session = credentialScope.storageOnly
+        ? await getBuilderOAuthSession(ownerEmail, orgId, BUILDER_OAUTH_SCOPE, {
+            orgOnly: true,
+          })
+        : await getBuilderOAuthSession(ownerEmail, orgId, BUILDER_OAUTH_SCOPE);
       return session
         ? {
             authorization: `Bearer ${session.accessToken}`,

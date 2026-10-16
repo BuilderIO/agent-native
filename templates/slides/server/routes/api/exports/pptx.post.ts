@@ -36,11 +36,20 @@ export default defineEventHandler(async (event) => {
 
   const deckId = body.deckId;
   const includeNotes = body.includeNotes ?? true;
+  const actionContext = {
+    caller: "http" as const,
+    userEmail: session.email,
+    orgId: session.orgId,
+    slidesPptxDownload: true as const,
+  };
   const runExport = async () =>
-    exportPptxAction.run({
-      deckId,
-      includeNotes,
-    });
+    exportPptxAction.run(
+      {
+        deckId,
+        includeNotes,
+      },
+      actionContext,
+    );
 
   try {
     const result = await runWithRequestContext(
@@ -50,6 +59,10 @@ export default defineEventHandler(async (event) => {
           ? asGoogleSlidesBuildStep(runExport)
           : runExport(),
     );
+
+    if (!result.buffer) {
+      throw new Error("PPTX export did not produce downloadable bytes");
+    }
 
     const bytes = new Uint8Array(result.buffer);
     const responseBody = bytes.buffer.slice(

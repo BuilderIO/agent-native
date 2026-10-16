@@ -6,12 +6,19 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { runPendingTextHostCommit } from "../../pages/design-editor/commands/pending-text-host-commit";
 import {
+  runScreenTextContentChange,
+  type ScreenTextContentChangeArgs,
+} from "../../pages/design-editor/commands/screen-text-content-change";
+import {
+  HOST_COMMIT_RETRY_DELAYS_MS,
   armPendingTextCapture,
   beginTextEditForOwner,
   isPendingTextRequestLive,
   onPendingTextCaptureCancel,
   peekPendingTextCapture,
+  registerPendingTextHostCommit,
   takePendingTextCapture,
 } from "./design-canvas/pending-text-capture";
 import { PENDING_TEXT_INTERCEPT_CAP_MS } from "./design-canvas/pending-text-edit";
@@ -20,6 +27,7 @@ import { DesignCanvas } from "./DesignCanvas";
 let container: HTMLDivElement;
 let root: Root;
 let iframeServer: Server | null = null;
+let unregisterPendingHostCommit: (() => void) | null = null;
 
 beforeEach(() => {
   (
@@ -39,6 +47,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  unregisterPendingHostCommit?.();
+  unregisterPendingHostCommit = null;
   await act(async () => root.unmount());
   if (iframeServer) {
     await new Promise<void>((resolve) => iframeServer!.close(() => resolve()));
@@ -46,6 +56,7 @@ afterEach(async () => {
   }
   container.remove();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -167,6 +178,9 @@ it("drops a queued begin-text-edit when the creation is stood down before the br
 async function mountCanvas(
   previewToken: string,
   options: { previewFrameId?: string; screenId?: string } = {},
+  onTextContentChange?: Parameters<
+    typeof DesignCanvas
+  >[0]["onTextContentChange"],
 ) {
   iframeServer = http.createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -218,6 +232,7 @@ async function mountCanvas(
             onElementSelect={() => {}}
             onElementHover={() => {}}
             tweakValues={{}}
+            onTextContentChange={onTextContentChange}
           />
         ) : null,
       );
@@ -888,4 +903,112 @@ it("never arms a preview canvas's key buffer from a pending report", async () =>
   expect(peekPendingTextCapture("screen-live", "text-preview-pending")).toBe(
     "x",
   );
+});
+
+it("retains active-before-ack creation identity through a real refused text commit", async () => {
+  const unwritten = vi.spyOn(console, "error").mockImplementation(() => {});
+  const applyFileContentUpdate = vi.fn();
+  const args = {
+    activeFile: { id: "screen-live" },
+    applyFileContentUpdate,
+    canEditDesign: false,
+    designSourceType: "inline",
+    overviewScreens: [],
+  } as unknown as ScreenTextContentChangeArgs;
+  const screenTextCommit = vi.fn(
+    (screenId: string, selector: string, value: string) =>
+      runScreenTextContentChange(args, screenId, selector, value),
+  );
+  const canvas = await mountCanvas(
+    "text-active-before-ack-refusal-token",
+    {},
+    (selector, value) => screenTextCommit("screen-live", selector, value),
+  );
+  await canvas.markReady(canvas.iframeWindow);
+
+  const writer = vi.fn((owner: string, nodeId: string, text: string) =>
+    runPendingTextHostCommit(screenTextCommit, owner, nodeId, text),
+  );
+  unregisterPendingHostCommit = registerPendingTextHostCommit(writer);
+  vi.useFakeTimers();
+
+  const nodeId = "text-active-before-ack";
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind(nodeId);
+  await act(async () => {
+    beginTextEditForOwner("screen-live", nodeId);
+    for (const char of "Sta") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+  });
+
+  // The bridge announces the active editable before acknowledging insertion.
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: true,
+    sourceId: nodeId,
+  });
+  expect(canvas.typed("text-edit-insert-text")).toContainEqual({
+    type: "text-edit-insert-text",
+    nodeId,
+    text: "Sta",
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-edit-insert-result",
+    nodeId,
+    inserted: true,
+  });
+  expect(isPendingTextRequestLive("screen-live", nodeId)).toBe(false);
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_001);
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: false,
+    sourceId: nodeId,
+    reason: "committed",
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-content-change",
+    selector: `#${nodeId}`,
+    value: "Started",
+    payload: { sourceId: nodeId },
+  });
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(100);
+  });
+  expect(screenTextCommit).toHaveBeenNthCalledWith(
+    1,
+    "screen-live",
+    `#${nodeId}`,
+    "Started",
+  );
+  expect(writer).toHaveBeenCalledWith("screen-live", nodeId, "Started");
+  expect(screenTextCommit).toHaveBeenNthCalledWith(
+    2,
+    "screen-live",
+    `[data-agent-native-node-id="${nodeId}"]`,
+    "Started",
+  );
+
+  for (const delay of HOST_COMMIT_RETRY_DELAYS_MS) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(delay);
+    });
+  }
+  expect(screenTextCommit).toHaveBeenCalledTimes(
+    HOST_COMMIT_RETRY_DELAYS_MS.length + 2,
+  );
+  expect(unwritten).toHaveBeenCalledOnce();
+  expect(unwritten).toHaveBeenCalledWith(
+    expect.stringContaining("typed text could not be written"),
+    expect.objectContaining({
+      screenId: "screen-live",
+      nodeId,
+      reason: "commit-failed",
+    }),
+  );
+  expect(applyFileContentUpdate).not.toHaveBeenCalled();
 });

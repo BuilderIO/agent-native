@@ -935,6 +935,10 @@ describe("transitions against the previous run", () => {
     assert.match(body, /NEW/);
     assert.match(body, /STILL FAILING since \[#900\]/);
     assert.match(body, /Fixed since the previous run/);
+
+    const slack = renderSlack(digest);
+    assert.match(slack, /Passed in run 1000\./);
+    assert.doesNotMatch(slack, /Passed in run 900\./);
   });
 
   it("does not call a failure fixed when its slot produced no results", () => {
@@ -1636,7 +1640,7 @@ describe("scheduled workflow state recovery", () => {
       path.join(root, ".agents/skills/ship-and-monitor/SKILL.md"),
       "utf8",
     );
-    assert.match(scheduled, /update_baseline: true/);
+    assert.match(scheduled, /update_baseline: false/);
     assert.match(
       direct,
       /update_baseline: \$\{\{ inputs\.apps == 'all' && inputs\.lane == 'public\+authed' && inputs\.grep == '' \}\}/,

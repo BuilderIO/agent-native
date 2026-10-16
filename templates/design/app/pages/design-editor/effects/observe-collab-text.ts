@@ -90,6 +90,7 @@ export function runObserveCollabText({
     if (
       pendingLocalContent &&
       pending?.identityMigrationSourceContent === undefined &&
+      !pending.deferCollabReconcile &&
       rawNext !== pendingLocalContent &&
       !isLocalEdit
     ) {

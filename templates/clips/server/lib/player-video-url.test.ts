@@ -140,4 +140,13 @@ describe("resolvePlayerVideoUrl", () => {
       ),
     ).toBe("/api/video/rec-3?loomMedia=1&t=signed-token");
   });
+
+  it("does not throw when the stored video URL is malformed", () => {
+    expect(
+      resolvePlayerVideoUrl(
+        { id: "rec-1", videoUrl: "http://[" },
+        { proxyRemoteMedia: true },
+      ),
+    ).toBe("/api/video/rec-1");
+  });
 });

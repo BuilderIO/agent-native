@@ -15,3 +15,18 @@ description: "اختر أسطحا قابلة لإعادة الاستخدام م�
 | عرض اللوحة   | تركيب Toolkit أو التطبيق.                                    |
 
 استورد المحرر من `@agent-native/toolkit/editor`. تستمر مسارات Core القديمة كإعادات تصدير للتوافق. أبق المخططات والأوامر والاستمرارية في التطبيق. تبقى الكتل مملوكة لـ Core، لكنها موثقة هنا لأن قسم Toolkit هو فهرس واجهات المستخدم القابلة لإعادة الاستخدام.
+
+تملك Core مخطط Blocks وعقد التشغيل؛ وتوفر Toolkit واجهة العميل القابلة لإعادة الاستخدام.
+
+## تفاعلات اللوحة والتعليقات التوضيحية
+
+توفر Toolkit أدوات إيماءات واختصارات بلا واجهة، إضافة إلى DrawOverlay للرسم والتعليقات النصية وCanvasCommentPins للملاحظات المرتبطة التي يمكن إرسالها إلى الوكيل. يوفّر التطبيق نموذج اللوحة والعرض والحفظ وسياق الوكيل.
+
+<WireframeBlock id="doc-block-toolkit-canvas-interactions">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:500px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:1fr 250px;gap:14px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill accent'>تحديد</span><span class='wf-pill'>رسم</span><span class='wf-pill'>تعليق</span><div style='flex:1'></div><span class='wf-muted'>أدوات اللوحة</span></div><div class='wf-box' style='position:relative;flex:1;min-height:330px;display:flex;align-items:center;justify-content:center'><div style='width:72%;height:76%;border:1px solid var(--wf-line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px'><strong>صفحة الحملة</strong><div style='position:relative;height:70px;border-radius:8px;background:var(--wf-accent-soft);overflow:hidden'><span class='wf-pill accent' style='position:absolute;top:42%;left:38%'>ملاحظة مرسومة</span></div><div style='height:10px;width:85%;background:var(--wf-line);border-radius:4px'></div><div style='height:10px;width:65%;background:var(--wf-line);border-radius:4px'></div></div><span class='wf-pill accent' style='position:absolute;top:34%;left:61%'>1</span><span class='wf-pill accent' style='position:absolute;bottom:28%;left:41%'>2</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px;padding-top:26px'><strong>ملاحظات</strong><div class='wf-box'>1 &nbsp; انقل هذا العنوان فوق الصورة.</div><div class='wf-box'>2 &nbsp; زد تباين هذا النص.</div><div style='flex:1'></div><button class='primary'><span data-icon='send'></span> إرسال الملاحظات</button></aside></div>"
+    }
+  />
+</WireframeBlock>

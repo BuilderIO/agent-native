@@ -3,11 +3,94 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-15
+
+### Added
+
+- Add key dates and data notes from the dashboard's new Annotations menu or a chart's menu, show or hide key-date sets per dashboard, and mark a note fixed or hide it on one chart from its hover card.
+- Data notes shade the days a chart's numbers were affected by an incident or a tracking problem, on the dashboard and in scheduled email reports.
+- Each dashboard save you make pops up with Undo, says whether everyone sees it, and shows how many others have the dashboard open.
+- In Edit mode, check two or more values in a multi-select filter and save them as a named group that everyone can pick in one click.
+
+### Improved
+
+- Dashboard history now says what each save changed, and the save toast names the change
+- The agent now sees which key dates and data notes a dashboard's charts draw, and confirms which charts a new key date or data note shows on.
+- Collapsed navigation has clearer spacing between its icons
+
+## 2026-10-14
+
+### Added
+
+- Dashboard charts can mark key dates, like a launch, with a hoverable badge on the x-axis.
+- Funnel charts can split each stage into completed, skipped, moved on and left the app, so a skipped optional step no longer reads as drop-off.
+- Key-date sets: add launches and product changes once and they show on every time chart of every dashboard and in emailed reports; a dashboard can hide a set.
+- Multi-select dashboard filters can offer presets, named groups of values you pick in one click without changing the other filters.
+- Preview Sigma workbooks in Analytics; SQL import stays blocked until the BigQuery project mapping can be verified.
+
+### Improved
+
+- Changed dashboard filters now say only you see them, and coming back to a dashboard without a default view reopens the saved view you had open.
+- Dashboard charts stay visible while they refresh or while new filters load, marked as updating, instead of blanking to a skeleton
+- Dashboards open in View mode, so looking around never changes them for everyone; switch to Edit to rearrange, rename, or resize for everyone, and column widths you drag while viewing stay just for you.
+- Dashboards show a Reset filters button whenever a filter differs from the saved view you have open, or from the defaults when no view is open, and it puts every filter back in one click.
+- Key-date markers on charts now show every event of the day in one hover card, accept a time of day and time zone, and appear on combo charts in emailed reports.
+- Dashboard charts below the fold no longer re-run their queries when filters change until you scroll to them, and scrolling a loaded chart away and back never re-runs it
+- Dashboards show a Reset filters button whenever a filter differs from the defaults, and it returns every filter to them in one click.
+- Gong questions use Gong's own search and answer in seconds instead of paging through every call.
+- Start Sigma workbook imports from the dashboard menu, use an Analytics-only connection with direct credentials, or choose a Sigma connection already granted through Dispatch.
+
+### Fixed
+
+- Chats no longer stop with "result is unknown" after a rejected edit; the agent corrects the call and continues.
+- Fixed the chat repeating a finished reply several times and then replacing it with "I couldn't complete that lookup" after a correct dashboard edit.
+- Membership searches no longer treat monthly counts as user rosters
+
+## 2026-10-13
+
+### Added
+
+- Dashboard tiles have a Copy link option that opens the dashboard scrolled to and highlighting that tile.
+- Scheduled dashboard reports can now post the summary and link to a Slack channel through an incoming webhook, instead of or as well as email.
+- Table tiles can be edited directly: right-click a column header to format, rename, or hide it, and drag to resize or reorder columns.
+
+### Improved
+
+- Ask answers now lead with the matching dashboard and show SQL only when you ask for it.
+- BigQuery connections can use each analyst's Google account so query access follows their Google Cloud permissions.
+- Dashboards now appear grouped by folder in the sidebar.
+
+### Fixed
+
+- Analytics shows connection status only for sources shared with the app
+- Negative currency values now show as -$7,505 instead of $-7,505 in tables, charts, and scheduled reports.
+- SQL dashboards preserve typed filters when formatting queries.
+
+## 2026-10-12
+
+### Improved
+
+- Google Sheets exports request only file-level access
+- Index status shows source scan omissions and truncation
+- Workspace member searches distinguish rosters from activity and time-based totals, including when you ask for active members.
+
+### Fixed
+
+- Workspace-member searches now distinguish active members from users the question excludes.
+
 ## 2026-10-11
 
 ### Improved
 
+- Bar charts now label every category, angling the labels when they don't fit; stacked charts order series by size with Other last, long table text truncates with the full value on hover, and charts say when only part of the data is drawn.
+- In charts split by app, each Agent-Native app now keeps one color on every dashboard and in emailed reports, so reordering a stack moves an app without changing its color.
 - Analytics finds data definitions faster and identifies user-organization relationships more clearly.
+
+### Fixed
+
+- Sessions by Agent-Native App counts sessions under their app even when the event's app field is empty, instead of as unknown
+- Create private Design storyboards for session replay screenshot exports.
+- Replay screenshots wait for the fonts used in the captured frame
 
 ## 2026-10-10
 

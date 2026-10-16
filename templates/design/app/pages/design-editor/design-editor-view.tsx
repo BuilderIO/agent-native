@@ -1,6 +1,28 @@
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import type {
+  MotionAnimationStyleDefinition,
+  MotionAnimationStyleMetadata,
+  MotionAnimationStyleTrackDefinition,
+} from "@shared/motion-animation-styles";
+import type { MotionBuiltInRecipe } from "@shared/motion-built-in-recipes";
+import type { MotionEasingVariable } from "@shared/motion-easing";
+import type {
+  MotionNativeStyleInstance,
+  MotionNativeStyleKey,
+} from "@shared/motion-native-style";
+import {
+  createMotionNativeStyleInstance,
+  motionNativeStyleEndTimeMs,
+  motionNativeStyleWithTextAnimationSettings,
+  motionTextDocumentWithNativeStyleSettings,
+} from "@shared/motion-native-style-runtime";
+import type { MotionTextAnimation } from "@shared/motion-text-code";
+import {
+  MOTION_DEFAULT_PLAYBACK_MODE,
+  withTimelinePlaybackMode,
+} from "@shared/motion-timeline";
 import { maxPenCornerRadius } from "@shared/pen-path";
 import {
   IconArrowsDown,
@@ -10,22 +32,23 @@ import {
   IconPhoto,
   IconCheck,
   IconDownload,
-  IconClipboard,
   IconLayoutSidebar,
   IconDeviceFloppy,
   IconExternalLink,
-  IconTerminal2,
   IconLink,
   IconMessageCircle,
 } from "@tabler/icons-react";
+import { toast } from "sonner";
 
 import { BreakpointDeviceControl } from "@/components/design/BreakpointBar";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
 import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
+import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls";
+import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
+import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
-import { ResponsiveInteractExitButton } from "@/components/design/ResponsiveInteractBar";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,9 +65,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DESIGN_IMPORT_FORMATS,
+  importFormatsAccept,
+} from "@/lib/design-import-file-picker";
 import { cn } from "@/lib/utils";
 
 import type { ResponsiveEditScope, ShareExportFormat } from "./command-types";
+import { resolveUrlScreen } from "./derive/url-screen";
 import { pageHasWebMcpHost } from "./design-editor-shared";
 import type { EditorActiveScreenAndGeometry } from "./domains/use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./domains/use-editor-canvas-and-screens";
@@ -67,7 +95,6 @@ import type { EditorScreenRendering } from "./domains/use-editor-screen-renderin
 import type { EditorSelectionAndStyles } from "./domains/use-editor-selection-and-styles";
 import type { EditorSourceAndSync } from "./domains/use-editor-source-and-sync";
 import type { EditorToolsAndVectors } from "./domains/use-editor-tools-and-vectors";
-import { inspectorFitsViewport } from "./editor-chrome";
 import {
   LOCALHOST_COMPILED_SOURCE_EXTENSIONS,
   LOCALHOST_WRITE_EXTENSIONS,
@@ -78,13 +105,28 @@ import {
   buildSignInHrefForDesignIntent,
 } from "./editor-helpers";
 import { resolveLocalhostSourceWriteContent } from "./editor-state";
+import { resolveScreenRoute } from "./interact-routes";
 import { resolveLeftSidebarWidth } from "./left-sidebar-width";
 import { shouldRenderDesignShareControl } from "./mcp-widget-write-capabilities";
-import { hasMinimalInspectorSelection } from "./minimal-inspector";
+import {
+  hasMinimalInspectorSelection,
+  isRightInspectorVisible,
+} from "./minimal-inspector";
+import {
+  createMotionAnimationStyleTracks,
+  type MotionAnimationStyle,
+} from "./motion-animation-style";
+import {
+  applyMotionBuiltInRecipeToTargets,
+  applyMotionAnimationStyleToTargets,
+  motionAnimationStyleDefinitionFromTracks,
+  resolveSelectedMotionTargets,
+} from "./motion-state";
 import { mergePresenceUsers } from "./presence-users";
+import { shouldDisableExportsUntilCanvasFramesExist } from "./selection-state";
 import { getDesignBottomToolbarMode } from "./tool-state";
-import { TOP_BAR_HEIGHT_PX, isTopBarVisible } from "./top-bar";
-import { type EditorMode, SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "./types";
+import { TOP_BAR_HEIGHT_PX, getTopBarModes, isTopBarVisible } from "./top-bar";
+import { type EditorMode } from "./types";
 import { renderEditorCanvasArea } from "./view/editor-canvas-area";
 import { renderEditorDialogs } from "./view/editor-dialogs";
 import { renderLeftSidebar } from "./view/left-sidebar";
@@ -96,9 +138,14 @@ import { renderProjectMenu } from "./view/project-menu";
 import { renderProjectTitleControl } from "./view/project-title-control";
 import { renderPromptPopovers } from "./view/prompt-popovers";
 import { renderPublishWaitlistControl } from "./view/publish-waitlist-control";
-import { renderResponsiveInteractToolbar } from "./view/responsive-interact-toolbar";
+import {
+  renderInteractFloatingBar,
+  renderInteractTopBarSlots,
+} from "./view/responsive-interact-toolbar";
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
+import { ShareCopyLinkButton } from "./view/share-copy-link-button";
+import { ShareSendToTab } from "./view/share-send-to-tab";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
 import { renderZoomMenu } from "./view/zoom-menu";
 import { VisualEditWebMcp } from "./VisualEditWebMcp";
@@ -113,6 +160,34 @@ import { VisualEditWebMcp } from "./VisualEditWebMcp";
 // first overview camera render — before any layout effect could measure the
 // DOM — already accounts for it; see chromeInsetLeft below.
 const DESIGN_CHROME_RAIL_WIDTH_PX = 56;
+
+export function createMotionNativeStyleInstancesForTargets(args: {
+  styleKey: MotionNativeStyleKey;
+  targetNodeIds: readonly string[];
+  timelineOffset: number;
+}): MotionNativeStyleInstance[] {
+  return args.targetNodeIds.map((targetNodeId) => {
+    const instance = createMotionNativeStyleInstance({
+      styleKey: args.styleKey,
+      targetNodeId,
+    });
+    instance.timelineOffset = args.timelineOffset;
+    return instance;
+  });
+}
+
+function motionDimensionValue(
+  selectedElement: {
+    computedStyles: Record<string, string>;
+    boundingRect: { width: number; height: number };
+  } | null,
+  property: "width" | "height",
+): string {
+  const computed = selectedElement?.computedStyles[property]?.trim();
+  if (computed && computed !== "auto" && computed !== "none") return computed;
+  const size = selectedElement?.boundingRect[property] ?? 0;
+  return `${Number.isInteger(size) ? size : Number(size.toFixed(2))}px`;
+}
 
 export function renderDesignEditorView({
   editorCore,
@@ -171,6 +246,7 @@ export function renderDesignEditorView({
     minimalUiLocked,
     hostOwnsChrome,
     hostEmbeddedEditor,
+    liveRoutePathsByScreenId,
     mode,
     activeTool,
     viewMode,
@@ -181,8 +257,8 @@ export function renderDesignEditorView({
     isBuilderDesignEmbed,
     builderPreviewUrl,
     parentOriginRef,
-    activeInspectorTab,
-    setActiveInspectorTab,
+    motionDockOpen,
+    setMotionDockOpenAnimated,
     activeLeftPanel,
     leftSidebarWidth,
     rightSidebarWidth,
@@ -193,6 +269,7 @@ export function renderDesignEditorView({
   } = editorHistory;
   const {
     setRuntimeLayerSnapshotRequest,
+    annotateLab,
     drawMode,
     pinMode,
     reviewFeedbackApplying,
@@ -208,6 +285,7 @@ export function renderDesignEditorView({
     handleQuestionsSkip,
     pendingQuestionsVisible,
     pendingGenerationActive,
+    generating,
     designLoading,
     refetchDesign,
     designAccessStatus,
@@ -226,8 +304,6 @@ export function renderDesignEditorView({
     liveCollaborationEnabled,
     handleLiveCollaborationChange,
     canEditPublicLiveScreenUrl,
-    tweaksEnabled,
-    reviewUnreadCount,
     reviewAgentQueueCount,
     updateScreenSourceMutation,
     exportHtmlMutation,
@@ -242,21 +318,19 @@ export function renderDesignEditorView({
     creativeContextEnabled,
     breakpointFramesHidden,
     setBreakpointFramesHidden,
-    handleTweakChange,
-    tweakSelections,
-    tweaks,
     editorPreferences,
     setEditorPreferences,
-    handleRequestTweaks,
     getComponentExpectedFiles,
     pendingNodeRewriteByFile,
     documentColorFiles,
     designSourceType,
+    overviewScreens,
     layoutGrids,
     handleLayoutGridChange,
     boardFileId,
     hasLocalhostScreens,
     editorShareUrl,
+    canvasFrameGeometryById,
   } = editorFilesAndSaving;
   const {
     responsiveEditScope,
@@ -288,6 +362,20 @@ export function renderDesignEditorView({
     initialGenerationChromeLimited,
     activeRuntimeProjectionEligible,
     activeRuntimeSourceLocationUnavailable,
+    activeCodeLayerProjection,
+    motionTracks,
+    motionNativeStyles,
+    setMotionNativeStyles,
+    motionEasingVariables,
+    setMotionEasingVariables,
+    motionAnimationStyles,
+    motionTextDocument,
+    motionAudioClips,
+    motionDurationMs,
+    motionPlayhead,
+    motionDefaultEase,
+    motionSelectedTarget,
+    setMotionOriginEditing,
     motionKeyframeState,
     sourceCapabilities,
     selectedComponentNodeId,
@@ -301,17 +389,24 @@ export function renderDesignEditorView({
     selectedElementInsideComponent,
     defaultComponentName,
     handleToggleMotionKeyframe,
+    handleMotionTracksChange,
+    handleMotionAudioClipsChange,
+    markMotionTracksDirty,
+    handleMotionAnimationStyleSaved,
+    handleMotionTextAnimationsChange,
+    handleMotionTextDocumentChange,
+    handleMotionNativeStyleChange,
+    handleMotionDurationChange,
     inspectCodeData,
     handleCreateComponent,
     handleComponentPropApplied,
     handleShaderSourceApplied,
+    handleShaderSourceEdit,
     resolvedReviewPanelProps,
     handleToggleMinimalUi,
   } = editorContentAndComponents;
   const {
-    shapeTool,
     vectorEditingState,
-    reviewCommentsPanelProps,
     handleVectorCornerRadiusChange,
     handleMoveTool,
     handleShapeTool,
@@ -335,10 +430,11 @@ export function renderDesignEditorView({
 
   const {
     keyboardShortcutsOpen,
+    keyboardShortcutsInitialFocus,
     responsiveInteractActive,
     handleModeChange,
-    handleExitResponsiveInteract,
     handlePinToolToggle,
+    handleScreenReload,
     handleCloseKeyboardShortcuts,
   } = editorModes;
   const {
@@ -362,6 +458,35 @@ export function renderDesignEditorView({
     handleShaderEditCode,
     selectedInspectorElements,
   } = editorLayerModels;
+  const selectedMotionTargets = resolveSelectedMotionTargets({
+    elements: selectedInspectorElements,
+    activeScreenId: activeFile?.id,
+    nodes: activeCodeLayerProjection.nodes,
+    preferredTarget: motionSelectedTarget,
+  });
+  const uniqueSelectedMotionTargets = [
+    ...new Map(
+      selectedMotionTargets.map((target) => [target.nodeId, target]),
+    ).values(),
+  ];
+  const canWriteMotion =
+    canEditDesign && editorContentAndComponents.motionControlsWritable;
+  const hasCompleteSelectedMotionTargets =
+    selectedInspectorElements.length > 0 &&
+    uniqueSelectedMotionTargets.length === selectedInspectorElements.length;
+  const motionTargetForInspector = hasCompleteSelectedMotionTargets
+    ? {
+        nodeId: uniqueSelectedMotionTargets[0]!.nodeId,
+        label: uniqueSelectedMotionTargets
+          .map((target) => target.label)
+          .join(", "),
+        isText:
+          uniqueSelectedMotionTargets.length === 1 &&
+          uniqueSelectedMotionTargets[0]!.isText,
+      }
+    : selectedInspectorElements.length <= 1
+      ? motionSelectedTarget
+      : null;
   const {
     selectedScreenGeometry,
     selectedScreenSource,
@@ -377,6 +502,7 @@ export function renderDesignEditorView({
     handleScreenHeightModeChange,
     selectedScreenElement,
     selectionColorScopes,
+    readSelectionSubtreeColorStyles,
     handleSelectionColorChange,
     handleSelectionColorPickerOpenChange,
     canSelectSelectionColorTarget,
@@ -438,6 +564,11 @@ export function renderDesignEditorView({
     runtimeLayerSnapshotReadiness.readiness.status === "error";
   const pendingVisualStyleWarningOpen =
     pendingVisualStyleNavigationBlocker.state === "blocked";
+  const exportsUnavailable = shouldDisableExportsUntilCanvasFramesExist({
+    canvasFrameCount: Object.keys(canvasFrameGeometryById).length,
+    generating,
+    pendingGenerationActive,
+  });
 
   const shareExportOptions: Array<{
     value: ShareExportFormat;
@@ -457,7 +588,8 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "One self-contained file that works offline.",
       Icon: IconCode,
-      disabled: !activeFile || exportHtmlMutation.isPending,
+      disabled:
+        !activeFile || exportsUnavailable || exportHtmlMutation.isPending,
       onDownload: handleDownloadHtml,
     },
     {
@@ -468,7 +600,7 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "Snapshot of the current screen.",
       Icon: IconPhoto,
-      disabled: !activeFile || pngExporting,
+      disabled: !activeFile || exportsUnavailable || pngExporting,
       onDownload: () => void handleDownloadPng(),
     },
     {
@@ -479,7 +611,7 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "Scalable snapshot of the current screen.",
       Icon: IconCode,
-      disabled: !activeFile || svgExporting,
+      disabled: !activeFile || exportsUnavailable || svgExporting,
       onDownload: () => void handleDownloadSvg(),
     },
     {
@@ -490,7 +622,8 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "Every file in this design, zipped.",
       Icon: IconArchive,
-      disabled: !activeFile || exportZipMutation.isPending,
+      disabled:
+        !activeFile || exportsUnavailable || exportZipMutation.isPending,
       onDownload: handleDownloadZip,
     },
   ];
@@ -502,7 +635,7 @@ export function renderDesignEditorView({
       <div className="!text-[11px] font-semibold uppercase text-muted-foreground">
         {"Format" /* i18n-ignore share export section label */}
       </div>
-      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-1.5">
         {shareExportOptions.map((option) => {
           const selected = option.value === shareExportFormat;
           const ExportIcon = option.Icon;
@@ -512,7 +645,7 @@ export function renderDesignEditorView({
               type="button"
               onClick={() => setShareExportFormat(option.value)}
               className={cn(
-                "relative flex min-h-[76px] items-start gap-2.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-2.5 text-left transition-colors hover:bg-[var(--design-editor-panel-raised-bg)]",
+                "relative flex items-start gap-2.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-2.5 text-left transition-colors hover:bg-[var(--design-editor-panel-raised-bg)]",
                 selected
                   ? "bg-[var(--design-editor-panel-raised-bg)] ring-1 ring-[var(--design-editor-accent-color)]"
                   : "",
@@ -569,45 +702,13 @@ export function renderDesignEditorView({
     </div>
   );
   const shareSendToTab = (
-    <div className="space-y-3">
-      <div className="overflow-hidden rounded-md border border-neutral-800 bg-neutral-950 shadow-sm">
-        <div className="flex h-8 items-center border-b border-neutral-800 px-3">
-          <div className="flex items-center gap-2">
-            {/* guard:allow-raw-color — the terminal illustration's window controls are fixed colors */}
-            <span className="size-2.5 rounded-full bg-red-500" />
-            <span className="size-2.5 rounded-full bg-yellow-400" />
-            {/* guard:allow-raw-color — the terminal illustration's window controls are fixed colors */}
-            <span className="size-2.5 rounded-full bg-green-500" />
-          </div>
-          <div className="min-w-0 flex-1 truncate text-center text-[12px] font-medium text-neutral-400">
-            {"Your agent" /* i18n-ignore terminal title */}
-          </div>
-          <IconTerminal2 className="size-3.5 text-neutral-500" />
-        </div>
-        <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words px-3 py-3 font-mono text-[12px] leading-5 text-neutral-100">
-          {`> ${codingHandoffPreviewText}`}
-        </pre>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          onClick={() => void handleCopyCodingHandoff()}
-          disabled={codingHandoffLoading}
-          className="h-8 gap-1.5 rounded-md px-3 text-[12px]"
-        >
-          <IconClipboard className="size-3.5" />
-          {"Copy agent prompt" /* i18n-ignore share send action */}
-        </Button>
-      </div>
-    </div>
+    <ShareSendToTab
+      codingHandoffPreviewText={codingHandoffPreviewText}
+      exportsUnavailable={exportsUnavailable}
+      codingHandoffLoading={codingHandoffLoading}
+      onCopyCodingHandoff={handleCopyCodingHandoff}
+    />
   );
-  const designSharePopoverClassName =
-    "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
-    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!max-w-full [&_[role=tablist]]:!self-start [&_[role=tablist]]:!overflow-x-auto [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
-    "[&_[role=tab]]:!h-8 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-3 [&_[role=tab]]:!text-[12px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
-    "[&_[role=tab]:hover]:text-foreground " +
-    "[&_[role=tab][aria-selected=true]]:!bg-background dark:[&_[role=tab][aria-selected=true]]:!bg-[var(--design-editor-panel-bg)] [&_[role=tab][aria-selected=true]]:text-foreground";
   const designShareTabs = {
     shareLabel: "Share link" /* i18n-ignore share tab label */,
     defaultValue: "share",
@@ -841,7 +942,7 @@ export function renderDesignEditorView({
     editorEditCommands,
     editorModes,
     editorExportAndHandoff,
-    id,
+    editorSourceAndSync,
   });
 
   const projectTitleControl = renderProjectTitleControl({
@@ -852,7 +953,6 @@ export function renderDesignEditorView({
     editorActiveScreenAndGeometry,
     editorLiveEditsAndPresence,
     editorLayoutAndStructure,
-    editorContentAndComponents,
     editorExportAndHandoff,
     editorSourceAndSync,
     design,
@@ -967,6 +1067,8 @@ export function renderDesignEditorView({
       </Button>
     ) : null;
 
+  const shareSegmentClassName =
+    "!border-primary !bg-primary !text-primary-foreground shadow-none hover:!border-primary/90 hover:!bg-primary/90 hover:!text-primary-foreground focus-visible:ring-ring [&_svg]:!text-primary-foreground";
   const renderShareControl = (dense: boolean) => {
     if (hostEmbeddedEditor) return null;
     if (widgetEmbed) {
@@ -984,34 +1086,48 @@ export function renderDesignEditorView({
     }
 
     return (
-      <ShareButton
-        resourceType="design"
-        resourceId={id}
-        resourceTitle={design.title}
-        hideTriggerIcon
-        defaultOpen={shouldOpenShare}
-        shareUrl={editorShareUrl}
-        shareUrlLabel={t(
-          hasLocalhostScreens
-            ? "designEditor.liveCanvasLink"
-            : "designEditor.shareEditorLink",
-        )}
-        shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
-        roleCopy={{
-          commenter: {
-            label: t("designEditor.commenterRoleLabel"),
-            description: t("designEditor.commenterRoleDescription"),
-          },
-        }}
-        shareTabs={designShareTabs}
-        popoverClassName={designSharePopoverClassName}
-        triggerClassName={cn(
-          dense
-            ? "h-[var(--design-control-height)] px-[var(--design-baseline-unit)] text-xs"
-            : "h-[var(--design-row-height)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm",
-          "rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]",
-        )}
-      />
+      <div className="flex items-center">
+        <ShareButton
+          resourceType="design"
+          resourceId={id}
+          resourceTitle={design.title}
+          hideTriggerIcon
+          defaultOpen={shouldOpenShare}
+          shareUrl={editorShareUrl}
+          shareUrlLabel={t(
+            hasLocalhostScreens
+              ? "designEditor.liveCanvasLink"
+              : "designEditor.shareEditorLink",
+          )}
+          shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
+          roleCopy={{
+            commenter: {
+              label: t("designEditor.commenterRoleLabel"),
+              description: t("designEditor.commenterRoleDescription"),
+            },
+          }}
+          shareTabs={designShareTabs}
+          popoverClassName="z-[100010]"
+          triggerClassName={cn(
+            dense
+              ? "h-[var(--design-control-height)] px-[var(--design-baseline-unit)] text-xs"
+              : "h-[var(--design-row-height)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm",
+            "rounded-r-none",
+            shareSegmentClassName,
+          )}
+        />
+        <ShareCopyLinkButton
+          editorCore={editorCore}
+          shareUrl={editorShareUrl}
+          className={cn(
+            dense
+              ? "h-[var(--design-control-height)]"
+              : "h-[var(--design-row-height)]",
+            "relative rounded-l-none before:absolute before:inset-y-0 before:left-0 before:w-px before:bg-primary-foreground",
+            shareSegmentClassName,
+          )}
+        />
+      </div>
     );
   };
 
@@ -1139,13 +1255,39 @@ export function renderDesignEditorView({
     </>
   );
 
-  const renderResponsiveInteractBar = (floating: boolean) =>
-    renderResponsiveInteractToolbar({
-      editorGenerationAndAccess,
-      editorActiveScreenAndGeometry,
-      editorModes,
-      floating,
-    });
+  // Interact's device, theme and screen controls: in the top bar when it is
+  // docked, in a floating bar (with an Exit, since there is no mode switch)
+  // wherever the top bar is absent: minimal UI (which includes a widget), hidden
+  // UI, the visual-edit route.
+  const interactControlArgs = {
+    editorActiveScreenAndGeometry,
+    editorModes,
+    activeScreenId: activeFile?.id ?? null,
+  };
+  const interactInTopBar = topBarVisible;
+  const interactTopBarSlots =
+    responsiveInteractActive && interactInTopBar
+      ? renderInteractTopBarSlots(interactControlArgs)
+      : null;
+  // A URL screen in Design carries its route, Reload and Open in browser in
+  // the bar's centre, where Interact keeps its screen controls. It is a
+  // reading of the app's URL, not a picker.
+  const activeUrlScreen =
+    mode === "edit" && topBarVisible && !responsiveInteractActive
+      ? resolveUrlScreen({
+          screen: overviewScreens.find(
+            (screen) => screen.id === activeFile?.id,
+          ),
+          fallbackSourceType: designSourceType,
+          liveRoutePath: activeFile
+            ? liveRoutePathsByScreenId[activeFile.id]
+            : undefined,
+        })
+      : null;
+  const interactFloatingBar =
+    responsiveInteractActive && !interactInTopBar && !hostOwnsChrome
+      ? renderInteractFloatingBar(interactControlArgs)
+      : null;
 
   const leftContentWidth = resolveLeftSidebarWidth(
     leftSidebarWidth,
@@ -1163,16 +1305,24 @@ export function renderDesignEditorView({
   // Below md the docked inspector panel is display:none and the Sheet below
   // carries it, so the panel must neither inset the canvas nor displace the
   // toolbar. Minimal UI floats the panel at every width instead.
-  const rightSidebarVisible =
-    !hostOwnsChrome &&
-    inspectorFitsViewport({ minimalUi, isMobileViewport }) &&
-    !uiHidden &&
-    !initialGenerationChromeLimited &&
-    !responsiveInteractActive &&
-    (!minimalUi || minimalInspectorHasSelection);
+  const rightSidebarVisible = isRightInspectorVisible({
+    hostOwnsChrome,
+    isMobileViewport,
+    uiHidden,
+    initialGenerationChromeLimited,
+    responsiveInteractActive,
+    minimalUi,
+    minimalInspectorHasSelection,
+    topBarVisible,
+    mode,
+    canEdit: canEditActiveVisualScreen,
+  });
   const chromeInsetLeft = leftSidebarVisible
     ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
     : 0;
+  const selectedRouteScreen = overviewScreens.find(
+    (screen) => screen.id === selectedScreenGeometry?.id,
+  );
   const editPanelProps = {
     selectedElement,
     textEditingState,
@@ -1183,6 +1333,12 @@ export function renderDesignEditorView({
     readOnly: !canEditActiveVisualScreen,
     selectedElements: selectedInspectorElements,
     selectedScreenGeometry,
+    selectedScreenRoute: selectedRouteScreen
+      ? resolveScreenRoute(
+          selectedRouteScreen,
+          liveRoutePathsByScreenId[selectedRouteScreen.id],
+        )
+      : undefined,
     selectedScreenLayoutGrid,
     onLayoutGridChange: canEditDesign ? handleLayoutGridChange : undefined,
     canvasBackground,
@@ -1242,6 +1398,7 @@ export function renderDesignEditorView({
           )
       : undefined,
     selectionColorScopes,
+    readSubtreeColorStyles: readSelectionSubtreeColorStyles,
     onSelectionColorTarget: handleSelectionColorTarget,
     canSelectSelectionColorTarget,
     onSelectionColorChange: canEditActiveVisualScreen
@@ -1272,11 +1429,11 @@ export function renderDesignEditorView({
             inspectorGridDebug,
           })
       : undefined,
-    activeTab: activeInspectorTab,
-    onActiveTabChange: setActiveInspectorTab,
-    tweaksEnabled,
-    tweaks,
-    tweakValues: tweakSelections,
+    motionInspector:
+      editorLiveEditsAndPresence.motionLabEnabled &&
+      motionDockOpen &&
+      Boolean(activeFile?.id) &&
+      selectedInspectorElements.length > 0,
     activeContent,
     pendingInteractionStateStyles: pendingInspectorInteractionStateStyles,
     activeFileUpdatedAt: activeFile?.updatedAt ?? null,
@@ -1285,21 +1442,403 @@ export function renderDesignEditorView({
     componentSwapPickerRequest,
     onComponentPropApplied: handleComponentPropApplied,
     onShaderSourceApplied: handleShaderSourceApplied,
+    onShaderSourceEdit: handleShaderSourceEdit,
     onFontUploaded:
       canEditActiveVisualScreen && activeCanvasSourceType === "inline"
         ? handleFontUploaded
         : undefined,
-    onTweakChange: handleTweakChange,
-    onRequestTweaks: handleRequestTweaks,
     onStyleChange: handleStyleChange,
     onStylesChange: handleStylesChange,
-    motionKeyframeState: SHOW_DESIGN_SECONDARY_LEFT_PANELS
-      ? motionKeyframeState
-      : undefined,
+    motionKeyframeState:
+      editorLiveEditsAndPresence.motionLabEnabled && canWriteMotion
+        ? motionKeyframeState
+        : undefined,
     onToggleMotionKeyframe:
-      SHOW_DESIGN_SECONDARY_LEFT_PANELS && canEditDesign
+      editorLiveEditsAndPresence.motionLabEnabled &&
+      canEditDesign &&
+      canWriteMotion
         ? handleToggleMotionKeyframe
         : undefined,
+    motionSelectedTarget: editorLiveEditsAndPresence.motionLabEnabled
+      ? motionTargetForInspector
+      : null,
+    onMotionOriginEditingChange: setMotionOriginEditing,
+    motionTextAnimations: motionSelectedTarget?.isText
+      ? (motionTextDocument?.animations.filter(
+          (animation) => animation.targetNodeId === motionSelectedTarget.nodeId,
+        ) ?? [])
+      : [],
+    onMotionTextAnimationsChange:
+      editorLiveEditsAndPresence.motionLabEnabled &&
+      canEditActiveVisualScreen &&
+      canWriteMotion &&
+      motionSelectedTarget?.isText
+        ? (animations: MotionTextAnimation[]) =>
+            handleMotionTextAnimationsChange(
+              motionSelectedTarget.nodeId,
+              animations,
+            )
+        : undefined,
+    onCreateMotionTextAnimation:
+      editorLiveEditsAndPresence.motionLabEnabled &&
+      canEditActiveVisualScreen &&
+      canWriteMotion &&
+      motionSelectedTarget?.isText
+        ? () => {
+            if (
+              motionTextDocument?.animations.some(
+                (animation) =>
+                  animation.targetNodeId === motionSelectedTarget.nodeId,
+              )
+            ) {
+              return;
+            }
+            const startTimeMs = motionPlayhead * motionDurationMs;
+            const animationDurationMs = Math.min(
+              1000,
+              Math.max(50, motionDurationMs - startTimeMs),
+            );
+            const nextTimelineDurationMs = Math.max(
+              motionDurationMs,
+              startTimeMs + animationDurationMs,
+            );
+            if (nextTimelineDurationMs !== motionDurationMs) {
+              handleMotionDurationChange(nextTimelineDurationMs);
+            }
+            handleMotionTextAnimationsChange(motionSelectedTarget.nodeId, [
+              {
+                targetNodeId: motionSelectedTarget.nodeId,
+                unit: "character",
+                direction: "forward",
+                staggerMs: 30,
+                delayMs: startTimeMs,
+                property: "opacity",
+                durationMs: animationDurationMs,
+                keyframes: [
+                  { t: 0, value: "0", ease: "ease-out" },
+                  { t: 1, value: "1" },
+                ],
+              },
+            ]);
+            setMotionDockOpenAnimated(true);
+          }
+        : undefined,
+    onCreateMotionStyle:
+      editorLiveEditsAndPresence.motionLabEnabled &&
+      canEditActiveVisualScreen &&
+      canWriteMotion &&
+      motionTargetForInspector
+        ? (style: MotionAnimationStyle) => {
+            const properties = style.preset.additionalProperties ?? [
+              style.preset.property,
+            ];
+            const targets = hasCompleteSelectedMotionTargets
+              ? uniqueSelectedMotionTargets
+              : motionSelectedTarget
+                ? [{ ...motionSelectedTarget, element: selectedElement }]
+                : [];
+            const created = createMotionAnimationStyleTracks({
+              targets: targets.map((target) => ({
+                nodeId: target.nodeId,
+                label: target.label,
+                currentValues: {
+                  width: motionDimensionValue(target.element, "width"),
+                  height: motionDimensionValue(target.element, "height"),
+                },
+              })),
+              style,
+              defaultEase: motionDefaultEase,
+              currentTimeMs: motionPlayhead * motionDurationMs,
+              timelineDurationMs: motionDurationMs,
+            });
+            if (created.tracks.length === 0) {
+              toast.info(
+                t("designEditor.motion.trackExists", {
+                  property: properties.join(", "),
+                  label: motionTargetForInspector.label,
+                }),
+              );
+              return;
+            }
+
+            if (created.timelineDurationMs !== motionDurationMs) {
+              handleMotionDurationChange(created.timelineDurationMs);
+            }
+            handleMotionTracksChange((currentTracks) => {
+              const nextTracks = [...currentTracks, ...created.tracks];
+              return currentTracks.length === 0
+                ? withTimelinePlaybackMode(
+                    nextTracks,
+                    MOTION_DEFAULT_PLAYBACK_MODE,
+                  )
+                : nextTracks;
+            });
+            setMotionDockOpenAnimated(true);
+          }
+        : undefined,
+    motionNativeStyles,
+    motionEasingVariables,
+    onMotionEasingVariablesChange:
+      canEditActiveVisualScreen && canWriteMotion
+        ? (variables: MotionEasingVariable[]) => {
+            setMotionEasingVariables(variables);
+            markMotionTracksDirty();
+          }
+        : undefined,
+    onCreateMotionNativeStyle:
+      editorLiveEditsAndPresence.motionLabEnabled &&
+      canEditActiveVisualScreen &&
+      canWriteMotion &&
+      motionTargetForInspector
+        ? (styleKey: MotionNativeStyleKey) => {
+            const targetNodeIds = hasCompleteSelectedMotionTargets
+              ? uniqueSelectedMotionTargets.map(({ nodeId }) => nodeId)
+              : [motionTargetForInspector.nodeId];
+            const createdInstances = createMotionNativeStyleInstancesForTargets(
+              {
+                styleKey,
+                targetNodeIds,
+                timelineOffset: (motionPlayhead * motionDurationMs) / 1000,
+              },
+            );
+            let nextTextDocument = motionTextDocument;
+            let instances: MotionNativeStyleInstance[];
+            try {
+              instances = createdInstances.map((instance) => {
+                if (instance.styleKey !== "TextStagger") return instance;
+                const targetAnimations =
+                  nextTextDocument?.animations.filter(
+                    (animation) =>
+                      animation.targetNodeId === instance.targetNodeId,
+                  ) ?? [];
+                const firstAnimation = targetAnimations[0];
+                if (!firstAnimation) return instance;
+                const seeded = motionNativeStyleWithTextAnimationSettings(
+                  instance,
+                  firstAnimation,
+                );
+                nextTextDocument = motionTextDocumentWithNativeStyleSettings(
+                  nextTextDocument,
+                  seeded,
+                );
+                return seeded;
+              });
+            } catch {
+              toast.error(t("designEditor.motion.textSyncUnsupported"));
+              return;
+            }
+            const nextDurationMs = Math.max(
+              motionDurationMs,
+              ...instances.map(motionNativeStyleEndTimeMs),
+            );
+            setMotionNativeStyles((current) => [...current, ...instances]);
+            if (
+              JSON.stringify(nextTextDocument) !==
+              JSON.stringify(motionTextDocument)
+            ) {
+              handleMotionTextDocumentChange(nextTextDocument);
+            }
+            if (nextDurationMs !== motionDurationMs) {
+              handleMotionDurationChange(nextDurationMs);
+            } else {
+              markMotionTracksDirty();
+            }
+            setMotionDockOpenAnimated(true);
+          }
+        : undefined,
+    onMotionNativeStyleChange:
+      canEditActiveVisualScreen && canWriteMotion
+        ? handleMotionNativeStyleChange
+        : undefined,
+    onRemoveMotionNativeStyle:
+      canEditActiveVisualScreen && canWriteMotion
+        ? (identity: MotionNativeStyleIdentity) => {
+            setMotionNativeStyles((current) => {
+              const index = identity.sourceInstanceId
+                ? current.findIndex(
+                    (candidate) =>
+                      candidate.sourceInstanceId ===
+                        identity.sourceInstanceId &&
+                      candidate.styleKey === identity.styleKey &&
+                      candidate.targetNodeId === identity.targetNodeId,
+                  )
+                : identity.index;
+              const instance = current[index];
+              if (
+                !instance ||
+                instance.styleKey !== identity.styleKey ||
+                instance.targetNodeId !== identity.targetNodeId
+              ) {
+                return current;
+              }
+              return current.filter(
+                (_, currentIndex) => currentIndex !== index,
+              );
+            });
+            markMotionTracksDirty();
+          }
+        : undefined,
+    motionAnimationStyles,
+    motionAnimationStyleTargetTracks: motionTargetForInspector
+      ? motionTracks
+          .filter(
+            (track) => track.targetNodeId === motionTargetForInspector.nodeId,
+          )
+          .map(
+            ({ label: _label, targetNodeId: _targetNodeId, ...track }) => track,
+          )
+      : [],
+    onSaveMotionAnimationStyle:
+      editorLiveEditsAndPresence.motionLabEnabled &&
+      canEditActiveVisualScreen &&
+      canWriteMotion &&
+      motionTargetForInspector
+        ? (
+            metadata: MotionAnimationStyleMetadata,
+            styleTracks: MotionAnimationStyleTrackDefinition[],
+          ) => {
+            const style = motionAnimationStyleDefinitionFromTracks({
+              id: `user:${crypto.randomUUID()}`,
+              ...metadata,
+              targetNodeId: motionTargetForInspector.nodeId,
+              tracks: styleTracks.map((track) => ({
+                ...track,
+                targetNodeId: motionTargetForInspector.nodeId,
+                label: motionTargetForInspector.label,
+              })),
+            });
+            if (!style) return;
+            if (style.tracks.length > 24) {
+              toast.error(t("designEditor.motion.animationStyles.tooMany"));
+              return;
+            }
+            if (motionAnimationStyles.length >= 64) {
+              toast.error(t("designEditor.motion.animationStyles.limit"));
+              return;
+            }
+            handleMotionAnimationStyleSaved(style);
+          }
+        : undefined,
+    onApplyMotionAnimationStyle:
+      editorLiveEditsAndPresence.motionLabEnabled &&
+      canEditActiveVisualScreen &&
+      canWriteMotion &&
+      motionTargetForInspector
+        ? (style: MotionAnimationStyleDefinition) => {
+            const targets = hasCompleteSelectedMotionTargets
+              ? uniqueSelectedMotionTargets.map(({ nodeId, label }) => ({
+                  nodeId,
+                  label,
+                }))
+              : [
+                  {
+                    nodeId: motionTargetForInspector.nodeId,
+                    label: motionTargetForInspector.label,
+                  },
+                ];
+            const result = applyMotionAnimationStyleToTargets({
+              style,
+              targets,
+              currentTimeMs: motionPlayhead * motionDurationMs,
+              timelineDurationMs: motionDurationMs,
+            });
+            if (result.unsupportedSequenceProperty) {
+              toast.error(
+                t("designEditor.motion.animationStyles.unsupportedSequence"),
+              );
+              return;
+            }
+            if (result.tracks.length === 0) {
+              toast.info(
+                t("designEditor.motion.trackExists", {
+                  property: style.tracks
+                    .map((track) => track.property)
+                    .join(", "),
+                  label: motionTargetForInspector.label,
+                }),
+              );
+              return;
+            }
+            if (result.timelineDurationMs !== motionDurationMs) {
+              handleMotionDurationChange(result.timelineDurationMs);
+            }
+            handleMotionTracksChange((currentTracks) => {
+              const nextTracks = [...currentTracks, ...result.tracks];
+              return currentTracks.length === 0
+                ? withTimelinePlaybackMode(
+                    nextTracks,
+                    MOTION_DEFAULT_PLAYBACK_MODE,
+                  )
+                : nextTracks;
+            });
+            setMotionDockOpenAnimated(true);
+          }
+        : undefined,
+    onApplyMotionRecipe:
+      editorLiveEditsAndPresence.motionLabEnabled &&
+      canEditActiveVisualScreen &&
+      canWriteMotion &&
+      motionTargetForInspector
+        ? (recipe: MotionBuiltInRecipe) => {
+            const targets = hasCompleteSelectedMotionTargets
+              ? uniqueSelectedMotionTargets.map(({ nodeId, label }) => ({
+                  nodeId,
+                  label,
+                }))
+              : [
+                  {
+                    nodeId: motionTargetForInspector.nodeId,
+                    label: motionTargetForInspector.label,
+                  },
+                ];
+            const result = applyMotionBuiltInRecipeToTargets({
+              recipe,
+              targets,
+              currentTimeMs: motionPlayhead * motionDurationMs,
+              timelineDurationMs: motionDurationMs,
+            });
+            if (result.tracks.length === 0) {
+              if (result.skippedTrackCount > 0) {
+                toast.info(t("designEditor.motion.recipeDoesNotFit"));
+              } else {
+                toast.info(
+                  t("designEditor.motion.trackExists", {
+                    property: Array.from(
+                      new Set(recipe.tracks.map((track) => track.property)),
+                    ).join(", "),
+                    label: motionTargetForInspector.label,
+                  }),
+                );
+              }
+              return;
+            }
+            if (result.timelineDurationMs !== motionDurationMs) {
+              handleMotionDurationChange(result.timelineDurationMs);
+            }
+            handleMotionTracksChange((currentTracks) => {
+              const nextTracks = [...currentTracks, ...result.tracks];
+              return currentTracks.length === 0
+                ? withTimelinePlaybackMode(
+                    nextTracks,
+                    MOTION_DEFAULT_PLAYBACK_MODE,
+                  )
+                : nextTracks;
+            });
+            setMotionDockOpenAnimated(true);
+          }
+        : undefined,
+    motionWriteUnavailable: !canWriteMotion,
+    motionWriteUnavailableReason:
+      editorContentAndComponents.motionSourceReadUnavailableReason ?? undefined,
+    motionAudioClips,
+    onMotionAudioClipsChange: canWriteMotion
+      ? handleMotionAudioClipsChange
+      : undefined,
+    motionAudioPlayheadMs: motionPlayhead * motionDurationMs,
+    motionAudioDurationMs: motionDurationMs,
+    onMotionAudioDurationChange: canWriteMotion
+      ? handleMotionDurationChange
+      : undefined,
     breakpointContext,
     onExport: handleInspectorExport,
     onRenderExportPreview: handleRenderExportPreview,
@@ -1338,8 +1877,6 @@ export function renderDesignEditorView({
     inspectCode: inspectCodeData,
     statesPanelProps,
     reviewPanelProps: resolvedReviewPanelProps,
-    reviewCommentsPanelProps,
-    reviewCommentsCount: reviewUnreadCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     alignSelectionDisabled: !alignAvailability.canAlign,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
@@ -1393,10 +1930,26 @@ export function renderDesignEditorView({
           <EditorTopBar
             mode={mode}
             onModeChange={handleTopBarModeChange}
-            modes={topBarShowsModes ? undefined : []}
+            modes={getTopBarModes({
+              showsModes: Boolean(topBarShowsModes),
+              annotateLab,
+            })}
+            leading={interactTopBarSlots?.leading}
+            center={
+              interactTopBarSlots?.center ??
+              (activeUrlScreen ? (
+                <UrlScreenControls
+                  screen={activeUrlScreen}
+                  onReload={handleScreenReload}
+                />
+              ) : null)
+            }
             zoomControl={
-              topBarControlsVisible && !responsiveInteractActive
-                ? renderZoomControl("topbar")
+              topBarControlsVisible
+                ? (interactTopBarSlots?.zoomControl ??
+                  (!responsiveInteractActive
+                    ? renderZoomControl("topbar")
+                    : null))
                 : null
             }
             presence={topBarControlsVisible ? presenceControl : null}
@@ -1434,62 +1987,36 @@ export function renderDesignEditorView({
           leftSidebarVisible,
         })}
 
-        {/* The docked bar's Close used to live inside a canvas column inset
-            by the left rail's width (`leftChromeOverlayInset`). A wide rail
-            (the Code panel is 640px) plus a modest window can squeeze that
-            column until the bar's own `overflow-hidden` clips Close before
-            it clips anything else in the row — the rail sits at z-[70], so a
-            squeeze this severe doesn't just crowd Close, it makes it
-            unreachable. Anchoring it here instead, to the canvas area's own
-            right edge rather than the bar's shrunken one, guarantees a way
-            out no matter how little room the rail has left the bar. Height-
-            and edge-matched to the bar (h-12, pr-3) so it reads as the same
-            row rather than a second floating control. Not needed for the
-            floating (minimal-UI) bar: minimal UI hides this rail entirely. */}
-        {responsiveInteractActive && !minimalUi ? (
-          <div
-            className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center border-b border-border bg-[var(--design-editor-panel-bg)] pl-1 pr-3"
-            style={topBarVisible ? { top: TOP_BAR_HEIGHT_PX } : undefined}
-          >
-            <ResponsiveInteractExitButton
-              onClose={handleExitResponsiveInteract}
-              className="pointer-events-auto"
-            />
-          </div>
-        ) : null}
-
-        {/* Interact owns the running app's surface (same reasoning as the
-            Escape hotkey gate): its canvas tools and mode tabs belong to the
-            infinite canvas, and ResponsiveInteractBar's Close is the way
-            back. */}
+        {/* Interact shows no tools: the running app owns the surface and
+            nothing in it is selectable. The top bar's mode switch (the
+            floating bar's Exit in minimal UI, or Escape) is the way back; only
+            a shell with none of those keeps the switch here. */}
         {!hostOwnsChrome &&
-          !responsiveInteractActive &&
           designBottomToolbarMode === "editor" &&
           design &&
           !questionFlowActive && (
             <DesignBottomToolbar
               mode={mode}
-              pinMode={pinMode}
               drawMode={drawMode}
+              pinMode={pinMode}
               activeTool={activeTool}
-              shapeTool={shapeTool}
-              isOverview={viewMode === "overview"}
               hasActiveFile={Boolean(activeFile)}
-              onMove={handleMoveTool}
-              onFrame={handleFrameTool}
               frameToolDraws={frameToolDraws}
               onFrameToolDrawsChange={setFrameToolDraws}
-              onShape={handleShapeTool}
-              onText={handleTextTool}
-              onPen={handlePenTool}
+              onMove={handleMoveTool}
               onHand={handleHandTool}
-              onDraw={handleDrawTool}
               onScale={handleScaleTool}
+              onFrame={handleFrameTool}
+              onText={handleTextTool}
+              onShape={handleShapeTool}
               onMediaFiles={handleDesignMediaFiles}
+              onPen={handlePenTool}
+              onDraw={handleDrawTool}
               onCommentPin={handlePinToolToggle}
               canComment={canCommentDesign}
               onModeChange={handleModeChange}
-              showModeTabs={!topBarVisible}
+              showModeTabs={!topBarVisible && !responsiveInteractActive}
+              annotateEnabled={annotateLab === "on"}
             />
           )}
 
@@ -1497,10 +2024,14 @@ export function renderDesignEditorView({
           <KeyboardShortcutsDialog
             open={keyboardShortcutsOpen}
             onClose={handleCloseKeyboardShortcuts}
+            initialFocus={keyboardShortcutsInitialFocus}
             nudgeAmounts={editorPreferences.nudge}
             onNudgeAmountsChange={(nudge) =>
               setEditorPreferences({ ...editorPreferences, nudge })
             }
+            unavailableShortcutIds={getUnavailableShortcutIds({
+              annotateEnabled: annotateLab === "on",
+            })}
           />
         ) : null}
 
@@ -1549,7 +2080,6 @@ export function renderDesignEditorView({
             id,
             design,
             canApplyPendingVisualEditsWithAgent,
-            renderResponsiveInteractBar,
             leftChromeOverlayInset,
             rightSidebarVisible,
             chromeInsetLeft,
@@ -1561,13 +2091,12 @@ export function renderDesignEditorView({
           editorCore,
           editorHistory,
           editorContentAndComponents,
-          editorModes,
           projectTitleControl,
           minimalUiToggle,
           localPreviewRow,
           rightSidebarActions,
           topBarVisible,
-          renderResponsiveInteractBar,
+          interactFloatingBar,
           rightSidebarVisible,
           editPanelProps,
         })}
@@ -1581,6 +2110,14 @@ export function renderDesignEditorView({
         editorContentAndComponents,
         editPanelProps,
       })}
+
+      <input
+        ref={editorSourceAndSync.importFileInputRef}
+        type="file"
+        accept={importFormatsAccept(DESIGN_IMPORT_FORMATS)}
+        className="hidden"
+        onChange={editorSourceAndSync.handleImportFileChange}
+      />
 
       {/* ── Render: dialogs ── */}
       {renderEditorDialogs({
@@ -1602,6 +2139,8 @@ export function renderDesignEditorView({
         editorCanvasAndScreens,
         editorLiveEditsAndPresence,
         editorContentAndComponents,
+        editorLayerActions,
+        layerSidebarInset: leftSidebarVisible ? DESIGN_CHROME_RAIL_WIDTH_PX : 0,
       })}
 
       {/* ── Render: prompt popovers ── */}

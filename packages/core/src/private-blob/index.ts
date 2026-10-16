@@ -25,6 +25,7 @@ export {
   attachmentOwnerKey,
   deleteAttachment,
   isAttachmentRef,
+  isAttachmentEncryptionKeyAvailable,
   isRetryableAttachmentFailure,
   mintAttachmentRef,
   resolveAttachment,
@@ -51,6 +52,7 @@ export {
   deletePrivateBlob,
   getActivePrivateBlobProvider,
   getActivePrivateBlobProviderForRequest,
+  getPrivateBlobStorageReadinessForRequest,
   isPrivateBlobConfiguredForRequest,
   listPrivateBlobProviders,
   putPrivateBlob,
@@ -59,3 +61,4 @@ export {
   setPrivateBlobPublicUploadFallbackEnabled,
   unregisterPrivateBlobProvider,
 } from "./registry.js";
+export type { PrivateBlobStorageReadiness } from "./registry.js";

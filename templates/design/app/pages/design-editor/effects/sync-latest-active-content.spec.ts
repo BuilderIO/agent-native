@@ -130,6 +130,28 @@ it("uses the rendered source after the per-file pending save is cleared", () => 
   );
 });
 
+it("does not promote a deferred upload over the rendered collaboration source", () => {
+  const fileId = "screen-3";
+  const deferredUpload =
+    '<html><body><img src="https://uploads.example/image.png"></body></html>';
+  const collaboratorSource =
+    '<html><body><div data-peer-edit="true"></div></body></html>';
+  const latestActiveContentRef = ref<string | null>(deferredUpload);
+  const pendingLocalFileContents = new Map([
+    [fileId, { content: deferredUpload, deferCollabReconcile: true }],
+  ]);
+
+  syncLatestActiveContentFromRender({
+    activeContent: collaboratorSource,
+    activeFile: { id: fileId, fileType: "html" },
+    latestActiveContentRef,
+    pendingLocalFileContents,
+  });
+
+  expect(latestActiveContentRef.current).toContain('data-peer-edit="true"');
+  expect(latestActiveContentRef.current).not.toContain("uploads.example");
+});
+
 it("switches to the rendered file and clears the ref when no file is active", () => {
   const latestActiveContentRef = ref<string | null>("stale file A");
   const pendingLocalFileContents = new Map([

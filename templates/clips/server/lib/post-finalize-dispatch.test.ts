@@ -85,6 +85,7 @@ describe("post-finalize dispatch", () => {
       delayMs: 5_000,
       retryAttempt: 1,
       regenerate: true,
+      replaceImportId: "import-1",
     });
 
     expect(fetch).toHaveBeenCalledWith(
@@ -96,6 +97,7 @@ describe("post-finalize dispatch", () => {
           delayMs: 5_000,
           retryAttempt: 1,
           regenerate: true,
+          replaceImportId: "import-1",
           token: "signed-job-token",
         }),
       }),

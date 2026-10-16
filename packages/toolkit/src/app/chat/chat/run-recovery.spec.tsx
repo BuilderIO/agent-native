@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const clipboardMock = vi.hoisted(() => ({
   writeClipboardText: vi.fn(),
 }));
+const resendVerificationEmailMock = vi.hoisted(() => vi.fn());
 const setupTelemetryMock = vi.hoisted(() => vi.fn());
 const builderConnectMock = vi.hoisted(() => ({
   onConnect: undefined as ((provisionAccount: boolean) => void) | undefined,
@@ -38,6 +39,10 @@ const builderFlowMock = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   trackOnboardingEvent: setupTelemetryMock,
+}));
+
+vi.mock("@agent-native/core/client/auth/resend-verification-email", () => ({
+  resendVerificationEmail: resendVerificationEmailMock,
 }));
 
 const referralInfoQueryMock = vi.hoisted(() => ({ data: null as unknown }));
@@ -131,6 +136,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "agentChat.recovery.retryAttachmentUnavailable":
           "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
         "agentChat.recovery.retryWithoutAttachment": "Retry without attachment",
+        "agentChat.recovery.resendVerificationEmail":
+          "Resend verification email",
+        "agentChat.recovery.sendingVerificationEmail": "Sending...",
+        "agentChat.recovery.verificationEmailRequested":
+          "Verification email requested. Check your inbox and spam folder.",
+        "agentChat.recovery.verificationEmailFailed":
+          "Couldn't request the verification email. Please try again.",
         "agentChat.recovery.credentialRejected":
           "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
         "agentChat.recovery.newChatHint":
@@ -229,6 +241,8 @@ describe("run recovery surfaces", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     clipboardMock.writeClipboardText.mockReset();
+    resendVerificationEmailMock.mockReset();
+    resendVerificationEmailMock.mockResolvedValue(undefined);
     setupTelemetryMock.mockReset();
     builderConnectMock.onConnect = undefined;
     builderFlowMock.onConnected = undefined;
@@ -367,6 +381,88 @@ describe("run recovery surfaces", () => {
         'a[href^="https://builder.io/account/subscription"]',
       ),
     ).toBeNull();
+  });
+
+  it("resends a verification email and confirms the request", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/design/thread?private=value#section",
+    );
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "Verify your email before continuing.",
+              errorCode: "email_verification_required",
+            }}
+            verificationEmail="person@example.com"
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const resendButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Resend verification email"),
+    );
+    expect(resendButton).toBeTruthy();
+
+    await act(async () => {
+      resendButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(resendVerificationEmailMock).toHaveBeenCalledWith(
+      "person@example.com",
+      `${window.location.origin}/design/thread`,
+    );
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "Check your inbox and spam folder.",
+    );
+    expect(resendButton?.disabled).toBe(true);
+  });
+
+  it("shows a retryable error when the verification email request fails", async () => {
+    resendVerificationEmailMock.mockRejectedValue(new Error("service down"));
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "Verify your email before continuing.",
+              errorCode: "email_verification_required",
+            }}
+            verificationEmail="person@example.com"
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) =>
+          button.textContent?.includes("Resend verification email"),
+        )
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Please try again.",
+    );
   });
 
   it("offers the eligible Builder referral link from the credit-limit card", async () => {
@@ -602,6 +698,66 @@ describe("run recovery surfaces", () => {
     expect(copyButton?.title).toBe("Copy debug info");
     expect(retryButton?.textContent).toBe("");
     expect(newChatButton?.textContent).toBe("");
+  });
+
+  it.each([
+    "http_429",
+    "http_529",
+    "provider_rate_limited",
+    "provider_transient_rejection",
+  ])("shows a visible Retry action for %s", async (errorCode) => {
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The model provider temporarily rejected this request.",
+              errorCode,
+            }}
+            onContinue={vi.fn()}
+            onRetry={onRetry}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
+    );
+    expect(retryButton?.textContent?.trim()).toBe("Retry");
+    await act(async () => retryButton?.click());
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("does not offer Retry for a daily provider request cap", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The daily model request cap was reached.",
+              errorCode: "rate_limit_exceeded",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
   });
 
   it("does not offer Retry for a terminal invalid-attachment provider error", async () => {
@@ -978,6 +1134,70 @@ describe("run recovery surfaces", () => {
         outcome: "started",
       }),
     );
+  });
+
+  it("keeps the setup card working when setup tracking throws", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setupTelemetryMock.mockImplementation(() => {
+      throw new Error("tracker exploded");
+    });
+    const onConnected = vi.fn();
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/home",
+          element: (
+            <AgentNativeI18nProvider
+              initialLocale="en-US"
+              initialPreference="en-US"
+              persistPreference={false}
+            >
+              <BuilderSetupCard onConnected={onConnected} />
+            </AgentNativeI18nProvider>
+          ),
+        },
+        { path: "/settings/keys", element: <SetupTrackingFlowProbe /> },
+      ],
+      { initialEntries: ["/home"] },
+    );
+
+    await act(async () => {
+      root.render(<RouterProvider router={router} />);
+    });
+    expect(container.querySelector(".agent-builder-setup-card")).not.toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".agent-builder-setup-card__builder-button",
+        )
+        ?.click();
+    });
+    await vi.waitFor(() =>
+      expect(builderConnectMock.onConnect).toBeTypeOf("function"),
+    );
+    await act(async () => builderConnectMock.onConnect?.(true));
+    await act(async () => {
+      await expect(
+        builderFlowMock.onConnected?.({ orgName: null }),
+      ).resolves.toBeUndefined();
+    });
+    expect(onConnected).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLAnchorElement>('a[href="/settings/keys"]')
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(router.state.location.pathname).toBe("/settings/keys");
+    expect(setupTelemetryMock.mock.calls.map(([name]) => name)).toEqual([
+      "integration_setup_exposed",
+      "integration_method_clicked",
+      "integration_method_outcome",
+      "integration_method_clicked",
+    ]);
+    expect(warn).toHaveBeenCalled();
   });
 
   it("tracks Builder success only after a selected setup attempt is confirmed", async () => {

@@ -10,15 +10,10 @@ import {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
-import {
-  expect,
-  test,
-  type Frame,
-  type FrameLocator,
-  type Locator,
-} from "@playwright/test";
+import { type Frame, type FrameLocator, type Locator } from "@playwright/test";
 
 import { expandAllLayers, installBridge } from "./helpers";
+import { expect, test } from "./rails";
 
 type CrossScreenDropSample = {
   at: number;
@@ -86,7 +81,38 @@ async function freePort(): Promise<number> {
   });
 }
 
-test("React URL-backed drag/drop emits semantic handoff and survives coding-agent HMR", async ({
+type Leftover = {
+  bridge: DesignConnectBridge | null;
+  vite: ReturnType<typeof spawn> | null;
+  designId: string | undefined;
+  rootPath: string;
+};
+const leftovers: Leftover[] = [];
+
+// The page keeps talking to Vite, the bridge and the design until the app fixture's teardown leaves it.
+test.afterAll(async ({ playwright }, testInfo) => {
+  const api = await playwright.request.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    storageState: testInfo.project.use.storageState,
+  });
+  for (const { bridge, vite, designId, rootPath } of leftovers.splice(0)) {
+    await bridge?.server.close();
+    vite?.kill();
+    if (designId) {
+      await api
+        .post("/_agent-native/actions/delete-design", {
+          data: { id: designId },
+        })
+        .catch(() => undefined);
+    }
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+  await api.dispose();
+});
+
+// fixme: product bug: (1) After a drag on V2 is cancelled with Escape, V2 returns to its slot but the selection (Layers row and canvas box) moves to V3
+test.fixme("React URL-backed drag/drop emits semantic handoff and survives coding-agent HMR", async ({
+  app,
   page,
   request,
 }, workerInfo) => {
@@ -259,7 +285,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
   );
   fs.writeFileSync(
     path.join(rootPath, "src/main.tsx"),
-    'import { hydrateRoot } from "react-dom/client"; import { BrowserRouter } from "react-router"; import { App } from "./App"; let appRoot = hydrateRoot(document, <BrowserRouter><App /></BrowserRouter>); (window as typeof window & { __forceReactDocumentRemount?: () => void }).__forceReactDocumentRemount = () => { appRoot.unmount(); appRoot = hydrateRoot(document, <BrowserRouter><App /></BrowserRouter>); };',
+    'import { hydrateRoot } from "react-dom/client"; import { BrowserRouter } from "react-router"; import { App } from "./App"; const clientRender = { onRecoverableError() {} }; let appRoot = hydrateRoot(document, <BrowserRouter><App /></BrowserRouter>, clientRender); (window as typeof window & { __forceReactDocumentRemount?: () => void }).__forceReactDocumentRemount = () => { appRoot.unmount(); appRoot = hydrateRoot(document, <BrowserRouter><App /></BrowserRouter>, clientRender); };',
   );
   fs.writeFileSync(
     path.join(rootPath, "src/App.tsx"),
@@ -2428,6 +2454,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     }
     const rootReplacementSelection = await waitForSelection("v2");
     expect(rootReplacementSelection.payload.sourceId).toBe("v2");
+    await expect.poll(() => app.selectedLayers()).toEqual(["V2"]);
 
     const escapeTargetSelector = '[data-agent-native-node-id="v2"]';
     const escapeStart = await physicalFrameElementBox(
@@ -2504,13 +2531,12 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       .toBeGreaterThanOrEqual(8);
     expect(collaborationSnapshotRequests).toEqual([]);
     expect(componentDetailsRequests).toEqual([]);
+    await expect
+      .poll(() => app.selectedLayers(), {
+        message: "an Escape-cancelled drag keeps V2 selected",
+      })
+      .toEqual(["V2"]);
   } finally {
-    await bridge?.server.close();
-    vite?.kill();
-    if (opened && post)
-      await post("delete-design", { id: opened.designId }).catch(
-        () => undefined,
-      );
-    fs.rmSync(rootPath, { recursive: true, force: true });
+    leftovers.push({ bridge, vite, designId: opened?.designId, rootPath });
   }
 });

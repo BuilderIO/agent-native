@@ -100,6 +100,8 @@ export default defineAction({
         },
       ),
   }),
+  // Replaces the question form keyed by designId; a replay re-shows the same form.
+  retrySafe: true,
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({

@@ -21,6 +21,10 @@ import {
 } from "react";
 
 import {
+  BlockRenderErrorFallback,
+  BlockRenderErrorBoundary,
+} from "../app/blocks/BlockRenderErrorBoundary.js";
+import {
   useRegistryBlockData,
   type RegistryBlockDataChangeMeta,
   type RegistryBlockEditSurfaceOptions,
@@ -178,9 +182,12 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
           selectNode(event, true)
         }
       >
-        <RegistryBlockLoadErrorView
+        <BlockRenderErrorFallback
+          blockId={block.id}
+          blockType={blockType}
           message={block.loadError.message}
           rawSource={block.loadError.rawSource}
+          interactive
         />
       </NodeViewWrapper>
     );
@@ -206,8 +213,26 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     onChange: commitBlockData,
   });
   if (registered) {
-    body = registered.body;
-    editSurface = registered.editSurface ?? null;
+    body = (
+      <BlockRenderErrorBoundary
+        blockId={block.id}
+        blockType={blockType}
+        resetKey={block.data}
+        interactive
+      >
+        {registered.body}
+      </BlockRenderErrorBoundary>
+    );
+    editSurface = registered.editSurface ? (
+      <BlockRenderErrorBoundary
+        blockId={block.id}
+        blockType={blockType}
+        resetKey={block.data}
+        interactive
+      >
+        {registered.editSurface}
+      </BlockRenderErrorBoundary>
+    ) : null;
   } else if (sideMap?.renderLegacyBlock) {
     const selfEdits =
       editable && Boolean(sideMap.legacyBlockSelfEdits?.(blockType));
@@ -281,20 +306,11 @@ export function RegistryBlockLoadErrorView({
   rawSource?: string;
 }) {
   return (
-    <div
-      contentEditable={false}
-      data-plan-interactive
-      className="plan-block-node__load-error space-y-2 rounded-md border border-border px-3 py-2 text-sm"
-    >
-      {rawSource ? (
-        <pre className="overflow-auto whitespace-pre-wrap font-mono text-xs text-foreground">
-          {rawSource}
-        </pre>
-      ) : null}
-      <p role="alert" className="text-muted-foreground">
-        {message}
-      </p>
-    </div>
+    <BlockRenderErrorFallback
+      message={message}
+      rawSource={rawSource}
+      interactive
+    />
   );
 }
 

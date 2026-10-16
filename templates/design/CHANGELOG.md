@@ -3,23 +3,148 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-16
+
+### Fixed
+
+- Shift-drag keeps selected screens, screen nudges stay with the canvas selection, and Code refreshes when reopened.
+
+## 2026-10-15
+
+### Added
+
+- External Design agents can delete screens when you ask them.
+
+### Fixed
+
+- Empty inspector section titles stay compact
+- Fixed local screen, account, and storage setup when route or connection data is unavailable.
+
+## 2026-10-14
+
+### Improved
+
+- Design Motion keeps supported React and HTML motion edits in sync with their source code.
+- Motion can import supported inline CSS keyframes and round-trip them through the timeline editor.
+- Motion timeline duration fields support keyboard stepping
+- Text motion presets now include editable direction, grouping, order, overlap, and space handling.
+- Show Figma fidelity warnings in Home URL imports
+
+### Fixed
+
+- Chats no longer stop with "result is unknown" after a rejected edit; the agent corrects the call and continues.
+- Deselecting a layer keeps Motion open and restores the canvas inspector.
+- Image fills show their picture in the Fill inspector instead of a broken swatch.
+- Motion reports unsupported animation syntax without interrupting Design editing
+- Motion saves now move imported inline HTML animations into managed source
+- Motion source editing now refuses targets with dynamic styles, Alpine transitions, or inline CSS motion declarations that cannot be synchronized safely
+- Screen undo keeps the original order, deselected Screens clear from Layers, and clipboard pastes preserve placement across responsive previews.
+- Selection stays precise in deeply nested layers, and pasted content keeps its size, styling, and editing history
+- Text animations preserve whitespace layout, punctuation, legacy timing, and outgoing easing
+- Text animation edits preserve collapsed whitespace and reset ordering when grouping changes
+
+## 2026-10-13
+
+### Added
+
+- Right-clicking a layer now has a Send to menu that opens Claude, Claude Code or Codex with your design's agent prompt, or copies that prompt.
+
+### Improved
+
+- The Tokens panel import menu now imports DTCG token files, CSS or Tailwind files, the clipboard, or tokens generated from the design, and DTCG tokens keep their type.
+- The Tokens panel + menu now creates a token of a chosen kind (color, font size, opacity, and more) as an inline draft row in its group.
+- Fill and effect rows keep the reorder handle outside the field, so OKLCH values show in full.
+- HTML token imports now skip prose and preserve CSS declaration precedence.
+- Left panels keep one width, Tokens search and rows match Layers, the org menu matches other apps, and the import picker names Figma and HTML files.
+- Share panel uses the compact underline-tab design shared across apps.
+
+### Fixed
+
+- Dropping a layer in the empty end of an auto-layout row of buttons keeps it in the row as the last item
+- Layers dropped onto another screen, or beside an auto-layout frame they don't fit, land where they are released instead of the screen's top-left corner
+- Moving a layer in the Layers panel, including from the board into a screen, keeps it where it sits on the canvas
+- Home prompt suggestions stay hidden until AI is connected
+- Undo reliably restores screen positions after repeated keyboard nudges
+- Comment pins no longer show in Interact mode or paint over the editor panels.
+- Design token imports now accept trailing commas after quoted values
+- Design token imports now handle size-limited files, attribute-selector CSS, and SCSS interpolation.
+- Design token imports preserve multiline CSS values, skip unsafe sources, and report omitted files accurately.
+- Design token imports recognize common labels, reject remote-loading values, continue when a selected file cannot be read, and report files omitted by import limits accurately.
+- Design token imports report skipped files and reject invalid values.
+- Dragging a layer on the canvas now moves it by the full distance from where you pressed, so it stays under the cursor instead of landing a few pixels short.
+- Improve design token imports to preserve HTML screens, validate CSS substitutions, and report unreadable files accurately.
+- Pasted design token imports can include prose headings
+- Pasting a copied layer or screen after panning away now lands in the current view.
+- Preserve quoted font stacks and reject malformed math expressions in imported tokens.
+- Responsive preview labels stay within their frames at low zoom
+- Selecting a plain frame no longer shows margin handles around it.
+- Tailwind config imports no longer report object and array headers as rejected tokens
+- Token imports continue with eligible files when selected files exceed import limits.
+- Token imports find stylesheet tokens even when a design has many small notes
+- Token imports now explain unreadable files and inputs skipped by limits
+- Valid multiline CSS declarations are preserved in token imports
+- Disable Design exports until a screen exists
+
+## 2026-10-12
+
+### Added
+
+- Add code-backed Motion controls for Text Stagger and SVG path trim across React and linked HTML.
+- SVG paths can be animated with native Path trim controls
+
+### Improved
+
+- Large .fig imports now let you pick Figma pages, show size and frame limits up front, and skip frames too complex to import instead of failing the whole file.
+- Empty-canvas right-click menu now leads with Explore with Agent and Copy link
+- Feedback and comment controls stay readable in compact layouts, and long import frame names remain visible.
+- Layers panel right-click menu is simpler: Copy, Copy link to the layer, Rename, Hide, Lock, plus Arrange and Transform submenus
+- New Motion timelines start at 2 seconds by default.
+- Right-clicking a layer now shows a simpler menu with Edit with Agent presets (Inspiration, Polish, Debug, Generate states, Make responsive), Copy link, and Arrange/Transform submenus
+- Right-clicking several layers now shows a multi-layer menu with Group selection and Boolean operations
+
+### Fixed
+
+- Design shows generic prompt suggestions when personalized suggestions do not load
+- Exports stay unavailable until initial generation creates a canvas frame
+- Figma file links are rejected when entered as access tokens.
+- Go to main component now selects the main component
+- Paste here in the right-click menu now places pasted layers where you clicked on the overview canvas.
+- The comment toolbar opens the mention picker
+- The @ mention picker stays open while choosing a person
+- Undo and redo retry brief save conflicts so rapid screen changes keep working.
+- Cached templates remain available during temporary refresh errors, with an option to retry.
+
 ## 2026-10-11
 
 ### Improved
 
+- Design animations can be edited in a source-backed timeline and previewed in the Motion dock.
 - The Design agent has a dedicated icon in the editor rail and prompt starter.
 - The editor's left rail tab is now called Layers, and the designs dashboard is now called Home.
 
 ### Fixed
 
+- Motion controls are read-only for React components with conditional or multiple JSX returns.
+- Accept authenticated private storyboard uploads from Analytics.
+- Analytics can securely add replay screenshots to a Design storyboard
+- Analytics replay screenshots can use the active workspace upload connection while keeping the storyboard private.
+- Check private screenshot storage before creating a storyboard
+- Design history no longer saves a stale version when the design changes during a large snapshot upload.
+- Design history now includes saved files before collaboration starts.
+- Design keeps browser zoom keys out of inspector inputs, restores Control+Shift+? on Mac, and keeps cut from deleting content edited while the clipboard write is pending.
+- Design now preserves source consistency when checkpointing edits and deleting files during collaboration.
+- Saved templates appear when you return to the template library.
+- Scrubbing after a numeric edit keeps the latest committed value when the gesture is canceled.
+- The Home composer waits for your organization to load before accepting a new design prompt.
 - Replay screenshots can be handed off to Design boards.
-  
+
   Agent reads of Design boards require authentication, including WebMCP reads. Anonymous WebMCP no longer offers `get-design`; public shared-design links and HTTP reads remain available under their existing access checks.
 
 ## 2026-10-10
 
 ### Improved
 
+- The fill picker's color swatches now include the Tailwind colors used inside the selected layer.
 - Canvas navigation does less work on large boards.
 - ChatGPT and other MCP widgets open the standard minimal-UI editor, with the title and share bar, the bottom tool bar, and the inspector as a right panel at every width.
 - Images are optimized automatically before prompt upload.
@@ -29,6 +154,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Design layer snapshots no longer include temporary editor elements.
+- Position controls keep accurate coordinates when a canvas preview refreshes.
 - Board Position values stay consistent when selecting and editing layers
 - Design preserves small reference images when you attach larger documents
 - Home suggestions keep their slot stable through profile errors and generation.
@@ -46,6 +173,11 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Reorganized the editor's app menu into File, Edit, View, and Preferences submenus, with a theme picker and Save local copy.
+- Design keeps hidden Code source reads quiet and speeds layer identity work.
+- Design keeps Layers rows and rename focus stable as layers are inserted.
+- Share button now has an export chevron menu with downloads, agent prompt, and publish
+- Undo on large screens responds faster, and saving an edit uploads only the change instead of the whole screen.
 - Journey storyboards keep full branch names and percentages readable and explain grouped paths.
 - Journey storyboards support up to 2,000 steps.
 - Large Design storyboards stay responsive during pan and zoom
@@ -60,6 +192,16 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Canvas selection follows the depth of the selected layers.
+- Delete includes Screens added by a Shift-marquee to an existing selection.
+- Design keeps canvas gestures and shortcuts working during editor interactions.
+- Design protects Cut and undo history, and improves text and shadow handling for imports.
+- Dragging a heading by a styled word now moves the whole text, and short drags inside a stack of text reorder within that stack
+- Nudging a screen with the arrow keys no longer briefly snaps it back to its old position
+- Selecting an element on a large screen no longer freezes the editor, and the agent now always sees what you selected
+- Selecting an element that is hidden at a breakpoint no longer draws a stray box in that frame's corner
+- The editor no longer says changes will save when reconnected when a save failed for another reason.
+- The layers panel lists auto-layout children in the same order they appear on the canvas, and dragging rows reorders them the way the panel shows
 - Canvas selection keeps keyboard shortcuts active after clicking editor tabs
 - Design creates a mobile leaderboard on the fixed 320 × 50 ad canvas.
 - Fix private replay screenshot previews across Design canvases and previews
@@ -83,10 +225,22 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- The toolbar's Agent menu runs Inspiration, Debug or Polish on your selection through the agent chat.
 - Agents can draw an onboarding-journey storyboard on a Design canvas in one call, with real session screenshots, arrows and drop-off labels.
 
 ### Improved
 
+- Annotate mode and the Draw tool are now an opt-in Lab; turn on Annotate in Settings > Labs to use them.
+- Interact mode's top bar now has a device picker, a Light / Dark / System preview theme, back and forward through the screens you visit, a route dropdown and reload.
+- The color picker has one mode select (Hex, RGB, HSL, HSB, Display P3, OKLCH) and can write colors outside sRGB; PNG and PDF exports use their sRGB fallback.
+- The color picker is now 272px wide with a larger saturation square, a New color swatch, a mode select and a copy button, and Tokens panel colors open in it.
+- The color picker's gradient, image and shader panes now sit under the paint row, and a stop's or shader color's swatch opens a second picker beside the panel.
+- The color picker's paint row is now Solid, Gradient, Image and Shader on the left and a Blend menu and a Contrast check on the right; for text it shows the contrast ratio against what is behind it and can fix the color for AA or AAA.
+- The color picker shows a Previous swatch you can click to restore the opening color, and a Libraries tab that binds a fill to one of the design's color tokens.
+- The floating toolbar is rebuilt as Move, Frame, Shapes, Text, Pen, Comment and Agent, with a menu where a group has more than one tool; Shapes holds Image/video, each group's button shows the tool you used last, and Interact keeps just Move and Agent.
+- The inspector opens straight on the selection with every section on one grid, and a URL screen's route, Reload and Open in browser move to the top bar.
+- The inspector's Comments, Tweaks and Code tabs and the Design tweaks lab are gone; designs with saved tweaks still apply them.
+- The inspector's Fill field now reads each fill in its own notation: hex, Display P3, OKLCH, a token's name, or the paint's name.
 - A progress toast now stays on screen while a .fig file is analyzed, converted, and saved, even if you switch panels
 - Import prompts call out content that could not be carried over, and SVG export prompts explain which parts become static.
 - Improved onboarding journey storyboards with localized captions, exact replay timing, and resumable private screenshot imports.

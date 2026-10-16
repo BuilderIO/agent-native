@@ -10,7 +10,7 @@ import {
   index,
   sql,
 } from "@agent-native/core/db/schema";
-import { boolean } from "drizzle-orm/pg-core";
+import { bigint, boolean, check } from "drizzle-orm/pg-core";
 
 export const organizationSettings = table("organization_settings", {
   organizationId: text("organization_id").primaryKey(),
@@ -154,6 +154,7 @@ export const recordings = table("recordings", {
   videoFormat: text("video_format", { enum: ["webm", "mp4"] })
     .notNull()
     .default("webm"),
+  storageMode: text("storage_mode", { enum: ["own", "hosted"] }),
   videoSizeBytes: integer("video_size_bytes").notNull().default(0),
   width: integer("width").notNull().default(0),
   height: integer("height").notNull().default(0),
@@ -255,6 +256,12 @@ export const recordingTranscripts = table("recording_transcripts", {
   failureReason: text("failure_reason"),
   failureCode: text("failure_code"),
   retryCount: integer("retry_count").notNull().default(0),
+  // "imported" when the owner or an agent supplied the transcript file.
+  // Automatic transcription never writes over an imported row.
+  source: text("source", { enum: ["imported"] }),
+  // New on every import, even of the same file in the same millisecond, so a
+  // regenerate replaces only the import it started from.
+  importId: text("import_id"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -282,6 +289,8 @@ export const recordingBrowserDiagnostics = table(
     interactionEventsJson: text("interaction_events_json")
       .notNull()
       .default("[]"),
+    appActivitySummaryJson: text("app_activity_summary_json"),
+    appActivityBlobJson: text("app_activity_blob_json"),
     redactionVersion: integer("redaction_version").notNull().default(1),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
@@ -587,6 +596,9 @@ export const dictations = table("clips_dictations", {
   startedAt: text("started_at").notNull().default(now()),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  cleanupVersion: bigint("cleanup_version", { mode: "number" })
+    .notNull()
+    .default(0),
   ...ownableColumns(),
 });
 
@@ -652,6 +664,8 @@ export const recordingContextItems = table(
     // The desktop device that captured the Clip. NULL (web-requested or
     // pre-dating device scoping) is claimable by every device.
     capturedDeviceId: text("captured_device_id"),
+    includeMicrophone: boolean("include_microphone"),
+    includeSystemAudio: boolean("include_system_audio"),
     durationMs: integer("duration_ms"),
     width: integer("width"),
     height: integer("height"),
@@ -741,4 +755,46 @@ export const transactionalEmailConfigs = table(
     id: text("id").primaryKey(),
     configJson: text("config_json").notNull(),
   },
+);
+
+export const hostedClipAllowances = table(
+  "clips_hosted_clip_allowances",
+  {
+    recordingId: text("recording_id").primaryKey(),
+    identityKey: text("identity_key").notNull(),
+    userId: text("user_id").notNull(),
+    status: text("status", {
+      enum: ["reserved", "consumed", "released"],
+    }).notNull(),
+    ipPrefix: text("ip_prefix"),
+    quotaBytes: bigint("quota_bytes", { mode: "number" }).notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    consumedAt: text("consumed_at"),
+    releasedAt: text("released_at"),
+  },
+  (allowance) => ({
+    identityCreatedIndex: index(
+      "clips_hosted_allowances_identity_created_idx",
+    ).on(allowance.identityKey, allowance.createdAt),
+    userCreatedIndex: index("clips_hosted_allowances_user_created_idx").on(
+      allowance.userId,
+      allowance.createdAt,
+    ),
+    ipCreatedIndex: index("clips_hosted_allowances_ip_created_idx").on(
+      allowance.ipPrefix,
+      allowance.createdAt,
+    ),
+    createdIndex: index("clips_hosted_allowances_created_idx").on(
+      allowance.createdAt,
+    ),
+    statusCheck: check(
+      "clips_hosted_allowances_status_check",
+      sql`${allowance.status} IN ('reserved', 'consumed', 'released')`,
+    ),
+    quotaBytesCheck: check(
+      "clips_hosted_allowances_quota_bytes_check",
+      sql`${allowance.quotaBytes} >= 0`,
+    ),
+  }),
 );

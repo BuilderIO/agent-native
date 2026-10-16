@@ -93,6 +93,23 @@ const BLOCKING_COLUMN_PRAGMA_RE =
 
 const NOT_A_MIGRATION_LIST = new Set(["packages/core/src/db/migrations.ts"]);
 
+// Framework stores declare their migrations inline with defineStore(); they
+// are migration lists in everything but file name.
+function isFrameworkStoreModule(file) {
+  if (!file.startsWith("packages/core/src/") || !file.endsWith(".ts")) {
+    return false;
+  }
+  if (file === "packages/core/src/db/store-registry.ts") return false;
+  if (file.startsWith("packages/core/src/guards/")) return false;
+  try {
+    return readFileSync(path.join(REPO_ROOT, file), "utf8").includes(
+      "defineStore(",
+    );
+  } catch {
+    return false;
+  }
+}
+
 function findMigrationSourceFiles() {
   const tracked = execGuardCommand("git", ["ls-files"], {
     cwd: REPO_ROOT,
@@ -107,7 +124,7 @@ function findMigrationSourceFiles() {
     if (path.basename(file) === "migrations.ts") return true;
     if (file.endsWith("server/plugins/db.ts")) return true;
     if (/\/supabase\/migrations\/.*\.sql$/.test(file)) return true;
-    return false;
+    return isFrameworkStoreModule(file);
   });
 }
 

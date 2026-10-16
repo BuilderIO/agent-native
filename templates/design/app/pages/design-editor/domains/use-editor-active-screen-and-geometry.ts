@@ -13,6 +13,10 @@ import {
 import { type CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
 import type { A11yFinding } from "@shared/design-review";
+import {
+  DEFAULT_INTERACT_THEME_MODE,
+  type InteractThemeMode,
+} from "@shared/preview-color-scheme";
 import { breakpointUpperBoundPx } from "@shared/responsive-classes";
 import {
   getResponsiveBreakpointHeightPx,
@@ -63,10 +67,10 @@ import {
   optimisticRemoveBreakpointData,
 } from "../commands/optimistic-breakpoint-mutation";
 import { runPersistFrameGeometrySave } from "../commands/persist-frame-geometry-save";
+import { runQueueFrameGeometrySave } from "../commands/queue-frame-geometry-save";
 import { runWriteFrameGeometrySnapshot } from "../commands/write-frame-geometry-snapshot";
 import {
   applyDesignDataOperations,
-  buildFrameGeometryDataOperations,
   clearAcknowledgedDesignDataOperationsThroughRevision,
   compactDesignDataOperations,
   pendingDesignDataOperations,
@@ -76,17 +80,11 @@ import {
 } from "../data-operations";
 import { deriveDesignBreakpoints } from "../derive/design-breakpoints";
 import {
-  cloneCanvasFrameGeometry,
   frameHeightChangedIds,
-  getCanvasFrameGeometry,
   getDesignDataRecord,
 } from "../design-data-geometry-utils";
 import { type UndoRedoOrderKind } from "../editor-state";
 import { runResumePendingGeneration } from "../effects/resume-pending-generation";
-import {
-  quantizeCanvasFrameGeometryForPersist,
-  sanitizeCanvasFrameGeometryForPersist,
-} from "../geometry-persistence";
 import {
   type ContentHistoryChange,
   type FileDeletionRestoreClaim,
@@ -107,6 +105,7 @@ import {
   getNextZoomStepDown,
   getNextZoomStepUp,
   getOverviewCanvasZoom,
+  getOverviewCanvasZoomForFrame,
   getOverviewDisplayZoom,
   getOverviewZoomScale,
   resolveOverviewZoomBasisScreenId,
@@ -120,12 +119,8 @@ import {
 import {
   DEFAULT_INTERACT_DEVICE_PRESET,
   findInteractDevicePreset,
-  INTERACT_CUSTOM_DEVICE_NAME,
 } from "../responsive-interact";
-import {
-  classifyDesignSaveFailure,
-  designSaveErrorMessage,
-} from "../save-failure";
+import { classifyDesignSaveFailure } from "../save-failure";
 import {
   getOverviewScreenExportGeometryById,
   resolveAvailableActiveFileId,
@@ -301,7 +296,6 @@ export function useEditorActiveScreenAndGeometry({
   } = editorCore;
   const {
     handleLiveScreenRuntimeReload,
-    setActiveInspectorTab,
     setActiveLeftPanel,
     setSelectedLayerIdsState,
     invalidateRenderedElementInfo,
@@ -324,6 +318,7 @@ export function useEditorActiveScreenAndGeometry({
   const {
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
+    annotateLab,
     setDrawMode,
     setPinMode,
     setHasPendingGeneration,
@@ -359,8 +354,9 @@ export function useEditorActiveScreenAndGeometry({
     locallyPinnedHeightIdsRef,
     designSaveOperationSourceRef,
     pendingFrameGeometryOperationsForUnloadRef,
+    frameGeometryOperationsInFlightRef,
     creativeContextEnabled,
-    warnChangesWillRetry,
+    reportSaveFailure,
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,
@@ -385,6 +381,7 @@ export function useEditorActiveScreenAndGeometry({
   const [screenZoom, setScreenZoom] = useState(FOCUSED_SCREEN_ZOOM);
   const [cameraCommand, setCameraCommand] = useState<{
     fitBounds: FrameBounds;
+    canvasZoom?: number;
     nonce: number;
     paddingScreenPx?: number;
   } | null>(null);
@@ -401,6 +398,9 @@ export function useEditorActiveScreenAndGeometry({
     width: DEFAULT_INTERACT_DEVICE_PRESET.width,
     height: DEFAULT_INTERACT_DEVICE_PRESET.height,
   });
+  const [interactTheme, setInteractTheme] = useState<InteractThemeMode>(
+    DEFAULT_INTERACT_THEME_MODE,
+  );
   const [
     effectivePreviewTokensByScreenId,
     setEffectivePreviewTokensByScreenId,
@@ -601,6 +601,12 @@ export function useEditorActiveScreenAndGeometry({
         pendingFrameGeometryOperationsForUnloadRef.current,
       );
       if (operationsForRevision.length === 0) return false;
+      frameGeometryOperationsInFlightRef.current =
+        stagePendingDesignDataOperations(
+          frameGeometryOperationsInFlightRef.current,
+          operationsForRevision,
+          revision,
+        );
       const operationSource = designSaveOperationSourceRef.current;
       const previous = frameGeometryMutationChainRef.current;
       const current = previous
@@ -608,6 +614,8 @@ export function useEditorActiveScreenAndGeometry({
         .then(async () => {
           let outboxEntry: ReturnType<typeof createFrameGeometryOutboxEntry> =
             null;
+          let journaled = false;
+          let queuedForRetry = false;
           try {
             const rejectedAssignments = stripRejectedRestoreClaimAssignments(
               operationsForRevision,
@@ -621,7 +629,7 @@ export function useEditorActiveScreenAndGeometry({
               operationSource,
             );
             if (!outboxEntry) return;
-            await journalOutboxEntry(outboxEntry);
+            journaled = await journalOutboxEntry(outboxEntry);
             await saveDesignDataAsync(outboxEntry.payload as any);
             pendingFrameGeometryOperationsForUnloadRef.current =
               clearAcknowledgedDesignDataOperationsThroughRevision(
@@ -744,17 +752,19 @@ export function useEditorActiveScreenAndGeometry({
                   "Reconciled frame geometry save remains queued for retry.",
                   reconciledEntryRetryFailure.error,
                 );
-                warnChangesWillRetry();
-              } else if (
-                classifyDesignSaveFailure(error, navigator.onLine) === "offline"
-              ) {
-                warnChangesWillRetry();
-              } else {
-                toast.error(
-                  designSaveErrorMessage(error) ?? t("common.genericError"),
-                  { id: "design-geometry-save-error" },
-                );
               }
+              reportSaveFailure(reconciledEntryRetryFailure?.error ?? error);
+            }
+            queuedForRetry =
+              journaled &&
+              classifyDesignSaveFailure(error, navigator.onLine) === "offline";
+          } finally {
+            if (!queuedForRetry) {
+              frameGeometryOperationsInFlightRef.current =
+                clearAcknowledgedDesignDataOperationsThroughRevision(
+                  frameGeometryOperationsInFlightRef.current,
+                  revision,
+                );
             }
           }
         });
@@ -773,9 +783,8 @@ export function useEditorActiveScreenAndGeometry({
       journalOutboxEntry,
       queryClient,
       saveDesignDataAsync,
-      t,
       shellMode,
-      warnChangesWillRetry,
+      reportSaveFailure,
     ],
   );
 
@@ -887,7 +896,7 @@ export function useEditorActiveScreenAndGeometry({
           journalOutboxEntry,
           pendingFrameGeometryOperationsForUnloadRef,
           queryClient,
-          warnChangesWillRetry,
+          reportSaveFailure,
         },
         pending,
         keepalive,
@@ -900,7 +909,7 @@ export function useEditorActiveScreenAndGeometry({
       id,
       journalOutboxEntry,
       queryClient,
-      warnChangesWillRetry,
+      reportSaveFailure,
     ],
   );
 
@@ -920,57 +929,29 @@ export function useEditorActiveScreenAndGeometry({
   );
 
   const queueFrameGeometrySave = useCallback(
-    (geometryById: CanvasFrameGeometryById) => {
-      if (!id || !canEditDesignRef.current) return;
-      const previousGeometry = cloneCanvasFrameGeometry(
-        getCanvasFrameGeometry(designDataJsonRef.current),
-      );
-      pendingFrameGeometrySaveRef.current = {
-        geometryById: quantizeCanvasFrameGeometryForPersist(
-          cloneCanvasFrameGeometry(geometryById),
-          previousGeometry,
-        ),
-        previousGeometry,
-      };
-      const pending = pendingFrameGeometrySaveRef.current;
-      const { geometryById: safeGeometryById } =
-        sanitizeCanvasFrameGeometryForPersist(
-          pending.geometryById,
-          pending.previousGeometry,
-          boardFileId ? [boardFileId] : [],
-        );
-      const dataOperations = buildFrameGeometryDataOperations({
-        previousGeometry: pending.previousGeometry,
-        nextGeometry: safeGeometryById,
-        designData: designDataJsonRef.current,
-      });
-      const combinedOperations = compactDesignDataOperations([
-        ...pendingDesignDataOperations(
-          pendingFrameGeometryOperationsForUnloadRef.current,
-        ),
-        ...dataOperations,
-      ]);
-      if (combinedOperations.length > 0) {
-        const revision = frameGeometryOperationRevisionRef.current + 1;
-        frameGeometryOperationRevisionRef.current = revision;
-        const entry = createFrameGeometryOutboxEntry(
-          combinedOperations,
-          revision,
-        );
-        if (entry) void journalOutboxEntry(entry);
-      }
-      if (frameGeometrySaveTimerRef.current !== null) {
-        window.clearTimeout(frameGeometrySaveTimerRef.current);
-      }
-      frameGeometrySaveTimerRef.current = window.setTimeout(
-        flushPendingFrameGeometrySave,
-        500,
-      );
-    },
+    (geometryById: CanvasFrameGeometryById) =>
+      runQueueFrameGeometrySave(
+        {
+          boardFileId,
+          canEditDesignRef,
+          createFrameGeometryOutboxEntry,
+          designDataJsonRef,
+          flushPendingFrameGeometrySave,
+          frameGeometryOperationRevisionRef,
+          frameGeometryOperationsInFlightRef,
+          frameGeometrySaveTimerRef,
+          id,
+          journalOutboxEntry,
+          pendingFrameGeometryOperationsForUnloadRef,
+          pendingFrameGeometrySaveRef,
+        },
+        geometryById,
+      ),
     [
       boardFileId,
       createFrameGeometryOutboxEntry,
       flushPendingFrameGeometrySave,
+      frameGeometryOperationsInFlightRef,
       id,
       journalOutboxEntry,
     ],
@@ -1287,7 +1268,7 @@ export function useEditorActiveScreenAndGeometry({
         if (!attempt.accepted) return;
         void attempt.completion
           .then(() => acknowledgeFrameGeometryOutboxEntry(entry))
-          .catch(warnChangesWillRetry);
+          .catch(reportSaveFailure);
         return;
       }
       persistFrameGeometrySave(pending, true);
@@ -1303,14 +1284,12 @@ export function useEditorActiveScreenAndGeometry({
     flushPendingFrameGeometrySave,
     journalOutboxEntry,
     persistFrameGeometrySave,
-    warnChangesWillRetry,
+    reportSaveFailure,
   ]);
 
   useEffect(() => {
     const handleBackground = () => {
-      void flushPendingFileContentSavesForBackground().catch(
-        warnChangesWillRetry,
-      );
+      void flushPendingFileContentSavesForBackground().catch(reportSaveFailure);
       flushPendingTweakSave();
       flushPendingFrameGeometrySave();
     };
@@ -1588,8 +1567,8 @@ export function useEditorActiveScreenAndGeometry({
   }, [activeBreakpointWidthState, designBreakpoints, activeScreenBaseWidthPx]);
   const motionTimelineQueryParams =
     id && activeFile?.id
-      ? { designId: id, sourceRef: activeFile.id }
-      : { designId: "", sourceRef: "" };
+      ? { designId: id, sourceRef: activeFile.id, passiveRead: true }
+      : { designId: "", sourceRef: "", passiveRead: true };
   const { data: motionTimelineResult } =
     useActionQuery<MotionTimelineQueryResult>(
       "get-motion-timeline",
@@ -1822,18 +1801,19 @@ export function useEditorActiveScreenAndGeometry({
     (command: DesignEditorCommand | Record<string, unknown>) =>
       runApplyDesignEditorCommand(
         {
+          annotateLab,
           canEditDesign,
           canvasFrameGeometryById,
           files,
           id,
           overviewScreens,
           setActiveFileId,
-          setActiveInspectorTab,
           setActiveLeftPanel,
           setActiveTool,
           setDrawMode,
           setInteractDeviceName,
           setInteractDeviceSize,
+          setInteractTheme,
           setMode,
           setOverviewSelectedScreenIds,
           setOverviewInteractScreenId,
@@ -1855,10 +1835,29 @@ export function useEditorActiveScreenAndGeometry({
           // widgetFit), so neither a selection nor a one-off camera command.
           requestCameraFit: widgetEmbed
             ? undefined
-            : (camera) => {
+            : (camera, zoomRequest) => {
                 cameraCommandNonceRef.current += 1;
+                const targetScreen = zoomRequest
+                  ? overviewScreens.find(
+                      (screen) => screen.id === zoomRequest.screenId,
+                    )
+                  : undefined;
+                const canvasZoom =
+                  zoomRequest && targetScreen
+                    ? getOverviewCanvasZoomForFrame({
+                        displayZoom: zoomRequest.displayZoom,
+                        frameWidth:
+                          displayedCanvasFrameGeometryById[targetScreen.id]
+                            ?.width,
+                        sourceWidth:
+                          deviceFrame === "none"
+                            ? targetScreen.width
+                            : DEVICE_FRAME_VIEWPORTS[deviceFrame].width,
+                      })
+                    : undefined;
                 setCameraCommand({
                   ...camera,
+                  ...(canvasZoom !== undefined ? { canvasZoom } : {}),
                   nonce: cameraCommandNonceRef.current,
                 });
               },
@@ -1867,8 +1866,11 @@ export function useEditorActiveScreenAndGeometry({
         command,
       ),
     [
+      annotateLab,
       canEditDesign,
       canvasFrameGeometryById,
+      deviceFrame,
+      displayedCanvasFrameGeometryById,
       files,
       id,
       overviewScreens,
@@ -1928,14 +1930,6 @@ export function useEditorActiveScreenAndGeometry({
     if (preset) {
       setInteractDeviceSize({ width: preset.width, height: preset.height });
     }
-  }, []);
-  const handleInteractWidthChange = useCallback((width: number) => {
-    setInteractDeviceSize((size) => ({ ...size, width }));
-    setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
-  }, []);
-  const handleInteractHeightChange = useCallback((height: number) => {
-    setInteractDeviceSize((size) => ({ ...size, height }));
-    setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
   }, []);
 
   const handleCycleFile = useCallback(
@@ -2041,6 +2035,8 @@ export function useEditorActiveScreenAndGeometry({
     setInteractDeviceName,
     interactDeviceSize,
     setInteractDeviceSize,
+    interactTheme,
+    setInteractTheme,
     effectivePreviewTokensByScreenId,
     effectiveLiveEditCapabilitiesByScreenId,
     effectiveLiveEditRegistrationCapabilitiesByScreenId,
@@ -2105,8 +2101,6 @@ export function useEditorActiveScreenAndGeometry({
     handleZoomIn,
     handleZoomOut,
     handleInteractDeviceChange,
-    handleInteractWidthChange,
-    handleInteractHeightChange,
     handleCycleFile,
     handleBreakpointBarRemove,
     handleOverviewRemoveBreakpoint,
