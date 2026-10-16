@@ -14,6 +14,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import { movePageToSpace } from "./_move-page-to-space.js";
 import {
@@ -388,6 +389,7 @@ export default defineAction({
           const current = (
             await assertDocumentMutationAccess(id, "editor", "id")
           ).resource;
+          assertEditableDocument(current);
           if (
             current.ownerEmail !== ownerEmail ||
             current.spaceId !== existing.spaceId ||

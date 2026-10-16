@@ -745,6 +745,7 @@ export default defineAction({
               ownerEmail: schema.documents.ownerEmail,
               spaceId: schema.documents.spaceId,
               trashedAt: schema.documents.trashedAt,
+              parentId: schema.documents.parentId,
             })
             .from(schema.documents)
             .where(eq(schema.documents.id, id));
@@ -756,6 +757,11 @@ export default defineAction({
             (page.spaceId ?? defaultSpaceId) !== spaceById.get(id)
           ) {
             return "Skipped layout update: the page moved to another Content space.";
+          }
+          // The layout was planned from the parent read before these locks; a
+          // page moved since would be put back.
+          if ((page.parentId ?? null) !== (currentParentById.get(id) ?? null)) {
+            return "Skipped layout update: the page moved while it was being imported.";
           }
           if (safeParentId) {
             const [parent] = await tx

@@ -1,5 +1,5 @@
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("./_document-flush.js", () => ({
@@ -2284,7 +2284,11 @@ position: ${position}
       );
       await expect(imported).resolves.toMatchObject({
         skipped: [
-          { path: "child.md", reason: "Skipped parent update: cycle." },
+          {
+            path: "child.md",
+            reason:
+              "Skipped layout update: the page moved while it was being imported.",
+          },
         ],
       });
       expect(await readPage(seed.ids.child)).toMatchObject({ parentId: null });
@@ -2437,6 +2441,52 @@ position: ${position}
       expect((await readPage(seed.ids.child)).position).not.toBe(8);
     });
 
+    it("skips an imported layout update for a page that moves to another parent while it waits", async () => {
+      const seed = await seedSpaceMove();
+      const other = `${seed.key}_p4`;
+      await getDb()
+        .insert(schema.documents)
+        .values(
+          pageValues(other, null, "Other", { spaceId: seed.ids.fromSpace }),
+        );
+      const { action: imported } = await raceAgainst(
+        async (tx) => {
+          await lockOwnerPageTree(tx, OWNER);
+          await lockDocumentRows(tx, [seed.ids.moved, other]);
+          await tx
+            .update(schema.documents)
+            .set({ parentId: other, position: 3 })
+            .where(eq(schema.documents.id, seed.ids.moved));
+        },
+        () =>
+          asOwner(() =>
+            importContentSource.run({
+              files: {
+                "moved.md": `---
+id: "${seed.ids.moved}"
+title: "Moved"
+position: 7
+---
+`,
+              },
+            }),
+          ),
+      );
+      await expect(imported).resolves.toMatchObject({
+        skipped: [
+          {
+            path: "moved.md",
+            reason:
+              "Skipped layout update: the page moved while it was being imported.",
+          },
+        ],
+      });
+      expect(await readPage(seed.ids.moved)).toMatchObject({
+        parentId: other,
+        position: 3,
+      });
+    });
+
     it("refuses a reorder whose siblings are reordered while it waits", async () => {
       const seed = await seedPageTree();
       const { action: reordered } = await raceAgainst(
@@ -2485,6 +2535,41 @@ position: ${position}
         position: 1,
       });
     });
+
+    it.each([
+      { kind: "reorder", move: () => ({ position: 2 }) },
+      {
+        kind: "reparent",
+        move: (ids: { otherParent: string }) => ({ parentId: ids.otherParent }),
+      },
+    ])(
+      "refuses a $kind of a page that moves to Trash while it waits",
+      async ({ move }) => {
+        const seed = await seedPageTree();
+        const { action: moving } = await raceAgainst(
+          async (tx) => {
+            await lockOwnerPageTree(tx, OWNER);
+            await lockDocumentRows(tx, [seed.ids.moved]);
+            await tx
+              .update(schema.documents)
+              .set({ trashedAt: STAMP, trashRootId: seed.ids.moved })
+              .where(eq(schema.documents.id, seed.ids.moved));
+          },
+          () =>
+            asOwner(() =>
+              moveDocument.run({ id: seed.ids.moved, ...move(seed.ids) }),
+            ),
+        );
+        await expect(moving).rejects.toMatchObject({
+          errorCode: "DOCUMENT_NOT_FOUND",
+          statusCode: 404,
+        });
+        expect(await readPage(seed.ids.moved)).toMatchObject({
+          parentId: seed.ids.parent,
+          position: 0,
+        });
+      },
+    );
 
     for (const [created, create] of [
       [
@@ -2628,6 +2713,115 @@ position: ${position}
       expect(await readPage(seed.ids.otherChild)).toMatchObject({
         trashedAt: null,
       });
+    });
+
+    it("checks access to each purge unit in that unit's transaction", async () => {
+      const key = fixtureKey();
+      const sharer = "synthetic-lock-order-sharer@example.test";
+      const orgId = `${key}_org`;
+      const spaceId = `${key}_space`;
+      const pages = [`${key}_p1`, `${key}_p2`];
+      const shares = pages.map((id) => `${id}_share`);
+      const asMember = <T>(run: () => Promise<T>) =>
+        runWithRequestContext({ userEmail: OWNER, orgId }, run);
+      // Purging someone else's pages needs an organization space.
+      await getDb().execute(
+        sql`INSERT INTO organizations (id, name, created_by, created_at) VALUES (${orgId}, 'Lock order', ${sharer}, ${Date.now()})`,
+      );
+      await getDb().execute(
+        sql`INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (${`${orgId}_member`}, ${orgId}, ${OWNER}, 'admin', ${Date.now()})`,
+      );
+      await getDb()
+        .insert(schema.contentSpaces)
+        .values({
+          id: spaceId,
+          name: "Lock order org",
+          kind: "organization",
+          ownerEmail: sharer,
+          orgId,
+          filesDatabaseId: `${key}_files`,
+          createdBy: sharer,
+          createdAt: STAMP,
+          updatedAt: STAMP,
+        });
+      await getDb()
+        .insert(schema.documents)
+        .values(
+          pages.map((id) =>
+            pageValues(id, null, id, {
+              ownerEmail: sharer,
+              createdBy: sharer,
+              orgId,
+              spaceId,
+              trashedAt: STAMP,
+              trashRootId: id,
+            }),
+          ),
+        );
+      await getDb()
+        .insert(schema.documentShares)
+        .values(
+          pages.map((id, index) => ({
+            id: shares[index],
+            resourceId: id,
+            principalType: "user",
+            principalId: OWNER,
+            role: "admin",
+            createdBy: sharer,
+          })),
+        );
+      const plan = await asMember(() =>
+        planContentTrashPurge.run({ mode: "selection", documentIds: pages }),
+      );
+      expect(plan.eligibleCount).toBe(2);
+      const operationId = `${key}_purge`;
+      await getDb().insert(schema.contentTrashPurgeOperations).values({
+        id: operationId,
+        planId: plan.planId,
+        actorEmail: OWNER,
+        orgId,
+        idempotencyKey: operationId,
+        status: "queued",
+        eligibleCount: plan.eligibleCount,
+      });
+      // The sharer revokes both shares as the first unit's deletion commits.
+      const revoke = `${key}_revoke`;
+      await getDb().execute(
+        sql.raw(
+          `CREATE FUNCTION ${revoke}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN DELETE FROM document_shares WHERE id IN ('${shares[0]}', '${shares[1]}'); RETURN NEW; END $$`,
+        ),
+      );
+      await getDb().execute(
+        sql.raw(
+          `CREATE TRIGGER ${revoke} AFTER UPDATE OF outcome ON content_trash_purge_plan_items FOR EACH ROW WHEN (NEW.outcome = 'deleted' AND NEW.plan_id = '${plan.planId}') EXECUTE FUNCTION ${revoke}()`,
+        ),
+      );
+      try {
+        await asMember(() => processContentTrashPurge(operationId));
+      } finally {
+        await getDb().execute(
+          sql.raw(`DROP TRIGGER ${revoke} ON content_trash_purge_plan_items`),
+        );
+        await getDb().execute(sql.raw(`DROP FUNCTION ${revoke}()`));
+      }
+      const [operation] = await getDb()
+        .select({
+          status: schema.contentTrashPurgeOperations.status,
+          deletedCount: schema.contentTrashPurgeOperations.deletedCount,
+          blockedCount: schema.contentTrashPurgeOperations.blockedCount,
+        })
+        .from(schema.contentTrashPurgeOperations)
+        .where(eq(schema.contentTrashPurgeOperations.id, operationId));
+      expect(operation).toEqual({
+        status: "partially_completed",
+        deletedCount: 1,
+        blockedCount: 1,
+      });
+      const remaining = await getDb()
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(inArray(schema.documents.id, pages));
+      expect(remaining).toHaveLength(1);
     });
 
     it.each([
