@@ -100,4 +100,31 @@ describe("BufferSyncGroup", () => {
 
     expect(mocks.refetch).toHaveBeenCalledTimes(1);
   });
+
+  it("refetches after a read settles while Code is reopened", () => {
+    const render = (
+      active: boolean,
+      data: { content: string; versionHash: string } | undefined,
+      isFetching: boolean,
+    ) => {
+      mocks.useActionQuery.mockReturnValue({
+        data,
+        isFetching,
+        refetch: mocks.refetch,
+      });
+      act(() => {
+        root!.render(<BufferSyncGroup designId="design-1" active={active} />);
+      });
+    };
+
+    render(true, undefined, true);
+    render(false, undefined, true);
+    render(true, undefined, true);
+
+    expect(mocks.refetch).not.toHaveBeenCalled();
+
+    render(true, { content: "<main />", versionHash: "stale" }, false);
+
+    expect(mocks.refetch).toHaveBeenCalledTimes(1);
+  });
 });

@@ -547,6 +547,7 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
   );
 
   let sourceReads = 0;
+  const sourceEditActions: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
     if (
@@ -554,6 +555,12 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
       url.searchParams.has("path")
     ) {
       sourceReads += 1;
+    }
+    if (
+      url.pathname.endsWith("/_agent-native/actions/preview-source-edit") ||
+      url.pathname.endsWith("/_agent-native/actions/apply-source-edit")
+    ) {
+      sourceEditActions.push(url.pathname);
     }
   });
   const codeWorkbench = page.getByTestId("design-code-workbench");
@@ -595,6 +602,7 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
     designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
   const initialX = await readFrameX();
   expect(initialX).toBe(0);
+  const sourceEditActionsBeforeCommits = sourceEditActions.length;
   // Retry only readiness: each key press is a non-idempotent mutation.
   for (let index = 0; index < 20; index += 1) {
     const writeResponse = page.waitForResponse((response) => {
@@ -612,7 +620,27 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
     ).toBe(true);
     await expect.poll(readFrameX).toBe(initialX + index + 1);
   }
+  const sourceReadsAfterCommits = sourceReads;
+  const sourceEditActionsAfterCommits = sourceEditActions.length;
+  let observedSourceRequests = `${sourceReads}:${sourceEditActions.length}`;
+  let sourceRequestsQuietSince = Date.now();
+  await expect
+    .poll(
+      () => {
+        const currentSourceRequests = `${sourceReads}:${sourceEditActions.length}`;
+        if (currentSourceRequests !== observedSourceRequests) {
+          observedSourceRequests = currentSourceRequests;
+          sourceRequestsQuietSince = Date.now();
+        }
+        return Date.now() - sourceRequestsQuietSince;
+      },
+      { timeout: 5_000, intervals: [100, 250, 500] },
+    )
+    .toBeGreaterThanOrEqual(1_000);
+  expect(sourceReads).toBe(sourceReadsAfterCommits);
+  expect(sourceEditActions).toHaveLength(sourceEditActionsAfterCommits);
   expect(sourceReads).toBe(sourceReadsBeforeEdits);
+  expect(sourceEditActions.slice(sourceEditActionsBeforeCommits)).toEqual([]);
 
   await openCodeWorkbench();
   await openCodeFile();
