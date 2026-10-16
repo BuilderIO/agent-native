@@ -1888,6 +1888,21 @@ export function documentBodyAwaitsLiveCopy(args: {
   );
 }
 
+// Only the editor that mounts as the stored body leaves takes its place; one
+// that remounts later has no stored body to replace, and the stored body may
+// lag the live copy it would be drawn over.
+export function useReplacesStoredBody(
+  documentId: string,
+  awaitingLiveCopy: boolean,
+): boolean {
+  const [shownFor, setShownFor] = useState<string | null>(null);
+  if (awaitingLiveCopy && shownFor !== documentId) setShownFor(documentId);
+  useEffect(() => {
+    if (!awaitingLiveCopy && shownFor !== null) setShownFor(null);
+  }, [awaitingLiveCopy, shownFor]);
+  return shownFor === documentId;
+}
+
 export function visualEditorInstanceKey(args: {
   documentId: string;
   documentUpdatedAt: string | null;
@@ -3433,11 +3448,10 @@ function PageEditorSessionBody({
     liveCopyDocumentId: collabDocumentId,
     liveCopyStatus: collabInitialization.status,
   });
-  const [storedBodyShownFor, setStoredBodyShownFor] = useState<string | null>(
-    null,
+  const replacesStoredBody = useReplacesStoredBody(
+    documentId,
+    awaitingLiveCopy,
   );
-  if (awaitingLiveCopy && storedBodyShownFor !== documentId)
-    setStoredBodyShownFor(documentId);
   const suggestionEditorIsolation = suggestedEditorIsolation({
     suggesting: isSuggesting,
     canSuggest: suggestionCapability.canContinue,
@@ -9414,9 +9428,7 @@ function PageEditorSessionBody({
                                     : null
                                 }
                                 observeLiveBody={observeLiveBody}
-                                replacesStoredBody={
-                                  storedBodyShownFor === documentId
-                                }
+                                replacesStoredBody={replacesStoredBody}
                                 collabSynced={
                                   collabEditorEnabled ? collabSynced : true
                                 }

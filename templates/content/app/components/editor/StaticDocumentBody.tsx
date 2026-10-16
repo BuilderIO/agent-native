@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { safeParseIconValue } from "@agent-native/core/icons";
 import { renderMathToHtml } from "@shared/math-rendering";
 import { nfmToDoc } from "@shared/nfm";
@@ -23,14 +24,24 @@ import {
   parseAttrsJson,
   safeExternalPageUrl,
 } from "./extensions/NotionExtensions";
+import {
+  noteStoredBodyImageFailed,
+  storedBodyOnScreen,
+} from "./stored-body-images";
 import { ContentTableView } from "./table-view";
 
 type Attrs = Record<string, string | null | undefined>;
 type Child = Node | string | null;
 
+/** Words the static body draws, in the reader's language. */
+export interface StaticBodyLabels {
+  imageBroken: string;
+}
+
 type StaticNodeView = (
   node: ProseMirrorNode,
   document: Document,
+  labels: StaticBodyLabels,
 ) => { dom: HTMLElement; contentDOM?: HTMLElement };
 
 function h(
@@ -135,9 +146,13 @@ function mediaWidth(value: unknown): number | null {
 
 function mediaView(
   className: string,
-  media: (node: ProseMirrorNode, document: Document) => HTMLElement,
+  media: (
+    node: ProseMirrorNode,
+    document: Document,
+    labels: StaticBodyLabels,
+  ) => HTMLElement,
 ): StaticNodeView {
-  return (node, document) => {
+  return (node, document, labels) => {
     const width = mediaWidth(node.attrs.width);
     const block = node.attrs.src
       ? h(
@@ -148,7 +163,7 @@ function mediaView(
             "data-resized": width ? "true" : null,
             style: width ? `width: ${width}px;` : null,
           },
-          media(node, document),
+          media(node, document, labels),
         )
       : h(
           document,
@@ -169,6 +184,28 @@ function mediaView(
       ),
     };
   };
+}
+
+// Tabler's `IconPhoto`, which ImageBlock draws in a failed image's box.
+const PHOTO_ICON_PATH =
+  "M15 8h.01M3 6a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v12a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3v-12M3 16l5 -5c.928 -.893 2.072 -.893 3 0l5 5M14 14l1 -1c.928 -.893 2.072 -.893 3 0l3 3";
+
+function brokenImage(document: Document, alt: string, label: string) {
+  return h(
+    document,
+    "div",
+    { class: "media-block__broken", role: "img", "aria-label": alt || label },
+    icon(document, 24, PHOTO_ICON_PATH, "media-block__broken-icon"),
+    h(
+      document,
+      "div",
+      { class: "media-block__broken-copy" },
+      h(document, "span", { class: "media-block__broken-title" }, label),
+      alt.trim()
+        ? h(document, "span", { class: "media-block__broken-alt" }, alt)
+        : null,
+    ),
+  );
 }
 
 function staticMath(document: Document, latex: string, displayMode: boolean) {
@@ -198,14 +235,25 @@ function staticMath(document: Document, latex: string, displayMode: boolean) {
  * NODE_VIEWS_LAID_OUT_BY_RENDER_HTML.
  */
 export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
-  image: mediaView("media-block", (node, document) =>
-    h(document, "img", {
-      src: node.attrs.src,
-      alt: node.attrs.alt || "",
+  image: mediaView("media-block", (node, document, labels) => {
+    const src: string = node.attrs.src;
+    const alt: string = node.attrs.alt || "";
+    const image = h(document, "img", {
+      src,
+      alt,
       class: "media-block__content",
       draggable: "false",
-    }),
-  ),
+    });
+    image.addEventListener(
+      "error",
+      () => {
+        noteStoredBodyImageFailed(src);
+        image.replaceWith(brokenImage(document, alt, labels.imageBroken));
+      },
+      { once: true },
+    );
+    return image;
+  }),
   // `preload="none"` keeps the stand-in from fetching media the editor's own
   // element fetches; both draw the same box until the metadata arrives.
   video: mediaView("media-block", (node, document) =>
@@ -563,6 +611,7 @@ export function renderStaticDocumentBody(
   schema: Schema,
   content: string,
   target: HTMLElement,
+  labels: StaticBodyLabels,
 ): { timed: boolean } {
   const doc = schema.nodeFromJSON(nfmToDoc(content));
   const ownerDocument = target.ownerDocument;
@@ -574,7 +623,7 @@ export function renderStaticDocumentBody(
     const view = STATIC_NODE_VIEWS[name];
     nodes[name] = (node) => {
       const { dom, contentDOM } = view
-        ? view(node, ownerDocument)
+        ? view(node, ownerDocument, labels)
         : DOMSerializer.renderSpec(ownerDocument, toDOM(node));
       if (!contentDOM) {
         if (
@@ -638,10 +687,13 @@ export function StaticDocumentBody({
   /** Marks the body-visible startup milestone for this page when given. */
   documentId?: string;
 }) {
+  const t = useT();
+  const imageBroken = t("editor.media.imageBroken");
   const bodyRef = useRef<HTMLDivElement>(null);
   const markedRef = useRef(false);
   const [failedContent, setFailedContent] = useState<string | null>(null);
   const failed = failedContent === content;
+  useLayoutEffect(() => storedBodyOnScreen(), []);
   useLayoutEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
@@ -660,7 +712,9 @@ export function StaticDocumentBody({
     }
     let timed: boolean;
     try {
-      ({ timed } = renderStaticDocumentBody(schema, content, body));
+      ({ timed } = renderStaticDocumentBody(schema, content, body, {
+        imageBroken,
+      }));
     } catch (error) {
       // The editor draws this body from the live copy once it mounts; until
       // then the page shows it loading rather than empty.
@@ -673,7 +727,7 @@ export function StaticDocumentBody({
       markStartupMilestone(CONTENT_BODY_DOM_MARK, documentId);
     }
     return handOver;
-  }, [schema, content, documentId]);
+  }, [schema, content, documentId, imageBroken]);
 
   if (failed) {
     return (

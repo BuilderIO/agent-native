@@ -18,6 +18,7 @@ import {
   NODE_VIEWS_LAID_OUT_BY_RENDER_HTML,
   renderStaticDocumentBody,
   STATIC_NODE_VIEWS,
+  StaticDocumentBody,
 } from "./StaticDocumentBody";
 import {
   createVisualEditorExtensions,
@@ -63,6 +64,8 @@ const BODY = [
   "",
   "Last paragraph.",
 ].join("\n");
+
+const LABELS = { imageBroken: "editor.media.imageBroken" };
 
 // Icons, and controls the stylesheet takes out of the flow, take no part in
 // where a block sits.
@@ -148,7 +151,12 @@ describe("the static document body", () => {
 
   it("draws each block in the layout the editable editor gives it", async () => {
     const staticBody = document.createElement("div");
-    renderStaticDocumentBody(getContentEditorSchema(), BODY, staticBody);
+    renderStaticDocumentBody(
+      getContentEditorSchema(),
+      BODY,
+      staticBody,
+      LABELS,
+    );
 
     await act(async () =>
       root.render(
@@ -180,5 +188,63 @@ describe("the static document body", () => {
 
     const blocks = (body: Element) => [...body.children].filter(laidOut);
     expect(blocks(staticBody).map(shape)).toEqual(blocks(editor).map(shape));
+  });
+
+  it("draws an image that failed to load as the image block draws one", async () => {
+    const content = [
+      "Before.",
+      "",
+      "![Alt text](https://example.com/missing.png)",
+      "",
+      "After.",
+    ].join("\n");
+    const blocks = async (element: ReturnType<typeof createElement>) => {
+      await act(async () =>
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
+                QueryClientProvider,
+                { client: new QueryClient() },
+                element,
+              ),
+            ),
+          ),
+        ),
+      );
+      await act(async () => {
+        container.querySelector("img")!.dispatchEvent(new Event("error"));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      const body = container.querySelector(
+        "[data-static-document-body], .ProseMirror",
+      )!;
+      return [...body.children].filter(laidOut).map(shape);
+    };
+
+    const standIn = await blocks(
+      createElement(StaticDocumentBody, {
+        schema: getContentEditorSchema(),
+        content,
+      }),
+    );
+    // With no body on screen, the editor loads the image itself.
+    await act(async () => root.render(null));
+    const editor = await blocks(
+      createElement(VisualEditor, {
+        documentId: "page",
+        content,
+        ydoc: null,
+        editable: true,
+        onChange: () => {},
+      }),
+    );
+
+    expect(standIn.join()).toContain(".media-block__broken");
+    expect(standIn).toEqual(editor);
   });
 });

@@ -55,6 +55,7 @@ import {
 } from "@/components/ui/tooltip";
 
 import { createImagePickerId } from "../image-upload";
+import { storedBodyImageFailed } from "../stored-body-images";
 import type { ContentImageOptions } from "./ImageNode";
 
 type ImageSourceTab = "upload" | "assets" | "link";
@@ -518,7 +519,6 @@ export function ImageBlock({
   const [lightboxZoomed, setLightboxZoomed] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [isGeneratingAlt, setIsGeneratingAlt] = useState(false);
-  const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const altInputRef = useRef<HTMLInputElement>(null);
   const emptyBlockRef = useRef<HTMLDivElement>(null);
   const lightboxImageRef = useRef<HTMLImageElement>(null);
@@ -536,10 +536,10 @@ export function ImageBlock({
   const width = normalizedImageWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
-
-  useEffect(() => {
-    setImageLoadFailed(false);
-  }, [src]);
+  const [failedSrc, setFailedSrc] = useState(() =>
+    storedBodyImageFailed(src) ? src : null,
+  );
+  const imageLoadFailed = failedSrc === src;
 
   useEffect(() => {
     if (!sourcePanelOpen && !selected) return;
@@ -1060,8 +1060,8 @@ export function ImageBlock({
             alt={alt || ""}
             className="media-block__content"
             draggable={false}
-            onLoad={() => setImageLoadFailed(false)}
-            onError={() => setImageLoadFailed(true)}
+            onLoad={() => setFailedSrc(null)}
+            onError={() => setFailedSrc(src)}
             onDoubleClick={(event) => {
               event.preventDefault();
               event.stopPropagation();

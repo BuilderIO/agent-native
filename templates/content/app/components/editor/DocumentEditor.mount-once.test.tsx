@@ -77,6 +77,7 @@ vi.mock("@/lib/startup-timing", async (importOriginal) => {
 
 import {
   documentBodyAwaitsLiveCopy,
+  useReplacesStoredBody,
   visualEditorInstanceKey,
 } from "./DocumentEditor";
 import { createEditorMountObserver } from "./editor-mount-telemetry";
@@ -121,16 +122,75 @@ describe("documentBodyAwaitsLiveCopy", () => {
   });
 });
 
+interface VisitProps {
+  canEdit: boolean;
+  liveCopyStatus: "loading" | "ready";
+  ydoc: Y.Doc;
+  content?: string;
+  /** Appended to the editor's instance key, as a later remount changes it. */
+  remount?: string;
+}
+
 // Mounts the body the way DocumentEditor does: the static body while the live
 // copy loads, then the editor under its instance key.
+function Visit(args: VisitProps) {
+  const content = args.content ?? BODY;
+  const ready = args.liveCopyStatus === "ready";
+  const collabEditorEnabled = args.canEdit && ready;
+  const isolation = suggestedEditorIsolation({
+    suggesting: false,
+    canSuggest: false,
+    canEdit: collabEditorEnabled,
+    collaborationReady: collabEditorEnabled,
+    canonicalUpdatedAt: UPDATED_AT,
+    draftUpdatedAt: UPDATED_AT,
+  });
+  const awaitsLiveCopy = documentBodyAwaitsLiveCopy({
+    canEdit: args.canEdit,
+    suggesting: false,
+    liveCopyDocumentId: "page",
+    liveCopyStatus: args.liveCopyStatus,
+  });
+  const replacesStoredBody = useReplacesStoredBody("page", awaitsLiveCopy);
+  if (awaitsLiveCopy)
+    return createElement(
+      "div",
+      { className: "visual-editor-wrapper" },
+      createElement(StaticDocumentBody, {
+        schema: getContentEditorSchema(),
+        content,
+        documentId: "page",
+      }),
+    );
+  return createElement(VisualEditor, {
+    key: `${visualEditorInstanceKey({
+      documentId: "page",
+      documentUpdatedAt: UPDATED_AT,
+      isLocalFileDocument: false,
+      canEdit: args.canEdit,
+      collabEditorEnabled,
+      hasYDoc: ready,
+    })}${args.remount ?? ""}`,
+    visitKey: "route",
+    editorMountMode: args.canEdit ? "editing" : "readonly",
+    documentId: "page",
+    content,
+    contentUpdatedAt: UPDATED_AT,
+    contentRevision: "body:1",
+    ydoc: isolation.bindCanonicalYDoc ? args.ydoc : null,
+    replacesStoredBody,
+    collabSynced: true,
+    editable: isolation.editable,
+    onChange: () => {},
+  });
+}
+
 describe("an editor visit", () => {
   let container: HTMLDivElement;
   let root: Root;
   let queryClient: QueryClient;
-  let storedBodyShown: boolean;
 
   beforeEach(() => {
-    storedBodyShown = false;
     // The observer follows one visit per tab; each test is a fresh tab.
     observer.current = createEditorMountObserver(report, () => "visit");
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -174,61 +234,8 @@ describe("an editor visit", () => {
     );
   }
 
-  async function renderVisit(args: {
-    canEdit: boolean;
-    liveCopyStatus: "loading" | "ready";
-    ydoc: Y.Doc;
-    content?: string;
-  }) {
-    const content = args.content ?? BODY;
-    const ready = args.liveCopyStatus === "ready";
-    const collabEditorEnabled = args.canEdit && ready;
-    const isolation = suggestedEditorIsolation({
-      suggesting: false,
-      canSuggest: false,
-      canEdit: collabEditorEnabled,
-      collaborationReady: collabEditorEnabled,
-      canonicalUpdatedAt: UPDATED_AT,
-      draftUpdatedAt: UPDATED_AT,
-    });
-    const awaitsLiveCopy = documentBodyAwaitsLiveCopy({
-      canEdit: args.canEdit,
-      suggesting: false,
-      liveCopyDocumentId: "page",
-      liveCopyStatus: args.liveCopyStatus,
-    });
-    if (awaitsLiveCopy) storedBodyShown = true;
-    const body = awaitsLiveCopy
-      ? createElement(
-          "div",
-          { className: "visual-editor-wrapper" },
-          createElement(StaticDocumentBody, {
-            schema: getContentEditorSchema(),
-            content,
-            documentId: "page",
-          }),
-        )
-      : createElement(VisualEditor, {
-          key: visualEditorInstanceKey({
-            documentId: "page",
-            documentUpdatedAt: UPDATED_AT,
-            isLocalFileDocument: false,
-            canEdit: args.canEdit,
-            collabEditorEnabled,
-            hasYDoc: ready,
-          }),
-          visitKey: "route",
-          editorMountMode: args.canEdit ? "editing" : "readonly",
-          documentId: "page",
-          content,
-          contentUpdatedAt: UPDATED_AT,
-          contentRevision: "body:1",
-          ydoc: isolation.bindCanonicalYDoc ? args.ydoc : null,
-          replacesStoredBody: storedBodyShown,
-          collabSynced: true,
-          editable: isolation.editable,
-          onChange: () => {},
-        });
+  async function renderVisit(args: VisitProps) {
+    const body = createElement(Visit, args);
     await act(async () =>
       root.render(
         createElement(
@@ -345,6 +352,109 @@ describe("an editor visit", () => {
     expect(editableMarks()).toEqual([
       { name: "content-editable", editor, editable: true, hidden: false },
     ]);
+    ydoc.destroy();
+  });
+
+  it("shows a later remount's editor at once, with no stored body over it", async () => {
+    const content = [
+      "Intro paragraph.",
+      "",
+      '<callout icon="💡">',
+      "\tCallout text",
+      "</callout>",
+    ].join("\n");
+    const ydoc = liveCopyOf(content);
+    await renderVisit({
+      canEdit: true,
+      liveCopyStatus: "loading",
+      ydoc,
+      content,
+    });
+    await renderVisit({
+      canEdit: true,
+      liveCopyStatus: "ready",
+      ydoc,
+      content,
+    });
+    const handedOver = container.querySelector(".ProseMirror");
+
+    const editorWithheld: boolean[] = [];
+    const observer = new MutationObserver(() => {
+      const editor = container.querySelector(".ProseMirror");
+      editorWithheld.push(
+        Boolean(container.querySelector("[data-static-document-body]")) ||
+          Boolean(editor?.closest("[hidden]")),
+      );
+    });
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["hidden"],
+    });
+    await renderVisit({
+      canEdit: true,
+      liveCopyStatus: "ready",
+      ydoc,
+      content,
+      remount: ":again",
+    });
+    observer.disconnect();
+
+    const editor = container.querySelector(".ProseMirror");
+    expect(editor).not.toBe(handedOver);
+    expect(editorWithheld.length).toBeGreaterThan(0);
+    expect(editorWithheld).not.toContain(true);
+    ydoc.destroy();
+  });
+
+  it("starts an image the stored body could not load as broken in the editor", async () => {
+    const content = "![Alt text](https://example.com/missing.png)";
+    const ydoc = liveCopyOf(content);
+    await renderVisit({
+      canEdit: true,
+      liveCopyStatus: "loading",
+      ydoc,
+      content,
+    });
+    await act(async () => {
+      container
+        .querySelector("[data-static-document-body] img")!
+        .dispatchEvent(new Event("error"));
+    });
+    expect(
+      container.querySelector(
+        "[data-static-document-body] .media-block__broken",
+      ),
+    ).not.toBeNull();
+
+    const imageShown: boolean[] = [];
+    const observer = new MutationObserver(() => {
+      const editor = container.querySelector(".ProseMirror");
+      if (!editor || editor.closest("[hidden]")) return;
+      imageShown.push(
+        Boolean(editor.querySelector("img.media-block__content")),
+      );
+    });
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["hidden"],
+    });
+    await renderVisit({
+      canEdit: true,
+      liveCopyStatus: "ready",
+      ydoc,
+      content,
+    });
+    observer.disconnect();
+
+    const editor = container.querySelector(".ProseMirror");
+    expect(editor?.closest("[hidden]")).toBeNull();
+    expect(editor?.querySelector(".media-block__broken")).not.toBeNull();
+    expect(imageShown.length).toBeGreaterThan(0);
+    expect(imageShown).not.toContain(true);
     ydoc.destroy();
   });
 

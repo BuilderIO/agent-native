@@ -1592,7 +1592,10 @@ interface VisualEditorProps {
   ydoc?: YDoc | null;
   /** Shadow mode: compare saves with the body built from the live copy. */
   observeLiveBody?: boolean;
-  /** The stored body is on screen in this editor's place until it draws. */
+  /**
+   * The stored body is on screen in this editor's place until it draws. Read
+   * when the editor mounts.
+   */
   replacesStoredBody?: boolean;
   collabSynced?: boolean;
   awareness?: Awareness | null;
@@ -4235,11 +4238,8 @@ export function VisualEditor({
   // their blocks are empty and the page is shorter, so a layout read then pulls
   // the reader's scroll back to the top. An editor taking over from the stored
   // body leaves it up until they have drawn.
-  const [nodeViewsDrawnFor, setNodeViewsDrawnFor] = useState<
-    typeof editor | null
-  >(null);
-  const awaitingNodeViews =
-    replacesStoredBody && !!editor && nodeViewsDrawnFor !== editor;
+  const [holdsStoredBody, setHoldsStoredBody] = useState(replacesStoredBody);
+  const awaitingNodeViews = holdsStoredBody && !!editor;
   useLayoutEffect(() => {
     if (!editor || !awaitingNodeViews || awaitingInitialSeed) return;
     const dom = editor.view.dom;
@@ -4251,7 +4251,7 @@ export function VisualEditor({
         const first = renderer.firstElementChild;
         return !first || first.hasAttribute("data-node-view-content-react");
       });
-    const drawn = () => setNodeViewsDrawnFor(editor);
+    const drawn = () => setHoldsStoredBody(false);
     if (!undrawn().length) {
       drawn();
       return;
