@@ -123,6 +123,17 @@ describe("breakdownRowDimensions", () => {
     ).toEqual(["role"]);
   });
 
+  it("counts a measure that is blank in the clicked row by the other rows", () => {
+    expect(
+      breakdownRowDimensions(
+        undefined,
+        { role: "PM", people: 40, revenue: null },
+        "app",
+        [{ role: "Engineer", people: 60, revenue: 1200 }],
+      ),
+    ).toEqual(["role"]);
+  });
+
   it("keeps rows that share one value apart by the others", () => {
     const rows = [
       { role: "Engineer", team: "Core", app: "Builder", people: 30 },

@@ -57,7 +57,10 @@ let clearedSincePageLoad = false;
 
 export interface RowBreakdownSelection {
   row: Record<string, unknown>;
+  /** The table's rows in display order, for moving between them. */
   rows: Record<string, unknown>[];
+  /** Every row the panel query returned, before the table's row limit. */
+  resultRows: Record<string, unknown>[];
   /** When this row was opened; a breakdown fetched before then cost this row nothing. */
   openedAt: number;
 }
@@ -99,13 +102,20 @@ export function RowBreakdownSheet({
     breakdowns.find((item) => item.column === activeColumn) ?? breakdowns[0];
   const row = selection?.row;
   const panelRows = selection?.rows ?? [];
+  const resultRows = selection?.resultRows ?? [];
   const columns = useMemo(
     () => (row ? shownColumns(panel, row) : []),
     [panel, row],
   );
   const dimensions = useMemo(
-    () => breakdownRowDimensions(panel.config?.columns, row, activeColumn),
-    [panel.config?.columns, row, activeColumn],
+    () =>
+      breakdownRowDimensions(
+        panel.config?.columns,
+        row,
+        activeColumn,
+        resultRows,
+      ),
+    [panel.config?.columns, row, activeColumn, resultRows],
   );
   const sizeKey =
     columns.find(
@@ -114,7 +124,7 @@ export function RowBreakdownSheet({
   const panelSql = serializePanelSql(panel.sql);
   const plan = planBreakdown({
     column: activeColumn,
-    panelRows,
+    panelRows: resultRows,
     panelSql,
     vars: filters,
   });
@@ -136,7 +146,7 @@ export function RowBreakdownSheet({
   );
 
   const sourceRows =
-    plan.kind === "reuse" ? panelRows : (query.data?.rows ?? null);
+    plan.kind === "reuse" ? resultRows : (query.data?.rows ?? null);
   const table = useMemo(() => {
     if (!sourceRows || !row) return null;
     return buildBreakdownTable({
@@ -214,7 +224,12 @@ export function RowBreakdownSheet({
     const index = panelRows.indexOf(selection.row);
     const next = panelRows[index + offset];
     if (index >= 0 && next) {
-      onSelectionChange({ row: next, rows: panelRows, openedAt: Date.now() });
+      onSelectionChange({
+        row: next,
+        rows: panelRows,
+        resultRows,
+        openedAt: Date.now(),
+      });
     }
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

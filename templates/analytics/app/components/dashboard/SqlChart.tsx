@@ -1296,9 +1296,14 @@ interface SqlChartProps {
   extensionContext?: Record<string, unknown> | null;
 }
 
+/**
+ * `rows` are the table's rows in display order; `resultRows` are every row
+ * the query returned, before `config.limit`.
+ */
 export type TableRowClickHandler = (
   row: Record<string, unknown>,
   rows: Record<string, unknown>[],
+  resultRows: Record<string, unknown>[],
 ) => void;
 
 export function SqlChart({
@@ -2660,14 +2665,14 @@ function TableRenderer({
                         ) {
                           return;
                         }
-                        onRowClick(row, sortedRows);
+                        onRowClick(row, sortedRows, rows);
                       },
                       onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
                         // Keys on a link or button inside the row are theirs.
                         if (event.target !== event.currentTarget) return;
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
-                          onRowClick(row, sortedRows);
+                          onRowClick(row, sortedRows, rows);
                           return;
                         }
                         if (
@@ -2684,7 +2689,8 @@ function TableRenderer({
                         if (!next || !(sibling instanceof HTMLElement)) return;
                         event.preventDefault();
                         sibling.focus();
-                        if (isRowActive?.(row)) onRowClick(next, sortedRows);
+                        if (isRowActive?.(row))
+                          onRowClick(next, sortedRows, rows);
                       },
                     }
                   : {})}

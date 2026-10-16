@@ -256,7 +256,14 @@ export function SqlChartCard({
         onTableRowClick: (
           row: Record<string, unknown>,
           rows: Record<string, unknown>[],
-        ) => setBreakdownSelection({ row, rows, openedAt: Date.now() }),
+          resultRows: Record<string, unknown>[],
+        ) =>
+          setBreakdownSelection({
+            row,
+            rows,
+            resultRows,
+            openedAt: Date.now(),
+          }),
         isTableRowActive: (row: Record<string, unknown>) =>
           row === breakdownSelection?.row,
       }

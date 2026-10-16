@@ -93,28 +93,37 @@ export function sameCell(a: unknown, b: unknown): boolean {
 
 const NUMERIC_FORMATS = new Set(["number", "currency", "percent", "delta"]);
 
-function isMeasure(format: string | undefined, value: unknown): boolean {
+function isMeasure(
+  format: string | undefined,
+  key: string,
+  rows: readonly Record<string, unknown>[],
+): boolean {
   if (format) return NUMERIC_FORMATS.has(format);
-  return numberOrNull(value) !== null;
+  return rows.some((row) => numberOrNull(row[key]) !== null);
 }
 
 /**
  * The columns that name a row, and so match it to its breakdown rows: every
  * non-numeric column but the one being broken down by. Matching on all of
  * them, not just the first, keeps a table with repeated values (two rows for
- * Engineer, one per team) from mixing their splits.
+ * Engineer, one per team) from mixing their splits. An unformatted column is
+ * judged by every panel row, so a measure that is blank in the clicked row
+ * still counts as one.
  */
 export function breakdownRowDimensions(
   columns: readonly { key: string; format?: string }[] | undefined,
   row: Record<string, unknown> | undefined,
   breakdownColumn: string,
+  panelRows: readonly Record<string, unknown>[] = [],
 ): string[] {
   if (!row) return [];
+  const sample = [row, ...panelRows];
   const formats = new Map(
     (columns ?? []).map((column) => [column.key, column.format]),
   );
   return Object.keys(row).filter(
-    (key) => key !== breakdownColumn && !isMeasure(formats.get(key), row[key]),
+    (key) =>
+      key !== breakdownColumn && !isMeasure(formats.get(key), key, sample),
   );
 }
 
