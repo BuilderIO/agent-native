@@ -45,6 +45,9 @@ const mockRecordingMediaUrls = vi.hoisted(() =>
   ),
 );
 const mockSelectWhere = vi.hoisted(() => vi.fn());
+const mockLockRecording = vi.hoisted(() =>
+  vi.fn(async (_strength: string) => [{ id: "rec_1" }]),
+);
 const mockContextItemsWhere = vi.hoisted(() => vi.fn());
 const mockContextItemsTable = vi.hoisted(() => ({
   recordingId: "recordingContextItems.recordingId",
@@ -101,7 +104,19 @@ const mockDb = vi.hoisted(() => ({
           ? mockContextItemsWhere
           : table === mockDiagnosticsTable
             ? mockDiagnosticsWhere
-            : mockSelectWhere,
+            : (...args: unknown[]) => ({
+                // A plain read resolves through mockSelectWhere; the
+                // transaction's row lock goes to mockLockRecording instead.
+                then: (
+                  resolve: (rows: unknown) => unknown,
+                  reject: (err: unknown) => unknown,
+                ) =>
+                  Promise.resolve(mockSelectWhere(...args)).then(
+                    resolve,
+                    reject,
+                  ),
+                for: (strength: string) => mockLockRecording(strength),
+              }),
     })),
   })),
   delete: mockDbDelete,
@@ -328,38 +343,65 @@ describe("delete-recording-permanent", () => {
     expect(mockAdjustHostedClipRecordingBytes).toHaveBeenCalled();
   });
 
-  it("keeps the row and hosted quota when hosted media cleanup is incomplete", async () => {
+  it("keeps the bytes of hosted files it could not delete counted", async () => {
     mockExistingRecording.storageMode = "hosted";
-    mockDeleteRecordingMediaObjects.mockResolvedValueOnce({
+    const cleanup = {
       attempted: 2,
       deleted: 1,
       skipped: 1,
       external: 0,
       errors: [],
-    });
+    };
+    mockDeleteRecordingMediaObjects.mockResolvedValueOnce(cleanup);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
-      /could not be deleted from storage/,
-    );
+    const result = await deleteRecordingPermanent.run({ id: "rec_1" });
 
-    expect(mockDb.transaction).not.toHaveBeenCalled();
-    expect(mockDbDelete).not.toHaveBeenCalled();
+    expect(mockDb.transaction).toHaveBeenCalled();
+    expect(result).toMatchObject({ success: true, mediaCleanup: cleanup });
     expect(mockAdjustHostedClipRecordingBytes).not.toHaveBeenCalled();
     expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("1 of its hosted files could not be removed"),
+      [],
+    );
+    logged.mockRestore();
   });
 
-  it("deletes hosted media after the footage trash and before the row so a retry can still find it", async () => {
+  it("deletes hosted media after the footage trash and the row", async () => {
     mockExistingRecording.storageMode = "hosted";
 
     await deleteRecordingPermanent.run({ id: "rec_1" });
 
     expect(mockDeleteRecordingMediaObjects).toHaveBeenCalledTimes(1);
     expect(mockTrashContextFootage.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDbDelete.mock.invocationCallOrder[0],
+    );
+    expect(mockDbDelete.mock.invocationCallOrder.at(-1)).toBeLessThan(
       mockDeleteRecordingMediaObjects.mock.invocationCallOrder[0],
     );
-    expect(
-      mockDeleteRecordingMediaObjects.mock.invocationCallOrder[0],
-    ).toBeLessThan(mockDbDelete.mock.invocationCallOrder[0]);
+  });
+
+  it("keeps a hosted Clip and its video when the database delete fails", async () => {
+    mockExistingRecording.storageMode = "hosted";
+    mockDeleteWhere.mockRejectedValueOnce(new Error("delete failed"));
+
+    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
+      "delete failed",
+    );
+
+    expect(mockDeleteRecordingMediaObjects).not.toHaveBeenCalled();
+    expect(mockAdjustHostedClipRecordingBytes).not.toHaveBeenCalled();
+    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
+  });
+
+  it("locks the recording before deleting anything that hangs off it", async () => {
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(mockLockRecording).toHaveBeenCalledWith("update");
+    expect(mockLockRecording.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDbDelete.mock.invocationCallOrder[0],
+    );
   });
 
   it("releases a pending hosted reservation only after media cleanup succeeds", async () => {

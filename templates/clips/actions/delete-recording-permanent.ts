@@ -237,36 +237,15 @@ export default defineAction({
       .from(schema.recordingBrowserDiagnostics)
       .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
 
-    // Hosted media goes after every other fallible step and just before the
-    // row: once the row is gone nothing can find the objects or the allowance,
-    // so an unconfirmed delete would strand both, while an earlier delete
-    // would leave a surviving row pointing at deleted objects. Deleting an
-    // already-deleted object succeeds, so a retry finishes it.
-    const cleanupProtectedUrls = new Set([...protectedUrls, ...alreadyDeleted]);
-    let hostedMediaCleanup: Awaited<
-      ReturnType<typeof deleteRecordingMediaObjects>
-    > | null = null;
-    if (hostedAllowance) {
-      hostedMediaCleanup = await deleteRecordingMediaObjects(existing, {
-        protectedUrls: cleanupProtectedUrls,
-      });
-      const unprotectedUrls = mediaUrls.filter(
-        (url) => !cleanupProtectedUrls.has(url),
-      );
-      if (
-        hostedMediaCleanup.deleted + hostedMediaCleanup.external <
-        unprotectedUrls.length
-      ) {
-        fail(
-          "Hosted media for this recording could not be deleted from storage, so the recording was kept. Try again later.",
-          { errorCode: "hosted_media_cleanup_incomplete", statusCode: 502 },
-        );
-      }
-    }
-
     await db.transaction(async (tx) => {
-      // Cascade delete every related row before deleting remote objects. If any
-      // DB delete fails, the transaction rolls back and provider media stays put.
+      // The recording is locked before anything that hangs off it, the order
+      // apply-rewind-extension takes, so the two cannot deadlock.
+      const [locked] = await tx
+        .select({ id: schema.recordings.id })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.id))
+        .for("update");
+      if (!locked) throw new Error(`Recording not found: ${args.id}`);
       await tx
         .delete(schema.recordingComments)
         .where(eq(schema.recordingComments.recordingId, args.id));
@@ -314,13 +293,26 @@ export default defineAction({
         .where(eq(schema.recordings.id, args.id));
     });
 
-    const mediaCleanup =
-      hostedMediaCleanup ??
-      (await deleteRecordingMediaObjects(existing, {
-        protectedUrls: cleanupProtectedUrls,
-      }));
+    // Media goes only once its rows are gone, so a failed delete above leaves
+    // the Clip whole. A file that fails here stays in storage and nothing
+    // sweeps it later. Its hosted bytes stay counted, because each delete
+    // subtracts only the bytes it removed, and the log names the recording.
+    const cleanupProtectedUrls = new Set([...protectedUrls, ...alreadyDeleted]);
+    const mediaCleanup = await deleteRecordingMediaObjects(existing, {
+      protectedUrls: cleanupProtectedUrls,
+    });
+    const hostedFilesLeft = hostedAllowance
+      ? mediaUrls.filter((url) => !cleanupProtectedUrls.has(url)).length -
+        mediaCleanup.deleted -
+        mediaCleanup.external
+      : 0;
 
-    if (hostedAllowance) {
+    if (hostedFilesLeft > 0) {
+      console.error(
+        `[delete-recording-permanent] deleted ${args.id}, but ${hostedFilesLeft} of its hosted files could not be removed from storage; their bytes stay counted.`,
+        mediaCleanup.errors,
+      );
+    } else if (hostedAllowance) {
       if (hostedAllowance.status === "consumed") {
         const adjustment = await adjustHostedClipRecordingBytes({
           recordingId: args.id,
