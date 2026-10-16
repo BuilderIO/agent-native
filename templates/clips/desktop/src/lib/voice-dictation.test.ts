@@ -275,6 +275,7 @@ describe("desktop voice dictation runs", () => {
       } else {
         await release();
         emitFinal(started.runId!, "recognized words");
+        await vi.advanceTimersByTimeAsync(250);
       }
       await settle();
 
@@ -312,6 +313,11 @@ describe("desktop voice dictation runs", () => {
       "complete_voice_dictation",
       expect.anything(),
     );
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("hide_flow_bar");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(stateChanges().at(-1)).toMatchObject({ state: "idle" });
+    expect(tauri.invoke).toHaveBeenCalledWith("hide_flow_bar");
   });
 
   it("classifies a native no-speech event separately from provider failure", async () => {
@@ -326,6 +332,29 @@ describe("desktop voice dictation runs", () => {
       state: "error",
       failure: "no-speech",
     });
+  });
+
+  it("includes late final transcript events received just after stop", async () => {
+    const started = await startDictation("macos-native");
+    dispose = started.dispose;
+    await release();
+
+    emitFinal(started.runId!, "first segment");
+    await vi.advanceTimersByTimeAsync(100);
+    emitFinal(started.runId!, "late segment");
+    await vi.advanceTimersByTimeAsync(249);
+
+    expect(tauri.invoke).not.toHaveBeenCalledWith(
+      "complete_voice_dictation",
+      expect.anything(),
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    await settle();
+
+    expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+      text: "first segment late segment",
+    });
+    expect(stateChanges().at(-1)).toMatchObject({ state: "complete" });
   });
 
   it("clears a cancelled native startup before accepting the next run", async () => {
@@ -546,4 +575,144 @@ describe("desktop voice dictation runs", () => {
     });
     expect(tauri.invoke).toHaveBeenCalledWith("hide_flow_bar");
   });
+
+  it("keeps history recovery until its matching dismissal, then allows a new run", async () => {
+    let historyAttempts = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("transcribe-voice")) {
+        return jsonResponse({ text: "recognized words" });
+      }
+      if (url.includes("create-dictation")) {
+        historyAttempts += 1;
+        if (historyAttempts === 1) {
+          return {
+            ok: false,
+            status: 503,
+            text: async () => JSON.stringify({ error: "try again" }),
+          } as Response;
+        }
+        const body = JSON.parse(String(init?.body));
+        return jsonResponse({ id: body.id });
+      }
+      return jsonResponse({
+        builder: false,
+        gemini: false,
+        groq: false,
+        native: false,
+      });
+    });
+    const started = await startDictation("auto");
+    dispose = started.dispose;
+    const recorder = FakeRecorder.instances[0];
+    recorder.ondataavailable?.({ data: new Blob(["audio"]) });
+    await release();
+    await recorder.onstop?.();
+    await settle();
+
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "error",
+      failure: "history-save",
+      retryHistory: true,
+      recoverable: true,
+    });
+    await dispatch("voice:shortcut-start", { source: "fn" });
+    expect(FakeRecorder.instances).toHaveLength(1);
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "error",
+      runId: started.runId,
+      retryHistory: true,
+    });
+
+    await dispatch("voice:dismiss-recovery", {
+      runId: started.runId! + 1,
+    });
+    await dispatch("voice:shortcut-start", { source: "fn" });
+    expect(FakeRecorder.instances).toHaveLength(1);
+
+    await dispatch("voice:dismiss-recovery", { runId: started.runId });
+    await dispatch("voice:shortcut-start", { source: "fn" });
+    expect(FakeRecorder.instances).toHaveLength(2);
+    expect(stateChanges().at(-1)).toMatchObject({ state: "recording" });
+    expect(stateChanges().at(-1)?.runId).toBeGreaterThan(started.runId!);
+  });
+
+  it.each(["pasting", "saving-history"] as const)(
+    "does not hide recoverable controls when cancellation arrives during %s",
+    async (stage) => {
+      let rejectInsertion!: (error: Error) => void;
+      let rejectHistorySave!: (error: Error) => void;
+      tauri.invoke.mockImplementation((command) => {
+        if (command === "complete_voice_dictation" && stage === "pasting") {
+          return new Promise<unknown>((_resolve, reject) => {
+            rejectInsertion = reject;
+          });
+        }
+        if (command === "copy_voice_dictation") {
+          return Promise.reject(new Error("copy failed"));
+        }
+        return Promise.resolve(
+          command === "complete_voice_dictation" ? "inserted" : undefined,
+        );
+      });
+      clipboard.writeText.mockRejectedValue(new Error("copy failed"));
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.includes("transcribe-voice")) {
+          return jsonResponse({ text: "recognized words" });
+        }
+        if (url.includes("create-dictation")) {
+          if (stage === "saving-history") {
+            return new Promise<Response>((_resolve, reject) => {
+              rejectHistorySave = reject;
+            });
+          }
+          const body = JSON.parse(String(init?.body));
+          return jsonResponse({ id: body.id });
+        }
+        return jsonResponse({
+          builder: false,
+          gemini: false,
+          groq: false,
+          native: false,
+        });
+      });
+      const started = await startDictation("auto");
+      dispose = started.dispose;
+      const recorder = FakeRecorder.instances[0];
+      recorder.ondataavailable?.({ data: new Blob(["audio"]) });
+      await release();
+      void recorder.onstop?.();
+      await settle();
+
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "processing",
+        stage,
+      });
+      tauri.invoke.mockClear();
+      await dispatch("voice:cancel");
+      await vi.advanceTimersByTimeAsync(250);
+      expect(tauri.invoke).not.toHaveBeenCalledWith("hide_flow_bar");
+
+      if (stage === "pasting") {
+        rejectInsertion(new Error("paste failed"));
+      } else {
+        rejectHistorySave(new Error("history save failed"));
+      }
+      await settle();
+
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "error",
+        recoverable: true,
+        transcript: "recognized words",
+        failure: stage === "pasting" ? "paste" : "history-save",
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "error",
+        recoverable: true,
+      });
+      expect(tauri.invoke).not.toHaveBeenCalledWith("hide_flow_bar");
+    },
+  );
 });

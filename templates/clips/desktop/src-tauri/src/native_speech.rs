@@ -104,6 +104,9 @@ pub(crate) mod macos {
     use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
 
+    use crate::speech_capture_ownership::{
+        claim as claim_speech_capture, SpeechCaptureEngine, SpeechCaptureLease, SpeechCaptureOwner,
+    };
     use block2::{RcBlock, StackBlock};
     use dispatch2::{DispatchQueue, DispatchRetained};
     use objc2::rc::Retained;
@@ -146,6 +149,7 @@ pub(crate) mod macos {
     const SPEECH_USAGE_DESCRIPTION_KEY: &str = "NSSpeechRecognitionUsageDescription";
     const SPEECH_USAGE_DESCRIPTION_ERROR: &str =
         "Clips cannot start macOS speech recognition because the app bundle is missing NSSpeechRecognitionUsageDescription.";
+    const START_SUPERSEDED: &str = "speech-engine-start-superseded";
 
     fn is_macos_app_bundle_path(path: &std::path::Path) -> bool {
         let Some(contents) = path.parent().and_then(|path| path.parent()) else {
@@ -263,6 +267,7 @@ pub(crate) mod macos {
         cancelled: Arc<AtomicBool>,
         stopped: Arc<AtomicBool>,
         owner: SessionOwner,
+        _capture_lease: SpeechCaptureLease,
     }
 
     enum SpeechAudio {
@@ -528,6 +533,14 @@ pub(crate) mod macos {
 
     fn stop_generation_changed(start_stop_generation: u64, current_stop_generation: u64) -> bool {
         start_stop_generation != current_stop_generation
+    }
+
+    fn start_authority_result(is_current: bool) -> Result<(), &'static str> {
+        if is_current {
+            Ok(())
+        } else {
+            Err(START_SUPERSEDED)
+        }
     }
 
     fn superseded_start_result(
@@ -1614,16 +1627,23 @@ pub(crate) mod macos {
         restart_guard: Option<RestartGuard>,
         restart_reserved_generation: Option<Arc<AtomicU64>>,
     ) -> Result<(), String> {
-        if owner == SessionOwner::Dictation && !begin_dictation_run(run_id) {
-            return Ok(());
+        let capture_lease = claim_speech_capture(
+            match owner {
+                SessionOwner::Dictation => SpeechCaptureOwner::Dictation,
+                SessionOwner::Meeting => SpeechCaptureOwner::Meeting,
+            },
+            SpeechCaptureEngine::Native,
+        )
+        .map_err(str::to_owned)?;
+        if owner == SessionOwner::Dictation {
+            start_authority_result(begin_dictation_run(run_id)).map_err(str::to_owned)?;
         }
         if owner == SessionOwner::Meeting {
             let mut authority = meeting_run_authority()
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if !begin_meeting_run(&mut authority, run_id) {
-                return Ok(());
-            }
+            start_authority_result(begin_meeting_run(&mut authority, run_id))
+                .map_err(str::to_owned)?;
         }
 
         let start_stop_generation = owner_stop_generation(owner).load(Ordering::SeqCst);
@@ -1918,6 +1938,7 @@ pub(crate) mod macos {
             cancelled,
             stopped,
             owner,
+            _capture_lease: capture_lease,
         };
         let installed = {
             let authority = dictation_run_authority()
@@ -2401,10 +2422,10 @@ pub(crate) mod macos {
             native_speech_voice_processing_mode, put_session_if_current_generation,
             register_dictation_stop, restart_guard_is_current, restart_setup_is_current,
             restore_stopped_session, retain_session_until_callback, session_registry_start_error,
-            session_start_error, stop_generation_changed, superseded_start_result,
-            take_sessions_if_generation_matches, DictationRunAuthority, MeetingRunAuthority,
-            MicVoiceProcessingMode, PendingSpeechStart, RestartGuard, SessionOwner,
-            SessionRegistry, StoppedSessionDisposition,
+            session_start_error, start_authority_result, stop_generation_changed,
+            superseded_start_result, take_sessions_if_generation_matches, DictationRunAuthority,
+            MeetingRunAuthority, MicVoiceProcessingMode, PendingSpeechStart, RestartGuard,
+            SessionOwner, SessionRegistry, StoppedSessionDisposition,
         };
         use std::sync::Arc;
 
@@ -2422,6 +2443,15 @@ pub(crate) mod macos {
                 session_start_error(SessionOwner::Meeting, SessionOwner::Meeting),
                 None
             );
+        }
+
+        #[test]
+        fn rejected_native_start_returns_a_typed_failure() {
+            assert_eq!(
+                start_authority_result(false),
+                Err("speech-engine-start-superseded")
+            );
+            assert_eq!(start_authority_result(true), Ok(()));
         }
 
         #[test]

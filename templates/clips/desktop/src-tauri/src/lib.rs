@@ -29,6 +29,7 @@ mod screen_memory_transcript;
 mod sentry_report;
 mod shortcuts;
 mod silence_detector;
+mod speech_capture_ownership;
 mod state;
 mod system_audio;
 mod tray;

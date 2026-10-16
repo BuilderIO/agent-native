@@ -151,6 +151,7 @@ interface VoiceSession extends DictationHistoryContext {
   cleanupProvider?: ServerVoiceProvider | null;
   finalizationStage?: DictationFinalizationStage;
   finalizationPromise?: Promise<DictationFinalizationResult>;
+  nativeFinalizeTimer?: number;
 }
 
 type DictationTimingPhase = "release" | "finalization" | "cleanup" | "paste";
@@ -618,7 +619,11 @@ export function installDesktopVoiceDictation(
       state === "complete" ? "completed" : state === "error" ? "failed" : state;
     if (!lifecycle.finish(runId, phase)) return false;
     setFlowState(state, undefined, { ...details, runId });
-    if (dismissAfterMs !== undefined) dismissRunAfter(runId, dismissAfterMs);
+    if (dismissAfterMs !== undefined) {
+      dismissRunAfter(runId, dismissAfterMs);
+    } else if (state === "error" && details.recoverable !== true) {
+      dismissRunAfter(runId, 2_000);
+    }
     return true;
   };
 
@@ -839,7 +844,7 @@ export function installDesktopVoiceDictation(
   };
 
   const start = async (triggerSource?: VoiceShortcutSource) => {
-    if (disposed || !enabled) return;
+    if (disposed || !enabled || recoveryContext) return;
     const waitStart = Date.now();
     while (
       !disposed &&
@@ -864,7 +869,6 @@ export function installDesktopVoiceDictation(
     }
     if (runId === null) return;
 
-    recoveryContext = null;
     startInFlight = true;
     startInFlightRunId = runId;
     stopRequestedBeforeReady = false;
@@ -1682,27 +1686,37 @@ export function installDesktopVoiceDictation(
     }
   };
 
-  const cancel = () => {
-    setHandsFreeActive(false);
-    pendingHandsFreeTapAt = null;
+  const cancel = (): boolean => {
     const current = session ?? lingeringSession;
     if (!current) {
-      stopRequestedBeforeReady = true;
       const runId = lifecycle.snapshot()?.runId;
       if (startInFlight && runId && lifecycle.isActive(runId)) {
+        setHandsFreeActive(false);
+        pendingHandsFreeTapAt = null;
+        stopRequestedBeforeReady = true;
         abortPendingStart(runId);
-      } else {
-        invoke("hide_flow_bar").catch(() => {});
+        return true;
       }
-      return;
+      if (recoveryContext) return false;
+      setHandsFreeActive(false);
+      pendingHandsFreeTapAt = null;
+      stopRequestedBeforeReady = true;
+      invoke("hide_flow_bar").catch(() => {});
+      return true;
     }
     if (
       current.finalizationStage === "pasting" ||
       current.finalizationStage === "saving-history"
     ) {
-      return;
+      return false;
     }
+    setHandsFreeActive(false);
+    pendingHandsFreeTapAt = null;
     current.cancelled = true;
+    if (current.nativeFinalizeTimer !== undefined) {
+      window.clearTimeout(current.nativeFinalizeTimer);
+      current.nativeFinalizeTimer = undefined;
+    }
     current.transcribeAbort?.abort();
     if (!current.stopping) {
       current.stopping = true;
@@ -1742,6 +1756,7 @@ export function installDesktopVoiceDictation(
     emit("voice:partial-transcript", { text: "", runId: current.runId }).catch(
       () => {},
     );
+    return true;
   };
 
   const stop = () => {
@@ -1824,6 +1839,10 @@ export function installDesktopVoiceDictation(
         const stopAtMs = Date.now();
         const finalize = (reason: "final" | "timeout") => {
           if (lingering.nativeFinalizationStarted) return;
+          if (lingering.nativeFinalizeTimer !== undefined) {
+            window.clearTimeout(lingering.nativeFinalizeTimer);
+            lingering.nativeFinalizeTimer = undefined;
+          }
           lingering.nativeFinalizationStarted = true;
           if (!isRunActive(lingering)) {
             cleanup(lingering);
@@ -1858,7 +1877,16 @@ export function installDesktopVoiceDictation(
               }).catch(() => {});
             });
         };
-        lingering.onNativeFinalize = () => finalize("final");
+        lingering.onNativeFinalize = () => {
+          if (lingering.nativeFinalizationStarted) return;
+          if (lingering.nativeFinalizeTimer !== undefined) {
+            window.clearTimeout(lingering.nativeFinalizeTimer);
+          }
+          lingering.nativeFinalizeTimer = window.setTimeout(
+            () => finalize("final"),
+            250,
+          );
+        };
         void stopRequest.catch((err) => {
           console.warn(`[voice-dictation] ${stopCmd} failed:`, err);
           if (lifecycle.isActive(lingering.runId)) {
@@ -2072,6 +2100,10 @@ export function installDesktopVoiceDictation(
         cleanup(current);
         return;
       }
+      if (current.nativeFinalizeTimer !== undefined) {
+        window.clearTimeout(current.nativeFinalizeTimer);
+        current.nativeFinalizeTimer = undefined;
+      }
       current.nativeFinalizationStarted = true;
       if (session === current) session = null;
       lingeringSession = current;
@@ -2197,6 +2229,23 @@ export function installDesktopVoiceDictation(
   );
 
   registerListener(
+    listen<{ runId?: number }>("voice:dismiss-recovery", (event) => {
+      const runId = event.payload?.runId;
+      if (
+        typeof runId !== "number" ||
+        !Number.isSafeInteger(runId) ||
+        recoveryContext?.runId !== runId
+      ) {
+        return;
+      }
+      recoveryContext = null;
+      if (lifecycle.isLatest(runId)) {
+        setFlowState("idle", undefined, { runId });
+      }
+    }),
+  );
+
+  registerListener(
     listen<VoiceShortcutEvent>("voice:shortcut-start", (event) => {
       if (!acceptsShortcut(event.payload?.source)) return;
       if (mode === "toggle" && (session || startInFlight)) {
@@ -2248,7 +2297,7 @@ export function installDesktopVoiceDictation(
   );
   registerListener(
     listen("voice:cancel", () => {
-      cancel();
+      if (!cancel()) return;
       const sessionAtCancel = session;
       const lingeringAtCancel = lingeringSession;
       window.setTimeout(() => {

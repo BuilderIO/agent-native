@@ -146,6 +146,9 @@ mod macos {
     use crate::native_speech::macos::{
         start_raw_mic_capture, MicVoiceProcessingMode, RawMicCapture,
     };
+    use crate::speech_capture_ownership::{
+        claim as claim_speech_capture, SpeechCaptureEngine, SpeechCaptureLease, SpeechCaptureOwner,
+    };
     use crate::system_audio::macos::{
         start_raw_meeting_capture, start_raw_system_capture, supports_sck_microphone_capture,
         RawSckAudioCapture,
@@ -153,6 +156,7 @@ mod macos {
     use crate::whisper_model::{ensure_model, model_file};
 
     const MEETING_AUDIO_OWNER: &str = "meeting-whisper";
+    const START_SUPERSEDED: &str = "speech-engine-start-superseded";
 
     const SHARED_LEVEL_EVERY: u32 = 3;
 
@@ -924,6 +928,7 @@ mod macos {
         sys: Option<Arc<WhisperStream>>,
         owner: SessionOwner,
         run_id: Option<u64>,
+        _capture_lease: SpeechCaptureLease,
     }
 
     impl Drop for Session {
@@ -977,7 +982,6 @@ mod macos {
             || (authority.latest_run_id == Some(run_id)
                 && (authority.latest_owner != Some(owner)
                     || authority.cancelled_run_ids.contains(&run_id)))
-            || active_run_owner_conflict(authority, owner, run_id).is_some()
         {
             return false;
         }
@@ -1013,18 +1017,26 @@ mod macos {
         true
     }
 
-    fn begin_run(owner: SessionOwner, run_id: Option<u64>) -> Result<bool, &'static str> {
+    fn begin_run_result(
+        authority: &mut RunAuthority,
+        owner: SessionOwner,
+        run_id: u64,
+    ) -> Result<(), &'static str> {
+        if begin_run_authority(authority, owner, run_id) {
+            Ok(())
+        } else {
+            Err(START_SUPERSEDED)
+        }
+    }
+
+    fn begin_run(owner: SessionOwner, run_id: Option<u64>) -> Result<(), &'static str> {
         let Some(run_id) = run_id else {
-            return Ok(true);
+            return Ok(());
         };
         let mut latest = latest_run_id_slot()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(active_owner) = active_run_owner_conflict(&latest, owner, run_id) {
-            return Err(session_start_error(active_owner, owner)
-                .expect("different session owners always conflict"));
-        }
-        Ok(begin_run_authority(&mut latest, owner, run_id))
+        begin_run_result(&mut latest, owner, run_id)
     }
 
     fn run_is_current(authority: &RunAuthority, owner: SessionOwner, run_id: u64) -> bool {
@@ -1054,6 +1066,14 @@ mod macos {
         owner: SessionOwner,
         run_id: Option<u64>,
     ) -> Result<(), String> {
+        let capture_lease = claim_speech_capture(
+            match owner {
+                SessionOwner::Dictation => SpeechCaptureOwner::Dictation,
+                SessionOwner::Meeting => SpeechCaptureOwner::Meeting,
+            },
+            SpeechCaptureEngine::Whisper,
+        )
+        .map_err(str::to_owned)?;
         {
             let slot = session_slot().lock().map_err(|e| e.to_string())?;
             if let Some(prev) = slot.as_ref() {
@@ -1062,9 +1082,7 @@ mod macos {
                 }
             }
         }
-        if !begin_run(owner, run_id).map_err(str::to_owned)? {
-            return Ok(());
-        }
+        begin_run(owner, run_id).map_err(str::to_owned)?;
 
         stop(&app, Some(owner), run_id, true);
 
@@ -1073,7 +1091,7 @@ mod macos {
             e
         })?;
         if !run_is_current_now(owner, run_id) {
-            return Ok(());
+            return Err(START_SUPERSEDED.into());
         }
         let ctx = context(&app).map_err(|e| {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
@@ -1085,7 +1103,7 @@ mod macos {
             msg
         })?;
         if !run_is_current_now(owner, run_id) {
-            return Ok(());
+            return Err(START_SUPERSEDED.into());
         }
 
         let _ = language;
@@ -1211,7 +1229,7 @@ mod macos {
                 if let Some(sys_stream) = &sys_stream {
                     sys_stream.stop();
                 }
-                return Ok(());
+                return Err(START_SUPERSEDED.into());
             }
         }
 
@@ -1319,7 +1337,7 @@ mod macos {
             if let Some(sys_cap) = sys_cap {
                 sys_cap.stop();
             }
-            return Ok(());
+            return Err(START_SUPERSEDED.into());
         }
         let mut slot = match session_slot().lock() {
             Ok(slot) => slot,
@@ -1369,6 +1387,7 @@ mod macos {
             sys: sys_stream,
             owner,
             run_id,
+            _capture_lease: capture_lease,
         });
         eprintln!(
             "[whisper] transcription started (mic{})",
@@ -1502,16 +1521,16 @@ mod macos {
         use std::time::{Duration, Instant};
 
         use super::{
-            active_run_owner_conflict, begin_run_authority, buffer_start_after_drain,
-            cancel_run_authority, clean_transcript, partial_inference_due,
-            partial_inference_timestamp, resample_to_16k, run_is_current, session_start_error,
-            should_use_combined_sck_capture, split_mic_capture_options, timeline_start_for_offset,
-            utterance_finalize_due, IncrementalResample, RunAuthority, SessionOwner,
+            begin_run_authority, begin_run_result, buffer_start_after_drain, cancel_run_authority,
+            clean_transcript, partial_inference_due, partial_inference_timestamp, resample_to_16k,
+            run_is_current, session_start_error, should_use_combined_sck_capture,
+            split_mic_capture_options, timeline_start_for_offset, utterance_finalize_due,
+            IncrementalResample, RunAuthority, SessionOwner, START_SUPERSEDED,
         };
         use crate::native_speech::macos::MicVoiceProcessingMode;
 
         #[test]
-        fn active_dictation_cannot_be_replaced_by_meeting_audio() {
+        fn a_failed_dictation_start_does_not_block_a_later_meeting_start() {
             let mut authority = RunAuthority::default();
             assert!(begin_run_authority(
                 &mut authority,
@@ -1519,31 +1538,33 @@ mod macos {
                 10
             ));
 
-            assert_eq!(
-                active_run_owner_conflict(&authority, SessionOwner::Meeting, 11),
-                Some(SessionOwner::Dictation)
-            );
-            assert!(!begin_run_authority(
-                &mut authority,
-                SessionOwner::Meeting,
-                11
-            ));
-            assert!(run_is_current(&authority, SessionOwner::Dictation, 10));
-            assert_eq!(
-                session_start_error(SessionOwner::Dictation, SessionOwner::Meeting),
-                Some("speech-engine-busy-dictation")
-            );
-
-            assert!(cancel_run_authority(
-                &mut authority,
-                SessionOwner::Dictation,
-                10
-            ));
             assert!(begin_run_authority(
                 &mut authority,
                 SessionOwner::Meeting,
                 11
             ));
+            assert!(!run_is_current(&authority, SessionOwner::Dictation, 10));
+            assert!(run_is_current(&authority, SessionOwner::Meeting, 11));
+            assert_eq!(
+                session_start_error(SessionOwner::Dictation, SessionOwner::Meeting),
+                Some("speech-engine-busy-dictation")
+            );
+        }
+
+        #[test]
+        fn stale_whisper_start_returns_a_typed_failure() {
+            let mut authority = RunAuthority::default();
+            assert!(begin_run_authority(
+                &mut authority,
+                SessionOwner::Dictation,
+                12
+            ));
+
+            assert_eq!(
+                begin_run_result(&mut authority, SessionOwner::Dictation, 11),
+                Err(START_SUPERSEDED)
+            );
+            assert!(run_is_current(&authority, SessionOwner::Dictation, 12));
         }
 
         #[test]

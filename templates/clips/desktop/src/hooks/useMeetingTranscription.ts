@@ -33,6 +33,7 @@ export interface MeetingTranscriptionPayload {
 interface MeetingTranscriptionSession {
   meetingId: string;
   audioRunId: number;
+  settlingRunDeadlines: Map<number, number>;
   recordingId: string | null;
   lines: TranscriptLine[];
   unlisten: Array<() => void>;
@@ -78,6 +79,24 @@ interface Props {
 
 const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
 const MEETING_ENDED_POLL_MS = 30_000;
+const TRANSCRIPTION_STOP_SETTLE_MS = 1_500;
+
+function acceptsFinalTranscriptRun(
+  runId: number | undefined,
+  activeRunId: number,
+  settlingRunDeadlines: Map<number, number>,
+  receivedAt: number,
+): boolean {
+  for (const [settlingRunId, deadline] of settlingRunDeadlines) {
+    if (deadline < receivedAt) settlingRunDeadlines.delete(settlingRunId);
+  }
+
+  return (
+    runId === activeRunId ||
+    (typeof runId === "number" &&
+      (settlingRunDeadlines.get(runId) ?? 0) >= receivedAt)
+  );
+}
 
 function unlistenAll(unlisteners: Array<() => void>): void {
   for (const unlisten of unlisteners) {
@@ -327,6 +346,7 @@ export function useMeetingTranscription({
         const session: MeetingTranscriptionSession = {
           meetingId,
           audioRunId: allocateVoiceRunId(),
+          settlingRunDeadlines: new Map(),
           recordingId: null,
           lines: [],
           unlisten: [],
@@ -371,7 +391,16 @@ export function useMeetingTranscription({
         addUnlisten(
           onFinalTranscript((event) => {
             if (sessionRef.current !== session) return;
-            if (event.runId !== session.audioRunId) return;
+            if (
+              !acceptsFinalTranscriptRun(
+                event.runId,
+                session.audioRunId,
+                session.settlingRunDeadlines,
+                Date.now(),
+              )
+            ) {
+              return;
+            }
             const timelineEvent = session.liveTimelineOffsetMs
               ? {
                   ...event,
@@ -508,9 +537,11 @@ export function useMeetingTranscription({
                 await invoke("silence_detector_stop").catch(() => {});
                 if (!sessionIsActive()) return;
                 try {
-                  await stopTranscriptionEngine(
-                    session.engine,
-                    session.audioRunId,
+                  const pausedRunId = session.audioRunId;
+                  await stopTranscriptionEngine(session.engine, pausedRunId);
+                  session.settlingRunDeadlines.set(
+                    pausedRunId,
+                    Date.now() + TRANSCRIPTION_STOP_SETTLE_MS,
                   );
                 } catch (err) {
                   if (!sessionIsActive()) return;

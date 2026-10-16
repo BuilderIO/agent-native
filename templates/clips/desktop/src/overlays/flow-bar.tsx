@@ -148,9 +148,16 @@ export function FlowBar() {
     void emit("voice:accept").catch(() => {});
   };
 
-  const handleDismiss = () => {
-    void invoke("set_flow_bar_expanded", { expanded: false }).catch(() => {});
-    void invoke("hide_flow_bar").catch(() => {});
+  const handleDismiss = async () => {
+    if (recoveryVisible && Number.isSafeInteger(payload.runId)) {
+      try {
+        await emit("voice:dismiss-recovery", { runId: payload.runId });
+      } catch {
+        return;
+      }
+    }
+    await invoke("set_flow_bar_expanded", { expanded: false }).catch(() => {});
+    await invoke("hide_flow_bar").catch(() => {});
   };
 
   const copyTranscript = async () => {

@@ -493,6 +493,21 @@ describe("meeting microphone capture", () => {
     });
   });
 
+  it("preserves a superseded rejection from native fallback", async () => {
+    const supersededError = "speech-engine-start-superseded";
+    invokeMock
+      .mockRejectedValueOnce(new Error("local meeting capture unavailable"))
+      .mockRejectedValueOnce(supersededError);
+
+    await expect(startTranscriptionEngine({})).rejects.toBe(supersededError);
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "native_speech_start",
+      expect.objectContaining({ owner: "meeting" }),
+    );
+  });
+
   it("does not fall back when dictation owns the speech engine", async () => {
     const busyError = "speech-engine-busy-dictation";
     invokeMock.mockRejectedValueOnce(busyError);
@@ -502,6 +517,23 @@ describe("meeting microphone capture", () => {
         mic: { deviceId: "mic-1", label: "Built-in Microphone" },
       }),
     ).rejects.toBe(busyError);
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "audio_transcription_start",
+      expect.objectContaining({ owner: "meeting" }),
+    );
+  });
+
+  it("does not fall back when a newer run supersedes Whisper startup", async () => {
+    const supersededError = "speech-engine-start-superseded";
+    invokeMock.mockRejectedValueOnce(supersededError);
+
+    await expect(
+      startTranscriptionEngine({
+        mic: { deviceId: "mic-1", label: "Built-in Microphone" },
+      }),
+    ).rejects.toBe(supersededError);
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
     expect(invokeMock).toHaveBeenCalledWith(
@@ -525,6 +557,34 @@ describe("meeting microphone capture", () => {
         mic: { deviceId: "old-device-id", label: "Disconnected headset" },
       }),
     ).rejects.toBe(busyError);
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock).toHaveBeenNthCalledWith(
+      2,
+      "audio_transcription_start",
+      expect.objectContaining({
+        owner: "meeting",
+        micDeviceId: null,
+        micDeviceLabel: null,
+      }),
+    );
+  });
+
+  it("does not start native speech if the default-mic retry is superseded", async () => {
+    const supersededError = "speech-engine-start-superseded";
+    invokeMock
+      .mockRejectedValueOnce(
+        new Error(
+          "Selected microphone 'old-device-id' is not available to ScreenCaptureKit.",
+        ),
+      )
+      .mockRejectedValueOnce(supersededError);
+
+    await expect(
+      startTranscriptionEngine({
+        mic: { deviceId: "old-device-id", label: "Disconnected headset" },
+      }),
+    ).rejects.toBe(supersededError);
 
     expect(invokeMock).toHaveBeenCalledTimes(2);
     expect(invokeMock).toHaveBeenNthCalledWith(
