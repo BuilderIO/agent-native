@@ -9,8 +9,7 @@
 import type { DbExec } from "./client.js";
 
 /** Tables whose rows are migration bookkeeping, dumped with their data. */
-const BOOKKEEPING_TABLE =
-  /(?:^_.*migrations?$|_migrations$|^_an_store_migrations$)/;
+const BOOKKEEPING_TABLE = /^_[a-z0-9_]*migrations(?:_named)?$/;
 
 export interface SchemaFingerprint {
   tables: string[];
@@ -33,6 +32,8 @@ function literal(value: unknown): string {
     return String(value);
   }
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+  // Locale-formatted dates do not parse back; ISO 8601 does, in any time zone.
+  if (value instanceof Date) return `'${value.toISOString()}'`;
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 

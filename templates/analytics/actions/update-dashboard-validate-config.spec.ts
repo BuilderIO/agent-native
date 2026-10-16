@@ -316,6 +316,39 @@ describe("validateDashboardConfig multi-select options", () => {
     );
   });
 
+  describe("customRange", () => {
+    const withCustomRange = (customRange: unknown, type = "select") => ({
+      name: "Period",
+      filters: [
+        {
+          id: "quarter",
+          label: "Period",
+          type,
+          default: "this",
+          customRange,
+          options: [
+            { value: "this", label: "This quarter" },
+            { value: "custom", label: "Custom date range" },
+          ],
+        },
+      ],
+      panels: [],
+    });
+
+    it("accepts customRange on a select filter", () => {
+      expect(validateDashboardConfig(withCustomRange(true))).toBeNull();
+    });
+
+    it("rejects a non-boolean customRange or one on another filter type", () => {
+      expect(validateDashboardConfig(withCustomRange("yes"))).toContain(
+        "customRange must be a boolean",
+      );
+      expect(
+        validateDashboardConfig(withCustomRange(true, "multi-select")),
+      ).toContain("only select filters take it");
+    });
+  });
+
   describe("presets", () => {
     const withPresets = (presets: unknown, type = "multi-select") => {
       const base = withOptions(["clips", "slides", "design", "mail"]);

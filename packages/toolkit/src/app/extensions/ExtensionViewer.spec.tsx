@@ -127,6 +127,7 @@ describe("ExtensionViewer MCP embeds", () => {
     act(() => root.unmount());
     queryClient.clear();
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -156,6 +157,96 @@ describe("ExtensionViewer MCP embeds", () => {
     expect(iframe.getAttribute("sandbox")).toBe(
       "allow-scripts allow-forms allow-downloads",
     );
+  });
+
+  it("opens links only for the shell document that announced the binding", async () => {
+    document.body.appendChild(container);
+    const iframe = await renderViewer();
+    const frameWindow = iframe.contentWindow as Window;
+    expect(frameWindow).toBeTruthy();
+    const replies: unknown[] = [];
+    vi.spyOn(frameWindow, "postMessage").mockImplementation((data: unknown) => {
+      replies.push(data);
+    });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const post = (data: unknown) =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", { data, source: frameWindow }),
+        );
+      });
+    const token = "a".repeat(32);
+    const url = "https://app.hubspot.com/contacts/1/company/2";
+
+    post({ type: "agent-native-extension-open-url", url, token });
+    expect(open).not.toHaveBeenCalled();
+
+    post({
+      type: "agent-native-extension-binding",
+      binding: { role: "viewer" },
+      openUrlToken: token,
+    });
+    expect(replies).toContainEqual({
+      type: "agent-native-extension-open-url-ready",
+    });
+
+    // A page the iframe navigated to can't re-announce or guess the token.
+    post({
+      type: "agent-native-extension-binding",
+      binding: { role: "owner" },
+      openUrlToken: "b".repeat(32),
+    });
+    post({
+      type: "agent-native-extension-open-url",
+      url,
+      token: "b".repeat(32),
+    });
+    post({ type: "agent-native-extension-open-url", url });
+    post({
+      type: "agent-native-extension-open-url",
+      url: "javascript:alert(1)",
+      token,
+    });
+    expect(open).not.toHaveBeenCalled();
+
+    post({ type: "agent-native-extension-open-url", url, token });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith(url, "_blank", "noopener,noreferrer");
+  });
+
+  it("leaves links native inside MCP chat embeds, where the host can't escape the sandbox either", async () => {
+    embedState.active = true;
+    document.body.appendChild(container);
+    const iframe = await renderViewer();
+    const frameWindow = iframe.contentWindow as Window;
+    const replies: unknown[] = [];
+    vi.spyOn(frameWindow, "postMessage").mockImplementation((data: unknown) => {
+      replies.push(data);
+    });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const token = "d".repeat(32);
+    const post = (data: unknown) =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", { data, source: frameWindow }),
+        );
+      });
+
+    post({
+      type: "agent-native-extension-binding",
+      binding: { role: "viewer" },
+      openUrlToken: token,
+    });
+    post({
+      type: "agent-native-extension-open-url",
+      url: "https://example.com/",
+      token,
+    });
+
+    expect(replies).not.toContainEqual({
+      type: "agent-native-extension-open-url-ready",
+    });
+    expect(open).not.toHaveBeenCalled();
   });
 
   it("uses sandboxed srcdoc inside MCP chat embeds to avoid a blocked nested route frame", async () => {
@@ -215,11 +306,18 @@ describe("ExtensionViewer MCP embeds", () => {
     await act(async () => {
       resolveSources(Response.json(displaySourcesResponse));
     });
+    // The real document gets a fresh iframe element (a new window), so look
+    // it up again rather than reusing the blank frame's.
+    const loadedFrame = () =>
+      container.querySelector("iframe") as HTMLIFrameElement;
     await vi.waitFor(() => {
-      expect(iframe.getAttribute("srcdoc")).toContain("Star history chart");
+      expect(loadedFrame().getAttribute("srcdoc")).toContain(
+        "Star history chart",
+      );
     });
+    expect(spinner()).toBeTruthy();
     await act(async () => {
-      iframe.dispatchEvent(new Event("load"));
+      loadedFrame().dispatchEvent(new Event("load"));
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
     expect(spinner()).toBeNull();

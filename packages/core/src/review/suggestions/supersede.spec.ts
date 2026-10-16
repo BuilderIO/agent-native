@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../../a2a/test-pglite.js";
+import { __resetStoreLedgerSnapshotForTests } from "../../db/store-registry.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 const client = {
@@ -109,6 +110,7 @@ const revise = (supersedes: string[], idempotencyKey = "revision-1") =>
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetSuggestionTablesForTests();
   resolveThread.mockReset();
   await ensureSuggestionTables();

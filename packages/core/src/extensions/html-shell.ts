@@ -251,8 +251,8 @@ export function buildExtensionExternalLinkTargetBootstrap(
           destination.origin === new URL(document.baseURI).origin
         ) return;
 
-        event.preventDefault();
         if (!sendExternalLink) return;
+        event.preventDefault();
         sendExternalLink({
           type: ${JSON.stringify(EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE)},
           href: destination.href
@@ -722,6 +722,16 @@ export function buildExtensionHtml(
 
     var _extensionId = ${extensionIdJson};
     var _extensionBinding = ${bindingJson};
+    // Proves an open-url request comes from this shell document, not from a
+    // page the iframe later navigated to. Announced with the binding below.
+    // Without secure randomness there is no token, the host never offers to
+    // open links, and links keep their native behavior.
+    var _openUrlToken =
+      window.crypto && typeof window.crypto.getRandomValues === 'function'
+        ? Array.prototype.map.call(window.crypto.getRandomValues(new Uint8Array(16)), function(b) {
+            return ('0' + b.toString(16)).slice(-2);
+          }).join('')
+        : '';
     window.extensionBinding = _extensionBinding;
     // Legacy alias for extension bodies authored before the rename.
     window.toolBinding = _extensionBinding;
@@ -737,10 +747,67 @@ export function buildExtensionHtml(
           type: 'agent-native-extension-binding',
           extensionId: _extensionId,
           binding: _extensionBinding,
+          openUrlToken: _openUrlToken,
         },
         '*',
       );
     } catch (_) {}
+    // A tab opened from this sandboxed iframe inherits the sandbox (an opaque
+    // origin with no cookies), so apps like HubSpot render blank. Once the host
+    // says it can, hand new-tab web links to it: it opens them unsandboxed with
+    // noopener, so the new tab gets no handle on the host page. Without that
+    // reply (no host, a standalone /render, or no token) links stay native, and
+    // window.open is never touched. Set up here, before extension content runs,
+    // so the reply can't be missed and extension globals can't interfere.
+    (function(token) {
+      if (!token) return;
+      var hostOpensLinks = false;
+      window.addEventListener('message', function(event) {
+        if (event.source !== window.parent) return;
+        var msg = event.data;
+        if (msg && msg.type === 'agent-native-extension-open-url-ready') hostOpensLinks = true;
+      });
+      function linkOf(e) {
+        var path = typeof e.composedPath === 'function' ? e.composedPath() : [e.target];
+        for (var i = 0; i < path.length; i++) {
+          var node = path[i];
+          if (node instanceof HTMLAnchorElement || node instanceof HTMLAreaElement) {
+            if (node.hasAttribute('href')) return { element: node, url: node };
+          } else if (node && node.namespaceURI === 'http://www.w3.org/2000/svg' && node.localName === 'a') {
+            // An SVG link's href isn't a URL string; resolve it the way an HTML
+            // link would, against the document's base URL.
+            var raw = node.getAttribute('href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+            if (raw) {
+              var resolved = document.createElement('a');
+              resolved.href = raw;
+              return { element: node, url: resolved };
+            }
+          }
+        }
+        return null;
+      }
+      function targetOf(link) {
+        if (link.hasAttribute('target')) return link.getAttribute('target');
+        var base = document.querySelector('base[target]');
+        return base ? base.getAttribute('target') : '';
+      }
+      function route(e) {
+        if (!hostOpensLinks || e.defaultPrevented) return;
+        var link = linkOf(e);
+        if (!link || link.element.hasAttribute('download')) return;
+        if (link.url.protocol !== 'http:' && link.url.protocol !== 'https:') return;
+        var newTab = e.type === 'auxclick'
+          ? e.button === 1
+          : e.button === 0 && !e.altKey &&
+            (e.metaKey || e.ctrlKey || e.shiftKey || /^_blank$/i.test(targetOf(link.element)));
+        if (!newTab) return;
+        e.preventDefault();
+        window.parent.postMessage({ type: 'agent-native-extension-open-url', url: link.url.href, token: token }, '*');
+      }
+      // On window, so extension handlers delegated on document run first.
+      window.addEventListener('click', route);
+      window.addEventListener('auxclick', route);
+    })(_openUrlToken);
     // SECURITY: when the viewer is not the author of this extension, emit a
     // clear console warning. The bridge currently runs every helper with the
     // viewer's session — a malicious shared extension can call any action,

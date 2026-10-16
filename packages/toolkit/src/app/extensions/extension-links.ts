@@ -18,9 +18,8 @@ export function useExternalExtensionLinks(
   }, []);
 
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe || !nonce) return;
-    return connectExternalExtensionLinks(iframe, nonce, setNonce, onReady);
+    if (!nonce) return;
+    return connectExternalExtensionLinks(iframeRef, nonce, setNonce, onReady);
   }, [iframeRef, frameIdentity, nonce, onReady]);
 
   return nonce;
@@ -43,18 +42,19 @@ export function extensionFrameUrlWithLinkNonce(
 }
 
 function connectExternalExtensionLinks(
-  iframe: HTMLIFrameElement,
+  iframeRef: RefObject<HTMLIFrameElement | null>,
   nonce: string,
   onReseed: (nonce: string) => void,
   onReady?: () => void,
 ): () => void {
-  const contentWindow = iframe.contentWindow;
-  if (!contentWindow || typeof MessageChannel === "undefined") {
+  if (typeof MessageChannel === "undefined") {
     return () => {};
   }
 
   let activePort: MessagePort | null = null;
+  let activePortWindow: MessageEventSource | null = null;
   const onPortMessage = (event: MessageEvent) => {
+    if (activePortWindow !== iframeRef.current?.contentWindow) return;
     const message = event.data;
     if (
       typeof message !== "object" ||
@@ -68,7 +68,7 @@ function connectExternalExtensionLinks(
 
   const onWindowMessage = (event: MessageEvent) => {
     if (
-      event.source !== contentWindow ||
+      event.source !== iframeRef.current?.contentWindow ||
       event.origin !== "null" ||
       typeof event.data !== "object" ||
       event.data === null
@@ -93,6 +93,7 @@ function connectExternalExtensionLinks(
     }
 
     activePort?.close();
+    activePortWindow = event.source;
     activePort = event.ports[0];
     activePort.addEventListener("message", onPortMessage);
     activePort.start();
@@ -106,18 +107,15 @@ function connectExternalExtensionLinks(
   return () => {
     window.removeEventListener("message", onWindowMessage);
     activePort?.close();
+    activePortWindow = null;
   };
 }
 
 function openExternalExtensionLink(value: unknown): boolean {
   if (typeof value !== "string") return false;
 
-  let destination: URL;
-  try {
-    destination = new URL(value);
-  } catch {
-    return false;
-  }
+  if (!URL.canParse(value)) return false;
+  const destination = new URL(value);
 
   if (
     (destination.protocol !== "http:" && destination.protocol !== "https:") ||

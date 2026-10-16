@@ -149,12 +149,6 @@ describe("runFrameworkReleaseMigrations", () => {
     expect(mocks.order).toEqual(["schema-ensures", "better-auth"]);
   });
 
-  it("runs the durable trigger event queue migration", async () => {
-    await runFrameworkReleaseMigrations(null);
-
-    expect(mocks.runAutomationTriggerEventMigrations).toHaveBeenCalledOnce();
-  });
-
   it("propagates a schema-ensure failure instead of migrating on regardless", async () => {
     mocks.runFrameworkSchemaEnsures.mockRejectedValueOnce(new Error("boom"));
 
@@ -229,33 +223,31 @@ describe("runFrameworkReleaseMigrations", () => {
     });
   });
 
-  it("runs the approval schema before request paths can use it", async () => {
+  it("leaves lists folded into stores to the store pass", async () => {
     await runFrameworkReleaseMigrations(null);
-
-    expect(mocks.runMigrations).toHaveBeenCalledWith(
-      mocks.agentToolApprovalMigrations,
-      { table: "_agent_tool_approval_migrations" },
-    );
-    expect(mocks.runMigrations).toHaveBeenCalledWith(
-      mocks.identitySsoMigrations,
-      { table: "_identity_sso_migrations" },
-    );
-    expect(mocks.runMigrations).toHaveBeenCalledWith(
-      mocks.remoteDeviceMigrations,
-      { table: "_remote_device_migrations" },
-    );
 
     const migrationTables = mocks.runMigrations.mock.calls.map(
       ([, options]) => (options as { table: string }).table,
     );
-    expect(migrationTables).toEqual(
-      expect.arrayContaining([
-        "_chat_thread_schema_migrations",
-        "_agent_run_migrations",
-        "_agent_harness_session_migrations",
-        "_usage_alert_migrations",
-      ]),
-    );
+    for (const folded of [
+      "_agent_tool_approval_migrations",
+      "_identity_sso_migrations",
+      "_remote_device_migrations",
+      "_chat_thread_schema_migrations",
+      "_agent_run_migrations",
+      "_agent_harness_session_migrations",
+      "_usage_alert_migrations",
+      "_oauth_token_migrations",
+      "_observability_migrations",
+      "_workspace_connections_migrations",
+      "_org_migrations",
+      "_context_xray_migrations",
+      "_observational_memory_migrations",
+    ]) {
+      expect(migrationTables).not.toContain(folded);
+    }
+    expect(mocks.runAutomationTriggerEventMigrations).not.toHaveBeenCalled();
+    expect(mocks.runFrameworkSchemaEnsures).toHaveBeenCalled();
   });
 
   it("fails a production release migration that resolved to a local database", async () => {
