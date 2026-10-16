@@ -954,6 +954,22 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toBeNull();
   });
 
+  it("shows the disclosure alone on an exhausted retry when the draft still claims approval", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "The approved value is 10 from BigQuery. It is warehouse-derived and not the owner-approved Semantic Layer definition.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("warehouse-derived"),
+    });
+    expect(result).not.toHaveProperty("exhaustedDraftPrefix");
+  });
+
   it("asks for a correction when a draft disclaims approval and then calls the figure approved", () => {
     const result = realDataFinalGuard(
       guardContext({

@@ -106,7 +106,13 @@ export default defineAction({
         environmentId,
         readiness: dbtConnectionReadiness({
           status: connection.status,
-          tokenConfigured,
+          // The metric query resolves the token through this row's credential
+          // reference, so a row without it cannot serve a query.
+          tokenConfigured:
+            tokenConfigured &&
+            connection.credentialRefs.some(
+              (ref) => ref.key === DBT_SEMANTIC_LAYER_TOKEN_KEY,
+            ),
           environmentId,
         }),
       };

@@ -594,7 +594,11 @@ function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
   return {
     retryMessage: `Before finalizing, state in your answer that the figure is warehouse-derived from BigQuery and is not the owner-approved Semantic Layer definition, because the dbt metric query did not complete. Keep the rest of the answer.`,
     fallbackMessage: DBT_FALLBACK_DISCLOSURE,
-    exhaustedDraftPrefix: DBT_FALLBACK_DISCLOSURE,
+    // With no prefix, an exhausted retry shows the disclosure alone. A draft that
+    // still claims approval must not reach the user beside it.
+    ...(claimsApproval(context.text)
+      ? {}
+      : { exhaustedDraftPrefix: DBT_FALLBACK_DISCLOSURE }),
     maxRetries: 1,
   };
 }

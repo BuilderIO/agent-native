@@ -33,3 +33,7 @@ on a connected org by design.
 ## Live routing fixture
 
 The owner-route case queries `synthetic_active_accounts`. Run it only against an organization whose dbt project defines that metric. Otherwise a correct routing attempt returns `not_found`, and the case fails because no successful metric result exists.
+
+## Run each live case against its own org state
+
+The routing case needs a connected organization with the synthetic metric. The unconnected case needs an organization with no dbt connection. Run each against its own organization. Running both against one organization fails one of them by design, because the two cases assert opposite states.

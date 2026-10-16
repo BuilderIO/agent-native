@@ -102,6 +102,17 @@ describe("get-dbt-connection", () => {
     });
   });
 
+  it("reports a row without the token credential reference as token_missing, not ready", async () => {
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      { ...connectedRow, credentialRefs: [] },
+    ]);
+
+    await expect(action.run({}, {} as never)).resolves.toMatchObject({
+      connected: false,
+      readiness: "token_missing",
+    });
+  });
+
   it("names the missing environment ID instead of reporting connected", async () => {
     mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
       {

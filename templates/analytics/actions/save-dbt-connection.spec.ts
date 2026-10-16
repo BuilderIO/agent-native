@@ -26,7 +26,7 @@ vi.mock("@agent-native/core/secrets", () => ({
 }));
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
-  listWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
   upsertWorkspaceConnection: mocks.upsertWorkspaceConnection,
 }));
 
@@ -162,6 +162,19 @@ describe("save-dbt-connection", () => {
         { key: "DBT_SEMANTIC_LAYER_TOKEN", scope: "org", provider: "dbt" },
       ],
     });
+  });
+
+  it("refuses to save when several dbt connections are visible instead of overwriting the first", async () => {
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      existingRow,
+      { ...existingRow, id: "conn_dbt_2", label: "Staging dbt" },
+    ]);
+
+    await expect(action.run(validInput, {} as never)).rejects.toMatchObject({
+      errorCode: "dbt_connection_ambiguous",
+      statusCode: 409,
+    });
+    expect(mocks.upsertWorkspaceConnection).not.toHaveBeenCalled();
   });
 
   it("carries forward the existing row's id, label, app access, scopes, and groups on re-save", async () => {

@@ -5,7 +5,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import {
-  listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionsForApp,
   upsertWorkspaceConnection,
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
@@ -72,12 +72,20 @@ export default defineAction({
       );
     }
 
-    // Same listing as get-dbt-connection, so save updates the row the UI reads.
-    const [existing] = await listWorkspaceConnectionsForApp({
+    // Save only writes to a row this caller can use. With several such rows there
+    // is no single target, so refuse rather than overwrite whichever lists first.
+    const visible = await resolveWorkspaceConnectionsForApp({
       appId: ANALYTICS_APP_ID,
       provider: DBT_PROVIDER_ID,
       includeDisabled: true,
     });
+    if (visible.length > 1) {
+      fail(
+        "Several dbt connections are granted to Analytics. Choose one in Settings → Integrations before saving.",
+        { errorCode: "dbt_connection_ambiguous", statusCode: 409 },
+      );
+    }
+    const existing = visible[0];
 
     // upsertWorkspaceConnection replaces these lists and account fields
     // outright, so anything omitted here is reset on every save.
