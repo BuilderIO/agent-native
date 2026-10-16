@@ -311,6 +311,13 @@ describe("parser limits", () => {
       withinParserLimits(L('<callout icon="x">', staircase("  ", 100))),
     ).toBe(false);
     expect(withinParserLimits(L("<columns>", "<column>", "x"))).toBe(true);
+    // Toggle headings nest by tabs alone, which Content reads in one pass.
+    const toggles = Array.from(
+      { length: 700 },
+      (_, i) => `${"\t".repeat(i)}# x {toggle="true"}`,
+    ).join("\n");
+    expect(withinParserLimits(toggles)).toBe(true);
+    expect(classifyBody(toggles).status).toBe("canonical");
     // Content rereads each line once per container around it: 100 levels
     // around 20,000 lines took 35 seconds to classify.
     const around = (lines: number) =>

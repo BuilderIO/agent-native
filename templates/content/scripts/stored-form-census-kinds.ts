@@ -52,7 +52,9 @@ const CONTENT_FENCE = /^(`{3,})(.*)$/;
  * is as deep as the Content containers open around it, plus its container
  * markers, plus the list levels the indentation before them can continue, at
  * two columns each and up to four per tab, so nesting cannot pass by adding
- * one level per line.
+ * one level per line. Nesting Content reads in one pass is not counted: a
+ * toggle heading's children sit a tab deeper per level and are parsed where
+ * they stand, and a pipe table holds only inline cells.
  *
  * A container counts as closed only by the close of the innermost one open,
  * at the same tabs, outside a code fence: Content pairs closes by tag and
