@@ -145,9 +145,11 @@ function LayerRow({
   labels,
   onSelectLayer,
   onMoveLayer,
+  searching,
 }: {
   node: SlidesLayerNode;
   depth: number;
+  searching: boolean;
   selectedIds: string[] | ReadonlySet<string>;
   onHoverLayer?: SlidesLayersPanelProps["onHoverLayer"];
   onLeaveLayer?: SlidesLayersPanelProps["onLeaveLayer"];
@@ -158,7 +160,8 @@ function LayerRow({
   onContextMenuClose?: SlidesLayersPanelProps["onContextMenuClose"];
   onMoveLayer: SlidesLayersPanelProps["onMoveLayer"];
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [collapsedState, setExpanded] = useState(true);
+  const expanded = searching || collapsedState;
   const [dragging, setDragging] = useState(false);
   const children = node.children ?? [];
   const displayChildren = [...children].reverse();
@@ -194,7 +197,7 @@ function LayerRow({
           type="button"
           className="flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
           aria-label={expanded ? labels.collapse : labels.expand}
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => setExpanded(!collapsedState)}
         >
           {expanded ? (
             <IconChevronDown className="size-4" />
@@ -275,6 +278,7 @@ function LayerRow({
               labels={labels}
               onSelectLayer={onSelectLayer}
               onMoveLayer={onMoveLayer}
+              searching={searching}
             />
           ))}
         </div>
@@ -361,6 +365,7 @@ export function SlidesLayersPanel({
               labels={labels}
               onSelectLayer={onSelectLayer}
               onMoveLayer={onMoveLayer}
+              searching={needle !== ""}
             />
           ))}
         </div>

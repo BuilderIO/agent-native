@@ -52,6 +52,7 @@ import {
   useMemo,
   useEffect,
   useLayoutEffect,
+  type CSSProperties,
   type FormEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -1030,6 +1031,10 @@ export default function DeckEditor() {
     setAnimationTargets(NO_ANIMATION_TARGETS);
     setAnimationsOpen((open) => !open);
   }, [animationsOpen]);
+
+  useEffect(() => {
+    if (!sidebarOpen) setLayersOpen(false);
+  }, [sidebarOpen]);
 
   const toggleLayers = useCallback(() => {
     if (!layersOpen) {
@@ -5429,8 +5434,12 @@ export default function DeckEditor() {
               onClick={() => setSidebarOpen(false)}
             />
             <div
-              className="absolute z-[70] flex h-full min-h-0 w-48 flex-col sm:w-52 md:relative"
-              style={{ width: railWidth ?? undefined }}
+              className="absolute z-[70] flex h-full min-h-0 w-48 flex-col sm:w-52 md:relative md:w-[var(--rail-width,13rem)]"
+              style={
+                railWidth === null
+                  ? undefined
+                  : ({ "--rail-width": `${railWidth}px` } as CSSProperties)
+              }
             >
               <div
                 role="separator"

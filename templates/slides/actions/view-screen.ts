@@ -364,7 +364,11 @@ export default defineAction({
       ].filter(Boolean);
       lines.push(``);
       lines.push(`### Editor panels`);
-      lines.push(`openPanels: ${openPanels.join(", ") || "none"}`);
+      lines.push(
+        panels
+          ? `openPanels: ${openPanels.join(", ") || "none"}`
+          : `openPanels: unknown`,
+      );
 
       const selection = (await readAppStateForCurrentTab("slides-selection", {
         fallbackToGlobal: false,
