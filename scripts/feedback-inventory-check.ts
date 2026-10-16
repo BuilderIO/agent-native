@@ -226,12 +226,18 @@ function replyNamesHandoffs(text: string, handoffs: Handoff[]): boolean {
   );
 }
 
+function replyNamesHandoffAction(text: string, action: string): boolean {
+  const reply = ` ${normalizeReplyPhrase(text)} `;
+  const normalizedAction = normalizeReplyPhrase(action);
+  return normalizedAction !== "" && reply.includes(` ${normalizedAction} `);
+}
+
 function replyExplicitlyRefusesHandoff(text: string): boolean {
   const normalized = text
     .normalize("NFKC")
     .replace(/[’‘]/g, "'")
     .toLowerCase();
-  return /\b(?:(?:i|we)\s+(?:will|can|could|would|am|are|do)\s+not|(?:i|we)'(?:ll|m|re|d|ve)\s+not|(?:i|we)\s+(?:won't|can't|cannot|wouldn't|shouldn't|don't)|(?:can't|cannot|won't|wouldn't|shouldn't)|not\s+going\s+to|declin(?:e|ed|ing))\b/.test(
+  return /\b(?:(?:i|we)\s+(?:will|can|could|would|am|are|do)\s+not|(?:i|we)'(?:ll|m|re|d|ve)\s+not|(?:i|we)\s+(?:(?:can't|cannot)(?!\s+wait\b)|won't|wouldn't|shouldn't|don't)|(?:can't(?!\s+wait\b)|cannot(?!\s+wait\b)|won't|wouldn't|shouldn't)|not\s+going\s+to|declin(?:e|ed|ing))\b/.test(
     normalized,
   );
 }
@@ -262,10 +268,11 @@ function validateHandoffAcceptance(
     !isSlackUserId(acceptance.actorId) ||
     typeof acceptance.text !== "string" ||
     !acceptance.text.trim() ||
-    !replyExplicitlyAcceptsHandoff(acceptance.text)
+    !replyExplicitlyAcceptsHandoff(acceptance.text) ||
+    !replyNamesHandoffAction(acceptance.text, handoff.action)
   ) {
     throw new Error(
-      `${parentName}: 🎫 needs a named human other than this actor and that person's recorded acceptance of the work`,
+      `${parentName}: 🎫 needs a named human other than this actor and that person's explicit acceptance of the recorded action`,
     );
   }
 
@@ -304,7 +311,7 @@ function replyStatesDisposition(text: string, disposition: string): boolean {
   const visibleText = text.replace(/[*_`]/g, "");
   if (
     disposition.toLowerCase() === "fixed" &&
-    (/\b(?:(?:is|was|remains)\s+)?(?:not|never)\s+(?:(?:yet|fully)\s+)*fixed\b|\bunfixed\b/i.test(
+    (/\b(?:(?:is|was|remains)\s+)?(?:not|never)\s+(?:(?:yet|fully|truly|really|actually)\s+)*fixed\b|\bunfixed\b/i.test(
       visibleText,
     ) ||
       /\b(?:still|remains)\s+broken\b/i.test(visibleText))
@@ -2356,6 +2363,30 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "Fixed label cannot claim a report described as not truly fixed",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "10.000000"
+                ? {
+                    ...parent,
+                    statusReply: {
+                      ...parent.statusReply!,
+                      evidence: "the route is not truly fixed",
+                      text: "Fixed: the route is not truly fixed",
+                    },
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
       name: "status reply must include its recorded evidence",
       inventory: {
         ...valid,
@@ -2708,6 +2739,30 @@ if (args[0] === "--self-test" && args.length === 1) {
       }),
     },
     {
+      name: "ticket acceptance must name the recorded action",
+      inventory: withUnownedTicket({
+        latestRelevantHumanReply: {
+          ts: "11.500000",
+          actorId: "UOTHER",
+          text: "I'll ask the team who can own this.",
+        },
+        handoffs: [
+          {
+            scope: "remaining design choice",
+            owner: "Alex Rivera",
+            ownerSlackId: "UOTHER",
+            action: "choose the remaining behavior",
+            acceptanceReply: {
+              ts: "11.500000",
+              threadParentTs: "10.000000",
+              actorId: "UOTHER",
+              text: "I'll ask the team who can own this.",
+            },
+          },
+        ],
+      }),
+    },
+    {
       name: "ticket refusal is not acceptance",
       inventory: withUnownedTicket({
         latestRelevantHumanReply: {
@@ -3003,6 +3058,31 @@ if (args[0] === "--self-test" && args.length === 1) {
     validateInventory(withUnownedCheckmark());
     // Handoff-only work remains In progress and can carry 🎫 without a fixed scope.
     validateInventory(withUnownedTicket());
+    const eagerAcceptance =
+      "I can't wait — I will choose the remaining behavior.";
+    validateInventory(
+      withUnownedTicket({
+        latestRelevantHumanReply: {
+          ts: "11.500000",
+          actorId: "UOTHER",
+          text: eagerAcceptance,
+        },
+        handoffs: [
+          {
+            scope: "remaining design choice",
+            owner: "Alex Rivera",
+            ownerSlackId: "UOTHER",
+            action: "choose the remaining behavior",
+            acceptanceReply: {
+              ts: "11.500000",
+              threadParentTs: "10.000000",
+              actorId: "UOTHER",
+              text: eagerAcceptance,
+            },
+          },
+        ],
+      }),
+    );
     validateInventory(
       withUnownedTicket({
         disposition: "Blocked on human owner",

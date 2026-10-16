@@ -125,6 +125,18 @@ describe("resolveOverviewScreenSourceType", () => {
       ),
     ).toBe("localhost");
   });
+
+  it("preserves URL metadata when content contains inline markup", () => {
+    expect(
+      resolveOverviewScreenSourceType(
+        {
+          url: "http://127.0.0.1:3000/",
+          content: "<main>Preview</main>",
+        },
+        "localhost",
+      ),
+    ).toBe("localhost");
+  });
 });
 
 describe("relative selected-screen style intent", () => {

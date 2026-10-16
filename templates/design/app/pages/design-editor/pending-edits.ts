@@ -1848,7 +1848,13 @@ export function isVisualEditHandoffAcknowledged(args: {
 
 export function resolveOverviewScreenSourceType(
   screen:
-    | { sourceType?: unknown; bridgeUrl?: string | null; content?: string }
+    | {
+        sourceType?: unknown;
+        bridgeUrl?: string | null;
+        url?: string | null;
+        previewUrl?: string | null;
+        content?: string;
+      }
     | null
     | undefined,
   fallbackSourceType: DesignSourceType = "inline",
@@ -1857,6 +1863,9 @@ export function resolveOverviewScreenSourceType(
   return (
     normalizeDesignSourceType(screen.sourceType) ??
     (screen.bridgeUrl ? "localhost" : undefined) ??
+    (fallbackSourceType === "localhost" && (screen.url || screen.previewUrl)
+      ? "localhost"
+      : undefined) ??
     (fallbackSourceType === "localhost" &&
     typeof screen.content === "string" &&
     !/^\s*https?:\/\//i.test(screen.content)
@@ -1868,7 +1877,12 @@ export function resolveOverviewScreenSourceType(
 
 export function shouldUseRuntimeLayerProjection(args: {
   screen:
-    | { sourceType?: unknown; bridgeUrl?: string | null }
+    | {
+        sourceType?: unknown;
+        bridgeUrl?: string | null;
+        url?: string | null;
+        previewUrl?: string | null;
+      }
     | null
     | undefined;
   fallbackSourceType?: DesignSourceType;
