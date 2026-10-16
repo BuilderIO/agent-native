@@ -273,8 +273,8 @@ A live copy is a document whose Yjs state is the only writable copy of a body;
 the server derives its text on every commit. Declare one with `defineLiveCopy`
 from `@agent-native/core/collab` and pass it to `createCollabPlugin({ liveCopy,
 autoSeed: false })`. Its `name` is its identity: defining the same name again
-replaces the old binding, so a dev reload never leaves a stale one in front.
-Then:
+replaces the old binding, so a dev reload never leaves a stale one in front;
+work the old binding started commits nothing. Then:
 
 - A live copy's Yjs work (merge, derive, seed, edits) runs only in the
   binding's `createBoundedTaskRunner`, never on the request thread. Writes to
@@ -295,8 +295,10 @@ Then:
   `readLiveCopy`. Do not work around either. All three throw `not_live_copy`
   for a document the binding does not cover, and for a binding that was
   released or replaced; call them with the binding `defineLiveCopy` returned
-  last. Call these writers outside any
-  transaction; they refuse a caller's. Rows that must commit with one edit
+  last. Call these writers, and `applyUpdate` on a live copy, outside any
+  transaction; they refuse a caller's, including a persist hook's, so a hook
+  reads its own document with `getState` or `readLiveCopy` but never writes
+  it. Rows that must commit with one edit
   (say, the suggestion it accepts) go in `mutateLiveCopy`'s `persist` option,
   which runs in the edit's own transaction. On a changed edit, core stops an
   attempt a peer overtook before that persist runs, so a persist that checks
