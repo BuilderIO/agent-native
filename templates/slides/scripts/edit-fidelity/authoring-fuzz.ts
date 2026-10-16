@@ -403,13 +403,13 @@ export function isExpectedSaveReloadWatchedRequestAbort(
   requestStartedDuringNavigation = false,
   competingClaimStartedAfterNavigation = false,
   requestSameOrigin = false,
-  requestPendingAtMainFrameNavigation = false,
+  requestPendingDuringMainFrameNavigation = false,
 ) {
   const pendingAtNavigation =
     requestWasPendingAtReloadNavigation ||
     (pathname === "/_agent-native/actions/get-deck-access-status" &&
       method === "GET" &&
-      requestPendingAtMainFrameNavigation);
+      requestPendingDuringMainFrameNavigation);
 
   return (
     activePhase === "save/reload" &&
@@ -2067,7 +2067,7 @@ export async function runAuthoringFuzz(
     outgoingNavigationAbort: boolean;
   };
   const reloadNavigationRequests = new Map<any, ReloadNavigationRequest>();
-  const watchedRequestsPendingAtMainFrameNavigation = new WeakSet<any>();
+  const watchedRequestsPendingDuringMainFrameNavigation = new WeakSet<any>();
   const pendingOutgoingAbortTimers = new Set<ReturnType<typeof setTimeout>>();
   let reloadNavigationStartedAt: number | null = null;
   // Keep the latest start after openSlide returns to correlate late poll errors.
@@ -2411,15 +2411,15 @@ export async function runAuthoringFuzz(
   const onRequestFailed = (request: any) => {
     const requestStartedAt = watchedRequests.get(request);
     const navigationCandidate = reloadNavigationRequests.get(request);
-    const requestPendingAtMainFrameNavigation =
-      watchedRequestsPendingAtMainFrameNavigation.has(request);
+    const requestPendingDuringMainFrameNavigation =
+      watchedRequestsPendingDuringMainFrameNavigation.has(request);
     const requestPendingAtReloadNavigation =
       navigationCandidate?.requestWasPendingAtNavigation === true;
     const competingClaimStartedAfterNavigation =
       hasCompetingClaimStartedAfterNavigation(request);
     pendingRequests.delete(request);
     watchedRequests.delete(request);
-    watchedRequestsPendingAtMainFrameNavigation.delete(request);
+    watchedRequestsPendingDuringMainFrameNavigation.delete(request);
     inFlightBrowserSessionClaims.delete(request);
     const url = request.url();
     const requestUrl = new URL(url);
@@ -2469,7 +2469,7 @@ export async function runAuthoringFuzz(
         navigationCandidate?.requestStartedDuringNavigation === true,
         competingClaimStartedAfterNavigation,
         requestUrl.origin === authoringPageOrigin,
-        requestPendingAtMainFrameNavigation,
+        requestPendingDuringMainFrameNavigation,
       )
     ) {
       const candidate = navigationCandidate;
@@ -2512,7 +2512,7 @@ export async function runAuthoringFuzz(
           watchedRequest.serviceWorker() === null &&
           watchedRequest.frame() === page.mainFrame()
         ) {
-          watchedRequestsPendingAtMainFrameNavigation.add(watchedRequest);
+          watchedRequestsPendingDuringMainFrameNavigation.add(watchedRequest);
         }
       }
       mainFrameNavigationStartedAt = startedAt;
@@ -2539,6 +2539,19 @@ export async function runAuthoringFuzz(
       isBrowserSessionPath(requestUrl.pathname)
     ) {
       watchedRequests.set(request, startedAt);
+    }
+    // The outgoing document can issue this read after navigation starts but before commit.
+    if (
+      activePhase === "save/reload" &&
+      reloadNavigationStartedAt !== null &&
+      mainFrameNavigationStartedAt !== null &&
+      mainFrameNavigationCommittedAt === null &&
+      requestSourceIsMainFrame &&
+      request.method() === "GET" &&
+      requestUrl.pathname === "/_agent-native/actions/get-deck-access-status" &&
+      requestUrl.origin === authoringPageOrigin
+    ) {
+      watchedRequestsPendingDuringMainFrameNavigation.add(request);
     }
     const requestStartedDuringNavigation =
       activePhase === "save/reload" &&
@@ -2619,7 +2632,7 @@ export async function runAuthoringFuzz(
   const onRequestSettled = (request: any) => {
     pendingRequests.delete(request);
     watchedRequests.delete(request);
-    watchedRequestsPendingAtMainFrameNavigation.delete(request);
+    watchedRequestsPendingDuringMainFrameNavigation.delete(request);
     const settledAt = Date.now();
     const claim = inFlightBrowserSessionClaims.get(request);
     if (claim) {

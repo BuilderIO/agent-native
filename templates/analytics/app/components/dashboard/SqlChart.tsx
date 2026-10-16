@@ -80,6 +80,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { InlineMarkdownLinks } from "@/components/Markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1343,7 +1344,7 @@ export function SqlChart({
       <div className="px-1 py-2">
         {panel.config?.description && (
           <p className="text-sm text-muted-foreground">
-            {panel.config.description}
+            <InlineMarkdownLinks content={panel.config.description} />
           </p>
         )}
       </div>
@@ -1421,8 +1422,9 @@ export function SqlChart({
 
   const missingConfigKeys = plan.missingKeys;
   const withConfigWarning = (node: ReactNode) => {
+    let content = node;
     if (refreshError) {
-      return (
+      content = (
         <div className="flex h-full min-h-0 flex-col gap-2">
           <div
             className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
@@ -1441,20 +1443,30 @@ export function SqlChart({
               {t("sqlDashboard.refresh")}
             </Button>
           </div>
-          {missingConfigKeys.length > 0 && (
+          {missingConfigKeys.length > 0 ? (
             <ConfigWarning keys={missingConfigKeys} />
-          )}
+          ) : null}
           <div className="min-h-0 flex-1">{node}</div>
         </div>
       );
+    } else if (missingConfigKeys.length > 0) {
+      content = (
+        <div className="space-y-2">
+          <ConfigWarning keys={missingConfigKeys} />
+          {node}
+        </div>
+      );
     }
-    return missingConfigKeys.length > 0 ? (
-      <div className="space-y-2">
-        <ConfigWarning keys={missingConfigKeys} />
-        {node}
+
+    if (!panel.config?.description) return content;
+
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        <p className="text-sm text-muted-foreground">
+          <InlineMarkdownLinks content={panel.config.description} />
+        </p>
+        <div className="min-h-0 flex-1">{content}</div>
       </div>
-    ) : (
-      node
     );
   };
 
@@ -1693,11 +1705,6 @@ function MetricRenderer({
   return (
     <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
       <div className="text-3xl font-bold">{value}</div>
-      {panel.config?.description && (
-        <p className="text-xs text-muted-foreground mt-1">
-          {panel.config.description}
-        </p>
-      )}
     </div>
   );
 }
@@ -3656,7 +3663,9 @@ function CalloutRenderer({ rows }: { rows: Record<string, unknown>[] }) {
             className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${wrapper}`}
           >
             <Icon className="h-4 w-4 mt-0.5 shrink-0" />
-            <span className="break-words">{message}</span>
+            <span className="break-words">
+              <InlineMarkdownLinks content={message} />
+            </span>
           </div>
         );
       })}

@@ -72,13 +72,16 @@ place of Slack source messages.
   distinct human handoff in `handoffs[]`, with scope, assigned individual,
   owner Slack ID, action, and an `acceptanceReply` containing exact `ts`,
   `threadParentTs`, `actorId`, and verbatim `text`. A role or unassigned team
-  is not an owner. Finish
-  the reply and both
-  reaction decisions for each owned eye before advancing to the next one. A
-  verified fixed scope requires this actor's `✅` even when the overall
-  disposition is `Partially fixed`; a distinct human handoff requires this
-  actor's `🎫`. Do not add status requirements or reactions to another actor's
-  eye.
+  is not an owner. Immediately after a scope passes verification, add this
+  actor's `✅` to the root and read it back before moving to another scope or
+  report. Do not wait for every scope to close. A verified fixed scope
+  requires this actor's `✅` even when the overall disposition is `Partially
+  fixed`; a distinct human handoff requires this actor's `🎫`. Keep `👀` for
+  every open scope. The same-thread status reply must name the fixed scope(s),
+  the remaining open scope(s), each open scope's blocker and next action, and
+  why `✅` or `🎫` is absent when it does not apply. A reply does not replace a
+  reaction, and a reaction does not replace a reply. Do not add status
+  requirements or reactions to another actor's eye.
 - Keep the source manifest separate from disposition rows. Copy every message
   timestamp and the count from the full Slack response before filtering; the
   checker compares both lists, catches missing messages, and requires the
@@ -113,8 +116,40 @@ those roots separately; list in-scope reply-row marks and pre-cutoff boundary
 audits apart from report totals. Never include older cutoff-overlap rows in
 current report counts. Account for every owned eye as a verified fixed scope,
 an accepted human handoff, or an explicit waiting, unresolved, or skipped
-reason. An eye-only row is still pending. If most roots are eye-only, inspect
-each one again for a fix that can be verified now.
+  reason. An eye-only row is still pending. If most roots are eye-only, inspect
+  each one again for a fix that can be verified now, and preserve the concrete
+  proof gap or next action for every remaining eye-only row. Slack thread
+  replies appear under the root's reply count, not as separate channel posts;
+  do not broadcast routine status replies.
+
+After any long investigation, CI/deploy wait, or handoff, record the latest
+fully read message timestamp for each channel. Immediately before recap, read
+each scoped channel newest-first from that high-water mark to the present,
+following all pages. Resolve every new reply to its root, read the complete
+thread and current reactions, and add every new root/reply to the inventory.
+Reconcile new human answers and changed marks before recap. Repeat the scan
+from the new high-water mark until a complete pass adds no messages; only then
+run the inventory checker and recap. A prior scan or a still-running CI wait
+does not establish that the channel is current.
+
+Channel history does not include the contents of existing thread replies. In
+that final pass, also enumerate every distinct root thread carrying this
+actor's `👀`, `✅`, or `🎫` from both source rows and supplemental-root audits.
+Call `slack_read_thread` on each root after the channel delta scan, following
+thread pagination until complete, even when its reply count did not change in
+channel history. Record one `threadSnapshots` entry per root: the exact `rootTs`,
+the local ISO `readAt` captured after the read, Slack's full `replyCount`, and
+every reply oldest-first with its exact `ts`, author `actorId`, `kind`
+(`human`, `sweep`, or `bot`), and verbatim `text`. Include bot and sweep replies
+so the snapshot proves the recorded status is the latest reply by this actor.
+Use the full thread to refresh `latestRelevantHumanReply`, `latestOwnedReply`,
+and `statusReply`; if a human replied after the last status, reconcile that
+answer and post a newer status before updating marks or closing the sweep.
+
+The inventory checker requires a complete `threadSnapshot` for each distinct
+owned root, checks Slack's reply count and snapshot order, and rejects a newer
+human or sweep reply than the recorded status. A failed check means the sweep
+is not reconciled.
 
 A grouped CI report or attachment is a discovery index, never a replacement for
 the channel-message inventory.

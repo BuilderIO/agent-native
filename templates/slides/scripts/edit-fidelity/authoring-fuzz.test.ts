@@ -80,7 +80,7 @@ const isExpectedSameOriginSaveReloadAbort = (
   requestAgeMs = Number.POSITIVE_INFINITY,
   requestStartedDuringNavigation = false,
   competingClaimStartedAfterNavigation = false,
-  requestPendingAtMainFrameNavigation = false,
+  requestPendingDuringMainFrameNavigation = false,
 ) =>
   isExpectedSaveReloadAbort(
     pathname,
@@ -92,7 +92,7 @@ const isExpectedSameOriginSaveReloadAbort = (
     requestStartedDuringNavigation,
     competingClaimStartedAfterNavigation,
     true,
-    requestPendingAtMainFrameNavigation,
+    requestPendingDuringMainFrameNavigation,
   );
 
 it("keeps authoring page setup errors out of seed regression results", async () => {
@@ -1257,7 +1257,7 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
   ).toBe(false);
 });
 
-it("ignores only known aborts for requests pending at reload navigation", () => {
+it("ignores only known aborts for reads pending during reload navigation", () => {
   expect(
     isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-lab-states",

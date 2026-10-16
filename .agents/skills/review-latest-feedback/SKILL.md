@@ -35,6 +35,17 @@ Output is fixes. Reconcile inherited and reply-row eyes with the same mark
 lifecycle. Follow
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
+Before recapping, rescan every scoped channel newest-first from its saved
+high-water mark after any long investigation, CI/deploy wait, or handoff. Resolve
+new replies to roots, reconcile new answers and reactions, update the inventory
+and replies, then repeat until a complete scan adds no newer messages. In that
+final pass, also reopen every distinct root thread carrying this actor's `👀`,
+`✅`, or `🎫` and read the complete thread again, even when channel history has
+no new row: channel history exposes reply counts, not reply contents. Record
+each full read in `threadSnapshots` and run the checker; it rejects a status
+that predates a human reply found in the thread. See
+[`channel-inventory.md`](references/channel-inventory.md).
+
 ## Slack channels
 
 Default channels: `#product-agent-native-feedback` (`C0ATH3CCZT4`),
@@ -85,29 +96,48 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 Reconcile each owned eye, even with `✅`. Keep source `ts` separate from root
 `threadParentTs`; Phase 1 handles newer replies.
 
-Finish one eye before taking another:
+Finish one eye before taking another. Treat the reactions as a scope ledger, not
+one final vote on the whole report:
 
 1. Post a current same-thread status after the source and latest human reply.
-2. Decide separately whether `✅` and `🎫` apply; record a reason for each
-   absent mark. Mark each verified fixed scope with `✅`, including partial
-   fixes and open PRs. UI proof requires replaying the reported flow in the
-   running app or preview; source tests, merge, or deploy alone do not count.
-   For connector/tool reports, inspect the exact connector's live catalog and,
-   when safe, invoke the reported capability through that connector. Source
-   presence, a merged PR, or another connector's catalog alone is not proof.
-3. Add `🎫` only after a named person other than you accepts that exact
+2. Split the report into distinct fixed and unfinished scopes. As soon as one
+   scope passes its verification bar, add your `✅` to the root and read it
+   back before moving to the next scope or report. Do this for partial fixes
+   and open PRs; do not wait for the whole report to close. UI proof requires
+   replaying the reported flow in the running app or preview; source tests,
+   merge, or deploy alone do not count. For connector/tool reports, inspect the
+   exact connector's live catalog and, when safe, invoke the reported
+   capability through that connector. Source presence, a merged PR, or another
+   connector's catalog alone is not proof.
+3. Keep `👀` while any distinct scope or follow-up remains open. In the status
+   reply, state each verified scope covered by `✅`, each open scope with its
+   exact blocker and next action, and whether `🎫` applies. If there is no
+   `✅`, say why no scope has passed verification; if there is no `🎫`, say why
+   no named human has accepted a separate action. A reply is not a substitute
+   for the applicable reaction, and a reaction is not a substitute for the
+   status reply. Do not mark an entire multi-symptom report fixed because one
+   scope passed.
+4. Add `🎫` only after a named person other than you accepts that exact
    unfinished action in the source thread. A name, tag, role assignment, or
    request to take a look is not acceptance. Record their Slack ID and exact
    accepting reply; verify it is in-thread and predates your status. A later
    refusal by that owner withdraws the handoff: remove only your stale `🎫`,
    keep `👀`, and report the new blocker. Otherwise keep **In progress**/`👀`;
    never ticket yourself.
-4. Save the disposition, reply, both decisions, and read-back in the inventory.
+5. Save the disposition, reply, both decisions, and read-back in the inventory.
+
+Slack status replies belong in the report's thread. They appear under the
+thread's reply count, not as separate channel messages; do not create a
+standalone channel post or broadcast every routine status update.
 
 A reply alone is not reconciliation. Explain absent marks and resolve missed
 marks for every owned eye. Unverified flows and unassigned owners may remain.
 Report current-window roots separately from reply rows and pre-cutoff audits;
-exclude boundary rows.
+exclude boundary rows. In the recap, give actor-owned mark counts by distinct
+report root, not raw reply rows, and explain open scopes without `✅` and
+unfinished actions without `🎫`. Do not add marks to make the totals look
+balanced: check only verified scopes, and ticket only an action a named human
+accepted.
 
 - Start with the exact canonical disposition and include recorded evidence,
   including each fixed-scope verification, verbatim. The checker rejects vague

@@ -26,12 +26,42 @@ includes a human handoff, the status reply must name every handoff's recorded
 owner and action; include its scope when the report context does not make it
 clear.
 
+When editing an ordinary Slack reply, pass its visible body as
+`message.markdown_text` to `slack_edit_message`; `message.text` is a fallback
+for structured block messages and may leave the visible reply unchanged. Treat
+the returned message ID as acknowledgment only. Read the exact reply back with
+`slack_read_thread` and compare the stored body to the intended status before
+counting it as posted. Use `slack_send_message` only when a new reply is
+needed, with its `message` field and the root `thread_ts`.
+
+`slack_read_thread` may append a synthetic `Status marks:` summary after the
+thread. That is connector metadata, not part of any Slack message; do not copy
+it into a reply. Likewise, omit connector-added `Sent using ChatGPT` footer
+text from the intended body. `slack_send_message` may append that footer to a
+new reply; if it does, remove it by editing with `message.markdown_text`, then
+read the reply back again. Include the exact bot disclosure in the visible body
+yourself; the connector footer is not a substitute.
+
+Apply reactions to the report root, not the status reply: call
+`slack_add_reaction` with the root's `channel_id`, its timestamp as
+`message_ts`, and the emoji name without colons (`eyes`, `white_check_mark`, or
+`ticket`). A colon-coded emoji mentioned in reply text does not add a reaction.
+After each reaction call, read the root with `slack_get_reactions` and verify
+the intended emoji and this actor's ID are present before recording it or
+moving to another report. A successful tool response is only an acknowledgment;
+the readback is the proof. If a reaction cannot be reconciled, record the exact
+blocker instead of treating the reply text as a substitute.
+
 Channel reads may expose a thread reply as a separate row. Resolve its
 `thread_ts` or permalink and inventory it as a reply to the root, not as a new
-report. If that reply carries this task's eye, its status reply must be posted
-in the same root thread after the eyed message. Record both the source message
-timestamp and root thread timestamp; if the connector hides `thread_ts`, resolve
-the permalink before recording it.
+report. Put reactions for an ordinary report on its root; do not add another
+`👀` to a reply just because it appears as a channel row. If an earlier run put
+this task's mark on a reply by mistake, remove only that mark from the reply,
+read the reply's reactions back, and reconcile the actual root separately. A
+reply that raises a genuinely distinct issue may be tracked as its own source
+row with a separate disposition, but it still belongs to its actual root
+thread. Record both the source message timestamp and root thread timestamp; if
+the connector hides `thread_ts`, resolve the permalink before recording it.
 
 The parent inventory must retain the reaction-owner IDs and the same-parent
 reply timestamp, author ID, disposition, evidence, and read-back text for every
@@ -161,4 +191,11 @@ details.
 
 Read back the reaction and reply through the same connector, and verify their
 actor IDs match the recorded sweep identity before recording the item as
-replied.
+replied. In the final recap, count marks by distinct report root and this
+actor's reaction-owner IDs: open `👀` claims, verified `✅` scopes, and
+`🎫` handoffs accepted by a named person. Explain why an open scope has no
+`✅` and why an unfinished action has no `🎫`; a low count is valid when no
+scope has passed verification or nobody has accepted a separate action. Do not
+balance reactions for appearance. Treat reaction text in a reply, another
+actor's mark, or a reply-row reaction as no substitute for the required root
+read-back.
