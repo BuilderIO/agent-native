@@ -590,6 +590,15 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     note: "Main read this table as its literal tags.",
   },
   {
+    id: "html-table-thead-row",
+    origin: "agent",
+    markdown:
+      "<table>\n<thead>\n<tr>\n<td>A</td>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>b</td>\n</tr>\n</tbody>\n</table>",
+    canonical:
+      '<table header-row="true">\n<tr>\n<td>A</td>\n</tr>\n<tr>\n<td>b</td>\n</tr>\n</table>',
+    note: "A `<thead>` around the first row names the header row, as `<th>` cells do. Main read it as a body row.",
+  },
+  {
     id: "html-table-cell-edge-spaces",
     origin: "editor",
     markdown: "<table>\n<tr>\n<td> a </td>\n</tr>\n</table>",
@@ -721,6 +730,22 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     markdown: '<span color="red" underline="yes">x</span>',
     unrepresentable: 'A span\'s underline is "true" or "false".',
     losses: ["dropped-attribute"],
+  },
+  {
+    id: "refuse-table-thead-two-rows",
+    origin: "agent",
+    markdown:
+      "<table>\n<thead>\n<tr>\n<td>A</td>\n</tr>\n<tr>\n<td>B</td>\n</tr>\n</thead>\n</table>",
+    unrepresentable: "The editor has one header row.",
+    losses: ["dropped-source"],
+  },
+  {
+    id: "refuse-table-tfoot",
+    origin: "agent",
+    markdown:
+      "<table>\n<tr>\n<td>a</td>\n</tr>\n<tfoot>\n<tr>\n<td>f</td>\n</tr>\n</tfoot>\n</table>",
+    unrepresentable: "The editor has no footer rows.",
+    losses: ["dropped-source"],
   },
   {
     id: "refuse-table-header-flag-not-boolean",
