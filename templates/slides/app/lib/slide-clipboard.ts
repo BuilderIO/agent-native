@@ -24,6 +24,7 @@ export function shouldHandleSlideClipboardShortcut(
 export function shouldHandleSlideClipboardPaste({
   hasMatchingSlideClipboardMarker,
   hasImage,
+  hasNonMarkerPayload,
   isTextEntrySurface,
   hasSelectedCanvasElement,
   hasBlockingOverlay,
@@ -31,6 +32,7 @@ export function shouldHandleSlideClipboardPaste({
 }: {
   hasMatchingSlideClipboardMarker: boolean;
   hasImage: boolean;
+  hasNonMarkerPayload: boolean;
   isTextEntrySurface: boolean;
   hasSelectedCanvasElement: boolean;
   hasBlockingOverlay: boolean;
@@ -39,6 +41,7 @@ export function shouldHandleSlideClipboardPaste({
   return (
     hasMatchingSlideClipboardMarker &&
     !hasImage &&
+    !hasNonMarkerPayload &&
     !isTextEntrySurface &&
     !hasSelectedCanvasElement &&
     !hasBlockingOverlay &&
@@ -88,6 +91,46 @@ export function hasImageClipboardPayload({
     [...types, ...itemTypes, ...fileTypes].some((type) =>
       type.toLowerCase().startsWith("image/"),
     ) || /<(?:img|picture|svg|image)\b|data:image\//i.test(html)
+  );
+}
+
+export function hasClipboardPayloadBeyondSlideMarker({
+  types,
+  itemTypes,
+  fileTypes,
+  html,
+  plainText,
+  marker,
+}: {
+  types: readonly string[];
+  itemTypes: readonly string[];
+  fileTypes: readonly string[];
+  html: string;
+  plainText: string;
+  marker: string;
+}): boolean {
+  const htmlWithoutMarker = html
+    .replace(getSlideClipboardNativeMarkerHtml(marker), "")
+    .replace(/<!--(?:StartFragment|EndFragment)-->/gi, "")
+    .replace(/<\/?(?:html|body)\b[^>]*>/gi, "")
+    .trim();
+  const hasOtherDataType = [...types, ...itemTypes, ...fileTypes].some(
+    (type) =>
+      !["text/plain", "text/html", "files"].includes(type.toLowerCase()),
+  );
+  return (
+    plainText.length > 0 || htmlWithoutMarker.length > 0 || hasOtherDataType
+  );
+}
+
+export function isSlideClipboardPasteSurface(
+  eventTarget: Element | null,
+  activeElement: Element | null,
+): boolean {
+  const selector =
+    "[data-slide-thumbnail-id], [data-slide-canvas-focus='true']";
+  return Boolean(
+    eventTarget?.closest(selector) || activeElement?.closest(selector),
   );
 }
 

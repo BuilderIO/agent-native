@@ -195,7 +195,9 @@ import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import {
   getSlideClipboardNativeMarker,
   getSlideClipboardNativeMarkerHtml,
+  hasClipboardPayloadBeyondSlideMarker,
   hasImageClipboardPayload,
+  isSlideClipboardPasteSurface,
   getSlideClipboardStorageKey,
   normalizeSlideClipboards,
   readSlideClipboards,
@@ -440,25 +442,34 @@ function writeSlideClipboardMarkerToNativeClipboard(
   slides: readonly Pick<Slide, "id">[],
   copiedAt: number,
 ): void {
+  const marker = getSlideClipboardNativeMarker(slides, copiedAt);
   if (
-    typeof navigator === "undefined" ||
-    !navigator.clipboard?.write ||
-    typeof ClipboardItem === "undefined" ||
-    typeof Blob === "undefined"
+    typeof document === "undefined" ||
+    typeof document.execCommand !== "function"
   ) {
     return;
   }
-  const marker = getSlideClipboardNativeMarker(slides, copiedAt);
+  const handleCopy = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    try {
+      event.clipboardData.setData(
+        "text/html",
+        getSlideClipboardNativeMarkerHtml(marker),
+      );
+      event.clipboardData.setData("text/plain", "");
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    } catch {
+      // The in-app clipboard remains available if this browser blocks native copy.
+    }
+  };
+  document.addEventListener("copy", handleCopy, true);
   try {
-    const item = new ClipboardItem({
-      "text/html": new Blob([getSlideClipboardNativeMarkerHtml(marker)], {
-        type: "text/html",
-      }),
-      "text/plain": new Blob([""], { type: "text/plain" }),
-    });
-    void navigator.clipboard.write([item]).catch(() => {});
+    document.execCommand("copy");
   } catch {
-    // The in-app clipboard remains available if this browser blocks clipboard writes.
+    // The in-app clipboard remains available if this browser blocks native copy.
+  } finally {
+    document.removeEventListener("copy", handleCopy, true);
   }
 }
 
@@ -3627,6 +3638,7 @@ export default function DeckEditor() {
   const slideClipboardScopeRef = useRef<string | null>(null);
   const slideClipboardPersistenceFailedRef = useRef(false);
   const slideClipboardArmedAtRef = useRef<number | null>(null);
+  const slideClipboardMarkerWriteInProgressRef = useRef(false);
   const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
   const slideClipboardStorageKey = session?.email
     ? getSlideClipboardStorageKey(session.email)
@@ -3698,14 +3710,21 @@ export default function DeckEditor() {
   }, [slideClipboardStorageKey, syncSlideClipboard]);
 
   const saveSlidesToClipboard = useCallback(
-    (slides: Slide[]) => {
+    (slides: Slide[], writeNativeMarker = true) => {
       const copiedAt = Date.now();
       const snapshots = normalizeSlideClipboards(slides);
       if (!snapshots) return;
       slideClipboardSlidesRef.current = snapshots;
       slideClipboardScopeRef.current = slideClipboardStorageKey;
       slideClipboardArmedAtRef.current = copiedAt;
-      writeSlideClipboardMarkerToNativeClipboard(snapshots, copiedAt);
+      if (writeNativeMarker) {
+        slideClipboardMarkerWriteInProgressRef.current = true;
+        try {
+          writeSlideClipboardMarkerToNativeClipboard(snapshots, copiedAt);
+        } finally {
+          slideClipboardMarkerWriteInProgressRef.current = false;
+        }
+      }
       setHasSlideClipboard(true);
       if (slideClipboardStorageKey) {
         slideClipboardPersistenceFailedRef.current = !writeSlideClipboards(
@@ -3721,11 +3740,11 @@ export default function DeckEditor() {
   );
 
   const copySlides = useCallback(
-    (slideIds: string[]) => {
+    (slideIds: string[], writeNativeMarker = true) => {
       const selected = new Set(slideIds);
       const slides = deck?.slides.filter((slide) => selected.has(slide.id));
       if (!slides?.length) return;
-      saveSlidesToClipboard(slides);
+      saveSlidesToClipboard(slides, writeNativeMarker);
     },
     [deck, saveSlidesToClipboard],
   );
@@ -3881,6 +3900,7 @@ export default function DeckEditor() {
     };
     const handleCopy = (event: ClipboardEvent) => {
       if (
+        slideClipboardMarkerWriteInProgressRef.current ||
         !deck ||
         !id ||
         !canEdit ||
@@ -3908,7 +3928,7 @@ export default function DeckEditor() {
         selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId];
       event.preventDefault();
       event.stopPropagation();
-      copySlides(slideIds);
+      copySlides(slideIds, false);
 
       const copiedSlides = slideClipboardSlidesRef.current;
       const copiedAt = slideClipboardArmedAtRef.current;
@@ -3921,7 +3941,7 @@ export default function DeckEditor() {
         );
         event.clipboardData.setData("text/plain", "");
       } catch {
-        // Clipboard API writes from saveSlidesToClipboard are the fallback.
+        // Leave native copy untouched if this browser rejects clipboardData.
       }
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -3954,6 +3974,16 @@ export default function DeckEditor() {
       ) {
         return false;
       }
+      if (
+        !isSlideClipboardPasteSurface(
+          event.target instanceof Element ? event.target : null,
+          document.activeElement instanceof Element
+            ? document.activeElement
+            : null,
+        )
+      ) {
+        return false;
+      }
 
       const clipboard = syncSlideClipboard();
       const copiedAt = slideClipboardArmedAtRef.current;
@@ -3981,6 +4011,18 @@ export default function DeckEditor() {
         ),
         html,
       });
+      const hasNonMarkerPayload = hasClipboardPayloadBeyondSlideMarker({
+        types: Array.from(event.clipboardData?.types ?? []),
+        itemTypes: Array.from(event.clipboardData?.items ?? []).map(
+          (item) => item.type,
+        ),
+        fileTypes: Array.from(event.clipboardData?.files ?? []).map(
+          (file) => file.type,
+        ),
+        html,
+        plainText: event.clipboardData?.getData("text/plain") ?? "",
+        marker: expectedMarker,
+      });
       const isTextEntrySurface =
         isSlideClipboardTextEntrySurface(event.target as Element | null) ||
         isSlideClipboardTextEntrySurface(document.activeElement);
@@ -3990,6 +4032,7 @@ export default function DeckEditor() {
       const shouldPasteSlide = shouldHandleSlideClipboardPaste({
         hasMatchingSlideClipboardMarker,
         hasImage,
+        hasNonMarkerPayload,
         isTextEntrySurface,
         hasSelectedCanvasElement:
           !focusedThumbnail &&
@@ -4000,7 +4043,7 @@ export default function DeckEditor() {
         isSlideToolActive: pinMode || drawMode,
       });
       if (!shouldPasteSlide) {
-        if (isTextEntrySurface && !hasImage) {
+        if (isTextEntrySurface && !hasImage && !hasNonMarkerPayload) {
           event.preventDefault();
           event.stopPropagation();
           return true;

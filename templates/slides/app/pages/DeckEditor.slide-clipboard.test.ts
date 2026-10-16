@@ -7,8 +7,10 @@ import { describe, expect, it } from "vitest";
 import {
   getSlideClipboardNativeMarker,
   getSlideClipboardNativeMarkerHtml,
+  hasClipboardPayloadBeyondSlideMarker,
   getSlideClipboardStorageKey,
   hasImageClipboardPayload,
+  isSlideClipboardPasteSurface,
   normalizeSlideClipboard,
   normalizeSlideClipboards,
   readSlideClipboard,
@@ -96,6 +98,7 @@ describe("slide paste event decision", () => {
   const canvasPaste = {
     hasMatchingSlideClipboardMarker: true,
     hasImage: false,
+    hasNonMarkerPayload: false,
     isTextEntrySurface: false,
     hasSelectedCanvasElement: false,
     hasBlockingOverlay: false,
@@ -129,8 +132,43 @@ describe("slide paste event decision", () => {
     );
   });
 
+  it("distinguishes a marker-only clipboard from newer native text", () => {
+    const html = getSlideClipboardNativeMarkerHtml(marker);
+    expect(
+      hasClipboardPayloadBeyondSlideMarker({
+        types: ["text/html", "text/plain"],
+        itemTypes: ["text/html", "text/plain"],
+        fileTypes: [],
+        html,
+        plainText: "",
+        marker,
+      }),
+    ).toBe(false);
+    expect(
+      hasClipboardPayloadBeyondSlideMarker({
+        types: ["text/html", "text/plain"],
+        itemTypes: ["text/html", "text/plain"],
+        fileTypes: [],
+        html,
+        plainText: "newer text",
+        marker,
+      }),
+    ).toBe(true);
+    expect(
+      hasClipboardPayloadBeyondSlideMarker({
+        types: ["text/html"],
+        itemTypes: ["text/html"],
+        fileTypes: [],
+        html: `${html}<p>newer text</p>`,
+        plainText: "",
+        marker,
+      }),
+    ).toBe(true);
+  });
+
   it.each([
     ["image paste", { hasImage: true }],
+    ["newer native text with a stale marker", { hasNonMarkerPayload: true }],
     [
       "HTML-only image paste",
       {
@@ -149,6 +187,20 @@ describe("slide paste event decision", () => {
     expect(
       shouldHandleSlideClipboardPaste({ ...canvasPaste, ...context }),
     ).toBe(false);
+  });
+});
+
+describe("slide paste event target", () => {
+  it("only handles paste events from the slide rail or editor canvas", () => {
+    const toolbarButton = { closest: () => null } as unknown as Element;
+    const thumbnail = { closest: () => ({}) } as unknown as Element;
+    const canvas = { closest: () => ({}) } as unknown as Element;
+
+    expect(isSlideClipboardPasteSurface(toolbarButton, toolbarButton)).toBe(
+      false,
+    );
+    expect(isSlideClipboardPasteSurface(thumbnail, null)).toBe(true);
+    expect(isSlideClipboardPasteSurface(null, canvas)).toBe(true);
   });
 });
 
