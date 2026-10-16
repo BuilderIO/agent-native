@@ -1081,6 +1081,320 @@ function includesDataSourcesLink(text: string, setupLink: string): boolean {
   });
 }
 
+type DbtMetricTimeRange = {
+  startDate: string;
+  endDate: string;
+};
+
+function analyticsActionName(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
+}
+
+type ActionSummaryRecordResult =
+  | { kind: "record"; record: Record<string, unknown> }
+  | { kind: "invalid" }
+  | { kind: "absent" };
+
+function actionSummaryRecord(value: unknown): ActionSummaryRecordResult {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return { kind: "record", record: value as Record<string, unknown> };
+  }
+  if (typeof value !== "string") return { kind: "absent" };
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? { kind: "record", record: parsed as Record<string, unknown> }
+      : { kind: "invalid" };
+  } catch {
+    return { kind: "invalid" };
+  }
+}
+
+function metricTimeRange(value: unknown): DbtMetricTimeRange | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const range = value as Record<string, unknown>;
+  return typeof range.startDate === "string" &&
+    typeof range.endDate === "string"
+    ? { startDate: range.startDate, endDate: range.endDate }
+    : null;
+}
+
+function boundedPeriodRequest(userText: string): boolean {
+  return (
+    /\b(?:today|yesterday)\b/i.test(userText) ||
+    /\b(?:19|20)\d{2}-\d{2}-\d{2}\b/.test(userText) ||
+    /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:19|20)\d{2}\b/i.test(
+      userText,
+    ) ||
+    /\b(?:today|yesterday|recently|recent|this|last|past|previous|prior|rolling|within(?: the last)?|over the last|over the past)\s+(?:\d+\s+)?(?:second|minute|hour|day|week|month|quarter|year)s?\b/i.test(
+      userText,
+    ) ||
+    /\b(?:since|between|from)\s+(?:\d{4}-\d{2}-\d{2}|\w+)/i.test(userText) ||
+    /\b(?:year|quarter|month|week|day)\s+to\s+date\b|\b(?:ytd|qtd|mtd)\b|\b(?:in|during)\s+(?:19|20)\d{2}\b/i.test(
+      userText,
+    )
+  );
+}
+
+function requestedExplicitDateRange(
+  userText: string,
+): DbtMetricTimeRange | null {
+  const match = userText.match(
+    /\b(?:from|between)\s+(\d{4}-\d{2}-\d{2})\s+(?:to|through|until|and)\s+(\d{4}-\d{2}-\d{2})\b/i,
+  );
+  return match?.[1] && match[2]
+    ? { startDate: match[1], endDate: match[2] }
+    : null;
+}
+
+function dateRange(start: Date, end: Date): DbtMetricTimeRange {
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    endDate: end.toISOString().slice(0, 10),
+  };
+}
+
+function addUtcDays(date: Date, count: number): Date {
+  return new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate() + count,
+    ),
+  );
+}
+
+function requestedCalendarRange(
+  userText: string,
+  now = new Date(),
+): DbtMetricTimeRange | null {
+  const explicitRange = requestedExplicitDateRange(userText);
+  if (explicitRange) return explicitRange;
+
+  const today = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  const todayString = today.toISOString().slice(0, 10);
+  const includesLargerCalendarPeriod =
+    /\b(?:week|month|quarter|year|ytd|qtd|mtd|wtd)\b/i.test(userText);
+  if (/\byesterday\b/i.test(userText) && !includesLargerCalendarPeriod) {
+    const yesterday = addUtcDays(today, -1);
+    return dateRange(yesterday, yesterday);
+  }
+  if (/\btoday\b/i.test(userText) && !includesLargerCalendarPeriod) {
+    return dateRange(today, today);
+  }
+
+  const namedMonth = userText.match(
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\s+((?:19|20)\d{2})\b/i,
+  );
+  if (namedMonth?.[1] && namedMonth[2]) {
+    const month = new Date(`${namedMonth[1]} 1, ${namedMonth[2]} UTC`);
+    if (Number.isFinite(month.getTime())) {
+      return dateRange(
+        new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth(), 1)),
+        new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 0)),
+      );
+    }
+  }
+
+  const namedYear = userText.match(
+    /\b(?:in|during|for|year)\s+((?:19|20)\d{2})\b/i,
+  );
+  if (namedYear?.[1]) {
+    const year = Number(namedYear[1]);
+    return dateRange(
+      new Date(Date.UTC(year, 0, 1)),
+      new Date(Date.UTC(year, 11, 31)),
+    );
+  }
+
+  const currentWeekday = (today.getUTCDay() + 6) % 7;
+  const currentWeekStart = addUtcDays(today, -currentWeekday);
+  if (/\b(?:last|previous|prior)\s+week\b/i.test(userText)) {
+    const start = addUtcDays(currentWeekStart, -7);
+    return dateRange(start, addUtcDays(start, 6));
+  }
+  if (
+    /\b(?:this|current)\s+week\b|\bweek\s+to\s+date\b|\bwtd\b/i.test(userText)
+  ) {
+    return dateRange(currentWeekStart, today);
+  }
+
+  const currentMonthStart = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1),
+  );
+  if (/\b(?:last|previous|prior)\s+month\b/i.test(userText)) {
+    return dateRange(
+      new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1)),
+      addUtcDays(currentMonthStart, -1),
+    );
+  }
+  if (
+    /\b(?:this|current)\s+month\b|\bmonth\s+to\s+date\b|\bmtd\b/i.test(userText)
+  ) {
+    return dateRange(currentMonthStart, today);
+  }
+
+  const currentQuarterStartMonth = Math.floor(today.getUTCMonth() / 3) * 3;
+  const currentQuarterStart = new Date(
+    Date.UTC(today.getUTCFullYear(), currentQuarterStartMonth, 1),
+  );
+  if (/\b(?:last|previous|prior)\s+quarter\b/i.test(userText)) {
+    const start = new Date(
+      Date.UTC(today.getUTCFullYear(), currentQuarterStartMonth - 3, 1),
+    );
+    return dateRange(start, addUtcDays(currentQuarterStart, -1));
+  }
+  if (
+    /\b(?:this|current)\s+quarter\b|\bquarter\s+to\s+date\b|\bqtd\b/i.test(
+      userText,
+    )
+  ) {
+    return dateRange(currentQuarterStart, today);
+  }
+
+  if (/\b(?:last|previous|prior)\s+year\b/i.test(userText)) {
+    const year = today.getUTCFullYear() - 1;
+    return dateRange(
+      new Date(Date.UTC(year, 0, 1)),
+      new Date(Date.UTC(year, 11, 31)),
+    );
+  }
+  if (
+    /\b(?:this|current)\s+year\b|\byear\s+to\s+date\b|\bytd\b/i.test(userText)
+  ) {
+    return dateRange(new Date(Date.UTC(today.getUTCFullYear(), 0, 1)), today);
+  }
+
+  const sinceDate = userText.match(
+    /\b(?:since|from|after)\s+(\d{4}-\d{2}-\d{2})\b/i,
+  );
+  if (sinceDate?.[1] && sinceDate[1] <= todayString) {
+    return { startDate: sinceDate[1], endDate: todayString };
+  }
+  return null;
+}
+
+function requestedDayWindow(userText: string): number | null {
+  const numberedWindow = userText.match(
+    /\b(?:last|past|previous|prior|rolling|recently?|over the last|over the past|within the last|within the past)\s+(\d+)\s+(days?|weeks?)\b/i,
+  );
+  if (numberedWindow?.[1] && numberedWindow[2]) {
+    const count = Number(numberedWindow[1]);
+    if (!Number.isSafeInteger(count) || count < 1) return null;
+    return count * (numberedWindow[2].toLowerCase().startsWith("week") ? 7 : 1);
+  }
+  return /\b(?:last|past|previous|prior)\s+week\b/i.test(userText) ? 7 : null;
+}
+
+function inclusiveDayCount(range: DbtMetricTimeRange): number | null {
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(range.startDate) || !datePattern.test(range.endDate)) {
+    return null;
+  }
+  const start = Date.parse(`${range.startDate}T00:00:00.000Z`);
+  const end = Date.parse(`${range.endDate}T00:00:00.000Z`);
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    new Date(start).toISOString().slice(0, 10) !== range.startDate ||
+    new Date(end).toISOString().slice(0, 10) !== range.endDate ||
+    end < start
+  ) {
+    return null;
+  }
+  return Math.floor((end - start) / 86_400_000) + 1;
+}
+
+function dbtMetricTimeScopeMismatch(
+  userText: string,
+  context: AgentLoopFinalResponseGuardContext,
+): boolean {
+  if (!boundedPeriodRequest(userText)) return false;
+
+  const expectedRange = requestedCalendarRange(userText);
+  const expectedDayCount = requestedDayWindow(userText);
+  const queryCalls = (context.toolCalls ?? [])
+    .filter(
+      ({ name }) => analyticsActionName(name) === "query-dbt-semantic-metric",
+    )
+    .map(({ input }) => {
+      const parsed = actionSummaryRecord(input);
+      return parsed.kind === "record" ? parsed.record : null;
+    });
+  const queryResults = (context.toolResults ?? []).filter(
+    ({ name, isError }) =>
+      !isError && analyticsActionName(name) === "query-dbt-semantic-metric",
+  );
+  if (queryResults.length === 0) return false;
+  if (!expectedRange && expectedDayCount === null) return true;
+
+  for (const result of queryResults) {
+    const parsedOutput = actionSummaryRecord(result.content);
+    if (parsedOutput.kind !== "record") return true;
+    const output = parsedOutput.record;
+    if (output.status !== "success" && output.status !== "pending") continue;
+    const parsedQuerySpec = actionSummaryRecord(output.querySpec);
+    if (parsedQuerySpec.kind !== "record") return true;
+    const querySpec = parsedQuerySpec.record;
+    const resultRange = metricTimeRange(querySpec.timeRange);
+    if (querySpec.allTime === true || !resultRange) return true;
+
+    if (
+      expectedRange &&
+      (resultRange.startDate !== expectedRange.startDate ||
+        resultRange.endDate !== expectedRange.endDate)
+    ) {
+      return true;
+    }
+    if (
+      expectedDayCount !== null &&
+      inclusiveDayCount(resultRange) !== expectedDayCount
+    ) {
+      return true;
+    }
+
+    const parsedOutputMetric = actionSummaryRecord(output.metric);
+    if (parsedOutputMetric.kind === "invalid") return true;
+    const outputMetric =
+      parsedOutputMetric.kind === "record" ? parsedOutputMetric.record : null;
+    const normalizeMetricName = (value: unknown) =>
+      String(value ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+    const outputMetricName = normalizeMetricName(
+      output.metricName ?? outputMetric?.name,
+    );
+    const matchingInput = queryCalls.some((input) => {
+      if (!input) return false;
+      const inputMetricName = normalizeMetricName(input.metricName);
+      if (
+        outputMetricName &&
+        inputMetricName &&
+        outputMetricName !== inputMetricName
+      ) {
+        return false;
+      }
+      const inputRange = metricTimeRange(input.timeRange);
+      return (
+        input.allTime !== true &&
+        inputRange?.startDate === resultRange.startDate &&
+        inputRange.endDate === resultRange.endDate
+      );
+    });
+    if (!matchingInput) return true;
+  }
+
+  return false;
+}
+
 export function realDataFinalGuard(
   context: AgentLoopFinalResponseGuardContext,
 ) {
@@ -1234,6 +1548,15 @@ export function realDataFinalGuard(
   const failedDbtMetricQuery = hasFailedDbtSemanticMetricQuery(
     context.toolResults,
   );
+  if (dbtMetricTimeScopeMismatch(userText, context)) {
+    return {
+      retryMessage:
+        "The user asked for a period-scoped result, but the dbt Semantic Layer evidence does not show the same bounded date range in both the query input and result. Retry `query-dbt-semantic-metric` with the requested window, do not use `allTime:true`, and match any explicit dates exactly. Do not report figures from an unbounded or mismatched query.",
+      fallbackMessage:
+        "I can't report this period's dbt metric because the query evidence does not match the requested date range. Please retry the query for that exact period.",
+      maxRetries: 2,
+    };
+  }
   // The detector is a heuristic over prose. Once its retries are spent the
   // schema ask is let through (a real ask lets the user answer it, and a false
   // match keeps a correct answer instead of replacing it with a canned

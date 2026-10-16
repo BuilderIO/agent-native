@@ -102,6 +102,9 @@ describe("Analytics term matching", () => {
     expect(semanticScopeForSearch("weekly active users by organization")).toBe(
       "active_user_activity",
     );
+    expect(
+      semanticScopeCompatibility("membership", "active_user_activity"),
+    ).toBe(1);
     expect(semanticScopeForSearch("monthly active users by organization")).toBe(
       "active_user_activity",
     );
@@ -124,6 +127,20 @@ describe("Analytics term matching", () => {
       "membership",
     );
     expect(semanticScopeForSearch("monthly workspace users by role")).toBe(
+      "membership",
+    );
+    expect(semanticScopeForSearch("weekly active users by role")).toBe(
+      "active_user_activity",
+    );
+    expect(
+      semanticScopeForSearch("monthly active users with their assigned roles"),
+    ).toBe("membership");
+    expect(
+      semanticScopeForSearch(
+        "which users were assigned roles in the last 30 days",
+      ),
+    ).toBe("membership_roster");
+    expect(semanticScopeForSearch("monthly role assignment count")).toBe(
       "membership",
     );
     expect(semanticScopeForSearch("workspace users split by role")).toBe(

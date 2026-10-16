@@ -825,6 +825,7 @@ function guardContext(params: {
   userText: string;
   requestText?: string;
   draftText: string;
+  toolCalls?: AgentLoopFinalResponseGuardContext["toolCalls"];
   toolResults?: AgentLoopFinalResponseGuardContext["toolResults"];
   executionMode?: AgentLoopFinalResponseGuardContext["executionMode"];
   retryCount?: number;
@@ -836,7 +837,7 @@ function guardContext(params: {
     requestText: params.requestText ?? params.userText,
     assistantContent: [],
     text: params.draftText,
-    toolCalls: [],
+    toolCalls: params.toolCalls ?? [],
     toolResults: params.toolResults ?? [],
     retryCount: params.retryCount ?? 0,
     executionMode: params.executionMode ?? "act",
@@ -845,20 +846,72 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard", () => {
+  const today = new Date();
+  const todayUtc = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+  );
+  const currentWeekStart = new Date(
+    Date.UTC(
+      todayUtc.getUTCFullYear(),
+      todayUtc.getUTCMonth(),
+      todayUtc.getUTCDate() - ((todayUtc.getUTCDay() + 6) % 7),
+    ),
+  );
+  const lastWeekStart = new Date(
+    Date.UTC(
+      currentWeekStart.getUTCFullYear(),
+      currentWeekStart.getUTCMonth(),
+      currentWeekStart.getUTCDate() - 7,
+    ),
+  );
+  const activationRateWeek = {
+    startDate: lastWeekStart.toISOString().slice(0, 10),
+    endDate: new Date(
+      Date.UTC(
+        lastWeekStart.getUTCFullYear(),
+        lastWeekStart.getUTCMonth(),
+        lastWeekStart.getUTCDate() + 6,
+      ),
+    )
+      .toISOString()
+      .slice(0, 10),
+  };
+
+  function dbtMetricCall(timeRange: {
+    startDate: string;
+    endDate: string;
+  }): AgentLoopFinalResponseGuardContext["toolCalls"][number] {
+    return {
+      name: "query-dbt-semantic-metric",
+      input: { metricName: "activation_rate", timeRange },
+    };
+  }
+
+  function dbtMetricResult(
+    querySpec: Record<string, unknown>,
+    rows: Array<Record<string, unknown>> = [{ activation_rate: 42 }],
+    extra: Record<string, unknown> = {},
+  ): AgentLoopFinalResponseGuardContext["toolResults"][number] {
+    return {
+      name: "query-dbt-semantic-metric",
+      isError: false,
+      content: JSON.stringify({
+        status: "success",
+        querySpec,
+        rows,
+        ...extra,
+      }),
+    };
+  }
+
   it("accepts numeric claims only from nonempty successful dbt metric rows", () => {
     const successful = realDataFinalGuard(
       guardContext({
         userText: "What was the activation rate last week?",
         draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(activationRateWeek)],
         toolResults: [
-          {
-            name: "query-dbt-semantic-metric",
-            isError: false,
-            content: JSON.stringify({
-              status: "success",
-              rows: [{ activation_rate: 42 }],
-            }),
-          },
+          dbtMetricResult({ groupBy: [], timeRange: activationRateWeek }),
         ],
       }),
     );
@@ -866,12 +919,9 @@ describe("realDataFinalGuard", () => {
       guardContext({
         userText: "What was the activation rate last week?",
         draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(activationRateWeek)],
         toolResults: [
-          {
-            name: "query-dbt-semantic-metric",
-            isError: false,
-            content: JSON.stringify({ status: "success", rows: [] }),
-          },
+          dbtMetricResult({ groupBy: [], timeRange: activationRateWeek }, []),
         ],
       }),
     );
@@ -882,6 +932,191 @@ describe("realDataFinalGuard", () => {
       fallbackMessage: expect.stringContaining(
         "does not mean the metric is zero",
       ),
+    });
+  });
+
+  it("rejects an all-time dbt result for a period-scoped request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [
+          {
+            name: "query-dbt-semantic-metric",
+            input: { metricName: "activation_rate", allTime: true },
+          },
+        ],
+        toolResults: [dbtMetricResult({ groupBy: [], allTime: true })],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+      fallbackMessage: expect.stringContaining(
+        "does not match the requested date range",
+      ),
+    });
+  });
+
+  it("requires the dbt result range to match its query input and explicit dates", () => {
+    const requestedRange = {
+      startDate: "2026-10-05",
+      endDate: "2026-10-11",
+    };
+    const mismatchedResult = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from 2026-10-05 to 2026-10-11?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(requestedRange)],
+        toolResults: [
+          dbtMetricResult({
+            groupBy: [],
+            timeRange: { startDate: "2026-10-04", endDate: "2026-10-10" },
+          }),
+        ],
+      }),
+    );
+    const mismatchedInput = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from 2026-10-05 to 2026-10-11?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [
+          dbtMetricCall({ startDate: "2026-10-04", endDate: "2026-10-10" }),
+        ],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: requestedRange }),
+        ],
+      }),
+    );
+    const matchingWindow = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from 2026-10-05 to 2026-10-11?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(requestedRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: requestedRange }),
+        ],
+      }),
+    );
+
+    expect(mismatchedResult).toMatchObject({
+      retryMessage: expect.stringContaining("match any explicit dates exactly"),
+    });
+    expect(mismatchedInput).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(matchingWindow).toBeNull();
+  });
+
+  it("rejects a seven-day range from the wrong calendar week", () => {
+    const wrongWeekStart = new Date(
+      Date.UTC(
+        lastWeekStart.getUTCFullYear(),
+        lastWeekStart.getUTCMonth(),
+        lastWeekStart.getUTCDate() - 7,
+      ),
+    );
+    const wrongRange = {
+      startDate: wrongWeekStart.toISOString().slice(0, 10),
+      endDate: new Date(
+        Date.UTC(
+          wrongWeekStart.getUTCFullYear(),
+          wrongWeekStart.getUTCMonth(),
+          wrongWeekStart.getUTCDate() + 6,
+        ),
+      )
+        .toISOString()
+        .slice(0, 10),
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(wrongRange)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: wrongRange })],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("match any explicit dates exactly"),
+    });
+  });
+
+  it("checks named calendar periods against the requested range", () => {
+    const lastMonthStart = new Date(
+      Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth() - 1, 1),
+    );
+    const lastMonthEnd = new Date(
+      Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), 0),
+    );
+    const correctRange = {
+      startDate: lastMonthStart.toISOString().slice(0, 10),
+      endDate: lastMonthEnd.toISOString().slice(0, 10),
+    };
+    const wrongRange = {
+      startDate: activationRateWeek.startDate,
+      endDate: activationRateWeek.endDate,
+    };
+    const correct = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last month?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(correctRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: correctRange }),
+        ],
+      }),
+    );
+    const wrong = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last month?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(wrongRange)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: wrongRange })],
+      }),
+    );
+
+    expect(correct).toBeNull();
+    expect(wrong).toMatchObject({
+      retryMessage: expect.stringContaining("match any explicit dates exactly"),
+    });
+  });
+
+  it("checks explicit rolling day counts against the queried date range", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate for the last 30 days?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(activationRateWeek)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: activationRateWeek }),
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
+  it("fails closed when dbt returns malformed result evidence for a bounded request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(activationRateWeek)],
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: "not valid JSON",
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
     });
   });
 
@@ -940,16 +1175,22 @@ describe("realDataFinalGuard", () => {
   );
 
   it("continues paginated dbt metric rows before accepting a complete answer", () => {
+    const resultPageRange = {
+      startDate: "2026-10-05",
+      endDate: "2026-10-11",
+    };
     const result = realDataFinalGuard(
       guardContext({
         userText: "What was the activation rate last week?",
         draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(resultPageRange)],
         toolResults: [
           {
             name: "query-dbt-semantic-metric",
             isError: false,
             content: JSON.stringify({
               status: "success",
+              querySpec: { groupBy: [], timeRange: resultPageRange },
               rows: [{ activation_rate: 42 }],
               truncated: true,
               nextPage: "metric-results-v4.cursor.signature",
@@ -968,16 +1209,22 @@ describe("realDataFinalGuard", () => {
   });
 
   it("requires partial disclosure when the dbt metric row cap has no cursor", () => {
+    const resultPageRange = {
+      startDate: "2026-10-05",
+      endDate: "2026-10-11",
+    };
     const result = realDataFinalGuard(
       guardContext({
         userText: "What was the activation rate last week?",
         draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(resultPageRange)],
         toolResults: [
           {
             name: "query-dbt-semantic-metric",
             isError: false,
             content: JSON.stringify({
               status: "success",
+              querySpec: { groupBy: [], timeRange: resultPageRange },
               rows: [{ activation_rate: 42 }],
               truncated: true,
               truncationReason: "query_row_cap",
@@ -1016,16 +1263,22 @@ describe("realDataFinalGuard", () => {
   });
 
   it("keeps cursor-bearing dbt failures on their status-specific recovery path", () => {
+    const resultPageRange = {
+      startDate: "2026-10-05",
+      endDate: "2026-10-11",
+    };
     const result = realDataFinalGuard(
       guardContext({
         userText: "Find every account's activation rate for last week.",
         draftText: "All accounts had an activation rate of 42%.",
+        toolCalls: [dbtMetricCall(resultPageRange)],
         toolResults: [
           {
             name: "query-dbt-semantic-metric",
             isError: false,
             content: JSON.stringify({
               status: "pending",
+              querySpec: { groupBy: [], timeRange: resultPageRange },
               nextPage: "opaque-cursor",
               message: "The MetricFlow query is still running.",
             }),

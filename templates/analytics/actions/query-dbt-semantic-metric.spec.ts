@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -57,6 +58,17 @@ vi.mock("../server/lib/provider-credentials", () => ({
 }));
 
 const { default: action } = await import("./query-dbt-semantic-metric");
+
+const runAction = (args: any) =>
+  action.run({
+    ...(!args.queryId &&
+    !args.timeRange &&
+    args.allTime === undefined &&
+    !args.groupBy?.length
+      ? { allTime: true }
+      : {}),
+    ...args,
+  });
 
 const syntheticEvalRows = readFileSync(
   new URL(
@@ -175,7 +187,7 @@ describe("query-dbt-semantic-metric", () => {
       );
 
     await expect(
-      action.run({ metricName: metricByNameEval[3]!, limit: 20 }),
+      runAction({ metricName: metricByNameEval[3]!, limit: 20 }),
     ).resolves.toMatchObject({
       status: metricByNameEval[5],
       metric: {
@@ -186,6 +198,7 @@ describe("query-dbt-semantic-metric", () => {
       rowCount: 1,
       truncated: false,
       queryId: "fake_query_1",
+      querySpec: { groupBy: [], allTime: true },
       source: "dbt-semantic-layer",
     });
     expect(
@@ -216,6 +229,46 @@ describe("query-dbt-semantic-metric", () => {
         }),
       }),
     );
+  });
+
+  it("applies and returns an explicit bounded scope for a scalar metric query", async () => {
+    const timeRange = { startDate: "2026-07-01", endDate: "2026-07-31" };
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult({
+          data: { createQuery: { queryId: "fake_bounded_query" } },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: [[42]] }),
+            },
+          },
+        }),
+      );
+
+    const result = await runAction({
+      metricName: "active_workspaces",
+      timeRange,
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({
+      status: "success",
+      querySpec: { groupBy: [], timeRange },
+    });
+    expect(
+      mocks.executeProviderApiRequest.mock.calls[1]?.[0].body.variables.where,
+    ).toEqual([
+      { sql: "{{ TimeDimension('metric_time', 'day') }} >= '2026-07-01'" },
+      { sql: "{{ TimeDimension('metric_time', 'day') }} <= '2026-07-31'" },
+    ]);
+    expect(action.outputSchema.parse(result)).toEqual(result);
   });
 
   it("groups an exact metric by returned dimensions and preserves its bounded time range across pages", async () => {
@@ -280,7 +333,7 @@ describe("query-dbt-semantic-metric", () => {
         }),
       );
 
-    const first = (await action.run({
+    const first = (await runAction({
       metricName: "weekly_active_product_users",
       groupBy,
       timeRange: metricTimeRange,
@@ -326,7 +379,7 @@ describe("query-dbt-semantic-metric", () => {
       queryRowCap: 1_000,
     });
 
-    const second = (await action.run({
+    const second = (await runAction({
       metricName: "weekly_active_product_users",
       queryId: first.queryId,
       nextPage: first.nextPage,
@@ -405,7 +458,7 @@ describe("query-dbt-semantic-metric", () => {
         }),
       );
 
-    const result = await action.run({
+    const result = await runAction({
       metricName: groupedMetricEval[3]!,
       groupBy,
       timeRange,
@@ -458,7 +511,7 @@ describe("query-dbt-semantic-metric", () => {
     );
 
     await expect(
-      action.run({
+      runAction({
         metricName: "weekly_active_product_users",
         groupBy: [{ name: "unknown_org_id" }],
         timeRange: { startDate: "2026-07-01", endDate: "2026-07-31" },
@@ -493,7 +546,7 @@ describe("query-dbt-semantic-metric", () => {
     );
 
     await expect(
-      action.run({
+      runAction({
         metricName: "weekly_active_product_users",
         groupBy: [{ name: "event_date", grain: "WEEK" }],
         timeRange: { startDate: "2026-07-01", endDate: "2026-07-31" },
@@ -530,6 +583,35 @@ describe("query-dbt-semantic-metric", () => {
       }).success,
     ).toBe(false);
     expect(
+      action.schema.safeParse({ metricName: "active_workspaces" }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        metricName: "active_workspaces",
+        allTime: true,
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        metricName: "active_workspaces",
+        timeRange: { startDate: "2026-07-01", endDate: "2026-07-31" },
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        metricName: "active_workspaces",
+        allTime: true,
+        timeRange: { startDate: "2026-07-01", endDate: "2026-07-31" },
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        metricName: "weekly_active_product_users",
+        groupBy: [{ name: "root_org_id" }],
+        allTime: true,
+      }).success,
+    ).toBe(false);
+    expect(
       action.schema.safeParse({
         metricName: "weekly_active_product_users",
         queryId: "fake_group_query",
@@ -539,7 +621,7 @@ describe("query-dbt-semantic-metric", () => {
       action.schema.safeParse({
         metricName: "weekly_active_product_users",
         queryId: "fake_group_query",
-        nextPage: "metric-results-v3.eyJ0ZXN0IjoidHJ1ZSJ9",
+        nextPage: "metric-results-v5.eyJ0ZXN0IjoidHJ1ZSJ9",
         groupBy: [{ name: "root_org_id" }],
         timeRange: { startDate: "2026-07-01", endDate: "2026-07-31" },
       }).success,
@@ -547,6 +629,7 @@ describe("query-dbt-semantic-metric", () => {
     for (const nextPage of [
       "metric-results-v2.eyJ0ZXN0IjoidHJ1ZSJ9",
       "metric-results-v3.eyJ0ZXN0IjoidHJ1ZSJ9",
+      "metric-results-v4.eyJ0ZXN0IjoidHJ1ZSJ9",
     ]) {
       expect(
         action.schema.safeParse({
@@ -611,7 +694,7 @@ describe("query-dbt-semantic-metric", () => {
       );
 
     await expect(
-      action.run({ metricName: "synthetic_metric", limit: 20 }),
+      runAction({ metricName: "synthetic_metric", limit: 20 }),
     ).resolves.toMatchObject({
       status: "success",
       metric: {
@@ -639,7 +722,7 @@ describe("query-dbt-semantic-metric", () => {
     );
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).resolves.toMatchObject({
       status: "deployment_not_ready",
       message: "Environment needs a successful dbt run",
@@ -658,7 +741,7 @@ describe("query-dbt-semantic-metric", () => {
     ]);
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).resolves.toMatchObject({
       status: "connection_error",
       connection: { id: connection.id },
@@ -676,7 +759,7 @@ describe("query-dbt-semantic-metric", () => {
     );
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).resolves.toMatchObject({
       status: "empty_semantic_manifest",
       metricName: "active_workspaces",
@@ -701,7 +784,7 @@ describe("query-dbt-semantic-metric", () => {
       );
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).resolves.toMatchObject({
       status: "no_metrics_available",
       message:
@@ -746,7 +829,7 @@ describe("query-dbt-semantic-metric", () => {
       );
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).resolves.toMatchObject({
       status: "not_found",
       metricName: "active_workspaces",
@@ -774,7 +857,7 @@ describe("query-dbt-semantic-metric", () => {
     );
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).resolves.toMatchObject({
       status: "permission_denied",
       message: "Missing Metadata Only permission",
@@ -789,7 +872,7 @@ describe("query-dbt-semantic-metric", () => {
     );
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).resolves.toMatchObject({
       status: "permission_denied",
       message: "Missing Metadata Only permission",
@@ -802,7 +885,7 @@ describe("query-dbt-semantic-metric", () => {
     );
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).rejects.toMatchObject({
       agentConnectionRequired: true,
       provider: "dbt",
@@ -817,7 +900,7 @@ describe("query-dbt-semantic-metric", () => {
     ]);
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).rejects.toMatchObject({
       agentConnectionRequired: true,
       provider: "dbt",
@@ -835,7 +918,7 @@ describe("query-dbt-semantic-metric", () => {
     ]);
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).resolves.toMatchObject({
       status: "connection_error",
       connection: { id: connection.id, label: connection.label },
@@ -853,7 +936,7 @@ describe("query-dbt-semantic-metric", () => {
     });
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).resolves.toMatchObject({
       status: "connection_error",
       connection: { id: connection.id },
@@ -872,7 +955,7 @@ describe("query-dbt-semantic-metric", () => {
     );
 
     await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
+      runAction({ metricName: "active_workspaces", limit: 20 }),
     ).resolves.toMatchObject({
       status: "connection_error",
       connection: { id: connection.id },
@@ -932,7 +1015,7 @@ describe("query-dbt-semantic-metric", () => {
         }),
       );
 
-    const first = (await action.run({
+    const first = (await runAction({
       metricName: "active_workspaces",
       limit: 20,
     })) as any;
@@ -944,7 +1027,7 @@ describe("query-dbt-semantic-metric", () => {
     });
     expect(typeof first.nextPage).toBe("string");
 
-    const second = (await action.run({
+    const second = (await runAction({
       metricName: "active_workspaces",
       queryId: first.queryId,
       nextPage: first.nextPage,
@@ -958,7 +1041,7 @@ describe("query-dbt-semantic-metric", () => {
     });
     expect(typeof second.nextPage).toBe("string");
 
-    const third = await action.run({
+    const third = await runAction({
       metricName: "active_workspaces",
       queryId: first.queryId,
       nextPage: second.nextPage,
@@ -986,7 +1069,7 @@ describe("query-dbt-semantic-metric", () => {
     expect(requests[1]?.body.variables.limit).toBeUndefined();
   });
 
-  it.each(["querySpec", "signature"] as const)(
+  it.each(["querySpec", "signature", "malformedRowOffset"] as const)(
     "rejects a metric result cursor with a tampered %s",
     async (tamper) => {
       const rows = Array.from({ length: 25 }, (_, index) => [index + 1]);
@@ -1009,12 +1092,12 @@ describe("query-dbt-semantic-metric", () => {
           }),
         );
 
-      const first = (await action.run({
+      const first = (await runAction({
         metricName: "active_workspaces",
         limit: 20,
       })) as any;
       const cursorValue = String(first.nextPage);
-      const signedPayload = cursorValue.slice("metric-results-v4.".length);
+      const signedPayload = cursorValue.slice("metric-results-v5.".length);
       const signatureSeparator = signedPayload.lastIndexOf(".");
       const payload = signedPayload.slice(0, signatureSeparator);
       const signature = signedPayload.slice(signatureSeparator + 1);
@@ -1033,20 +1116,28 @@ describe("query-dbt-semantic-metric", () => {
                 },
               },
             }
-          : parsedPayload;
+          : tamper === "malformedRowOffset"
+            ? { ...parsedPayload, rowOffset: 1_000 }
+            : parsedPayload;
       const encodedTamperedPayload = Buffer.from(
         JSON.stringify(tamperedPayload),
       ).toString("base64url");
       const tamperedSignature =
         tamper === "signature"
           ? `${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`
-          : signature;
+          : tamper === "malformedRowOffset"
+            ? createHmac("sha256", "fake-dbt-token-for-tests")
+                .update(
+                  `agent-native:analytics:dbt-semantic-layer:metric-results:v5:${encodedTamperedPayload}`,
+                )
+                .digest("base64url")
+            : signature;
 
       await expect(
-        action.run({
+        runAction({
           metricName: "active_workspaces",
           queryId: first.queryId,
-          nextPage: `metric-results-v4.${encodedTamperedPayload}.${tamperedSignature}`,
+          nextPage: `metric-results-v5.${encodedTamperedPayload}.${tamperedSignature}`,
           limit: 20,
         }),
       ).rejects.toMatchObject({
@@ -1088,14 +1179,14 @@ describe("query-dbt-semantic-metric", () => {
       );
 
     const receivedRows: unknown[] = [];
-    let result = (await action.run({
+    let result = (await runAction({
       metricName: "active_workspaces",
       limit: 100,
     })) as any;
     for (;;) {
       receivedRows.push(...result.rows);
       if (!result.nextPage) break;
-      result = (await action.run({
+      result = (await runAction({
         metricName: "active_workspaces",
         queryId: result.queryId,
         nextPage: result.nextPage,
@@ -1123,7 +1214,7 @@ describe("query-dbt-semantic-metric", () => {
     { label: "non-integer", totalPages: 1.5 },
     { label: "below the current page", totalPages: 0 },
   ])(
-    "returns incomplete_result for $label totalPages",
+    "returns a terminal provider error for $label totalPages",
     async ({ totalPages }) => {
       const query: Record<string, unknown> = {
         status: "SUCCESSFUL",
@@ -1149,16 +1240,19 @@ describe("query-dbt-semantic-metric", () => {
         )
         .mockResolvedValueOnce(providerResult({ data: { query } }));
 
-      const result = await action.run({
+      const result = await runAction({
         metricName: "active_workspaces",
         limit: 20,
       });
 
       expect(result).toMatchObject({
-        status: "incomplete_result",
-        queryId: "fake_query_1",
-        message: expect.stringContaining("result completeness is unknown"),
+        status: "provider_error",
+        message: expect.stringMatching(
+          /pagination metadata|beyond the last available page/,
+        ),
       });
+      expect(result).not.toHaveProperty("queryId");
+      expect(result).not.toHaveProperty("nextPage");
       expect(action.outputSchema.parse(result)).toEqual(result);
     },
   );
@@ -1201,12 +1295,12 @@ describe("query-dbt-semantic-metric", () => {
       )
       .mockRejectedValueOnce(providerRequestTimeoutError());
 
-    const first = (await action.run({
+    const first = (await runAction({
       metricName: "active_workspaces",
       connectionId: connection.id,
       limit: 20,
     })) as any;
-    const pending = await action.run({
+    const pending = await runAction({
       metricName: "active_workspaces",
       queryId: first.queryId,
       nextPage: first.nextPage,
@@ -1253,7 +1347,7 @@ describe("query-dbt-semantic-metric", () => {
         }),
       );
 
-    const interrupted = await action.run({
+    const interrupted = await runAction({
       metricName: "active_workspaces",
       limit: 20,
     });
@@ -1261,13 +1355,13 @@ describe("query-dbt-semantic-metric", () => {
     expect(interrupted).toMatchObject({
       status: "provider_error",
       queryId: "fake_query_1",
-      querySpec: { groupBy: [] },
+      querySpec: { groupBy: [], allTime: true },
       message: expect.stringContaining("Retry with the same metricName"),
     });
-    expect((interrupted as any).nextPage).toMatch(/^metric-results-v4\./);
+    expect((interrupted as any).nextPage).toMatch(/^metric-results-v5\./);
     expect(action.outputSchema.parse(interrupted)).toEqual(interrupted);
 
-    const resumed = await action.run({
+    const resumed = await runAction({
       metricName: "active_workspaces",
       queryId: (interrupted as any).queryId,
       nextPage: (interrupted as any).nextPage,
@@ -1277,7 +1371,7 @@ describe("query-dbt-semantic-metric", () => {
     expect(resumed).toMatchObject({
       status: "success",
       queryId: "fake_query_1",
-      querySpec: { groupBy: [] },
+      querySpec: { groupBy: [], allTime: true },
       rows,
       rowCount: 1,
       truncated: false,
@@ -1309,59 +1403,34 @@ describe("query-dbt-semantic-metric", () => {
       "unsupported query status",
       { data: { query: { status: "UNKNOWN_STATUS" } } },
     ],
-  ])("preserves a result cursor after %s", async (_label, interruptedPoll) => {
-    const rows = [{ active_workspaces: 42 }];
-    mocks.executeProviderApiRequest
-      .mockResolvedValueOnce(metricMetadataResult())
-      .mockResolvedValueOnce(
-        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
-      )
-      .mockResolvedValueOnce(providerResult(interruptedPoll))
-      .mockResolvedValueOnce(
-        providerResult({
-          data: {
-            query: {
-              status: "SUCCESSFUL",
-              totalPages: 1,
-              jsonResult: JSON.stringify({ data: rows }),
-            },
-          },
-        }),
-      );
+  ])(
+    "terminates on %s without a retry cursor",
+    async (_label, interruptedPoll) => {
+      mocks.executeProviderApiRequest
+        .mockResolvedValueOnce(metricMetadataResult())
+        .mockResolvedValueOnce(
+          providerResult({
+            data: { createQuery: { queryId: "fake_query_1" } },
+          }),
+        )
+        .mockResolvedValueOnce(providerResult(interruptedPoll));
 
-    const interrupted = (await action.run({
-      metricName: "active_workspaces",
-      limit: 20,
-    })) as any;
+      const interrupted = (await runAction({
+        metricName: "active_workspaces",
+        limit: 20,
+      })) as any;
 
-    expect(interrupted).toMatchObject({
-      status: "provider_error",
-      queryId: "fake_query_1",
-      querySpec: { groupBy: [] },
-      connection: { id: connection.id },
-    });
-    expect(interrupted.nextPage).toMatch(/^metric-results-v4\./);
-    expect(action.outputSchema.parse(interrupted)).toEqual(interrupted);
-
-    const resumed = await action.run({
-      metricName: "active_workspaces",
-      queryId: interrupted.queryId,
-      nextPage: interrupted.nextPage,
-      limit: 20,
-    });
-
-    expect(resumed).toMatchObject({
-      status: "success",
-      queryId: "fake_query_1",
-      rows,
-      rowCount: 1,
-    });
-    expect(action.outputSchema.parse(resumed)).toEqual(resumed);
-    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(4);
-    expect(
-      mocks.executeProviderApiRequest.mock.calls[3]?.[0].body.query,
-    ).toContain("query AnalyticsMetricResult");
-  });
+      expect(interrupted).toMatchObject({
+        status: "provider_error",
+        connection: { id: connection.id },
+      });
+      expect(interrupted).not.toHaveProperty("queryId");
+      expect(interrupted).not.toHaveProperty("nextPage");
+      expect(interrupted).not.toHaveProperty("querySpec");
+      expect(action.outputSchema.parse(interrupted)).toEqual(interrupted);
+      expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(3);
+    },
+  );
 
   it("does not return an orphaned query ID for terminal failed queries", async () => {
     mocks.executeProviderApiRequest
@@ -1380,7 +1449,7 @@ describe("query-dbt-semantic-metric", () => {
         }),
       );
 
-    const failed = await action.run({
+    const failed = await runAction({
       metricName: "active_workspaces",
       limit: 20,
     });
@@ -1395,7 +1464,7 @@ describe("query-dbt-semantic-metric", () => {
     expect(action.outputSchema.parse(failed)).toEqual(failed);
   });
 
-  it("does not turn an out-of-range result cursor into a successful empty page", async () => {
+  it("terminates an out-of-range signed result cursor without returning it for retry", async () => {
     mocks.executeProviderApiRequest
       .mockResolvedValueOnce(metricMetadataResult())
       .mockResolvedValueOnce(
@@ -1415,6 +1484,62 @@ describe("query-dbt-semantic-metric", () => {
             },
           },
         }),
+      );
+
+    const first = (await runAction({
+      metricName: "active_workspaces",
+      limit: 20,
+    })) as any;
+    expect(first).toMatchObject({ status: "success", rowCount: 20 });
+    expect(first.nextPage).toMatch(/^metric-results-v5\./);
+
+    const signedPayload = String(first.nextPage).slice(
+      "metric-results-v5.".length,
+    );
+    const separator = signedPayload.lastIndexOf(".");
+    const payload = signedPayload.slice(0, separator);
+    const cursor = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    );
+    const outOfRangePayload = Buffer.from(
+      JSON.stringify({
+        ...cursor,
+        pageNum: 2,
+        rowOffset: 0,
+        rowsBeforePage: 25,
+      }),
+    ).toString("base64url");
+    const signature = createHmac("sha256", "fake-dbt-token-for-tests")
+      .update(
+        `agent-native:analytics:dbt-semantic-layer:metric-results:v5:${outOfRangePayload}`,
+      )
+      .digest("base64url");
+
+    const invalidPage = await runAction({
+      metricName: "active_workspaces",
+      queryId: first.queryId,
+      nextPage: `metric-results-v5.${outOfRangePayload}.${signature}`,
+      limit: 20,
+    });
+
+    expect(invalidPage).toMatchObject({
+      status: "provider_error",
+      message: expect.stringContaining("beyond the last available page"),
+    });
+    expect(invalidPage).not.toHaveProperty("queryId");
+    expect(invalidPage).not.toHaveProperty("nextPage");
+    expect(invalidPage).not.toHaveProperty("querySpec");
+    expect(action.outputSchema.parse(invalidPage)).toEqual(invalidPage);
+  });
+
+  it("does not retry a signed row offset beyond the returned page", async () => {
+    const pageRows = Array.from({ length: 25 }, (_, index) => ({
+      value: index,
+    }));
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
       )
       .mockResolvedValueOnce(
         providerResult({
@@ -1422,33 +1547,58 @@ describe("query-dbt-semantic-metric", () => {
             query: {
               status: "SUCCESSFUL",
               totalPages: 1,
-              jsonResult: JSON.stringify({ data: [{ value: 20 }] }),
+              jsonResult: JSON.stringify({ data: pageRows }),
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: pageRows }),
             },
           },
         }),
       );
 
-    const first = (await action.run({
+    const first = (await runAction({
       metricName: "active_workspaces",
       limit: 20,
     })) as any;
-    expect(first).toMatchObject({ status: "success", rowCount: 20 });
-    expect(first.nextPage).toMatch(/^metric-results-v4\./);
+    const signedPayload = String(first.nextPage).slice(
+      "metric-results-v5.".length,
+    );
+    const separator = signedPayload.lastIndexOf(".");
+    const payload = signedPayload.slice(0, separator);
+    const cursor = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    );
+    const outOfRangePayload = Buffer.from(
+      JSON.stringify({ ...cursor, rowOffset: 26 }),
+    ).toString("base64url");
+    const signature = createHmac("sha256", "fake-dbt-token-for-tests")
+      .update(
+        `agent-native:analytics:dbt-semantic-layer:metric-results:v5:${outOfRangePayload}`,
+      )
+      .digest("base64url");
 
-    const invalidPage = await action.run({
+    const invalidOffset = await runAction({
       metricName: "active_workspaces",
       queryId: first.queryId,
-      nextPage: first.nextPage,
+      nextPage: `metric-results-v5.${outOfRangePayload}.${signature}`,
       limit: 20,
     });
 
-    expect(invalidPage).toMatchObject({
+    expect(invalidOffset).toMatchObject({
       status: "provider_error",
-      queryId: first.queryId,
-      nextPage: first.nextPage,
-      querySpec: first.querySpec,
+      message: "dbt Semantic Layer returned an invalid metric result page.",
     });
-    expect(action.outputSchema.parse(invalidPage)).toEqual(invalidPage);
+    expect(invalidOffset).not.toHaveProperty("queryId");
+    expect(invalidOffset).not.toHaveProperty("nextPage");
+    expect(action.outputSchema.parse(invalidOffset)).toEqual(invalidOffset);
   });
 
   it("does not resume a metric cursor from a connection outside the caller's app scope", async () => {
@@ -1479,13 +1629,13 @@ describe("query-dbt-semantic-metric", () => {
         }),
       );
 
-    const first = (await action.run({
+    const first = (await runAction({
       metricName: "active_workspaces",
       limit: 20,
     })) as any;
 
     await expect(
-      action.run({
+      runAction({
         metricName: "active_workspaces",
         queryId: first.queryId,
         nextPage: first.nextPage,
@@ -1506,7 +1656,7 @@ describe("query-dbt-semantic-metric", () => {
       providerRequestTimeoutError(),
     );
 
-    const result = await action.run({
+    const result = await runAction({
       metricName: "active_workspaces",
       limit: 20,
     });
@@ -1521,7 +1671,7 @@ describe("query-dbt-semantic-metric", () => {
       providerResult(undefined, 200, true, true),
     );
 
-    const result = await action.run({
+    const result = await runAction({
       metricName: "active_workspaces",
       limit: 20,
     });
@@ -1545,7 +1695,7 @@ describe("query-dbt-semantic-metric", () => {
       )
       .mockResolvedValueOnce(providerResult(undefined, 200, true, true));
 
-    const result = await action.run({
+    const result = await runAction({
       metricName: "active_workspaces",
       limit: 20,
     });
@@ -1585,11 +1735,11 @@ describe("query-dbt-semantic-metric", () => {
         ),
       );
 
-    const first = (await action.run({
+    const first = (await runAction({
       metricName: "active_workspaces",
       limit: 20,
     })) as any;
-    const result = await action.run({
+    const result = await runAction({
       metricName: "active_workspaces",
       queryId: first.queryId,
       nextPage: first.nextPage,
@@ -1613,7 +1763,7 @@ describe("query-dbt-semantic-metric", () => {
         throw Object.assign(new Error("aborted"), { name: "AbortError" });
       });
 
-      const result = await action.run({
+      const result = await runAction({
         metricName: "active_workspaces",
         limit: 20,
       });
@@ -1658,7 +1808,7 @@ describe("query-dbt-semantic-metric", () => {
     );
 
     await expect(
-      action.run({ metricName: "missing_metric", limit: 20 }),
+      runAction({ metricName: "missing_metric", limit: 20 }),
     ).resolves.toMatchObject({
       status: "metadata_truncated",
       searched: 1_000,

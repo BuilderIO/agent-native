@@ -2225,6 +2225,12 @@ function hasExplicitActivityEvidence(
   }
   if (
     candidate.kind === "data-dictionary" &&
+    candidate.semanticScope === "person"
+  ) {
+    return false;
+  }
+  if (
+    candidate.kind === "data-dictionary" &&
     !isStaleGeneratedSourceIndexEntry(candidate) &&
     (candidate.semanticScope === "membership" ||
       candidate.semanticScope === "membership_roster")
@@ -2261,6 +2267,26 @@ function hasActiveOnlyMembershipEvidence(
     .replace(/[_-]+/g, " ");
   return /(?:\b(?<!non )active\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b|\b(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\s+(?:who\s+)?(?:are\s+)?(?<!non )active\b)/.test(
     searchable,
+  );
+}
+
+function isTimeScopedActivityRequest(search: string, scope: string): boolean {
+  if (scope === "active_user_activity") return true;
+  if (scope !== "product_activity") return false;
+  return (
+    requestedTemporalUnit(search) !== null ||
+    /\b(?:daily|weekly|monthly|quarterly|yearly|annually|today|yesterday|this week|this month|this quarter|this year)\b|\b20\d{2}\b|\b\d{4}-\d{2}-\d{2}\b/i.test(
+      search,
+    )
+  );
+}
+
+function isNonActivityPersonCandidate(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  return (
+    candidateSemanticScope(candidate) === "person" &&
+    !hasExplicitActivityEvidence(candidate)
   );
 }
 
@@ -2899,9 +2925,11 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
-  const excludesMembershipForActivity =
-    requestedScope === "product_activity" ||
-    requestedScope === "active_user_activity";
+  const excludesMembershipForActivity = requestedScope === "product_activity";
+  const excludesPersonRosterForActivity = isTimeScopedActivityRequest(
+    rankingIntent,
+    requestedScope,
+  );
   const excludesActiveOnlyMembership =
     !requestedActiveMembers &&
     (rosterRequest || plainMembershipRequest || activeMemberIntent.negated);
@@ -2928,6 +2956,10 @@ export function rankAnalyticsQueryCatalogPage(args: {
       !(
         excludesActiveOnlyMembership &&
         hasActiveOnlyMembershipEvidence(candidate)
+      ) &&
+      !(
+        excludesPersonRosterForActivity &&
+        isNonActivityPersonCandidate(candidate)
       ) &&
       !(
         aggregateMembershipIsNotRelevant &&
@@ -2967,6 +2999,15 @@ export function rankAnalyticsQueryCatalogPage(args: {
         ? eligibleCandidates.filter(({ candidate, scope, trust }) => {
             if (isStaleGeneratedSourceIndexEntry(candidate)) return true;
             if (scope === 2) return true;
+            if (
+              requestedScope === "active_user_activity" &&
+              requestsRoleDetail &&
+              ["membership", "membership_roster"].includes(
+                candidateSemanticScope(candidate),
+              )
+            ) {
+              return true;
+            }
             if (requestedScope === "product_activity") {
               return scope === 1 && trust > bestScopeTrust;
             }

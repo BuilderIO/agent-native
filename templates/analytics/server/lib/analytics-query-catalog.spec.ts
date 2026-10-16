@@ -714,6 +714,59 @@ describe("analytics query catalog", () => {
     expect(results).toEqual([]);
   });
 
+  it("excludes person-roster candidates from time-scoped activity search", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "weekly active users by organization",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "weekly-product-activity",
+          metric: "Weekly Active Product Users by Organization",
+          definition:
+            "Distinct users with product activity each week by organization.",
+          table: "weekly_product_activity",
+          semanticScope: "product_activity",
+          approved: true,
+        },
+        {
+          id: "organization-user-directory",
+          metric: "Organization User Directory",
+          definition:
+            "One row per user in each organization with profile details.",
+          table: "organization_user_directory",
+          columnsUsed: "user_id, organization_id, full_name, email",
+          grain: "One row per user per organization",
+          semanticScope: "person",
+          approved: true,
+        },
+        {
+          id: "person-roster",
+          metric: "User Roster",
+          definition: "A current user directory with profile details.",
+          table: "users",
+          columnsUsed: "user_id, full_name, email",
+          grain: "One row per user",
+          semanticScope: "person",
+          approved: true,
+        },
+        {
+          id: "under-described-person-source",
+          metric: "Weekly Active Users",
+          definition: "Person records grouped by organization.",
+          semanticScope: "person",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(
+      results.map((candidate) =>
+        candidate.kind === "data-dictionary" ? candidate.id : candidate.panelId,
+      ),
+    ).toEqual(["weekly-product-activity"]);
+  });
+
   it("keeps bare active-user searches open across distinct populations", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "active users",
@@ -3167,6 +3220,17 @@ describe("analytics query catalog", () => {
           semanticScope: "analytics_user",
           approved: true,
         },
+        {
+          id: "synthetic-active-organization-members-weekly",
+          metric: "Weekly Active Organization Members",
+          definition:
+            "Weekly active users in organization membership records, with one row per user and organization.",
+          table: "synthetic_organization_memberships",
+          columnsUsed: "user_id, organization_id, active, week_start",
+          grain: "One row per user and organization per week",
+          semanticScope: "membership",
+          approved: true,
+        },
       ],
     });
     const resultIds = results.map((candidate) =>
@@ -3175,6 +3239,43 @@ describe("analytics query catalog", () => {
 
     expect(resultIds).toContain("synthetic-active-builders-weekly");
     expect(resultIds).toContain("synthetic-analytics-app-opens-weekly");
+    expect(resultIds).toContain("synthetic-active-organization-members-weekly");
+  });
+
+  it("keeps membership and product populations available for active-user role questions", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "weekly active users by role",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "weekly-members-by-role",
+          metric: "Weekly Active Workspace Members by Role",
+          definition:
+            "Weekly active users grouped by their workspace membership role.",
+          table: "workspace_members_by_role",
+          columnsUsed: "user_id, workspace_id, role, week_start",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "weekly-product-activity-by-role",
+          metric: "Weekly Active Product Users by Role",
+          definition: "Weekly distinct users with product activity by role.",
+          table: "product_activity_by_role",
+          columnsUsed: "user_id, role, week_start, event_count",
+          grain: "One row per week, role, and product activity group",
+          semanticScope: "product_activity",
+          approved: true,
+        },
+      ],
+    });
+
+    const resultIds = results.map((candidate) =>
+      candidate.kind === "data-dictionary" ? candidate.id : candidate.panelId,
+    );
+    expect(resultIds[0]).toBe("weekly-product-activity-by-role");
+    expect(resultIds).toContain("weekly-members-by-role");
   });
 
   it("penalizes off-topic terms in metric names when query coverage is equal", () => {

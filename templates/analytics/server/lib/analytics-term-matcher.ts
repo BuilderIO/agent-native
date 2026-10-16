@@ -265,6 +265,14 @@ export function semanticScopeForSearch(value: string): string {
   const intent = stripNonPositiveInstructions(value);
   const terms = new Set(searchTerms(intent));
   const has = (...values: string[]) => values.some((term) => terms.has(term));
+  const asksForRoleAssignment =
+    /\b(?:roles?|permissions?|access)\b.{0,48}\b(?:assign(?:ed|ment|ments|ing)?|grant(?:ed|s|ing)?|change(?:d|s|ing)?|update(?:d|s|ing)?|add(?:ed|s|ing)?|remov(?:e|ed|al|ing))\b|\b(?:assign(?:ed|ment|ments|ing)?|grant(?:ed|s|ing)?|change(?:d|s|ing)?|update(?:d|s|ing)?|add(?:ed|s|ing)?|remov(?:e|ed|al|ing))\b.{0,48}\b(?:roles?|permissions?|access)\b/i.test(
+      intent,
+    );
+  const hasTimeQualifier =
+    /\b(?:daily|weekly|monthly|quarterly|yearly|annually|today|yesterday|last|past|previous|prior|since|during|between|before|after|within|over|from|as of|day|week|month|quarter|year)\b|\b20\d{2}\b|\b\d{4}-\d{2}-\d{2}\b/i.test(
+      intent,
+    );
   const hasAnalyticsAppContext =
     /\b(?:agent[ -]?native|analytics)\b/i.test(intent) &&
     /\b(?:app|application)\b/i.test(intent);
@@ -286,11 +294,6 @@ export function semanticScopeForSearch(value: string): string {
     /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|annually)\b|\bper\s+(?:day|week|month|quarter|year)\b/i.test(
       intent,
     );
-  if (hasAnalyticsMembershipContext) {
-    return asksForMembershipRows && !asksForAggregate
-      ? "membership_roster"
-      : "membership";
-  }
   const asksForTimeScopedActiveUsers =
     /\b(?:active|activity|dau|wau|mau)\b/i.test(intent) &&
     /\b(?:users?|people|persons?)\b/i.test(intent) &&
@@ -300,6 +303,24 @@ export function semanticScopeForSearch(value: string): string {
     !/\b(?:members?|membership|seats?|roster|permissions?|access|licenses?|billable)\b/i.test(
       intent,
     );
+  const hasTimeScopedRoleDetail =
+    asksForMembershipRows &&
+    hasTimeQualifier &&
+    !asksForTimeScopedActiveUsers &&
+    /\b(?:roles?|permissions?|access)\b/i.test(intent) &&
+    /\b(?:users?|people|persons?|members?|organizations?|orgs?|workspaces?|teams?)\b/i.test(
+      intent,
+    );
+  if (asksForRoleAssignment || hasTimeScopedRoleDetail) {
+    return asksForMembershipRows && !asksForAggregate
+      ? "membership_roster"
+      : "membership";
+  }
+  if (hasAnalyticsMembershipContext) {
+    return asksForMembershipRows && !asksForAggregate
+      ? "membership_roster"
+      : "membership";
+  }
   if (asksForTimeScopedActiveUsers) {
     return /\b(?:builder(?:\.io)?|product)\b/i.test(intent)
       ? "product_activity"
@@ -496,7 +517,12 @@ export function semanticScopeCompatibility(
   requestedScope: string,
 ): number {
   if (requestedScope === "active_user_activity") {
-    return ["product_activity", "analytics_user"].includes(candidateScope)
+    return [
+      "product_activity",
+      "analytics_user",
+      "membership",
+      "membership_roster",
+    ].includes(candidateScope)
       ? 1
       : 0;
   }

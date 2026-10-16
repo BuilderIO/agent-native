@@ -26,7 +26,7 @@ pinned revision and rejects edits to the two baseline ranker files. Re-measure
 the baseline when changing the comparison base; do not update the revision
 without running the measurement command.
 
-The fourteen cases cover a built-in dictionary alias (`MRR`), a term found only
+The sixteen cases cover a built-in dictionary alias (`MRR`), a term found only
 in panel SQL, semantic-scope selection, approved versus generated dictionary
 trust, a synthetic product-user directory versus organization membership grain,
 a role-aware roster versus a period aggregate, product activity versus
@@ -36,18 +36,22 @@ events, two non-positive count forms on a row-level membership request, and a
 time-scoped active-user metric versus monthly seats and publishing-only activity.
 The CSV marks every row `SYNTHETIC` and records the expected candidate's rank under
 both implementations. Its active-user cases distinguish Builder product events
-from Agent-Native app opens. A focused catalog regression also keeps bare
-"active users" searches open across Builder activity, organization membership,
-and Analytics app opens, so the prompt can ask which population the user means.
-This measures retrieval ranking only; it does not
+from Agent-Native app opens. Version 9 adds an ambiguous weekly active-user
+search that must retain organization membership, product activity, app-open, and
+seat-count options for clarification, plus a weekly active-user-by-role case that
+keeps both membership and product-activity definitions available. A focused catalog regression
+also keeps bare "active users" searches open across Builder activity,
+organization membership, and Analytics app opens, so the prompt can ask which
+population the user means. This measures retrieval ranking only; it does not
 measure answer quality, latency, or the mounted production chat path.
 
 `SYNTHETIC-analytics-retrieval-v7.csv` is retained as the preceding synthetic
-case snapshot. Version 8 is the current benchmark and adds the app-open routing
-case.
+case snapshot. Version 8 is retained as the prior benchmark and adds the app-open
+routing case. Version 9 is current and adds ambiguity-aware active-user retrieval
+and time-qualified role routing.
 
-Across these fourteen cases, top-1 improves from 13/14 to 14/14, hit@5 improves
-from 13/14 to 14/14, and mean reciprocal rank improves from 13/14 to 1.00.
+Across these sixteen cases, top-1 improves from 13/16 to 15/16, hit@5 improves
+from 13/16 to 16/16, and mean reciprocal rank improves from 0.81 to 0.97.
 
 From the repository root, regenerate the checked-in CSV with:
 
