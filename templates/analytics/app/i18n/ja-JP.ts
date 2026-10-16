@@ -757,6 +757,14 @@ export default {
       unavailable: "収集状況を取得できません: {{message}}",
       keyUnreadable:
         "保存されたサービスアカウントのキーを読み取れませんでした。Google Cloud で保存し直してください。",
+      propertyBareDomain:
+        "ドメイン プロパティには {{suggestion}} を使用してください。",
+      propertyInvalidDomain:
+        "sc-domain: の後にはドメインだけを入力します（例: {{suggestion}}）。",
+      propertyMissingSlash:
+        "URL プレフィックス プロパティは / で終わります。{{suggestion}} を使用してください。",
+      propertyUnrecognized:
+        "sc-domain:example.com、または / で終わる URL プレフィックス プロパティを使用してください。",
     },
     uploadFile: "ファイルをアップロードする",
     googleSheetsExport: "Google スプレッドシートへのエクスポート",

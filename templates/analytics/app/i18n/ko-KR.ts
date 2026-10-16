@@ -740,6 +740,13 @@ export default {
       unavailable: "수집 상태를 확인할 수 없습니다: {{message}}",
       keyUnreadable:
         "저장된 서비스 계정 키를 읽을 수 없습니다. Google Cloud에서 다시 저장하세요.",
+      propertyBareDomain: "도메인 속성에는 {{suggestion}}을(를) 사용하세요.",
+      propertyInvalidDomain:
+        "sc-domain: 뒤에는 도메인만 입력합니다(예: {{suggestion}}).",
+      propertyMissingSlash:
+        "URL 접두어 속성은 /로 끝납니다. {{suggestion}}을(를) 사용하세요.",
+      propertyUnrecognized:
+        "sc-domain:example.com 또는 /로 끝나는 URL 접두어 속성을 사용하세요.",
     },
     uploadFile: "파일 업로드",
     googleSheetsExport: "Google Sheets 내보내기",

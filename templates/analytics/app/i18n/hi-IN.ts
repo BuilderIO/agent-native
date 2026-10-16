@@ -732,6 +732,13 @@ export default {
       unavailable: "संग्रह की स्थिति उपलब्ध नहीं है: {{message}}",
       keyUnreadable:
         "सहेजी गई सर्विस अकाउंट कुंजी पढ़ी नहीं जा सकी। इसे Google Cloud में फिर से सहेजें।",
+      propertyBareDomain: "डोमेन प्रॉपर्टी के लिए {{suggestion}} का उपयोग करें।",
+      propertyInvalidDomain:
+        "sc-domain: के बाद सिर्फ़ डोमेन लिखें, जैसे {{suggestion}}।",
+      propertyMissingSlash:
+        "URL-प्रीफ़िक्स प्रॉपर्टी / पर खत्म होती हैं। {{suggestion}} का उपयोग करें।",
+      propertyUnrecognized:
+        "sc-domain:example.com या / पर खत्म होने वाली URL-प्रीफ़िक्स प्रॉपर्टी का उपयोग करें।",
     },
     uploadFile: "फ़ाइल अपलोड करें",
     googleSheetsExport: "Google Sheets निर्यात",

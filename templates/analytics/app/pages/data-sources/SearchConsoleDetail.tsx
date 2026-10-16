@@ -4,6 +4,10 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
+import {
+  searchConsolePropertyProblem,
+  type SearchConsolePropertyProblem,
+} from "@shared/search-console-property";
 import { IconCheck, IconCopy, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -172,6 +176,29 @@ function LastRun({ run }: { run: StepRun }) {
   );
 }
 
+function PropertyProblem({
+  problem,
+}: {
+  problem: SearchConsolePropertyProblem;
+}) {
+  const t = useT();
+  const text =
+    problem.kind === "bare_domain"
+      ? t("dataSources.searchConsole.propertyBareDomain", {
+          suggestion: problem.suggestion,
+        })
+      : problem.kind === "missing_trailing_slash"
+        ? t("dataSources.searchConsole.propertyMissingSlash", {
+            suggestion: problem.suggestion,
+          })
+        : problem.kind === "invalid_domain" && problem.suggestion
+          ? t("dataSources.searchConsole.propertyInvalidDomain", {
+              suggestion: problem.suggestion,
+            })
+          : t("dataSources.searchConsole.propertyUnrecognized");
+  return <p className="text-xs text-destructive">{text}</p>;
+}
+
 export function SearchConsoleDetail() {
   const t = useT();
   const queryClient = useQueryClient();
@@ -180,11 +207,13 @@ export function SearchConsoleDetail() {
   const savedSites = status?.config?.searchConsole.sites;
   const savedEnabled = status?.config?.searchConsole.enabled ?? false;
   const [sites, setSites] = useState<SearchConsoleSite[]>([]);
+  const [touched, setTouched] = useState<ReadonlySet<number>>(new Set());
 
   const savedSitesKey = JSON.stringify(savedSites ?? []);
   useEffect(() => {
     const saved = JSON.parse(savedSitesKey) as SearchConsoleSite[];
     setSites(saved.length ? saved : [{ siteUrl: "" }]);
+    setTouched(new Set());
   }, [savedSitesKey]);
 
   const configure = useActionMutation("configure-content-collection", {
@@ -223,6 +252,10 @@ export function SearchConsoleDetail() {
     }))
     .filter((site) => site.siteUrl);
   const dirty = JSON.stringify(cleanSites) !== savedSitesKey;
+  const problems = sites.map((site) =>
+    site.siteUrl.trim() ? searchConsolePropertyProblem(site.siteUrl) : null,
+  );
+  const hasProblem = problems.some(Boolean);
   const checked = configure.isPending
     ? Boolean(
         (configure.variables as { searchConsole?: boolean } | undefined)
@@ -258,39 +291,58 @@ export function SearchConsoleDetail() {
           {t("dataSources.searchConsole.properties")}
         </p>
         {sites.map((site, index) => (
-          <div key={index} className="flex items-center gap-2">
-            <Input
-              value={site.siteUrl}
-              onChange={(event) =>
-                updateSite(index, { siteUrl: event.target.value })
-              }
-              placeholder="sc-domain:example.com"
-              aria-label={t("dataSources.searchConsole.siteLabel")}
-              disabled={!canManageOrg}
-              className="h-8 flex-1 font-mono text-xs"
-            />
-            <Input
-              value={site.pathPrefix ?? ""}
-              onChange={(event) =>
-                updateSite(index, { pathPrefix: event.target.value })
-              }
-              placeholder="/blog/"
-              aria-label={t("dataSources.searchConsole.pathLabel")}
-              disabled={!canManageOrg}
-              className="h-8 w-28 font-mono text-xs"
-            />
-            {canManageOrg && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  setSites((current) => current.filter((_, i) => i !== index))
+          <div key={index} className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Input
+                value={site.siteUrl}
+                onChange={(event) =>
+                  updateSite(index, { siteUrl: event.target.value })
                 }
-                aria-label={t("dataSources.searchConsole.removeProperty")}
-                className="h-8 w-8 p-0"
-              >
-                <IconTrash className="h-3.5 w-3.5" />
-              </Button>
+                onBlur={() =>
+                  setTouched((current) => new Set(current).add(index))
+                }
+                placeholder="sc-domain:example.com"
+                aria-label={t("dataSources.searchConsole.siteLabel")}
+                aria-invalid={touched.has(index) && Boolean(problems[index])}
+                disabled={!canManageOrg}
+                className="h-8 flex-1 font-mono text-xs"
+              />
+              <Input
+                value={site.pathPrefix ?? ""}
+                onChange={(event) =>
+                  updateSite(index, { pathPrefix: event.target.value })
+                }
+                placeholder="/blog/"
+                aria-label={t("dataSources.searchConsole.pathLabel")}
+                disabled={!canManageOrg}
+                className="h-8 w-28 font-mono text-xs"
+              />
+              {canManageOrg && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setSites((current) =>
+                      current.filter((_, i) => i !== index),
+                    );
+                    setTouched(
+                      (current) =>
+                        new Set(
+                          [...current].flatMap((i) =>
+                            i === index ? [] : [i < index ? i : i - 1],
+                          ),
+                        ),
+                    );
+                  }}
+                  aria-label={t("dataSources.searchConsole.removeProperty")}
+                  className="h-8 w-8 p-0"
+                >
+                  <IconTrash className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+            {touched.has(index) && problems[index] && (
+              <PropertyProblem problem={problems[index]} />
             )}
           </div>
         ))}
@@ -311,7 +363,7 @@ export function SearchConsoleDetail() {
               <Button
                 size="sm"
                 onClick={() => save(savedEnabled)}
-                disabled={configure.isPending}
+                disabled={configure.isPending || hasProblem}
                 className="text-xs"
               >
                 {t("dataSources.searchConsole.save")}
@@ -334,7 +386,7 @@ export function SearchConsoleDetail() {
           disabled={
             !canManageOrg ||
             configure.isPending ||
-            (!checked && cleanSites.length === 0)
+            (!checked && (cleanSites.length === 0 || hasProblem))
           }
           onCheckedChange={(checked) => save(checked)}
         />

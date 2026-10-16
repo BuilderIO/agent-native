@@ -738,6 +738,13 @@ export default {
       unavailable: "حالة الجمع غير متاحة: {{message}}",
       keyUnreadable:
         "تعذرت قراءة مفتاح حساب الخدمة المحفوظ. احفظه مرة أخرى ضمن Google Cloud.",
+      propertyBareDomain: "لموقع النطاق، استخدم {{suggestion}}.",
+      propertyInvalidDomain:
+        "اكتب النطاق فقط بعد sc-domain: ، مثل {{suggestion}}.",
+      propertyMissingSlash:
+        "تنتهي مواقع بادئة عنوان URL بالرمز /. استخدم {{suggestion}}.",
+      propertyUnrecognized:
+        "استخدم sc-domain:example.com، أو موقع بادئة عنوان URL ينتهي بالرمز /.",
     },
     uploadFile: "تحميل الملف",
     googleSheetsExport: "تصدير Google Sheets",

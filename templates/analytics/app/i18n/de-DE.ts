@@ -776,6 +776,13 @@ export default {
       unavailable: "Erfassungsstatus nicht verfügbar: {{message}}",
       keyUnreadable:
         "Der gespeicherte Dienstkontoschlüssel konnte nicht gelesen werden. Speichere ihn unter Google Cloud erneut.",
+      propertyBareDomain: "Verwende für eine Domain-Property {{suggestion}}.",
+      propertyInvalidDomain:
+        "Nach sc-domain: steht nur die Domain, zum Beispiel {{suggestion}}.",
+      propertyMissingSlash:
+        "URL-Präfix-Properties enden auf /. Verwende {{suggestion}}.",
+      propertyUnrecognized:
+        "Verwende sc-domain:example.com oder eine URL-Präfix-Property, die auf / endet.",
     },
     uploadFile: "Datei hochladen",
     googleSheetsExport: "Google-Sheets-Export",

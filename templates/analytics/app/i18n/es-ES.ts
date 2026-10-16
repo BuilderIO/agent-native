@@ -768,6 +768,13 @@ export default {
         "El estado de la recopilación no está disponible: {{message}}",
       keyUnreadable:
         "No se pudo leer la clave de cuenta de servicio guardada. Vuelve a guardarla en Google Cloud.",
+      propertyBareDomain: "Para una propiedad de dominio, usa {{suggestion}}.",
+      propertyInvalidDomain:
+        "Después de sc-domain: va solo el dominio, como en {{suggestion}}.",
+      propertyMissingSlash:
+        "Las propiedades de prefijo de URL terminan en /. Usa {{suggestion}}.",
+      propertyUnrecognized:
+        "Usa sc-domain:example.com o una propiedad de prefijo de URL que termine en /.",
     },
     uploadFile: "Subir archivo",
     googleSheetsExport: "Exportación a Google Sheets",
