@@ -5,12 +5,10 @@ import {
   IconBolt,
   IconBulb,
   IconCategory,
-  IconChartBar,
   IconChevronDown,
   IconCircleDotted,
   IconEyeglass,
   IconHandStop,
-  IconHexagon,
   IconMessageCircle,
   IconMinus,
   IconOval,
@@ -23,6 +21,7 @@ import {
   IconSparkles,
   IconSquare,
   IconSquareArrowLeft,
+  IconTriangle,
   IconTypography,
   IconUserEdit,
   IconWaveSine,
@@ -54,8 +53,7 @@ export type FloatingToolbarInsertTool =
   | "square"
   | "ellipse"
   | "shape"
-  | "media"
-  | "chart";
+  | "media";
 export type FloatingToolbarTransition = "none" | AnimationType;
 type FloatingToolbarCommentAction = "comments" | "annotate" | "pin";
 type FloatingToolbarAgentAction = "inspiration" | "tighten-tone" | "polish";
@@ -99,14 +97,13 @@ const INSERT_ITEMS: MenuItem<FloatingToolbarInsertTool>[] = [
   { value: "arrow", labelKey: "floatingToolbar.arrow", icon: IconArrowRight },
   { value: "square", labelKey: "floatingToolbar.square", icon: IconSquare },
   { value: "ellipse", labelKey: "floatingToolbar.ellipse", icon: IconOval },
-  { value: "shape", labelKey: "floatingToolbar.shape", icon: IconHexagon },
+  { value: "shape", labelKey: "floatingToolbar.triangle", icon: IconTriangle },
   {
     value: "media",
     labelKey: "floatingToolbar.media",
     icon: IconPhotoVideo,
     separatorBefore: true,
   },
-  { value: "chart", labelKey: "floatingToolbar.chart", icon: IconChartBar },
 ];
 
 const TRANSITION_ITEMS: MenuItem<FloatingToolbarTransition>[] = [

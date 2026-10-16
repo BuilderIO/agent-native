@@ -1717,12 +1717,70 @@ function ElementHoverOutline({
 /** Translucent rectangle drawn while marquee-dragging */
 type MarqueeSelectionRect = { x: number; y: number; w: number; h: number };
 
+/** The marquee box plus the shape drawn inside it while a shape is placed. */
+type PlacementPreviewRect = MarqueeSelectionRect & {
+  shape?: {
+    type: SlideShapeType;
+    color: string;
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+  };
+};
+
 type SlidePlacementGesture = {
   start: { x: number; y: number };
   current: { x: number; y: number };
   target: HTMLElement | null;
   shapeType: SlideShapeType | null;
+  /** Ink the placed shape will get; read once so the drag preview matches it. */
+  color?: string;
 };
+
+function PlacementShapePreview({
+  rect,
+  viewportRect,
+}: {
+  rect: PlacementPreviewRect;
+  viewportRect: DOMRect | null;
+}) {
+  const { shape } = rect;
+  if (!shape) return null;
+  const { type, color, start, end } = shape;
+  const style: React.CSSProperties = {
+    position: "absolute",
+    boxSizing: "border-box",
+    backgroundColor: color,
+    opacity: 0.85,
+    pointerEvents: "none",
+  };
+  if (type === "line") {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy);
+    style.left = (start.x + end.x) / 2 - length / 2;
+    style.top = (start.y + end.y) / 2 - 2;
+    style.width = length;
+    style.height = 4;
+    style.borderRadius = 999;
+    style.transform = `rotate(${(Math.atan2(dy, dx) * 180) / Math.PI}deg)`;
+  } else {
+    style.left = rect.x;
+    style.top = rect.y;
+    style.width = rect.w;
+    style.height = rect.h;
+    if (type === "circle") style.borderRadius = "50%";
+    else if (type === "rectangle") style.borderRadius = 4;
+    else if (type === "arrow") {
+      style.clipPath =
+        "polygon(0% 30%, 55% 30%, 55% 0%, 100% 50%, 55% 100%, 55% 70%, 0% 70%)";
+    } else style.clipPath = "polygon(50% 0%, 100% 100%, 0% 100%)";
+  }
+  return (
+    <SelectionOverlayPortal viewportRect={viewportRect} zIndex={47}>
+      <div data-slide-placement-shape={type} style={style} />
+    </SelectionOverlayPortal>
+  );
+}
 
 function MarqueeRect({
   rect,
@@ -2094,7 +2152,7 @@ export default function SlideEditor({
   const [marquee, setMarquee] = useState<MarqueeSelectionRect | null>(null);
   /** Preview rectangle while a shape or text box is being placed. */
   const [placementRect, setPlacementRect] =
-    useState<MarqueeSelectionRect | null>(null);
+    useState<PlacementPreviewRect | null>(null);
   const [activeAlignmentGuides, setActiveAlignmentGuides] = useState<{
     guides: SlideAlignmentGuide[];
     viewport: AlignmentGuideViewport;
@@ -3201,16 +3259,34 @@ export default function SlideEditor({
     ],
   );
 
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+
   const insertFloatingTool = useCallback(
     (tool: FloatingToolbarInsertTool) => {
       if (tool === "text") {
         onArmTextBox?.();
         return;
       }
+      if (tool === "media") {
+        mediaInputRef.current?.click();
+        return;
+      }
       const shape = SHAPE_BY_INSERT.get(tool);
       if (shape) onArmShape?.(shape);
     },
     [onArmShape, onArmTextBox],
+  );
+
+  const handleMediaInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      if (textSessionRef.current) exitInlineEditRef.current();
+      if (videoFileLooksLikeVideo(file)) onDropVideo?.(file);
+      else onDropImage?.(null, file);
+    },
+    [onDropImage, onDropVideo],
   );
 
   const disabledCommentActions = useMemo(
@@ -8716,6 +8792,15 @@ export default function SlideEditor({
           y: Math.min(placement.start.y, e.clientY),
           w: Math.abs(e.clientX - placement.start.x),
           h: Math.abs(e.clientY - placement.start.y),
+          shape:
+            placement.shapeType && placement.color
+              ? {
+                  type: placement.shapeType,
+                  color: placement.color,
+                  start: placement.start,
+                  end: placement.current,
+                }
+              : undefined,
         });
         return;
       }
@@ -8784,6 +8869,7 @@ export default function SlideEditor({
           current: { x: e.clientX, y: e.clientY },
           target,
           shapeType,
+          color: getSlideTextBoxDefaultColor(target, slideContent),
         };
         placementRef.current = placement;
         setPlacementRect({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
@@ -11286,11 +11372,28 @@ export default function SlideEditor({
       {marquee && (marquee.w > 1 || marquee.h > 1) && (
         <MarqueeRect rect={marquee} viewportRect={selectionViewportRect} />
       )}
+      <input
+        ref={mediaInputRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={handleMediaInputChange}
+      />
       {placementRect && (placementRect.w > 1 || placementRect.h > 1) && (
-        <MarqueeRect
-          rect={placementRect}
-          viewportRect={selectionViewportRect}
-        />
+        <>
+          {placementRect.shape ? (
+            <PlacementShapePreview
+              rect={placementRect}
+              viewportRect={selectionViewportRect}
+            />
+          ) : null}
+          <MarqueeRect
+            rect={placementRect}
+            viewportRect={selectionViewportRect}
+          />
+        </>
       )}
 
       {activeAlignmentGuides && (
