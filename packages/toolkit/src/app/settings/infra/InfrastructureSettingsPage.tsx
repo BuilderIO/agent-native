@@ -598,7 +598,7 @@ function InfrastructurePageContent({
       key={id}
       id={entry.rowId}
       icon={
-        builderConnected ? (
+        builderOnly && builderConnected ? (
           <BrandLogo logoId="builder-cms" />
         ) : (
           <entry.icon aria-hidden />
@@ -613,7 +613,9 @@ function InfrastructurePageContent({
         ) : undefined
       }
       description={rowDescription(
-        builderConnected ? BUILDER_LABEL : t(`${K}availableWithBuilder`),
+        builderOnly && builderConnected
+          ? BUILDER_LABEL
+          : t(`${K}availableWithBuilder`),
         t(entry.whyKey),
       )}
       control={

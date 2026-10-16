@@ -532,7 +532,7 @@ describe("InfrastructureSettingsPage", () => {
       "Builder.io · Makes code changes from production.",
     );
     expect(row("web-search").textContent).toContain(
-      "Builder.io · Finds current public information and official documentation.",
+      "Available with Builder.io · Finds current public information and official documentation.",
     );
     expect(row("setup").querySelector("h2")?.textContent).toBe("Setup");
     expect(row("background").querySelector("[data-builder-only]")).toBeNull();

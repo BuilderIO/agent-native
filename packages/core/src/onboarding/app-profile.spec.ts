@@ -87,6 +87,7 @@ describe("onboarding app profiles", () => {
       "embeddings",
       "background-agents",
       "browser-automation",
+      "web-search",
       "transcription",
     ]);
     expect(clips.capabilities[2]).toMatchObject({
