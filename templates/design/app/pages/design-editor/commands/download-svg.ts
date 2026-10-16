@@ -32,8 +32,8 @@ export interface DownloadSvgArgs {
   exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
   pngExportingRef: RefObject<boolean>;
-  prepareScreenForExport?: (screenId: string) => void;
-  releaseScreenFromExport?: () => void;
+  prepareScreenForExport?: (screenId: string) => symbol | undefined;
+  releaseScreenFromExport?: (lease: symbol) => void;
   selectedElement: ElementInfo | null;
   setSvgExporting: Dispatch<SetStateAction<boolean>>;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -83,7 +83,15 @@ async function waitForSvgExportIframe(args: {
         "inline";
       const isInitialExternalDocument =
         sourceType !== "inline" && doc.URL === "about:blank";
-      if (!args.waitForMount && !isInitialExternalDocument) {
+      const isInitialInlineDocument =
+        sourceType === "inline" &&
+        doc.URL === "about:blank" &&
+        iframe.hasAttribute("srcdoc");
+      if (
+        !args.waitForMount &&
+        !isInitialExternalDocument &&
+        !isInitialInlineDocument
+      ) {
         return { kind: "ready", iframe, doc };
       }
       const bridgeWindow = doc?.defaultView as
@@ -91,6 +99,7 @@ async function waitForSvgExportIframe(args: {
         | null;
       if (
         !isInitialExternalDocument &&
+        !isInitialInlineDocument &&
         doc?.readyState === "complete" &&
         (sourceType !== "inline" ||
           args.requireContentSizeReport !== true ||
@@ -146,12 +155,11 @@ export async function runDownloadSvg(
     return;
   }
   pngExportingRef.current = true;
-  let preparedScreen = false;
+  let preparedScreenLease: symbol | undefined;
   try {
     setSvgExporting(true);
     if (exportScreenId && prepareScreenForExport) {
-      preparedScreen = true;
-      prepareScreenForExport(exportScreenId);
+      preparedScreenLease = prepareScreenForExport(exportScreenId);
     }
     const iframe = await waitForSvgExportIframe({
       activeCanvasSourceType,
@@ -288,7 +296,7 @@ export async function runDownloadSvg(
     );
   } finally {
     try {
-      if (preparedScreen) releaseScreenFromExport?.();
+      if (preparedScreenLease) releaseScreenFromExport?.(preparedScreenLease);
     } finally {
       try {
         pngExportingRef.current = false;

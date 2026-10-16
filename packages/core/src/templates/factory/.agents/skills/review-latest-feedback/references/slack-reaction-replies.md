@@ -83,9 +83,13 @@ any reported scope is verified **Fixed** under the Phase 2 bar, including a
 partial fix; use **Partially fixed** for the overall disposition when another
 scope remains, and describe both scopes separately in the reply. Do not wait
 for an entire multi-symptom report to be resolved before checking off its
-verified scope. An open PR can earn `✅` when a focused test or equivalent
-proof verifies the source fix. Say that merge or rollout is still pending; the
-checkmark does not claim the change is shipped or live.
+verified scope. An open PR can earn `✅` only after the relevant
+`verifying-changes` proof bar passes. For UI or other user-visible behavior,
+drive the running app or preview through the reported flow and confirm the
+symptom is gone; a focused source test alone does not qualify. For non-UI
+scopes, use the area-specific action, query, or test proof. Say that merge or
+rollout is still pending; the checkmark records the verified scope and does not
+claim the change is shipped or live.
 Add `🎫` only for each distinct unfinished scope that needs a human to take
 ownership or act; name the owner and action, and link a real ticket when one
 exists. A partial fix with a separate human handoff can have both `✅` and

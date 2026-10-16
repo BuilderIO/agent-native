@@ -15,6 +15,12 @@ type Parent = {
   reactionSummary: string;
   reactionOwners: Record<string, string[]>;
   disposition: string;
+  // Latest relevant human thread reply other than statusReply; null if none.
+  latestRelevantHumanReply?: {
+    ts: string;
+    actorId: string;
+    text: string;
+  } | null;
   statusReply?: {
     ts: string;
     threadParentTs: string;
@@ -28,6 +34,7 @@ type Parent = {
     ticket: { state: "present" | "none"; reason: string };
   };
   fixedScopes?: Array<{ scope: string; verification: string }>;
+  unfinishedScopes?: Array<{ scope: string; evidence: string }>;
   handoff?: Handoff;
   handoffs?: Handoff[];
 };
@@ -415,6 +422,16 @@ function validateInventory(inventory: Inventory): string[] {
         );
         const reconcilesOwnedStatus = ownsEye || hasCheckmark || hasTicket;
         if (reconcilesOwnedStatus) {
+          if (
+            !Object.prototype.hasOwnProperty.call(
+              parent,
+              "latestRelevantHumanReply",
+            )
+          ) {
+            throw new Error(
+              `${parentName}: record the latest relevant human reply in this root thread, or null if there is none`,
+            );
+          }
           const fixedScopes = parent.fixedScopes ?? [];
           if (!Array.isArray(fixedScopes)) {
             throw new Error(`${parentName}: fixedScopes must be an array`);
@@ -437,6 +454,40 @@ function validateInventory(inventory: Inventory): string[] {
               throw new Error(`${parentName}: fixed scopes must be distinct`);
             }
             fixedScopeNames.add(normalizedScope);
+          }
+          const unfinishedScopes =
+            parent.unfinishedScopes === undefined
+              ? []
+              : parent.unfinishedScopes;
+          if (!Array.isArray(unfinishedScopes)) {
+            throw new Error(`${parentName}: unfinishedScopes must be an array`);
+          }
+          const unfinishedScopeNames = new Set<string>();
+          for (const [
+            scopeIndex,
+            unfinishedScope,
+          ] of unfinishedScopes.entries()) {
+            if (
+              !unfinishedScope ||
+              typeof unfinishedScope.scope !== "string" ||
+              !unfinishedScope.scope.trim() ||
+              typeof unfinishedScope.evidence !== "string" ||
+              !unfinishedScope.evidence.trim()
+            ) {
+              throw new Error(
+                `${parentName}: unfinished scope ${scopeIndex + 1} needs a scope and evidence that it remains open`,
+              );
+            }
+            const normalizedScope = normalizeScope(unfinishedScope.scope);
+            if (
+              unfinishedScopeNames.has(normalizedScope) ||
+              fixedScopeNames.has(normalizedScope)
+            ) {
+              throw new Error(
+                `${parentName}: unfinished scopes must be distinct from each other and from fixed scopes`,
+              );
+            }
+            unfinishedScopeNames.add(normalizedScope);
           }
           const reactionDecision = parent.reactionDecision;
           if (!reactionDecision) {
@@ -482,6 +533,34 @@ function validateInventory(inventory: Inventory): string[] {
               `${parentName}: status reply must belong to the source message's root thread`,
             );
           }
+          const latestRelevantHumanReply = parent.latestRelevantHumanReply;
+          if (latestRelevantHumanReply !== null) {
+            if (
+              !latestRelevantHumanReply ||
+              !isSlackUserId(latestRelevantHumanReply.actorId) ||
+              latestRelevantHumanReply.actorId === inventory.sweepActorId ||
+              typeof latestRelevantHumanReply.text !== "string" ||
+              !latestRelevantHumanReply.text.trim()
+            ) {
+              throw new Error(
+                `${parentName}: latestRelevantHumanReply needs a non-sweep human Slack actor ID, verbatim text, or null`,
+              );
+            }
+            const latestRelevantHumanReplyTs = slackTimestamp(
+              latestRelevantHumanReply.ts,
+              `${parentName}.latestRelevantHumanReply.ts`,
+            );
+            if (latestRelevantHumanReplyTs <= threadParentTimestamp) {
+              throw new Error(
+                `${parentName}: latestRelevantHumanReply must be a reply in the source message's root thread`,
+              );
+            }
+            if (replyTs <= latestRelevantHumanReplyTs) {
+              throw new Error(
+                `${parentName}: status reply must be newer than the latest relevant human reply in the thread`,
+              );
+            }
+          }
           if (reply.actorId !== inventory.sweepActorId) {
             throw new Error(
               `${parentName}: status reply author must match this actor's owned eye or status mark`,
@@ -510,6 +589,16 @@ function validateInventory(inventory: Inventory): string[] {
               `${parentName}: status reply evidence must include every fixed scope's recorded verification`,
             );
           }
+          if (
+            unfinishedScopes.some(
+              (unfinishedScope) =>
+                !reply.evidence.includes(unfinishedScope.evidence.trim()),
+            )
+          ) {
+            throw new Error(
+              `${parentName}: status reply evidence must include each unfinished scope's recorded evidence`,
+            );
+          }
           if (fixedScopes.length > 0 && !hasCheckmark) {
             throw new Error(
               `${parentName}: verified fixed scope needs this actor's ✅`,
@@ -526,6 +615,11 @@ function validateInventory(inventory: Inventory): string[] {
           if (parent.disposition === "Fixed" && fixedScopes.length === 0) {
             throw new Error(
               `${parentName}: Fixed disposition needs verified fixed-scope evidence`,
+            );
+          }
+          if (parent.disposition === "Fixed" && unfinishedScopes.length > 0) {
+            throw new Error(
+              `${parentName}: Fixed disposition cannot retain an unfinished report scope`,
             );
           }
           if (
@@ -599,6 +693,15 @@ function validateInventory(inventory: Inventory): string[] {
           if (parent.disposition === "Fixed" && handoffs.length > 0) {
             throw new Error(
               `${parentName}: Fixed disposition cannot retain unfinished handoffs; use Partially fixed`,
+            );
+          }
+          if (
+            parent.disposition === "Partially fixed" &&
+            unfinishedScopes.length === 0 &&
+            handoffs.length === 0
+          ) {
+            throw new Error(
+              `${parentName}: Partially fixed needs a verified fixed scope and a distinct unfinished report scope`,
             );
           }
           if (
@@ -775,6 +878,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                   white_check_mark: ["USWEEPER"],
                 },
                 disposition: "Fixed",
+                latestRelevantHumanReply: null,
                 reactionDecision: {
                   checkmark: {
                     state: "present",
@@ -816,6 +920,18 @@ if (args[0] === "--self-test" && args.length === 1) {
     ],
   };
   const firstPage = valid.channels[0].pages[0];
+  const withSweepOwnedParent = (overrides: Partial<Parent>): Inventory => ({
+    ...valid,
+    channels: valid.channels.map((channel) => ({
+      ...channel,
+      pages: channel.pages.map((page) => ({
+        ...page,
+        parents: page.parents.map((parent) =>
+          parent.ts === "10.000000" ? { ...parent, ...overrides } : parent,
+        ),
+      })),
+    })),
+  });
   const withHandoffReply = (text: string): Inventory => ({
     ...valid,
     channels: valid.channels.map((channel) => ({
@@ -1015,6 +1131,40 @@ if (args[0] === "--self-test" && args.length === 1) {
           })),
         })),
       },
+    },
+    {
+      name: "owned eye missing latest-human-reply audit",
+      inventory: withSweepOwnedParent({ latestRelevantHumanReply: undefined }),
+    },
+    {
+      name: "later human reply invalidates the older status reply",
+      inventory: withSweepOwnedParent({
+        latestRelevantHumanReply: {
+          ts: "13.000000",
+          actorId: "UOTHER",
+          text: "Reporter says the crash still happens after reopening the project.",
+        },
+      }),
+    },
+    {
+      name: "latest relevant human reply needs nonempty verbatim text",
+      inventory: withSweepOwnedParent({
+        latestRelevantHumanReply: {
+          ts: "11.000000",
+          actorId: "UOTHER",
+          text: "",
+        },
+      }),
+    },
+    {
+      name: "latest relevant human reply cannot be this sweep actor",
+      inventory: withSweepOwnedParent({
+        latestRelevantHumanReply: {
+          ts: "11.000000",
+          actorId: "USWEEPER",
+          text: "This is the sweep's own status reply.",
+        },
+      }),
     },
     {
       name: "owned eye missing explicit reaction decisions",
@@ -1400,6 +1550,32 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "partially fixed needs an unfinished scope as well as a fixed scope",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence: "focused test passed in the open PR; merge pending",
+          text: "Partially fixed: focused test passed in the open PR; merge pending. A second scope remains unverified.",
+        },
+      }),
+    },
+    {
+      name: "handoff without a fixed scope is not partially fixed",
+      inventory: withUnownedTicket({
+        disposition: "Partially fixed",
+        statusReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: "USWEEPER",
+          disposition: "Partially fixed",
+          evidence: "Product owner will choose the remaining behavior",
+          text: "Partially fixed: Product owner will choose the remaining behavior.",
+        },
+      }),
+    },
+    {
       name: "ticket reaction without a human handoff",
       inventory: {
         ...valid,
@@ -1605,6 +1781,33 @@ if (args[0] === "--self-test" && args.length === 1) {
   ];
   try {
     validateInventory(valid);
+    validateInventory(
+      withSweepOwnedParent({
+        latestRelevantHumanReply: {
+          ts: "11.000000",
+          actorId: "UOTHER",
+          text: "Reporter confirms the issue still occurs after reopening the project.",
+        },
+      }),
+    );
+    validateInventory(
+      withSweepOwnedParent({
+        disposition: "Partially fixed",
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence: "paragraph selection remains broken",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "focused test passed in the open PR; merge pending; paragraph selection remains broken",
+          text: "Partially fixed: focused test passed in the open PR; merge pending; paragraph selection remains broken.",
+        },
+      }),
+    );
     validateInventory({
       ...valid,
       channels: valid.channels.map((channel) => ({
@@ -1645,6 +1848,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       })),
     });
     validateInventory(withUnownedCheckmark());
+    // Handoff-only work remains In progress and can carry 🎫 without a fixed scope.
     validateInventory(withUnownedTicket());
     validateInventory(
       withHandoffReply(
@@ -1907,7 +2111,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       }
     }
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length} negative cases; 12 positive cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length} negative cases; 14 positive cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

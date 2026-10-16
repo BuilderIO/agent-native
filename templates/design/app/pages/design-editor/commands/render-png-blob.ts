@@ -7,8 +7,8 @@ import {
   getExportCompositeBounds,
   resolveRasterExportScale,
 } from "@/pages/design-editor/export-capture";
-import { prepareExportCaptureTarget } from "@/pages/design-editor/export-snapshot-frame";
 import type { ExportCaptureTarget } from "@/pages/design-editor/export-snapshot-frame";
+import { prepareExportCaptureTarget } from "@/pages/design-editor/export-snapshot-frame";
 import type { PngCaptureScope } from "@/pages/design-editor/png-export-render";
 import {
   PngCaptureError,
@@ -23,7 +23,7 @@ export interface RenderPngBlobArgs {
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   overviewScreens: OverviewScreen[];
-  releaseScreenFromExport?: () => void;
+  releaseScreenFromExport?: (lease: symbol) => void;
   resolvePngCaptureTarget: (
     scope: PngCaptureScope,
     screenId?: string,
@@ -134,13 +134,15 @@ export async function runRenderPngBlob(
         }
       > = [];
       for (const screenId of selectedScreenIds) {
+        let screenLease: ExportCaptureTarget["screenLease"];
         try {
           const target = await resolvePngCaptureTarget(scope, screenId);
+          screenLease = target.screenLease;
           const prepared = await prepareExportCaptureTarget(target);
           preparedTargets.push(prepared);
           captureSources.push({ screenId, ...prepared });
         } finally {
-          releaseScreenFromExport?.();
+          if (screenLease) releaseScreenFromExport?.(screenLease);
         }
       }
       const exportFrames = resolveSelectedScreenExportFrames({
@@ -213,8 +215,10 @@ export async function runRenderPngBlob(
     let prepared: Awaited<
       ReturnType<typeof prepareExportCaptureTarget>
     > | null = null;
+    let screenLease: ExportCaptureTarget["screenLease"];
     try {
       const target = await resolvePngCaptureTarget(scope);
+      screenLease = target.screenLease;
       prepared = await prepareExportCaptureTarget(target);
       const { cropSelection, doc, iframe } = {
         ...target,
@@ -253,7 +257,7 @@ export async function runRenderPngBlob(
       outputCanvas = rendered.canvas;
     } finally {
       prepared?.dispose();
-      releaseScreenFromExport?.();
+      if (screenLease) releaseScreenFromExport?.(screenLease);
     }
   }
   const mimeType =

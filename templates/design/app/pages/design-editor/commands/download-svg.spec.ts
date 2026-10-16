@@ -93,8 +93,13 @@ describe("runDownloadSvg", () => {
     document.body.replaceChildren();
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-screen-iframe-id", "screen-1");
+    iframe.setAttribute("srcdoc", "<main>Inline screen</main>");
     iframe.dataset.designSourceType = "inline";
     document.body.append(iframe);
+    Object.defineProperty(iframe.contentDocument!, "URL", {
+      configurable: true,
+      value: "about:srcdoc",
+    });
     iframe.contentDocument!.body.innerHTML = "<main>Inline screen</main>";
     const downloads: Array<{ blob: Blob; filename: string }> = [];
     const tracking = vi.mocked(trackBrowserDesignExported);
@@ -129,6 +134,97 @@ describe("runDownloadSvg", () => {
       expect(toastMocks.error).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
+      document.body.replaceChildren();
+    }
+  });
+
+  it("waits for inline srcDoc to commit without requiring the overview bridge", async () => {
+    vi.useFakeTimers();
+    document.body.replaceChildren();
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-screen-iframe-id", "screen-1");
+    iframe.setAttribute("srcdoc", "<main>Inline screen</main>");
+    iframe.dataset.designSourceType = "inline";
+    document.body.append(iframe);
+    const doc = iframe.contentDocument!;
+    Object.defineProperty(doc, "URL", {
+      configurable: true,
+      value: "about:blank",
+      writable: true,
+    });
+    doc.body.innerHTML = "<main>Initial blank document</main>";
+    const downloads: Array<{ blob: Blob; filename: string }> = [];
+    const task = runDownloadSvg({
+      activeCanvasSourceType: "inline",
+      activePreviewFrameId: "screen-1",
+      design: null,
+      exportScreenId: "screen-1",
+      exportScreenSourceType: "inline",
+      fallbackExportName: (extension) => `design.${extension}`,
+      requireContentSizeReport: false,
+      pngExportingRef: { current: false },
+      selectedElement: null,
+      setSvgExporting: () => undefined,
+      t: (key) => key,
+      triggerBlobDownload: (blob, filename) =>
+        downloads.push({ blob, filename }),
+    });
+    window.setTimeout(() => {
+      Object.defineProperty(doc, "URL", {
+        configurable: true,
+        value: "about:srcdoc",
+      });
+      doc.body.innerHTML = "<main>Committed inline screen</main>";
+    }, 32);
+
+    try {
+      await vi.runAllTimersAsync();
+      await task;
+
+      expect(downloads).toHaveLength(1);
+      const exportedSvg = await downloads[0]!.blob.text();
+      expect(exportedSvg).toContain("Committed inline screen");
+      expect(exportedSvg).not.toContain("Initial blank document");
+      expect(exportedSvg).not.toContain("__agentNativeContentSizeReport");
+    } finally {
+      vi.useRealTimers();
+      document.body.replaceChildren();
+    }
+  });
+
+  it("does not release a different export's screen lease", async () => {
+    document.body.replaceChildren();
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-screen-iframe-id", "screen-1");
+    document.body.append(iframe);
+    markExternalPreviewDocument(iframe);
+    iframe.contentDocument!.body.innerHTML = "<main>Target</main>";
+    const screenLease = Symbol("current svg export");
+    const prepareScreenForExport = vi.fn(() => Symbol("stale svg export"));
+    const releaseScreenFromExport = vi.fn((lease: symbol) => {
+      if (lease === screenLease) throw new Error("released current export");
+    });
+
+    try {
+      await runDownloadSvg({
+        activeCanvasSourceType: "localhost",
+        activePreviewFrameId: "screen-1",
+        design: null,
+        exportScreenId: "screen-1",
+        exportScreenSourceType: "localhost",
+        fallbackExportName: (extension) => `design.${extension}`,
+        pngExportingRef: { current: false },
+        prepareScreenForExport,
+        releaseScreenFromExport,
+        selectedElement: null,
+        setSvgExporting: () => undefined,
+        t: (key) => key,
+        triggerBlobDownload: vi.fn(),
+      });
+
+      expect(releaseScreenFromExport).toHaveBeenCalledTimes(1);
+      expect(releaseScreenFromExport).not.toHaveBeenCalledWith(screenLease);
+    } finally {
       document.body.replaceChildren();
     }
   });
@@ -196,6 +292,7 @@ describe("runDownloadSvg", () => {
     unrelated.contentDocument!.body.innerHTML = "<main>Wrong screen</main>";
 
     const events: string[] = [];
+    const screenLease = Symbol("svg export");
     const downloads: Array<{ blob: Blob; filename: string }> = [];
     try {
       await runDownloadSvg({
@@ -217,8 +314,12 @@ describe("runDownloadSvg", () => {
               "<main>Breakpoint target</main>";
             events.push("mount");
           }, 0);
+          return screenLease;
         },
-        releaseScreenFromExport: () => events.push("release"),
+        releaseScreenFromExport: (lease) => {
+          expect(lease).toBe(screenLease);
+          events.push("release");
+        },
         selectedElement: null,
         setSvgExporting: () => undefined,
         t: (key) => key,
@@ -247,6 +348,7 @@ describe("runDownloadSvg", () => {
     document.body.replaceChildren();
     const events: string[] = [];
     const exportStates: boolean[] = [];
+    const screenLease = Symbol("svg export");
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {
       // The command reports the failed browser download through its error path.
     });
@@ -266,8 +368,12 @@ describe("runDownloadSvg", () => {
           document.body.append(requested);
           markExternalPreviewDocument(requested);
           requested.contentDocument!.body.innerHTML = "<main>Target</main>";
+          return screenLease;
         },
-        releaseScreenFromExport: () => events.push("release"),
+        releaseScreenFromExport: (lease) => {
+          expect(lease).toBe(screenLease);
+          events.push("release");
+        },
         selectedElement: null,
         setSvgExporting: (value) => {
           exportStates.push(typeof value === "boolean" ? value : value(false));
@@ -291,6 +397,7 @@ describe("runDownloadSvg", () => {
     document.body.replaceChildren();
     const pngExportingRef = { current: false };
     const events: string[] = [];
+    const screenLease = Symbol("svg export");
     const requested = document.createElement("iframe");
     requested.setAttribute("data-screen-iframe-id", "screen-1");
     document.body.append(requested);
@@ -304,8 +411,12 @@ describe("runDownloadSvg", () => {
       pngExportingRef,
       prepareScreenForExport: () => {
         events.push("svg:prepare");
+        return screenLease;
       },
-      releaseScreenFromExport: () => events.push("svg:release"),
+      releaseScreenFromExport: (lease) => {
+        expect(lease).toBe(screenLease);
+        events.push("svg:release");
+      },
       selectedElement: null,
       setSvgExporting: () => undefined,
       t: (key) => key,
@@ -407,6 +518,8 @@ describe("runDownloadSvg", () => {
         .mockImplementation(() => (performanceCalls++ === 0 ? 0 : 20_000));
       const prepareScreenForExport = vi.fn();
       const releaseScreenFromExport = vi.fn();
+      const screenLease = Symbol("svg export");
+      prepareScreenForExport.mockReturnValue(screenLease);
       const setSvgExporting = vi.fn();
       const pngExportingRef = { current: false };
       const tracking = vi.mocked(trackBrowserDesignExported);
@@ -433,7 +546,7 @@ describe("runDownloadSvg", () => {
 
         expect(performanceCalls).toBe(1);
         expect(prepareScreenForExport).toHaveBeenCalledOnce();
-        expect(releaseScreenFromExport).toHaveBeenCalledOnce();
+        expect(releaseScreenFromExport).toHaveBeenCalledWith(screenLease);
         expect(setSvgExporting).toHaveBeenNthCalledWith(1, true);
         expect(setSvgExporting).toHaveBeenNthCalledWith(2, false);
         expect(pngExportingRef.current).toBe(false);
@@ -460,6 +573,11 @@ describe("runDownloadSvg", () => {
     iframe.setAttribute("data-screen-iframe-id", "screen-1");
     iframe.dataset.designSourceType = "inline";
     document.body.append(iframe);
+    iframe.setAttribute("srcdoc", "<main>Waiting for bridge</main>");
+    Object.defineProperty(iframe.contentDocument!, "URL", {
+      configurable: true,
+      value: "about:srcdoc",
+    });
     iframe.contentDocument!.body.innerHTML = "<main>Waiting for bridge</main>";
     let performanceCalls = 0;
     const performanceNow = vi
@@ -468,6 +586,8 @@ describe("runDownloadSvg", () => {
     const tracking = vi.mocked(trackBrowserDesignExported);
     const prepareScreenForExport = vi.fn();
     const releaseScreenFromExport = vi.fn();
+    const screenLease = Symbol("svg export");
+    prepareScreenForExport.mockReturnValue(screenLease);
     const triggerBlobDownload = vi.fn();
     tracking.mockClear();
     toastMocks.error.mockClear();
@@ -492,7 +612,7 @@ describe("runDownloadSvg", () => {
 
       expect(performanceCalls).toBe(2);
       expect(prepareScreenForExport).toHaveBeenCalledOnce();
-      expect(releaseScreenFromExport).toHaveBeenCalledOnce();
+      expect(releaseScreenFromExport).toHaveBeenCalledWith(screenLease);
       expect(triggerBlobDownload).not.toHaveBeenCalled();
       expect(tracking).toHaveBeenLastCalledWith(
         "svg",
@@ -519,6 +639,8 @@ describe("runDownloadSvg", () => {
     const tracking = vi.mocked(trackBrowserDesignExported);
     const prepareScreenForExport = vi.fn();
     const releaseScreenFromExport = vi.fn();
+    const screenLease = Symbol("svg export");
+    prepareScreenForExport.mockReturnValue(screenLease);
     const triggerBlobDownload = vi.fn();
     tracking.mockClear();
     toastMocks.error.mockClear();
@@ -542,7 +664,7 @@ describe("runDownloadSvg", () => {
 
       expect(performanceCalls).toBe(2);
       expect(prepareScreenForExport).toHaveBeenCalledOnce();
-      expect(releaseScreenFromExport).toHaveBeenCalledOnce();
+      expect(releaseScreenFromExport).toHaveBeenCalledWith(screenLease);
       expect(triggerBlobDownload).not.toHaveBeenCalled();
       expect(tracking).toHaveBeenLastCalledWith(
         "svg",

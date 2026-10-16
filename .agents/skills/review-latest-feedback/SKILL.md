@@ -49,18 +49,14 @@ reply, post its status in the root thread after that eyed message.
 
 ## Slack ownership gate
 
-Before opening a thread, inspect its reactions. Skip another actor's eye
-unless its owner explicitly hands off investigation. A handoff permits
-investigation and a status reply only; it never transfers the eye or reaction
-rights. Reconcile only an eye whose exact owner ID matches the connected actor.
-Reconcile inherited eyes, including messages that also have
-`✅`: the checkmark closes only the verified fixed scope, not new replies or
-other open scopes. Re-read the thread and reactions, answer any newer human
-reply, and continue only the remaining scope. If ownership is unclear, record
-the mismatch and leave it unreconciled.
+Inspect reactions before opening a thread. Reconcile only eyes owned by the
+connected actor; skip another actor's eye unless its owner hands off
+investigation. A handoff permits investigation and a status reply, not reaction
+rights. For inherited eyes, `✅` closes only its verified scope. Re-read the
+thread, answer newer human replies, and leave unclear ownership unreconciled.
 
-Use the same connected actor for replies, reactions, and read-back. Do not
-claim another actor's eye or create a duplicate reply under another identity.
+Use the same actor for replies, reactions, and read-back; never claim another
+actor's eye or duplicate a reply under another identity.
 
 ## Phase 0: claim what you are taking
 
@@ -83,32 +79,36 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 ### Reaction and owned-eye reconciliation
 
-Reconcile every `👀` owned by this actor in the scoped inventory, including
-inherited eyes and eyes on reply rows, even when `✅` is already present. A
-checkmark closes only its verified fixed scope; it does not suppress a newer
-reporter reply or another open scope. Read the full root thread and current
-reactions. A current status reply by this actor must be in that root and newer
-than the eyed source message. Record the source `ts` separately from the root
+Reconcile every `👀` you own, including inherited eyes and reply-row eyes, even
+when `✅` is present. Eyes mark ownership, not completion; an eye-only row is
+pending and needs an explicit reason in the recap. Read the root and reactions.
+At wrap-up, report the counts of owned eyes, verified `✅` scopes, human `🎫`
+handoffs, and eye-only items with their pending reasons; `✅` and `🎫` may both
+apply to one report when separate scopes qualify.
+Your current status reply must follow both the eyed source message and latest
+relevant human reply. A later human answer reopens the eye: refresh the
+disposition and post a newer status. Record source `ts` separately from root
 `threadParentTs`.
 
 After the reply, add and read back reactions before advancing:
 
-- Start the reply with the exact canonical disposition label (`Fixed`,
-  `Partially fixed`, `In progress`, etc.) and include the recorded evidence
-  verbatim. Copy each fixed-scope verification into its status-reply evidence
-  verbatim. A vague or negated substring such as `Not fixed` does not record
-  `Fixed`; the inventory checker enforces the visible label and evidence.
-- Use `Partially fixed` whenever any distinct report scope remains unfinished,
-  including a scope handed to another human. `Fixed` means no unfinished
-  handoff remains.
+- Start with the exact canonical disposition and include recorded evidence,
+  including each fixed-scope verification, verbatim. The checker rejects vague
+  or negated labels such as `Not fixed`.
+- `Partially fixed` requires a verified fixed scope plus a distinct unfinished
+  scope; otherwise use an active or waiting disposition. `Fixed` means no
+  report scope remains unfinished.
 
-- `✅` for any verified **Fixed** source scope, including a fix in an open PR.
-  State its proof and whether it is merged or live; the checkmark records a
-  verified source fix, not shipment. Keep `👀` while another scope is active,
-  waiting, or unverified.
-- `🎫` for a distinct unfinished action another human owns; name the owner and
-  action. A reporter answer, URL, or access request alone stays at `👀`.
-- Never add `✅` for an unverified claim, merge, or shipment alone.
+- `✅` marks a verified **Fixed** source scope, even in an open PR. For UI or
+  other user-visible behavior, meet the `verifying-changes` page-level bar:
+  drive the running app or preview through the reported flow and confirm the
+  symptom is gone; a focused source test alone is not enough. Use the
+  area-specific proof for non-UI scopes. State the proof and whether it is
+  merged or live. Keep `👀` while another scope is active, waiting, or
+  unverified.
+- `🎫` marks a distinct unfinished action owned by another human; name owner
+  and action. A reporter answer, URL, or access request alone stays at `👀`.
+- A claim, merge, or shipment alone never earns `✅`.
 
 Do not remove another actor's reaction or any eye. If an own `✅` or `🎫` is
 stale, remove only that mark if supported; otherwise record the exact stale
@@ -155,14 +155,12 @@ handle a distinct question as its own row.
   confirms an active owner; marks owned by another task are skipped by the
   ownership gate.
 
-Mark scope **Fixed** once Phase 2 proof passes, even if its PR is open. Use
-**Partially fixed** if other report scopes remain. Routine rollout does not
-reopen a fixed scope or warrant `🎫`. **Clustered** closes a duplicate row but
-retains it. Follow
-[the checked inventory procedure](references/channel-inventory.md) for the
-five-day scan, permalink cutoff, pagination, and resolving reply rows to roots.
-Use channel reads, not ranked search results, to enumerate messages. Do not
-resume a fixed scope, but do reconcile its owned eye and any new reply.
+Phase 2 proof makes a scope **Fixed**, even if its PR is open. Use
+**Partially fixed** only for a verified fix plus a distinct unfinished scope.
+Routine rollout does not reopen a fix or warrant `🎫`. **Clustered** closes a
+duplicate row but retains it. Follow [the inventory procedure](references/channel-inventory.md)
+for the scan and resolving reply rows to roots. Enumerate with channel reads;
+reconcile fixed scopes' eyes and any new replies without restarting the fix.
 
 Claiming does not investigate. Read back new claims; do not claim out-of-scope
 items. If a new claim proves out of scope, keep `👀` and post **Skipped** once.
@@ -182,9 +180,9 @@ proof. Each row needs a post-change ledger result. If it cannot be read, say
 
 ## Phase 1: answer the people who answered you
 
-Answer new human replies under this actor's owned eyes before newer reports,
-including inherited eyes that also have `✅`. The checkmark closes only its
-verified scope; it never hides a new answer. Skip only another actor's eye or a scope explicitly handed to another task.
+Answer new human replies under your owned eyes before newer reports, including
+inherited eyes with `✅`. The checkmark never hides a new answer. Skip another
+actor's eye or a scope explicitly handed to another task.
 
 Use Slack as the ledger. Exhaust the disclosure search and the channel's reply
 scan from its saved cursor; on the first run, scan available history. Because
