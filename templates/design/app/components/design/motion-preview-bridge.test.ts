@@ -2,11 +2,17 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  compileMotionCode,
+  motionCodeDocumentFromTimeline,
+  reconcileMotionCodeDocument,
+} from "../../../shared/motion-code";
 import { sampleSpring, springToCssLinear } from "../../../shared/motion-easing";
 import {
   createMotionNativeStyleInstance,
   motionNativeStylesToTracks,
 } from "../../../shared/motion-native-style-runtime";
+import type { MotionTimeline } from "../../../shared/motion-timeline";
 
 interface FakeElement {
   style: Record<string, string>;
@@ -671,6 +677,16 @@ describe("motion-preview bridge spatial cubic interpolation", () => {
       type: "motion-load-tracks",
       tracks: [
         {
+          id: "position-first",
+          targetNodeId: "motion-path-node",
+          property: "translate",
+          keyframes: [
+            { t: 0, value: "0px 0px", ease: "linear" },
+            { t: 1, value: "100px 0px", ease: "linear" },
+          ],
+        },
+        {
+          id: "position-second",
           targetNodeId: "motion-path-node",
           property: "translate",
           keyframes: [
@@ -685,6 +701,7 @@ describe("motion-preview bridge spatial cubic interpolation", () => {
       type: "motion-path-editing",
       enabled: true,
       targetNodeId: "motion-path-node",
+      trackId: "position-second",
     });
     const handle = fresh.findSvg("data-motion-path-handle", "control1");
     expect(handle).not.toBeNull();
@@ -699,6 +716,7 @@ describe("motion-preview bridge spatial cubic interpolation", () => {
       {
         type: "motion-path-edit",
         targetNodeId: "motion-path-node",
+        trackId: "position-second",
         edits: [
           {
             keyframeT: 0,
@@ -879,6 +897,235 @@ describe("motion-preview bridge spring + linear() easing", () => {
 });
 
 describe("motion-preview bridge per-track offsets (span timing)", () => {
+  it("renders both Position axes at 50 percent and preserves their source IDs", () => {
+    const timeline: MotionTimeline = {
+      id: "timeline-position-composition",
+      designId: "design-1",
+      sourceRef: "index.html",
+      filePath: "index.html",
+      tracks: [
+        {
+          id: "position-x",
+          targetNodeId: "hero",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px", ease: "linear" },
+            { t: 1, value: "100px 0px", ease: "linear" },
+          ],
+        },
+        {
+          id: "position-y",
+          targetNodeId: "hero",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px", ease: "linear" },
+            { t: 1, value: "0px 60px", ease: "linear" },
+          ],
+        },
+      ],
+      durationMs: 1000,
+      defaultEase: "linear",
+      compiledHash: null,
+      createdAt: "2026-10-15T00:00:00.000Z",
+      updatedAt: "2026-10-15T00:00:00.000Z",
+    };
+    const source = compileMotionCode(timeline);
+    const tracks = reconcileMotionCodeDocument(
+      source.css,
+      motionCodeDocumentFromTimeline(timeline),
+    ).tracks;
+    const fresh = loadBridge();
+    const element = fresh.addElement("hero");
+    element.style.translate = "10px 20px";
+
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks,
+      durationMs: timeline.durationMs,
+    });
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+
+    expect(tracks.map((track) => track.id)).toEqual([
+      "position-x",
+      "position-y",
+    ]);
+    expect(tracks.map((track) => track.composition)).toEqual(["add", "add"]);
+    expect(element.style.translate).toBe("60px 50px");
+  });
+
+  it("adds repeated Position channels to the original placement in row order", () => {
+    const fresh = loadBridge();
+    const element = fresh.addElement("hero");
+    element.style.translate = "10px 20px";
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [
+        {
+          id: "position-x",
+          targetNodeId: "hero",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px", ease: "linear" },
+            { t: 1, value: "100px 0px", ease: "linear" },
+          ],
+        },
+        {
+          id: "position-y",
+          targetNodeId: "hero",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px", ease: "linear" },
+            { t: 1, value: "0px 50px", ease: "linear" },
+          ],
+        },
+      ],
+      durationMs: 1000,
+    });
+
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+
+    expect(element.style.translate).toBe("60px 45px");
+  });
+
+  it("keeps a single additive Position track relative to the original placement", () => {
+    const fresh = loadBridge();
+    const element = fresh.addElement("hero");
+    element.style.translate = "10px 20px";
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [
+        {
+          id: "position-x",
+          targetNodeId: "hero",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px", ease: "linear" },
+            { t: 1, value: "100px 0px", ease: "linear" },
+          ],
+        },
+      ],
+      durationMs: 1000,
+    });
+
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+
+    expect(element.style.translate).toBe("60px 20px");
+  });
+
+  it("omits disabled Position rows without losing the other axis or base", () => {
+    const fresh = loadBridge();
+    const element = fresh.addElement("hero");
+    element.style.translate = "10px 20px";
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [
+        {
+          id: "position-x",
+          targetNodeId: "hero",
+          property: "translate",
+          composition: "add",
+          enabled: false,
+          keyframes: [
+            { t: 0, value: "0px 0px", ease: "linear" },
+            { t: 1, value: "100px 0px", ease: "linear" },
+          ],
+        },
+        {
+          id: "position-y",
+          targetNodeId: "hero",
+          property: "translate",
+          composition: "add",
+          keyframes: [
+            { t: 0, value: "0px 0px", ease: "linear" },
+            { t: 1, value: "0px 50px", ease: "linear" },
+          ],
+        },
+      ],
+      durationMs: 1000,
+    });
+
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+
+    expect(element.style.translate).toBe("10px 45px");
+  });
+
+  it("composes repeated properties in track order with the later track winning", () => {
+    const fresh = loadBridge();
+    const element = fresh.addElement("hero");
+    const first = {
+      id: "opacity-first",
+      targetNodeId: "hero",
+      property: "opacity",
+      keyframes: [
+        { t: 0, value: "0", ease: "linear" },
+        { t: 1, value: "0.4", ease: "linear" },
+      ],
+    };
+    const second = {
+      id: "opacity-second",
+      targetNodeId: "hero",
+      property: "opacity",
+      keyframes: [
+        { t: 0, value: "0.6", ease: "linear" },
+        { t: 1, value: "1", ease: "linear" },
+      ],
+    };
+
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [first, second],
+      durationMs: 1000,
+    });
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+    expect(element.style.opacity).toBe("0.8");
+
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [second, first],
+      durationMs: 1000,
+    });
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+    expect(element.style.opacity).toBe("0.2");
+  });
+
+  it("keeps repeated Scale tracks on the existing replacement behavior", () => {
+    const fresh = loadBridge();
+    const element = fresh.addElement("hero");
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [
+        {
+          id: "scale-first",
+          targetNodeId: "hero",
+          property: "scale",
+          keyframes: [
+            { t: 0, value: "0.8 0.8", ease: "linear" },
+            { t: 1, value: "1.2 1.2", ease: "linear" },
+          ],
+        },
+        {
+          id: "scale-second",
+          targetNodeId: "hero",
+          property: "scale",
+          keyframes: [
+            { t: 0, value: "1 1", ease: "linear" },
+            { t: 1, value: "1.4 1.4", ease: "linear" },
+          ],
+        },
+      ],
+      durationMs: 1000,
+    });
+
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+
+    expect(element.style.scale).toBe("1.2 1.2");
+  });
+
   it("restores the original style when a track is disabled", () => {
     const fresh = loadBridge();
     const el = fresh.addElement("hero");
