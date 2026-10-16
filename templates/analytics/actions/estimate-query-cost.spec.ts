@@ -255,6 +255,8 @@ describe("estimate-query-cost action", () => {
     });
     expect(result.summary).toContain("1 panel could not be estimated");
     expect(result.summary).not.toContain("full refresh");
+    expect(result.summary).toContain("1 panel: none could be priced.");
+    expect(result.summary).not.toContain("none read BigQuery");
   });
 
   it("stops waiting on a panel when the deadline passes mid-estimate", async () => {

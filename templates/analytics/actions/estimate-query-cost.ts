@@ -376,7 +376,7 @@ export default defineAction({
       caveats: QUERY_COST_CAVEATS,
       summary:
         (priced === 0
-          ? `${panels.length} panel${panels.length === 1 ? "" : "s"}: none read BigQuery, so nothing was priced.`
+          ? `${panels.length} panel${panels.length === 1 ? "" : "s"}: ${partial ? "none could be priced." : "none read BigQuery, so nothing was priced."}`
           : `${panels.length} panel${panels.length === 1 ? "" : "s"} (${priced} priced): ~${formatBytes(total.estimatedBytes)} and ${formatUsd(total.usdPerRun)} ${totalScope}, ${monthly}.`) +
         (totalOver.length
           ? ` The dashboard as a whole is over ${totalOver.join(" and ")} threshold${partial ? ", even counting only the priced panels" : ""}.`
