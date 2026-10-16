@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import {
   liveBodyWriterFlagsOn,
-  liveBodyWriterGateForRow,
+  liveBodyWriterGate,
   liveBodyWriterPageColumns,
   type LiveBodyWriterGate,
 } from "../lib/live-body-writer.js";
@@ -50,7 +50,7 @@ export async function switchPageToLiveCopy(
   for (let attempt = 0; attempt < CONVERSION_ATTEMPTS; attempt += 1) {
     const page = await readPage(documentId);
     if (!page) return { writePath: "legacy", reason: "no_page" };
-    const gate = await liveBodyWriterGateForRow(page);
+    const gate = await liveBodyWriterGate(documentId);
     if (gate.writePath === "live_copy") return gate;
     if (!(await liveBodyWriterFlagsOn(page))) {
       throw new LiveBodyConversionError(
@@ -106,8 +106,7 @@ export async function switchPageToLiveCopy(
       }
       throw error;
     }
-    const after = await readPage(documentId);
-    return liveBodyWriterGateForRow(after);
+    return liveBodyWriterGate(documentId);
   }
   throw new LiveBodyConversionError(
     "base_changed",
@@ -128,5 +127,5 @@ export async function switchPageToLegacy(
     .update(schema.documents)
     .set({ liveBodySwitchedAt: null })
     .where(eq(schema.documents.id, documentId));
-  return liveBodyWriterGateForRow(await readPage(documentId));
+  return liveBodyWriterGate(documentId);
 }

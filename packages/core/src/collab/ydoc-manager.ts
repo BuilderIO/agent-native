@@ -22,6 +22,7 @@ import {
   persistLiveCopyCall,
   readLiveCopyState,
   readStoredLiveCopy,
+  liveCopyWriteRefused,
   refuseLiveCopyWrite,
   seedLiveCopyState,
   type LiveCopyBinding,
@@ -163,6 +164,10 @@ async function withDocWriteLock<T>(
   try {
     if (liveCopiesDefined()) {
       const binding = await liveCopyBindingFor(docId);
+      // Refused outright, not as a full queue a retry could get past.
+      if (binding && refusePath !== undefined) {
+        throw liveCopyWriteRefused(docId, refusePath);
+      }
       if (binding && ahead > binding.maxWaitingWrites) {
         throw new LiveCopyError(
           "build_failed",
@@ -418,7 +423,15 @@ type ReadTarget =
   | { kind: "live"; binding: LiveCopyBinding };
 
 async function readTarget(docId: string): Promise<ReadTarget> {
+  // A live copy is read from SQL, never from a write in flight here, so it
+  // skips the write lock: a binding's persist runs under that lock and may
+  // read its own document.
+  if (liveCopiesDefined()) {
+    const binding = await liveCopyBindingFor(docId);
+    if (binding) return { kind: "live", binding };
+  }
   await awaitPendingWrite(docId);
+  // Looked up again: the write waited for may have made it a live copy.
   const binding = await liveCopyBindingFor(docId);
   if (binding) return { kind: "live", binding };
   const cached = _cache.get(docId);
