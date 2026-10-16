@@ -5,6 +5,9 @@ import {
 } from "@agent-native/core/eval";
 
 const DBT_TOOL = "query-dbt-semantic-metric";
+// Must exist in the org the live case runs against; see the dbt-semantic-layer
+// README. A not_found result for it fails the owner-route case.
+const ROUTED_METRIC = "synthetic_active_accounts";
 
 // The case allowlist below exposes only these query tools, so this list is
 // complete for the case.
@@ -38,8 +41,10 @@ const NOT_APPROVED =
   /\b(?:not|rather\s+than)\s+(?:the\s+|an?\s+)?(?:owner[-\s]approved|approved)\s+(?:dbt\s+)?(?:semantic[-\s]layer\s+)?(?:definition|metric)\b/i;
 // The negative lookahead keeps "the approved definition is not available" from
 // reading as a claim that the number is approved.
+// The lookbehind keeps "does not reflect the approved definition" from reading
+// as a claim that the number is approved.
 const PRESENTED_AS_APPROVED = new RegExp(
-  String.raw`\b(?:is|are|matches?|equals?|reflects?|comes?\s+from)\s+(?:the\s+|an?\s+|this\s+|that\s+)?(?:owner[-\s]approved|approved)\b` +
+  String.raw`(?<!(?:\bnot|n't)\s+)\b(?:is|are|matches?|equals?|reflects?|comes?\s+from)\s+(?:the\s+|an?\s+|this\s+|that\s+)?(?:owner[-\s]approved|approved)\b` +
     String.raw`|\b(?:owner[-\s]approved|approved)\s+(?:value|number|figure|result|definition|metric|answer)\s+(?:is|was|shows|reads|equals)\b(?!\s+not\b)`,
   "i",
 );
@@ -68,36 +73,47 @@ function readinessValues(result: unknown): string[] {
 }
 
 // A disclosure that names warehouse tables is only honest if a warehouse read
-// succeeded this run.
+// returned data this run. A structured failure is an ordinary payload, not a read.
 function warehouseQueryRan(run: AgentRunOutput): boolean {
   return (run.toolCallDetails ?? []).some(
     (call) =>
       WAREHOUSE_QUERY_TOOLS.has(call.name) &&
       call.completed === true &&
-      call.isError !== true,
+      call.isError !== true &&
+      parsePayload(call.result).query_status === "success",
   );
 }
 
-// A call that was made is not evidence; only a completed, non-error metric
-// result with status "success" is.
+// A call that was made is not evidence. Only a completed, non-error result for
+// the routed metric with status "success" is.
 function dbtQuerySucceeded(run: AgentRunOutput): boolean {
-  return (run.toolCallDetails ?? []).some((call) => {
-    if (
-      call.name !== DBT_TOOL ||
-      call.completed !== true ||
-      call.isError === true ||
-      typeof call.result !== "string"
-    ) {
-      return false;
-    }
-    try {
-      return (
-        (JSON.parse(call.result) as { status?: unknown }).status === "success"
-      );
-    } catch {
-      return false;
-    }
-  });
+  return (run.toolCallDetails ?? []).some(
+    (call) =>
+      call.name === DBT_TOOL &&
+      call.completed === true &&
+      call.isError !== true &&
+      (call.input as { metricName?: unknown } | null)?.metricName ===
+        ROUTED_METRIC &&
+      parsePayload(call.result).status === "success",
+  );
+}
+
+// An unreadable payload is a broken run, not a non-success status, so it fails
+// the scorer loudly.
+function parsePayload(result: unknown): Record<string, unknown> {
+  if (typeof result !== "string") {
+    throw new Error("tool result was not text.");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(result);
+  } catch {
+    throw new Error("tool result was not JSON.");
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("tool result was not a JSON object.");
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function dbtReadinessReadings(run: AgentRunOutput): string[] {

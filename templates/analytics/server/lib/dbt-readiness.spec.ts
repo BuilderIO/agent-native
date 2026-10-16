@@ -64,13 +64,31 @@ describe("dbtProviderReadiness", () => {
     expect(mocks.hasAppSecret).not.toHaveBeenCalled();
   });
 
-  it("is ready when any granted row is ready, even if another needs reauthorization", async () => {
+  it("asks for a connection selection when several granted rows include a ready one", async () => {
     await expect(
       dbtProviderReadiness(
         [row({ id: "conn_dbt_2", status: "needs_reauth" }), row()],
         "org_test",
       ),
-    ).resolves.toBe("ready");
+    ).resolves.toBe("connection_selection_required");
+  });
+
+  it("is ready with a single granted ready row", async () => {
+    await expect(dbtProviderReadiness([row()], "org_test")).resolves.toBe(
+      "ready",
+    );
+  });
+
+  it("reports the first row's reason when several granted rows are none ready", async () => {
+    await expect(
+      dbtProviderReadiness(
+        [
+          row({ id: "conn_dbt_2", status: "needs_reauth" }),
+          row({ status: "error" }),
+        ],
+        "org_test",
+      ),
+    ).resolves.toBe("needs_reauth");
   });
 
   it("reports a corrupt non-string environment ID as invalid without failing the provider", async () => {

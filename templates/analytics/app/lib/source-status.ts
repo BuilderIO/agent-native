@@ -5,6 +5,7 @@ import {
   IconDatabase,
 } from "@tabler/icons-react";
 
+import { isDbtUsable } from "../../server/lib/dbt-connection";
 import {
   getGrantedWorkspaceConnectionStatuses,
   type DataSourceStatusResponse,
@@ -42,7 +43,7 @@ function dbtHealthState(
     return "error";
   }
   if (readiness === "needs_reauth") return "needs_reauth";
-  return readiness === "ready" ? "connected" : "not_connected";
+  return isDbtUsable(readiness) ? "connected" : "not_connected";
 }
 
 export function sourceHealthState(

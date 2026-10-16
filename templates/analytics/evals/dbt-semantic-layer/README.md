@@ -29,3 +29,7 @@ transcripts to each scorer.
 Both cases run against the same org in one live run. Run the suite once against
 a connected org and once against an unconnected org; the unconnected case fails
 on a connected org by design.
+
+## Live routing fixture
+
+The owner-route case queries `synthetic_active_accounts`. Run it only against an organization whose dbt project defines that metric. Otherwise a correct routing attempt returns `not_found`, and the case fails because no successful metric result exists.

@@ -1244,12 +1244,12 @@ export function hasDataQueryAttempt(
 }
 
 export function isSuccessfulDbtMetricResult(content: unknown): boolean {
-  try {
-    const parsed = JSON.parse(String(content ?? "")) as { status?: unknown };
-    return parsed.status === "success";
-  } catch {
-    return false;
-  }
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    (parsed as { status?: unknown }).status === "success"
+  );
 }
 
 function isFailedDataQueryAttempt(result: {

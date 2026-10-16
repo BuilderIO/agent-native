@@ -16,10 +16,19 @@ export const DBT_CONNECTION_READINESS = [
   "token_missing",
   "environment_missing",
   "environment_invalid",
+  "connection_selection_required",
   "needs_reauth",
   "error",
 ] as const;
 export type DbtConnectionReadiness = (typeof DBT_CONNECTION_READINESS)[number];
+
+// A ready connection is usable. Several granted connections are usable too, but
+// the caller must pass a connectionId, so every surface says so.
+export function isDbtUsable(
+  readiness: DbtConnectionReadiness | null | undefined,
+): boolean {
+  return readiness === "ready" || readiness === "connection_selection_required";
+}
 
 // The one readiness answer every surface uses. A granted row is not enough:
 // the org token and environment ID are required too. `tokenConfigured: null`
@@ -64,6 +73,8 @@ export function dbtConnectionReadinessReason(
       return "The dbt Semantic Layer token is not saved.";
     case "environment_missing":
       return "The dbt environment ID is not saved.";
+    case "connection_selection_required":
+      return "Several dbt connections are granted. Pass one connectionId from get-dbt-connection's connections list to query-dbt-semantic-metric.";
     case "environment_invalid":
       return "The saved dbt environment ID must contain only digits. Re-save it on the Semantic Layer page.";
     case "needs_reauth":

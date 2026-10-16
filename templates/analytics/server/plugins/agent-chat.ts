@@ -28,6 +28,7 @@ import {
   DBT_CONNECTION_READINESS,
   DBT_PROVIDER_ID,
   dbtConnectionReadinessReason,
+  isDbtUsable,
   type DbtConnectionReadiness,
 } from "../lib/dbt-connection";
 import { dbtProviderReadiness } from "../lib/dbt-readiness";
@@ -361,6 +362,9 @@ async function dbtReadinessLine(event: any): Promise<string | null> {
     );
     if (readiness === "not_connected") return null;
     if (readiness === "ready") return "dbt Semantic Layer: ready.";
+    if (isDbtUsable(readiness)) {
+      return `dbt Semantic Layer: ${dbtConnectionReadinessReason(readiness)}`;
+    }
     return `dbt Semantic Layer: not ready (${readiness}). ${dbtConnectionReadinessReason(readiness)} Setup: [Semantic Layer](${DBT_SEMANTIC_LAYER_LINK}).`;
   } catch (error) {
     console.warn("[analytics] dbt readiness unavailable for agent context", {
@@ -547,7 +551,7 @@ function dbtUnverifiedNote(
   const readiness = sourceStatus.dbtReadiness;
   if (
     readiness !== undefined &&
-    readiness !== "ready" &&
+    !isDbtUsable(readiness) &&
     (readiness !== "not_connected" || dbtResults.length > 0)
   ) {
     return `The dbt Semantic Layer is not ready: ${dbtConnectionReadinessReason(readiness)} Set it up on the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}), then ask again.`;
@@ -1108,7 +1112,7 @@ function dataSourceStatusSummary(
       // Mirrors data-source-status: dbt is configured or healthy only when its
       // readiness is "ready". An absent readiness is unknown, not healthy, so the
       // grant alone must not restore health.
-      const dbtNotReady = isDbt && dbtReadiness !== "ready";
+      const dbtNotReady = isDbt && !isDbtUsable(dbtReadiness);
       const configured = dbtNotReady
         ? dbtReadiness === undefined
           ? null

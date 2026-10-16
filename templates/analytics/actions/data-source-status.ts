@@ -20,7 +20,7 @@ import {
 import { hasCredential } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
 import { callerAccessibleDbtConnections } from "../server/lib/dbt-caller-connections";
-import { DBT_PROVIDER_ID } from "../server/lib/dbt-connection";
+import { DBT_PROVIDER_ID, isDbtUsable } from "../server/lib/dbt-connection";
 import { dbtProviderReadiness } from "../server/lib/dbt-readiness";
 import { getGitHubAccessToken } from "../server/lib/github-oauth";
 import { resolveAnalyticsProviderCredential } from "../server/lib/provider-credentials";
@@ -214,10 +214,14 @@ export default defineAction({
         ...workspace.connections.map((connection) => connection.provider),
       ]),
     ];
-    const dbtConnections = workspaceConnectionsForProviderStatus(
-      DBT_PROVIDER_ID,
-      workspace.connections,
-      ctx.userEmail,
+    // Only rows this caller may use feed the dbt summary and readiness, so a
+    // connection restricted to someone else is not even listed for them.
+    const dbtConnections = await callerAccessibleDbtConnections(
+      workspaceConnectionsForProviderStatus(
+        DBT_PROVIDER_ID,
+        workspace.connections,
+        ctx.userEmail,
+      ),
     );
     const dbtGrantedIds = new Set(
       summarizeWorkspaceConnections(
@@ -230,10 +234,8 @@ export default defineAction({
     const dbtReadiness = workspace.error
       ? "error"
       : await dbtProviderReadiness(
-          await callerAccessibleDbtConnections(
-            dbtConnections.filter((connection) =>
-              dbtGrantedIds.has(connection.id),
-            ),
+          dbtConnections.filter((connection) =>
+            dbtGrantedIds.has(connection.id),
           ),
           ctx.orgId ?? null,
         );
@@ -260,11 +262,13 @@ export default defineAction({
           : {}),
         ...summarizeWorkspaceConnections(
           providerId,
-          workspaceConnectionsForProviderStatus(
-            providerId,
-            workspace.connections,
-            ctx.userEmail,
-          ),
+          providerId === DBT_PROVIDER_ID
+            ? dbtConnections
+            : workspaceConnectionsForProviderStatus(
+                providerId,
+                workspace.connections,
+                ctx.userEmail,
+              ),
           workspace.grants,
         ),
       };
@@ -421,7 +425,7 @@ export default defineAction({
         (provider.grantState !== "connected" &&
           provider.grantState !== "granted") ||
         (provider.id === DBT_PROVIDER_ID &&
-          provider.dbtReadiness !== "ready") ||
+          !isDbtUsable(provider.dbtReadiness)) ||
         (scopedProviderIds && !scopedProviderIds.has(provider.id)) ||
         configuredProviderIds.has(provider.id)
       ) {
@@ -444,7 +448,7 @@ export default defineAction({
     const connectedExternalDataSources = workspaceProviderStatuses.filter(
       (provider) =>
         (provider.id === DBT_PROVIDER_ID
-          ? provider.dbtReadiness === "ready"
+          ? isDbtUsable(provider.dbtReadiness)
           : provider.grantState === "connected") &&
         (scopedProviderIds === null || scopedProviderIds.has(provider.id)),
     );
@@ -455,7 +459,10 @@ export default defineAction({
       providers.some((provider) => provider.configured === null) ||
       workspaceProviderStatuses.some(
         (provider) =>
-          provider.id === DBT_PROVIDER_ID && provider.dbtReadiness === "error",
+          provider.id === DBT_PROVIDER_ID &&
+          provider.dbtReadiness === "error" &&
+          (scopedProviderIds === null ||
+            scopedProviderIds.has(DBT_PROVIDER_ID)),
       );
     return {
       // Keep a compact, explicit summary first so models do not infer source

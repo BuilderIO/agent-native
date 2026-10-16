@@ -69,7 +69,7 @@ function connectionReadiness(readiness: string): ToolCallDetail {
 function dbtResult(status: string): ToolCallDetail {
   return {
     name: "query-dbt-semantic-metric",
-    input: {},
+    input: { metricName: "synthetic_active_accounts" },
     completed: true,
     isError: false,
     result: JSON.stringify({ status }),
@@ -82,7 +82,7 @@ function warehouseRead(isError = false): ToolCallDetail {
     input: {},
     completed: true,
     isError,
-    result: "{}",
+    result: JSON.stringify({ query_status: "success", rows: [] }),
   };
 }
 
@@ -161,6 +161,20 @@ describe("Analytics dbt Semantic Layer routing evals", () => {
           "Synthetic routing answer.",
           ["query-dbt-semantic-metric"],
           [dbtResult("not_found")],
+        ),
+        "no successful query-dbt-semantic-metric result",
+      ],
+      [
+        "successful result for a different metric",
+        transcript(
+          "Synthetic routing answer.",
+          ["query-dbt-semantic-metric"],
+          [
+            {
+              ...dbtResult("success"),
+              input: { metricName: "some_other_metric" },
+            },
+          ],
         ),
         "no successful query-dbt-semantic-metric result",
       ],
@@ -351,5 +365,17 @@ describe("Analytics dbt Semantic Layer routing evals", () => {
       "The approved definition is not available for this metric. The value is 10 from warehouse tables and is not the owner-approved Semantic Layer definition.";
     const { report } = await scoreCase(unconnectedCase, withRead(negated));
     expect(report, negated).toMatchObject({ total: 1, passed: 1, failed: 0 });
+
+    const doesNotReflect =
+      "The value is 10 from warehouse tables. It does not reflect the approved definition; it is not the owner-approved Semantic Layer definition.";
+    const negatedReflect = await scoreCase(
+      unconnectedCase,
+      withRead(doesNotReflect),
+    );
+    expect(negatedReflect.report, doesNotReflect).toMatchObject({
+      total: 1,
+      passed: 1,
+      failed: 0,
+    });
   });
 });

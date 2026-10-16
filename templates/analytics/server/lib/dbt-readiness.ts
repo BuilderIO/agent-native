@@ -50,5 +50,10 @@ export async function dbtProviderReadiness(
     rowReadiness(connection, tokenConfigured),
   );
   const [first] = readiness;
-  return readiness.includes("ready") ? "ready" : first;
+  if (!readiness.includes("ready")) return first;
+  // With several granted connections, query-dbt-semantic-metric needs an
+  // explicit connectionId, so a ready row alone is not a ready provider.
+  return grantedConnections.length > 1
+    ? "connection_selection_required"
+    : "ready";
 }
