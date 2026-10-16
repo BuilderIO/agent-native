@@ -20,8 +20,6 @@ import {
 import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { FirstPartyAnalyticsValidationError } from "../../server/lib/first-party-analytics-errors.js";
-
 const providerBoundary = vi.hoisted(() => ({
   activeCaseKey: "",
   metricMetadataPageNumbers: [] as number[],
@@ -898,6 +896,7 @@ const SAFE_CSV_COLUMNS: readonly (keyof SafeCsvRow)[] = [
 ];
 const csvRows: SafeCsvRow[] = [];
 let resolveProductionEvalContext: typeof import("../production-context.js").resolveProductionEvalContext;
+let createUnsupportedFunctionValidationError: (() => Error) | undefined;
 
 function csvEscape(value: string | number | boolean): string {
   const text = String(value);
@@ -1110,13 +1109,13 @@ async function runCase(
       });
   }
   if (testCase.key === "synthetic-first-party-div-recovery") {
+    if (!createUnsupportedFunctionValidationError) {
+      throw new Error(
+        "First-party Analytics unsupported-function validation is unavailable.",
+      );
+    }
     providerBoundary.queryFirstPartyAnalytics
-      .mockRejectedValueOnce(
-        new FirstPartyAnalyticsValidationError(
-          "unsupported_function",
-          "First-party analytics queries cannot call unapproved SQL function div",
-        ),
-      )
+      .mockRejectedValueOnce(createUnsupportedFunctionValidationError())
       .mockResolvedValueOnce({
         rows: [{ avg_events_per_day: 4.2 }],
         schema: [{ name: "avg_events_per_day", type: "number" }],
@@ -1664,6 +1663,24 @@ beforeAll(async () => {
     .digest("hex");
   await generateActionRegistryForProject(ANALYTICS_PROJECT_ROOT);
   ({ resolveProductionEvalContext } = await import("../production-context.js"));
+  try {
+    const { FirstPartyAnalyticsValidationError } =
+      await import("../../server/lib/first-party-analytics-errors.js");
+    createUnsupportedFunctionValidationError = () =>
+      new FirstPartyAnalyticsValidationError(
+        "unsupported_function",
+        "First-party analytics queries cannot call unapproved SQL function div",
+      );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      /Cannot find module .*first-party-analytics-errors/i.test(error.message)
+    ) {
+      createUnsupportedFunctionValidationError = undefined;
+    } else {
+      throw error;
+    }
+  }
 }, 60_000);
 
 describe("Analytics synthetic production-path query quality", () => {
