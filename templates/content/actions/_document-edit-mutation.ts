@@ -892,6 +892,7 @@ async function mutateLiveCopyDocumentBody(input: {
           intent: {
             writerId: `${input.scope}:edit-document`,
             operationId: input.idempotencyKey,
+            authoredBaseRevision: base.revision,
           },
           candidateHash: documentContentHash(resolved.content),
         },

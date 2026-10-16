@@ -1225,6 +1225,34 @@ describe("edit-document on a switched page", () => {
       typed.replace("First", "First A"),
     );
     expect(await gateFor("typed-past")).toEqual({ writePath: "live_copy" });
+    // The intent names the revision the edit was made on, not the one it
+    // committed after.
+    expect(await bodyIntents("typed-past")).toEqual([
+      expect.objectContaining({
+        operationId: "typed-past-edit",
+        authoredBaseRevision: loaded.bodyRevision,
+      }),
+    ]);
+  });
+
+  it("refuses an insertion beside paragraphs that read the same after a tab removed one", async () => {
+    await switchedPage("same-neighbors", "Same\n\nSame\n\nSame");
+    const loaded = await page("same-neighbors");
+    await typeInTab("same-neighbors", "Same\n\nSame");
+    const typed = (await page("same-neighbors")).content;
+    const version = await collabVersion("same-neighbors");
+
+    await expect(
+      agentEdit("same-neighbors", loaded, [
+        {
+          find: loaded.content,
+          replace: loaded.content.replace("Same", "Same\nNew"),
+        },
+      ]),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+    expect((await page("same-neighbors")).content).toBe(typed);
+    expect(await collabVersion("same-neighbors")).toBe(version);
   });
 
   it("refuses an edit whose find a tab changed, and commits nothing", async () => {
