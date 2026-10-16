@@ -328,4 +328,14 @@ describe("import-transcript", () => {
     expect((importTranscript as any).mcpApp).toEqual({ compactCatalog: true });
     expect((importTranscript as any).mcpTool).toBeUndefined();
   });
+
+  it("asks the user to approve replacing a ready transcript, and only that", () => {
+    const needsApproval = (importTranscript as any).needsApproval;
+    expect(
+      needsApproval?.({ recordingId: "rec_1", text: VTT, replace: true }),
+    ).toBe(true);
+    expect(
+      needsApproval?.({ recordingId: "rec_1", text: VTT, replace: false }),
+    ).toBe(false);
+  });
 });

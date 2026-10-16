@@ -152,11 +152,12 @@ second after the end joins the one before it. The transcript's `source` is
 an imported transcript; `request-transcript` with `regenerate: true` does, so
 ask the user first and pass `replaceImportId` set to `transcript.importId` from
 `get-recording-player-data`. Importing over a ready transcript fails with
-`transcript_exists`; ask the user, then call again with `replace: true` and
-`replaceImportId` set to the error's `details.importId`. If a different
-transcript took its place in the meantime, that call fails with
-`transcript_exists` again, naming the new one: ask again rather than retrying
-with the new ID. A malformed file fails with
+`transcript_exists`; to replace it, call again with `replace: true` and
+`replaceImportId` set to the error's `details.importId`. That call asks the
+user to approve it, so don't ask in chat first; if they decline, the transcript
+stays as it was. If a different transcript took its place in the meantime, the
+approved call fails with `transcript_exists` again, naming the new one: tell
+the user before calling again with the new ID. A malformed file fails with
 `transcript_import_invalid` naming the line, and the stored transcript is left
 as it was. Import leaves chapters alone; set them with `set-chapters`.
 
