@@ -8106,6 +8106,134 @@ describe("DeckContext deck creation persistence", () => {
     }
   });
 
+  it("undoes a duplicate that retains its source image prompt", async () => {
+    const deckId = "duplicate-image-prompt-undo-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    setAccessibleDeck({
+      id: deckId,
+      title: "Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "",
+          layout: "title",
+          imagePrompt: "Original image prompt",
+        },
+      ],
+    } as Deck);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const toastSpy = vi.spyOn(toast, "error");
+    let duplicateId = "";
+    act(() => {
+      duplicateId = result.current.duplicateSlide(deckId, "slide-1") ?? "";
+    });
+    expect(
+      result.current
+        .getDeck(deckId)
+        ?.slides.find((slide) => slide.id === duplicateId)?.imagePrompt,
+    ).toBe("Original image prompt");
+    await act(async () => {
+      await result.current.flushDeckSave(deckId);
+    });
+
+    act(() => result.current.undo(deckId));
+
+    expect(
+      result.current.getDeck(deckId)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1"]);
+    expect(toastSpy).not.toHaveBeenCalledWith("History step conflict");
+    expect(result.current.undoAvailability[deckId]?.canRedo).toBe(true);
+
+    act(() => result.current.redo(deckId));
+    expect(
+      result.current
+        .getDeck(deckId)
+        ?.slides.find((slide) => slide.id === duplicateId)?.imagePrompt,
+    ).toBe("Original image prompt");
+    await act(async () => {
+      await result.current.flushDeckSave(deckId);
+    });
+    const lastPatchCall = fetchMock.mock.calls
+      .filter(([url, init]) => {
+        return (
+          requestString(url).includes("/_agent-native/actions/patch-deck") &&
+          actionCallBody(init).deckId === deckId
+        );
+      })
+      .at(-1);
+    const redoAddOperation = (
+      actionCallBody(lastPatchCall?.[1]).operations as Array<{
+        op: string;
+        fields?: Record<string, unknown>;
+      }>
+    ).find((operation) => operation.op === "add-slide");
+    expect(redoAddOperation?.fields).not.toHaveProperty("imagePrompt");
+  });
+
+  it("preserves a remote prompt edit on a duplicated slide when undo conflicts", async () => {
+    const deckId = "duplicate-remote-image-prompt-undo-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { setAccessibleDeck } = setupFetch();
+    const initial: Deck = {
+      id: deckId,
+      title: "Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "",
+          layout: "title",
+          imagePrompt: "Original image prompt",
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let duplicateId = "";
+    await act(async () => {
+      duplicateId = result.current.duplicateSlide(deckId, "slide-1") ?? "";
+      await result.current.flushDeckSave(deckId);
+    });
+    const remotePrompt = "Remote edit to duplicated prompt";
+    const deckWithDuplicate = result.current.getDeck(deckId)!;
+    setAccessibleDeck({
+      ...deckWithDuplicate,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: deckWithDuplicate.slides.map((slide) =>
+        slide.id === duplicateId
+          ? { ...slide, imagePrompt: remotePrompt }
+          : slide,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(deckId, {
+        clearPendingWrites: true,
+      });
+    });
+
+    const toastSpy = vi.spyOn(toast, "error");
+    act(() => result.current.undo(deckId));
+
+    expect(
+      result.current
+        .getDeck(deckId)
+        ?.slides.find((slide) => slide.id === duplicateId)?.imagePrompt,
+    ).toBe(remotePrompt);
+    expect(toastSpy).toHaveBeenCalledWith("History step conflict");
+  });
+
   it("persists a duplicated slide after the optimistic insert", async () => {
     const deckId = "duplicate-layout-revision-deck";
     window.history.pushState({}, "", `/deck/${deckId}`);

@@ -161,21 +161,31 @@ type PendingPersistedResultHandler = {
   slideWriteSequences: Map<string, number>;
 };
 
-function addSlideFields(
-  slide: Slide,
-): Extract<GranularOp, { op: "add-slide" }>["fields"] {
+type AddSlideFields = Extract<GranularOp, { op: "add-slide" }>["fields"];
+
+function persistedAddSlideFields(fields: AddSlideFields): AddSlideFields {
   const {
-    id: _id,
-    imageLoading: _imageLoading,
     imagePrompt: _imagePrompt,
     layoutFitRevision: _layoutFitRevision,
-    ...fields
-  } = slide;
+    ...persistedFields
+  } = fields;
   return {
-    ...fields,
+    ...persistedFields,
     content: normalizeSlidePadding(fields.content),
     notes: fields.notes ?? "",
   };
+}
+
+function addSlideFields(slide: Slide): AddSlideFields {
+  const { id: _id, imageLoading: _imageLoading, ...fields } = slide;
+  return persistedAddSlideFields(fields);
+}
+
+function addSlideUndoFields(slide: Slide): AddSlideFields {
+  const fields = addSlideFields(slide);
+  return slide.imagePrompt === undefined
+    ? fields
+    : { ...fields, imagePrompt: slide.imagePrompt };
 }
 
 function slideFieldBaselines(
@@ -4911,18 +4921,23 @@ export function DeckProvider({
                 (deck) => deck.id === deckId,
               );
               const persistedOp =
-                granular.op === "patch-slide" &&
-                typeof granular.fields.content === "string" &&
-                currentDeck
+                granular.op === "add-slide"
                   ? {
                       ...granular,
-                      baseContentHash: hashSlideContent(
-                        currentDeck.slides.find(
-                          (slide) => slide.id === granular.slideId,
-                        )?.content ?? "",
-                      ),
+                      fields: persistedAddSlideFields(granular.fields),
                     }
-                  : granular;
+                  : granular.op === "patch-slide" &&
+                      typeof granular.fields.content === "string" &&
+                      currentDeck
+                    ? {
+                        ...granular,
+                        baseContentHash: hashSlideContent(
+                          currentDeck.slides.find(
+                            (slide) => slide.id === granular.slideId,
+                          )?.content ?? "",
+                        ),
+                      }
+                    : granular;
               enqueueDeckOp(deckId, persistedOp, {
                 layoutFitSlideIds: layoutFitSlideIdsForDeckFields(
                   currentDeck,
@@ -6900,7 +6915,11 @@ export function DeckProvider({
         onPersisted: (results, slideWriteSequences) =>
           reconcilePersistedLayoutFit(deckId, results, slideWriteSequences),
       });
-      recordUndo(before, op, { label: "Duplicate slide" });
+      recordUndo(
+        before,
+        { ...op, fields: addSlideUndoFields(copiedSlide) },
+        { label: "Duplicate slide" },
+      );
       return copiedSlide.id;
     },
     [markDeckDirty, reconcilePersistedLayoutFit, recordUndo, setDecksLocal],
@@ -6941,7 +6960,11 @@ export function DeckProvider({
         onPersisted: (results, slideWriteSequences) =>
           reconcilePersistedLayoutFit(deckId, results, slideWriteSequences),
       });
-      recordUndo(before, op, { label: "Paste slide" });
+      recordUndo(
+        before,
+        { ...op, fields: addSlideUndoFields(newSlide) },
+        { label: "Paste slide" },
+      );
       return newSlide.id;
     },
     [markDeckDirty, reconcilePersistedLayoutFit, recordUndo, setDecksLocal],
@@ -7009,7 +7032,15 @@ export function DeckProvider({
       };
       setDecksLocal((prev) => prev.map(addSlides));
       for (const op of ops) enqueueDeckOp(deckId, op);
-      recordUndoBatch(before, ops, "Paste slides");
+      recordUndoBatch(
+        before,
+        ops.map((op) => {
+          if (op.op !== "add-slide") return op;
+          const slide = newSlides.find((entry) => entry.id === op.slideId);
+          return slide ? { ...op, fields: addSlideUndoFields(slide) } : op;
+        }),
+        "Paste slides",
+      );
       return newSlides.map((slide) => slide.id);
     },
     [markDeckDirty, recordUndoBatch, setDecksLocal],
