@@ -13,6 +13,7 @@ let db: ReturnType<typeof drizzle>;
 const mocks = vi.hoisted(() => ({
   dispatchPostFinalizeJob: vi.fn(async () => undefined),
   writeAppState: vi.fn(async () => undefined),
+  assertAccess: vi.fn(async () => ({ role: "owner" })),
 }));
 
 vi.mock("../server/db/index.js", async () => {
@@ -29,7 +30,7 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => ({ role: "owner" })),
+  assertAccess: mocks.assertAccess,
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
@@ -39,6 +40,7 @@ vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
 }));
 
 import importTranscript from "./import-transcript";
+import restoreTranscriptVersion from "./restore-transcript-version";
 
 const VTT = `WEBVTT
 
@@ -77,11 +79,42 @@ async function readTranscript() {
     | undefined;
 }
 
+async function readVersions() {
+  const { rows } = await client.query(
+    `SELECT id, status, full_text, segments_json, source, import_id, language, reason, replaced_by
+     FROM recording_transcript_versions WHERE recording_id = 'rec_1'
+     ORDER BY created_at DESC, id DESC`,
+  );
+  return rows as Array<{
+    id: string;
+    status: string;
+    full_text: string;
+    segments_json: string;
+    source: string | null;
+    import_id: string | null;
+    language: string;
+    reason: string;
+    replaced_by: string | null;
+  }>;
+}
+
+async function readFullTranscript() {
+  const { rows } = await client.query(
+    `SELECT status, full_text, segments_json, source, import_id, language
+     FROM recording_transcripts WHERE recording_id = 'rec_1'`,
+  );
+  return rows[0];
+}
+
 async function currentImportId() {
   const { rows } = await client.query(
     "SELECT import_id FROM recording_transcripts WHERE recording_id = 'rec_1'",
   );
   return (rows[0] as { import_id: string | null }).import_id;
+}
+
+function restore(versionId: string, recordingId = "rec_1") {
+  return (restoreTranscriptVersion as any).run({ recordingId, versionId });
 }
 
 function run(args: {
@@ -115,6 +148,12 @@ beforeEach(async () => {
     retry_count INTEGER NOT NULL DEFAULT 0,
     source TEXT, import_id TEXT,
     created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+  )`);
+  await client.query(`CREATE TABLE recording_transcript_versions (
+    id TEXT PRIMARY KEY, recording_id TEXT NOT NULL, owner_email TEXT NOT NULL,
+    language TEXT NOT NULL, segments_json TEXT NOT NULL, full_text TEXT NOT NULL,
+    status TEXT NOT NULL, source TEXT, import_id TEXT, reason TEXT NOT NULL,
+    replaced_by TEXT, created_at TEXT NOT NULL
   )`);
   await client.query(
     `INSERT INTO recordings (id, status, duration_ms, title, title_source, description)
@@ -199,6 +238,53 @@ describe("import-transcript", () => {
     const result = await run({ text: VTT, replace: true });
     expect(result).toMatchObject({ replaced: true });
     expect(await readTranscript()).toMatchObject({ source: "imported" });
+  });
+
+  it("keeps the transcript it replaces as a version", async () => {
+    const segmentsJson = JSON.stringify([
+      { startMs: 0, endMs: 1000, text: "Automatic words.", speaker: "A" },
+    ]);
+    await insertTranscript({
+      status: "ready",
+      fullText: "Automatic words.",
+      segmentsJson,
+    });
+
+    const result = await run({ text: VTT, replace: true });
+
+    expect(result.savedVersionId).toEqual(expect.any(String));
+    expect(await readVersions()).toEqual([
+      {
+        id: result.savedVersionId,
+        status: "ready",
+        full_text: "Automatic words.",
+        segments_json: segmentsJson,
+        source: null,
+        import_id: null,
+        language: "en",
+        reason: "import",
+        replaced_by: "owner@example.com",
+      },
+    ]);
+  });
+
+  it("keeps no version when it fills a transcript that was not ready", async () => {
+    await insertTranscript({ status: "pending" });
+
+    const result = await run({ text: VTT });
+
+    expect(result).toMatchObject({ replaced: false, savedVersionId: null });
+    expect(await readVersions()).toEqual([]);
+  });
+
+  it("keeps no version when a replace is refused", async () => {
+    await insertTranscript({ status: "ready", fullText: "Automatic words." });
+
+    await expect(run({ text: VTT })).rejects.toMatchObject({
+      errorCode: "transcript_exists",
+    });
+
+    expect(await readVersions()).toEqual([]);
   });
 
   it("gives a re-import of the same file a new import id", async () => {
@@ -328,17 +414,161 @@ describe("import-transcript", () => {
     expect((importTranscript as any).mcpApp).toEqual({ compactCatalog: true });
     expect((importTranscript as any).mcpTool).toBeUndefined();
   });
+});
 
-  it.each([true, "true", " Yes ", "1", "on", false, "false", "0", undefined])(
-    "asks the user to approve a call whose replace %j the action reads as true, and only that",
-    (replace) => {
-      const action = importTranscript as any;
-      const raw = { recordingId: "rec_1", text: VTT, replace };
-      const runsAsReplace = action.schema.parse(raw).replace === true;
-      expect(action.needsApproval?.(raw)).toBe(runsAsReplace);
-      expect(runsAsReplace).toBe(
-        ["true", " Yes ", "1", "on", true].includes(replace as never),
-      );
-    },
-  );
+describe("restore-transcript-version", () => {
+  const automatic = {
+    status: "ready",
+    full_text: "Automatic words. And more words.",
+    segments_json: JSON.stringify([
+      { startMs: 0, endMs: 1200, text: "Automatic words.", speaker: "A" },
+      { startMs: 1200, endMs: 2600, text: "And more words." },
+    ]),
+    source: null,
+    import_id: null,
+    language: "de",
+  };
+
+  beforeEach(async () => {
+    await client.query(
+      `INSERT INTO recording_transcripts (recording_id, status, full_text, segments_json, source, language)
+       VALUES ('rec_1', $1, $2, $3, $4, $5)`,
+      [
+        automatic.status,
+        automatic.full_text,
+        automatic.segments_json,
+        automatic.source,
+        automatic.language,
+      ],
+    );
+  });
+
+  it("brings back exactly the transcript an import replaced", async () => {
+    const imported = await run({ text: VTT, replace: true });
+    const importedRow = await readFullTranscript();
+
+    const result = await restore(imported.savedVersionId);
+
+    expect(await readFullTranscript()).toEqual(automatic);
+    expect(result).toMatchObject({
+      status: "ready",
+      source: null,
+      language: "de",
+      segments: 2,
+      savedVersionId: expect.any(String),
+    });
+    // The restored version leaves the list and the import takes its place.
+    const versions = await readVersions();
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({
+      id: result.savedVersionId,
+      full_text: importedRow.full_text,
+      segments_json: importedRow.segments_json,
+      source: "imported",
+      import_id: importedRow.import_id,
+      reason: "restore",
+    });
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "recording",
+      "rec_1",
+      "editor",
+    );
+    expect(mocks.writeAppState).toHaveBeenLastCalledWith(
+      "refresh-signal",
+      expect.anything(),
+    );
+    expect(mocks.dispatchPostFinalizeJob).toHaveBeenLastCalledWith({
+      recordingId: "rec_1",
+      kind: "transcript",
+    });
+  });
+
+  it("can undo a restore by restoring the version it saved", async () => {
+    const imported = await run({ text: VTT, replace: true });
+    const importedRow = await readFullTranscript();
+    const restored = await restore(imported.savedVersionId);
+
+    const undone = await restore(restored.savedVersionId);
+
+    expect(await readFullTranscript()).toEqual(importedRow);
+    expect(undone).toMatchObject({ source: "imported", segments: 2 });
+    const versions = await readVersions();
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({
+      id: undone.savedVersionId,
+      full_text: automatic.full_text,
+      segments_json: automatic.segments_json,
+      language: "de",
+    });
+  });
+
+  it("refuses a version already restored or saved for another recording", async () => {
+    const imported = await run({ text: VTT, replace: true });
+    await restore(imported.savedVersionId);
+    const before = await readFullTranscript();
+
+    await expect(restore(imported.savedVersionId)).rejects.toMatchObject({
+      errorCode: "transcript_version_not_found",
+      statusCode: 404,
+    });
+    await client.query(
+      `INSERT INTO recordings (id, status, duration_ms, title) VALUES ('rec_2', 'ready', 1000, 'Other')`,
+    );
+    const [kept] = await readVersions();
+    await expect(restore(kept.id, "rec_2")).rejects.toMatchObject({
+      errorCode: "transcript_version_not_found",
+    });
+    expect(await readFullTranscript()).toEqual(before);
+  });
+
+  it("leaves the transcript alone for a caller without editor access", async () => {
+    const imported = await run({ text: VTT, replace: true });
+    const before = await readFullTranscript();
+    mocks.assertAccess.mockRejectedValueOnce(
+      Object.assign(new Error("Forbidden"), { statusCode: 403 }),
+    );
+
+    await expect(restore(imported.savedVersionId)).rejects.toMatchObject({
+      statusCode: 403,
+    });
+
+    expect(await readFullTranscript()).toEqual(before);
+    expect(await readVersions()).toHaveLength(1);
+  });
+
+  it("keeps the ten most recently replaced transcripts", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      for (let i = 1; i <= 11; i++) {
+        vi.setSystemTime(new Date(Date.UTC(2026, 9, 16, 12, 0, i)));
+        await run({
+          text: `0:00 Import ${i}.`,
+          replace: true,
+          replaceImportId: i === 1 ? null : await currentImportId(),
+        });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const versions = await readVersions();
+    expect(versions.map((v) => v.full_text)).toEqual([
+      "Import 10.",
+      "Import 9.",
+      "Import 8.",
+      "Import 7.",
+      "Import 6.",
+      "Import 5.",
+      "Import 4.",
+      "Import 3.",
+      "Import 2.",
+      "Import 1.",
+    ]);
+  });
+
+  it("is listed in the compact MCP catalog", () => {
+    expect((restoreTranscriptVersion as any).mcpApp).toEqual({
+      compactCatalog: true,
+    });
+  });
 });

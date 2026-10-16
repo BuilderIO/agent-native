@@ -678,6 +678,14 @@ const messages = {
     errorOutOfOrder: "Línea {{line}}: esta hora es anterior a la anterior.",
     errorPastEnd: "Línea {{line}}: esta hora es posterior al final del vídeo.",
   },
+  transcriptHistory: {
+    title: "Transcripciones anteriores",
+    automatic: "Automática",
+    restore: "Restaurar",
+    restored: "Transcripción restaurada",
+    restoreFailed: "No se pudo restaurar la transcripción",
+    undo: "Deshacer",
+  },
   thumbnailPicker: {
     failedCapture: "No se pudo capturar el fotograma",
     failedGif: "No se pudo generar GIF; pruebe con un rango más corto",

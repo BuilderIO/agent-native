@@ -1296,6 +1296,27 @@ export const migrations = runMigrations(
       // Additive. Mirrors `importId` on `recordingTranscripts` in server/db/schema.ts.
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS import_id TEXT`,
     },
+    {
+      version: 91,
+      name: "recording-transcript-versions",
+      // Mirrors `recordingTranscriptVersions` in server/db/schema.ts.
+      sql: `CREATE TABLE IF NOT EXISTS recording_transcript_versions (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        language TEXT NOT NULL,
+        segments_json TEXT NOT NULL,
+        full_text TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source TEXT,
+        import_id TEXT,
+        reason TEXT NOT NULL,
+        replaced_by TEXT,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE INDEX IF NOT EXISTS recording_transcript_versions_recording_created_idx
+        ON recording_transcript_versions (recording_id, created_at)`,
+    },
   ],
   { table: "clips_migrations" },
 );

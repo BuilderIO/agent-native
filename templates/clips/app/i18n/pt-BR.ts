@@ -675,6 +675,14 @@ const messages = {
       "Linha {{line}}: este horário vem antes do horário anterior.",
     errorPastEnd: "Linha {{line}}: este horário é posterior ao fim do vídeo.",
   },
+  transcriptHistory: {
+    title: "Transcrições anteriores",
+    automatic: "Automática",
+    restore: "Restaurar",
+    restored: "Transcrição restaurada",
+    restoreFailed: "Não foi possível restaurar a transcrição",
+    undo: "Desfazer",
+  },
   thumbnailPicker: {
     failedCapture: "Falha ao capturar o quadro",
     failedGif: "Falha ao gerar GIF — tente um intervalo menor",

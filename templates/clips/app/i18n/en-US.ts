@@ -596,6 +596,14 @@ const messages = {
       "Line {{line}}: this time is earlier than the one before it.",
     errorPastEnd: "Line {{line}}: this time is after the end of the video.",
   },
+  transcriptHistory: {
+    title: "Earlier transcripts",
+    automatic: "Automatic",
+    restore: "Restore",
+    restored: "Transcript restored",
+    restoreFailed: "Couldn't restore transcript",
+    undo: "Undo",
+  },
   thumbnailPicker: {
     failedCapture: "Failed to capture frame",
     failedGif: "Failed to generate GIF — try a shorter range",

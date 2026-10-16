@@ -687,6 +687,14 @@ const messages = {
     errorOutOfOrder: "Zeile {{line}}: Diese Zeit liegt vor der vorherigen.",
     errorPastEnd: "Zeile {{line}}: Diese Zeit liegt nach dem Ende des Videos.",
   },
+  transcriptHistory: {
+    title: "Frühere Transkripte",
+    automatic: "Automatisch",
+    restore: "Wiederherstellen",
+    restored: "Transkript wiederhergestellt",
+    restoreFailed: "Transkript konnte nicht wiederhergestellt werden",
+    undo: "Rückgängig",
+  },
   thumbnailPicker: {
     failedCapture: "Frame konnte nicht erfasst werden",
     failedGif:
