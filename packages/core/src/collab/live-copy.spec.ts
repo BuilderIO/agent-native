@@ -1184,6 +1184,9 @@ describe("mutateLiveCopy", () => {
       code: "build_failed",
       reason: "queue_full",
     });
+    expect(
+      await rejection(manager.applyText("live:doc", "never")),
+    ).toMatchObject({ code: "write_refused" });
     open();
     await holder;
     await waiting;
@@ -1322,17 +1325,38 @@ describe("mutateLiveCopy", () => {
     await holder;
     await apply.inRunner;
 
+    // Fails its scope check as soon as it holds the lock, with no I/O.
+    const outsider = define({ name: "outsider", appliesTo: () => false });
     let settled = false;
     const later = rejection(
-      manager.applyText("live:doc", "later").finally(() => {
-        settled = true;
-      }),
+      manager
+        .mutateLiveCopy(outsider, "live:doc", { edit: "append" })
+        .finally(() => {
+          settled = true;
+        }),
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(settled).toBe(false);
     apply.open();
     await running;
-    expect(await later).toMatchObject({ code: "write_refused" });
+    expect(await later).toMatchObject({ code: "not_live_copy" });
+  });
+
+  it("lets a binding's persist read its own document without waiting on its lock", async () => {
+    const reads: unknown[] = [];
+    const binding = define({
+      persist: async (_tx, change) => {
+        reads.push(
+          (await manager.getState(change.docId)) instanceof Uint8Array,
+        );
+        reads.push(await rejection(manager.getText(change.docId)));
+      },
+    });
+    await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
+    expect(reads).toEqual([
+      true,
+      expect.objectContaining({ code: "read_refused" }),
+    ]);
   });
 
   it("keeps a row recreated at the same version while an edit runs", async () => {
@@ -1532,6 +1556,10 @@ describe("defineLiveCopy", () => {
       clientEdit(new Uint8Array(0), appendParagraph("x")),
     );
     expect(persisted).toEqual(["fresh"]);
+    const inactive = { code: "not_live_copy", reason: "binding_inactive" };
+    expect(
+      await rejection(manager.readLiveCopy(stale, "live:doc")),
+    ).toMatchObject(inactive);
 
     live.releaseLiveCopy(stale);
     expect(await rejection(manager.getDoc("live:doc"))).toMatchObject({
@@ -1539,6 +1567,14 @@ describe("defineLiveCopy", () => {
     });
     live.releaseLiveCopy(fresh);
     expect(live.liveCopiesDefined()).toBe(false);
+    expect(
+      await rejection(
+        manager.mutateLiveCopy(fresh, "live:doc", { edit: "append" }),
+      ),
+    ).toMatchObject(inactive);
+    expect(
+      await rejection(manager.seedLiveCopy(fresh, "live:new", { source: "x" })),
+    ).toMatchObject(inactive);
     expect(() => define({ name: "" })).toThrow(TypeError);
   });
 });
