@@ -79,6 +79,7 @@ beforeAll(async () => {
   });
   const { followCommentAnchors } = await import("./comment-anchor-follow.js");
   binding = collab.defineLiveCopy({
+    name: "live-accept-test",
     appliesTo: (docId) => docId.startsWith("live-accept-"),
     runner,
     async persist(tx, commit) {
