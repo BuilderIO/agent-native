@@ -1,7 +1,11 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readAppSecret } from "@agent-native/core/secrets";
@@ -16,6 +20,7 @@ import { transcribeWithBuilder } from "@agent-native/core/transcription/builder"
 import { z } from "zod";
 
 import "../server/db/index.js";
+import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
 import {
   assertAudioHasAudibleSignal,
   prepareAudioOnlyTranscriptionMedia,
@@ -362,23 +367,20 @@ async function transcribeMedia(media: AudioOnlyTranscriptionMedia) {
   }
 }
 
-async function applyTranscriptToDocument({
-  documentId,
+/** `content` with the transcript placed, or null when it has nowhere to go. */
+function transcriptInContent({
+  content,
   mediaUrl,
   mediaType,
   placeholderText,
   transcript,
 }: {
-  documentId: string;
+  content: string;
   mediaUrl: string;
   mediaType: MediaType;
   placeholderText?: string;
   transcript: string;
-}): Promise<{ sqlUpdated: boolean; collabUpdated: boolean }> {
-  const freshAccess = await assertAccess("document", documentId, "editor");
-  const freshDoc = freshAccess.resource;
-
-  const content = freshDoc.content ?? "";
+}): string | null {
   let nextContent: string | null = null;
 
   if (placeholderText && content.includes(placeholderText)) {
@@ -392,7 +394,37 @@ async function applyTranscriptToDocument({
     });
   }
 
-  if (nextContent && nextContent !== content) {
+  return nextContent && nextContent !== content ? nextContent : null;
+}
+
+async function applyTranscriptToDocument({
+  documentId,
+  mediaUrl,
+  mediaType,
+  placeholderText,
+  transcript,
+  ctx,
+}: {
+  documentId: string;
+  mediaUrl: string;
+  mediaType: MediaType;
+  placeholderText?: string;
+  transcript: string;
+  ctx: ActionRunContext | undefined;
+}): Promise<{ sqlUpdated: boolean; collabUpdated: boolean }> {
+  const freshAccess = await assertAccess("document", documentId, "editor");
+  const freshDoc = freshAccess.resource;
+
+  const content = freshDoc.content ?? "";
+  const placement = { mediaUrl, mediaType, placeholderText, transcript };
+  const nextContent = transcriptInContent({ content, ...placement });
+
+  if (nextContent) {
+    const wroteLiveCopy = await rewriteContentLiveCopyBody(documentId, {
+      cause: { ctx, operation: "transcribe-media" },
+      rewrite: (body) => transcriptInContent({ content: body, ...placement }),
+    });
+    if (wroteLiveCopy) return { sqlUpdated: true, collabUpdated: true };
     await updateDocument.run({ id: documentId, content: nextContent });
     return { sqlUpdated: true, collabUpdated: false };
   }
@@ -420,7 +452,7 @@ export default defineAction({
         "Exact placeholder text inside the already-created Transcript toggle. When provided, this action replaces it with the transcript.",
       ),
   }),
-  run: async ({ documentId, mediaUrl, mediaType, placeholderText }) => {
+  run: async ({ documentId, mediaUrl, mediaType, placeholderText }, ctx) => {
     const access = await assertAccess("document", documentId, "editor");
     assertMediaUrlInDocument({
       content: (access.resource.content as string | null) ?? "",
@@ -448,6 +480,7 @@ export default defineAction({
       mediaType,
       placeholderText,
       transcript,
+      ctx,
     });
 
     return {

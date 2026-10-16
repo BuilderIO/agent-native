@@ -26,6 +26,12 @@ vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
   countOutcome: outcomeCounter,
 }));
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -138,7 +144,11 @@ function peerCommitsAfterBuild(id: string, content: string) {
       committed = true;
       const peer = (await run(
         task,
-        { ...(input as object), input: { content } },
+        {
+          ...(input as object),
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: { content },
+        },
         ...rest,
       )) as { state?: Uint8Array; text?: string };
       await inTransaction(async (tx) => {
@@ -331,6 +341,18 @@ describe("switching a page to its live copy", () => {
     });
     expect((await page("off")).liveBodySwitchedAt).toBeNull();
     expect(await collabVersion("off")).toBeUndefined();
+  });
+
+  it("refuses to switch a page whose stored body the parser would drop part of", async () => {
+    const stored = "Hello\n<callout>\nOnly text\n</callout>";
+    await insertPage("drops-on-switch", stored);
+
+    await expect(
+      switching.switchPageToLiveCopy("drops-on-switch"),
+    ).rejects.toMatchObject({ code: "build_refused", reason: "lossy" });
+    const row = await page("drops-on-switch");
+    expect(row.content).toBe(stored);
+    expect(row.liveBodySwitchedAt).toBeNull();
   });
 
   it("converts again after a legacy write, and the stored body wins over the stale copy", async () => {
@@ -1114,6 +1136,356 @@ describe("server writers through editContentLiveCopy", () => {
     );
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.map((row) => row.actorEmail)).toEqual(rows.map(() => OWNER));
+  });
+});
+
+describe("edit-document on a switched page", () => {
+  /** An agent's revisioned edit of `base`, as an MCP client sends it. */
+  async function agentEdit(
+    id: string,
+    base: { bodyRevision: number; content: string },
+    edits: Array<{ find: string; replace: string }>,
+    idempotencyKey = `${id}-edit`,
+  ) {
+    const action = (await import("../../actions/edit-document.js")).default;
+    const { documentRevisionToken } =
+      await import("../../actions/_document-edit-mutation.js");
+    return asOwner(async () =>
+      action.run(
+        {
+          id,
+          baseRevision: documentRevisionToken(base.bodyRevision, base.content),
+          idempotencyKey,
+          edits,
+        } as never,
+        { caller: "mcp", userEmail: OWNER } as never,
+      ),
+    ) as Promise<{
+      applied: number;
+      preservationRequired?: unknown;
+      receipt: {
+        outcome: string;
+        revisions: { before: string; after: string };
+        idempotency: { result: string };
+      };
+    }>;
+  }
+
+  async function typeInTab(id: string, body: string) {
+    await asOwner(async () =>
+      collab.applyUpdate(id, await editorUpdate(id, markdownBlocks(body))),
+    );
+  }
+
+  it("commits an agent's edit through the live copy, so the page stays switched", async () => {
+    await switchedPage("agent-edit", "Hello there");
+    const loaded = await page("agent-edit");
+
+    const result = await agentEdit("agent-edit", loaded, [
+      { find: "there", replace: "world" },
+    ]);
+
+    expect(result.receipt.outcome).toBe("applied");
+    const after = await page("agent-edit");
+    expect(after.content).toBe("Hello world");
+    expect(after.bodyRevision).toBe(loaded.bodyRevision + 1);
+    expect(await gateFor("agent-edit")).toEqual({ writePath: "live_copy" });
+    await expect(
+      collab.readLiveCopy(binding.contentLiveCopy, "agent-edit"),
+    ).resolves.toMatchObject({ kind: "live", text: "Hello world" });
+    expect(
+      (await history("agent-edit")).filter(
+        (row) => row.operation === "edit-document",
+      ),
+    ).not.toHaveLength(0);
+    expect(await bodyIntents("agent-edit")).toEqual([
+      expect.objectContaining({
+        operationId: "agent-edit-edit",
+        authoredBaseRevision: loaded.bodyRevision,
+        committedRevision: loaded.bodyRevision + 1,
+      }),
+    ]);
+  });
+
+  it("applies an edit whose base a tab typed past, keeping the tab's text", async () => {
+    await switchedPage("typed-past", "First\n\nSecond");
+    const loaded = await page("typed-past");
+    // A tab's commits record no body intents.
+    await typeInTab("typed-past", "First\n\nSecond B");
+    const typed = (await page("typed-past")).content;
+    expect(typed).toContain("Second B");
+
+    const result = await agentEdit("typed-past", loaded, [
+      { find: "First", replace: "First A" },
+    ]);
+
+    expect(result.preservationRequired).toBeUndefined();
+    expect(result.receipt.outcome).toBe("applied");
+    expect((await page("typed-past")).content).toBe(
+      typed.replace("First", "First A"),
+    );
+    expect(await gateFor("typed-past")).toEqual({ writePath: "live_copy" });
+    // The intent names the revision the edit was made on, not the one it
+    // committed after.
+    expect(await bodyIntents("typed-past")).toEqual([
+      expect.objectContaining({
+        operationId: "typed-past-edit",
+        authoredBaseRevision: loaded.bodyRevision,
+      }),
+    ]);
+  });
+
+  it("refuses an insertion beside paragraphs that read the same after a tab removed one", async () => {
+    await switchedPage("same-neighbors", "Same\n\nSame\n\nSame");
+    const loaded = await page("same-neighbors");
+    await typeInTab("same-neighbors", "Same\n\nSame");
+    const typed = (await page("same-neighbors")).content;
+    const version = await collabVersion("same-neighbors");
+
+    await expect(
+      agentEdit("same-neighbors", loaded, [
+        {
+          find: loaded.content,
+          replace: loaded.content.replace("Same", "Same\nNew"),
+        },
+      ]),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+    expect((await page("same-neighbors")).content).toBe(typed);
+    expect(await collabVersion("same-neighbors")).toBe(version);
+  });
+
+  it("refuses an edit whose find a tab changed, and commits nothing", async () => {
+    await switchedPage("find-changed", "First\n\nSecond");
+    const loaded = await page("find-changed");
+    await typeInTab("find-changed", "Third\n\nSecond");
+    const typed = (await page("find-changed")).content;
+    const version = await collabVersion("find-changed");
+
+    await expect(
+      agentEdit("find-changed", loaded, [{ find: "First", replace: "One" }]),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+    expect((await page("find-changed")).content).toBe(typed);
+    expect(await collabVersion("find-changed")).toBe(version);
+  });
+
+  it("applies an edit beside a paragraph a tab added since its base", async () => {
+    await switchedPage("added-beside", "First\n\nSecond");
+    const loaded = await page("added-beside");
+    await typeInTab("added-beside", "First\n\nSecond\n\nThird");
+    const typed = (await page("added-beside")).content;
+
+    const result = await agentEdit("added-beside", loaded, [
+      { find: "First", replace: "First A" },
+    ]);
+
+    expect(result.receipt.outcome).toBe("applied");
+    expect((await page("added-beside")).content).toBe(
+      typed.replace("First", "First A"),
+    );
+  });
+
+  it("keeps a peer server's text when the peer's commit overtakes the edit", async () => {
+    await switchedPage("peer-overtakes", "First\n\nSecond");
+    const loaded = await page("peer-overtakes");
+    const spy = peerCommitsAfterBuild("peer-overtakes", "First\nSecond peer");
+    try {
+      const result = await agentEdit("peer-overtakes", loaded, [
+        { find: "First", replace: "First agent" },
+      ]);
+      expect(result.receipt.outcome).toBe("applied");
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("peer-overtakes")).content).toBe(
+      "First agent\nSecond peer",
+    );
+  });
+
+  it("refuses an edit whose find now reads the same in a passage a tab changed", async () => {
+    await switchedPage("retarget", "Alice: approved\n\nBob: pending");
+    const loaded = await page("retarget");
+    // The tab moves "approved" from Alice's line to Bob's.
+    await typeInTab("retarget", "Alice: denied\n\nBob: approved");
+    const typed = (await page("retarget")).content;
+    const version = await collabVersion("retarget");
+
+    await expect(
+      agentEdit("retarget", loaded, [{ find: "approved", replace: "revoked" }]),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+    expect((await page("retarget")).content).toBe(typed);
+    expect(await collabVersion("retarget")).toBe(version);
+  });
+
+  it("refuses an edit whose base History no longer holds, as on a legacy page", async () => {
+    await switchedPage("base-gone", "Alice: approved\n\nBob: pending");
+    await typeInTab("base-gone", "Alice: approved\n\nBob: pending\n\nDraft");
+    const loaded = await page("base-gone");
+    // A second commit in the same typing interval replaces the base's row.
+    await typeInTab("base-gone", "Alice: denied\n\nBob: approved\n\nDraft two");
+    const { findDocumentBodyBase } =
+      await import("../lib/document-body-intents.js");
+    const { documentContentHash } =
+      await import("../../actions/_document-edit-mutation.js");
+    await expect(
+      findDocumentBodyBase({
+        db: getDb(),
+        ownerEmail: OWNER,
+        documentId: "base-gone",
+        contentHash: documentContentHash(loaded.content),
+        revision: loaded.bodyRevision,
+      }),
+    ).resolves.toBeNull();
+    const typed = (await page("base-gone")).content;
+
+    await expect(
+      agentEdit("base-gone", loaded, [
+        { find: "approved", replace: "revoked" },
+      ]),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+    expect((await page("base-gone")).content).toBe(typed);
+  });
+
+  it("refuses an edit whose Markdown the parser would drop part of", async () => {
+    await switchedPage("drops-text", "Hello");
+    const loaded = await page("drops-text");
+    const version = await collabVersion("drops-text");
+    // A callout's child must be indented; this one would be dropped.
+    const replace = "Hello\n<callout>\nOnly text\n</callout>";
+
+    await expect(
+      agentEdit("drops-text", loaded, [{ find: "Hello", replace }]),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_BODY_UNREPRESENTABLE",
+      statusCode: 422,
+    });
+    const action = (await import("../../actions/edit-document.js")).default;
+    await expect(
+      asOwner(async () =>
+        action.run(
+          { id: "drops-text", find: "Hello", replace } as never,
+          { caller: "frontend", userEmail: OWNER } as never,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_BODY_UNREPRESENTABLE" });
+
+    expect((await page("drops-text")).content).toBe("Hello");
+    expect(await collabVersion("drops-text")).toBe(version);
+  });
+
+  it("answers a resent edit from its receipt without applying it twice", async () => {
+    await switchedPage("resent", "Hello there");
+    const loaded = await page("resent");
+    const edits = [{ find: "there", replace: "there again" }];
+
+    const first = await agentEdit("resent", loaded, edits);
+    const second = await agentEdit("resent", loaded, edits);
+
+    expect(second.receipt.idempotency.result).toBe("replayed");
+    expect(second.receipt.revisions).toEqual(first.receipt.revisions);
+    expect((await page("resent")).content).toBe("Hello there again");
+    expect(await gateFor("resent")).toEqual({ writePath: "live_copy" });
+  });
+
+  it("takes the legacy path when the page leaves its live copy mid-edit", async () => {
+    await switchedPage("left-mid-edit", "Hello there");
+    const loaded = await page("left-mid-edit");
+    const spy = flagsOffAfterBuild();
+    try {
+      const result = await agentEdit("left-mid-edit", loaded, [
+        { find: "there", replace: "world" },
+      ]);
+      expect(result.receipt.outcome).toBe("applied");
+      // The edit was built on the live copy before the page left it.
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await page("left-mid-edit")).content).toBe("Hello world");
+    expect(await gateFor("left-mid-edit")).toMatchObject({
+      writePath: "legacy",
+    });
+  });
+
+  it("writes an edit without a revision through the live copy too", async () => {
+    await switchedPage("no-revision", "Hello there");
+    const action = (await import("../../actions/edit-document.js")).default;
+
+    await asOwner(async () =>
+      action.run(
+        { id: "no-revision", find: "there", replace: "world" } as never,
+        { caller: "frontend", userEmail: OWNER } as never,
+      ),
+    );
+
+    expect((await page("no-revision")).content).toBe("Hello world");
+    expect(await gateFor("no-revision")).toEqual({ writePath: "live_copy" });
+  });
+});
+
+describe("a server rewrite of a switched page's body", () => {
+  const IMAGE = "https://example.com/cat.png";
+
+  async function setAltText(id: string, altText: string) {
+    const action = (await import("../../actions/set-image-alt-text.js"))
+      .default;
+    return asOwner(async () =>
+      action.run(
+        { documentId: id, imageUrl: IMAGE, altText } as never,
+        { caller: "tool", userEmail: OWNER } as never,
+      ),
+    );
+  }
+
+  it("writes alt text through the live copy, so the page stays switched", async () => {
+    await switchedPage("alt-text", `Intro\n\n![](${IMAGE})`);
+    const loaded = await page("alt-text");
+
+    await setAltText("alt-text", "A cat");
+
+    const after = await page("alt-text");
+    expect(after.content).toContain(`![A cat](${IMAGE})`);
+    expect(after.bodyRevision).toBe(loaded.bodyRevision + 1);
+    expect(await gateFor("alt-text")).toEqual({ writePath: "live_copy" });
+    await expect(
+      collab.readLiveCopy(binding.contentLiveCopy, "alt-text"),
+    ).resolves.toMatchObject({ kind: "live", text: after.content });
+    expect((await history("alt-text")).map((row) => row.operation)).toContain(
+      "set-image-alt-text",
+    );
+  });
+
+  it("writes alt text on top of a commit made after it read the body", async () => {
+    await switchedPage("alt-text-peer", `Intro\n\n![](${IMAGE})`);
+    const spy = peerCommitsAfterBuild(
+      "alt-text-peer",
+      `Intro typed\n![](${IMAGE})`,
+    );
+    try {
+      await setAltText("alt-text-peer", "A cat");
+    } finally {
+      spy.mockRestore();
+    }
+
+    const after = await page("alt-text-peer");
+    expect(after.content).toContain("Intro typed");
+    expect(after.content).toContain(`![A cat](${IMAGE})`);
+  });
+
+  it("writes alt text through update-document with the flags off, as on main", async () => {
+    await setFlags(false);
+    await insertPage("alt-text-off", `Intro\n\n![](${IMAGE})`);
+
+    await setAltText("alt-text-off", "A cat");
+
+    const after = await page("alt-text-off");
+    expect(after.content).toBe(`Intro\n\n![A cat](${IMAGE})`);
+    expect(after.liveBodySwitchedAt).toBeNull();
+    expect(await collabVersion("alt-text-off")).toBeUndefined();
   });
 });
 

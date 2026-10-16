@@ -15,6 +15,7 @@ import { liveBodyConversionFor } from "./write-cause.js";
 /** Edits `tasks.ts` defines, by name. */
 export const CONTENT_LIVE_COPY_EDITS = {
   replaceBody: "replace-body",
+  rebaseBody: "rebase-body",
   applySuggestion: APPLY_SUGGESTION_EDIT,
 } as const;
 
