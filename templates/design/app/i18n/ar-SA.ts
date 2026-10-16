@@ -1045,6 +1045,8 @@ export default {
       timelineDescription:
         "مخطط الإطارات الرئيسية. {{tracks}} مسارات و{{keyframes}} إطارات رئيسية. استخدم مفاتيح الأسهم أو Space + السحب للتمرير، والقرص أو Cmd/Ctrl + عجلة الفأرة للتكبير، واسحب لتحريك الإطارات، واستخدم Shift/Cmd للتحديد المتعدد، وانقر مرتين للإضافة.",
       size: "الحجم",
+      sourceReadUnavailable:
+        "يتعذر على Motion قراءة هذا التحريك دون تغيير سلوكه.",
       sourceWriteUnavailable:
         "يمكن حاليًا كتابة كود Motion في تصميمات HTML المضمنة فقط.",
       sourceConflict:

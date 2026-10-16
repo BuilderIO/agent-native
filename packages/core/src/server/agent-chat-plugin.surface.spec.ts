@@ -410,9 +410,17 @@ describe("request-scoped action surface", () => {
       'if (titleOwnerContext.anonymous) return { title: "" };',
     );
     expect(route).toContain("runWithRequestContext");
-    expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");
-    expect(route).toContain("{ userEmail: ownerEmail, orgId }");
+    expect(route).toContain("resolveAgentRunOrgScope({");
+    expect(route).toContain("...orgScope,");
+    expect(route).toContain("const titleRequestContext = {");
+    expect(route).toContain("requestOrigin: getForwardedRequestOrigin(event)");
+    expect(route).toContain("isLoopbackRequest: isLoopbackRequest(event)");
+    expect(route).toContain(
+      "isDirectLoopbackRequest: isDirectLoopbackRequest(event)",
+    );
+    expect(route).toContain("runWithRequestContext(titleRequestContext");
     expect(route).toContain("requireAgentChatAiSetup()");
+    expect(route).not.toContain("allowChatGPTSubscriptionInOrg");
     expect(route.indexOf("const now = Date.now();")).toBeLessThan(
       route.indexOf(
         "const request = chatTitleRequestFromBody(await readBody(event));",
@@ -426,6 +434,65 @@ describe("request-scoped action surface", () => {
     );
     expect(route).toContain("setResponseStatus(event, 502);");
     expect(route).not.toContain("cleanMessage.trim().slice(0, 60)");
+  });
+
+  it("preserves request context without granting an org entitlement exception", () => {
+    // source-read-ok: This guards the trusted direct-loopback context contract across nested handlers.
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const productionHandler = source.slice(
+      source.indexOf("const prodHandler ="),
+      source.indexOf("const anonymousHandler ="),
+    );
+
+    expect(source).not.toContain("allowChatGPTSubscriptionInOrg");
+    expect(productionHandler).toContain(
+      "assertAiSetupReady: requireAgentChatAiSetup",
+    );
+
+    const queueStart = source.indexOf('isThreadSubroute("queued")');
+    const queueEnd = source.indexOf("let result: Awaited<", queueStart);
+    const queueMutation = source.slice(queueStart, queueEnd);
+    const threadRouteStart = source.indexOf("const threadRouteHandler =");
+    const threadRouteEnd = source.indexOf(
+      "const threadRouteApp",
+      threadRouteStart,
+    );
+    const threadRoute = source.slice(threadRouteStart, threadRouteEnd);
+    expect(queueMutation).toContain(
+      "requestOrigin: getForwardedRequestOrigin(event)",
+    );
+    expect(queueMutation).toContain(
+      "isLoopbackRequest: isLoopbackRequest(event)",
+    );
+    expect(queueMutation).toContain(
+      "isDirectLoopbackRequest: isDirectLoopbackRequest(event)",
+    );
+    expect(threadRoute).toContain(
+      "const orgScope = await resolveAgentRunOrgScope({",
+    );
+    expect(queueMutation).toContain("...orgScope,");
+    const mintStart = source.indexOf("streamTokenPath,");
+    const mintEnd = source.indexOf("if (streamingRuntime)", mintStart);
+    const mintRoute = source.slice(mintStart, mintEnd);
+    const runtimeStart = source.indexOf("if (streamingRuntime)");
+    const streamStart = source.indexOf(
+      "app.use(\n          AGENT_CHAT_STREAM_PATH",
+      runtimeStart,
+    );
+    const streamEnd = source.indexOf(
+      "// ─── Durable background agent-chat run processor",
+      streamStart,
+    );
+    const streamRoute = source.slice(streamStart, streamEnd);
+
+    expect(mintRoute).toContain("resolveAgentRunOrgScope({");
+    expect(mintRoute).toContain('orgScope: "personal" as const');
+    expect(mintRoute).toContain(
+      "Organization scope is temporarily unavailable.",
+    );
+    expect(streamRoute).toContain('orgScope: "personal" as const');
   });
 
   it("keeps local coding tools available while scoping app actions in dev", () => {

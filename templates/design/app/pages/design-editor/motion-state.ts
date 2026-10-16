@@ -3,6 +3,7 @@ import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-st
 import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
+import type { MotionSourceReadCapability } from "@shared/motion-source-read";
 import {
   MOTION_TEXT_PROPERTIES,
   type MotionTextAnimation,
@@ -54,6 +55,7 @@ export interface MotionTimelineQueryResult {
   designId: string;
   timelines: MotionTimelineRow[];
   count: number;
+  sourceReadCapability?: MotionSourceReadCapability | null;
   recoveryErrors?: Array<{
     sourceRef: string;
     errorCode: string;

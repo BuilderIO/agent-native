@@ -106,7 +106,9 @@ export function resolvePastedSvgInsertionOptions(args: {
     ? {
         targetSelectors: selectedTargetSelectors,
         placement,
-        stripRootPosition: true,
+        ...(placement === "inside"
+          ? {}
+          : { positions: [{ ...args.point, space: "visual" }] }),
       }
     : { positions: [{ ...args.point, space: "visual" }] };
 }

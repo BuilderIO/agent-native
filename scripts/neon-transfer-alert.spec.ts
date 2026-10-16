@@ -173,6 +173,7 @@ describe("Neon transfer alert", () => {
         env: {
           ...process.env,
           NEON_API_KEY: "",
+          NEON_ORG_ID: "test-placeholder-org",
           SLACK_NEON_TRANSFER_WEBHOOK_URL: "",
         },
       },
@@ -197,12 +198,35 @@ describe("Neon transfer alert", () => {
         env: {
           ...process.env,
           NEON_API_KEY: "",
+          NEON_ORG_ID: "test-placeholder-org",
           SLACK_NEON_TRANSFER_WEBHOOK_URL: "",
         },
       },
     );
     assert.equal(result.status, 2);
     assert.match(result.stderr, /NEON_API_KEY required/);
+  });
+
+  it("returns could-not-run when the Neon organization ID is missing", () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        "scripts/neon-transfer-alert.ts",
+        "--dry-run",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NEON_API_KEY: "test-placeholder-key",
+          NEON_ORG_ID: "",
+          SLACK_NEON_TRANSFER_WEBHOOK_URL: "",
+        },
+      },
+    );
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /NEON_ORG_ID required/);
   });
 
   it("returns could-not-run when the Slack webhook is missing for a send", () => {
@@ -218,6 +242,7 @@ describe("Neon transfer alert", () => {
         env: {
           ...process.env,
           NEON_API_KEY: "test-placeholder-key",
+          NEON_ORG_ID: "test-placeholder-org",
           SLACK_NEON_TRANSFER_WEBHOOK_URL: "",
         },
       },
@@ -239,7 +264,7 @@ describe("Neon transfer alert", () => {
         env: {
           ...process.env,
           NEON_API_KEY: "",
-          NEON_ORG_ID: "",
+          NEON_ORG_ID: "test-placeholder-org",
           SLACK_NEON_TRANSFER_WEBHOOK_URL: "",
         },
       },

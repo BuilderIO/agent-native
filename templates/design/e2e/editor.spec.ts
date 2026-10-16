@@ -751,8 +751,7 @@ test("clicking a Layers row selects that element on the canvas", async ({
   );
 });
 
-// fixme: product bug: The Layers tree scrolls 137px sideways when the deep row is shown, clipping Home and the upper rows (line 524).
-test.fixme("deeply nested layer rows keep a clickable hit target without scrolling the tree sideways", async ({
+test("deeply nested layer rows keep a clickable hit target without scrolling the tree sideways", async ({
   app,
 }) => {
   const levels = [

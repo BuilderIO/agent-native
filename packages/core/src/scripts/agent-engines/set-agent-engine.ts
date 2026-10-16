@@ -40,6 +40,7 @@ import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
 import { getUserLabEnabled } from "../../labs/store.js";
 import { defaultModelMessagesForUser } from "../../localization/default-model-messages.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";
@@ -106,6 +107,9 @@ export async function resolveDefaultModelEffective(
 ): Promise<
   Extract<SelectDefaultAgentEngineResult, { status: "selected" }>["effective"]
 > {
+  if (!ctx.orgId && ctx.orgScope !== "personal") {
+    throw new Error("Organization scope could not be resolved.");
+  }
   const credentialIdentity = ctx.userEmail
     ? { userEmail: ctx.userEmail, orgId: ctx.orgId }
     : undefined;
@@ -177,6 +181,9 @@ export async function selectDefaultAgentEngine(
   ctx: DefaultAgentEngineContext = {
     userEmail: getRequestUserEmail(),
     orgId: getRequestOrgId(),
+    ...(getRequestContext()?.orgScope === "personal"
+      ? { orgScope: "personal" as const }
+      : {}),
   },
 ): Promise<SelectDefaultAgentEngineResult> {
   registerBuiltinEngines();

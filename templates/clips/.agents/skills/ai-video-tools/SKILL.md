@@ -25,17 +25,17 @@ The agent is already the user's primary interface — it has full project contex
 
 ## Features and how they delegate
 
-| Feature                   | Trigger                                                                               | What the action does                                                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Include full video        | User toggles "Include full video" in the AI tools menu                                | `update-clips-ai-prefs --includeFullVideoInAi=true\|false` → stored in `clips-user-prefs`; default off |
-| Default title             | Native/cloud transcript becomes ready and the recording still has an automatic title   | `regenerate-title --recordingId=<id> --includeSummary=true` tries the transcript-only Gemini fast path, keeps any local heuristic title replaceable, and queues a `generate-metadata` agent refinement that writes a specific title plus description. If Include full video is on, it always delegates so the agent watches the recording |
-| Manual title suggestion   | User asks the agent "rename this"                                                     | Agent reads transcript and calls `update-recording --id=<id> --title=...`                             |
-| Summary / description     | Transcript becomes ready, or user clicks "Summarize" / "Regenerate description"       | The automatic metadata handoff or `regenerate-summary` asks the agent to write `update-recording --description=...`. Existing user-authored descriptions are preserved. With Include full video, the agent must watch the clip, not transcript alone |
-| Chapters                  | User clicks "Add chapters" or transcript > 3 minutes                                  | `generate-chapters --id=<id>` / `regenerate-chapters` → agent writes `chapters_json` (same full-video preference) |
-| Tags                      | On upload complete                                                                    | `generate-ai-metadata --id=<id> --kind=tags` → agent inserts `recording_tags` rows                    |
-| Filler-word removal       | User clicks "Remove ums and uhs"                                                      | `generate-filler-removal --id=<id>` → agent writes proposed cuts into `editor-draft` for user review  |
-| Comment auto-reply        | User types "reply with …" in the agent chat                                           | agent calls `add-comment` directly                                                                    |
-| **Transcription**         | On upload complete (automatic) + live during recording                                | `request-transcript` → native (Web Speech / macOS SFSpeech) first, then cloud fallback Builder.io managed Gemini → Groq; `save-browser-transcript` for instant Web Speech result — see "Transcription" section below |
+| Feature                 | Trigger                                                                              | What the action does                                                                                                                                                                                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Include full video      | User toggles "Include full video" in the AI tools menu                               | `update-clips-ai-prefs --includeFullVideoInAi=true\|false` → stored in `clips-user-prefs`; default off                                                                                                                                                                                                                                    |
+| Default title           | Native/cloud transcript becomes ready and the recording still has an automatic title | `regenerate-title --recordingId=<id> --includeSummary=true` tries the transcript-only Gemini fast path, keeps any local heuristic title replaceable, and queues a `generate-metadata` agent refinement that writes a specific title plus description. If Include full video is on, it always delegates so the agent watches the recording |
+| Manual title suggestion | User asks the agent "rename this"                                                    | Agent reads transcript and calls `update-recording --id=<id> --title=...`                                                                                                                                                                                                                                                                 |
+| Summary / description   | Transcript becomes ready, or user clicks "Summarize" / "Regenerate description"      | The automatic metadata handoff or `regenerate-summary` asks the agent to write `update-recording --description=...`. Existing user-authored descriptions are preserved. With Include full video, the agent must watch the clip, not transcript alone                                                                                      |
+| Chapters                | User clicks "Add chapters" or transcript > 3 minutes                                 | `generate-chapters --id=<id>` / `regenerate-chapters` → agent writes `chapters_json` (same full-video preference)                                                                                                                                                                                                                         |
+| Tags                    | On upload complete                                                                   | `generate-ai-metadata --id=<id> --kind=tags` → agent inserts `recording_tags` rows                                                                                                                                                                                                                                                        |
+| Filler-word removal     | User clicks "Remove ums and uhs"                                                     | `generate-filler-removal --id=<id>` → agent writes proposed cuts into `editor-draft` for user review                                                                                                                                                                                                                                      |
+| Comment auto-reply      | User types "reply with …" in the agent chat                                          | agent calls `add-comment` directly                                                                                                                                                                                                                                                                                                        |
+| **Transcription**       | On upload complete (automatic) + live during recording                               | `request-transcript` → native (Web Speech / macOS SFSpeech) first, then cloud fallback Builder.io managed Gemini → Groq; `save-browser-transcript` for instant Web Speech result — see "Transcription" section below                                                                                                                      |
 
 ## Include full video
 
@@ -118,7 +118,7 @@ const generate = useActionMutation("generate-ai-metadata");
 <Button onClick={() => generate.mutate({ id: rec.id, kind: "title,summary" })}>
   Suggest
   <IconChevronDown className="ml-2 h-4 w-4" />
-</Button>
+</Button>;
 ```
 
 ## Media-pipeline exception
@@ -139,6 +139,26 @@ speakers per part, so in a multi-part transcript the same label may refer to
 different people in different parts. If any part still fails after one retry, nothing is saved and the transcript fails with `CHUNK_FAILED`;
 `transcript-cleanup-<id>` in application state records which part failed and
 the provider error. Retry with `request-transcript` and `force: true`.
+
+**Imported transcripts.** When a good transcript already exists (a video's
+narration captions, a YouTube transcript), import it with `import-transcript`
+instead of transcribing: pass the file text as WebVTT, SRT, or timestamped text
+(`0:21` or `[0:21]` starting each line or line pair). The file's own timings are
+stored, except that a cue overlapping the next ends where the next starts and
+one running past the end of the video ends there; a cue starting within a
+second after the end joins the one before it. The transcript's `source` is
+`imported`. Pass `language` (BCP 47) when you know it; otherwise a WebVTT
+`Language:` header is used, else `und`. Automatic transcription never replaces
+an imported transcript; `request-transcript` with `regenerate: true` does, so
+ask the user first and pass `replaceImportId` set to `transcript.importId` from
+`get-recording-player-data`. Importing over a ready transcript fails with
+`transcript_exists`; ask the user, then call again with `replace: true` and
+`replaceImportId` set to the error's `details.importId`. If a different
+transcript took its place in the meantime, that call fails with
+`transcript_exists` again, naming the new one: ask again rather than retrying
+with the new ID. A malformed file fails with
+`transcript_import_invalid` naming the line, and the stored transcript is left
+as it was. Import leaves chapters alone; set them with `set-chapters`.
 
 The transcript included by `view-screen` is only a bounded preview. When its
 `previewTruncated` field is true, the preview may end mid-sentence and does not
@@ -200,12 +220,12 @@ that panel but must not create a second credential vault.
 
 Which provider powers what:
 
-| Surface                                    | Provider                                  |
-| ------------------------------------------ | ----------------------------------------- |
-| Agent chat                                 | Anthropic / OpenAI                        |
-| Cleanup, titles, meeting notes             | Gemini (Builder-managed or BYOK)          |
-| Recording transcripts                      | Native first, then Builder Gemini or Groq |
-| Desktop voice dictation                    | Optional third-party speech provider      |
+| Surface                        | Provider                                  |
+| ------------------------------ | ----------------------------------------- |
+| Agent chat                     | Anthropic / OpenAI                        |
+| Cleanup, titles, meeting notes | Gemini (Builder-managed or BYOK)          |
+| Recording transcripts          | Native first, then Builder Gemini or Groq |
+| Desktop voice dictation        | Optional third-party speech provider      |
 
 Any optional third-party speech provider is limited to desktop voice dictation
 and is never used for recording transcripts.

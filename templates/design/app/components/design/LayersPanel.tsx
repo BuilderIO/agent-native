@@ -1578,7 +1578,7 @@ function LayersPanelImpl(
         >
           {visibleRows.length ? (
             <div
-              className="w-max min-w-full px-1.5"
+              className="w-full min-w-0 px-1.5"
               role="tree"
               aria-label={labels.title}
             >
@@ -1722,14 +1722,16 @@ interface LayerRowProps {
 export function LayerRowIndentSlots({
   count,
   control,
+  fit = false,
 }: {
   count: number;
   control?: ReactNode;
+  fit?: boolean;
 }) {
   return (
     <span
       data-layer-row-indents
-      className="flex h-full shrink-0"
+      className={cn("flex h-full", fit ? "min-w-0" : "shrink-0")}
       aria-hidden={control ? undefined : true}
     >
       {Array.from({ length: count }, (_, index) => (
@@ -1737,7 +1739,9 @@ export function LayerRowIndentSlots({
           key={index}
           data-layer-row-indent
           className={cn(
-            "flex h-full w-6 shrink-0 items-center",
+            "flex h-full items-center",
+            fit ? "min-w-0 max-w-6 flex-[1_1_24px]" : "w-6 shrink-0",
+            fit && index === count - 1 && "min-w-4",
             index === count - 1 ? "justify-start" : "justify-center",
           )}
         >
@@ -1763,7 +1767,7 @@ function LayerDropIndicator({
         placement === "before" ? "top-0" : "bottom-0",
       )}
     >
-      <LayerRowIndentSlots count={depth} />
+      <LayerRowIndentSlots count={depth} fit />
       <span className="h-px min-w-0 flex-1 bg-[var(--design-editor-accent-color)]" />
     </span>
   );
@@ -2098,7 +2102,7 @@ const LayerRow = memo(function LayerRow({
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
-          className="relative w-max min-w-full"
+          className="relative w-full min-w-0"
           onClick={(event) => {
             if ((event.target as Element).closest("button, input")) return;
             handlePointerSelect(event);
@@ -2145,7 +2149,7 @@ const LayerRow = memo(function LayerRow({
               activeDrop === "inside" ? "inside" : undefined
             }
             className={cn(
-              "group w-max min-w-full [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
+              "group w-full min-w-0 [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
               LAYER_ROW_GEOMETRY_CLASS,
               !isSelected && !isInSelectedSubtree && "rounded-[4px]",
               isSelectionBlockStart && isSelectionBlockEnd && "rounded-[4px]",
@@ -2179,6 +2183,7 @@ const LayerRow = memo(function LayerRow({
           >
             <LayerRowIndentSlots
               count={layerRowIndentCount(depth)}
+              fit
               control={
                 hasChildren ? (
                   <Button
@@ -2218,7 +2223,7 @@ const LayerRow = memo(function LayerRow({
               data-layer-row-button
               data-layer-node-id={node.id}
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-2 rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                "flex min-w-[44px] flex-1 items-center gap-2 rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                 selectable ? "cursor-default" : "cursor-default opacity-80",
               )}
               onClick={handlePointerSelect}

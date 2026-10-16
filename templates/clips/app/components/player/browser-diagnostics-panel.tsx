@@ -1,4 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  type AppActivityEvent,
+  isAppActivityFailure,
+} from "@shared/app-activity";
 import type {
   BrowserDiagnosticConsoleLog,
   BrowserDiagnosticNetworkRequest,
@@ -6,6 +10,7 @@ import type {
   BrowserDiagnosticsData,
 } from "@shared/browser-diagnostics";
 import {
+  IconActivity,
   IconAlertTriangle,
   IconBug,
   IconCircleCheck,
@@ -21,9 +26,15 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-export type BrowserDiagnosticsView = "issues" | "console" | "network";
+export type BrowserDiagnosticsView = "issues" | "console" | "network" | "app";
+
+export type AppActivityEventsState =
+  | { status: "loading" }
+  | { status: "failed" }
+  | { status: "ready"; events: AppActivityEvent[] };
 
 export type BrowserDiagnosticGroup =
   | {
@@ -37,6 +48,12 @@ export type BrowserDiagnosticGroup =
       kind: "network";
       elapsedMs: number;
       entries: BrowserDiagnosticNetworkRequest[];
+    }
+  | {
+      id: string;
+      kind: "app";
+      elapsedMs: number;
+      entries: AppActivityEvent[];
     };
 
 export function isFullBrowserDiagnostics(
@@ -103,28 +120,61 @@ function groupNetworkEntries(
   }));
 }
 
+function groupAppEntries(
+  entries: readonly AppActivityEvent[],
+): BrowserDiagnosticGroup[] {
+  const groups = new Map<string, AppActivityEvent[]>();
+  for (const entry of entries) {
+    const fingerprint = [
+      entry.type,
+      entry.name ?? "",
+      entry.ok ?? "",
+      entry.status ?? "",
+      entry.errorCode ?? "",
+      entry.data ? JSON.stringify(entry.data) : "",
+    ].join("\u0000");
+    const existing = groups.get(fingerprint);
+    if (existing) existing.push(entry);
+    else groups.set(fingerprint, [entry]);
+  }
+  return Array.from(groups, ([fingerprint, grouped]) => ({
+    id: `app:${fingerprint}`,
+    kind: "app" as const,
+    elapsedMs: Math.min(...grouped.map((entry) => entry.elapsedMs)),
+    entries: grouped.sort((a, b) => a.elapsedMs - b.elapsedMs),
+  }));
+}
+
 export function buildBrowserDiagnosticGroups(
   diagnostics: BrowserDiagnosticsData,
   view: BrowserDiagnosticsView,
+  appEvents: readonly AppActivityEvent[] = [],
 ): BrowserDiagnosticGroup[] {
   const consoleEntries =
-    view === "network"
-      ? []
-      : view === "issues"
-        ? diagnostics.consoleLogs.filter(
-            (entry) => entry.level === "warn" || entry.level === "error",
-          )
-        : diagnostics.consoleLogs;
+    view === "issues"
+      ? diagnostics.consoleLogs.filter(
+          (entry) => entry.level === "warn" || entry.level === "error",
+        )
+      : view === "console"
+        ? diagnostics.consoleLogs
+        : [];
   const networkEntries =
-    view === "console"
-      ? []
-      : view === "issues"
-        ? diagnostics.networkRequests.filter(isFailedNetworkRequest)
-        : diagnostics.networkRequests;
+    view === "issues"
+      ? diagnostics.networkRequests.filter(isFailedNetworkRequest)
+      : view === "network"
+        ? diagnostics.networkRequests
+        : [];
+  const appEntries =
+    view === "issues"
+      ? appEvents.filter(isAppActivityFailure)
+      : view === "app"
+        ? appEvents
+        : [];
 
   return [
     ...groupConsoleEntries(consoleEntries),
     ...groupNetworkEntries(networkEntries),
+    ...groupAppEntries(appEntries),
   ].sort((a, b) => a.elapsedMs - b.elapsedMs);
 }
 
@@ -171,7 +221,9 @@ function DiagnosticTimeButton({
   if (elapsedMs < 0 || elapsedMs > durationMs) {
     return (
       <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
-        {t("browserDiagnostics.afterRecording")}
+        {elapsedMs < 0
+          ? t("browserDiagnostics.beforeRecording")
+          : t("browserDiagnostics.afterRecording")}
       </span>
     );
   }
@@ -438,6 +490,136 @@ function NetworkGroupRow({
   );
 }
 
+function AppGroupRow({
+  group,
+  durationMs,
+  onSeek,
+}: {
+  group: Extract<BrowserDiagnosticGroup, { kind: "app" }>;
+  durationMs: number;
+  onSeek: (ms: number) => void;
+}) {
+  const t = useT();
+  const first = group.entries[0];
+  const failed = isAppActivityFailure(first);
+  const outcome =
+    first.status ??
+    (first.errorCode === "cancelled"
+      ? "—"
+      : first.ok === false
+        ? "ERR"
+        : first.ok
+          ? "OK"
+          : "—");
+  return (
+    <AccordionItem value={group.id} className="relative border-border/70 px-3">
+      <DiagnosticGroupTrigger
+        icon={
+          <span
+            className={cn(
+              "grid size-5 shrink-0 place-items-center rounded-md border",
+              failed
+                ? "border-destructive/30 text-destructive"
+                : "border-border text-muted-foreground",
+            )}
+          >
+            <IconActivity className="size-3" aria-hidden="true" />
+          </span>
+        }
+        summary={
+          <>
+            <span className="shrink-0 font-mono text-xs font-medium">
+              {first.type}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium">
+              {first.name}
+            </span>
+            <RepeatBadge count={group.entries.length} />
+          </>
+        }
+        elapsedMs={group.elapsedMs}
+        durationMs={durationMs}
+        onSeek={onSeek}
+      />
+      <AccordionContent className="pb-4 ps-7">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-lg border border-border/70 bg-muted/30 p-3 text-[11px] leading-4">
+          <dt className="font-semibold text-muted-foreground">
+            {t("browserDiagnostics.appEvent")}
+          </dt>
+          <dd className="m-0 break-all font-mono">
+            {first.type}
+            {first.name ? ` · ${first.name}` : ""}
+          </dd>
+          <dt className="font-semibold text-muted-foreground">
+            {t("browserDiagnostics.status")}
+          </dt>
+          <dd className="m-0 font-mono">
+            {outcome}
+            {first.errorCode ? ` ${first.errorCode}` : ""}
+          </dd>
+          {typeof first.durationMs === "number" ? (
+            <>
+              <dt className="font-semibold text-muted-foreground">
+                {t("browserDiagnostics.duration")}
+              </dt>
+              <dd className="m-0 font-mono tabular-nums">
+                {first.durationMs} ms
+              </dd>
+            </>
+          ) : null}
+          {first.requestId ? (
+            <>
+              <dt className="font-semibold text-muted-foreground">
+                {t("browserDiagnostics.request")}
+              </dt>
+              <dd className="m-0 break-all font-mono">{first.requestId}</dd>
+            </>
+          ) : null}
+          {first.data ? (
+            <>
+              <dt className="font-semibold text-muted-foreground">
+                {t("browserDiagnostics.appData")}
+              </dt>
+              <dd className="m-0 whitespace-pre-wrap break-words font-mono">
+                {JSON.stringify(first.data, null, 2)}
+              </dd>
+            </>
+          ) : null}
+          <div className="col-span-2">
+            <OccurrenceTimes
+              elapsedTimes={group.entries.map((entry) => entry.elapsedMs)}
+              durationMs={durationMs}
+              onSeek={onSeek}
+            />
+          </div>
+        </dl>
+      </AccordionContent>
+    </AccordionItem>
+  );
+}
+
+function DiagnosticGroupRow({
+  group,
+  durationMs,
+  onSeek,
+}: {
+  group: BrowserDiagnosticGroup;
+  durationMs: number;
+  onSeek: (ms: number) => void;
+}) {
+  if (group.kind === "console") {
+    return (
+      <ConsoleGroupRow group={group} durationMs={durationMs} onSeek={onSeek} />
+    );
+  }
+  if (group.kind === "network") {
+    return (
+      <NetworkGroupRow group={group} durationMs={durationMs} onSeek={onSeek} />
+    );
+  }
+  return <AppGroupRow group={group} durationMs={durationMs} onSeek={onSeek} />;
+}
+
 function timelineKindLabel(
   t: ReturnType<typeof useT>,
   event: BrowserDiagnosticTimelineEvent,
@@ -543,6 +725,7 @@ function BrowserDiagnosticsSection({
   label,
   count,
   groups,
+  appActivityPending,
   durationMs,
   onSeek,
 }: {
@@ -550,9 +733,11 @@ function BrowserDiagnosticsSection({
   label: string;
   count: number;
   groups: BrowserDiagnosticGroup[];
+  appActivityPending?: "loading" | "failed";
   durationMs: number;
   onSeek: (ms: number) => void;
 }) {
+  const t = useT();
   return (
     <AccordionItem
       value={view}
@@ -568,29 +753,30 @@ function BrowserDiagnosticsSection({
         </span>
       </AccordionTrigger>
       <AccordionContent className="pb-0">
-        {groups.length ? (
+        {appActivityPending === "loading" ? (
+          <div className="grid gap-2 px-4 py-3">
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-4/5" />
+            <Skeleton className="h-6 w-3/5" />
+          </div>
+        ) : appActivityPending === "failed" ? (
+          <p className="px-4 py-3 text-xs text-muted-foreground" role="status">
+            {t("browserDiagnostics.appUnavailable")}
+          </p>
+        ) : groups.length ? (
           <Accordion
             type="multiple"
             className="ps-4"
             data-browser-diagnostics-items
           >
-            {groups.map((group) =>
-              group.kind === "console" ? (
-                <ConsoleGroupRow
-                  key={group.id}
-                  group={group}
-                  durationMs={durationMs}
-                  onSeek={onSeek}
-                />
-              ) : (
-                <NetworkGroupRow
-                  key={group.id}
-                  group={group}
-                  durationMs={durationMs}
-                  onSeek={onSeek}
-                />
-              ),
-            )}
+            {groups.map((group) => (
+              <DiagnosticGroupRow
+                key={group.id}
+                group={group}
+                durationMs={durationMs}
+                onSeek={onSeek}
+              />
+            ))}
           </Accordion>
         ) : (
           <DiagnosticsEmptyState view={view} captured />
@@ -613,7 +799,9 @@ function DiagnosticsEmptyState({
       ? t("browserDiagnostics.noIssuesTitle")
       : view === "console"
         ? t("browserDiagnostics.noConsoleTitle")
-        : t("browserDiagnostics.noNetworkTitle");
+        : view === "network"
+          ? t("browserDiagnostics.noNetworkTitle")
+          : t("browserDiagnostics.noAppTitle");
   return (
     <div className="flex min-h-64 flex-col items-center justify-center px-8 text-center">
       <span className="mb-3 grid size-9 place-items-center rounded-full border border-border text-muted-foreground">
@@ -633,30 +821,42 @@ function DiagnosticsEmptyState({
   );
 }
 
+const NO_APP_EVENTS: AppActivityEvent[] = [];
+
 export function BrowserDiagnosticsPanel({
   diagnostics,
+  appActivityEvents,
   durationMs,
   onSeek,
 }: {
   diagnostics: BrowserDiagnosticsData;
+  appActivityEvents?: AppActivityEventsState;
   durationMs: number;
   onSeek: (ms: number) => void;
 }) {
   const t = useT();
+  const appActivity = diagnostics.appActivity ?? null;
+  const appEvents =
+    appActivityEvents?.status === "ready"
+      ? appActivityEvents.events
+      : NO_APP_EVENTS;
   const groupsByView = useMemo(
     () => ({
-      issues: buildBrowserDiagnosticGroups(diagnostics, "issues"),
+      issues: buildBrowserDiagnosticGroups(diagnostics, "issues", appEvents),
       console: buildBrowserDiagnosticGroups(diagnostics, "console"),
       network: buildBrowserDiagnosticGroups(diagnostics, "network"),
+      app: buildBrowserDiagnosticGroups(diagnostics, "app", appEvents),
     }),
-    [diagnostics],
+    [appEvents, diagnostics],
   );
   const timeline = diagnostics.timeline ?? [];
   const source = captureSource(diagnostics);
+  const appFailureCount = appActivity?.failureCount ?? 0;
   const hasFailures =
     diagnostics.summary.consoleErrorCount > 0 ||
     diagnostics.summary.consoleWarnCount > 0 ||
-    diagnostics.summary.networkFailureCount > 0;
+    diagnostics.summary.networkFailureCount > 0 ||
+    appFailureCount > 0;
 
   const sections: Array<{
     id: BrowserDiagnosticsView;
@@ -666,10 +866,12 @@ export function BrowserDiagnosticsPanel({
     {
       id: "issues",
       label: t("browserDiagnostics.issues"),
+      // App failures count once their events are loaded and listed below.
       count:
         diagnostics.summary.consoleErrorCount +
         diagnostics.summary.consoleWarnCount +
-        diagnostics.summary.networkFailureCount,
+        diagnostics.summary.networkFailureCount +
+        appEvents.filter(isAppActivityFailure).length,
     },
     {
       id: "console",
@@ -681,7 +883,20 @@ export function BrowserDiagnosticsPanel({
       label: t("browserDiagnostics.networkSource"),
       count: diagnostics.summary.networkCount,
     },
+    ...(appActivity
+      ? [
+          {
+            id: "app" as const,
+            label: t("browserDiagnostics.appSource"),
+            count: appActivity.eventCount,
+          },
+        ]
+      : []),
   ];
+  const appActivityPending =
+    appActivityEvents?.status === "ready"
+      ? undefined
+      : (appActivityEvents?.status ?? "loading");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-browser-diagnostics>
@@ -701,6 +916,11 @@ export function BrowserDiagnosticsPanel({
                     networkCount: diagnostics.summary.networkFailureCount,
                   })
                 : t("browserDiagnostics.noFailures")}
+              {appFailureCount > 0
+                ? ` · ${t("browserDiagnostics.appFailureSummary", {
+                    count: appFailureCount,
+                  })}`
+                : null}
             </p>
           </div>
           <span
@@ -743,6 +963,9 @@ export function BrowserDiagnosticsPanel({
               label={section.label}
               count={section.count}
               groups={groupsByView[section.id]}
+              appActivityPending={
+                section.id === "app" ? appActivityPending : undefined
+              }
               durationMs={durationMs}
               onSeek={onSeek}
             />

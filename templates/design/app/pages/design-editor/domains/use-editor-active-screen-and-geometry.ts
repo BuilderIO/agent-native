@@ -1567,8 +1567,8 @@ export function useEditorActiveScreenAndGeometry({
   }, [activeBreakpointWidthState, designBreakpoints, activeScreenBaseWidthPx]);
   const motionTimelineQueryParams =
     id && activeFile?.id
-      ? { designId: id, sourceRef: activeFile.id }
-      : { designId: "", sourceRef: "" };
+      ? { designId: id, sourceRef: activeFile.id, passiveRead: true }
+      : { designId: "", sourceRef: "", passiveRead: true };
   const { data: motionTimelineResult } =
     useActionQuery<MotionTimelineQueryResult>(
       "get-motion-timeline",

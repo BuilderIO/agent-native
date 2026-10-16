@@ -258,6 +258,105 @@ describe("portable-style source capture and rendered Chromium behavior", () => {
     );
   }
 
+  it("applies portable styles to HTML and SVG elements in an iframe realm", async () => {
+    const result = await page.evaluate(
+      ({ portableStyleSource }: { portableStyleSource: string }) => {
+        const moduleObject: {
+          exports: Record<string, (...args: any[]) => any>;
+        } = { exports: {} };
+        new Function("module", "exports", portableStyleSource)(
+          moduleObject,
+          moduleObject.exports,
+        );
+
+        const frame = document.createElement("iframe");
+        document.body.appendChild(frame);
+        try {
+          const frameDocument = frame.contentDocument;
+          if (!frameDocument) throw new Error("iframe document is unavailable");
+          const htmlElement = frameDocument.createElement("div");
+          const svgElement = frameDocument.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "svg",
+          );
+          moduleObject.exports.applyPortableStyles(htmlElement, {
+            color: "rgb(1, 2, 3)",
+          });
+          moduleObject.exports.applyPortableStyles(svgElement, {
+            fill: "rgb(4, 5, 6)",
+          });
+
+          return {
+            htmlIsForeign: !(htmlElement instanceof HTMLElement),
+            svgIsForeign: !(svgElement instanceof SVGElement),
+            htmlHostMatches:
+              moduleObject.exports.styleHost(htmlElement) === htmlElement,
+            svgHostMatches:
+              moduleObject.exports.styleHost(svgElement) === svgElement,
+            htmlColor: htmlElement.style.color,
+            svgFill: svgElement.style.fill,
+          };
+        } finally {
+          frame.remove();
+        }
+      },
+      { portableStyleSource },
+    );
+
+    expect(result).toEqual({
+      htmlIsForeign: true,
+      svgIsForeign: true,
+      htmlHostMatches: true,
+      svgHostMatches: true,
+      htmlColor: "rgb(1, 2, 3)",
+      svgFill: "rgb(4, 5, 6)",
+    });
+  });
+
+  it("uses the current realm when a parsed HTML document has no defaultView", async () => {
+    const result = await page.evaluate(
+      ({ portableStyleSource }: { portableStyleSource: string }) => {
+        const moduleObject: {
+          exports: Record<string, (...args: any[]) => any>;
+        } = { exports: {} };
+        new Function("module", "exports", portableStyleSource)(
+          moduleObject,
+          moduleObject.exports,
+        );
+
+        const parsed = new DOMParser().parseFromString(
+          "<!doctype html><html><body><div></div></body></html>",
+          "text/html",
+        );
+        const htmlElement = parsed.body.firstElementChild!;
+        const foreignElement = document.implementation.createDocument(
+          "urn:portable-style-test",
+          "element",
+        ).documentElement;
+        moduleObject.exports.applyPortableStyles(htmlElement, {
+          color: "rgb(7, 8, 9)",
+        });
+
+        return {
+          parsedDefaultViewIsNull: parsed.defaultView === null,
+          htmlHostMatches:
+            moduleObject.exports.styleHost(htmlElement) === htmlElement,
+          htmlColor: (htmlElement as HTMLElement).style.color,
+          nonHtmlHostIsNull:
+            moduleObject.exports.styleHost(foreignElement) === null,
+        };
+      },
+      { portableStyleSource },
+    );
+
+    expect(result).toEqual({
+      parsedDefaultViewIsNull: true,
+      htmlHostMatches: true,
+      htmlColor: "rgb(7, 8, 9)",
+      nonHtmlHostIsNull: true,
+    });
+  });
+
   it("carries inherited appearance when matching head markup has different body context", async () => {
     const head = `<head><style>.dark .card { color: white; }</style></head>`;
     const sourceHtml = `<!doctype html><html>${head}<body class="dark"><div class="card" data-agent-native-node-id="dropped"></div></body></html>`;

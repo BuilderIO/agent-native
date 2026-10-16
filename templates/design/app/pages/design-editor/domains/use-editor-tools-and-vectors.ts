@@ -75,8 +75,10 @@ import {
   computeOverviewScreenPickSelectionIds,
   getSelectedScreenIdsForEditorState,
   overviewScreenSelectionForPendingEcho,
+  reconcileSelectedLayerIdsForOverviewScreens,
   sameStringIds,
   shouldClearSelectionForReviewThreadTarget,
+  shouldResetBreakpointAfterOverviewSelectionClear,
   updateExplicitOverviewScreenSelection,
 } from "../selection-state";
 import { endedTextEditMatchesPendingCreation } from "../text-edit-utils";
@@ -1100,6 +1102,13 @@ export function useEditorToolsAndVectors({
           return owner ? [owner.fileId] : [];
         }),
       );
+      setSelectedLayerIdsState((current) =>
+        reconcileSelectedLayerIdsForOverviewScreens({
+          selectedLayerIds: current,
+          screenFileIds: fileIds,
+          selectedScreenIds: nextIds,
+        }),
+      );
       if (
         intent?.source === "marquee" &&
         (intent.metaKey === true || intent.ctrlKey === true)
@@ -1134,26 +1143,14 @@ export function useEditorToolsAndVectors({
       setOverviewSelectedScreenIds((current) =>
         sameStringIds(current, nextIds) ? current : nextIds,
       );
-      // BP-DEEP item 5 — Framer click-to-target: a click on EMPTY overview
-      // canvas clears the screen selection (ids === []); that gesture also
-      // returns the active edit scope to Base, mirroring clicking the base
-      // frame itself. Two guards keep this from over-firing:
-      // - viewModeRef: the selection-clear that fires while entering
-      //   single-screen mode (enterSingleScreen flips the ref to "single"
-      //   synchronously before any state settles) must not reset a
-      //   breakpoint the user is about to keep editing in the focused view.
-      // - overviewSelectedScreenIdsRef (still holding the PRE-update
-      //   selection when this callback runs — it's re-assigned during
-      //   render): MultiScreenCanvas's selection-report effect fires once on
-      //   mount with [] before its prop sync, and an []→[] "transition" is
-      //   that mount echo, not a user's empty-canvas click; without this
-      //   guard every overview (re)mount would clobber a persisted/agent-set
-      //   active breakpoint back to auto.
       if (
-        ids.length === 0 &&
-        overviewSelectedScreenIdsRef.current.length > 0 &&
-        viewModeRef.current === "overview" &&
-        activeBreakpointWidthStateRef.current !== undefined
+        shouldResetBreakpointAfterOverviewSelectionClear({
+          selectedScreenIds: nextIds,
+          previousSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+          viewMode: viewModeRef.current,
+          activeBreakpointWidth: activeBreakpointWidthStateRef.current,
+          intent,
+        })
       ) {
         handleBreakpointBarSelect(undefined);
       }

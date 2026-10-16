@@ -293,7 +293,10 @@ describe("empty-deck generation retry", () => {
       "disabled={!canEdit || generationRetryPending}",
     );
     expect(deckEditorSource).toContain(
-      '"generationFailureAttemptId" in generationContext',
+      'typeof generationContext?.generationFailureAttemptId === "string"',
+    );
+    expect(deckEditorSource).toContain(
+      "generationContext.generationFailureAttemptId !== generationAttemptId",
     );
   });
 });

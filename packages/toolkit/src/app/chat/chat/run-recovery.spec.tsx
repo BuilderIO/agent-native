@@ -700,6 +700,66 @@ describe("run recovery surfaces", () => {
     expect(newChatButton?.textContent).toBe("");
   });
 
+  it.each([
+    "http_429",
+    "http_529",
+    "provider_rate_limited",
+    "provider_transient_rejection",
+  ])("shows a visible Retry action for %s", async (errorCode) => {
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The model provider temporarily rejected this request.",
+              errorCode,
+            }}
+            onContinue={vi.fn()}
+            onRetry={onRetry}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
+    );
+    expect(retryButton?.textContent?.trim()).toBe("Retry");
+    await act(async () => retryButton?.click());
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("does not offer Retry for a daily provider request cap", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The daily model request cap was reached.",
+              errorCode: "rate_limit_exceeded",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
+  });
+
   it("does not offer Retry for a terminal invalid-attachment provider error", async () => {
     const onRetry = vi.fn();
 

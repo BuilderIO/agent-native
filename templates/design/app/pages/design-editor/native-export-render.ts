@@ -33,6 +33,7 @@ export async function renderNativeExportPng(args: {
   try {
     png = await callActionBlob("render-export-png", args, {
       timeoutMs: 45_000,
+      uiOnly: true,
     });
   } catch (error) {
     const serverErrorCode =
