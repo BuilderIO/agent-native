@@ -30,10 +30,12 @@ export type PageRebaselineInput = {
   /** The revision token the conversion gives the canonical body. */
   canonicalRevision: string;
   /**
-   * The body the page's live copy held before the conversion reseeds it, or
-   * null when it had none. Comment quotes were captured from its text.
+   * The text the page's live copy showed before the conversion reseeds it,
+   * `commentAnchorTextOf` its tree, or null when it had none. Comment quotes
+   * were captured from that tree; parsing its Markdown again can read it
+   * differently.
    */
-  previousLiveBody: string | null;
+  previousLiveText: string | null;
   now: string;
 };
 
@@ -126,9 +128,8 @@ export async function rebaselinePageForCanonicalBody(
       args: [input.documentId],
     })
   ).rows;
-  const previousText = commentAnchorText(
-    input.previousLiveBody ?? input.stored,
-  );
+  const previousText =
+    input.previousLiveText ?? commentAnchorText(input.stored);
   const nextText = commentAnchorText(input.canonical);
   const quoteOutcomes = comments.map((row) => {
     const quote: CommentQuoteAnchor = {

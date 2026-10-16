@@ -16,15 +16,18 @@ export type CommentQuoteAnchor = {
  * node joined with no separator, as `buildDocText` reads the editor document.
  * Markdown syntax, list markers, and line breaks are not part of it.
  */
-function editorText(markdown: string) {
+export function commentAnchorTextOf(root: PMNode) {
   let text = "";
   const walk = (node: PMNode) => {
     if (typeof node.text === "string") text += node.text;
     node.content?.forEach(walk);
   };
-  walk(nfmToDoc(markdown));
+  walk(root);
   return text;
 }
+
+const editorText = (markdown: string) =>
+  commentAnchorTextOf(nfmToDoc(markdown));
 
 function commonSuffixLength(left: string, right: string) {
   let length = 0;

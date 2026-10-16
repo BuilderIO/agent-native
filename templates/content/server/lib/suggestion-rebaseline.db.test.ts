@@ -173,7 +173,7 @@ async function addComment(documentId: string, text: string, quote: string) {
 }
 
 /** Converts the page the way L6b does, with the re-baseline inside it. */
-async function convert(documentId: string, previousLiveBody: string | null) {
+async function convert(documentId: string, previousLiveText: string | null) {
   return getDbExec().transaction!(async (tx: DbExec) => {
     const row = (
       await tx.execute({
@@ -191,7 +191,7 @@ async function convert(documentId: string, previousLiveBody: string | null) {
       canonical,
       storedRevision: documentRevisionToken(bodyRevision, stored),
       canonicalRevision: documentRevisionToken(bodyRevision + 1, canonical),
-      previousLiveBody,
+      previousLiveText,
       now,
     });
     if (report.status !== "rebaselined") return report;
@@ -262,11 +262,10 @@ describe("rebaselinePageForCanonicalBody", () => {
   it("leaves comment quotes alone when conversion doesn't change the page text", async () => {
     const documentId = await seedPage(agentPage);
     const text = commentAnchorText(agentPage);
-    // Content's Markdown keeps `\_` as a backslash the editor shows.
     const commentId = await addComment(
       documentId,
       text,
-      String.raw`snake\_case\_name`,
+      text.slice(text.indexOf("snake"), text.indexOf(" first")),
     );
     const report = await convert(documentId, null);
     expect(report).toMatchObject({
@@ -277,16 +276,14 @@ describe("rebaselinePageForCanonicalBody", () => {
 
   it("moves a comment quote onto the text the converted page shows", async () => {
     // The live copy showed the underscores as text; the canonical body bolds.
-    const previousLiveBody = "Keep __bold words__ here.";
+    const previousText = "Keep __bold words__ here.";
     const documentId = await seedPage("Keep **bold words** here.");
-    const previousText = commentAnchorText(previousLiveBody);
-    expect(previousText).toBe("Keep __bold words__ here.");
     const commentId = await addComment(
       documentId,
       previousText,
       "__bold words__ here",
     );
-    const report = await convert(documentId, previousLiveBody);
+    const report = await convert(documentId, previousText);
     expect(report).toMatchObject({
       status: "rebaselined",
       comments: [{ id: commentId, outcome: "rebased" }],
@@ -350,13 +347,9 @@ describe("rebaselinePageForCanonicalBody", () => {
 
   it("refuses to convert when a comment quote would become different words", async () => {
     const documentId = await seedPage("The dog sat on the mat.");
-    const previousLiveBody = "The cat sat on the mat.";
-    const commentId = await addComment(
-      documentId,
-      commentAnchorText(previousLiveBody),
-      "cat sat",
-    );
-    expect(await convert(documentId, previousLiveBody)).toEqual({
+    const previousText = "The cat sat on the mat.";
+    const commentId = await addComment(documentId, previousText, "cat sat");
+    expect(await convert(documentId, previousText)).toEqual({
       status: "blocked",
       reason: "comment_quote_changes",
       ids: [commentId],
