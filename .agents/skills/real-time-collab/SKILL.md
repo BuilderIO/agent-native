@@ -267,6 +267,24 @@ optimizeDeps: {
 | `POST /_agent-native/collab/:docId/awareness` | Sync cursor/presence state |
 | `GET /_agent-native/collab/:docId/users` | List active users |
 
+## Live Copies
+
+A live copy is a document whose Yjs state is the only writable copy of a body;
+the server derives its text on every commit. Declare one with `defineLiveCopy`
+from `@agent-native/core/collab` and pass it to `createCollabPlugin({ liveCopy,
+autoSeed: false })`. Then:
+
+- Edit on the server with `mutateLiveCopy` and seed with `seedLiveCopy`. The
+  text, JSON, search-replace, prepared-mutation and seed helpers throw
+  `write_refused` for covered documents; do not work around that.
+- Write the app's own rows in the binding's `persist` hook, which runs in the
+  commit transaction before `_collab_docs`. Do not save derived text elsewhere.
+- Derive, seed and heavy edit work runs as tasks in a `createBoundedTaskRunner`
+  imported from `./tasks.ts?bounded-task`. A task returns text or an update, or
+  `{ kind: "refused", reason }` for content it cannot represent; never drop it.
+- Handle `LiveCopyError` by `code`. Absent, unseeded and `malformed_state` are
+  different states; never treat malformed state as empty.
+
 ## Granular Server-Side Merge Pattern
 
 For structured documents (slides, forms, design files) where body collab would
