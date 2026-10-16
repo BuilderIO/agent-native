@@ -382,6 +382,26 @@ export default defineAction({
             );
           }
         };
+        // A reorder keeps the page's parent, so it must still be the one the
+        // renumbering was read under.
+        const assertPageInScope = async () => {
+          const current = (
+            await assertDocumentMutationAccess(id, "editor", "id")
+          ).resource;
+          if (
+            current.ownerEmail !== ownerEmail ||
+            current.spaceId !== existing.spaceId ||
+            !sameRootSection(current, existing) ||
+            (args.parentId === undefined &&
+              (current.parentId ?? null) !== (existing.parentId ?? null))
+          ) {
+            throw new ActionContractError(
+              "The document's move scope changed. Read it again and retry.",
+              { errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED", statusCode: 409 },
+            );
+          }
+          return current;
+        };
         // The moved page, its new parent and every sibling it renumbers, in
         // id order. Locking the parent makes a concurrent Trash or delete of
         // it finish first, so the check below sees it.
@@ -399,19 +419,7 @@ export default defineAction({
           });
           await lockDocumentRows(tx, pageIds);
           await assertSiblingsUnchanged();
-          const current = (
-            await assertDocumentMutationAccess(id, "editor", "id")
-          ).resource;
-          if (
-            current.ownerEmail !== ownerEmail ||
-            current.spaceId !== existing.spaceId ||
-            !sameRootSection(current, existing)
-          ) {
-            throw new ActionContractError(
-              "The document's move scope changed. Read it again and retry.",
-              { errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED", statusCode: 409 },
-            );
-          }
+          const current = await assertPageInScope();
           if (args.parentId) {
             const [parent] = await tx
               .select({
@@ -483,6 +491,7 @@ export default defineAction({
         } else {
           await lockDocumentRows(tx, pageIds);
           await assertSiblingsUnchanged();
+          await assertPageInScope();
         }
         await tx
           .update(schema.documents)

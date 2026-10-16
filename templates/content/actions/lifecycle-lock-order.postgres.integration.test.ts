@@ -48,6 +48,7 @@ let lockDatabaseMemberships: typeof import("./_database-membership-lock.js").loc
 let configurationRevision: typeof import("./_database-setup-mutation.js").configurationRevision;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let importedStateFingerprint: typeof import("../server/lib/content-import.js").importedStateFingerprint;
+let favoritesSystemIds: typeof import("./_content-favorites.js").favoritesSystemIds;
 let deleteDocument: typeof import("./delete-document.js").default;
 let restoreDocument: typeof import("./restore-document.js").default;
 let deleteContentDatabase: typeof import("./delete-content-database.js").default;
@@ -62,6 +63,7 @@ let editDocument: typeof import("./edit-document.js").default;
 let updateDocument: typeof import("./update-document.js").default;
 let restoreDocumentVersion: typeof import("./restore-document-version.js").default;
 let removeDatabaseItems: typeof import("./remove-database-items.js").default;
+let createDocument: typeof import("./create-document.js").default;
 let processContentTrashPurge: typeof import("../server/lib/content-trash-purge.js").processContentTrashPurge;
 
 beforeAll(async () => {
@@ -87,6 +89,7 @@ beforeAll(async () => {
     await import("./_database-membership-lock.js"));
   ({ configurationRevision } = await import("./_database-setup-mutation.js"));
   ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
+  ({ favoritesSystemIds } = await import("./_content-favorites.js"));
   ({ importedStateFingerprint } =
     await import("../server/lib/content-import.js"));
   deleteDocument = (await import("./delete-document.js")).default;
@@ -109,6 +112,7 @@ beforeAll(async () => {
   restoreDocumentVersion = (await import("./restore-document-version.js"))
     .default;
   removeDatabaseItems = (await import("./remove-database-items.js")).default;
+  createDocument = (await import("./create-document.js")).default;
   ({ processContentTrashPurge } =
     await import("../server/lib/content-trash-purge.js"));
   await (await import("../server/plugins/db.js")).default(undefined as any);
@@ -720,6 +724,79 @@ async function seedFavorites() {
  * Two rows in Trash, each its own Trash unit, in two collections. The row in
  * the collection with the higher id has the higher page id.
  */
+/**
+ * A root page in its space's Files, and in OWNER's Favorites unless
+ * `favorite` is false.
+ */
+async function seedImportedFavorite(favorite = true) {
+  const key = fixtureKey();
+  const ids = {
+    space: `${key}_s`,
+    files: `${key}_f`,
+    page: `${key}_p`,
+    filesItem: `${key}_m1`,
+    membership: `${key}_m2`,
+  };
+  const db = getDb();
+  await db.insert(schema.contentSpaces).values({
+    id: ids.space,
+    name: "Synthetic Favorites import space",
+    kind: "user",
+    ownerEmail: OWNER,
+    orgId: null,
+    filesDatabaseId: ids.files,
+    createdBy: OWNER,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: ids.files,
+    ownerEmail: OWNER,
+    spaceId: ids.space,
+    documentId: `${ids.files}_page`,
+    title: "Files",
+    systemRole: "files",
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db
+    .insert(schema.documents)
+    .values(pageValues(ids.page, null, "Favorite", { spaceId: ids.space }));
+  await db
+    .insert(schema.contentDatabaseItems)
+    .values(itemValues(ids.filesItem, ids.files, ids.page, 0));
+  if (favorite) {
+    await db
+      .insert(schema.contentDatabaseItems)
+      .values(
+        itemValues(
+          ids.membership,
+          favoritesSystemIds(OWNER).databaseId,
+          ids.page,
+          0,
+        ),
+      );
+  }
+  const rows: LockedRow[] = [
+    { label: "favorite membership", kind: "membership", id: ids.membership },
+    { label: "favorite page", kind: "page", id: ids.page },
+  ];
+  const importUnfavorited = () =>
+    asOwner(() =>
+      importContentSource.run({
+        files: {
+          "favorite.md": `---
+id: "${ids.page}"
+title: "Favorite"
+isFavorite: false
+---
+`,
+        },
+      }),
+    );
+  return { ids, rows, importUnfavorited };
+}
+
 async function seedPurgeUnits() {
   const key = fixtureKey();
   const ids = {
@@ -1402,6 +1479,18 @@ describe.skipIf(!POSTGRES_URL)(
         expect(report.waitedOn).toEqual(["row membership", "row page"]);
       });
 
+      it("import that removes a favorite", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedImportedFavorite();
+          return { rows: seed.rows, run: seed.importUnfavorited };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "favorite membership",
+          "favorite page",
+        ]);
+      });
+
       // SF-03 known loss, owned by L5b: these still lock the page row before
       // its memberships. Flip each to `toEqual([])` when the save path moves.
       it("update-document still locks the page before its membership", async () => {
@@ -1448,6 +1537,22 @@ describe.skipIf(!POSTGRES_URL)(
     });
 
     describe(`known cycles run ${CYCLE_RUNS} times without a deadlock`, () => {
+      it("importing a favorite's removal against an edit of the page", async () => {
+        await runCycle(async () => {
+          const seed = await seedImportedFavorite();
+          return {
+            // edit-document: the page's memberships, then the page.
+            first: (tx) =>
+              lockDatabaseMemberships(tx, [
+                seed.ids.filesItem,
+                seed.ids.membership,
+              ]),
+            second: (tx) => lockDocumentRows(tx, [seed.ids.page]),
+            run: seed.importUnfavorited,
+          };
+        });
+      });
+
       it("restoring a collection row against an edit of it (cycle #1)", async () => {
         await runCycle(async () => {
           const seed = await seedCollection();
@@ -1995,6 +2100,97 @@ position: ${position}
       });
       expect(await readPage(seed.ids.earlier)).toMatchObject({ position: 1 });
       expect(await readPage(seed.ids.later)).toMatchObject({ position: 2 });
+    });
+
+    it("refuses a reorder whose page moves to another parent while it waits", async () => {
+      const seed = await seedPageTree();
+      const { action: reordered } = await raceAgainst(
+        async (tx) => {
+          await lockOwnerPageTree(tx, OWNER);
+          await lockDocumentRows(tx, [seed.ids.moved, seed.ids.otherParent]);
+          await tx
+            .update(schema.documents)
+            .set({ parentId: seed.ids.otherParent, position: 1 })
+            .where(eq(schema.documents.id, seed.ids.moved));
+        },
+        () =>
+          asOwner(() => moveDocument.run({ id: seed.ids.moved, position: 2 })),
+      );
+      await expect(reordered).rejects.toMatchObject({
+        errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED",
+        statusCode: 409,
+      });
+      expect(await readPage(seed.ids.moved)).toMatchObject({
+        parentId: seed.ids.otherParent,
+        position: 1,
+      });
+    });
+
+    for (const [change, update, errorCode] of [
+      ["moves to another space", "space", "PARENT_SCOPE_CHANGED"],
+      ["moves to Trash", "trash", "PARENT_TRASHED"],
+    ] as const) {
+      it(`refuses a page created under a parent that ${change} while it waits`, async () => {
+        const seed = await seedSpaceMove();
+        const { action: created } = await raceAgainst(
+          async (tx) => {
+            await lockDocumentRows(tx, [seed.ids.moved]);
+            await tx
+              .update(schema.documents)
+              .set(
+                update === "space"
+                  ? { spaceId: seed.ids.toSpace }
+                  : { trashedAt: STAMP, trashRootId: seed.ids.moved },
+              )
+              .where(eq(schema.documents.id, seed.ids.moved));
+          },
+          () =>
+            asOwner(() =>
+              createDocument.run({
+                title: "Late child",
+                parentId: seed.ids.moved,
+              }),
+            ),
+        );
+        await expect(created).rejects.toMatchObject({
+          errorCode,
+          statusCode: 409,
+        });
+        expect(
+          await getDb()
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(eq(schema.documents.parentId, seed.ids.moved)),
+        ).toEqual([{ id: seed.ids.child }]);
+      });
+    }
+
+    it("refuses an imported favorite removal when the page is favorited while it waits", async () => {
+      const seed = await seedImportedFavorite(false);
+      const { action: imported } = await raceAgainst(async (tx) => {
+        await lockDocumentRows(tx, [seed.ids.page]);
+        await tx
+          .insert(schema.contentDatabaseItems)
+          .values(
+            itemValues(
+              seed.ids.membership,
+              favoritesSystemIds(OWNER).databaseId,
+              seed.ids.page,
+              0,
+            ),
+          );
+      }, seed.importUnfavorited);
+      await expect(imported).rejects.toMatchObject({
+        errorCode: "DATABASE_MEMBERSHIPS_CHANGED",
+        statusCode: 409,
+      });
+      const memberships = await getDb()
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.documentId, seed.ids.page));
+      expect(memberships.map((row) => row.id).sort(compareRowIds)).toEqual(
+        [seed.ids.filesItem, seed.ids.membership].sort(compareRowIds),
+      );
     });
 
     it("refuses a permanent delete whose page a move takes out of its Trash group while it waits", async () => {
