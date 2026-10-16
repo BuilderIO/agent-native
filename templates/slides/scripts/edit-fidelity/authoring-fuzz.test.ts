@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 
 import {
+  assertAuthoringFuzzDidNotStall,
   assertAuthoringPersistence,
   assertByteIdenticalHtml,
   assertShortcutMarkupAdded,
@@ -1021,6 +1022,13 @@ it("starts each watchdog budget at its own phase boundary", () => {
   ).toBe(false);
 });
 
+it("fails authoring fuzz completion when the watchdog recorded a stall", () => {
+  expect(() => assertAuthoringFuzzDidNotStall(null)).not.toThrow();
+  expect(() =>
+    assertAuthoringFuzzDidNotStall(new Error("authoring fuzz stalled")),
+  ).toThrow("authoring fuzz stalled");
+});
+
 it("creates reproducible authoring plans with full command coverage", () => {
   const first = createAuthoringFuzzPlan(42, 500);
   expect(first).toEqual(createAuthoringFuzzPlan(42, 500));
@@ -1942,6 +1950,57 @@ it("ignores only an in-flight browser-session claim canceled by cleanup navigati
       [registrationCandidate],
     ),
   ).toBe(true);
+  for (const ageMs of [9_500, 10_000, 10_999]) {
+    expect(
+      isExpectedWatchedRequestCorsError(
+        `Fetch API cannot load ${registrationUrl} due to access control checks.`,
+        "cleanup/navigation",
+        [{ ...registrationCandidate, ageMs }],
+      ),
+    ).toBe(true);
+  }
+  expect(
+    isExpectedWatchedRequestCorsError(
+      `Fetch API cannot load ${registrationUrl} due to access control checks.`,
+      "cleanup/navigation",
+      [{ ...registrationCandidate, ageMs: 11_000 }],
+    ),
+  ).toBe(false);
+
+  const heartbeatUrl =
+    "http://localhost:45715/_agent-native/browser-sessions/session-id/heartbeat";
+  const heartbeatCandidate = {
+    url: heartbeatUrl,
+    pathname: "/_agent-native/browser-sessions/session-id/heartbeat",
+    method: "POST",
+    ageMs: 9_500,
+    sameOrigin: true,
+    requestWasPendingAtNavigation: true,
+    requestSessionId: "session-id",
+    retiredSessionId: "session-id",
+    competingSameTypeRequest: false,
+  };
+  expect(
+    isExpectedWatchedRequestCorsError(
+      `Fetch API cannot load ${heartbeatUrl} due to access control checks.`,
+      "cleanup/navigation",
+      [heartbeatCandidate],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedWatchedRequestCorsError(
+      `Fetch API cannot load ${heartbeatUrl} due to access control checks.`,
+      "cleanup/navigation",
+      [{ ...heartbeatCandidate, ageMs: 10_999 }],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedWatchedRequestCorsError(
+      `Fetch API cannot load ${heartbeatUrl} due to access control checks.`,
+      "cleanup/navigation",
+      [{ ...heartbeatCandidate, ageMs: 11_000 }],
+    ),
+  ).toBe(false);
   expect(
     isExpectedWatchedRequestCorsError(
       `Fetch API cannot load ${registrationUrl} due to access control checks.`,
@@ -2009,6 +2068,11 @@ it("ignores only a pending main-frame collab poll canceled by cleanup navigation
     isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
       candidate,
       { ...candidate, ageMs: 200 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, ageMs: 9_500 },
     ]),
   ).toBe(false);
 });

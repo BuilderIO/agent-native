@@ -427,8 +427,8 @@ const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
 const reloadNavigationConsoleGraceMs = 1_000;
 // The default client abort timer is ten seconds; allow delivery slack for a
-// claim that was still pending when cleanup navigation began.
-const cleanupNavigationClaimMaxRequestAgeMs =
+// browser-session request that was still pending when cleanup navigation began.
+const cleanupNavigationBrowserSessionMaxRequestAgeMs =
   10_000 + reloadNavigationConsoleGraceMs;
 const retiredBrowserSessionPollConsoleGraceMs = 250;
 const reloadNavigationSuccessfulClaimGraceMs = 250;
@@ -450,6 +450,10 @@ export function authoringFuzzStallExpired(
   now: number,
 ) {
   return now - phaseStartedAt >= authoringFuzzStallTimeoutMs(phase);
+}
+
+export function assertAuthoringFuzzDidNotStall(stallError: Error | null) {
+  if (stallError) throw stallError;
 }
 
 const browserSessionRegistrationRequestRule: SaveReloadRequestAbortRule = {
@@ -949,6 +953,7 @@ export function isExpectedWatchedRequestCorsError(
         ? [
             browserSessionRegistrationRequestRule,
             browserSessionClaimRequestRule,
+            browserSessionHeartbeatRequestRule,
             cleanupPollRequestRule,
           ]
         : null;
@@ -961,9 +966,9 @@ export function isExpectedWatchedRequestCorsError(
 
   return (
     candidates.filter((candidate) => {
-      const isCleanupClaim =
+      const isCleanupBrowserSessionRequest =
         activePhase === "cleanup/navigation" &&
-        isBrowserSessionClaimRequest(candidate.method, candidate.pathname);
+        isBrowserSessionPath(candidate.pathname);
       return (
         candidate.url === match[1] &&
         (candidate.pathname !== "/_agent-native/poll" ||
@@ -977,8 +982,8 @@ export function isExpectedWatchedRequestCorsError(
           rules,
           activePhase === "save/reload",
           true,
-          isCleanupClaim
-            ? cleanupNavigationClaimMaxRequestAgeMs
+          isCleanupBrowserSessionRequest
+            ? cleanupNavigationBrowserSessionMaxRequestAgeMs
             : reloadNavigationAbortMaxRequestAgeMs,
           activePhase === "save/reload",
         )
@@ -1524,7 +1529,7 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
       [browserSessionClaimRequestRule],
       false,
       true,
-      cleanupNavigationClaimMaxRequestAgeMs,
+      cleanupNavigationBrowserSessionMaxRequestAgeMs,
     )
   );
 }
@@ -8531,6 +8536,7 @@ export async function runAuthoringFuzz(
         `[edit-fidelity] recovered ${patchDeckConflicts} patch-deck conflict response(s); saved and reloaded HTML matched the live slide`,
       );
     }
+    assertAuthoringFuzzDidNotStall(stallState.error);
     return {
       seed,
       stepsRun: plan.length,
