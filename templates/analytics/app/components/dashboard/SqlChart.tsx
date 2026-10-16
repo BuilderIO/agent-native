@@ -1597,18 +1597,21 @@ export function SqlChart({
     );
   };
 
+  const showStandaloneStatus =
+    !onFreshnessChange &&
+    (shownFreshness !== undefined || reportedStatus !== undefined);
   const withNotice = (node: ReactNode) => (
     <div
       className={
-        onFreshnessChange
-          ? "flex h-full min-h-0 flex-col"
-          : "grid h-full min-h-0 grid-cols-[minmax(0,1fr)_1.5rem] items-start gap-x-1"
+        showStandaloneStatus
+          ? "grid h-full min-h-0 grid-cols-[minmax(0,1fr)_1.5rem] items-start gap-x-1"
+          : "flex h-full min-h-0 flex-col"
       }
     >
       <div data-dashboard-report-chart-body className="h-full min-h-0 min-w-0">
         {node}
       </div>
-      {!onFreshnessChange && (shownFreshness || reportedStatus) ? (
+      {showStandaloneStatus ? (
         <div data-dashboard-report-standalone-status className="min-w-0">
           <HoverTooltipProvider>
             <PanelFreshnessClock
