@@ -197,6 +197,7 @@ import {
   normalizeSlideClipboards,
   readSlideClipboards,
   resolveSlideClipboardsForPaste,
+  shouldHandleSlideClipboardPaste,
   shouldHandleSlideClipboardShortcut,
   writeSlideClipboards,
 } from "@/lib/slide-clipboard";
@@ -390,6 +391,45 @@ export function isSlideClipboardStillArmed(
   now: number = Date.now(),
 ): boolean {
   return armedAt !== null && now - armedAt <= SLIDE_CLIPBOARD_ARM_WINDOW_MS;
+}
+
+function isBlockingSlideClipboardPopper(el: Element): boolean {
+  return (
+    el.matches("[data-radix-popper-content-wrapper]") &&
+    !el.querySelector("[data-agent-native-tooltip]")
+  );
+}
+
+function isSlideClipboardTextEntrySurface(el: Element | null): boolean {
+  if (!el) return false;
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    return true;
+  }
+  if (el instanceof HTMLSelectElement) return true;
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.isContentEditable) return true;
+  if (el.closest("[contenteditable='true']")) return true;
+  if (el.closest("input, textarea, [role='textbox']")) return true;
+  if (el.closest("[data-pin-popover], [data-add-slide-popover]")) return true;
+  if (el.closest(".agent-panel-root")) return true;
+  if (el.closest("[role='dialog'], [role='alertdialog']")) return true;
+  const popperWrapper = el.closest("[data-radix-popper-content-wrapper]");
+  return Boolean(
+    popperWrapper && isBlockingSlideClipboardPopper(popperWrapper),
+  );
+}
+
+function hasBlockingSlideClipboardOverlay(): boolean {
+  if (
+    document.querySelector(
+      "[data-pin-popover], [data-add-slide-popover], [role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']",
+    )
+  ) {
+    return true;
+  }
+  return Array.from(
+    document.querySelectorAll("[data-radix-popper-content-wrapper]"),
+  ).some(isBlockingSlideClipboardPopper);
 }
 
 export function getAltDragPlacement(
@@ -3557,7 +3597,6 @@ export default function DeckEditor() {
   const slideClipboardScopeRef = useRef<string | null>(null);
   const slideClipboardPersistenceFailedRef = useRef(false);
   const slideClipboardArmedAtRef = useRef<number | null>(null);
-  const slidePasteFallbackRef = useRef<number | null>(null);
   const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
   const slideClipboardStorageKey = session?.email
     ? getSlideClipboardStorageKey(session.email)
@@ -3758,10 +3797,8 @@ export default function DeckEditor() {
     [deck, id, selectedSlideIdsForAction, updateSlides],
   );
 
-  // Command/Ctrl+C then Command/Ctrl+V copies/pastes slides. Copy, cut, and
-  // duplicate stay scoped to the focused rail; paste also works after focus
-  // moves to another deck. Canvas shortcuts own these keys while the canvas
-  // has focus, even if its selection remains visible.
+  // Copy, cut, and duplicate stay scoped to the focused rail. Native paste is
+  // handled separately so image and text editors keep their paste events.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !canEdit) return;
@@ -3783,45 +3820,9 @@ export default function DeckEditor() {
         return;
       }
 
-      const isBlockingPopperWrapper = (el: Element) =>
-        el.matches("[data-radix-popper-content-wrapper]") &&
-        !el.querySelector("[data-agent-native-tooltip]");
-      const isInsideSafeZone = (el: Element | null) => {
-        if (!el) return false;
-        if (el instanceof HTMLInputElement) return true;
-        if (el instanceof HTMLTextAreaElement) return true;
-        if (el instanceof HTMLElement) {
-          if (el.isContentEditable) return true;
-          if (el.closest("[contenteditable='true']")) return true;
-          if (el.closest("input, textarea, [role='textbox']")) return true;
-          if (el.closest("[data-pin-popover]")) return true;
-          if (el.closest("[data-add-slide-popover]")) return true;
-          if (el.closest(".agent-panel-root")) return true;
-          if (el.closest("[role='dialog'], [role='alertdialog']")) return true;
-          const popperWrapper = el.closest(
-            "[data-radix-popper-content-wrapper]",
-          );
-          if (popperWrapper && isBlockingPopperWrapper(popperWrapper))
-            return true;
-        }
-        return false;
-      };
-      if (isInsideSafeZone(e.target as Element | null)) return;
-      if (isInsideSafeZone(document.activeElement)) return;
-      if (document.querySelector("[data-pin-popover]")) return;
-      if (document.querySelector("[data-add-slide-popover]")) return;
-      if (
-        document.querySelector(
-          "[role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']",
-        )
-      )
-        return;
-      if (
-        Array.from(
-          document.querySelectorAll("[data-radix-popper-content-wrapper]"),
-        ).some(isBlockingPopperWrapper)
-      )
-        return;
+      if (isSlideClipboardTextEntrySurface(e.target as Element | null)) return;
+      if (isSlideClipboardTextEntrySurface(document.activeElement)) return;
+      if (hasBlockingSlideClipboardOverlay()) return;
       if (
         !focusedThumbnail &&
         document.querySelector("[data-slide-element-selected='true']")
@@ -3859,18 +3860,6 @@ export default function DeckEditor() {
         handleDuplicateSlideFromRail(slideIds);
         return;
       }
-
-      if (!activeSlideId || !syncSlideClipboard()) return;
-      if (!isSlideClipboardStillArmed(slideClipboardArmedAtRef.current)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (slidePasteFallbackRef.current !== null) {
-        window.clearTimeout(slidePasteFallbackRef.current);
-      }
-      slidePasteFallbackRef.current = window.setTimeout(() => {
-        slidePasteFallbackRef.current = null;
-        pasteSlideAfter(activeSlideId);
-      }, 50);
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
@@ -3882,31 +3871,69 @@ export default function DeckEditor() {
     copySlides,
     cutSlides,
     handleDuplicateSlideFromRail,
-    pasteSlideAfter,
-    syncSlideClipboard,
     selectedSlideIds,
     pinMode,
     drawMode,
   ]);
 
-  useEffect(() => {
-    const handlePaste = () => {
-      if (slidePasteFallbackRef.current === null) return;
-      window.clearTimeout(slidePasteFallbackRef.current);
-      slidePasteFallbackRef.current = null;
-    };
-    window.addEventListener("paste", handlePaste, true);
-    return () => window.removeEventListener("paste", handlePaste, true);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (slidePasteFallbackRef.current !== null) {
-        window.clearTimeout(slidePasteFallbackRef.current);
-        slidePasteFallbackRef.current = null;
+  const handlePasteSlideClipboard = useCallback(
+    (event: ClipboardEvent): boolean => {
+      if (
+        !deck ||
+        !id ||
+        !canEdit ||
+        !activeSlideId ||
+        event.defaultPrevented ||
+        !syncSlideClipboard() ||
+        !isSlideClipboardStillArmed(slideClipboardArmedAtRef.current)
+      ) {
+        return false;
       }
-    };
-  }, [activeSlideId, id]);
+
+      const hasImage = [
+        ...Array.from(event.clipboardData?.types ?? []),
+        ...Array.from(event.clipboardData?.items ?? []).map(
+          (item) => item.type,
+        ),
+        ...Array.from(event.clipboardData?.files ?? []).map(
+          (file) => file.type,
+        ),
+      ].some((type) => type.toLowerCase().startsWith("image/"));
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
+      const shouldPasteSlide = shouldHandleSlideClipboardPaste({
+        hasArmedSlideClipboard: true,
+        hasImage,
+        isTextEntrySurface:
+          isSlideClipboardTextEntrySurface(event.target as Element | null) ||
+          isSlideClipboardTextEntrySurface(document.activeElement),
+        hasSelectedCanvasElement:
+          !focusedThumbnail &&
+          Boolean(
+            document.querySelector("[data-slide-element-selected='true']"),
+          ),
+        hasBlockingOverlay: hasBlockingSlideClipboardOverlay(),
+        isSlideToolActive: pinMode || drawMode,
+      });
+      if (!shouldPasteSlide) return false;
+
+      event.preventDefault();
+      event.stopPropagation();
+      pasteSlideAfter(activeSlideId);
+      return true;
+    },
+    [
+      deck,
+      id,
+      canEdit,
+      activeSlideId,
+      syncSlideClipboard,
+      pasteSlideAfter,
+      pinMode,
+      drawMode,
+    ],
+  );
 
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
@@ -4876,6 +4903,7 @@ export default function DeckEditor() {
               return flushDeckSave(id);
             }}
             flushInlineEditRef={inlineEditFlushRef}
+            onPasteSlideClipboard={handlePasteSlideClipboard}
             readOnly={!canEdit}
             canComment={canComment}
             currentUserEmail={session?.email ?? null}

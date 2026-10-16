@@ -17,7 +17,32 @@ export function shouldHandleSlideClipboardShortcut(
   key: string,
   hasFocusedThumbnail: boolean,
 ): boolean {
-  return hasFocusedThumbnail || key === "v";
+  return key !== "v" && hasFocusedThumbnail;
+}
+
+export function shouldHandleSlideClipboardPaste({
+  hasArmedSlideClipboard,
+  hasImage,
+  isTextEntrySurface,
+  hasSelectedCanvasElement,
+  hasBlockingOverlay,
+  isSlideToolActive,
+}: {
+  hasArmedSlideClipboard: boolean;
+  hasImage: boolean;
+  isTextEntrySurface: boolean;
+  hasSelectedCanvasElement: boolean;
+  hasBlockingOverlay: boolean;
+  isSlideToolActive: boolean;
+}): boolean {
+  return (
+    hasArmedSlideClipboard &&
+    !hasImage &&
+    !isTextEntrySurface &&
+    !hasSelectedCanvasElement &&
+    !hasBlockingOverlay &&
+    !isSlideToolActive
+  );
 }
 
 export function getSlideClipboardStorageKey(email: string): string {

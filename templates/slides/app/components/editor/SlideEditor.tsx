@@ -1075,6 +1075,7 @@ interface SlideEditorProps {
     slideIdOverride?: string,
     options?: UpdateSlideOptions,
   ) => string | undefined;
+  onPasteSlideClipboard?: (event: ClipboardEvent) => boolean;
   /** When true, all inline-edit affordances are disabled — the slide is
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
@@ -1722,6 +1723,7 @@ export default function SlideEditor({
   slide,
   slidePosition,
   onUpdateSlide,
+  onPasteSlideClipboard,
   readOnly = false,
   contextToolbarSlot,
   wideContextToolbarSlot,
@@ -5472,6 +5474,7 @@ export default function SlideEditor({
     if (readOnly) return;
     const onPaste = (e: ClipboardEvent) => {
       if (e.defaultPrevented) return;
+      if (onPasteSlideClipboard?.(e)) return;
       const active = document.activeElement;
       if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
       if (

@@ -12,6 +12,7 @@ import {
   readSlideClipboards,
   resolveSlideClipboardForPaste,
   resolveSlideClipboardsForPaste,
+  shouldHandleSlideClipboardPaste,
   shouldHandleSlideClipboardShortcut,
   writeSlideClipboard,
   writeSlideClipboards,
@@ -65,39 +66,10 @@ describe("isSlideClipboardStillArmed", () => {
   });
 });
 
-describe("slide paste fallback", () => {
-  it("cancels for HTML-only native paste events", () => {
-    const pasteStart = deckEditorSource.indexOf("const handlePaste = () =>");
-    const pasteEnd = deckEditorSource.indexOf(
-      "// Resolve the active slide from URL/deck state.",
-      pasteStart,
-    );
-    const pasteBody = deckEditorSource.slice(pasteStart, pasteEnd);
-
-    expect(pasteBody).toContain(
-      "window.clearTimeout(slidePasteFallbackRef.current)",
-    );
-    expect(pasteBody).toContain("slidePasteFallbackRef.current = null");
-    expect(pasteBody).not.toContain("hasText");
-    expect(pasteBody).not.toContain("hasImage");
-  });
-
-  it("owns fallback cleanup by slide lifecycle, not ordinary rerenders", () => {
-    expect(deckEditorSource).toContain(`
-  useEffect(() => {
-    return () => {
-      if (slidePasteFallbackRef.current !== null) {
-        window.clearTimeout(slidePasteFallbackRef.current);
-        slidePasteFallbackRef.current = null;
-      }
-    };
-  }, [activeSlideId, id]);`);
-  });
-});
-
 describe("slide thumbnail shortcuts", () => {
-  it("allows paste after focus leaves the thumbnail rail", () => {
-    expect(shouldHandleSlideClipboardShortcut("v", false)).toBe(true);
+  it("does not intercept native paste on keydown", () => {
+    expect(shouldHandleSlideClipboardShortcut("v", false)).toBe(false);
+    expect(shouldHandleSlideClipboardShortcut("v", true)).toBe(false);
     expect(shouldHandleSlideClipboardShortcut("c", false)).toBe(false);
     expect(shouldHandleSlideClipboardShortcut("x", false)).toBe(false);
     expect(shouldHandleSlideClipboardShortcut("d", false)).toBe(false);
@@ -163,6 +135,34 @@ describe("slide thumbnail shortcuts", () => {
     expect(deckEditorSource).toContain(
       "readSlideClipboards(slideClipboardStorageKey)",
     );
+  });
+});
+
+describe("slide paste event decision", () => {
+  const canvasPaste = {
+    hasArmedSlideClipboard: true,
+    hasImage: false,
+    isTextEntrySurface: false,
+    hasSelectedCanvasElement: false,
+    hasBlockingOverlay: false,
+    isSlideToolActive: false,
+  };
+
+  it("pastes an armed slide clipboard on the canvas", () => {
+    expect(shouldHandleSlideClipboardPaste(canvasPaste)).toBe(true);
+  });
+
+  it.each([
+    ["image paste", { hasImage: true }],
+    ["text entry", { isTextEntrySurface: true }],
+    ["selected canvas element", { hasSelectedCanvasElement: true }],
+    ["blocking overlay", { hasBlockingOverlay: true }],
+    ["pin or draw mode", { isSlideToolActive: true }],
+    ["unarmed clipboard", { hasArmedSlideClipboard: false }],
+  ])("preserves %s", (_name, context) => {
+    expect(
+      shouldHandleSlideClipboardPaste({ ...canvasPaste, ...context }),
+    ).toBe(false);
   });
 });
 
