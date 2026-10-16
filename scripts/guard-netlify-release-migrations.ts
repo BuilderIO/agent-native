@@ -16,7 +16,7 @@ const BETA_SCHEMA_OWNER_MARKER = "AGENT_NATIVE_BETA_SCHEMA_OWNER";
 const BETA_SCHEMA_OWNER_CONFIG_CONSUMER = "migration.betaSchemaOwner";
 const MIGRATION_POLICY_FILE = "packages/core/src/db/migration-policy.ts";
 const MANAGED_DRIZZLE_SKILL_FILE = ".agents/skills/storing-data/SKILL.md";
-const FRAMEWORK_ONLY_RELEASE_SCRIPT_FILES = [
+const STARTER_RELEASE_SCRIPT_FILES = [
   "packages/core/src/templates/default/scripts/migrate-production.ts",
   "templates/chat/scripts/migrate-production.ts",
 ] as const;
@@ -33,16 +33,20 @@ const RELEASE_MIGRATION_SCRIPT_GLOBS = [
   "templates/**/scripts/migrate-production.ts",
 ] as const;
 
-const FRAMEWORK_ONLY_RELEASE_SCRIPT = `
+const STARTER_RELEASE_SCRIPT = `
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
 import { loadEnv } from "@agent-native/core/scripts";
-import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
+import {
+  runAppReleaseMigrations,
+  runFrameworkReleaseMigrations,
+} from "@agent-native/core/server";
 
 loadEnv();
 
 async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
     await runFrameworkReleaseMigrations(null);
+    await runAppReleaseMigrations();
   });
 }
 
@@ -230,17 +234,15 @@ function executableSource(source: string): string {
     .replace(/\s+/g, "");
 }
 
-export function validateFrameworkOnlyReleaseScript(
+export function validateStarterReleaseScript(
   source: string,
   file: string,
 ): string[] {
-  if (
-    executableSource(source) === executableSource(FRAMEWORK_ONLY_RELEASE_SCRIPT)
-  ) {
+  if (executableSource(source) === executableSource(STARTER_RELEASE_SCRIPT)) {
     return [];
   }
   return [
-    `${file}: must contain only the framework release migration entrypoint`,
+    `${file}: must contain only the starter release migration entrypoint (framework tables, then the app's server/plugins/db.ts)`,
   ];
 }
 
@@ -295,28 +297,25 @@ export function validateManagedDrizzleMigrationOwnership(
     if (
       !source.includes("drizzle/schema.ts") ||
       !source.includes("db:generate") ||
-      !source.includes("scripts/migrate-production.ts` is framework-only") ||
+      !source.includes("runAppReleaseMigrations") ||
       !source.includes("do not create a parallel `runMigrations([...])` list")
     ) {
       issues.push(
-        `${MANAGED_DRIZZLE_SKILL_FILE}: must keep managed app migrations in generated Drizzle files and the release script framework-only`,
+        `${MANAGED_DRIZZLE_SKILL_FILE}: must keep managed app migrations in generated Drizzle files and explain what the release script applies`,
       );
     }
   }
 
-  for (const relativeFile of FRAMEWORK_ONLY_RELEASE_SCRIPT_FILES) {
+  for (const relativeFile of STARTER_RELEASE_SCRIPT_FILES) {
     const file = path.join(repoRoot, relativeFile);
     if (!existsSync(file)) {
       issues.push(
-        `${relativeFile}: framework release migration script is missing`,
+        `${relativeFile}: starter release migration script is missing`,
       );
       continue;
     }
     issues.push(
-      ...validateFrameworkOnlyReleaseScript(
-        readFileSync(file, "utf8"),
-        relativeFile,
-      ),
+      ...validateStarterReleaseScript(readFileSync(file, "utf8"), relativeFile),
     );
   }
 
