@@ -591,6 +591,8 @@ const messages = {
     addTransition: "新增轉場",
     effect: "效果",
     onClick: "按一下",
+    withPrevious: "與前一個同時",
+    trigger: "開始",
     byParagraph: "依段落",
     expand: "展開轉場",
     collapse: "收合轉場",
