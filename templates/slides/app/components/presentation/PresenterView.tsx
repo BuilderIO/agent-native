@@ -265,11 +265,19 @@ export default function PresenterView({
       next: nextVoiceCommand,
       previous: previousVoiceCommand,
     });
-    if (match.type === "command") {
+    const additionMatch = matchVoiceNavigationPhrase(addition, {
+      next: nextVoiceCommand,
+      previous: previousVoiceCommand,
+    });
+    const commandMatch = match.type === "command" ? match : additionMatch;
+    if (commandMatch.type === "command") {
       pendingVoicePhraseRef.current = "";
       pendingVoicePhraseAtRef.current = null;
-      if (match.command === "next") goNext();
+      if (commandMatch.command === "next") goNext();
       else goPrev();
+    } else if (additionMatch.type === "partial") {
+      pendingVoicePhraseRef.current = addition;
+      pendingVoicePhraseAtRef.current = now;
     } else if (match.type === "partial") {
       pendingVoicePhraseRef.current = candidate;
       pendingVoicePhraseAtRef.current = now;

@@ -183,6 +183,40 @@ describe("PresentationView keyboard shortcuts", () => {
     }
   });
 
+  it("preserves typeahead keys on focused selects and comboboxes", () => {
+    const openPresenter = vi.spyOn(window, "open").mockReturnValue(null);
+    try {
+      const view = render(
+        <MemoryRouter>
+          <PresentationView slides={slides} deckId="deck-1" />
+        </MemoryRouter>,
+      );
+      const select = document.createElement("select");
+      const combobox = document.createElement("div");
+      combobox.setAttribute("role", "combobox");
+      combobox.tabIndex = 0;
+      view.container.append(select, combobox);
+
+      for (const control of [select, combobox]) {
+        control.focus();
+        for (const key of ["f", "s"]) {
+          const typeaheadKey = new KeyboardEvent("keydown", {
+            key,
+            bubbles: true,
+            cancelable: true,
+          });
+          control.dispatchEvent(typeaheadKey);
+
+          expect(typeaheadKey.defaultPrevented).toBe(false);
+        }
+      }
+      expect(openPresenter).not.toHaveBeenCalled();
+      expect(screen.getByText("1 / 2")).toBeTruthy();
+    } finally {
+      openPresenter.mockRestore();
+    }
+  });
+
   it("keeps Escape-to-exit available while a presentation button is focused", () => {
     render(
       <MemoryRouter initialEntries={["/presentation"]}>

@@ -434,6 +434,60 @@ describe("PresenterView without an audience", () => {
     }
   });
 
+  it("executes a complete command after an unrelated partial phrase", () => {
+    const plainSlides = [
+      { id: "one", content: "", layout: "content" },
+      { id: "two", content: "", layout: "content" },
+      { id: "three", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    const presenter = render(
+      <PresenterView slides={plainSlides} deckId="deck-1" />,
+    );
+    const [presenterChannel] = bus.peers;
+
+    clickNext(presenter.container);
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+    act(() => transcriptionMock.setTranscript?.("Next"));
+    act(() => transcriptionMock.setTranscript?.("NextPrevious slide."));
+
+    expect(within(presenter.container).getByText("1 / 3")).toBeTruthy();
+    expect(commandsPosted(presenterChannel!)).toEqual([
+      { type: "command", command: "next" },
+      { type: "command", command: "prev" },
+    ]);
+  });
+
+  it("keeps a new partial command after an unrelated partial phrase", () => {
+    const plainSlides = [
+      { id: "one", content: "", layout: "content" },
+      { id: "two", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    const presenter = render(
+      <PresenterView slides={plainSlides} deckId="deck-1" />,
+    );
+    const [presenterChannel] = bus.peers;
+
+    clickNext(presenter.container);
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+    act(() => transcriptionMock.setTranscript?.("Next"));
+    act(() => transcriptionMock.setTranscript?.("NextPrevious"));
+    act(() => transcriptionMock.setTranscript?.("NextPrevious slide."));
+
+    expect(within(presenter.container).getByText("1 / 2")).toBeTruthy();
+    expect(commandsPosted(presenterChannel!)).toEqual([
+      { type: "command", command: "next" },
+      { type: "command", command: "prev" },
+    ]);
+  });
+
   it("does not intercept Space while the voice button is focused", () => {
     const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
     const [presenterChannel] = bus.peers;

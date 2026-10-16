@@ -219,6 +219,9 @@ export function isInteractiveKeyboardEvent(event: KeyboardEvent): boolean {
         target instanceof Element && Boolean(target.closest(selector)),
     );
 
+  if (event.key.length === 1 && matches('select, [role="combobox"]')) {
+    return true;
+  }
   if (
     matches(
       'textarea, input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], input[type="tel"], input[type="password"], [contenteditable]:not([contenteditable="false"]), [role="textbox"]',

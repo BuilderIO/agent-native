@@ -339,4 +339,44 @@ describe("slide video helpers", () => {
     ).toBe(false);
     button.remove();
   });
+
+  it("preserves printable typeahead keys on focused selects and comboboxes", () => {
+    const select = document.createElement("select");
+    document.body.append(select);
+    select.focus();
+    for (const key of ["f", "F", "s", "S"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      select.dispatchEvent(event);
+      expect(isInteractiveKeyboardEvent(event)).toBe(true);
+    }
+    const modifiedShortcut = new KeyboardEvent("keydown", {
+      key: "f",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    select.dispatchEvent(modifiedShortcut);
+    expect(isInteractiveKeyboardEvent(modifiedShortcut)).toBe(true);
+    select.remove();
+
+    const combobox = document.createElement("div");
+    combobox.setAttribute("role", "combobox");
+    combobox.tabIndex = 0;
+    document.body.append(combobox);
+    combobox.focus();
+    for (const key of ["f", "F", "s", "S"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      combobox.dispatchEvent(event);
+      expect(isInteractiveKeyboardEvent(event)).toBe(true);
+    }
+    combobox.remove();
+  });
 });
