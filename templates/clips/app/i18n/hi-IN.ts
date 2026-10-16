@@ -629,6 +629,9 @@ const messages = {
     replaceTitle: "प्रतिलेख बदलें?",
     replaceDescription: "{{fileName}} मौजूदा प्रतिलेख की जगह ले लेगी।",
     replace: "बदलें",
+    regenerateOverImportTitle: "आयात किया गया प्रतिलेख बदलें?",
+    regenerateOverImportDescription:
+      "रिकॉर्डिंग के ऑडियो से बना नया प्रतिलेख फ़ाइल से आयात किए गए प्रतिलेख की जगह ले लेगा।",
     added: "प्रतिलेख जोड़ा गया",
     replaced: "प्रतिलेख बदला गया",
     failed: "प्रतिलेख नहीं जोड़ा जा सका",

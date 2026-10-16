@@ -607,6 +607,9 @@ const messages = {
     replaceTitle: "要取代逐字稿嗎？",
     replaceDescription: "{{fileName}} 將取代目前的逐字稿。",
     replace: "取代",
+    regenerateOverImportTitle: "要取代匯入的逐字稿嗎？",
+    regenerateOverImportDescription:
+      "根據錄影音訊產生的新逐字稿將取代從檔案匯入的逐字稿。",
     added: "已新增逐字稿",
     replaced: "已取代逐字稿",
     failed: "無法新增逐字稿",

@@ -1,9 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  isTranscriptExistsError,
   MAX_TRANSCRIPT_IMPORT_CHARS,
   parseTranscriptImport,
   TRANSCRIPT_IMPORT_ACCEPT,
+  transcriptInTheWay,
   type TranscriptImportError,
 } from "@shared/transcript-import";
 import { IconFileUpload, IconLoader2 } from "@tabler/icons-react";
@@ -30,18 +30,23 @@ import {
 export interface TranscriptImportRequest {
   text: string;
   replace: boolean;
+  /** With replace: the import the user agreed to replace, or null. */
+  replaceImportId?: string | null;
 }
 
 /** A picked file waiting on the user's answer to "Replace transcript?". */
 export interface TranscriptReplacement {
   fileName: string;
   text: string;
+  /** The transcript the question is about; null when it wasn't imported. */
+  importId: string | null;
 }
 
 export function TranscriptImportButton({
   variant,
   durationMs,
   hasReadyTranscript,
+  readyImportId,
   isImporting,
   onImport,
   replacement,
@@ -50,6 +55,7 @@ export function TranscriptImportButton({
   variant: "icon" | "button";
   durationMs?: number | null;
   hasReadyTranscript: boolean;
+  readyImportId: string | null;
   isImporting: boolean;
   /** Rejects when the import fails; the caller reports the failure. */
   onImport: (request: TranscriptImportRequest) => Promise<unknown>;
@@ -77,15 +83,21 @@ export function TranscriptImportButton({
     });
   }
 
-  async function submit(fileName: string, text: string, replace: boolean) {
+  async function submit(
+    file: { fileName: string; text: string },
+    replacing: { importId: string | null } | null,
+  ) {
     try {
-      await onImport({ text, replace });
+      await onImport({
+        text: file.text,
+        replace: replacing !== null,
+        ...(replacing ? { replaceImportId: replacing.importId } : {}),
+      });
     } catch (error) {
-      // A transcript became ready after this panel last loaded, so ask
-      // before replacing it, as for one that was ready all along.
-      if (!replace && isTranscriptExistsError(error)) {
-        onReplacementChange({ fileName, text });
-      }
+      // A transcript became ready, or another replaced the one the user
+      // agreed to, since this panel last loaded: ask about the one there now.
+      const inTheWay = transcriptInTheWay(error);
+      if (inTheWay) onReplacementChange({ ...file, ...inTheWay });
     }
   }
 
@@ -121,10 +133,14 @@ export function TranscriptImportButton({
       return;
     }
     if (hasReadyTranscript) {
-      onReplacementChange({ fileName: file.name, text });
+      onReplacementChange({
+        fileName: file.name,
+        text,
+        importId: readyImportId,
+      });
       return;
     }
-    await submit(file.name, text, false);
+    await submit({ fileName: file.name, text }, null);
   }
 
   const icon = isImporting ? (
@@ -203,7 +219,8 @@ export function TranscriptImportButton({
             <AlertDialogAction
               onClick={() => {
                 if (replacement) {
-                  void submit(replacement.fileName, replacement.text, true);
+                  const { importId, ...file } = replacement;
+                  void submit(file, { importId });
                 }
                 onReplacementChange(null);
               }}

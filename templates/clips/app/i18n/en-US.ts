@@ -576,6 +576,9 @@ const messages = {
     replaceTitle: "Replace transcript?",
     replaceDescription: "{{fileName}} will replace the current transcript.",
     replace: "Replace",
+    regenerateOverImportTitle: "Replace the imported transcript?",
+    regenerateOverImportDescription:
+      "A new transcript made from the recording's audio will replace the one imported from a file.",
     added: "Transcript added",
     replaced: "Transcript replaced",
     failed: "Couldn't add transcript",

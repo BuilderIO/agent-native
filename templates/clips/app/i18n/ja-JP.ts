@@ -654,6 +654,10 @@ const messages = {
     replaceDescription:
       "{{fileName}} で現在のトランスクリプトが置き換えられます。",
     replace: "置き換える",
+    regenerateOverImportTitle:
+      "インポートしたトランスクリプトを置き換えますか？",
+    regenerateOverImportDescription:
+      "録画の音声から作成した新しいトランスクリプトで、ファイルからインポートしたものが置き換えられます。",
     added: "トランスクリプトを追加しました",
     replaced: "トランスクリプトを置き換えました",
     failed: "トランスクリプトを追加できませんでした",

@@ -639,6 +639,9 @@ const messages = {
     replaceTitle: "스크립트를 교체할까요?",
     replaceDescription: "{{fileName}}이(가) 현재 스크립트를 대체합니다.",
     replace: "교체",
+    regenerateOverImportTitle: "가져온 스크립트를 교체할까요?",
+    regenerateOverImportDescription:
+      "녹화 오디오로 만든 새 스크립트가 파일에서 가져온 스크립트를 대체합니다.",
     added: "스크립트를 추가했습니다",
     replaced: "스크립트를 교체했습니다",
     failed: "스크립트를 추가하지 못했습니다",

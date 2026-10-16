@@ -77,7 +77,19 @@ async function readTranscript() {
     | undefined;
 }
 
-function run(args: { text: string; replace?: boolean; language?: string }) {
+async function currentImportId() {
+  const { rows } = await client.query(
+    "SELECT import_id FROM recording_transcripts WHERE recording_id = 'rec_1'",
+  );
+  return (rows[0] as { import_id: string | null }).import_id;
+}
+
+function run(args: {
+  text: string;
+  replace?: boolean;
+  replaceImportId?: string | null;
+  language?: string;
+}) {
   return (importTranscript as any).run({
     recordingId: "rec_1",
     replace: false,
@@ -177,6 +189,7 @@ describe("import-transcript", () => {
     await expect(run({ text: VTT })).rejects.toMatchObject({
       errorCode: "transcript_exists",
       statusCode: 409,
+      details: { source: "automatic", importId: null },
     });
     expect(await readTranscript()).toMatchObject({
       full_text: "Automatic words.",
@@ -189,21 +202,58 @@ describe("import-transcript", () => {
   });
 
   it("gives a re-import of the same file a new import id", async () => {
-    const importId = async () =>
-      (
-        await client.query(
-          "SELECT import_id FROM recording_transcripts WHERE recording_id = 'rec_1'",
-        )
-      ).rows[0] as { import_id: string | null };
-
     await run({ text: VTT });
-    const first = (await importId()).import_id;
-    await run({ text: VTT, replace: true });
-    const second = (await importId()).import_id;
+    const first = await currentImportId();
+    await run({ text: VTT, replace: true, replaceImportId: first });
+    const second = await currentImportId();
 
     expect(first).toEqual(expect.any(String));
     expect(second).toEqual(expect.any(String));
     expect(second).not.toBe(first);
+  });
+
+  it("replaces only the import the user agreed to replace", async () => {
+    await run({ text: "0:00 First import." });
+    const agreedTo = await currentImportId();
+    await run({
+      text: "0:00 Newer import.",
+      replace: true,
+      replaceImportId: agreedTo,
+    });
+    const newer = await currentImportId();
+
+    await expect(
+      run({ text: VTT, replace: true, replaceImportId: agreedTo }),
+    ).rejects.toMatchObject({
+      errorCode: "transcript_exists",
+      statusCode: 409,
+      details: { source: "imported", importId: newer },
+    });
+    expect(await readTranscript()).toMatchObject({
+      full_text: "Newer import.",
+    });
+
+    await run({ text: VTT, replace: true, replaceImportId: newer });
+    expect(await readTranscript()).toMatchObject({
+      full_text:
+        "This PR fixes three chart bugs. First, the axis labels overlapped.",
+    });
+  });
+
+  it("keeps an import that lands after the user agreed to replace an automatic transcript", async () => {
+    await insertTranscript({ status: "ready", fullText: "Automatic words." });
+    await run({ text: "0:00 Landed first.", replace: true });
+    const landed = await currentImportId();
+
+    await expect(
+      run({ text: VTT, replace: true, replaceImportId: null }),
+    ).rejects.toMatchObject({
+      errorCode: "transcript_exists",
+      details: { source: "imported", importId: landed },
+    });
+    expect(await readTranscript()).toMatchObject({
+      full_text: "Landed first.",
+    });
   });
 
   it("names the bad line and leaves the existing transcript untouched", async () => {
@@ -232,7 +282,12 @@ describe("import-transcript", () => {
     await run({ text: VTT.replace("WEBVTT", "WEBVTT\nLanguage: pt-BR") });
     expect(await readTranscript()).toMatchObject({ language: "pt-BR" });
 
-    await run({ text: VTT, replace: true, language: "es" });
+    await run({
+      text: VTT,
+      replace: true,
+      replaceImportId: await currentImportId(),
+      language: "es",
+    });
     expect(await readTranscript()).toMatchObject({ language: "es" });
   });
 

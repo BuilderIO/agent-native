@@ -114,7 +114,48 @@ describe("transcript file import", () => {
     )!;
     await act(async () => replace.click());
 
-    expect(onImport).toHaveBeenLastCalledWith({ text: VTT, replace: true });
+    expect(onImport).toHaveBeenLastCalledWith({
+      text: VTT,
+      replace: true,
+      replaceImportId: null,
+    });
+  });
+
+  it("asks again when another import replaced the one the user agreed to replace", async () => {
+    const onImport = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("conflict"), {
+          errorCode: "transcript_exists",
+          details: { source: "imported", importId: "import-2" },
+        }),
+      )
+      .mockResolvedValueOnce({});
+    render(onImport, { ...READY, transcriptImportId: "import-1" });
+    const confirm = () =>
+      act(async () =>
+        [...document.body.querySelectorAll("button")]
+          .find((button) => button.textContent === "transcriptImport.replace")!
+          .click(),
+      );
+
+    await pick(new File([VTT], "talk.vtt"));
+    await confirm();
+    expect(onImport).toHaveBeenLastCalledWith({
+      text: VTT,
+      replace: true,
+      replaceImportId: "import-1",
+    });
+    expect(document.body.textContent).toContain(
+      "transcriptImport.replaceDescription talk.vtt",
+    );
+
+    await confirm();
+    expect(onImport).toHaveBeenLastCalledWith({
+      text: VTT,
+      replace: true,
+      replaceImportId: "import-2",
+    });
   });
 
   it("does not ask to replace after any other failure", async () => {

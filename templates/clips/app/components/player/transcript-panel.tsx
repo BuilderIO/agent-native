@@ -68,6 +68,7 @@ export interface TranscriptPanelProps {
   onRegenerate?: () => void;
   isRegenerating?: boolean;
   transcriptSource?: string | null;
+  transcriptImportId?: string | null;
   onImportTranscript?: (request: TranscriptImportRequest) => Promise<unknown>;
   isImporting?: boolean;
 }
@@ -170,6 +171,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     onRegenerate,
     isRegenerating = false,
     transcriptSource,
+    transcriptImportId = null,
     onImportTranscript,
     isImporting = false,
   } = props;
@@ -257,6 +259,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         variant={variant}
         durationMs={durationMs}
         hasReadyTranscript={hasReadyTranscript}
+        readyImportId={transcriptImportId}
         isImporting={isImporting}
         onImport={onImportTranscript}
         replacement={importReplacement}

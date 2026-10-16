@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq, sql } from "drizzle-orm";
+import { eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -21,7 +21,7 @@ import { booleanParam } from "./lib/cli-params.js";
 
 export default defineAction({
   description:
-    "Import a transcript file for a recording instead of transcribing its audio: WebVTT, SRT, or timestamped text (a 0:21 or [0:21] start on each line or line pair, as copied from YouTube's transcript panel). Stores the file's own timings, labels the transcript as imported, and automatic transcription never replaces it. Importing over a ready transcript fails unless replace is true; ask the user before replacing. Leaves chapters alone; set those with set-chapters.",
+    "Import a transcript file for a recording instead of transcribing its audio: WebVTT, SRT, or timestamped text (a 0:21 or [0:21] start on each line or line pair, as copied from YouTube's transcript panel). Stores the file's own timings, labels the transcript as imported, and automatic transcription never replaces it. Importing over a ready transcript fails with transcript_exists; ask the user, then call again with replace: true and replaceImportId set to the error's details.importId. Leaves chapters alone; set those with set-chapters.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     text: z
@@ -44,6 +44,15 @@ export default defineAction({
     replace: booleanParam
       .default(false)
       .describe("Replace a transcript that is already ready."),
+    replaceImportId: z
+      .string()
+      .min(1)
+      .max(128)
+      .nullable()
+      .optional()
+      .describe(
+        "With replace: details.importId from the transcript_exists error, or transcript.importId from get-recording-player-data, for the transcript the user agreed to replace (null when it was not imported). A different transcript found there fails with transcript_exists again.",
+      ),
   }),
   run: async (args) => {
     await assertAccess("recording", args.recordingId, "editor");
@@ -100,9 +109,10 @@ export default defineAction({
       .from(t)
       .where(eq(t.recordingId, args.recordingId))
       .limit(1);
-    // The ready check sits in the upsert itself so a transcript that becomes
-    // ready between the read above and this write is still never replaced
-    // without `replace`.
+    // The checks sit in the upsert itself so a transcript that becomes ready
+    // between the read above and this write is never replaced without
+    // `replace`, and a confirmed replace never reaches a newer import.
+    const notReady = sql`NOT (${t.status} = 'ready' AND (TRIM(${t.fullText}) <> '' OR ${t.segmentsJson} <> '[]'))`;
     const written = await db
       .insert(t)
       .values({
@@ -113,20 +123,33 @@ export default defineAction({
       .onConflictDoUpdate({
         target: t.recordingId,
         set: values,
-        ...(args.replace
-          ? {}
-          : {
-              setWhere: sql`NOT (${t.status} = 'ready' AND (TRIM(${t.fullText}) <> '' OR ${t.segmentsJson} <> '[]'))`,
-            }),
+        setWhere: args.replace
+          ? or(
+              notReady,
+              args.replaceImportId
+                ? eq(t.importId, args.replaceImportId)
+                : isNull(t.importId),
+            )
+          : notReady,
       })
       .returning({ recordingId: t.recordingId });
     if (written.length === 0) {
+      const [current] = await db
+        .select({ source: t.source, importId: t.importId })
+        .from(t)
+        .where(eq(t.recordingId, args.recordingId))
+        .limit(1);
       fail(
-        "This recording already has a ready transcript. Ask the user before replacing it, then call again with replace: true.",
+        args.replace
+          ? "The transcript changed after the user agreed to replace it. Ask again, then call with replaceImportId set to details.importId."
+          : "This recording already has a ready transcript. Ask the user before replacing it, then call again with replace: true and replaceImportId set to details.importId.",
         {
           errorCode: TRANSCRIPT_EXISTS_ERROR_CODE,
           statusCode: 409,
-          details: { source: previous?.source ?? "automatic" },
+          details: {
+            source: current?.source ?? "automatic",
+            importId: current?.importId ?? null,
+          },
         },
       );
     }

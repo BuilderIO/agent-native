@@ -254,6 +254,20 @@ describe("parseTranscriptImport", () => {
     );
   });
 
+  it("cuts a cue that runs past the end of the video at the end", () => {
+    const result = parseTranscriptImport(
+      "WEBVTT\n\n00:30.000 --> 59:00.000\nlast\n\n01:00.500 --> 01:05.000\nafter",
+      { durationMs: 60_000 },
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 30_000, endMs: 60_000, text: "last" },
+        { startMs: 60_500, endMs: 60_501, text: "after" },
+      ],
+    });
+  });
+
   it("strips cue markup but keeps angle brackets that are prose", () => {
     const result = parseTranscriptImport(
       [

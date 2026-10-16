@@ -109,6 +109,7 @@ import {
 import { RecordingSidePanel } from "@/components/player/recording-side-panel";
 import { RecordingTagsBar } from "@/components/player/recording-tags-bar";
 import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
+import { useRegenerateTranscript } from "@/components/player/regenerate-transcript";
 import { ScreenshotEditor } from "@/components/player/screenshot-editor";
 import { ScreenshotStage } from "@/components/player/screenshot-stage";
 import { SettingsPanel } from "@/components/player/settings-panel";
@@ -1719,12 +1720,7 @@ export default function RecordingPage() {
           ? {
               action: {
                 label: t("transcriptPanel.regenerate"),
-                onClick: () =>
-                  requestTranscriptWithLifecycle({
-                    recordingId: recording!.id,
-                    force: true,
-                    regenerate: true,
-                  }),
+                onClick: () => regenerateTranscript(recording!.id),
               },
             }
           : retryKind === "remove-filler-words" ||
@@ -1763,6 +1759,7 @@ export default function RecordingPage() {
     recordingId: string;
     force?: boolean;
     regenerate?: boolean;
+    replaceImportId?: string | null;
   }) => {
     transcriptLifecycleRecordingIdRef.current = args.recordingId;
     transcriptLifecycleActiveRef.current = true;
@@ -1771,6 +1768,19 @@ export default function RecordingPage() {
     startTranscriptToast(t("transcriptPanel.transcribing"));
     requestTranscript.mutate(args as any);
   };
+  const {
+    regenerate: regenerateTranscript,
+    dialog: regenerateTranscriptDialog,
+  } = useRegenerateTranscript(
+    playerDataQ.data?.transcript?.importId,
+    ({ recordingId, replaceImportId }) =>
+      requestTranscriptWithLifecycle({
+        recordingId,
+        force: true,
+        regenerate: true,
+        replaceImportId,
+      }),
+  );
   const importTranscript = useActionMutation("import-transcript" as any, {
     onSuccess: (result: any) => {
       toast.success(
@@ -2549,23 +2559,20 @@ export default function RecordingPage() {
               }
               onRegenerate={
                 canEdit && transcriptStatus === "ready"
-                  ? () =>
-                      requestTranscriptWithLifecycle({
-                        recordingId: recording.id,
-                        force: true,
-                        regenerate: true,
-                      })
+                  ? () => regenerateTranscript(recording.id)
                   : undefined
               }
               isRegenerating={requestTranscript.isPending}
               transcriptSource={playerDataQ.data?.transcript?.source}
+              transcriptImportId={playerDataQ.data?.transcript?.importId}
               onImportTranscript={
                 canEdit
-                  ? ({ text, replace }) =>
+                  ? ({ text, replace, replaceImportId }) =>
                       importTranscript.mutateAsync({
                         recordingId: recording.id,
                         text,
                         replace,
+                        replaceImportId,
                       } as any)
                   : undefined
               }
@@ -2793,13 +2800,7 @@ export default function RecordingPage() {
                   <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
                     <DropdownMenuItem
                       disabled={requestTranscript.isPending}
-                      onSelect={() =>
-                        requestTranscriptWithLifecycle({
-                          recordingId: recording.id,
-                          force: true,
-                          regenerate: true,
-                        })
-                      }
+                      onSelect={() => regenerateTranscript(recording.id)}
                     >
                       {requestTranscript.isPending ? (
                         <Spinner className="size-4" />
@@ -3274,6 +3275,7 @@ export default function RecordingPage() {
           </RecordingSidePanel>
         ) : null}
       </Tabs>
+      {regenerateTranscriptDialog}
     </>
   );
 

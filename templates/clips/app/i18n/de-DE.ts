@@ -666,6 +666,9 @@ const messages = {
     replaceTitle: "Transkript ersetzen?",
     replaceDescription: "{{fileName}} ersetzt das aktuelle Transkript.",
     replace: "Ersetzen",
+    regenerateOverImportTitle: "Importiertes Transkript ersetzen?",
+    regenerateOverImportDescription:
+      "Ein neues Transkript aus dem Ton der Aufnahme ersetzt das aus einer Datei importierte.",
     added: "Transkript hinzugefügt",
     replaced: "Transkript ersetzt",
     failed: "Transkript konnte nicht hinzugefügt werden",

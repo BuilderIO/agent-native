@@ -654,6 +654,9 @@ const messages = {
     replaceTitle: "Substituir a transcrição?",
     replaceDescription: "{{fileName}} substituirá a transcrição atual.",
     replace: "Substituir",
+    regenerateOverImportTitle: "Substituir a transcrição importada?",
+    regenerateOverImportDescription:
+      "Uma nova transcrição feita a partir do áudio da gravação substituirá a importada de um arquivo.",
     added: "Transcrição adicionada",
     replaced: "Transcrição substituída",
     failed: "Não foi possível adicionar a transcrição",

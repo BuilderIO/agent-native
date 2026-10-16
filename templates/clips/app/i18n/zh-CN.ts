@@ -605,6 +605,9 @@ const messages = {
     replaceTitle: "替换文字记录？",
     replaceDescription: "{{fileName}} 将替换当前的文字记录。",
     replace: "替换",
+    regenerateOverImportTitle: "替换导入的文字记录？",
+    regenerateOverImportDescription:
+      "根据录制音频生成的新文字记录将替换从文件导入的文字记录。",
     added: "已添加文字记录",
     replaced: "已替换文字记录",
     failed: "无法添加文字记录",

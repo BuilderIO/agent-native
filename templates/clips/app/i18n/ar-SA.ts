@@ -636,6 +636,9 @@ const messages = {
     replaceTitle: "استبدال النص؟",
     replaceDescription: "سيحل {{fileName}} محل النص الحالي.",
     replace: "استبدال",
+    regenerateOverImportTitle: "استبدال النص المستورد؟",
+    regenerateOverImportDescription:
+      "سيحل نص جديد من صوت التسجيل محل النص المستورد من ملف.",
     added: "تمت إضافة النص",
     replaced: "تم استبدال النص",
     failed: "تعذّرت إضافة النص",

@@ -968,7 +968,16 @@ const requestTranscriptAction = defineAction({
       .boolean()
       .optional()
       .describe(
-        "Generate a fresh transcript from the recording media even when a ready transcript already exists. The existing ready transcript is kept if regeneration fails.",
+        'Generate a fresh transcript from the recording media even when a ready transcript already exists. The existing ready transcript is kept if regeneration fails. Regenerating replaces an imported transcript, so ask the user first when get-recording-player-data shows transcript.source "imported".',
+      ),
+    replaceImportId: z
+      .string()
+      .min(1)
+      .max(128)
+      .nullable()
+      .optional()
+      .describe(
+        "With regenerate: transcript.importId from get-recording-player-data for the transcript the user agreed to replace (null when it was not imported). A newer import is then kept. Omit to use the transcript current when the request is accepted.",
       ),
     retryAttempt: z
       .number()
@@ -989,6 +998,7 @@ const requestTranscriptAction = defineAction({
         .select({
           status: schema.recordingTranscripts.status,
           updatedAt: schema.recordingTranscripts.updatedAt,
+          importId: schema.recordingTranscripts.importId,
         })
         .from(schema.recordingTranscripts)
         .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -1011,7 +1021,17 @@ const requestTranscriptAction = defineAction({
       await dispatchPostFinalizeJob({
         recordingId: args.recordingId,
         kind: "transcript",
-        ...(args.regenerate ? { regenerate: true } : {}),
+        // Pinned now, not when the worker starts, so an import that lands
+        // while the job waits is not replaced.
+        ...(args.regenerate
+          ? {
+              regenerate: true,
+              replaceImportId:
+                args.replaceImportId !== undefined
+                  ? args.replaceImportId
+                  : (existingTranscript?.importId ?? null),
+            }
+          : {}),
       });
       return {
         recordingId: args.recordingId,
@@ -1078,6 +1098,15 @@ const requestTranscriptAction = defineAction({
       existingNativeTranscript?.status === "ready" &&
       existingNativeTranscript.fullText?.trim(),
     );
+    const regeneratingFrom: StartedFromTranscript | undefined =
+      regeneratingReadyTranscript
+        ? {
+            importId:
+              args.replaceImportId !== undefined
+                ? args.replaceImportId
+                : (existingNativeTranscript?.importId ?? null),
+          }
+        : undefined;
     if (args.retryAttempt !== undefined) {
       console.log(
         `[clips] auto-retry transcription attempt ${args.retryAttempt} for ${args.recordingId}`,
@@ -1181,9 +1210,7 @@ const requestTranscriptAction = defineAction({
           recording: rec,
           now,
           context,
-          replaceTranscript: regeneratingReadyTranscript
-            ? existingNativeTranscript
-            : undefined,
+          replaceTranscript: regeneratingFrom,
         });
       }
 
@@ -1275,9 +1302,7 @@ const requestTranscriptAction = defineAction({
             segmentsJson: JSON.stringify(normalizedTranscript.segments),
             fullText,
             now,
-            replaceTranscript: regeneratingReadyTranscript
-              ? existingNativeTranscript
-              : undefined,
+            replaceTranscript: regeneratingFrom,
           });
           if (kept) return kept;
           await writeAppState("refresh-signal", { ts: Date.now() });

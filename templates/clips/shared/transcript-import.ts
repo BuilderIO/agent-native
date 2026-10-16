@@ -16,6 +16,16 @@ export function isTranscriptExistsError(error: unknown): boolean {
   );
 }
 
+/** The transcript a `transcript_exists` error found in the way, else null. */
+export function transcriptInTheWay(
+  error: unknown,
+): { importId: string | null } | null {
+  if (!isTranscriptExistsError(error)) return null;
+  const importId = (error as { details?: { importId?: unknown } }).details
+    ?.importId;
+  return { importId: typeof importId === "string" ? importId : null };
+}
+
 // A start this far past the recorded duration means the file belongs to a
 // different video, not that the duration metadata rounded down.
 const PAST_END_TOLERANCE_MS = 1_000;
@@ -108,12 +118,11 @@ export function parseTranscriptImport(
       : parseCues(lines, format);
   if ("error" in parsed) return { ok: false, format, error: parsed.error };
 
-  const segments = parsed.segments;
-  if (segments.length === 0) {
+  if (parsed.segments.length === 0) {
     return { ok: false, format, error: { code: "empty", line: null } };
   }
   if (durationMs !== null) {
-    const pastEnd = segments.findIndex(
+    const pastEnd = parsed.segments.findIndex(
       (segment) => segment.startMs > durationMs + PAST_END_TOLERANCE_MS,
     );
     if (pastEnd >= 0) {
@@ -124,6 +133,16 @@ export function parseTranscriptImport(
       };
     }
   }
+  // Ends past the video are cut at its end. A cue that starts inside the
+  // tolerance keeps a 1 ms span, since a zero-length cue is dropped on read.
+  const segments =
+    durationMs === null
+      ? parsed.segments
+      : parsed.segments.map((segment) =>
+          segment.endMs > durationMs
+            ? { ...segment, endMs: Math.max(durationMs, segment.startMs + 1) }
+            : segment,
+        );
   return {
     ok: true,
     format,

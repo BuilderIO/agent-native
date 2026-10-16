@@ -144,13 +144,18 @@ the provider error. Retry with `request-transcript` and `force: true`.
 narration captions, a YouTube transcript), import it with `import-transcript`
 instead of transcribing: pass the file text as WebVTT, SRT, or timestamped text
 (`0:21` or `[0:21]` starting each line or line pair). The file's own timings are
-stored, except that a cue overlapping the next ends where the next starts, and
-the transcript's `source` is `imported`. Pass `language` (BCP 47) when you know
-it; otherwise a WebVTT `Language:` header is used, else `und`. Automatic
-transcription never replaces an imported transcript; `request-transcript` with
-`regenerate: true` does, so use it only when the user asks. Importing over a
-ready transcript fails with `transcript_exists` until you confirm with the user
-and pass `replace: true`. A malformed file fails with
+stored, except that a cue overlapping the next ends where the next starts and
+one running past the end of the video ends there. The transcript's `source` is
+`imported`. Pass `language` (BCP 47) when you know it; otherwise a WebVTT
+`Language:` header is used, else `und`. Automatic transcription never replaces
+an imported transcript; `request-transcript` with `regenerate: true` does, so
+ask the user first and pass `replaceImportId` set to `transcript.importId` from
+`get-recording-player-data`. Importing over a ready transcript fails with
+`transcript_exists`; ask the user, then call again with `replace: true` and
+`replaceImportId` set to the error's `details.importId`. If a different
+transcript took its place in the meantime, that call fails with
+`transcript_exists` again, naming the new one: ask again rather than retrying
+with the new ID. A malformed file fails with
 `transcript_import_invalid` naming the line, and the stored transcript is left
 as it was. Import leaves chapters alone; set them with `set-chapters`.
 
