@@ -12,7 +12,11 @@ import type { InferSelectModel } from "drizzle-orm";
 
 import { ensureDocumentFilesMembership } from "../../actions/_content-files.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
-import { canonicalizeNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
+import {
+  canonicalizeNotionNfm,
+  nfmToDoc,
+  type PMNode,
+} from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
 import { bodyRevisionForContent } from "./document-body-revision.js";
 import { nextDocumentUpdatedAt } from "./document-updated-at.js";
@@ -147,7 +151,7 @@ async function replaceDocumentFromExternal(args: {
 function hashContent(content: string | null | undefined): string {
   return crypto
     .createHash("sha256")
-    .update(canonicalizeNfm(content ?? ""))
+    .update(canonicalizeNotionNfm(content ?? ""))
     .digest("hex");
 }
 
