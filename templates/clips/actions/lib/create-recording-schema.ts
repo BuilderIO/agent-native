@@ -102,7 +102,7 @@ export const createRecordingSchema = z.object({
     .max(MAX_UPLOAD_BYTES)
     .optional()
     .describe(
-      "Size in bytes of a file uploaded whole, when known. On free hosted storage, a file over the hosted limit is refused before anything is reserved or created.",
+      "Size in bytes of a file uploaded whole, when known. On free hosted storage, a file over the hosted limit is refused before a hosted grant is reserved or the recording is created.",
     ),
   requestStreaming: z
     .boolean()

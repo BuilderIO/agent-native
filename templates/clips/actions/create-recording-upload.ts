@@ -18,7 +18,7 @@ import createRecording from "./create-recording.js";
 const MAX_UPLOAD_SIZE = formatUploadBytes(MAX_UPLOAD_BYTES, "down");
 
 export default defineAction({
-  description: `Upload a local video file to Clips. Creates the recording at the visibility you choose and returns a short-lived upload URL bound to that one recording, plus the steps to POST the file in chunks. The last chunk finalizes the clip; Clips then transcribes it and, when no title is given, titles it. Returns the share link. Files can be up to ${MAX_UPLOAD_SIZE} with connected video storage, but Clips' free hosted storage takes clips up to its own limit (250 MB by default; get-video-storage-status reports the current one as maxClipBytes). A larger file is refused before anything is created, with the limit that applies.`,
+  description: `Upload a local video file to Clips. Creates the recording at the visibility you choose and returns a short-lived upload URL bound to that one recording, plus the steps to POST the file in chunks. The last chunk finalizes the clip; Clips then transcribes it and, when no title is given, titles it. Returns the share link. Files can be up to ${MAX_UPLOAD_SIZE} with connected video storage, but Clips' free hosted storage takes clips up to its own limit (250 MB by default; get-video-storage-status reports the current one as maxClipBytes). A larger file is refused before the recording is created, with the limit that applies.`,
   // Advertised up front: an outside agent holding a file has no other way in,
   // and `mcpTool: true` would switch Clips to a connector tier that drops the
   // reads already listed here.
