@@ -78,7 +78,11 @@ export function isValidPanelEvent(value: unknown): value is PanelEvent {
 
 const zoneClocks = new Map<string, Intl.DateTimeFormat>();
 
-/** One formatter per zone: building one costs far more than formatting with it. */
+/**
+ * One formatter per zone: building one costs far more than formatting with it.
+ * Intl takes a zone in any letter case, so keep each under its canonical name;
+ * keyed by what a caller typed, validating input could grow this without end.
+ */
 function zoneClock(timeZone: string): Intl.DateTimeFormat {
   let clock = zoneClocks.get(timeZone);
   if (!clock) {
@@ -92,7 +96,7 @@ function zoneClock(timeZone: string): Intl.DateTimeFormat {
       minute: "2-digit",
       second: "2-digit",
     });
-    zoneClocks.set(timeZone, clock);
+    zoneClocks.set(clock.resolvedOptions().timeZone, clock);
   }
   return clock;
 }

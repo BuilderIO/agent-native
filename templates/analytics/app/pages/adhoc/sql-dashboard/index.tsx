@@ -2762,7 +2762,7 @@ function SqlDashboardPageContent({
   );
   return (
     <DashboardAnnotationsProvider
-      dashboardId={dashboardId}
+      dashboardId={loadedDashboardId}
       annotations={dashboard.annotations}
     >
       {content}
