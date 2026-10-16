@@ -552,6 +552,64 @@ describe("migration dependency selection", () => {
 });
 
 describe("runUpgrade", () => {
+  it("reports workspace enumeration failures before changing manifests", async () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: {
+        name: "ws",
+        private: true,
+        dependencies: { "@agent-native/core": "latest" },
+      },
+      apps: {
+        web: {
+          name: "web",
+          dependencies: { "@agent-native/dispatch": "file:../dispatch" },
+        },
+      },
+    });
+    const packagePath = path.join(root, "package.json");
+    const workspacePath = path.join(root, "pnpm-workspace.yaml");
+    const packageBefore = fs.readFileSync(packagePath, "utf-8");
+    const workspaceBefore = fs.readFileSync(workspacePath, "utf-8");
+    const readdirSync = fs.readdirSync;
+    vi.spyOn(fs, "readdirSync").mockImplementation(((
+      dir: fs.PathLike,
+      options?: unknown,
+    ) => {
+      if (path.resolve(String(dir)) === path.join(root, "apps")) {
+        throw new Error("EACCES: permission denied, scandir");
+      }
+      return readdirSync(dir, options as never);
+    }) as typeof fs.readdirSync);
+    const { io, out, err } = captureIo();
+
+    expect(
+      await runUpgrade(
+        [
+          "--cwd",
+          root,
+          "--skip-install",
+          "--skip-skills",
+          "--skip-verify",
+          "--json",
+        ],
+        io,
+      ),
+    ).toBe(1);
+
+    const result = JSON.parse(err.join("\n"));
+    expect(result).toMatchObject({
+      ok: false,
+      doctor: {
+        workspaceDiscoveryError: "EACCES: permission denied, scandir",
+      },
+      steps: [{ id: "doctor", status: "failed" }],
+    });
+    expect(out).toEqual([]);
+    expect(fs.readFileSync(packagePath, "utf-8")).toBe(packageBefore);
+    expect(fs.readFileSync(workspacePath, "utf-8")).toBe(workspaceBefore);
+  });
+
   it("check exits non-zero when overrides are present", async () => {
     const root = makeTempProject({
       rootPkg: {

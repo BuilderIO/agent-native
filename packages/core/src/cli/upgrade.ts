@@ -107,6 +107,7 @@ export interface UpgradeProject {
   root: string;
   kind: "standalone" | "workspace";
   packageFiles: string[];
+  workspaceDiscoveryError?: string;
 }
 
 export interface UpgradeDoctorReport {
@@ -114,6 +115,7 @@ export interface UpgradeDoctorReport {
   findings: FrameworkOverrideFinding[];
   bumps: AgentNativeDepBump[];
   unreadable: string[];
+  workspaceDiscoveryError: string | null;
   installedCoreVersion: string | null;
   cliCoreVersion: string | null;
   scaffoldStaleHint: boolean;
@@ -770,17 +772,24 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
       const unreadable = !read.ok && read.reason === "unreadable";
       if (hasCore || isWorkspace || unreadable) {
         const packageFiles = [pkgPath];
-        if (hasWorkspaceYaml) {
-          packageFiles.push(...workspacePackageFiles(dir, workspaceYaml));
-        } else if (workspacePatterns.length > 0) {
-          packageFiles.push(
-            ...workspacePackageFilesForPatterns(dir, workspacePatterns),
-          );
+        let workspaceDiscoveryError: string | undefined;
+        try {
+          if (hasWorkspaceYaml) {
+            packageFiles.push(...workspacePackageFiles(dir, workspaceYaml));
+          } else if (workspacePatterns.length > 0) {
+            packageFiles.push(
+              ...workspacePackageFilesForPatterns(dir, workspacePatterns),
+            );
+          }
+        } catch (error) {
+          workspaceDiscoveryError =
+            error instanceof Error ? error.message : String(error);
         }
         return {
           root: dir,
           kind: isWorkspace ? "workspace" : "standalone",
           packageFiles: Array.from(new Set(packageFiles)),
+          workspaceDiscoveryError,
         };
       }
     }
@@ -1015,6 +1024,7 @@ export function buildUpgradeDoctorReport(
     findings,
     bumps,
     unreadable,
+    workspaceDiscoveryError: project.workspaceDiscoveryError ?? null,
     installedCoreVersion,
     cliCoreVersion,
     scaffoldStaleHint: skillsUpdateScript || bumps.length > 0,
@@ -1042,6 +1052,10 @@ function formatDoctorHuman(report: UpgradeDoctorReport): string {
     for (const entry of report.unreadable) {
       lines.push(`  - ${entry}`);
     }
+  }
+  if (report.workspaceDiscoveryError) {
+    lines.push("Workspace package discovery failed (members not checked):");
+    lines.push(`  - ${report.workspaceDiscoveryError}`);
   }
   if (report.findings.length === 0) {
     lines.push("Framework overrides/patches: none");
@@ -1112,13 +1126,15 @@ export async function runUpgrade(
 
   const doctor = buildUpgradeDoctorReport(project);
   const doctorOk =
-    doctor.findings.length === 0 && doctor.unreadable.length === 0;
+    doctor.findings.length === 0 &&
+    doctor.unreadable.length === 0 &&
+    doctor.workspaceDiscoveryError === null;
   if (opts.command === "check") {
     if (opts.json) {
       io.log(JSON.stringify({ ok: doctorOk, doctor }, null, 2));
     } else {
       io.log(formatDoctorHuman(doctor));
-      if (doctor.findings.length > 0) {
+      if (doctor.findings.length > 0 || doctor.workspaceDiscoveryError) {
         io.err("");
         io.err(FAILURE_GUIDANCE);
       }
@@ -1140,6 +1156,19 @@ export async function runUpgrade(
     result.ok = false;
     result.exitCode = 1;
     result.message = `Blocked: these package.json files could not be parsed, so their overrides and @agent-native/* specs were never checked: ${doctor.unreadable.join("; ")}`;
+    result.steps.push({
+      id: "doctor",
+      status: "failed",
+      detail: result.message,
+    });
+    emitResult(io, opts, result);
+    return result.exitCode;
+  }
+
+  if (doctor.workspaceDiscoveryError) {
+    result.ok = false;
+    result.exitCode = 1;
+    result.message = `Blocked: workspace packages could not be enumerated, so their overrides and @agent-native/* specs were never checked: ${doctor.workspaceDiscoveryError}`;
     result.steps.push({
       id: "doctor",
       status: "failed",
