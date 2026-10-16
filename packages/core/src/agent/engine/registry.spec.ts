@@ -105,7 +105,6 @@ describe("AgentEngine registry", () => {
     vi.mocked(builderOAuth.resolveBuilderOAuthRequestAccess).mockResolvedValue(
       null,
     );
-    vi.doUnmock("../../settings/index.js");
     vi.doUnmock("../../settings/store.js");
     vi.doUnmock("../../settings/user-settings.js");
     vi.doUnmock("../../server/credential-provider.js");
@@ -645,40 +644,29 @@ describe("AgentEngine registry", () => {
     });
 
     it("prefers a current app default model over the global model", async () => {
-      const getUserSetting = vi.fn(async (email: string, key: string) =>
-        email === "owner@example.com" &&
-        key === "agent-app-model-default:analytics"
-          ? { engine: "builder", model: "gemini-3-1-pro" }
-          : null,
-      );
-      vi.doMock("../../server/request-context.js", () => ({
-        getRequestContext: () => ({ orgScope: "personal" }),
-        getRequestUserEmail: () => "owner@example.com",
-        getRequestOrgId: () => undefined,
-      }));
-      vi.doMock("../../settings/index.js", async (importOriginal) => ({
-        ...(await importOriginal<typeof import("../../settings/index.js")>()),
-        getUserSetting,
-      }));
-      vi.doMock("../../settings/user-settings.js", () => ({
-        getUserSetting,
-      }));
+      const getSetting = vi.fn(async (key: string) => {
+        if (key === "u:owner@example.com:agent-app-model-default:analytics") {
+          return { engine: "builder", model: "gemini-3-1-pro" };
+        }
+        if (key === "agent-engine") {
+          return { engine: "builder", model: "claude-sonnet-5" };
+        }
+        return null;
+      });
       vi.doMock("../../settings/store.js", async (importOriginal) => ({
         ...(await importOriginal<typeof import("../../settings/store.js")>()),
-        getSetting: vi.fn(async (key: string) =>
-          key === "agent-engine"
-            ? { engine: "builder", model: "claude-sonnet-5" }
-            : null,
-        ),
+        getSetting,
       }));
       const { getStoredModelForEngine } = await import("./registry.js");
+      const { runWithRequestContext } =
+        await import("../../server/request-context.js");
 
-      const model = await getStoredModelForEngine("builder", {
-        appId: "analytics",
-      });
-      expect(getUserSetting).toHaveBeenCalledWith(
-        "owner@example.com",
-        "agent-app-model-default:analytics",
+      const model = await runWithRequestContext(
+        { userEmail: "owner@example.com", orgScope: "personal" },
+        () => getStoredModelForEngine("builder", { appId: "analytics" }),
+      );
+      expect(getSetting).toHaveBeenCalledWith(
+        "u:owner@example.com:agent-app-model-default:analytics",
       );
       expect(model).toBe("gemini-3-1-pro");
     });

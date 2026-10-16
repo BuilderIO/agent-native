@@ -255,7 +255,9 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
   const { records, storage } = memoryStorage();
   setActionQueryCacheStorage(storage);
   const nextBobFetch = deferred<Response>();
+  const nextBobHeldFetch = deferred<Response>();
   let privateRequestCount = 0;
+  let bobHeldRequestCount = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const action =
       new URL(String(input), "http://localhost").pathname.split("/").at(-1) ??
@@ -265,6 +267,10 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
       if (privateRequestCount === 1)
         return singleActionResponse(action, true, "Alice private data denied");
       return nextBobFetch.promise;
+    }
+    if (action === "list-designs") {
+      bobHeldRequestCount += 1;
+      return nextBobHeldFetch.promise;
     }
     return singleActionResponse(action, false, "");
   });
@@ -298,6 +304,7 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
   await expect
     .poll(() => snapshots.some((snapshot) => snapshot.userId === USER_B.userId))
     .toBe(true);
+  await expect.poll(() => bobHeldRequestCount).toBe(1);
   const bobBeforeFetch = snapshots
     .slice(bobStart)
     .filter((snapshot) => snapshot.userId === USER_B.userId);
@@ -335,6 +342,18 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
   await expect
     .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
     .toBe("bob-private");
+  expect(records.has(SCOPE_B)).toBe(false);
+  await act(async () =>
+    nextBobHeldFetch.resolve(
+      new Response(JSON.stringify({ designs: [{ title: "fresh for Bob" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
+  );
+  await expect
+    .poll(() => container?.querySelector('[data-testid="held"]')?.textContent)
+    .toBe("fresh for Bob");
   expect(records.has(SCOPE_B)).toBe(false);
 });
 
