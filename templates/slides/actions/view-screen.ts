@@ -376,6 +376,12 @@ export default defineAction({
           style?: Record<string, unknown>;
         }>;
       } | null;
+      const openPanel = (await readAppStateForCurrentTab("slides-open-panel", {
+        fallbackToGlobal: false,
+      })) as { slideId?: string; panel?: string | null } | null;
+      if (openPanel?.panel && openPanel.slideId === currentSlide?.id) {
+        lines.push(`openPanel: ${openPanel.panel}`);
+      }
       const selectionSlide =
         selection?.slideId &&
         (selection.deckId ? selection.deckId === rows[0].id : true)

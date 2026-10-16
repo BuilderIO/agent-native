@@ -24,7 +24,20 @@ import {
   IconBoxMultiple,
   IconBorderRadius,
   IconBorderStyle,
+  IconBold,
+  IconCode,
   IconDots,
+  IconLanguage,
+  IconLayersSubtract,
+  IconLineHeight,
+  IconLink,
+  IconPencil,
+  IconPhotoPlus,
+  IconPointer,
+  IconReplace,
+  IconSparkles,
+  IconStrikethrough,
+  IconWand,
   IconGridDots,
   IconItalic,
   IconMessageCircle,
@@ -57,6 +70,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -69,6 +83,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { ContextToolbarQuickPick } from "@/lib/editor-agent-handoff";
 import type { VideoPlaybackSettings } from "@/lib/slide-video";
 import { cn, shortcutLabel } from "@/lib/utils";
 
@@ -171,6 +186,18 @@ export function SlideContextToolbar({
   videoPlayback,
   onVideoPlaybackChange,
   zoomControls,
+  drawMode = false,
+  onToggleDrawMode,
+  layersOpen = false,
+  onToggleLayers,
+  imageFit,
+  onReplaceImage,
+  onToggleImageFit,
+  inlineFormatting = false,
+  onTextFormat,
+  onSetLink,
+  onOpenAgent,
+  onAgentQuickPick,
 }: {
   snapshot: SlideStyleSnapshot | null;
   background: string | undefined;
@@ -197,6 +224,19 @@ export function SlideContextToolbar({
   onDistributeObjects?: (distribution: SlideObjectDistribution) => void;
   videoPlayback?: VideoPlaybackSettings | null;
   onVideoPlaybackChange?: (settings: VideoPlaybackSettings) => void;
+  drawMode?: boolean;
+  onToggleDrawMode?: () => void;
+  layersOpen?: boolean;
+  onToggleLayers?: () => void;
+  imageFit?: "cover" | "contain";
+  onReplaceImage?: () => void;
+  onToggleImageFit?: () => void;
+  /** Code and link only exist inside a live text edit. */
+  inlineFormatting?: boolean;
+  onTextFormat?: (format: "code") => void;
+  onSetLink?: (href: string | null) => void;
+  onOpenAgent?: () => void;
+  onAgentQuickPick?: (pick: ContextToolbarQuickPick) => void;
   zoomControls?: {
     value: number;
     onZoomOut: () => void;
@@ -209,6 +249,7 @@ export function SlideContextToolbar({
   // The field holds what was typed until the object paints it; a refused
   // rotation never will, so the field starts over from what the object paints.
   const [refusedRotations, setRefusedRotations] = useState(0);
+  const [linkHref, setLinkHref] = useState("");
   const documentColors = tokenPalette(designSystem, t).map(
     (option) => option.value,
   );
@@ -254,20 +295,85 @@ export function SlideContextToolbar({
   const decorationMixed = mixedTextStyles.includes("textDecoration");
   const isUnderline =
     !decorationMixed && (snapshot?.textDecoration ?? "").includes("underline");
-  const underlinePatch = () => {
-    if (decorationMixed) return "underline";
+  const isStrike =
+    !decorationMixed &&
+    (snapshot?.textDecoration ?? "").includes("line-through");
+  const decorationPatch = (
+    token: "underline" | "line-through",
+    on: boolean,
+  ) => {
+    if (decorationMixed) return token;
     const tokens = (snapshot?.textDecoration ?? "")
       .split(/\s+/)
-      .filter((token) => token && token !== "none");
-    const next = isUnderline
-      ? tokens.filter((token) => token !== "underline")
-      : [...tokens, "underline"];
+      .filter((existing) => existing && existing !== "none");
+    const next = on
+      ? tokens.filter((existing) => existing !== token)
+      : [...tokens, token];
     return next.length > 0 ? next.join(" ") : "none";
   };
+  const underlinePatch = () => decorationPatch("underline", isUnderline);
+  const isBold =
+    !mixedTextStyles.includes("fontWeight") &&
+    Number(snapshot?.fontWeight ?? 400) >= 600;
   const slideBackground = backgroundCssValue(background);
   const hasMultiObjectSelection = objectSelectionCount >= 2;
   const canDistributeObjects = objectSelectionCount >= 3;
   const isVideoSelection = snapshot?.tagName?.toLowerCase() === "video";
+  const isDefaultState =
+    !snapshot && !hasSelectedElement && !hasMultiObjectSelection;
+  const agentKind = hasMultiObjectSelection
+    ? "multi"
+    : !snapshot
+      ? null
+      : snapshot.isText
+        ? "text"
+        : isVideoSelection
+          ? "video"
+          : snapshot.isImage
+            ? "image"
+            : "shape";
+  const quickPicks: {
+    pick: ContextToolbarQuickPick;
+    label: string;
+    icon: typeof IconSparkles;
+  }[] =
+    agentKind === "text"
+      ? [
+          {
+            pick: "tightenTone",
+            label: t("contextToolbar.tightenTone"),
+            icon: IconWand,
+          },
+          {
+            pick: "polish",
+            label: t("contextToolbar.polish"),
+            icon: IconSparkles,
+          },
+          {
+            pick: "translate",
+            label: t("contextToolbar.translate"),
+            icon: IconLanguage,
+          },
+          {
+            pick: "makeMoreVisual",
+            label: t("contextToolbar.makeMoreVisual"),
+            icon: IconPhotoPlus,
+          },
+        ]
+      : agentKind === "image"
+        ? [
+            {
+              pick: "generateImage",
+              label: t("contextToolbar.generateImage"),
+              icon: IconPhotoPlus,
+            },
+            {
+              pick: "removeBackground",
+              label: t("contextToolbar.removeBackground"),
+              icon: IconWand,
+            },
+          ]
+        : [];
 
   return (
     <div
@@ -279,9 +385,62 @@ export function SlideContextToolbar({
       role="toolbar"
       aria-label={t("styleInspector.title")}
     >
-      {leading && (
+      {isDefaultState && onToggleDrawMode && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  MENU_BUTTON_CLASS,
+                  !drawMode && TOGGLE_ACTIVE_CLASS,
+                )}
+                aria-label={t("contextToolbar.select")}
+                aria-pressed={!drawMode}
+                onClick={() => drawMode && onToggleDrawMode()}
+              >
+                <IconPointer className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("contextToolbar.select")}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  MENU_BUTTON_CLASS,
+                  drawMode && TOGGLE_ACTIVE_CLASS,
+                )}
+                aria-label={t("contextToolbar.pen")}
+                aria-pressed={drawMode}
+                onClick={() => !drawMode && onToggleDrawMode()}
+              >
+                <IconPencil className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("contextToolbar.pen")}</TooltipContent>
+          </Tooltip>
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {leading && isDefaultState && (
         <>
           {leading}
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {hasMultiObjectSelection && (
+        <>
+          <span className="shrink-0 px-1 text-xs font-medium text-foreground">
+            {t("contextToolbar.objectsSelected", {
+              count: objectSelectionCount,
+            })}
+          </span>
           <div className={TOOLBAR_DIVIDER} />
         </>
       )}
@@ -607,6 +766,30 @@ export function SlideContextToolbar({
                     size="icon"
                     className={cn(
                       MENU_BUTTON_CLASS,
+                      isBold && TOGGLE_ACTIVE_CLASS,
+                    )}
+                    aria-label={t("contextToolbar.bold")}
+                    aria-pressed={isBold}
+                    onClick={() =>
+                      onChange({ fontWeight: isBold ? "400" : "700" })
+                    }
+                  >
+                    <IconBold className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {`${t("contextToolbar.bold")} (${shortcutLabel("cmd+b")})`}
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      MENU_BUTTON_CLASS,
                       isItalic && TOGGLE_ACTIVE_CLASS,
                     )}
                     aria-label={t("styleInspector.italic")}
@@ -646,6 +829,54 @@ export function SlideContextToolbar({
                   {`${t("styleInspector.underline")} (${shortcutLabel("cmd+u")})`}
                 </TooltipContent>
               </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      MENU_BUTTON_CLASS,
+                      isStrike && TOGGLE_ACTIVE_CLASS,
+                    )}
+                    aria-label={t("contextToolbar.strikethrough")}
+                    aria-pressed={isStrike}
+                    onClick={() =>
+                      onChange({
+                        textDecoration: decorationPatch(
+                          "line-through",
+                          isStrike,
+                        ),
+                      })
+                    }
+                  >
+                    <IconStrikethrough className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("contextToolbar.strikethrough")}
+                </TooltipContent>
+              </Tooltip>
+
+              {onTextFormat && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className={MENU_BUTTON_CLASS}
+                      aria-label={t("contextToolbar.code")}
+                      disabled={!inlineFormatting}
+                      onClick={() => onTextFormat("code")}
+                    >
+                      <IconCode className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("contextToolbar.code")}</TooltipContent>
+                </Tooltip>
+              )}
 
               <VisualColorPicker
                 label={t("styleInspector.textColor")}
@@ -745,15 +976,228 @@ export function SlideContextToolbar({
                   </Tooltip>
                 </>
               )}
+
+              <Popover>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={MENU_BUTTON_CLASS}
+                        aria-label={t("contextToolbar.lineHeight")}
+                      >
+                        <IconLineHeight className="size-4" />
+                      </Button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("contextToolbar.lineHeight")}
+                  </TooltipContent>
+                </Tooltip>
+                <PopoverContent
+                  align="start"
+                  className="w-44 p-2"
+                  {...inlineEditSurfaceProps}
+                >
+                  <VisualScrubInput
+                    label={t("styleInspector.line")}
+                    icon={IconLineHeight}
+                    prefix="icon"
+                    value={snapshot.lineHeight}
+                    min={0.8}
+                    max={3}
+                    step={0.05}
+                    onChange={(lineHeight) =>
+                      onChange({ lineHeight: formatValue(lineHeight) })
+                    }
+                  />
+                </PopoverContent>
+              </Popover>
+
+              {onSetLink && (
+                <Popover>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className={MENU_BUTTON_CLASS}
+                          aria-label={t("contextToolbar.link")}
+                          disabled={!inlineFormatting}
+                        >
+                          <IconLink className="size-4" />
+                        </Button>
+                      </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("contextToolbar.link")}</TooltipContent>
+                  </Tooltip>
+                  <PopoverContent
+                    align="start"
+                    className="w-64 p-2"
+                    {...inlineEditSurfaceProps}
+                  >
+                    <form
+                      className="flex items-center gap-1"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        onSetLink(linkHref.trim() || null);
+                      }}
+                    >
+                      <Input
+                        value={linkHref}
+                        onChange={(event) => setLinkHref(event.target.value)}
+                        placeholder="https://"
+                        aria-label={t("contextToolbar.link")}
+                        className="h-7 text-xs"
+                      />
+                      <Button
+                        type="submit"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                      >
+                        {t("contextToolbar.applyLink")}
+                      </Button>
+                    </form>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </>
+          ) : hasMultiObjectSelection ? (
+            <>
+              <VisualScrubInput
+                label={t("styleInspector.opacity")}
+                icon={IconGridDots}
+                prefix="icon"
+                value={snapshot.opacity}
+                min={0}
+                max={100}
+                step={5}
+                unit="%"
+                className={SCRUB_CLASS}
+                onChange={(opacity) =>
+                  onChange({ opacity: String(opacity / 100) })
+                }
+              />
+            </>
+          ) : isVideoSelection ? (
+            <>
+              <VisualScrubInput
+                label={t("styleInspector.width")}
+                icon={IconArrowAutofitWidth}
+                prefix="icon"
+                value={snapshot.width}
+                min={0}
+                unit="px"
+                className={SCRUB_CLASS}
+                onChange={(width) =>
+                  onChange({ width: `${formatValue(width)}px` })
+                }
+              />
+              <VisualScrubInput
+                label={t("styleInspector.height")}
+                icon={IconArrowAutofitHeight}
+                prefix="icon"
+                value={snapshot.height}
+                min={0}
+                unit="px"
+                className={SCRUB_CLASS}
+                onChange={(height) =>
+                  onChange({ height: `${formatValue(height)}px` })
+                }
+              />
+              <VisualScrubInput
+                label={t("styleInspector.opacity")}
+                icon={IconGridDots}
+                prefix="icon"
+                value={snapshot.opacity}
+                min={0}
+                max={100}
+                step={5}
+                unit="%"
+                className={SCRUB_CLASS}
+                onChange={(opacity) =>
+                  onChange({ opacity: String(opacity / 100) })
+                }
+              />
+              <VisualScrubInput
+                label={t("styleInspector.cornerRadius")}
+                icon={IconBorderRadius}
+                prefix="icon"
+                value={snapshot.borderRadius}
+                min={0}
+                max={96}
+                unit="px"
+                className={SCRUB_CLASS}
+                onChange={(radius) =>
+                  onChange({ borderRadius: `${formatValue(radius)}px` })
+                }
+              />
+            </>
+          ) : snapshot.isImage ? (
+            <>
+              {onReplaceImage && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+                  onClick={onReplaceImage}
+                >
+                  <IconReplace className="size-3.5" />
+                  {t("contextToolbar.replaceImage")}
+                </Button>
+              )}
+              {onToggleImageFit && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 shrink-0 px-2 text-xs"
+                  aria-label={t("contextToolbar.fit")}
+                  onClick={onToggleImageFit}
+                >
+                  {imageFit === "contain"
+                    ? t("contextToolbar.fitContain")
+                    : t("contextToolbar.fitCover")}
+                </Button>
+              )}
+              <div className={TOOLBAR_DIVIDER} />
+              <VisualScrubInput
+                label={t("styleInspector.opacity")}
+                icon={IconGridDots}
+                prefix="icon"
+                value={snapshot.opacity}
+                min={0}
+                max={100}
+                step={5}
+                unit="%"
+                className={SCRUB_CLASS}
+                onChange={(opacity) =>
+                  onChange({ opacity: String(opacity / 100) })
+                }
+              />
+              <VisualScrubInput
+                label={t("styleInspector.cornerRadius")}
+                icon={IconBorderRadius}
+                prefix="icon"
+                value={snapshot.borderRadius}
+                min={0}
+                max={96}
+                unit="px"
+                className={SCRUB_CLASS}
+                onChange={(radius) =>
+                  onChange({ borderRadius: `${formatValue(radius)}px` })
+                }
+              />
             </>
           ) : (
             <>
               <VisualColorPicker
-                label={
-                  snapshot.isImage
-                    ? t("styleInspector.tint")
-                    : t("styleInspector.fill")
-                }
+                label={t("styleInspector.fill")}
                 value={snapshot.backgroundColor}
                 documentColors={documentColors}
                 allowTransparent
@@ -1196,9 +1640,83 @@ export function SlideContextToolbar({
             </Tooltip>
           </>
         )}
+      {agentKind && onOpenAgent && (
+        <>
+          <div className={TOOLBAR_DIVIDER} />
+          {quickPicks.length > 0 && onAgentQuickPick ? (
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (open) onOpenAgent();
+              }}
+            >
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+                >
+                  <IconSparkles className="size-3.5" />
+                  {t("contextToolbar.editWithAgent")}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="w-48"
+                {...inlineEditSurfaceProps}
+              >
+                {quickPicks.map(({ pick, label, icon: PickIcon }) => (
+                  <DropdownMenuItem
+                    key={pick}
+                    onSelect={() => onAgentQuickPick(pick)}
+                  >
+                    <PickIcon className="size-4" />
+                    {label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+              onClick={onOpenAgent}
+            >
+              <IconSparkles className="size-3.5" />
+              {t("contextToolbar.editWithAgent")}
+            </Button>
+          )}
+        </>
+      )}
+      {(onToggleLayers || zoomControls) && (
+        <div className={cn(TOOLBAR_DIVIDER, "ml-auto")} />
+      )}
+      {onToggleLayers && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn(
+                MENU_BUTTON_CLASS,
+                layersOpen && TOGGLE_ACTIVE_CLASS,
+              )}
+              aria-label={t("editorToolbar.layers")}
+              aria-pressed={layersOpen}
+              onClick={onToggleLayers}
+            >
+              <IconLayersSubtract className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("editorToolbar.layers")}</TooltipContent>
+        </Tooltip>
+      )}
       {zoomControls && (
         <>
-          <div className={cn(TOOLBAR_DIVIDER, "ml-auto")} />
+          <div className={TOOLBAR_DIVIDER} />
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

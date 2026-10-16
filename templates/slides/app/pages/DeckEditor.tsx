@@ -5767,6 +5767,8 @@ export default function DeckEditor() {
             onComment={openCommentComposer}
             drawMode={drawMode}
             onExitDrawMode={() => setDrawMode(false)}
+            onToggleDrawMode={toggleDrawMode}
+            onToggleLayers={toggleLayers}
             pinMode={pinMode}
             onExitPinMode={() => setPinMode(false)}
             textBoxMode={textBoxMode}
