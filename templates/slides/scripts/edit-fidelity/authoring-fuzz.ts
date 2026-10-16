@@ -663,6 +663,8 @@ type OutgoingBrowserSessionNavigationAbort = {
   requestSequence: number;
   mainFrameNavigationRequestSequence: number | null;
   requestStartedBeforeMainFrameCommit: boolean;
+  requestStartedDuringNavigation: boolean;
+  requestStartedBeforeReloadCommit: boolean;
   requestFailedAt: number;
   requestKind: "poll" | "heartbeat" | null;
   requestSessionId: string | null;
@@ -740,7 +742,7 @@ export function isCompetingOutgoingBrowserSessionRequest(
   );
 }
 
-export function isExpectedOutgoingBrowserSessionNavigationAbort(
+function matchesOutgoingBrowserSessionAbortRequest(
   candidate: OutgoingBrowserSessionNavigationAbort,
 ) {
   const routeMatchesKind =
@@ -755,10 +757,6 @@ export function isExpectedOutgoingBrowserSessionNavigationAbort(
           candidate.requestSessionId,
           candidate.retiredSessionId,
         )));
-  const navigationOffsetMs =
-    candidate.mainFrameNavigationStartedAt === null
-      ? Number.POSITIVE_INFINITY
-      : candidate.requestStartedAt - candidate.mainFrameNavigationStartedAt;
   const failureOffsetMs =
     candidate.requestFailedAt - candidate.requestStartedAt;
 
@@ -774,17 +772,56 @@ export function isExpectedOutgoingBrowserSessionNavigationAbort(
     normalizeDocumentUrl(candidate.requestFrameUrl) !== null &&
     normalizeDocumentUrl(candidate.requestFrameUrl) ===
       normalizeDocumentUrl(candidate.outgoingDocumentUrl) &&
-    navigationOffsetMs >= 0 &&
-    navigationOffsetMs < outgoingBrowserSessionAbortWindowMs &&
-    candidate.mainFrameNavigationRequestSequence !== null &&
-    candidate.requestSequence > candidate.mainFrameNavigationRequestSequence &&
-    candidate.requestStartedBeforeMainFrameCommit &&
     failureOffsetMs >= 0 &&
     failureOffsetMs < outgoingBrowserSessionAbortWindowMs &&
     candidate.requestSessionId !== null &&
     candidate.requestSessionId === candidate.retiredSessionId &&
     routeMatchesKind &&
     candidate.competingSameTypeRequest === false
+  );
+}
+
+export function isPendingOutgoingBrowserSessionNavigationAbort(
+  candidate: OutgoingBrowserSessionNavigationAbort,
+) {
+  return (
+    matchesOutgoingBrowserSessionAbortRequest(candidate) &&
+    candidate.mainFrameNavigationStartedAt === null &&
+    candidate.mainFrameNavigationRequestSequence === null &&
+    candidate.requestStartedDuringNavigation &&
+    candidate.requestStartedBeforeReloadCommit
+  );
+}
+
+export function isExpectedOutgoingBrowserSessionNavigationAbort(
+  candidate: OutgoingBrowserSessionNavigationAbort,
+) {
+  const navigationOffsetMs =
+    candidate.mainFrameNavigationStartedAt === null
+      ? Number.POSITIVE_INFINITY
+      : candidate.requestStartedAt - candidate.mainFrameNavigationStartedAt;
+  const failureAfterNavigationStartMs =
+    candidate.mainFrameNavigationStartedAt === null
+      ? Number.NEGATIVE_INFINITY
+      : candidate.requestFailedAt - candidate.mainFrameNavigationStartedAt;
+  const requestStartedBeforeNavigationRequest =
+    candidate.mainFrameNavigationRequestSequence !== null &&
+    candidate.mainFrameNavigationStartedAt !== null &&
+    candidate.requestSequence < candidate.mainFrameNavigationRequestSequence &&
+    candidate.requestStartedDuringNavigation &&
+    candidate.requestStartedBeforeReloadCommit &&
+    failureAfterNavigationStartMs >= 0 &&
+    failureAfterNavigationStartMs < outgoingBrowserSessionAbortWindowMs;
+  const requestStartedAfterNavigationRequest =
+    candidate.mainFrameNavigationRequestSequence !== null &&
+    candidate.requestSequence > candidate.mainFrameNavigationRequestSequence &&
+    candidate.requestStartedBeforeMainFrameCommit &&
+    navigationOffsetMs >= 0 &&
+    navigationOffsetMs < outgoingBrowserSessionAbortWindowMs;
+  return (
+    matchesOutgoingBrowserSessionAbortRequest(candidate) &&
+    (requestStartedBeforeNavigationRequest ||
+      requestStartedAfterNavigationRequest)
   );
 }
 
@@ -2454,6 +2491,9 @@ export async function runAuthoringFuzz(
       candidate.mainFrameNavigationRequestSequence,
     requestStartedBeforeMainFrameCommit:
       candidate.requestStartedBeforeMainFrameCommit,
+    requestStartedDuringNavigation: candidate.requestStartedDuringNavigation,
+    requestStartedBeforeReloadCommit:
+      candidate.requestStartedBeforeReloadCommit,
     requestFailedAt,
     requestKind: candidate.outgoingRequestKind,
     requestSessionId: candidate.requestSessionId,
@@ -2754,7 +2794,10 @@ export async function runAuthoringFuzz(
         failedAt,
         errorText,
       );
-      if (isExpectedOutgoingBrowserSessionNavigationAbort(facts)) {
+      if (
+        isExpectedOutgoingBrowserSessionNavigationAbort(facts) ||
+        isPendingOutgoingBrowserSessionNavigationAbort(facts)
+      ) {
         navigationCandidate.failureAt = failedAt;
         navigationCandidate.failureText = errorText;
         navigationCandidate.pendingOutgoingAbort = true;
@@ -2828,6 +2871,17 @@ export async function runAuthoringFuzz(
       mainFrameNavigationStartedAt = startedAt;
       mainFrameNavigationRequestSequence = requestSequence;
       mainFrameNavigationCommittedAt = null;
+      for (const candidate of reloadNavigationRequests.values()) {
+        if (
+          candidate.mainFrameNavigationRequestSequence === null &&
+          candidate.mainFrameNavigationStartedAt === null &&
+          candidate.requestStartedDuringNavigation &&
+          candidate.requestStartedBeforeReloadCommit
+        ) {
+          candidate.mainFrameNavigationStartedAt = startedAt;
+          candidate.mainFrameNavigationRequestSequence = requestSequence;
+        }
+      }
     }
     const requestFrameUrl = requestFrame ? requestFrame.url() : null;
     currentBrowserSessionId = browserSessionIdAfterRequest(

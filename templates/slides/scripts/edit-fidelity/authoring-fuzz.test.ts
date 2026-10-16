@@ -44,6 +44,7 @@ import {
   isExpectedSaveReloadBrowserSessionConsoleError,
   isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace,
   isExpectedOutgoingBrowserSessionNavigationAbort,
+  isPendingOutgoingBrowserSessionNavigationAbort,
   isExpectedSaveReloadRetiredBrowserSessionCorsError,
   isExpectedSaveReloadRetiredBrowserSessionPollWarning,
   isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
@@ -2359,6 +2360,8 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
     requestSequence: 12,
     mainFrameNavigationRequestSequence: 11,
     requestStartedBeforeMainFrameCommit: true,
+    requestStartedDuringNavigation: false,
+    requestStartedBeforeReloadCommit: false,
     requestFailedAt: 118,
     requestKind: "poll" as const,
     requestSessionId: sessionId,
@@ -2450,6 +2453,75 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
       competingSameTypeRequest: true,
     }),
   ).toBe(false);
+  const registrationAwaitingNavigationRequest = {
+    ...registrationAbort,
+    mainFrameNavigationStartedAt: null,
+    requestStartedAt: 90,
+    requestSequence: 10,
+    mainFrameNavigationRequestSequence: null,
+    requestStartedBeforeMainFrameCommit: false,
+    requestStartedDuringNavigation: true,
+    requestStartedBeforeReloadCommit: true,
+    requestFailedAt: 98,
+  };
+  expect(
+    isPendingOutgoingBrowserSessionNavigationAbort(
+      registrationAwaitingNavigationRequest,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort(
+      registrationAwaitingNavigationRequest,
+    ),
+  ).toBe(false);
+  const registrationCanceledAfterNavigationStarted = {
+    ...registrationAwaitingNavigationRequest,
+    mainFrameNavigationStartedAt: 100,
+    mainFrameNavigationRequestSequence: 11,
+    requestFailedAt: 118,
+  };
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort(
+      registrationCanceledAfterNavigationStarted,
+    ),
+  ).toBe(true);
+  for (const override of [
+    { requestStartedDuringNavigation: false },
+    { requestStartedBeforeReloadCommit: false },
+    { requestSessionId: "new-session-id" },
+    { requestFrameUrl: "http://localhost:34123/deck/slide-2" },
+    {
+      mainFrameNavigationStartedAt: 100,
+      mainFrameNavigationRequestSequence: 11,
+    },
+    { competingSameTypeRequest: true },
+  ]) {
+    expect(
+      isPendingOutgoingBrowserSessionNavigationAbort({
+        ...registrationAwaitingNavigationRequest,
+        ...override,
+      }),
+      JSON.stringify(override),
+    ).toBe(false);
+  }
+  for (const override of [
+    { requestFailedAt: 99 },
+    { requestStartedDuringNavigation: false },
+    { requestStartedBeforeReloadCommit: false },
+    { requestSessionId: "new-session-id" },
+    { requestFrameUrl: "http://localhost:34123/deck/slide-2" },
+    { mainFrameNavigationRequestSequence: 9 },
+    { requestStartedBeforeMainFrameCommit: false, requestSequence: 12 },
+    { competingSameTypeRequest: true },
+  ]) {
+    expect(
+      isExpectedOutgoingBrowserSessionNavigationAbort({
+        ...registrationCanceledAfterNavigationStarted,
+        ...override,
+      }),
+      JSON.stringify(override),
+    ).toBe(false);
+  }
 
   const registrationBody = JSON.stringify({
     session: { id: sessionId },
