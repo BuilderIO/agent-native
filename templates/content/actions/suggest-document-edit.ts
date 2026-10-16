@@ -15,12 +15,11 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
-import { commentAnchorText } from "../shared/comment-reanchor.js";
 import {
   resolveDocumentTextEdits,
   type DocumentTextEdit,
 } from "../shared/document-text-edits.js";
-import { canonicalizeNfm } from "../shared/nfm.js";
+import { canonicalizeNfm, nfmToDoc, type PMNode } from "../shared/nfm.js";
 import { markdownSuggestionOperationsForFindReplace } from "../shared/suggestion-diff.js";
 import { contentSuggestionPath } from "../shared/suggestion-link.js";
 import { resolveDocumentAccess } from "./_document-access.js";
@@ -142,18 +141,38 @@ function inStoredForm(text: string): string | undefined {
 }
 
 const ESCAPABLE = /[!-/:-@[-`{-~]/;
+const PROBE = "";
+
+/** How many times `PROBE` shows inside code on the page. */
+function probesInCode(nodes: PMNode[] | undefined, inCode = false): number {
+  let count = 0;
+  for (const node of nodes ?? []) {
+    const code =
+      inCode ||
+      node.type === "codeBlock" ||
+      !!node.marks?.some((mark) => mark.type === "code");
+    if (node.type === "text" && code)
+      count += (node.text ?? "").split(PROBE).length - 1;
+    count += probesInCode(node.content, code);
+  }
+  return count;
+}
 
 /**
  * Whether the backslashes before `index` escape the character there. Code
- * shows a backslash as written, so only the parse can tell: with the escaped
- * character replaced by a letter, an escaping backslash shows too.
+ * shows a backslash as written. Only the parse can tell, and asking it must
+ * move no delimiter: a character standing in for the backslash lands in code
+ * exactly when the backslash is in code.
  */
 function escapedAt(text: string, index: number) {
   let slashes = 0;
   while (text[index - slashes - 1] === "\\") slashes += 1;
   if (slashes % 2 === 0 || !ESCAPABLE.test(text[index] ?? "")) return false;
-  const probe = `${text.slice(0, index)}a${text.slice(index + 1)}`;
-  return commentAnchorText(probe).length === commentAnchorText(text).length + 1;
+  const probe = `${text.slice(0, index - 1)}${PROBE}${text.slice(index)}`;
+  return (
+    probesInCode(nfmToDoc(probe).content) ===
+    probesInCode(nfmToDoc(text).content)
+  );
 }
 
 /**

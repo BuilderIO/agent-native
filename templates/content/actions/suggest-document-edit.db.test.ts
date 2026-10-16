@@ -1477,6 +1477,19 @@ describe("suggest-document-edit on a Page written through its live copy", () => 
     );
   });
 
+  it("refuses to split an escape in a link's destination", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage("[a](https://example.com/foo\\(bar)");
+        expect(page.content).toContain("foo\\(bar");
+        await expect(
+          suggestOwnSpelling(page, "(bar", "baz"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
   // Code shows a backslash as written, so it escapes nothing there.
   for (const { name, content, find, replace } of [
     {
@@ -1496,6 +1509,12 @@ describe("suggest-document-edit on a Page written through its live copy", () => 
       content: "Path `C:\\` here.",
       find: "C:\\",
       replace: "D:\\",
+    },
+    {
+      name: "inline code it ends after another backslash",
+      content: "Path `C:\\$Recycle.Bin\\` here.",
+      find: "C:\\$Recycle.Bin\\",
+      replace: "C:\\$Archive.Bin\\",
     },
   ])
     it(`edits text beside a backslash in ${name}`, async () => {
