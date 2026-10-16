@@ -74,7 +74,12 @@ export async function switchPageToLiveCopy(
               // binding's persist does not run; switch the page here.
               persist: async (tx, change) => {
                 if (!change.changed) {
-                  await persistLiveBodyConversion(tx, conversion, change.text);
+                  await persistLiveBodyConversion(
+                    tx,
+                    conversion,
+                    change.text,
+                    change.version,
+                  );
                 }
               },
             });

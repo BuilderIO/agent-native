@@ -7,7 +7,15 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { putSetting } from "@agent-native/core/settings";
 import { initProseMirrorDoc, updateYFragment } from "@tiptap/y-tiptap";
 import { asc, eq } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import * as Y from "yjs";
 
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
@@ -18,6 +26,7 @@ const TEST_DB_PATH = join(
   `content-live-copy-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "live-copy-owner@example.com";
+const OTHER = "live-copy-collaborator@example.com";
 const SHADOW = "feature-flag:content.live-body-shadow";
 const WRITER = "feature-flag:content.live-body-writer";
 
@@ -29,6 +38,7 @@ let persist: typeof import("./persist.js");
 let switching: typeof import("./switch.js");
 let cause: typeof import("./write-cause.js");
 let execDb: typeof import("./exec-db.js");
+let writer: typeof import("./write.js");
 const editorSchema = createContentEditorStructuralSchema();
 
 function rules(emails: string[]) {
@@ -69,10 +79,40 @@ async function page(id: string) {
       bodyRevision: schema.documents.bodyRevision,
       collabBodyRevision: schema.documents.collabBodyRevision,
       liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
+      liveCopyVersion: schema.documents.liveCopyVersion,
+      updatedBy: schema.documents.updatedBy,
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, id));
   return row;
+}
+
+async function gateFor(id: string) {
+  const { liveBodyWriterGate } = await import("../lib/live-body-writer.js");
+  return liveBodyWriterGate(id);
+}
+
+async function bodyIntents(id: string) {
+  return getDb()
+    .select({
+      operationId: schema.documentBodyIntents.operationId,
+      authoredBaseRevision: schema.documentBodyIntents.authoredBaseRevision,
+      committedRevision: schema.documentBodyIntents.committedRevision,
+      canonicalChanged: schema.documentBodyIntents.canonicalChanged,
+    })
+    .from(schema.documentBodyIntents)
+    .where(eq(schema.documentBodyIntents.documentId, id));
+}
+
+/** Turns the page's flags off once the worker has built the edit. */
+function flagsOffAfterBuild() {
+  const runner = binding.contentLiveCopy.runner;
+  const run = runner.run.bind(runner);
+  return vi.spyOn(runner, "run").mockImplementation(async (...args) => {
+    const result = await run(...args);
+    await setFlags(false);
+    return result;
+  });
 }
 
 async function history(id: string) {
@@ -196,6 +236,7 @@ beforeAll(async () => {
   switching = await import("./switch.js");
   cause = await import("./write-cause.js");
   execDb = await import("./exec-db.js");
+  writer = await import("./write.js");
 }, 60_000);
 
 beforeEach(async () => {
@@ -206,8 +247,10 @@ beforeEach(async () => {
   await getDbExec()
     .execute("DELETE FROM _collab_docs")
     .catch((error) => {
-      if (!/_collab_docs/.test(String(error))) throw error;
+      // The first test runs before core creates the table.
+      if (!/_collab_docs" does not exist/.test(String(error))) throw error;
     });
+  await getDb().delete(schema.documentBodyIntents);
   await setFlags(true);
 });
 
@@ -223,6 +266,7 @@ describe("switching a page to its live copy", () => {
     expect(row.content).toBe("Hello there");
     expect(row.bodyRevision).toBe(3);
     expect(row.collabBodyRevision).toBe(3);
+    expect(row.liveCopyVersion).toBe(await collabVersion("seeded"));
     expect(row.liveBodySwitchedAt).not.toBeNull();
     await expect(
       collab.readLiveCopy(binding.contentLiveCopy, "seeded"),
@@ -287,6 +331,7 @@ describe("switching a page to its live copy", () => {
           tx,
           { documentId: "moved", baseRevision: 2 },
           "Hello there",
+          1,
         ),
       ),
     ).rejects.toMatchObject({ code: "base_changed" });
@@ -360,41 +405,88 @@ describe("writes through a switched page's live copy", () => {
     expect((await page("uncaused")).content).toBe("Hello there");
   });
 
-  it("derives the page from an editor update and keeps one History row per typing interval", async () => {
+  it("derives the page from editor updates and keeps one History row per typing interval, holding its last state", async () => {
     await switchedPage("editor", "Hello there");
+    const type = (email: string, text: string) =>
+      runWithRequestContext({ userEmail: email }, async () =>
+        collab.applyUpdate(
+          "editor",
+          await appendParagraphUpdate("editor", text),
+        ),
+      );
 
-    const first = await asOwner(async () =>
-      collab.applyUpdate("editor", await appendParagraphUpdate("editor", "A")),
-    );
-    const second = await asOwner(async () =>
-      collab.applyUpdate("editor", await appendParagraphUpdate("editor", "B")),
-    );
+    await expect(type(OWNER, "A")).resolves.toEqual({ liveCopy: "derived" });
+    await expect(type(OWNER, "B")).resolves.toEqual({ liveCopy: "derived" });
 
-    expect(first).toEqual({ liveCopy: "derived" });
-    expect(second).toEqual({ liveCopy: "derived" });
     const row = await page("editor");
-    expect(row.content).toBe("Hello there\nA\nB");
-    expect(row.bodyRevision).toBe(5);
-    expect(row.collabBodyRevision).toBe(5);
-    const rows = await history("editor");
-    const live = rows.filter((r) => r.operation === "live-copy-update");
-    expect(live.length).toBeGreaterThan(0);
-    expect(live.every((r) => r.groupKind === "human_session")).toBe(true);
-    expect(live.every((r) => r.actorEmail === OWNER)).toBe(true);
-    // The second commit lands inside the interval, so it adds no row.
-    expect(live.some((r) => r.content.endsWith("B"))).toBe(false);
+    expect(row).toMatchObject({
+      content: "Hello there\nA\nB",
+      bodyRevision: 5,
+      collabBodyRevision: 5,
+      liveCopyVersion: await collabVersion("editor"),
+    });
+    // B landed inside A's interval: one row, now holding B.
+    let live = (await history("editor")).filter(
+      (r) => r.operation === "live-copy-update",
+    );
+    expect(live).toEqual([
+      expect.objectContaining({
+        checkpointKind: "before",
+        content: "Hello there",
+        actorEmail: OWNER,
+      }),
+      expect.objectContaining({
+        checkpointKind: "after",
+        content: "Hello there\nA\nB",
+        bodyRevision: 5,
+        groupKind: "human_session",
+        actorEmail: OWNER,
+      }),
+    ]);
+
+    // Past the interval, the session gets a new row and the old one keeps B.
+    const rows = await getDb()
+      .select({
+        id: schema.documentVersions.id,
+        createdAt: schema.documentVersions.createdAt,
+      })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, "editor"));
+    for (const row of rows) {
+      const earlier = new Date(Date.parse(row.createdAt) - 3_000).toISOString();
+      await getDb()
+        .update(schema.documentVersions)
+        .set({ createdAt: earlier, updatedAt: earlier })
+        .where(eq(schema.documentVersions.id, row.id));
+    }
+    await type(OWNER, "C");
+    // Another collaborator starts their own session; B and C stay the owner's.
+    await type(OTHER, "D");
+
+    live = (await history("editor")).filter(
+      (r) => r.operation === "live-copy-update",
+    );
+    expect(
+      live.map((r) => [r.checkpointKind, r.actorEmail, r.content]),
+    ).toEqual([
+      ["before", OWNER, "Hello there"],
+      ["after", OWNER, "Hello there\nA\nB"],
+      ["after", OWNER, "Hello there\nA\nB\nC"],
+      ["after", OTHER, "Hello there\nA\nB\nC\nD"],
+    ]);
   });
 
   it("leaves a page that went back to its legacy writer alone, under the page lock", async () => {
     await switchedPage("recheck", "Hello there");
     await setFlags(false);
+    const version = (await collabVersion("recheck")) as number;
 
     const outcome = await inTransaction((tx) =>
       persist.persistContentLiveCopy(tx, {
         docId: "recheck",
         origin: "update",
-        previousVersion: 1,
-        version: 2,
+        previousVersion: version,
+        version: version + 1,
         text: "Hello again",
         state: new Uint8Array(),
       }),
@@ -461,6 +553,8 @@ describe("writes through a switched page's live copy", () => {
         / from "([^"]+)"/.exec(lower))?.[1];
     };
 
+    const version = (await collabVersion("ordered")) as number;
+
     const softDeleted = await cause.withContentBodyWriteCause(
       { operation: "test-order" },
       () =>
@@ -477,8 +571,8 @@ describe("writes through a switched page's live copy", () => {
           await persist.persistContentLiveCopy(spy, {
             docId: "ordered",
             origin: "mutation",
-            previousVersion: 1,
-            version: 2,
+            previousVersion: version,
+            version: version + 1,
             text: "Hello again",
             state: new Uint8Array(),
           });
@@ -487,10 +581,13 @@ describe("writes through a switched page's live copy", () => {
         }),
     );
 
-    expect(locks.slice(0, 3)).toEqual([
+    // After the page lock, only writes to rows already locked.
+    expect(locks).toEqual([
       "content_databases",
       "content_database_items",
       "documents",
+      "documents",
+      "content_databases",
     ]);
     expect(softDeleted).toEqual(["db-a-inline"]);
   });
@@ -556,6 +653,266 @@ describe("writes through a switched page's live copy", () => {
       errorCode: "DOCUMENT_NOT_FOUND",
     });
   });
+
+  it("refuses a body write when the page joined a collection after its memberships were locked", async () => {
+    await switchedPage("joined", "Hello there");
+    await getDb().insert(schema.contentDatabases).values({
+      id: "db-joined-parent",
+      ownerEmail: OWNER,
+      documentId: "elsewhere",
+    });
+    const version = (await collabVersion("joined")) as number;
+
+    await expect(
+      cause.withContentBodyWriteCause({ operation: "test-joined" }, () =>
+        inTransaction(async (tx) => {
+          let joined = false;
+          const spy: DbExec = {
+            async execute(input) {
+              const sql = (
+                typeof input === "string" ? input : input.sql
+              ).toLowerCase();
+              // The page joins between the membership lock and the page lock.
+              if (!joined && /from "documents" .* for update/.test(sql)) {
+                joined = true;
+                await execDb
+                  .drizzleOverExec(tx)
+                  .insert(schema.contentDatabaseItems)
+                  .values({
+                    id: "joined-row",
+                    ownerEmail: OWNER,
+                    databaseId: "db-joined-parent",
+                    documentId: "joined",
+                  });
+              }
+              return tx.execute(input);
+            },
+          } as DbExec;
+          await persist.persistContentLiveCopy(spy, {
+            docId: "joined",
+            origin: "mutation",
+            previousVersion: version,
+            version: version + 1,
+            text: "Hello again",
+            state: new Uint8Array(),
+          });
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED" });
+    expect((await page("joined")).content).toBe("Hello there");
+  });
+});
+
+describe("a page whose write path changes mid-write", () => {
+  it("refuses a server edit whose page left its live copy after the edit was built, and commits nothing", async () => {
+    await switchedPage("server-flip", "Before");
+    const version = await collabVersion("server-flip");
+    const spy = flagsOffAfterBuild();
+    try {
+      await expect(
+        writer.editContentLiveCopy("server-flip", {
+          cause: { operation: "test-flip" },
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: { content: "After" },
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+        details: { documentId: "server-flip", reason: "flag_off" },
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(await collabVersion("server-flip")).toBe(version);
+    expect((await page("server-flip")).content).toBe("Before");
+    await setFlags(true);
+    await expect(gateFor("server-flip")).resolves.toEqual({
+      writePath: "live_copy",
+    });
+    await expect(
+      collab.readLiveCopy(binding.contentLiveCopy, "server-flip"),
+    ).resolves.toMatchObject({ text: "Before" });
+  });
+
+  it("keeps a page legacy after an editor update commits while its flags turn off, until it is converted again", async () => {
+    await switchedPage("editor-flip", "Before");
+    const update = await appendParagraphUpdate("editor-flip", "Typed");
+    const spy = flagsOffAfterBuild();
+    try {
+      await expect(
+        asOwner(() => collab.applyUpdate("editor-flip", update)),
+      ).resolves.toEqual({
+        liveCopy: "not_derived",
+        liveCopyReason: "flag_off",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    // The update committed to Yjs, as on main; the stored body did not move.
+    expect(await page("editor-flip")).toMatchObject({
+      content: "Before",
+      bodyRevision: 3,
+      collabBodyRevision: 3,
+    });
+
+    await setFlags(true);
+    await expect(gateFor("editor-flip")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "stored_body_behind",
+    });
+    await expect(
+      switching.switchPageToLiveCopy("editor-flip"),
+    ).resolves.toEqual({ writePath: "live_copy" });
+    // The stored body wins, and the two agree again.
+    expect((await page("editor-flip")).content).toBe("Before");
+    await expect(
+      collab.readLiveCopy(binding.contentLiveCopy, "editor-flip"),
+    ).resolves.toMatchObject({ text: "Before" });
+  });
+
+  it("keeps a page legacy after an editor update takes main's path while its flags are off", async () => {
+    await switchedPage("main-path", "Before");
+    const update = await appendParagraphUpdate("main-path", "Typed");
+    await setFlags(false);
+
+    await expect(
+      asOwner(() => collab.applyUpdate("main-path", update)),
+    ).resolves.toEqual({
+      liveCopy: "not_derived",
+      liveCopyReason: "not_live_copy",
+    });
+    expect((await page("main-path")).content).toBe("Before");
+
+    await setFlags(true);
+    await expect(gateFor("main-path")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "stored_body_behind",
+    });
+  });
+});
+
+describe("server writers through editContentLiveCopy", () => {
+  const intent = (operationId: string, authoredBaseRevision?: number) => ({
+    intent: {
+      writerId: "test-writer",
+      operationId,
+      ...(authoredBaseRevision === undefined ? {} : { authoredBaseRevision }),
+    },
+    candidateHash: `hash-${operationId}`,
+    changedBlockIndexes: [0],
+  });
+
+  it("records a changed edit's intent at the committed revision, based on the revision it was applied to", async () => {
+    await switchedPage("intent", "Before");
+
+    await writer.editContentLiveCopy("intent", {
+      cause: { operation: "test-intent", intent: intent("op-changed") },
+      edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+      input: { content: "After" },
+    });
+
+    expect(await bodyIntents("intent")).toEqual([
+      {
+        operationId: "op-changed",
+        authoredBaseRevision: 3,
+        committedRevision: 4,
+        canonicalChanged: true,
+      },
+    ]);
+  });
+
+  it("records an unchanged edit's intent too, which core's binding persist never sees", async () => {
+    await switchedPage("intent-same", "Same");
+    const version = await collabVersion("intent-same");
+
+    const result = await writer.editContentLiveCopy("intent-same", {
+      cause: { operation: "test-intent", intent: intent("op-same", 2) },
+      edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+      input: { content: "Same" },
+    });
+
+    expect(result).toMatchObject({ changed: false, liveCopy: "unchanged" });
+    expect(await collabVersion("intent-same")).toBe(version);
+    expect(await bodyIntents("intent-same")).toEqual([
+      {
+        operationId: "op-same",
+        authoredBaseRevision: 2,
+        committedRevision: 3,
+        canonicalChanged: false,
+      },
+    ]);
+  });
+
+  it("takes an intent's hash and changed blocks from the commit when the writer leaves them out", async () => {
+    await switchedPage("derived-intent", "First\n\nSecond");
+    const { documentContentHash } =
+      await import("../../actions/_document-edit-mutation.js");
+
+    await writer.editContentLiveCopy("derived-intent", {
+      cause: {
+        operation: "test-intent",
+        intent: {
+          intent: { writerId: "test-writer", operationId: "op-derived" },
+        },
+      },
+      edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+      input: { content: "First\n\nChanged" },
+    });
+
+    const { content } = await page("derived-intent");
+    const [row] = await getDb()
+      .select({
+        candidateHash: schema.documentBodyIntents.candidateHash,
+        affected: schema.documentBodyIntents.affectedBlockIndexesJson,
+        canonicalChanged: schema.documentBodyIntents.canonicalChanged,
+      })
+      .from(schema.documentBodyIntents)
+      .where(eq(schema.documentBodyIntents.documentId, "derived-intent"));
+    expect(row).toEqual({
+      candidateHash: documentContentHash(content),
+      affected: "[1]",
+      canonicalChanged: true,
+    });
+  });
+
+  it("refuses an unchanged edit to a page that left its live copy after the edit was built", async () => {
+    await switchedPage("same-flip", "Same");
+    const spy = flagsOffAfterBuild();
+    try {
+      await expect(
+        writer.editContentLiveCopy("same-flip", {
+          cause: { operation: "test-intent", intent: intent("op-flip") },
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: { content: "Same" },
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+        details: { reason: "flag_off" },
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await bodyIntents("same-flip")).toEqual([]);
+  });
+
+  it("names the request's user in History when the cause carries no action context, as attribution does", async () => {
+    await switchedPage("actor", "Before");
+
+    await asOwner(() =>
+      writer.editContentLiveCopy("actor", {
+        cause: { operation: "test-actor" },
+        edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+        input: { content: "After" },
+      }),
+    );
+
+    expect((await page("actor")).updatedBy).toBe(OWNER);
+    const rows = (await history("actor")).filter(
+      (row) => row.operation === "test-actor",
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.map((row) => row.actorEmail)).toEqual(rows.map(() => OWNER));
+  });
 });
 
 describe("with the gate off (SF-11)", () => {
@@ -589,7 +946,9 @@ describe("with the gate off (SF-11)", () => {
     await switchedPage("flagged", "Hello there");
     await setFlags(false);
 
-    await expect(collab.getText("flagged")).resolves.toBeTypeOf("string");
+    // Main's readers see the page again, holding its body.
+    const doc = await collab.getDoc("flagged");
+    expect(doc.getXmlFragment("default").toString()).toContain("Hello there");
     await expect(
       collab.mutateLiveCopy(binding.contentLiveCopy, "flagged", {
         edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,

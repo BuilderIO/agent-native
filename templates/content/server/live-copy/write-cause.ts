@@ -5,18 +5,30 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import type { DocumentBodyIntent } from "../../shared/document-intent-order.js";
 
 export interface ContentBodyIntentRecord {
-  intent: DocumentBodyIntent;
-  candidateHash: string;
+  /**
+   * Without `authoredBaseRevision`, persist records the revision the edit
+   * was applied to: the page's, under its lock.
+   */
+  intent: Omit<DocumentBodyIntent, "authoredBaseRevision"> & {
+    authoredBaseRevision?: number;
+  };
+  /**
+   * For a writer that knows its result only once the edit runs: without
+   * these, persist takes the committed body's hash and the blocks it changed.
+   */
+  candidateHash?: string;
   metadataHash?: string;
-  changedBlockIndexes: number[];
+  changedBlockIndexes?: number[];
   displacedCheckpointId?: string;
 }
 
 /**
  * Why a server write changed a page body. A live-copy commit's `persist`
  * records it: a History transition for every commit, and the body intent once
- * the commit's revision is known. Give each `mutateLiveCopy` call its own
- * cause; an intent recorded twice would claim two revisions.
+ * the commit's revision is known. Server writers pass it to
+ * `editContentLiveCopy`, which also records an unchanged edit's intent; core
+ * runs no binding persist for one. Give each edit its own cause; an intent
+ * recorded twice would claim two revisions.
  */
 export interface ContentBodyWriteCause {
   ctx?: ActionRunContext;

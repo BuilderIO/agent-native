@@ -312,6 +312,18 @@ function mergePlainParagraph(
   };
 }
 
+/** The blocks `after` changed from `before`; none when the structure changed. */
+export function changedBlocksBetween(before: string, after: string): number[] {
+  if (before === after) return [];
+  const base = nfmToDoc(before).content;
+  const candidate = nfmToDoc(after).content;
+  return base.length === candidate.length
+    ? base.flatMap((block, index) =>
+        stableBlock(block) !== stableBlock(candidate[index]) ? [index] : [],
+      )
+    : [];
+}
+
 export function mergeDocumentBodyIntents(args: {
   authoredBaseContent: string;
   authoredCandidateContent: string;
@@ -324,18 +336,13 @@ export function mergeDocumentBodyIntents(args: {
     args.currentRevision === args.incoming.authoredBaseRevision &&
     args.currentContent === args.authoredBaseContent
   ) {
-    const base = nfmToDoc(args.authoredBaseContent).content;
-    const candidate = nfmToDoc(args.authoredCandidateContent).content;
-    const changedBlockIndexes =
-      base.length === candidate.length
-        ? base.flatMap((block, index) =>
-            stableBlock(block) !== stableBlock(candidate[index]) ? [index] : [],
-          )
-        : [];
     return {
       status: "resolved",
       content: args.authoredCandidateContent,
-      changedBlockIndexes,
+      changedBlockIndexes: changedBlocksBetween(
+        args.authoredBaseContent,
+        args.authoredCandidateContent,
+      ),
       displaced: false,
     };
   }
