@@ -92,7 +92,7 @@ import {
   DashboardAnnotationsProvider,
   type DataNoteActions,
 } from "./dashboard-annotations-context";
-import { layoutDataNoteLabels } from "./data-note-bands";
+import { DataNoteRangeProvider, layoutDataNoteLabels } from "./data-note-bands";
 import { SqlChart } from "./SqlChart";
 
 const CHART_SIZE = { width: 640, height: 320 };
@@ -825,7 +825,21 @@ describe("SqlChart key-date markers", () => {
         { day: "Signup", people: 120 },
         { day: "Connect", people: 80 },
       ];
-      await renderInDashboard(failures("bar"));
+      await act(async () => {
+        root.render(
+          <DashboardAnnotationsProvider dashboardId="dash" annotations={{}}>
+            <DataNoteRangeProvider
+              value={{
+                kind: "days",
+                start: Date.parse("2026-09-15"),
+                end: Date.parse("2026-12-15"),
+              }}
+            >
+              <SqlChart panel={failures("bar")} />
+            </DataNoteRangeProvider>
+          </DashboardAnnotationsProvider>,
+        );
+      });
       expect(container.querySelector("[data-data-note-band]")).toBeNull();
       expect(
         container.querySelector("[data-data-note-lines]")?.textContent,
