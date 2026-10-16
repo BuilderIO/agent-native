@@ -2274,6 +2274,27 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub async fn set_flow_bar_expanded(app: AppHandle, expanded: bool) -> Result<(), String> {
+    let Some(win) = app.get_webview_window(FLOW_BAR_LABEL) else {
+        return Ok(());
+    };
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+    let scale = overlay_scale_factor(&app);
+    let logical_width = if expanded { 380.0 } else { 300.0 };
+    let logical_height = if expanded { 260.0 } else { 80.0 };
+    let w = (logical_width * scale).round() as u32;
+    let h = (logical_height * scale).round() as u32;
+    let bottom_margin = (32.0 * scale).round() as i32;
+    let x = (mx + (mw as i32 - w as i32) / 2).max(mx);
+    let y = (my + mh as i32 - h as i32 - bottom_margin).max(my);
+    win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)))
+        .map_err(|e| e.to_string())?;
+    win.set_position(PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn install_voice_flow_state_listener(app: &tauri::App) {
     app.listen("voice:state-change", |event| {
         let idle = serde_json::from_str::<serde_json::Value>(event.payload())
@@ -2328,8 +2349,7 @@ fn strip_trailing_period_for_messaging(text: &str, bundle_id: Option<&str>) -> S
 pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<String, String> {
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() {
-        eprintln!("[clips-tray] complete_voice_dictation: empty text — nothing to paste");
-        return Ok("inserted".into());
+        return Err("Dictation text is required.".into());
     }
     if let Some(last) = app.try_state::<LastTranscript>() {
         if let Ok(mut g) = last.0.lock() {
@@ -2352,8 +2372,33 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<St
         }
     }
 
-    insert_text_for_frontmost(&app, &trimmed, "complete_voice_dictation")?;
-    Ok("inserted".into())
+    match insert_text_for_frontmost(&app, &trimmed, "complete_voice_dictation") {
+        Ok(()) => Ok("inserted".into()),
+        Err(insert_error) => match write_clipboard(&trimmed) {
+            Ok(()) => {
+                eprintln!("[clips-tray] complete_voice_dictation: paste failed — copied transcript instead");
+                Ok("copied".into())
+            }
+            Err(copy_error) => Err(format!(
+                "Text insertion failed ({insert_error}); clipboard recovery failed ({copy_error})."
+            )),
+        },
+    }
+}
+
+#[tauri::command]
+pub async fn copy_voice_dictation(app: AppHandle, text: String) -> Result<(), String> {
+    let trimmed = text.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("Dictation text is required.".into());
+    }
+    if let Some(last) = app.try_state::<LastTranscript>() {
+        if let Ok(mut guard) = last.0.lock() {
+            *guard = Some(trimmed.clone());
+        }
+    }
+    crate::tray::rebuild_tray_menu(&app);
+    write_clipboard(&trimmed)
 }
 
 #[tauri::command]

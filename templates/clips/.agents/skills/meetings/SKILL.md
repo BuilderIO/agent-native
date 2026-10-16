@@ -25,7 +25,7 @@ For press-and-hold dictations (Hold-Fn / Cmd+Shift+Space) and the `/dictate` tab
 
 ## Design reference
 
-The Meetings tab intentionally mirrors **Granola**: a compact "Coming up" card over a dense reverse-chronological history, two-pane detail (transcript left + AI notes right), inline title edit, "Generate notes" button, per-attendee action items. See `templates/clips/desktop/design-refs/granola-ux.md` for the source-of-truth interaction notes — read this before redesigning any Meetings surface. (Wispr-style press-and-hold patterns belong in the Dictate skill, not here.)
+The Meetings tab intentionally mirrors **Granola**: a compact "Coming up" card over a dense reverse-chronological history, two-pane detail (transcript left + AI notes right), inline title edit, "Generate notes" button, per-attendee action items. See `templates/clips/desktop/design-refs/granola-ux.md` for the source-of-truth interaction notes — read this before redesigning any Meetings surface. Dictation behavior belongs in the Dictate skill.
 
 The list was a grid of tiles until 2026-08-14. That contradicted §2 of the ref ("list-row style rather than tile cards") and cost so much vertical space that history sat below the fold, which is how a user ends up unable to find last month's call.
 

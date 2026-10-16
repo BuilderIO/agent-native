@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import { allocateVoiceRunId } from "./voice-dictation-lifecycle";
+
 export type TranscriptSource = "mic" | "system";
 export type TranscriptionEngine = "whisper" | "macos-native";
 
@@ -18,22 +20,26 @@ export interface FinalTranscriptEvent {
   text: string;
   source: TranscriptSource;
   segments: TranscriptSegment[];
+  runId?: number;
 }
 
 export interface PartialTranscriptEvent {
   text: string;
   source: TranscriptSource;
+  runId?: number;
 }
 
 export interface SpeechErrorEvent {
   error: string;
   source: TranscriptSource;
+  runId?: number;
 }
 
 export interface AudioLevelEvent {
   level: number;
   source: TranscriptSource;
   synthetic?: boolean;
+  runId?: number;
 }
 
 interface MicSelection {
@@ -268,6 +274,7 @@ export async function restartTranscriptionEngine(
   captureSystem: boolean = true,
   voiceProcessing: boolean = false,
   emitPartials: boolean = true,
+  runId: number = allocateVoiceRunId(),
 ): Promise<void> {
   if (engine === "whisper") {
     await invoke("audio_transcription_start", {
@@ -279,6 +286,7 @@ export async function restartTranscriptionEngine(
       voiceProcessing,
       emitPartials,
       owner: "meeting",
+      runId,
     });
   } else {
     await invoke("native_speech_start", {
@@ -286,6 +294,7 @@ export async function restartTranscriptionEngine(
       micDeviceId: mic?.deviceId || null,
       micDeviceLabel: mic?.label || null,
       owner: "meeting",
+      runId,
     });
   }
 }
@@ -295,21 +304,32 @@ export async function startTranscriptionEngine(opts: {
   captureSystem?: boolean;
   voiceProcessing?: boolean;
   emitPartials?: boolean;
+  runId?: number;
+  canContinue?: () => boolean;
 }): Promise<TranscriptionEngine> {
   const captureSystem = opts.captureSystem ?? true;
   const voiceProcessing = opts.voiceProcessing ?? false;
   const emitPartials = opts.emitPartials ?? true;
+  const runId = opts.runId ?? allocateVoiceRunId();
+  const assertCanContinue = () => {
+    if (opts.canContinue && !opts.canContinue()) {
+      throw new Error("transcription-start-cancelled");
+    }
+  };
   try {
+    assertCanContinue();
     await restartTranscriptionEngine(
       "whisper",
       opts.mic,
       captureSystem,
       voiceProcessing,
       emitPartials,
+      runId,
     );
     return "whisper";
   } catch (err) {
     let fallbackMic = opts.mic;
+    assertCanContinue();
     const selectedMicrophoneUnavailable =
       Boolean(opts.mic) && isUnavailableSelectedMicrophoneError(err);
     console.warn(
@@ -322,12 +342,14 @@ export async function startTranscriptionEngine(opts: {
         err,
       );
       try {
+        assertCanContinue();
         await restartTranscriptionEngine(
           "whisper",
           undefined,
           captureSystem,
           voiceProcessing,
           emitPartials,
+          runId,
         );
         return "whisper";
       } catch (defaultMicErr) {
@@ -339,7 +361,15 @@ export async function startTranscriptionEngine(opts: {
       }
     }
     try {
-      await restartTranscriptionEngine("macos-native", fallbackMic);
+      assertCanContinue();
+      await restartTranscriptionEngine(
+        "macos-native",
+        fallbackMic,
+        true,
+        false,
+        true,
+        runId,
+      );
       return "macos-native";
     } catch (fallbackErr) {
       throw transcriptionStartError(
@@ -354,20 +384,24 @@ export async function startTranscriptionEngine(opts: {
 
 export async function stopTranscriptionEngine(
   engine: TranscriptionEngine,
+  runId: number,
 ): Promise<void> {
   if (engine === "whisper") {
-    await invoke("audio_transcription_stop");
+    await invoke("audio_transcription_stop", { owner: "meeting", runId });
     return;
   }
-  await invoke("native_speech_stop", { owner: "meeting" });
+  await invoke("native_speech_stop", { owner: "meeting", runId });
 }
 
 export async function resetTranscriptionTimeline(
   engine: TranscriptionEngine,
+  runId: number,
   offsetMs: number = 0,
 ): Promise<void> {
   if (engine !== "whisper") return;
   await invoke("audio_transcription_reset_timeline", {
+    owner: "meeting",
+    runId,
     offsetMs: Math.max(0, Math.round(offsetMs)),
   });
 }
@@ -379,11 +413,13 @@ export function onFinalTranscript(
     text?: string;
     source?: TranscriptSource;
     segments?: TranscriptSegment[];
+    runId?: number;
   }>("voice:final-transcript", (event) => {
     cb({
       text: event.payload?.text ?? "",
       source: normalizeSource(event.payload?.source),
       segments: event.payload?.segments ?? [],
+      runId: event.payload?.runId,
     });
   });
 }
@@ -391,29 +427,33 @@ export function onFinalTranscript(
 export function onPartialTranscript(
   cb: (event: PartialTranscriptEvent) => void,
 ): Promise<UnlistenFn> {
-  return listen<{ text?: string; source?: TranscriptSource }>(
-    "voice:partial-transcript",
-    (event) => {
-      cb({
-        text: event.payload?.text ?? "",
-        source: normalizeSource(event.payload?.source),
-      });
-    },
-  );
+  return listen<{
+    text?: string;
+    source?: TranscriptSource;
+    runId?: number;
+  }>("voice:partial-transcript", (event) => {
+    cb({
+      text: event.payload?.text ?? "",
+      source: normalizeSource(event.payload?.source),
+      runId: event.payload?.runId,
+    });
+  });
 }
 
 export function onSpeechError(
   cb: (event: SpeechErrorEvent) => void,
 ): Promise<UnlistenFn> {
-  return listen<{ error?: string; source?: TranscriptSource }>(
-    "voice:speech-error",
-    (event) => {
-      cb({
-        error: event.payload?.error ?? "",
-        source: normalizeSource(event.payload?.source),
-      });
-    },
-  );
+  return listen<{
+    error?: string;
+    source?: TranscriptSource;
+    runId?: number;
+  }>("voice:speech-error", (event) => {
+    cb({
+      error: event.payload?.error ?? "",
+      source: normalizeSource(event.payload?.source),
+      runId: event.payload?.runId,
+    });
+  });
 }
 
 export function onAudioLevel(
@@ -423,11 +463,13 @@ export function onAudioLevel(
     level?: number;
     source?: TranscriptSource;
     synthetic?: boolean;
+    runId?: number;
   }>("voice:audio-level", (event) => {
     cb({
       level: event.payload?.level ?? 0,
       source: normalizeSource(event.payload?.source),
       synthetic: event.payload?.synthetic === true,
+      runId: event.payload?.runId,
     });
   });
 }

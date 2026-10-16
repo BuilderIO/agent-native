@@ -1,6 +1,7 @@
 import type { VoiceContextPack } from "@agent-native/core/voice";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 import { applyBacktrack } from "./backtrack";
 import {
@@ -15,6 +16,20 @@ import {
   onPartialTranscript,
   onSpeechError,
 } from "./transcription-engine";
+import {
+  createVoiceDictationLifecycle,
+  finalizeDictationText,
+  isCurrentDictationRun,
+  saveDictationHistoryRequest,
+} from "./voice-dictation-lifecycle";
+import type {
+  DictationFailure,
+  DictationEmptyFailure,
+  DictationFinalizationResult,
+  DictationFinalizationStage,
+  DictationLifecyclePhase,
+  DictationInsertion,
+} from "./voice-dictation-lifecycle";
 
 export type VoiceShortcutPreference =
   | "fn"
@@ -46,9 +61,28 @@ type FlowState =
   | "processing"
   | "complete"
   | "copied"
+  | "cancelled"
   | "error";
-type FlowProcessingStage = "finalizing" | "cleaning" | "pasting";
-type VoiceInsertionResult = "inserted" | "copied";
+type FlowProcessingStage =
+  | "initializing"
+  | "finalizing"
+  | "transcribing"
+  | "cleaning"
+  | "pasting"
+  | "saving-history";
+type VoiceInsertionResult = DictationInsertion;
+interface FlowStateDetails {
+  runId?: number;
+  failure?: DictationFailure;
+  insertion?: DictationInsertion | null;
+  recoverable?: boolean;
+  historySaved?: boolean;
+  retryHistory?: boolean;
+  cleanupFailed?: boolean;
+  backtrackFailed?: boolean;
+  transcript?: string;
+  originalTranscript?: string;
+}
 type VoiceShortcutSource =
   | "fn"
   | "cmd-shift-space"
@@ -78,7 +112,20 @@ interface VoiceShortcutEvent {
   source?: VoiceShortcutSource;
 }
 
-interface VoiceSession {
+interface DictationHistoryContext {
+  runId: number;
+  historyId: string;
+  startedAt: number;
+  triggerSource?: VoiceShortcutSource;
+  historyFullText?: string;
+  historyCleanedText?: string | null;
+  historySaved?: boolean;
+  historySavePromise?: Promise<void> | null;
+  terminalFailure?: DictationFailure;
+  insertionOutcome?: DictationInsertion;
+}
+
+interface VoiceSession extends DictationHistoryContext {
   kind: "server" | "browser" | "native" | "whisper";
   stream: MediaStream | null;
   recorder: MediaRecorder | null;
@@ -92,17 +139,19 @@ interface VoiceSession {
   finalTranscriptParts: string[];
   interimTranscript: string;
   lastResultAt: number;
-  triggerSource?: VoiceShortcutSource;
-  startedAt: number;
   releasedAtMs?: number;
   meterHasRealSignal?: boolean;
   stopping: boolean;
+  starting?: boolean;
   transcribeAbort: AbortController | null;
   cancelled: boolean;
+  recognitionFailure?: DictationEmptyFailure;
+  nativeFinalizationStarted?: boolean;
+  browserFinalizationStarted?: boolean;
   onNativeFinalize?: (() => void) | null;
   cleanupProvider?: ServerVoiceProvider | null;
-  historySaved?: boolean;
-  onLateFinalText?: ((text: string) => void) | null;
+  finalizationStage?: DictationFinalizationStage;
+  finalizationPromise?: Promise<DictationFinalizationResult>;
 }
 
 type DictationTimingPhase = "release" | "finalization" | "cleanup" | "paste";
@@ -223,13 +272,25 @@ async function pickBuiltInMicId(): Promise<string | null> {
   }
 }
 
-function setFlowState(state: FlowState, stage?: FlowProcessingStage): void {
-  emit("voice:state-change", {
+function setFlowState(
+  state: FlowState,
+  stage?: FlowProcessingStage,
+  details: FlowStateDetails = {},
+): void {
+  const payload = {
     state,
     stage,
+    ...details,
     ...(state === "recording" ? { startedAtMs: Date.now() } : {}),
-  }).catch(() => {});
+  };
+  latestFlowStatePayload = payload;
+  emit("voice:state-change", payload).catch(() => {});
 }
+
+let latestFlowStatePayload: Record<string, unknown> = {
+  state: "idle",
+  runId: 0,
+};
 
 let lastStartPingAt = 0;
 
@@ -262,9 +323,11 @@ function playStartPing(): void {
   }
 }
 
-function enterRecordingState(): void {
-  setFlowState("recording");
-  playStartPing();
+function newDictationHistoryId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `dictation_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
 function joinedTranscript(parts: string[], interim: string): string {
@@ -308,7 +371,7 @@ function stopMeter(session: VoiceSession): void {
   session.audioContext?.close().catch(() => {});
   session.audioContext = null;
   session.analyser = null;
-  emit("voice:audio-level", { level: 0 }).catch(() => {});
+  emit("voice:audio-level", { level: 0, runId: session.runId }).catch(() => {});
 }
 
 function stopTracks(session: VoiceSession): void {
@@ -345,7 +408,9 @@ function startMeter(session: VoiceSession): void {
       }
       const rms = Math.sqrt(sum / data.length);
       const level = Math.min(1, rms * 4);
-      emit("voice:audio-level", { level }).catch(() => {});
+      emit("voice:audio-level", { level, runId: session.runId }).catch(
+        () => {},
+      );
       session.raf = requestAnimationFrame(tick);
     };
     session.raf = requestAnimationFrame(tick);
@@ -367,7 +432,11 @@ function startSyntheticMeter(session: VoiceSession): void {
     }
     const t = (Date.now() - session.startedAt) / 1000;
     const level = 0.18 + 0.08 * Math.sin(t * 4);
-    emit("voice:audio-level", { level, synthetic: true }).catch(() => {});
+    emit("voice:audio-level", {
+      level,
+      synthetic: true,
+      runId: session.runId,
+    }).catch(() => {});
     session.raf = requestAnimationFrame(tick);
   };
   session.raf = requestAnimationFrame(tick);
@@ -427,7 +496,7 @@ async function cleanupTranscript(
   serverUrl: string,
   text: string,
   providerPref: ServerVoiceProvider,
-  controller: AbortController,
+  signal: AbortSignal,
   instructions?: string,
   contextPack?: VoiceContextPack,
   language?: string,
@@ -442,29 +511,24 @@ async function cleanupTranscript(
   if (language) form.append("language", language);
   appendVoiceContext(form, contextPack);
 
-  const timeout = window.setTimeout(() => controller.abort(), 8_000);
-  try {
-    const res = await fetch(
-      `${serverUrl.replace(/\/+$/, "")}/_agent-native/transcribe-voice`,
-      {
-        method: "POST",
-        body: form,
-        credentials: "include",
-        headers: { "X-Agent-Native-CSRF": "1" },
-        signal: controller.signal,
-      },
-    );
-    if (!res.ok) {
-      const body = await res
-        .json()
-        .catch(() => ({ error: `HTTP ${res.status}` }));
-      throw new Error(body?.error || `Cleanup failed (${res.status})`);
-    }
-    const data = (await res.json()) as { text?: string };
-    return (data.text ?? "").trim();
-  } finally {
-    window.clearTimeout(timeout);
+  const res = await fetch(
+    `${serverUrl.replace(/\/+$/, "")}/_agent-native/transcribe-voice`,
+    {
+      method: "POST",
+      body: form,
+      credentials: "include",
+      headers: { "X-Agent-Native-CSRF": "1" },
+      signal,
+    },
+  );
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(body?.error || `Cleanup failed (${res.status})`);
   }
+  const data = (await res.json()) as { text?: string };
+  return (data.text ?? "").trim();
 }
 
 function appendVoiceContext(
@@ -485,6 +549,8 @@ export function installDesktopVoiceDictation(
   let disposed = false;
   let session: VoiceSession | null = null;
   let lingeringSession: VoiceSession | null = null;
+  let recoveryContext: DictationHistoryContext | null = null;
+  const lifecycle = createVoiceDictationLifecycle();
   let serverUrl = options.serverUrl;
   let enabled = options.enabled;
   let shortcut = options.shortcut;
@@ -494,6 +560,7 @@ export function installDesktopVoiceDictation(
   let micDeviceLabel = options.micDeviceLabel ?? "";
   let instructions = options.instructions ?? "";
   let startInFlight = false;
+  let startInFlightRunId: number | null = null;
   let stopRequestedBeforeReady = false;
   let providerStatus: ProviderStatus | null = null;
   let providerStatusFetchedAt = 0;
@@ -511,6 +578,109 @@ export function installDesktopVoiceDictation(
         }
       })
       .catch(() => {});
+  };
+
+  const transitionRun = (
+    runId: number,
+    phase: Exclude<
+      DictationLifecyclePhase,
+      "completed" | "copied" | "cancelled" | "failed"
+    >,
+    state: FlowState,
+    stage?: FlowProcessingStage,
+    details: Omit<FlowStateDetails, "runId"> = {},
+  ): boolean => {
+    if (!lifecycle.transition(runId, phase)) return false;
+    setFlowState(state, stage, { ...details, runId });
+    return true;
+  };
+
+  const enterRecordingState = (runId: number): boolean => {
+    const entered = transitionRun(runId, "capturing", "recording");
+    if (entered) playStartPing();
+    return entered;
+  };
+
+  const dismissRunAfter = (runId: number, delayMs: number) => {
+    window.setTimeout(() => {
+      if (disposed || !lifecycle.isLatest(runId) || lifecycle.isBusy()) return;
+      setFlowState("idle", undefined, { runId });
+      invoke("hide_flow_bar").catch(() => {});
+    }, delayMs);
+  };
+
+  const finishRun = (
+    runId: number,
+    state: "complete" | "copied" | "cancelled" | "error",
+    details: Omit<FlowStateDetails, "runId"> = {},
+    dismissAfterMs?: number,
+  ): boolean => {
+    const phase =
+      state === "complete" ? "completed" : state === "error" ? "failed" : state;
+    if (!lifecycle.finish(runId, phase)) return false;
+    setFlowState(state, undefined, { ...details, runId });
+    if (dismissAfterMs !== undefined) dismissRunAfter(runId, dismissAfterMs);
+    return true;
+  };
+
+  const failRun = (
+    runId: number,
+    failure: DictationFailure,
+    details: Omit<FlowStateDetails, "runId" | "failure"> = {},
+  ) => finishRun(runId, "error", { ...details, failure });
+
+  const isRunActive = (target: VoiceSession): boolean =>
+    !disposed && !target.cancelled && lifecycle.isActive(target.runId);
+
+  const isPermissionError = (error: unknown): boolean => {
+    const name = (error as { name?: string } | null)?.name?.toLowerCase();
+    const message = String(error).toLowerCase();
+    return (
+      name === "notallowederror" ||
+      name === "permissiondeniederror" ||
+      message.includes("permission") ||
+      message.includes("not allowed") ||
+      message.includes("not authorized") ||
+      message.includes("authorization")
+    );
+  };
+
+  const microphoneFailure = (error: unknown): DictationFailure =>
+    isPermissionError(error) ? "permission" : "microphone-unavailable";
+
+  const recognitionFailure = (error: string): DictationEmptyFailure => {
+    switch (error) {
+      case "not-allowed":
+      case "service-not-allowed":
+        return "permission";
+      case "audio-capture":
+        return "microphone-unavailable";
+      case "no-speech":
+        return "no-speech";
+      default:
+        return "provider";
+    }
+  };
+
+  const speechFailure = (error: string): DictationFailure => {
+    const message = error.toLowerCase();
+    if (
+      message.includes("no-speech") ||
+      message.includes("no speech") ||
+      message.includes("no usable speech")
+    ) {
+      return "no-speech";
+    }
+    if (message.includes("permission") || message.includes("authoriz")) {
+      return "permission";
+    }
+    if (message.includes("not allowed") || message.includes("denied")) {
+      return "permission";
+    }
+    if (message.includes("microphone") || message.includes("audio capture")) {
+      return "microphone-unavailable";
+    }
+    return "provider";
   };
 
   const setHandsFreeActive = (active: boolean) => {
@@ -615,28 +785,58 @@ export function installDesktopVoiceDictation(
     return { kind: "browser" };
   };
 
+  const releaseStart = (runId: number) => {
+    if (startInFlightRunId !== runId) return;
+    startInFlightRunId = null;
+    startInFlight = false;
+    stopRequestedBeforeReady = false;
+  };
+
   const cleanup = (target: VoiceSession | null = null, hide = true) => {
     if (target) {
       stopMeter(target);
       stopTracks(target);
     }
-    if (target && session !== target) {
+    if (target) {
+      if (session !== target && lingeringSession !== target) return;
+      if (session === target) session = null;
+      if (lingeringSession === target) lingeringSession = null;
+      if (target.starting) {
+        stopRequestedBeforeReady = true;
+      }
+      if (lifecycle.isActive(target.runId))
+        finishRun(target.runId, "cancelled", {}, 700);
+      releaseStart(target.runId);
       return;
     }
-    startInFlight = false;
-    stopRequestedBeforeReady = false;
-    if (target) {
-      session = null;
-    }
-    setFlowState("idle");
+    const startingRunId = startInFlightRunId;
+    if (startingRunId !== null) releaseStart(startingRunId);
+    const runId = lifecycle.snapshot()?.runId;
+    setFlowState("idle", undefined, { runId });
     if (hide) invoke("hide_flow_bar").catch(() => {});
   };
 
-  const abortPendingStart = () => {
-    startInFlight = false;
-    stopRequestedBeforeReady = false;
-    setFlowState("idle");
-    invoke("hide_flow_bar").catch(() => {});
+  const abortPendingStart = (runId: number) => {
+    finishRun(runId, "cancelled", {}, 700);
+    releaseStart(runId);
+    void invoke("native_speech_cancel", {
+      owner: "dictation",
+      runId,
+    }).catch((err) => {
+      console.warn(
+        "[voice-dictation] pending native start cancel failed:",
+        err,
+      );
+    });
+    void invoke("audio_transcription_stop", {
+      owner: "dictation",
+      runId,
+    }).catch((err) => {
+      console.warn(
+        "[voice-dictation] pending Whisper start cancel failed:",
+        err,
+      );
+    });
   };
 
   const start = async (triggerSource?: VoiceShortcutSource) => {
@@ -651,35 +851,48 @@ export function installDesktopVoiceDictation(
     }
     if (disposed || session || startInFlight) return;
 
+    let runId: number | null;
+    try {
+      runId = lifecycle.begin();
+    } catch (error) {
+      console.error("[voice-dictation] could not allocate a run ID:", error);
+      void invoke("show_flow_bar").catch(() => {});
+      setFlowState("error", undefined, {
+        runId: lifecycle.snapshot()?.runId ?? Date.now() * 1_024,
+        failure: "provider",
+      });
+      return;
+    }
+    if (runId === null) return;
+
+    recoveryContext = null;
     startInFlight = true;
+    startInFlightRunId = runId;
     stopRequestedBeforeReady = false;
+    setFlowState("processing", "initializing", { runId });
+    void invoke("show_flow_bar").catch(() => {});
 
     try {
       const resolved = await resolveProvider();
-      if (disposed || stopRequestedBeforeReady) {
-        abortPendingStart();
+      if (disposed || stopRequestedBeforeReady || !lifecycle.isActive(runId)) {
+        abortPendingStart(runId);
         return;
       }
       if (resolved.kind === "browser") {
-        await startBrowser(resolved.cleanupProvider, triggerSource);
+        await startBrowser(runId, resolved.cleanupProvider, triggerSource);
       } else if (resolved.kind === "native") {
-        await startNative(resolved.cleanupProvider, triggerSource);
+        await startNative(runId, resolved.cleanupProvider, triggerSource);
       } else if (resolved.kind === "whisper") {
-        await startWhisper(resolved.cleanupProvider, triggerSource);
+        await startWhisper(runId, resolved.cleanupProvider, triggerSource);
       } else {
-        await startServer(resolved.providerPref, triggerSource);
+        await startServer(runId, resolved.providerPref, triggerSource);
       }
     } catch (err) {
       console.error("[voice-dictation] start failed", err);
-      startInFlight = false;
-      stopRequestedBeforeReady = false;
+      releaseStart(runId);
+      if (!lifecycle.isActive(runId)) return;
       setHandsFreeActive(false);
-      setFlowState("error");
-      window.setTimeout(() => {
-        if (disposed || session) return;
-        setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-      }, 800);
+      failRun(runId, microphoneFailure(err));
     }
   };
 
@@ -698,147 +911,200 @@ export function installDesktopVoiceDictation(
   };
 
   const saveDictationHistory = (
-    target: VoiceSession,
+    target: DictationHistoryContext,
     fullText: string,
-    cleanedText: string,
-  ): void => {
-    if (target.historySaved) return;
-    target.historySaved = true;
-    const durationMs = Math.max(0, Date.now() - target.startedAt);
-    void fetch(
-      `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-dictation`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          fullText,
-          cleanedText: cleanedText !== fullText ? cleanedText : null,
-          durationMs,
+    cleanedText: string | null,
+  ): Promise<void> => {
+    if (target.historySaved) return Promise.resolve();
+    if (target.historySavePromise) return target.historySavePromise;
+    if (target.historyFullText === undefined) {
+      target.historyFullText = fullText;
+      target.historyCleanedText = cleanedText;
+    }
+    const stableFullText = target.historyFullText;
+    const save = async () => {
+      await saveDictationHistoryRequest({
+        url: `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-dictation`,
+        id: target.historyId,
+        body: {
+          id: target.historyId,
+          fullText: stableFullText,
+          cleanedText: target.historyCleanedText ?? null,
+          durationMs: Math.max(0, Date.now() - target.startedAt),
           source: dictationHistorySource(target.triggerSource),
-        }),
-      },
-    ).catch((err) => {
-      console.warn(
-        "[voice-dictation] create-dictation history save failed:",
-        err,
-      );
+        },
+      });
+      target.historySaved = true;
+    };
+    const pending = save().finally(() => {
+      if (target.historySavePromise === pending) {
+        target.historySavePromise = null;
+      }
     });
+    target.historySavePromise = pending;
+    return pending;
   };
 
-  const completeText = async (
+  const rememberHistoryRecovery = (target: VoiceSession) => {
+    recoveryContext = {
+      runId: target.runId,
+      historyId: target.historyId,
+      startedAt: target.startedAt,
+      triggerSource: target.triggerSource,
+      historyFullText: target.historyFullText,
+      historyCleanedText: target.historyCleanedText,
+      historySaved: target.historySaved,
+      terminalFailure: target.terminalFailure,
+      insertionOutcome: target.insertionOutcome,
+    };
+  };
+
+  const completeText = (
     rawText: string,
     target: VoiceSession,
-  ): Promise<VoiceInsertionResult> => {
-    const original = rawText.trim();
-    if (!original) return "inserted";
-    target.onLateFinalText = (lateText) => {
-      if (target.historySaved) return;
-      saveDictationHistory(target, lateText, lateText);
-    };
-    let text = original;
-    if (target.cleanupProvider) {
-      setFlowState("processing", "cleaning");
+  ): Promise<DictationFinalizationResult> => {
+    if (target.finalizationPromise) return target.finalizationPromise;
+    const completion = (async () => {
+      const cleanupController = new AbortController();
+      target.transcribeAbort = cleanupController;
       const cleanupStartedAtMs = monotonicNow();
-      logDictationTiming(
-        target,
-        "cleanup",
-        "start",
-        cleanupStartedAtMs,
-        undefined,
-        {
-          provider: target.cleanupProvider,
-        },
-      );
-      const controller = new AbortController();
-      target.transcribeAbort = controller;
-      let cleanupOutcome: "completed" | "fallback" = "completed";
-      try {
-        const contextPack = await buildDesktopVoiceContextPack();
-        text =
-          (await cleanupTranscript(
-            serverUrl,
-            original,
-            target.cleanupProvider,
-            controller,
-            instructions,
-            contextPack,
-            dictationLanguage(),
-          )) || original;
-      } catch (err) {
-        if ((err as { name?: string })?.name !== "AbortError") {
-          console.warn(
-            "[voice-dictation] cleanup failed, pasting raw transcript:",
-            (err as Error)?.message ?? err,
+      const result = await finalizeDictationText({
+        rawText,
+        cancelled: () =>
+          target.cancelled || disposed || !lifecycle.isActive(target.runId),
+        emptyFailure: target.recognitionFailure,
+        signal: cleanupController.signal,
+        cleanup: target.cleanupProvider
+          ? async (text, signal) => {
+              const contextPack = await buildDesktopVoiceContextPack();
+              return cleanupTranscript(
+                serverUrl,
+                text,
+                target.cleanupProvider as ServerVoiceProvider,
+                signal,
+                instructions,
+                contextPack,
+                dictationLanguage(),
+              );
+            }
+          : undefined,
+        insert: async (text) => {
+          const pasteStartedAtMs = monotonicNow();
+          const insertionResult = await invoke<unknown>(
+            "complete_voice_dictation",
+            { text },
           );
-        }
-        text = original;
-        cleanupOutcome = "fallback";
-      } finally {
-        target.transcribeAbort = null;
+          if (insertionResult !== "inserted" && insertionResult !== "copied") {
+            throw new Error("The insertion action returned an unknown result.");
+          }
+          try {
+            recordPasteForLearn(text);
+          } catch (err) {
+            console.warn("[voice-dictation] vocab learn-monitor failed:", err);
+          }
+          logDictationTiming(
+            target,
+            "paste",
+            "complete",
+            monotonicNow(),
+            pasteStartedAtMs,
+            { textLength: text.length, outcome: insertionResult },
+          );
+          return insertionResult;
+        },
+        copy: async (text) => {
+          try {
+            await invoke("copy_voice_dictation", { text });
+          } catch {
+            await writeText(text);
+          }
+        },
+        onInsertion: (insertion) => {
+          target.insertionOutcome = insertion;
+        },
+        saveHistory: (original, cleaned) =>
+          saveDictationHistory(target, original, cleaned),
+        applyBacktrack,
+        onStage: (stage: DictationFinalizationStage) => {
+          target.finalizationStage = stage;
+          if (stage === "cleaning") {
+            logDictationTiming(
+              target,
+              "cleanup",
+              "start",
+              cleanupStartedAtMs,
+              undefined,
+              { provider: target.cleanupProvider },
+            );
+            transitionRun(target.runId, "processing", "processing", "cleaning");
+            return;
+          }
+          if (stage === "pasting") {
+            logDictationTiming(target, "cleanup", "skipped", monotonicNow());
+            transitionRun(target.runId, "inserting", "processing", "pasting");
+            return;
+          }
+          transitionRun(
+            target.runId,
+            "saving-history",
+            "processing",
+            "saving-history",
+          );
+        },
+      });
+      target.transcribeAbort = null;
+      if (target.cleanupProvider) {
         logDictationTiming(
           target,
           "cleanup",
           "complete",
           monotonicNow(),
           cleanupStartedAtMs,
-          { outcome: cleanupOutcome },
+          { outcome: result.kind === "completed" ? "completed" : "fallback" },
         );
       }
-    } else {
-      logDictationTiming(
-        target,
-        "cleanup",
-        "skipped",
-        monotonicNow(),
-        undefined,
+      if (result.kind === "cancelled") {
+        finishRun(target.runId, "cancelled", {}, 700);
+        return result;
+      }
+      if (result.kind === "failed") {
+        if (result.failure === "paste" || result.failure === "history-save") {
+          target.terminalFailure = result.failure;
+          if (result.failure === "history-save" || !result.historySaved) {
+            rememberHistoryRecovery(target);
+          } else {
+            recoveryContext = null;
+          }
+          failRun(target.runId, result.failure, {
+            recoverable: result.recoverable,
+            insertion: result.insertion,
+            historySaved: result.historySaved,
+            retryHistory: !result.historySaved,
+            cleanupFailed: result.cleanupFailed,
+            backtrackFailed: result.backtrackFailed,
+            transcript: result.transcript,
+            originalTranscript: result.originalTranscript,
+          });
+        } else {
+          failRun(target.runId, result.failure);
+        }
+        return result;
+      }
+      finishRun(
+        target.runId,
+        result.insertion === "copied" ? "copied" : "complete",
         {
-          reason: "no-provider",
+          insertion: result.insertion,
+          historySaved: true,
+          cleanupFailed: result.cleanupFailed,
+          backtrackFailed: result.backtrackFailed,
         },
+        result.insertion === "copied" ? 1_800 : 1_200,
       );
-    }
-    if (target.cancelled || disposed) return "inserted";
-    try {
-      text = applyBacktrack(text) || text;
-    } catch (err) {
-      console.warn("[voice-dictation] backtrack failed, pasting raw:", err);
-    }
-    const pasteStartedAtMs = monotonicNow();
-    setFlowState("processing", "pasting");
-    logDictationTiming(target, "paste", "start", pasteStartedAtMs);
-    let insertionResult: VoiceInsertionResult = "inserted";
-    try {
-      insertionResult = await invoke<VoiceInsertionResult>(
-        "complete_voice_dictation",
-        { text },
-      );
-      logDictationTiming(
-        target,
-        "paste",
-        "complete",
-        monotonicNow(),
-        pasteStartedAtMs,
-        { textLength: text.length },
-      );
-    } catch (err) {
-      logDictationTiming(
-        target,
-        "paste",
-        "complete",
-        monotonicNow(),
-        pasteStartedAtMs,
-        { outcome: "failed" },
-      );
-      throw err;
-    }
-    try {
-      recordPasteForLearn(text);
-    } catch (err) {
-      console.warn("[voice-dictation] vocab learn-monitor failed:", err);
-    }
-    saveDictationHistory(target, original, text);
-    setFlowState(insertionResult === "copied" ? "copied" : "complete");
-    return insertionResult === "copied" ? "copied" : "inserted";
+      return result;
+    })();
+    target.finalizationPromise = completion;
+    return completion;
   };
 
   const selectedMicConstraints = (): MediaStreamConstraints | null => {
@@ -861,10 +1127,12 @@ export function installDesktopVoiceDictation(
       : { audio: true, video: false };
   };
 
-  const nativeSpeechArgs = () => ({
+  const nativeSpeechArgs = (runId: number) => ({
     locale: navigator.language || "en-US",
     micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
     micDeviceLabel: micDeviceLabel || null,
+    owner: "dictation",
+    runId,
   });
 
   const dictationLanguage = (): string | undefined =>
@@ -907,6 +1175,7 @@ export function installDesktopVoiceDictation(
   };
 
   const startServer = async (
+    runId: number,
     providerPref: ServerVoiceProvider,
     triggerSource?: VoiceShortcutSource,
   ) => {
@@ -915,28 +1184,29 @@ export function installDesktopVoiceDictation(
       typeof MediaRecorder === "undefined"
     ) {
       console.error("[voice-dictation] MediaRecorder unavailable");
-      abortPendingStart();
+      releaseStart(runId);
+      failRun(runId, "microphone-unavailable");
       return;
     }
+    let stream: MediaStream | null = null;
     try {
       console.log("[voice-dictation] startServer:", providerPref);
-      await invoke("show_flow_bar");
-      if (disposed || stopRequestedBeforeReady) {
-        abortPendingStart();
+      if (disposed || !lifecycle.isActive(runId) || stopRequestedBeforeReady) {
+        abortPendingStart(runId);
         return;
       }
-      const stream = await navigator.mediaDevices.getUserMedia(
+      stream = await navigator.mediaDevices.getUserMedia(
         await preferredMicConstraints(),
       );
-      if (disposed || stopRequestedBeforeReady) {
+      if (disposed || stopRequestedBeforeReady || !lifecycle.isActive(runId)) {
         stream.getTracks().forEach((track) => track.stop());
-        abortPendingStart();
+        abortPendingStart(runId);
         return;
       }
-      enterRecordingState();
       const mimeType = pickMimeType();
       const recorder = new MediaRecorder(stream, { mimeType });
       const next: VoiceSession = {
+        runId,
         kind: "server",
         stream,
         recorder,
@@ -956,9 +1226,10 @@ export function installDesktopVoiceDictation(
         transcribeAbort: null,
         cancelled: false,
         cleanupProvider: null,
+        historyId: newDictationHistoryId(),
       };
       session = next;
-      startInFlight = false;
+      releaseStart(runId);
       recorder.ondataavailable = (event) => {
         if (event.data?.size) next.chunks.push(event.data);
       };
@@ -966,16 +1237,24 @@ export function installDesktopVoiceDictation(
         stopMeter(next);
         stopTracks(next);
         if (session === next) session = null;
-        if (disposed || next.cancelled || next.chunks.length === 0) {
+        releaseStart(runId);
+        if (!isRunActive(next)) {
           cleanup(next);
           return;
         }
-        setFlowState("processing", "finalizing");
-        let successState: "complete" | "copied" = "complete";
+        lingeringSession = next;
+        if (!next.chunks.length) {
+          failRun(runId, "no-speech");
+          if (lingeringSession === next) lingeringSession = null;
+          return;
+        }
+        transitionRun(runId, "finalizing", "processing", "finalizing");
         const controller = new AbortController();
         next.transcribeAbort = controller;
         try {
+          transitionRun(runId, "transcribing", "processing", "transcribing");
           const contextPack = await buildDesktopVoiceContextPack();
+          if (!isRunActive(next)) return;
           const text = await transcribe(
             serverUrl,
             next.chunks,
@@ -986,10 +1265,7 @@ export function installDesktopVoiceDictation(
             contextPack,
             dictationLanguage(),
           );
-          if (next.cancelled) {
-            cleanup(next);
-            return;
-          }
+          if (!isRunActive(next)) return;
           logDictationTiming(
             next,
             "finalization",
@@ -1001,103 +1277,59 @@ export function installDesktopVoiceDictation(
               reason: "server-transcription",
             },
           );
-          if (text) {
-            console.log(
-              `[voice-dictation] transcribed (${text.length} chars):`,
-              text.slice(0, 120),
-            );
-            logDictationTiming(
-              next,
-              "cleanup",
-              "skipped",
-              monotonicNow(),
-              undefined,
-              {
-                reason: "server-transcription-path",
-              },
-            );
-            const pasteStartedAtMs = monotonicNow();
-            setFlowState("processing", "pasting");
-            logDictationTiming(next, "paste", "start", pasteStartedAtMs);
-            const insertionResult = await invoke<VoiceInsertionResult>(
-              "complete_voice_dictation",
-              { text },
-            );
-            logDictationTiming(
-              next,
-              "paste",
-              "complete",
-              monotonicNow(),
-              pasteStartedAtMs,
-              { textLength: text.length },
-            );
-            saveDictationHistory(next, text, text);
-            successState = insertionResult === "copied" ? "copied" : "complete";
-            setFlowState(successState);
-          } else {
-            console.warn(
-              "[voice-dictation] transcribe returned empty text — nothing to paste",
-            );
-            setFlowState("error");
-          }
-          window.setTimeout(
-            () => {
-              if (disposed || session) return;
-              setFlowState("idle");
-              invoke("hide_flow_bar").catch(() => {});
-            },
-            text && successState === "copied" ? 1800 : text ? 600 : 800,
-          );
+          transitionRun(runId, "finalizing", "processing", "finalizing");
+          await completeText(text, next);
         } catch (err) {
-          if (
-            next.cancelled ||
-            (err as { name?: string })?.name === "AbortError"
-          ) {
+          if (next.cancelled || disposed || !lifecycle.isActive(runId)) {
             cleanup(next);
             return;
           }
           const message = err instanceof Error ? err.message : String(err);
           console.error("[voice-dictation] transcription failed:", message);
-          setFlowState("error");
-          window.setTimeout(() => {
-            if (!disposed) cleanup(next);
-          }, 800);
+          failRun(runId, "provider");
+          cleanup(next);
+        } finally {
+          next.transcribeAbort = null;
+          if (session === next) session = null;
+          if (lingeringSession === next) lingeringSession = null;
         }
       };
       startMeter(next);
       recorder.start();
+      next.starting = false;
+      releaseStart(runId);
+      if (!enterRecordingState(runId)) {
+        cleanup(next);
+        return;
+      }
       if (stopRequestedBeforeReady) {
         stop();
       }
     } catch (err) {
       console.error("[voice-dictation] startServer failed", err);
-      startInFlight = false;
-      stopRequestedBeforeReady = false;
-      session = null;
+      stream?.getTracks().forEach((track) => track.stop());
+      releaseStart(runId);
+      if (session?.runId === runId) session = null;
+      if (!lifecycle.isActive(runId)) return;
       setHandsFreeActive(false);
-      setFlowState("error");
-      window.setTimeout(() => {
-        if (disposed || session) return;
-        setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-      }, 800);
+      failRun(runId, microphoneFailure(err));
     }
   };
 
   const startNative = async (
+    runId: number,
     cleanupProvider?: ServerVoiceProvider,
     triggerSource?: VoiceShortcutSource,
   ) => {
     console.log("[voice-dictation] startNative: invoke native_speech_start");
     try {
-      await invoke("show_flow_bar");
-      if (disposed || stopRequestedBeforeReady) {
-        abortPendingStart();
+      if (disposed || stopRequestedBeforeReady || !lifecycle.isActive(runId)) {
+        abortPendingStart(runId);
         return;
       }
-      enterRecordingState();
-      emit("voice:partial-transcript", { text: "" }).catch(() => {});
+      emit("voice:partial-transcript", { text: "", runId }).catch(() => {});
       const next: VoiceSession = {
+        runId,
         kind: "native",
         stream: null,
         recorder: null,
@@ -1114,19 +1346,42 @@ export function installDesktopVoiceDictation(
         triggerSource,
         startedAt: Date.now(),
         stopping: false,
+        starting: true,
         transcribeAbort: null,
         cancelled: false,
         cleanupProvider: cleanupProvider ?? null,
+        historyId: newDictationHistoryId(),
       };
       session = next;
-      startInFlight = false;
       try {
         const vocabularyEntries = await loadVocabularyEntries().catch(() => []);
         const contextualStrings = vocabularyEntries.map((v) => v.replacement);
         await invoke("native_speech_set_vocabulary", {
           strings: contextualStrings,
         }).catch(() => {});
-        await invoke("native_speech_start", nativeSpeechArgs());
+        if (!isRunActive(next) || stopRequestedBeforeReady) {
+          abortPendingStart(runId);
+          cleanup(next);
+          return;
+        }
+        await invoke("native_speech_start", nativeSpeechArgs(runId));
+        if (!isRunActive(next)) {
+          await invoke("native_speech_cancel", {
+            owner: "dictation",
+            runId,
+          }).catch(() => {});
+          abortPendingStart(runId);
+          return;
+        }
+        next.starting = false;
+        releaseStart(runId);
+        if (!enterRecordingState(runId)) {
+          invoke("native_speech_cancel", { owner: "dictation", runId }).catch(
+            () => {},
+          );
+          cleanup(next);
+          return;
+        }
         console.log(
           `[voice-dictation] native_speech_start ok (vocab=${contextualStrings.length})`,
         );
@@ -1134,6 +1389,7 @@ export function installDesktopVoiceDictation(
       } catch (err) {
         console.error("[voice-dictation] native_speech_start failed:", err);
         if (session === next) session = null;
+        if (lingeringSession === next) lingeringSession = null;
         throw err;
       }
       if (stopRequestedBeforeReady) {
@@ -1142,9 +1398,10 @@ export function installDesktopVoiceDictation(
     } catch (err) {
       console.error("[voice-dictation] startNative failed", err);
       const wasStopRequested = stopRequestedBeforeReady;
-      startInFlight = false;
-      stopRequestedBeforeReady = false;
-      session = null;
+      releaseStart(runId);
+      if (session?.runId === runId) session = null;
+      if (lingeringSession?.runId === runId) lingeringSession = null;
+      if (!lifecycle.isActive(runId)) return;
       // Clear the hands-free flag alongside session so a failed
       // native start (mic permission denial, engine-busy) can't wedge every
       // future press into a no-op stop() branch.
@@ -1152,24 +1409,23 @@ export function installDesktopVoiceDictation(
       if (
         String(err).includes("unavailable in tauri dev") &&
         !disposed &&
-        !wasStopRequested
+        !wasStopRequested &&
+        lifecycle.isActive(runId)
       ) {
         console.warn(
           "[voice-dictation] native Speech is unavailable in tauri dev; falling back to local Whisper",
         );
-        await startWhisper(cleanupProvider, triggerSource);
+        await startWhisper(runId, cleanupProvider, triggerSource);
         return;
       }
-      setFlowState("error");
-      window.setTimeout(() => {
-        if (disposed || session) return;
-        setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-      }, 800);
+      if (lifecycle.isActive(runId)) {
+        failRun(runId, speechFailure(String(err)));
+      }
     }
   };
 
   const startWhisper = async (
+    runId: number,
     cleanupProvider?: ServerVoiceProvider,
     triggerSource?: VoiceShortcutSource,
   ) => {
@@ -1185,22 +1441,19 @@ export function installDesktopVoiceDictation(
         captureSystem: false,
         voiceProcessing: true,
         owner: "dictation",
+        runId,
       });
       console.log("[voice-dictation] audio_transcription_start ok");
-      if (disposed || stopRequestedBeforeReady) {
-        invoke("audio_transcription_stop").catch(() => {});
-        abortPendingStart();
+      if (disposed || stopRequestedBeforeReady || !lifecycle.isActive(runId)) {
+        invoke("audio_transcription_stop", { owner: "dictation", runId }).catch(
+          () => {},
+        );
+        abortPendingStart(runId);
         return;
       }
-      await invoke("show_flow_bar");
-      if (disposed || stopRequestedBeforeReady) {
-        invoke("audio_transcription_stop").catch(() => {});
-        abortPendingStart();
-        return;
-      }
-      enterRecordingState();
-      emit("voice:partial-transcript", { text: "" }).catch(() => {});
+      emit("voice:partial-transcript", { text: "", runId }).catch(() => {});
       const next: VoiceSession = {
+        runId,
         kind: "whisper",
         stream: null,
         recorder: null,
@@ -1220,29 +1473,35 @@ export function installDesktopVoiceDictation(
         transcribeAbort: null,
         cancelled: false,
         cleanupProvider: cleanupProvider ?? null,
+        historyId: newDictationHistoryId(),
       };
       session = next;
-      startInFlight = false;
+      releaseStart(runId);
+      if (!enterRecordingState(runId)) {
+        invoke("audio_transcription_stop", { owner: "dictation", runId }).catch(
+          () => {},
+        );
+        cleanup(next);
+        return;
+      }
       startSyntheticMeter(next);
       if (stopRequestedBeforeReady) {
         stop();
       }
     } catch (err) {
       console.error("[voice-dictation] startWhisper failed", err);
-      startInFlight = false;
-      stopRequestedBeforeReady = false;
-      session = null;
+      releaseStart(runId);
+      if (session?.runId === runId) session = null;
+      if (!lifecycle.isActive(runId)) return;
       setHandsFreeActive(false);
-      setFlowState("error");
-      window.setTimeout(() => {
-        if (disposed || session) return;
-        setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-      }, 800);
+      if (lifecycle.isActive(runId)) {
+        failRun(runId, speechFailure(String(err)));
+      }
     }
   };
 
   const startBrowser = async (
+    runId: number,
     cleanupProvider?: ServerVoiceProvider,
     triggerSource?: VoiceShortcutSource,
   ) => {
@@ -1252,23 +1511,22 @@ export function installDesktopVoiceDictation(
       console.error(
         "[voice-dictation] webkitSpeechRecognition unavailable — falling back to server",
       );
-      await startServer("auto", triggerSource);
+      await startServer(runId, "auto", triggerSource);
       return;
     }
     try {
-      await invoke("show_flow_bar");
-      if (disposed || stopRequestedBeforeReady) {
-        abortPendingStart();
+      if (disposed || stopRequestedBeforeReady || !lifecycle.isActive(runId)) {
+        abortPendingStart(runId);
         return;
       }
-      enterRecordingState();
-      emit("voice:partial-transcript", { text: "" }).catch(() => {});
+      emit("voice:partial-transcript", { text: "", runId }).catch(() => {});
       const recognition = new Ctor();
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = navigator.language || "en-US";
       recognition.maxAlternatives = 1;
       const next: VoiceSession = {
+        runId,
         kind: "browser",
         stream: null,
         recorder: null,
@@ -1288,6 +1546,7 @@ export function installDesktopVoiceDictation(
         transcribeAbort: null,
         cancelled: false,
         cleanupProvider: cleanupProvider ?? null,
+        historyId: newDictationHistoryId(),
       };
       (recognition as unknown as { onstart: (() => void) | null }).onstart =
         () => console.log("[voice-dictation] recognition.onstart");
@@ -1345,27 +1604,29 @@ export function installDesktopVoiceDictation(
             ev.error,
           );
         }
+        if (ev.error !== "aborted") {
+          next.recognitionFailure = recognitionFailure(ev.error);
+        }
       };
       recognition.onend = async () => {
+        if (next.browserFinalizationStarted) return;
+        next.browserFinalizationStarted = true;
         console.log("[voice-dictation] recognition.onend");
+        recognition.onresult = null;
+        recognition.onerror = null;
+        recognition.onend = null;
         stopMeter(next);
         stopTracks(next);
         if (session === next) session = null;
         const text = next.browserTranscript.trim();
-        if (disposed || next.cancelled || !text) {
-          console.log(
-            "[voice-dictation] no usable text on onend (cancelled/empty)",
-          );
-          emit("voice:partial-transcript", { text: "" }).catch(() => {});
+        if (disposed || next.cancelled || !lifecycle.isActive(runId)) {
+          emit("voice:partial-transcript", { text: "", runId }).catch(() => {});
           cleanup(next);
           return;
         }
+        lingeringSession = next;
         try {
-          console.log(
-            `[voice-dictation] browser transcribed (${text.length} chars):`,
-            text.slice(0, 120),
-          );
-          setFlowState("processing", "finalizing");
+          transitionRun(runId, "finalizing", "processing", "finalizing");
           logDictationTiming(
             next,
             "finalization",
@@ -1380,15 +1641,28 @@ export function installDesktopVoiceDictation(
             "[voice-dictation] complete_voice_dictation failed:",
             err,
           );
+          if (lifecycle.isActive(runId)) {
+            failRun(runId, "provider", {
+              recoverable: !!text,
+              transcript: text || undefined,
+            });
+          }
+        } finally {
+          if (lingeringSession === next) lingeringSession = null;
+          if (session === next) session = null;
         }
-        emit("voice:partial-transcript", { text: "" }).catch(() => {});
-        cleanup(next);
+        emit("voice:partial-transcript", { text: "", runId }).catch(() => {});
       };
       session = next;
-      startInFlight = false;
       startSyntheticMeter(next);
       try {
         recognition.start();
+        releaseStart(runId);
+        if (!enterRecordingState(runId)) {
+          recognition.abort();
+          cleanup(next);
+          return;
+        }
         console.log("[voice-dictation] recognition.start() returned");
       } catch (err) {
         console.error("[voice-dictation] recognition.start threw:", err);
@@ -1401,16 +1675,11 @@ export function installDesktopVoiceDictation(
       }
     } catch (err) {
       console.error("[voice-dictation] startBrowser failed", err);
-      startInFlight = false;
-      stopRequestedBeforeReady = false;
-      session = null;
+      releaseStart(runId);
+      if (session?.runId === runId) session = null;
+      if (!lifecycle.isActive(runId)) return;
       setHandsFreeActive(false);
-      setFlowState("error");
-      window.setTimeout(() => {
-        if (disposed || session) return;
-        setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-      }, 800);
+      if (lifecycle.isActive(runId)) failRun(runId, speechFailure(String(err)));
     }
   };
 
@@ -1418,15 +1687,24 @@ export function installDesktopVoiceDictation(
     setHandsFreeActive(false);
     pendingHandsFreeTapAt = null;
     const current = session ?? lingeringSession;
-    const isLingeringOnly = !!current && session !== current;
     if (!current) {
       stopRequestedBeforeReady = true;
-      invoke("hide_flow_bar").catch(() => {});
+      const runId = lifecycle.snapshot()?.runId;
+      if (startInFlight && runId && lifecycle.isActive(runId)) {
+        abortPendingStart(runId);
+      } else {
+        invoke("hide_flow_bar").catch(() => {});
+      }
+      return;
+    }
+    if (
+      current.finalizationStage === "pasting" ||
+      current.finalizationStage === "saving-history"
+    ) {
       return;
     }
     current.cancelled = true;
     current.transcribeAbort?.abort();
-    if (lingeringSession === current) lingeringSession = null;
     if (!current.stopping) {
       current.stopping = true;
       if (current.kind === "server") {
@@ -1437,11 +1715,17 @@ export function installDesktopVoiceDictation(
           // through to the cleanup below regardless.
         }
       } else if (current.kind === "native") {
-        invoke("native_speech_cancel", { owner: "dictation" }).catch((err) => {
+        invoke("native_speech_cancel", {
+          owner: "dictation",
+          runId: current.runId,
+        }).catch((err) => {
           console.warn("[voice-dictation] native_speech_cancel failed:", err);
         });
       } else if (current.kind === "whisper") {
-        invoke("audio_transcription_stop").catch((err) => {
+        invoke("audio_transcription_stop", {
+          owner: "dictation",
+          runId: current.runId,
+        }).catch((err) => {
           console.warn(
             "[voice-dictation] audio_transcription_stop (cancel) failed:",
             err,
@@ -1455,15 +1739,10 @@ export function installDesktopVoiceDictation(
         }
       }
     }
-    if (isLingeringOnly) {
-      stopMeter(current);
-      stopTracks(current);
-      setFlowState("idle");
-      invoke("hide_flow_bar").catch(() => {});
-      emit("voice:partial-transcript", { text: "" }).catch(() => {});
-      return;
-    }
     cleanup(current);
+    emit("voice:partial-transcript", { text: "", runId: current.runId }).catch(
+      () => {},
+    );
   };
 
   const stop = () => {
@@ -1471,20 +1750,16 @@ export function installDesktopVoiceDictation(
     if (!current) {
       if (startInFlight) {
         stopRequestedBeforeReady = true;
-        setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-        window.setTimeout(() => {
-          if (disposed) return;
-          if (!session && startInFlight) {
-            invoke("hide_flow_bar").catch(() => {});
-          }
-        }, 1500);
+        const runId = lifecycle.snapshot()?.runId;
+        if (runId && lifecycle.isActive(runId)) {
+          abortPendingStart(runId);
+        }
       }
       return;
     }
     if (current.stopping) return;
     current.stopping = true;
-    if (Date.now() - current.startedAt < 500) {
+    if (current.starting || Date.now() - current.startedAt < 500) {
       if (mode === "push-to-talk" && !handsFreeActive) {
         pendingHandsFreeTapAt = Date.now();
       }
@@ -1499,9 +1774,15 @@ export function installDesktopVoiceDictation(
           // ignore
         }
       } else if (current.kind === "native") {
-        invoke("native_speech_cancel", { owner: "dictation" }).catch(() => {});
+        invoke("native_speech_cancel", {
+          owner: "dictation",
+          runId: current.runId,
+        }).catch(() => {});
       } else if (current.kind === "whisper") {
-        invoke("audio_transcription_stop").catch(() => {});
+        invoke("audio_transcription_stop", {
+          owner: "dictation",
+          runId: current.runId,
+        }).catch(() => {});
       }
       cleanup(current);
       return;
@@ -1511,123 +1792,81 @@ export function installDesktopVoiceDictation(
     logDictationTiming(current, "release", "complete", current.releasedAtMs);
     try {
       if (current.kind === "server") {
+        if (
+          !transitionRun(
+            current.runId,
+            "finalizing",
+            "processing",
+            "finalizing",
+          )
+        ) {
+          cleanup(current);
+          return;
+        }
         current.recorder?.stop();
       } else if (current.kind === "native" || current.kind === "whisper") {
         const stopCmd =
           current.kind === "whisper"
             ? "audio_transcription_stop"
             : "native_speech_stop";
-        invoke(
+        transitionRun(current.runId, "finalizing", "processing", "finalizing");
+        const stopRequest = invoke(
           stopCmd,
-          current.kind === "native" ? { owner: "dictation" } : undefined,
-        ).catch((err) => {
-          console.warn(`[voice-dictation] ${stopCmd} failed:`, err);
-        });
-        setFlowState("processing", "finalizing");
+          current.kind === "native"
+            ? { owner: "dictation", runId: current.runId }
+            : { owner: "dictation", runId: current.runId },
+        );
         const lingering = current;
         lingeringSession = current;
         if (session === current) session = null;
-        startInFlight = false;
-        stopRequestedBeforeReady = false;
+        releaseStart(current.runId);
         stopMeter(current);
         stopTracks(current);
         const stopAtMs = Date.now();
-        console.log(
-          "[voice-dictation] native stop — pill dismissed, awaiting final",
-        );
-        let pasted = false;
-        let finalized = false;
-        const finalize = (reason: "final" | "timeout" | "manual") => {
-          if (finalized) {
-            if (reason === "final" && pasted) {
-              const lateText = lingering.browserTranscript.trim();
-              lingering.browserTranscript = "";
-              if (lateText) lingering.onLateFinalText?.(lateText);
-            }
+        const finalize = (reason: "final" | "timeout") => {
+          if (lingering.nativeFinalizationStarted) return;
+          lingering.nativeFinalizationStarted = true;
+          if (!isRunActive(lingering)) {
+            cleanup(lingering);
             return;
           }
-          finalized = true;
-          const finalizationAtMs = monotonicNow();
-          const finalText = lingering.browserTranscript.trim();
+          const text = lingering.browserTranscript.trim();
+          lingering.browserTranscript = "";
           logDictationTiming(
             lingering,
             "finalization",
             "complete",
-            finalizationAtMs,
+            monotonicNow(),
             undefined,
-            { reason, textLength: finalText.length },
+            { reason, textLength: text.length },
           );
-          console.log(
-            `[voice-dictation] native finalize (${reason}, +${Date.now() - stopAtMs}ms)`,
-          );
-          if (lingering.cancelled) {
-            if (lingeringSession === lingering) lingeringSession = null;
-            return;
-          }
-          if (session && session !== lingering) {
-            if (lingeringSession === lingering) lingeringSession = null;
-            return;
-          }
-          const text = finalText;
-          lingering.browserTranscript = "";
-          if (text) {
-            console.log(
-              `[voice-dictation] native paste (${text.length} chars, reason=${reason}):`,
-              text.slice(0, 120),
-            );
-            pasted = true;
-            if (reason === "timeout") {
-              window.setTimeout(() => {
-                if (lingeringSession === lingering) lingeringSession = null;
-              }, 2000);
-            } else if (lingeringSession === lingering) {
-              lingeringSession = null;
-            }
-            void (async () => {
-              let insertionResult: VoiceInsertionResult = "inserted";
-              try {
-                insertionResult = await completeText(text, lingering);
-              } catch (err) {
-                console.error("[voice-dictation] paste failed:", err);
-                setFlowState("error");
+          void completeText(text, lingering)
+            .catch((err) => {
+              console.error("[voice-dictation] finalization failed:", err);
+              if (lifecycle.isActive(lingering.runId)) {
+                failRun(lingering.runId, "provider", {
+                  recoverable: !!text,
+                  transcript: text || undefined,
+                });
               }
-              console.log("[voice-dictation] starting dismissal linger");
-              window.setTimeout(
-                () => {
-                  console.log("[voice-dictation] linger done — dismissing");
-                  if (reason !== "timeout" && lingeringSession === lingering) {
-                    lingeringSession = null;
-                  }
-                  if (disposed) return;
-                  if (session && session !== lingering) return;
-                  invoke("hide_flow_bar").catch(() => {});
-                  emit("voice:partial-transcript", { text: "" }).catch(
-                    () => {},
-                  );
-                },
-                insertionResult === "copied"
-                  ? 1800
-                  : lingering.cleanupProvider
-                    ? 500
-                    : 1200,
-              );
-            })();
-          } else {
-            console.warn(
-              "[voice-dictation] no transcript captured — native recognizer didn't produce results",
-            );
-            if (lingeringSession === lingering) lingeringSession = null;
-            setFlowState("error");
-            window.setTimeout(() => {
-              if (disposed || session) return;
-              setFlowState("idle");
-              invoke("hide_flow_bar").catch(() => {});
-            }, 800);
-            emit("voice:partial-transcript", { text: "" }).catch(() => {});
-          }
+            })
+            .finally(() => {
+              if (lingeringSession === lingering) lingeringSession = null;
+              if (session === lingering) session = null;
+              emit("voice:partial-transcript", {
+                text: "",
+                runId: lingering.runId,
+              }).catch(() => {});
+            });
         };
-
         lingering.onNativeFinalize = () => finalize("final");
+        void stopRequest.catch((err) => {
+          console.warn(`[voice-dictation] ${stopCmd} failed:`, err);
+          if (lifecycle.isActive(lingering.runId)) {
+            failRun(lingering.runId, "provider");
+            cleanup(lingering);
+          }
+        });
         const heldSeconds = (stopAtMs - lingering.startedAt) / 1000;
         const timeoutBaseMs = lingering.kind === "whisper" ? 4500 : 3000;
         const finalizeTimeoutMs = Math.min(
@@ -1657,153 +1896,76 @@ export function installDesktopVoiceDictation(
           s.recognition = null;
         };
 
-        if (!initialText) {
-          current.browserTranscript = "";
-          if (session === current) session = null;
-          startInFlight = false;
-          stopRequestedBeforeReady = false;
-          setFlowState("processing", "finalizing");
-          invoke("hide_flow_bar").catch(() => {});
-          emit("voice:partial-transcript", { text: "" }).catch(() => {});
-          detachAndAbort(current);
-          stopMeter(current);
-          stopTracks(current);
-          console.warn(
-            "[voice-dictation] no transcript captured — recognition didn't produce results",
-          );
-        } else if (userFellSilent) {
-          const lingering = current;
-          if (session === current) session = null;
-          startInFlight = false;
-          stopRequestedBeforeReady = false;
-          setFlowState("processing", "finalizing");
-          stopMeter(lingering);
-          if (lingering.stream) {
-            lingering.stream.getTracks().forEach((t) => {
-              try {
-                t.stop();
-              } catch {
-                // ignore
-              }
-            });
-            lingering.stream = null;
+        const lingering = current;
+        if (session === current) session = null;
+        lingeringSession = lingering;
+        releaseStart(current.runId);
+        transitionRun(current.runId, "finalizing", "processing", "finalizing");
+        stopMeter(lingering);
+        if (lingering.stream) {
+          lingering.stream.getTracks().forEach((track) => {
+            try {
+              track.stop();
+            } catch (error) {
+              console.warn("[voice-dictation] audio track stop failed:", error);
+            }
+          });
+          lingering.stream = null;
+        }
+        const finishBrowser = (reason: "quiet-release" | "tail-capture") => {
+          if (lingering.browserFinalizationStarted) return;
+          lingering.browserFinalizationStarted = true;
+          if (!isRunActive(lingering)) {
+            cleanup(lingering);
+            return;
           }
           detachAndAbort(lingering);
+          stopTracks(lingering);
           const finalText = lingering.browserTranscript.trim();
           lingering.browserTranscript = "";
-          console.log(
-            `[voice-dictation] snappy paste (quiet ${sinceLastResult}ms, ${finalText.length} chars): "${finalText.slice(0, 80)}"`,
-          );
           logDictationTiming(
             lingering,
             "finalization",
             "complete",
             monotonicNow(),
             undefined,
-            { textLength: finalText.length, reason: "quiet-release" },
+            { textLength: finalText.length, reason },
           );
-          void (async () => {
-            let insertionResult: VoiceInsertionResult = "inserted";
-            try {
-              insertionResult = await completeText(finalText, lingering);
-            } catch (err) {
-              console.error("[voice-dictation] paste failed:", err);
-              setFlowState("error");
-            }
-            window.setTimeout(
-              () => {
-                if (disposed) return;
-                if (session && session !== lingering) return;
-                invoke("hide_flow_bar").catch(() => {});
-                emit("voice:partial-transcript", { text: "" }).catch(() => {});
-              },
-              insertionResult === "copied"
-                ? 1800
-                : lingering.cleanupProvider
-                  ? 500
-                  : 1000,
-            );
-          })();
-        } else {
-          const lingering = current;
-          if (session === current) session = null;
-          startInFlight = false;
-          stopRequestedBeforeReady = false;
-          setFlowState("processing", "finalizing");
-          stopMeter(lingering);
-          if (lingering.stream) {
-            lingering.stream.getTracks().forEach((t) => {
-              try {
-                t.stop();
-              } catch {
-                // ignore
-              }
-            });
-            lingering.stream = null;
-          }
-          console.log(
-            `[voice-dictation] tail-capture starting (active ${sinceLastResult}ms ago, ${initialText.length} chars so far): "${initialText.slice(0, 60)}..."`,
-          );
-          window.setTimeout(() => {
-            if (disposed) return;
-            const supersededByNewSession = !!session && session !== lingering;
-            if (supersededByNewSession) lingering.cancelled = true;
-            detachAndAbort(lingering);
-            stopTracks(lingering);
-            if (lingering.cancelled) return;
-            if (supersededByNewSession) return;
-            const finalText = lingering.browserTranscript.trim();
-            lingering.browserTranscript = "";
-            if (finalText) {
-              const tailGain = finalText.length - initialText.length;
-              console.log(
-                `[voice-dictation] tail-capture done (${finalText.length} chars, +${tailGain} from tail): "${finalText.slice(0, 80)}"`,
+          void completeText(finalText, lingering)
+            .catch((err) => {
+              console.error(
+                "[voice-dictation] browser finalization failed:",
+                err,
               );
-              void (async () => {
-                logDictationTiming(
-                  lingering,
-                  "finalization",
-                  "complete",
-                  monotonicNow(),
-                  undefined,
-                  { textLength: finalText.length, reason: "tail-capture" },
-                );
-                let insertionResult: VoiceInsertionResult = "inserted";
-                try {
-                  insertionResult = await completeText(finalText, lingering);
-                } catch (err) {
-                  console.error("[voice-dictation] paste failed:", err);
-                  setFlowState("error");
-                }
-                window.setTimeout(
-                  () => {
-                    if (disposed) return;
-                    if (session && session !== lingering) return;
-                    invoke("hide_flow_bar").catch(() => {});
-                    emit("voice:partial-transcript", { text: "" }).catch(
-                      () => {},
-                    );
-                  },
-                  insertionResult === "copied"
-                    ? 1800
-                    : lingering.cleanupProvider
-                      ? 500
-                      : 1000,
-                );
-              })();
-            } else {
-              invoke("hide_flow_bar").catch(() => {});
-              emit("voice:partial-transcript", { text: "" }).catch(() => {});
-            }
-          }, 1500);
+              if (lifecycle.isActive(lingering.runId)) {
+                failRun(lingering.runId, "provider", {
+                  recoverable: !!finalText,
+                  transcript: finalText || undefined,
+                });
+              }
+            })
+            .finally(() => {
+              if (lingeringSession === lingering) lingeringSession = null;
+              if (session === lingering) session = null;
+              emit("voice:partial-transcript", {
+                text: "",
+                runId: lingering.runId,
+              }).catch(() => {});
+            });
+        };
+        if (!initialText || userFellSilent) {
+          finishBrowser("quiet-release");
+        } else {
+          window.setTimeout(() => finishBrowser("tail-capture"), 1_500);
         }
       }
     } catch (err) {
       console.error("[voice-dictation] stop failed", err);
-      setFlowState("error");
-      window.setTimeout(() => {
-        if (!disposed) cleanup(current);
-      }, 800);
+      failRun(current.runId, "provider", {
+        recoverable: !!current.browserTranscript.trim(),
+        transcript: current.browserTranscript.trim() || undefined,
+      });
+      cleanup(current);
     }
   };
 
@@ -1832,32 +1994,51 @@ export function installDesktopVoiceDictation(
   );
 
   registerListener(
-    onAudioLevel(({ source, synthetic }) => {
+    listen("voice:flow-bar-ready", () => {
+      emit("voice:state-change", latestFlowStatePayload).catch(() => {});
+    }),
+  );
+  registerListener(
+    onAudioLevel(({ source, synthetic, runId }) => {
       if (source !== "mic" || synthetic) return;
       const current = session;
       if (current?.kind === "native" || current?.kind === "whisper") {
+        if (!isCurrentDictationRun(lifecycle, current.runId, runId)) return;
         current.meterHasRealSignal = true;
       }
     }),
   );
   registerListener(
-    onPartialTranscript(({ text }) => {
+    onPartialTranscript(({ text, runId, source }) => {
+      if (source !== "mic") return;
       const current = session;
       if (!current || (current.kind !== "native" && current.kind !== "whisper"))
         return;
-      if (current.cancelled || current.stopping) return;
+      if (
+        current.cancelled ||
+        current.stopping ||
+        !isCurrentDictationRun(lifecycle, current.runId, runId)
+      ) {
+        return;
+      }
       setInterimTranscript(current, text);
     }),
   );
   registerListener(
-    onFinalTranscript(({ text }) => {
-      const current = lingeringSession
-        ? lingeringSession
-        : session && session.kind === "whisper" && !session.stopping
-          ? session
-          : null;
-      if (!current) return;
-      if (current.cancelled) return;
+    onFinalTranscript(({ text, runId, source }) => {
+      if (source !== "mic") return;
+      const current = [session, lingeringSession].find(
+        (candidate) => candidate?.runId === runId,
+      );
+      if (
+        !current ||
+        (current.kind !== "native" && current.kind !== "whisper") ||
+        current.cancelled ||
+        current.nativeFinalizationStarted ||
+        !isCurrentDictationRun(lifecycle, current.runId, runId)
+      ) {
+        return;
+      }
       appendFinalTranscript(current, text);
       if (current === lingeringSession) {
         current.onNativeFinalize?.();
@@ -1865,15 +2046,150 @@ export function installDesktopVoiceDictation(
     }),
   );
   registerListener(
-    onSpeechError(({ error }) => {
-      const current = session;
-      console.error("[voice-dictation] native speech error:", error);
-      if (!current || (current.kind !== "native" && current.kind !== "whisper"))
+    onSpeechError(({ error, runId, source }) => {
+      if (
+        source !== "mic" ||
+        typeof runId !== "number" ||
+        !Number.isSafeInteger(runId)
+      ) {
         return;
-      setFlowState("error");
-      window.setTimeout(() => {
-        if (!disposed && session === current) cleanup(current);
-      }, 800);
+      }
+      const current = [session, lingeringSession].find(
+        (candidate) => candidate?.runId === runId,
+      );
+      console.error("[voice-dictation] native speech error:", error);
+      if (
+        !current ||
+        (current.kind !== "native" && current.kind !== "whisper") ||
+        current.cancelled ||
+        current.nativeFinalizationStarted ||
+        !isCurrentDictationRun(lifecycle, current.runId, runId)
+      ) {
+        return;
+      }
+      const text = current.browserTranscript.trim();
+      if (!text) {
+        failRun(runId, speechFailure(error));
+        cleanup(current);
+        return;
+      }
+      current.nativeFinalizationStarted = true;
+      if (session === current) session = null;
+      lingeringSession = current;
+      transitionRun(runId, "finalizing", "processing", "finalizing");
+      if (current.kind === "native") {
+        invoke("native_speech_cancel", { owner: "dictation", runId }).catch(
+          () => {},
+        );
+      } else {
+        invoke("audio_transcription_stop", { owner: "dictation", runId }).catch(
+          () => {},
+        );
+      }
+      stopMeter(current);
+      stopTracks(current);
+      current.browserTranscript = "";
+      void completeText(text, current)
+        .catch((err) => {
+          console.error(
+            "[voice-dictation] speech error finalization failed:",
+            err,
+          );
+          if (lifecycle.isActive(runId)) {
+            failRun(runId, "provider", {
+              recoverable: true,
+              transcript: text,
+            });
+          }
+        })
+        .finally(() => {
+          if (lingeringSession === current) lingeringSession = null;
+          if (session === current) session = null;
+        });
+    }),
+  );
+
+  registerListener(
+    listen<{ runId?: number }>("voice:retry-history", (event) => {
+      const requestedRunId = event.payload?.runId;
+      if (
+        typeof requestedRunId !== "number" ||
+        !Number.isSafeInteger(requestedRunId)
+      ) {
+        return;
+      }
+      const target = recoveryContext;
+      if (
+        !target ||
+        target.runId !== requestedRunId ||
+        !lifecycle.isLatest(target.runId) ||
+        target.historySaved ||
+        !target.historyFullText ||
+        !lifecycle.retryHistory(target.runId)
+      ) {
+        return;
+      }
+      setFlowState("processing", "saving-history", { runId: target.runId });
+      void saveDictationHistory(
+        target,
+        target.historyFullText,
+        target.historyCleanedText ?? null,
+      )
+        .then(() => {
+          if (!lifecycle.isLatest(target.runId)) return;
+          if (
+            target.terminalFailure === "history-save" &&
+            target.insertionOutcome
+          ) {
+            const state =
+              target.insertionOutcome === "copied" ? "copied" : "complete";
+            const phase =
+              target.insertionOutcome === "copied" ? "copied" : "completed";
+            if (!lifecycle.finish(target.runId, phase)) return;
+            recoveryContext = null;
+            setFlowState(state, undefined, {
+              runId: target.runId,
+              insertion: target.insertionOutcome,
+              historySaved: true,
+            });
+            return;
+          }
+          if (!lifecycle.finish(target.runId, "failed")) return;
+          recoveryContext = null;
+          setFlowState("error", undefined, {
+            runId: target.runId,
+            failure: "paste",
+            insertion: null,
+            recoverable: true,
+            historySaved: true,
+            transcript: target.historyCleanedText || target.historyFullText,
+            ...(target.historyCleanedText &&
+            target.historyCleanedText !== target.historyFullText
+              ? { originalTranscript: target.historyFullText }
+              : {}),
+          });
+        })
+        .catch(() => {
+          if (
+            !lifecycle.isLatest(target.runId) ||
+            !lifecycle.finish(target.runId, "failed")
+          ) {
+            return;
+          }
+          setFlowState("error", undefined, {
+            runId: target.runId,
+            failure: target.terminalFailure ?? "history-save",
+            insertion: target.insertionOutcome ?? null,
+            recoverable: !!target.historyFullText,
+            retryHistory: true,
+            historySaved: false,
+            transcript: target.historyCleanedText || target.historyFullText,
+            ...(target.historyCleanedText &&
+            target.historyCleanedText !== target.historyFullText
+              ? { originalTranscript: target.historyFullText }
+              : {}),
+          });
+        });
     }),
   );
 
@@ -1961,14 +2277,20 @@ export function installDesktopVoiceDictation(
         // recorder.stop can throw if not in 'recording' state.
       }
     } else if (target.kind === "native") {
-      invoke("native_speech_cancel", { owner: "dictation" }).catch((err) => {
+      invoke("native_speech_cancel", {
+        owner: "dictation",
+        runId: target.runId,
+      }).catch((err) => {
         console.warn(
           "[voice-dictation] native_speech_cancel (dispose) failed:",
           err,
         );
       });
     } else if (target.kind === "whisper") {
-      invoke("audio_transcription_stop").catch((err) => {
+      invoke("audio_transcription_stop", {
+        owner: "dictation",
+        runId: target.runId,
+      }).catch((err) => {
         console.warn(
           "[voice-dictation] audio_transcription_stop (dispose) failed:",
           err,

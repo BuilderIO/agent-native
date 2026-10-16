@@ -7,6 +7,7 @@ pub async fn native_speech_start(
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     owner: Option<String>,
+    run_id: Option<u64>,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -16,11 +17,12 @@ pub async fn native_speech_start(
             mic_device_id,
             mic_device_label,
             macos::SessionOwner::from_param(owner),
+            run_id,
         )
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, locale, mic_device_id, mic_device_label, owner);
+        let _ = (app, locale, mic_device_id, mic_device_label, owner, run_id);
         Err("Native speech recognition is only supported on macOS.".into())
     }
 }
@@ -52,36 +54,50 @@ pub async fn native_speech_request_permission() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn native_speech_stop(app: AppHandle, owner: Option<String>) -> Result<(), String> {
+pub async fn native_speech_stop(
+    app: AppHandle,
+    owner: Option<String>,
+    run_id: Option<u64>,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos::native_speech_stop_impl(app, owner.map(|o| macos::SessionOwner::from_param(Some(o))))
+        macos::native_speech_stop_impl(
+            app,
+            owner.map(|o| macos::SessionOwner::from_param(Some(o))),
+            run_id,
+        )
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, owner);
+        let _ = (app, owner, run_id);
         Ok(())
     }
 }
 
 #[tauri::command]
-pub async fn native_speech_cancel(app: AppHandle, owner: Option<String>) -> Result<(), String> {
+pub async fn native_speech_cancel(
+    app: AppHandle,
+    owner: Option<String>,
+    run_id: Option<u64>,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         macos::native_speech_cancel_impl(
             app,
             owner.map(|o| macos::SessionOwner::from_param(Some(o))),
+            run_id,
         )
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, owner);
+        let _ = (app, owner, run_id);
         Ok(())
     }
 }
 
 #[cfg(target_os = "macos")]
 pub(crate) mod macos {
+    use std::collections::HashSet;
     use std::ffi::c_void;
     use std::mem::size_of;
     use std::ptr::NonNull;
@@ -228,6 +244,7 @@ pub(crate) mod macos {
     /// impl we need, and we mark it manually below.
     struct SpeechSession {
         generation: u64,
+        run_id: Option<u64>,
         completion_started: Arc<AtomicBool>,
         callback_finished: Arc<AtomicBool>,
         audio: SpeechAudio,
@@ -276,6 +293,7 @@ pub(crate) mod macos {
         app: AppHandle,
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
         level_tick: Arc<AtomicU32>,
+        run_id: Option<u64>,
     }
 
     struct WarmedRawMicEngine {
@@ -298,6 +316,98 @@ pub(crate) mod macos {
     struct SessionRegistry<T> {
         active: Option<T>,
         finishing: Vec<T>,
+    }
+
+    #[derive(Default)]
+    struct DictationRunAuthority {
+        latest_run_id: Option<u64>,
+        cancelled_run_ids: HashSet<u64>,
+    }
+
+    fn dictation_run_authority() -> &'static Mutex<DictationRunAuthority> {
+        static SLOT: OnceLock<Mutex<DictationRunAuthority>> = OnceLock::new();
+        SLOT.get_or_init(|| Mutex::new(DictationRunAuthority::default()))
+    }
+
+    fn begin_dictation_run(run_id: Option<u64>) -> bool {
+        let Some(run_id) = run_id else {
+            return true;
+        };
+        let mut authority = dictation_run_authority()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if authority
+            .latest_run_id
+            .is_some_and(|latest| latest > run_id)
+        {
+            return false;
+        }
+        authority.latest_run_id = Some(run_id);
+        authority
+            .cancelled_run_ids
+            .retain(|cancelled| *cancelled >= run_id);
+        !authority.cancelled_run_ids.contains(&run_id)
+    }
+
+    fn dictation_run_is_current(authority: &DictationRunAuthority, run_id: Option<u64>) -> bool {
+        let Some(run_id) = run_id else {
+            return true;
+        };
+        authority.latest_run_id == Some(run_id) && !authority.cancelled_run_ids.contains(&run_id)
+    }
+
+    #[derive(Default)]
+    struct MeetingRunAuthority {
+        latest_run_id: Option<u64>,
+        cancelled_run_ids: HashSet<u64>,
+    }
+
+    fn meeting_run_authority() -> &'static Mutex<MeetingRunAuthority> {
+        static SLOT: OnceLock<Mutex<MeetingRunAuthority>> = OnceLock::new();
+        SLOT.get_or_init(|| Mutex::new(MeetingRunAuthority::default()))
+    }
+
+    fn begin_meeting_run(authority: &mut MeetingRunAuthority, run_id: Option<u64>) -> bool {
+        let Some(run_id) = run_id else {
+            return true;
+        };
+        if authority
+            .latest_run_id
+            .is_some_and(|latest| latest > run_id)
+            || (authority.latest_run_id == Some(run_id)
+                && authority.cancelled_run_ids.contains(&run_id))
+        {
+            return false;
+        }
+        authority.latest_run_id = Some(run_id);
+        authority
+            .cancelled_run_ids
+            .retain(|cancelled| *cancelled >= run_id);
+        true
+    }
+
+    fn meeting_run_is_current(authority: &MeetingRunAuthority, run_id: Option<u64>) -> bool {
+        let Some(run_id) = run_id else {
+            return true;
+        };
+        authority.latest_run_id == Some(run_id) && !authority.cancelled_run_ids.contains(&run_id)
+    }
+
+    fn cancel_meeting_run(authority: &mut MeetingRunAuthority, run_id: u64) -> bool {
+        if authority
+            .latest_run_id
+            .is_some_and(|latest| latest > run_id)
+        {
+            return false;
+        }
+        if authority.latest_run_id != Some(run_id) {
+            authority.latest_run_id = Some(run_id);
+            authority
+                .cancelled_run_ids
+                .retain(|cancelled| *cancelled >= run_id);
+        }
+        authority.cancelled_run_ids.insert(run_id);
+        true
     }
 
     impl<T> Default for SessionRegistry<T> {
@@ -491,27 +601,39 @@ pub(crate) mod macos {
     const MAX_TRANSIENT_RESTARTS: u32 = 5;
 
     #[derive(Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
     struct PartialPayload {
         text: String,
         source: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<u64>,
     }
 
     #[derive(Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
     struct FinalPayload {
         text: String,
         source: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<u64>,
     }
 
     #[derive(Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
     struct ErrorPayload {
         error: String,
         source: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<u64>,
     }
 
     #[derive(Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
     pub(crate) struct AudioLevelPayload {
         pub level: f32,
         pub source: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub run_id: Option<u64>,
     }
 
     pub(crate) fn peak_level_for_pcm(buf: &AVAudioPCMBuffer) -> f32 {
@@ -962,6 +1084,7 @@ pub(crate) mod macos {
                         AudioLevelPayload {
                             level,
                             source: "mic",
+                            run_id: target.run_id,
                         },
                     );
                 }
@@ -1030,6 +1153,7 @@ pub(crate) mod macos {
     struct DictationSampleIvars {
         request: Retained<SFSpeechAudioBufferRecognitionRequest>,
         app: AppHandle,
+        run_id: Option<u64>,
         buffers: AtomicU64,
         peak_bits: AtomicU32,
     }
@@ -1065,6 +1189,7 @@ pub(crate) mod macos {
                         AudioLevelPayload {
                             level,
                             source: "mic",
+                            run_id: ivars.run_id,
                         },
                     );
                 }
@@ -1076,10 +1201,12 @@ pub(crate) mod macos {
         fn new(
             request: Retained<SFSpeechAudioBufferRecognitionRequest>,
             app: AppHandle,
+            run_id: Option<u64>,
         ) -> Retained<Self> {
             let this = Self::alloc().set_ivars(DictationSampleIvars {
                 request,
                 app,
+                run_id,
                 buffers: AtomicU64::new(0),
                 peak_bits: AtomicU32::new(0),
             });
@@ -1152,6 +1279,7 @@ pub(crate) mod macos {
         fn start(
             app: AppHandle,
             request: Retained<SFSpeechAudioBufferRecognitionRequest>,
+            run_id: Option<u64>,
             mic_device_id: Option<&str>,
             mic_device_label: Option<&str>,
         ) -> Result<Self, String> {
@@ -1180,7 +1308,7 @@ pub(crate) mod macos {
                 session.addOutput(&output);
             }
 
-            let delegate = DictationSampleDelegate::new(request, app);
+            let delegate = DictationSampleDelegate::new(request, app, run_id);
             let queue = DispatchQueue::new("com.clips.dictation.capture", None);
             unsafe {
                 output.setSampleBufferDelegate_queue(
@@ -1296,6 +1424,7 @@ pub(crate) mod macos {
         app: &AppHandle,
         request: &Retained<SFSpeechAudioBufferRecognitionRequest>,
         owner: SessionOwner,
+        run_id: Option<u64>,
         mic_device_id: Option<&str>,
         mic_device_label: Option<&str>,
     ) -> Result<SpeechAudio, String> {
@@ -1351,6 +1480,7 @@ pub(crate) mod macos {
                             AudioLevelPayload {
                                 level,
                                 source: "mic",
+                                run_id,
                             },
                         );
                     }
@@ -1400,6 +1530,7 @@ pub(crate) mod macos {
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
         owner: SessionOwner,
+        run_id: Option<u64>,
     ) -> Result<(), String> {
         native_speech_start_impl_inner(
             app,
@@ -1407,6 +1538,7 @@ pub(crate) mod macos {
             mic_device_id,
             mic_device_label,
             owner,
+            run_id,
             0,
             None,
             None,
@@ -1419,10 +1551,22 @@ pub(crate) mod macos {
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
         owner: SessionOwner,
+        run_id: Option<u64>,
         restart_attempt: u32,
         restart_guard: Option<RestartGuard>,
         restart_reserved_generation: Option<Arc<AtomicU64>>,
     ) -> Result<(), String> {
+        if owner == SessionOwner::Dictation && !begin_dictation_run(run_id) {
+            return Ok(());
+        }
+        if owner == SessionOwner::Meeting {
+            let mut authority = meeting_run_authority()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if !begin_meeting_run(&mut authority, run_id) {
+                return Ok(());
+            }
+        }
         let start_stop_generation = owner_stop_generation(owner).load(Ordering::SeqCst);
         {
             let slot = session_slot().lock().map_err(|e| e.to_string())?;
@@ -1526,6 +1670,7 @@ pub(crate) mod macos {
             SessionOwner::Dictation => SpeechAudio::Capture(DictationCapture::start(
                 app.clone(),
                 request.clone(),
+                run_id,
                 mic_device_id.as_deref(),
                 mic_device_label.as_deref(),
             )?),
@@ -1533,6 +1678,7 @@ pub(crate) mod macos {
                 &app,
                 &request,
                 owner,
+                run_id,
                 mic_device_id.as_deref(),
                 mic_device_label.as_deref(),
             )?,
@@ -1591,6 +1737,7 @@ pub(crate) mod macos {
                             ErrorPayload {
                                 error,
                                 source: "mic",
+                                run_id,
                             },
                         );
                     }
@@ -1622,6 +1769,7 @@ pub(crate) mod macos {
                                 mic_device_id,
                                 mic_device_label,
                                 owner,
+                                run_id,
                                 next_attempt,
                                 Some(guard),
                                 Some(reserved_generation.clone()),
@@ -1640,6 +1788,7 @@ pub(crate) mod macos {
                                         ErrorPayload {
                                             error: e,
                                             source: "mic",
+                                            run_id,
                                         },
                                     );
                                 }
@@ -1666,6 +1815,7 @@ pub(crate) mod macos {
                         FinalPayload {
                             text,
                             source: "mic",
+                            run_id,
                         },
                     );
                     finish_session_callback(my_gen, &callback_finished);
@@ -1677,6 +1827,7 @@ pub(crate) mod macos {
                         PartialPayload {
                             text,
                             source: "mic",
+                            run_id,
                         },
                     );
                 }
@@ -1693,6 +1844,7 @@ pub(crate) mod macos {
 
         let session = SpeechSession {
             generation: my_gen,
+            run_id,
             completion_started,
             callback_finished,
             audio,
@@ -1703,9 +1855,19 @@ pub(crate) mod macos {
             owner,
         };
         let installed = {
+            let authority = dictation_run_authority()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let meeting_authority = meeting_run_authority()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             let current_generation = session_generation().load(Ordering::SeqCst);
-            if owner_stop_generation(owner).load(Ordering::SeqCst) == my_stop_gen {
+            if ((owner != SessionOwner::Dictation || dictation_run_is_current(&authority, run_id))
+                && (owner != SessionOwner::Meeting
+                    || meeting_run_is_current(&meeting_authority, run_id)))
+                && owner_stop_generation(owner).load(Ordering::SeqCst) == my_stop_gen
+            {
                 put_session_if_current_generation(
                     &mut slot.active,
                     session,
@@ -1808,6 +1970,7 @@ pub(crate) mod macos {
         app: AppHandle,
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
+        run_id: Option<u64>,
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
     ) -> Result<RawMicCapture, String> {
         let device_key =
@@ -1825,6 +1988,7 @@ pub(crate) mod macos {
                 app: app.clone(),
                 on_samples,
                 level_tick: Arc::new(AtomicU32::new(0)),
+                run_id,
             });
         } else {
             return Err("warmed mic target lock poisoned".into());
@@ -1879,10 +2043,17 @@ pub(crate) mod macos {
         mic_device_label: Option<String>,
         voice_processing: MicVoiceProcessingMode,
         reuse_voice_processing_engine: bool,
+        run_id: Option<u64>,
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
     ) -> Result<RawMicCapture, String> {
         if voice_processing == MicVoiceProcessingMode::Enabled && reuse_voice_processing_engine {
-            return start_warmed_raw_mic_capture(app, mic_device_id, mic_device_label, on_samples);
+            return start_warmed_raw_mic_capture(
+                app,
+                mic_device_id,
+                mic_device_label,
+                run_id,
+                on_samples,
+            );
         }
         clear_warmed_raw_mic_engine();
 
@@ -1913,6 +2084,7 @@ pub(crate) mod macos {
         {
             let on_samples = on_samples.clone();
             let app_for_level = app.clone();
+            let run_id_for_level = run_id;
             let level_tick = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
             let tap_block = StackBlock::new(
                 move |buffer: std::ptr::NonNull<AVAudioPCMBuffer>,
@@ -1930,6 +2102,7 @@ pub(crate) mod macos {
                             AudioLevelPayload {
                                 level,
                                 source: "mic",
+                                run_id: run_id_for_level,
                             },
                         );
                     }
@@ -1979,6 +2152,7 @@ pub(crate) mod macos {
     fn take_session_for(
         slot: &mut SessionRegistry<SpeechSession>,
         owner: Option<SessionOwner>,
+        run_id: Option<u64>,
     ) -> Option<SpeechSession> {
         // Dictation and meeting transcription share one recognizer slot, so a
         // stop from one must not tear down the other's live session.
@@ -1989,17 +2163,59 @@ pub(crate) mod macos {
         if owned_by_other {
             return None;
         }
+        if let (Some(current), Some(run_id)) = (slot.active.as_ref(), run_id) {
+            if current.run_id != Some(run_id) {
+                return None;
+            }
+        }
         slot.active.take()
     }
 
     pub fn native_speech_stop_impl(
         _app: AppHandle,
         owner: Option<SessionOwner>,
+        run_id: Option<u64>,
     ) -> Result<(), String> {
+        let mut authority = if owner == Some(SessionOwner::Dictation) && run_id.is_some() {
+            Some(
+                dictation_run_authority()
+                    .lock()
+                    .map_err(|e| e.to_string())?,
+            )
+        } else {
+            None
+        };
+        let mut meeting_authority = if owner == Some(SessionOwner::Meeting) && run_id.is_some() {
+            Some(meeting_run_authority().lock().map_err(|e| e.to_string())?)
+        } else {
+            None
+        };
+        if let Some(authority) = authority.as_mut() {
+            let id = run_id.expect("the authority lock requires a run id");
+            if authority.latest_run_id.is_some_and(|latest| latest > id) {
+                return Ok(());
+            }
+            authority.latest_run_id = Some(id);
+        }
+        if let Some(authority) = meeting_authority.as_mut() {
+            let id = run_id.expect("the meeting authority lock requires a run id");
+            if !cancel_meeting_run(authority, id) {
+                return Ok(());
+            }
+        }
         let session = {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
+            let active_matches = slot.active.as_ref().is_some_and(|current| {
+                current.owner == owner.unwrap_or(SessionOwner::Dictation)
+                    && run_id.map_or(true, |id| current.run_id == Some(id))
+            });
+            if !active_matches {
+                if let (Some(authority), Some(id)) = (authority.as_mut(), run_id) {
+                    authority.cancelled_run_ids.insert(id);
+                }
+            }
             invalidate_restart(owner);
-            take_session_for(&mut slot, owner)
+            take_session_for(&mut slot, owner, run_id)
         };
         let Some(session) = session else {
             return Ok(());
@@ -2030,11 +2246,40 @@ pub(crate) mod macos {
     pub fn native_speech_cancel_impl(
         _app: AppHandle,
         owner: Option<SessionOwner>,
+        run_id: Option<u64>,
     ) -> Result<(), String> {
+        let mut authority = if owner == Some(SessionOwner::Dictation) && run_id.is_some() {
+            Some(
+                dictation_run_authority()
+                    .lock()
+                    .map_err(|e| e.to_string())?,
+            )
+        } else {
+            None
+        };
+        let mut meeting_authority = if owner == Some(SessionOwner::Meeting) && run_id.is_some() {
+            Some(meeting_run_authority().lock().map_err(|e| e.to_string())?)
+        } else {
+            None
+        };
+        if let Some(authority) = authority.as_mut() {
+            let id = run_id.expect("the authority lock requires a run id");
+            if authority.latest_run_id.is_some_and(|latest| latest > id) {
+                return Ok(());
+            }
+            authority.latest_run_id = Some(id);
+            authority.cancelled_run_ids.insert(id);
+        }
+        if let Some(authority) = meeting_authority.as_mut() {
+            let id = run_id.expect("the meeting authority lock requires a run id");
+            if !cancel_meeting_run(authority, id) {
+                return Ok(());
+            }
+        }
         let session = {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             invalidate_restart(owner);
-            take_session_for(&mut slot, owner)
+            take_session_for(&mut slot, owner, run_id)
         };
         let Some(session) = session else {
             return Ok(());
@@ -2074,11 +2319,12 @@ pub(crate) mod macos {
     #[cfg(test)]
     mod tests {
         use super::{
+            begin_meeting_run, cancel_meeting_run, meeting_run_is_current,
             native_speech_voice_processing_mode, put_session_if_current_generation,
             restart_guard_is_current, restart_setup_is_current, restore_stopped_session,
             retain_session_until_callback, stop_generation_changed, superseded_start_result,
-            take_sessions_if_generation_matches, MicVoiceProcessingMode, RestartGuard,
-            SessionOwner, SessionRegistry, StoppedSessionDisposition,
+            take_sessions_if_generation_matches, MeetingRunAuthority, MicVoiceProcessingMode,
+            RestartGuard, SessionOwner, SessionRegistry, StoppedSessionDisposition,
         };
         use std::sync::Arc;
 
@@ -2316,6 +2562,26 @@ pub(crate) mod macos {
         fn stop_during_authorization_cancels_before_resource_start() {
             assert!(stop_generation_changed(2, 3));
             assert!(!stop_generation_changed(2, 2));
+        }
+
+        #[test]
+        fn stale_meeting_stop_does_not_invalidate_a_newer_pending_start() {
+            let mut authority = MeetingRunAuthority::default();
+            assert!(begin_meeting_run(&mut authority, Some(10)));
+            assert!(begin_meeting_run(&mut authority, Some(11)));
+
+            assert!(!cancel_meeting_run(&mut authority, 10));
+            assert!(meeting_run_is_current(&authority, Some(11)));
+        }
+
+        #[test]
+        fn meeting_stop_before_start_registration_cancels_that_run() {
+            let mut authority = MeetingRunAuthority::default();
+
+            assert!(cancel_meeting_run(&mut authority, 10));
+            assert!(!begin_meeting_run(&mut authority, Some(10)));
+            assert!(!meeting_run_is_current(&authority, Some(10)));
+            assert!(begin_meeting_run(&mut authority, Some(11)));
         }
 
         #[test]

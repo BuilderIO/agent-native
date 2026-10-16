@@ -192,8 +192,69 @@ describe("local recording transcription", () => {
 
     expect(
       transcriptionEngineMocks.resetTranscriptionTimeline,
-    ).toHaveBeenLastCalledWith("whisper", 5_000);
+    ).toHaveBeenLastCalledWith("whisper", expect.any(Number), 5_000);
     await capture?.cancel();
+  });
+
+  it("ignores transcript callbacks from an earlier capture run after resume", async () => {
+    let onFinal:
+      | ((event: {
+          text: string;
+          source: "mic";
+          segments: Array<{ startMs: number; endMs: number; text: string }>;
+          runId?: number;
+        }) => void)
+      | undefined;
+    transcriptionEngineMocks.onFinalTranscript.mockImplementation(
+      async (listener) => {
+        onFinal = listener;
+        return () => {};
+      },
+    );
+    transcriptionEngineMocks.startTranscriptionEngine.mockResolvedValue(
+      "whisper",
+    );
+    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue(
+      undefined,
+    );
+    transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
+      undefined,
+    );
+
+    const capture = await startTranscriptionCapture();
+    expect(capture).not.toBeNull();
+    const firstRunId = transcriptionEngineMocks.startTranscriptionEngine.mock
+      .calls[0][0].runId as number;
+    const emitFinal = (runId: number, text: string) =>
+      onFinal?.({
+        text,
+        source: "mic",
+        segments: [{ startMs: 0, endMs: 100, text }],
+        runId,
+      });
+
+    emitFinal(firstRunId, "before pause");
+    await capture?.pause();
+    await capture?.resume();
+    const resumedRunId = transcriptionEngineMocks.startTranscriptionEngine.mock
+      .calls[1][0].runId as number;
+    expect(resumedRunId).toBeGreaterThan(firstRunId);
+
+    emitFinal(firstRunId, "stale words");
+    emitFinal(resumedRunId, "after resume");
+
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        setTimeout: (callback: () => void, ms: number) =>
+          setTimeout(callback, ms),
+      },
+    });
+    const stopping = capture?.stop();
+    await vi.advanceTimersByTimeAsync(1_500);
+    const result = await stopping;
+    expect(result?.text).toBe("Me: before pause\n\nMe: after resume");
   });
 
   it("keeps the timeline live when the native pause fails", async () => {
@@ -225,7 +286,7 @@ describe("local recording transcription", () => {
 
     expect(
       transcriptionEngineMocks.resetTranscriptionTimeline,
-    ).toHaveBeenLastCalledWith("whisper", 28_000);
+    ).toHaveBeenLastCalledWith("whisper", expect.any(Number), 28_000);
   });
 
   it("stops a resumed engine when cleanup wins during timeline rebasing", async () => {
@@ -252,7 +313,11 @@ describe("local recording transcription", () => {
     await vi.waitFor(() => {
       expect(
         transcriptionEngineMocks.resetTranscriptionTimeline,
-      ).toHaveBeenCalledWith("macos-native", expect.any(Number));
+      ).toHaveBeenCalledWith(
+        "macos-native",
+        expect.any(Number),
+        expect.any(Number),
+      );
     });
     await capture?.cancel();
     finishReset();
@@ -260,7 +325,7 @@ describe("local recording transcription", () => {
 
     expect(
       transcriptionEngineMocks.stopTranscriptionEngine,
-    ).toHaveBeenLastCalledWith("macos-native");
+    ).toHaveBeenLastCalledWith("macos-native", expect.any(Number));
   });
 
   it("keeps the timeline paused when the native resume fails", async () => {
@@ -291,6 +356,6 @@ describe("local recording transcription", () => {
 
     expect(
       transcriptionEngineMocks.resetTranscriptionTimeline,
-    ).toHaveBeenLastCalledWith("whisper", 5_000);
+    ).toHaveBeenLastCalledWith("whisper", expect.any(Number), 5_000);
   });
 });

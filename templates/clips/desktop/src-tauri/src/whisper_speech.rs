@@ -33,6 +33,7 @@ pub async fn whisper_transcription_start(
     voice_processing: bool,
     emit_partials: bool,
     owner: Option<String>,
+    run_id: Option<u64>,
 ) -> Result<(), String> {
     if !crate::config::feature_config(&app).whisper_model_enabled {
         return Err("whisper-model-disabled".into());
@@ -48,6 +49,7 @@ pub async fn whisper_transcription_start(
             voice_processing,
             emit_partials,
             macos::SessionOwner::from_param(owner),
+            run_id,
         )
         .await
     }
@@ -62,6 +64,7 @@ pub async fn whisper_transcription_start(
             voice_processing,
             emit_partials,
             owner,
+            run_id,
         );
         Err("Whisper transcription is only supported on macOS.".into())
     }
@@ -78,37 +81,55 @@ pub fn prewarm_context(_app: &AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn whisper_transcription_stop(app: AppHandle) -> Result<(), String> {
+pub async fn whisper_transcription_stop(
+    app: AppHandle,
+    owner: Option<String>,
+    run_id: Option<u64>,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos::stop(&app);
+        macos::stop(
+            &app,
+            owner.map(|owner| macos::SessionOwner::from_param(Some(owner))),
+            run_id,
+            false,
+        );
         Ok(())
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = app;
+        let _ = (app, owner, run_id);
         Ok(())
     }
 }
 
 pub fn shutdown(app: &AppHandle) {
     #[cfg(target_os = "macos")]
-    macos::stop(app);
+    macos::stop(app, None, None, false);
 }
 
 #[tauri::command]
-pub async fn whisper_transcription_reset_timeline(offset_ms: u64) -> Result<(), String> {
+pub async fn whisper_transcription_reset_timeline(
+    owner: Option<String>,
+    run_id: Option<u64>,
+    offset_ms: u64,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos::reset_timeline(std::time::Duration::from_millis(offset_ms));
+        macos::reset_timeline(
+            owner.map(|owner| macos::SessionOwner::from_param(Some(owner))),
+            run_id,
+            std::time::Duration::from_millis(offset_ms),
+        );
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = offset_ms;
+    let _ = (owner, run_id, offset_ms);
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
 mod macos {
+    use std::collections::HashSet;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
@@ -138,6 +159,7 @@ mod macos {
     fn shared_level_tap(
         app: AppHandle,
         source: &'static str,
+        run_id: Option<u64>,
     ) -> impl Fn(&[f32]) + Send + Sync + 'static {
         let tick = Arc::new(AtomicU32::new(0));
         move |samples: &[f32]| {
@@ -152,7 +174,7 @@ mod macos {
                 .min(1.0);
             let _ = app.emit(
                 "voice:audio-level",
-                serde_json::json!({ "level": level, "source": source }),
+                serde_json::json!({ "level": level, "source": source, "runId": run_id }),
             );
         }
     }
@@ -166,10 +188,13 @@ mod macos {
     }
 
     #[derive(Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
     struct TranscriptPayload {
         text: String,
         source: &'static str,
         segments: Vec<Segment>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<u64>,
     }
 
     struct StreamTimeline {
@@ -240,7 +265,6 @@ mod macos {
         }
         Ok(segments)
     }
-
 
     fn resample_linear_at(input: &[f32], ratio: f64, i: usize) -> f32 {
         let src_pos = i as f64 / ratio;
@@ -321,9 +345,9 @@ mod macos {
         }
     }
 
-
     pub(crate) struct WhisperStream {
         source: &'static str,
+        run_id: Option<u64>,
         src_rate: AtomicU32,
         language: Option<String>,
         buf: Mutex<Vec<f32>>,
@@ -346,10 +370,12 @@ mod macos {
             stream_start: Instant,
             emit_partials: bool,
             echo_guard: Option<Arc<EchoGuard>>,
+            run_id: Option<u64>,
         ) -> Arc<Self> {
             let done = Arc::new(AtomicBool::new(false));
             let stream = Arc::new(WhisperStream {
                 source,
+                run_id,
                 src_rate: AtomicU32::new(src_rate as u32),
                 language,
                 buf: Mutex::new(Vec::new()),
@@ -432,7 +458,11 @@ mod macos {
         fn clear_partial(&self) {
             let _ = self.app.emit(
                 "voice:partial-transcript",
-                serde_json::json!({ "text": "", "source": self.source }),
+                serde_json::json!({
+                    "text": "",
+                    "source": self.source,
+                    "runId": self.run_id,
+                }),
             );
         }
 
@@ -480,6 +510,7 @@ mod macos {
                     text: clean,
                     source: self.source,
                     segments,
+                    run_id: self.run_id,
                 },
             );
         }
@@ -825,7 +856,6 @@ mod macos {
         Some(trimmed.to_string())
     }
 
-
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub(crate) enum SessionOwner {
         Dictation,
@@ -883,6 +913,7 @@ mod macos {
         mic: Arc<WhisperStream>,
         sys: Option<Arc<WhisperStream>>,
         owner: SessionOwner,
+        run_id: Option<u64>,
     }
 
     impl Drop for Session {
@@ -902,6 +933,85 @@ mod macos {
         SLOT.get_or_init(|| Mutex::new(None))
     }
 
+    fn latest_run_id_slot() -> &'static Mutex<RunAuthority> {
+        static SLOT: OnceLock<Mutex<RunAuthority>> = OnceLock::new();
+        SLOT.get_or_init(|| Mutex::new(RunAuthority::default()))
+    }
+
+    #[derive(Default)]
+    struct RunAuthority {
+        latest_run_id: Option<u64>,
+        latest_owner: Option<SessionOwner>,
+        cancelled_run_ids: HashSet<u64>,
+    }
+
+    fn begin_run_authority(authority: &mut RunAuthority, owner: SessionOwner, run_id: u64) -> bool {
+        if authority
+            .latest_run_id
+            .is_some_and(|current| current > run_id)
+            || (authority.latest_run_id == Some(run_id)
+                && (authority.latest_owner != Some(owner)
+                    || authority.cancelled_run_ids.contains(&run_id)))
+        {
+            return false;
+        }
+        authority.latest_run_id = Some(run_id);
+        authority.latest_owner = Some(owner);
+        authority
+            .cancelled_run_ids
+            .retain(|cancelled| *cancelled >= run_id);
+        true
+    }
+
+    fn cancel_run_authority(
+        authority: &mut RunAuthority,
+        owner: SessionOwner,
+        run_id: u64,
+    ) -> bool {
+        if authority
+            .latest_run_id
+            .is_some_and(|latest| latest > run_id)
+            || (authority.latest_run_id == Some(run_id) && authority.latest_owner != Some(owner))
+        {
+            return false;
+        }
+        if authority.latest_run_id != Some(run_id) {
+            authority.latest_run_id = Some(run_id);
+            authority.latest_owner = Some(owner);
+            authority
+                .cancelled_run_ids
+                .retain(|cancelled| *cancelled >= run_id);
+        }
+        authority.cancelled_run_ids.insert(run_id);
+        true
+    }
+
+    fn begin_run(owner: SessionOwner, run_id: Option<u64>) -> bool {
+        let Some(run_id) = run_id else {
+            return true;
+        };
+        let mut latest = latest_run_id_slot()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        begin_run_authority(&mut latest, owner, run_id)
+    }
+
+    fn run_is_current(authority: &RunAuthority, owner: SessionOwner, run_id: u64) -> bool {
+        authority.latest_run_id == Some(run_id)
+            && authority.latest_owner == Some(owner)
+            && !authority.cancelled_run_ids.contains(&run_id)
+    }
+
+    fn run_is_current_now(owner: SessionOwner, run_id: Option<u64>) -> bool {
+        let Some(run_id) = run_id else {
+            return true;
+        };
+        let authority = latest_run_id_slot()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        run_is_current(&authority, owner, run_id)
+    }
+
     pub async fn start(
         app: AppHandle,
         language: Option<String>,
@@ -911,6 +1021,7 @@ mod macos {
         voice_processing: bool,
         emit_partials: bool,
         owner: SessionOwner,
+        run_id: Option<u64>,
     ) -> Result<(), String> {
         {
             let slot = session_slot().lock().map_err(|e| e.to_string())?;
@@ -920,13 +1031,19 @@ mod macos {
                 }
             }
         }
+        if !begin_run(owner, run_id) {
+            return Ok(());
+        }
 
-        stop(&app);
+        stop(&app, None, run_id, true);
 
         ensure_model(&app).await.map_err(|e| {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
             e
         })?;
+        if !run_is_current_now(owner, run_id) {
+            return Ok(());
+        }
         let ctx = context(&app).map_err(|e| {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
             e
@@ -936,6 +1053,9 @@ mod macos {
             let _ = app.emit("pill:error", serde_json::json!({ "error": msg }));
             msg
         })?;
+        if !run_is_current_now(owner, run_id) {
+            return Ok(());
+        }
 
         let _ = language;
         let lang: Option<String> = None;
@@ -951,6 +1071,7 @@ mod macos {
             session_start,
             emit_partials,
             echo_guard.clone(),
+            run_id,
         );
         let sys_stream = capture_system.then(|| {
             WhisperStream::new(
@@ -962,6 +1083,7 @@ mod macos {
                 session_start,
                 emit_partials,
                 echo_guard.clone(),
+                run_id,
             )
         });
         let mic_for_cb = mic_stream.clone();
@@ -997,7 +1119,7 @@ mod macos {
 
         let shared_audio = if owner == SessionOwner::Meeting {
             let mic_for_shared = mic_stream.clone();
-            let mic_level = shared_level_tap(app.clone(), "mic");
+            let mic_level = shared_level_tap(app.clone(), "mic", run_id);
             let shared_mic = Arc::new(move |samples: &[f32], sample_rate: f64| {
                 mic_for_shared.set_src_rate(sample_rate);
                 mic_for_shared.push(samples);
@@ -1005,7 +1127,7 @@ mod macos {
             });
             let shared_system = sys_stream.as_ref().map(|stream| {
                 let stream = stream.clone();
-                let system_level = shared_level_tap(app.clone(), "system");
+                let system_level = shared_level_tap(app.clone(), "system", run_id);
                 Arc::new(move |samples: &[f32], sample_rate: f64| {
                     stream.set_src_rate(sample_rate);
                     stream.push(samples);
@@ -1042,6 +1164,26 @@ mod macos {
             None
         };
 
+        let capture_authority = run_id.map(|_| {
+            latest_run_id_slot()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        });
+        if let Some(run_id) = run_id {
+            let authority = capture_authority
+                .as_ref()
+                .expect("a run ID requires capture authority");
+            if !run_is_current(authority, owner, run_id) {
+                drop(shared_audio);
+                release_temporary_audio(&app, temporary_audio);
+                mic_stream.stop();
+                if let Some(sys_stream) = &sys_stream {
+                    sys_stream.stop();
+                }
+                return Ok(());
+            }
+        }
+
         let combined_cap = if shared_audio.is_none()
             && should_use_combined_sck_capture(owner, supports_sck_microphone_capture())
         {
@@ -1050,6 +1192,7 @@ mod macos {
                 mic_device_id.clone(),
                 mic_device_label.clone(),
                 capture_system,
+                run_id,
                 mic_callback.clone(),
                 system_callback.clone(),
             ) {
@@ -1082,6 +1225,7 @@ mod macos {
                 mic_device_label,
                 mic_options.voice_processing,
                 mic_options.reuse_voice_processing_engine,
+                run_id,
                 mic_callback,
             )
             .map_err(|e| {
@@ -1094,7 +1238,7 @@ mod macos {
             mic_stream.set_src_rate(mic_cap.sample_rate());
 
             let sys_cap = if let Some(system_callback) = system_callback {
-                match start_raw_system_capture(app.clone(), system_callback) {
+                match start_raw_system_capture(app.clone(), system_callback, run_id) {
                     Ok(cap) => Some(cap),
                     Err(e) => {
                         if let Some(sys_stream) = &sys_stream {
@@ -1111,6 +1255,41 @@ mod macos {
             (Some(mic_cap), sys_cap)
         };
 
+        drop(capture_authority);
+        let run_authority = match latest_run_id_slot().lock() {
+            Ok(latest) => latest,
+            Err(error) => {
+                drop(shared_audio);
+                release_temporary_audio(&app, temporary_audio);
+                mic_stream.stop();
+                if let Some(sys_stream) = &sys_stream {
+                    sys_stream.stop();
+                }
+                if let Some(mic_cap) = mic_cap {
+                    mic_cap.stop();
+                }
+                if let Some(sys_cap) = sys_cap {
+                    sys_cap.stop();
+                }
+                return Err(error.to_string());
+            }
+        };
+        if run_id.is_some_and(|id| !run_is_current(&run_authority, owner, id)) {
+            drop(run_authority);
+            drop(shared_audio);
+            release_temporary_audio(&app, temporary_audio);
+            mic_stream.stop();
+            if let Some(sys_stream) = &sys_stream {
+                sys_stream.stop();
+            }
+            if let Some(mic_cap) = mic_cap {
+                mic_cap.stop();
+            }
+            if let Some(sys_cap) = sys_cap {
+                sys_cap.stop();
+            }
+            return Ok(());
+        }
         let mut slot = match session_slot().lock() {
             Ok(slot) => slot,
             Err(error) => {
@@ -1138,6 +1317,7 @@ mod macos {
             mic: mic_stream,
             sys: sys_stream,
             owner,
+            run_id,
         });
         eprintln!(
             "[whisper] transcription started (mic{})",
@@ -1146,14 +1326,20 @@ mod macos {
         Ok(())
     }
 
-    pub fn reset_timeline(offset: Duration) {
+    pub fn reset_timeline(owner: Option<SessionOwner>, run_id: Option<u64>, offset: Duration) {
         let session = match session_slot().lock() {
-            Ok(slot) => slot.as_ref().map(|session| {
-                (
-                    session.mic.clone(),
-                    session.sys.as_ref().map(|stream| stream.clone()),
-                )
-            }),
+            Ok(slot) => slot
+                .as_ref()
+                .filter(|session| {
+                    owner.map_or(true, |owner| session.owner == owner)
+                        && run_id.map_or(true, |run_id| session.run_id == Some(run_id))
+                })
+                .map(|session| {
+                    (
+                        session.mic.clone(),
+                        session.sys.as_ref().map(|stream| stream.clone()),
+                    )
+                }),
             Err(_) => None,
         };
         let Some((mic, sys)) = session else {
@@ -1180,11 +1366,68 @@ mod macos {
         }
     }
 
-    pub fn stop(app: &AppHandle) {
-        let session = match session_slot().lock() {
-            Ok(mut slot) => slot.take(),
-            Err(poisoned) => poisoned.into_inner().take(),
+    pub fn stop(
+        app: &AppHandle,
+        owner: Option<SessionOwner>,
+        run_id: Option<u64>,
+        replace_older: bool,
+    ) {
+        let mut latest = match latest_run_id_slot().lock() {
+            Ok(latest) => latest,
+            Err(poisoned) => poisoned.into_inner(),
         };
+        if let Some(run_id) = run_id {
+            if replace_older {
+                if latest.latest_run_id != Some(run_id)
+                    || owner.is_some_and(|owner| latest.latest_owner != Some(owner))
+                {
+                    return;
+                }
+            } else {
+                let Some(owner) = owner.or(latest.latest_owner) else {
+                    return;
+                };
+                if !cancel_run_authority(&mut latest, owner, run_id) {
+                    return;
+                }
+            }
+        }
+        let session = match session_slot().lock() {
+            Ok(mut slot) => {
+                if !slot.as_ref().is_some_and(|current| {
+                    owner.map_or(true, |owner| current.owner == owner)
+                        && match (run_id, current.run_id) {
+                            (Some(id), Some(current_id)) => {
+                                current_id == id || (replace_older && current_id < id)
+                            }
+                            (Some(_), None) => false,
+                            (None, _) => true,
+                        }
+                }) {
+                    None
+                } else {
+                    slot.take()
+                }
+            }
+            Err(poisoned) => {
+                let mut slot = poisoned.into_inner();
+                if !slot.as_ref().is_some_and(|current| {
+                    owner.map_or(true, |owner| current.owner == owner)
+                        && match (run_id, current.run_id) {
+                            (Some(id), Some(current_id)) => {
+                                current_id == id || (replace_older && current_id < id)
+                            }
+                            (Some(_), None) => false,
+                            (None, _) => true,
+                        }
+                }) {
+                    None
+                } else {
+                    slot.take()
+                }
+            }
+        };
+        drop(latest);
         let Some(mut session) = session else {
             return;
         };
@@ -1219,12 +1462,64 @@ mod macos {
         use std::time::{Duration, Instant};
 
         use super::{
-            buffer_start_after_drain, clean_transcript, partial_inference_due,
-            partial_inference_timestamp, resample_to_16k, should_use_combined_sck_capture,
-            split_mic_capture_options, timeline_start_for_offset, utterance_finalize_due,
-            IncrementalResample, SessionOwner,
+            begin_run_authority, buffer_start_after_drain, cancel_run_authority, clean_transcript,
+            partial_inference_due, partial_inference_timestamp, resample_to_16k, run_is_current,
+            should_use_combined_sck_capture, split_mic_capture_options, timeline_start_for_offset,
+            utterance_finalize_due, IncrementalResample, RunAuthority, SessionOwner,
         };
         use crate::native_speech::macos::MicVoiceProcessingMode;
+
+        #[test]
+        fn cancelled_run_cannot_be_restarted_after_stop_wins() {
+            let mut authority = RunAuthority::default();
+            assert!(begin_run_authority(
+                &mut authority,
+                SessionOwner::Meeting,
+                10
+            ));
+            assert!(cancel_run_authority(
+                &mut authority,
+                SessionOwner::Meeting,
+                10
+            ));
+            assert!(!begin_run_authority(
+                &mut authority,
+                SessionOwner::Meeting,
+                10
+            ));
+            assert!(!begin_run_authority(
+                &mut authority,
+                SessionOwner::Dictation,
+                10
+            ));
+            assert!(begin_run_authority(
+                &mut authority,
+                SessionOwner::Dictation,
+                11
+            ));
+        }
+
+        #[test]
+        fn stop_before_start_registration_cancels_the_pending_run() {
+            let mut authority = RunAuthority::default();
+
+            assert!(cancel_run_authority(
+                &mut authority,
+                SessionOwner::Dictation,
+                10
+            ));
+            assert!(!begin_run_authority(
+                &mut authority,
+                SessionOwner::Dictation,
+                10
+            ));
+            assert!(!run_is_current(&authority, SessionOwner::Dictation, 10));
+            assert!(begin_run_authority(
+                &mut authority,
+                SessionOwner::Dictation,
+                11
+            ));
+        }
 
         #[test]
         fn incremental_resample_matches_one_shot_resample_as_buffer_grows() {

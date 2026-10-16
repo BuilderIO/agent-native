@@ -20,6 +20,7 @@ import {
   type TranscriptLine,
 } from "../lib/transcription-engine";
 import { normalizeServerUrl } from "../lib/url";
+import { allocateVoiceRunId } from "../lib/voice-dictation-lifecycle";
 
 export interface MeetingTranscriptionPayload {
   meetingId: string;
@@ -31,6 +32,7 @@ export interface MeetingTranscriptionPayload {
 
 interface MeetingTranscriptionSession {
   meetingId: string;
+  audioRunId: number;
   recordingId: string | null;
   lines: TranscriptLine[];
   unlisten: Array<() => void>;
@@ -164,7 +166,7 @@ export function useMeetingTranscription({
         }
         await session.audioTransitionInFlight?.catch(() => {});
         try {
-          await stopTranscriptionEngine(session.engine);
+          await stopTranscriptionEngine(session.engine, session.audioRunId);
         } catch (err) {
           console.warn("[clips-popover] meeting audio stop failed:", err);
         }
@@ -324,6 +326,7 @@ export function useMeetingTranscription({
 
         const session: MeetingTranscriptionSession = {
           meetingId,
+          audioRunId: allocateVoiceRunId(),
           recordingId: null,
           lines: [],
           unlisten: [],
@@ -368,6 +371,7 @@ export function useMeetingTranscription({
         addUnlisten(
           onFinalTranscript((event) => {
             if (sessionRef.current !== session) return;
+            if (event.runId !== session.audioRunId) return;
             const timelineEvent = session.liveTimelineOffsetMs
               ? {
                   ...event,
@@ -420,6 +424,8 @@ export function useMeetingTranscription({
         const enginePromise = startTranscriptionEngine({
           mic: { deviceId: selectedMicId, label: selectedMicLabel },
           voiceProcessing: false,
+          runId: session.audioRunId,
+          canContinue: sessionIsActive,
         });
         engineStarting = enginePromise;
 
@@ -454,8 +460,13 @@ export function useMeetingTranscription({
           watchCallEnded: true,
         };
 
-        const startAudio = async (): Promise<TranscriptionEngine> => {
+        const startAudio = async (): Promise<{
+          engine: TranscriptionEngine;
+          runId: number;
+        }> => {
           const engine = session.engine;
+          const runId = allocateVoiceRunId();
+          session.audioRunId = runId;
           await restartTranscriptionEngine(
             engine,
             {
@@ -464,13 +475,17 @@ export function useMeetingTranscription({
             },
             true,
             false,
+            true,
+            runId,
           );
-          return engine;
+          return { engine, runId };
         };
 
-        const stopStaleAudioTransition = async () => {
-          if (sessionRef.current !== session) return;
-          await stopTranscriptionEngine(session.engine).catch(() => {});
+        const stopStaleAudioTransition = async (
+          engine: TranscriptionEngine,
+          runId: number,
+        ) => {
+          await stopTranscriptionEngine(engine, runId).catch(() => {});
           if (sessionRef.current !== session) return;
           await invoke("silence_detector_stop").catch(() => {});
         };
@@ -493,7 +508,10 @@ export function useMeetingTranscription({
                 await invoke("silence_detector_stop").catch(() => {});
                 if (!sessionIsActive()) return;
                 try {
-                  await stopTranscriptionEngine(session.engine);
+                  await stopTranscriptionEngine(
+                    session.engine,
+                    session.audioRunId,
+                  );
                 } catch (err) {
                   if (!sessionIsActive()) return;
                   console.warn(
@@ -505,7 +523,12 @@ export function useMeetingTranscription({
                   await invoke("silence_detector_start", {
                     config: silenceDetectorConfig,
                   }).catch(() => {});
-                  if (!sessionIsActive()) await stopStaleAudioTransition();
+                  if (!sessionIsActive()) {
+                    await stopStaleAudioTransition(
+                      session.engine,
+                      session.audioRunId,
+                    );
+                  }
                   return;
                 }
                 if (!sessionIsActive()) return;
@@ -513,9 +536,12 @@ export function useMeetingTranscription({
                 if (!sessionIsActive()) return;
                 session.paused = true;
               } else {
-                let resumedEngine: TranscriptionEngine;
+                let resumedAudio: {
+                  engine: TranscriptionEngine;
+                  runId: number;
+                };
                 try {
-                  resumedEngine = await startAudio();
+                  resumedAudio = await startAudio();
                 } catch (err) {
                   console.warn(
                     "[clips-popover] meeting audio resume failed; staying paused:",
@@ -527,15 +553,22 @@ export function useMeetingTranscription({
                   return;
                 }
                 if (!sessionIsActive()) {
-                  await stopTranscriptionEngine(resumedEngine).catch(() => {});
-                  await stopStaleAudioTransition();
+                  await stopStaleAudioTransition(
+                    resumedAudio.engine,
+                    resumedAudio.runId,
+                  );
                   return;
                 }
                 session.paused = false;
                 await invoke("silence_detector_start", {
                   config: silenceDetectorConfig,
                 }).catch(() => {});
-                if (!sessionIsActive()) await stopStaleAudioTransition();
+                if (!sessionIsActive()) {
+                  await stopStaleAudioTransition(
+                    resumedAudio.engine,
+                    resumedAudio.runId,
+                  );
+                }
               }
             } finally {
               applyingTransition = false;
@@ -644,7 +677,10 @@ export function useMeetingTranscription({
         engineStarting = null;
         liveEngine = startedEngine;
         if (!sessionIsActive()) {
-          await stopTranscriptionEngine(startedEngine).catch(() => {});
+          await stopTranscriptionEngine(
+            startedEngine,
+            session.audioRunId,
+          ).catch(() => {});
           liveEngine = null;
           if (historyPreparedRef.current) {
             invoke("rewind_meeting_history_cancel", {
@@ -766,13 +802,21 @@ export function useMeetingTranscription({
           unlistenAll(startedSession.unlisten.splice(0));
         }
         if (liveEngine) {
-          await stopTranscriptionEngine(liveEngine).catch(() => {});
+          await stopTranscriptionEngine(
+            liveEngine,
+            startedSession!.audioRunId,
+          ).catch(() => {});
         } else if (engineStarting) {
           // coercion-ok: an engine that never started has nothing to tear
           // down, and null is distinguishable from a started one below. The
           // start failure itself is already being reported by this catch.
           const engine = await engineStarting.catch(() => null);
-          if (engine) await stopTranscriptionEngine(engine).catch(() => {});
+          if (engine) {
+            await stopTranscriptionEngine(
+              engine,
+              startedSession!.audioRunId,
+            ).catch(() => {});
+          }
         }
         if (historyPreparedRef.current) {
           invoke("rewind_meeting_history_cancel", {

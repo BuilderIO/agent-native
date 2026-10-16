@@ -12,6 +12,7 @@ import {
   resetTranscriptionTimeline,
   restartTranscriptionEngine,
   startTranscriptionEngine,
+  stopTranscriptionEngine,
   transcriptFullText,
   transcriptSegments,
   type TranscriptLine,
@@ -408,6 +409,7 @@ describe("meeting microphone capture", () => {
       voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
+      runId: expect.any(Number),
     });
   });
 
@@ -426,6 +428,7 @@ describe("meeting microphone capture", () => {
       voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
+      runId: expect.any(Number),
     });
   });
 
@@ -444,17 +447,32 @@ describe("meeting microphone capture", () => {
       voiceProcessing: false,
       emitPartials: false,
       owner: "meeting",
+      runId: expect.any(Number),
     });
   });
 
   it("rebases a resumed Whisper session to the recording timeline", async () => {
-    await resetTranscriptionTimeline("whisper", 12_345.4);
+    await resetTranscriptionTimeline("whisper", 123, 12_345.4);
 
     expect(invokeMock).toHaveBeenCalledWith(
       "audio_transcription_reset_timeline",
-      { offsetMs: 12_345 },
+      { owner: "meeting", runId: 123, offsetMs: 12_345 },
     );
   });
+
+  it.each(["whisper", "macos-native"] as const)(
+    "stops the exact meeting %s run",
+    async (engine) => {
+      await stopTranscriptionEngine(engine, 123);
+
+      expect(invokeMock).toHaveBeenCalledWith(
+        engine === "whisper"
+          ? "audio_transcription_stop"
+          : "native_speech_stop",
+        { owner: "meeting", runId: 123 },
+      );
+    },
+  );
 
   it("falls back to native speech when the local Whisper capture cannot start", async () => {
     invokeMock
@@ -471,6 +489,7 @@ describe("meeting microphone capture", () => {
       micDeviceId: "mic-1",
       micDeviceLabel: "Built-in Microphone",
       owner: "meeting",
+      runId: expect.any(Number),
     });
   });
 
@@ -497,6 +516,7 @@ describe("meeting microphone capture", () => {
       voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
+      runId: expect.any(Number),
     });
   });
 
@@ -541,6 +561,7 @@ describe("meeting microphone capture", () => {
       micDeviceId: null,
       micDeviceLabel: null,
       owner: "meeting",
+      runId: expect.any(Number),
     });
   });
 });
