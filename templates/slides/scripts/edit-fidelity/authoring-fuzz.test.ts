@@ -3065,6 +3065,11 @@ it("counts only active cleanup registrations as competitors", () => {
     ...retiredRegistration,
     sessionId: "new-session",
   };
+  const retiredHeartbeat = {
+    ...retiredRegistration,
+    sessionId: "retired-session",
+    pathname: "/_agent-native/browser-sessions/retired-session/heartbeat",
+  };
   const activeRequestsByKey = new Map<string, Set<object>>();
   const keysByRequest = new Map<object, string[]>();
   const firstRequest = {};
@@ -3085,6 +3090,12 @@ it("counts only active cleanup registrations as competitors", () => {
   expect(
     hasActiveCleanupNavigationSessionCompetitor(
       retiredRegistration,
+      activeRequestsByKey,
+    ),
+  ).toBe(true);
+  expect(
+    hasActiveCleanupNavigationSessionCompetitor(
+      retiredHeartbeat,
       activeRequestsByKey,
     ),
   ).toBe(true);

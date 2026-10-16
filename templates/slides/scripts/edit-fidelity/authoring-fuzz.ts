@@ -916,9 +916,14 @@ export function hasActiveCleanupNavigationSessionCompetitor(
   },
   activeRequestsByKey: ReadonlyMap<string, ReadonlySet<unknown>>,
 ) {
-  return cleanupNavigationSessionRequestKeys(identity).some(
-    (key) => (activeRequestsByKey.get(key)?.size ?? 0) > 0,
-  );
+  const keys = cleanupNavigationSessionRequestKeys(identity);
+  if (
+    identity.kind === "heartbeat" &&
+    identity.pathname !== "/_agent-native/browser-sessions"
+  ) {
+    keys.push("heartbeat:registration");
+  }
+  return keys.some((key) => (activeRequestsByKey.get(key)?.size ?? 0) > 0);
 }
 
 export function isCleanupNavigationCompetitionPage<T>(
