@@ -702,6 +702,10 @@ const messages = {
     duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
     newSlide: "Neue Folie",
+    slidesHeading: "Folien",
+    emptyTitle: "Noch keine Folien",
+    emptyDescription:
+      "Füge eine neue Folie hinzu, importiere eine oder bitte den Agenten, eine zu erstellen.",
     closeAddSlides: "Schließen",
     describeThisSlide: "Beschreibe diese Folie",
     cut: "Ausschneiden",

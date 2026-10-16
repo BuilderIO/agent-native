@@ -688,6 +688,10 @@ const messages = {
     duplicateCurrentSlide: "Duplicate current slide",
     promptPlaceholder: "Describe the slides you want...",
     newSlide: "New slide",
+    slidesHeading: "Slides",
+    emptyTitle: "No slides yet",
+    emptyDescription:
+      "Add or import a new slide or ask the agent to generate one.",
     closeAddSlides: "Close",
     describeThisSlide: "Describe this slide",
     cut: "Cut",

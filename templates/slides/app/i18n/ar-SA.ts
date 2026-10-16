@@ -701,6 +701,10 @@ const messages = {
     duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
     newSlide: "شريحة جديدة",
+    slidesHeading: "الشرائح",
+    emptyTitle: "لا توجد شرائح بعد",
+    emptyDescription:
+      "أضف شريحة جديدة أو استوردها، أو اطلب من الوكيل إنشاء واحدة.",
     closeAddSlides: "إغلاق",
     describeThisSlide: "صف هذه الشريحة",
     cut: "قص",
