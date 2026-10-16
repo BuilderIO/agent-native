@@ -107,6 +107,34 @@ describe("withMotionTrackIds", () => {
     expect(first[0]?.id).not.toBe("legacy-track-0");
     expect(first[1]?.id).toBe("legacy-track-0");
   });
+
+  it("keeps merged legacy tracks uniquely addressable when their ids collide", () => {
+    const tracks: MotionTrack[] = [
+      {
+        id: "legacy-track-0",
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0" }],
+      },
+      {
+        id: "legacy-track-0",
+        targetNodeId: "node-1",
+        property: "text:opacity",
+        keyframes: [{ t: 0, value: "0" }],
+      },
+    ];
+
+    const first = withMotionTrackIds(tracks);
+    const second = withMotionTrackIds(tracks);
+
+    expect(first.map((track) => track.id)).toEqual([
+      "legacy-track-0",
+      "legacy-track-0-1",
+    ]);
+    expect(second.map((track) => track.id)).toEqual(
+      first.map((track) => track.id),
+    );
+  });
 });
 
 describe("withMotionTrackIdsFromExisting", () => {

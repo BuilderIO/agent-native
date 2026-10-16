@@ -1235,6 +1235,8 @@ export default {
       addKeyframe: "Keyframe hinzufügen",
       trackExists:
         "Eine „{{property}}“-Spur für {{label}} existiert bereits. Bearbeite ihre Keyframes in der Zeitleiste.",
+      recipeDoesNotFit:
+        "An der aktuellen Timeline-Position ist nicht genug Platz für diese Animation.",
       textSyncUnsupported:
         "Diese Textbewegungseinstellungen können nicht synchronisiert werden.",
       textPropertyAlreadyAnimated:

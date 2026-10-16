@@ -134,25 +134,13 @@ describe("motion style keyframe identity", () => {
 });
 
 describe("built-in motion recipe application", () => {
-  it("appends ordered rows with fresh identities and keeps existing tracks intact", () => {
-    const existingTrack = {
-      id: "existing-opacity",
-      targetNodeId: "hero",
-      property: "opacity",
-      label: "Hero",
-      keyframes: [
-        { t: 0, value: "1" },
-        { t: 1, value: "0.5" },
-      ],
-    };
-    const existingTracks = [existingTrack];
+  it("appends ordered rows with fresh identities for every target", () => {
     const recipe = MOTION_BUILT_IN_RECIPES.find(
       (candidate) => candidate.id === "enter.recipe-04",
     );
     if (!recipe) throw new Error("Expected the indexed recipe to exist");
 
     const result = applyMotionBuiltInRecipeToTargets({
-      existingTracks,
       recipe,
       targets: [
         { nodeId: "hero", label: "Hero" },
@@ -173,6 +161,7 @@ describe("built-in motion recipe application", () => {
       ["hero", "scale"],
       ["hero", "translate"],
       ["hero", "scale"],
+      ["hero", "opacity"],
       ["badge", "translate"],
       ["badge", "translate"],
       ["badge", "scale"],
@@ -185,7 +174,6 @@ describe("built-in motion recipe application", () => {
       true,
     );
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).not.toContain(existingTrack.id);
     expect(
       result.tracks.every(
         (track) => !recipe.tracks.some((row) => row.id === track.id),
@@ -236,18 +224,82 @@ describe("built-in motion recipe application", () => {
       { t: 0, value: "0px -120px", ease: "cubic-bezier(0.58,0.26,1,1)" },
       { t: 1, value: "0px 0px" },
     ]);
-    expect(existingTracks[0]).toBe(existingTrack);
-    expect(existingTrack).toEqual({
-      id: "existing-opacity",
-      targetNodeId: "hero",
-      property: "opacity",
-      label: "Hero",
-      keyframes: [
-        { t: 0, value: "1" },
-        { t: 1, value: "0.5" },
-      ],
+    expect(result.timelineDurationMs).toBe(1000);
+  });
+
+  it("appends a repeated recipe at the playhead with distinct ordered tracks", () => {
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (candidate) => candidate.id === "enter.recipe-04",
+    );
+    if (!recipe) throw new Error("Expected the indexed recipe to exist");
+    const target = [{ nodeId: "hero", label: "Hero" }];
+    const first = applyMotionBuiltInRecipeToTargets({
+      recipe,
+      targets: target,
+      currentTimeMs: 0,
+      timelineDurationMs: 2000,
     });
-    expect(result.timelineDurationMs).toBe(1260);
+    const second = applyMotionBuiltInRecipeToTargets({
+      recipe,
+      targets: target,
+      currentTimeMs: 250,
+      timelineDurationMs: first.timelineDurationMs,
+    });
+
+    expect(second.tracks).toHaveLength(recipe.tracks.length);
+    expect(second.tracks.map((track) => track.property)).toEqual(
+      recipe.tracks.map((track) => track.property),
+    );
+    expect(second.tracks.map((track) => track.delayMs ?? 0)).toEqual(
+      recipe.tracks.map((track) => 250 + track.delayMs),
+    );
+    const allIds = [...first.tracks, ...second.tracks].map((track) => track.id);
+    expect(new Set(allIds).size).toBe(allIds.length);
+    expect(second.timelineDurationMs).toBe(2000);
+  });
+
+  it("keeps recipe content past the timeline duration without extending it", () => {
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (candidate) => candidate.id === "enter.recipe-01",
+    );
+    if (!recipe) throw new Error("Expected the indexed recipe to exist");
+
+    const result = applyMotionBuiltInRecipeToTargets({
+      recipe,
+      targets: [{ nodeId: "hero", label: "Hero" }],
+      currentTimeMs: 120_000,
+      timelineDurationMs: 120_000,
+    });
+
+    expect(result.tracks).toHaveLength(recipe.tracks.length);
+    expect(result.tracks.map((track) => track.delayMs)).toEqual(
+      recipe.tracks.map(() => 120_000),
+    );
+    expect(result.tracks.map((track) => track.durationMs)).toEqual(
+      recipe.tracks.map((track) => track.durationMs),
+    );
+    expect(result.skippedTrackCount).toBe(0);
+    expect(result.timelineDurationMs).toBe(120_000);
+  });
+
+  it("reports recipe tracks whose delayed start cannot be represented", () => {
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (candidate) => candidate.id === "enter.recipe-04",
+    );
+    if (!recipe) throw new Error("Expected the indexed recipe to exist");
+
+    const result = applyMotionBuiltInRecipeToTargets({
+      recipe,
+      targets: [{ nodeId: "hero", label: "Hero" }],
+      currentTimeMs: 120_000,
+      timelineDurationMs: 120_000,
+    });
+
+    expect(result.tracks).toEqual([]);
+    expect(result.skippedTrackCount).toBe(
+      recipe.tracks.filter((track) => track.delayMs > 0).length,
+    );
+    expect(result.timelineDurationMs).toBe(120_000);
   });
 });
 
@@ -452,19 +504,8 @@ describe("source-backed animation style helpers", () => {
     ).toBeNull();
   });
 
-  it("applies composite styles at the playhead and skips duplicate properties", () => {
+  it("applies composite styles at the playhead even when a property already exists", () => {
     const result = applyMotionAnimationStyleToTargets({
-      existingTracks: [
-        {
-          targetNodeId: "hero",
-          label: "Hero",
-          property: "opacity",
-          keyframes: [
-            { t: 0, value: "1" },
-            { t: 1, value: "0.5" },
-          ],
-        },
-      ],
       style: {
         id: "enter.fade-up",
         name: "Fade up",
@@ -497,6 +538,16 @@ describe("source-backed animation style helpers", () => {
       {
         targetNodeId: "hero",
         label: "Hero",
+        property: "opacity",
+        delayMs: 500,
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      },
+      {
+        targetNodeId: "hero",
+        label: "Hero",
         property: "translate",
         delayMs: 550,
         durationMs: 400,
@@ -511,7 +562,6 @@ describe("source-backed animation style helpers", () => {
 
   it("combines staged same-property style segments into one source track", () => {
     const result = applyMotionAnimationStyleToTargets({
-      existingTracks: [],
       style: {
         id: "enter.slam",
         name: "Slam",
@@ -631,7 +681,6 @@ describe("source-backed animation style helpers", () => {
     };
 
     const result = applyMotionAnimationStyleToTargets({
-      existingTracks: [],
       style,
       targets: [{ nodeId: "hero", label: "Hero" }],
       currentTimeMs: 0,

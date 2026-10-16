@@ -2,6 +2,7 @@ import postcss from "postcss";
 import { describe, expect, it } from "vitest";
 
 import {
+  MOTION_CODE_METADATA_VERSION,
   MOTION_SOURCE_MARKER_NAME,
   compileMotionCode,
   decodeMotionCodeMetadata,
@@ -89,7 +90,7 @@ describe("Motion source document CSS codec", () => {
     expect(decodeMotionCodeMetadata(compiled.css)).toEqual({
       status: "valid",
       document: {
-        version: 5,
+        version: MOTION_CODE_METADATA_VERSION,
         durationMs: timeline.durationMs,
         defaultEase: timeline.defaultEase,
         playbackMode: timeline.playbackMode,
@@ -108,6 +109,83 @@ describe("Motion source document CSS codec", () => {
     expect(result).toEqual({
       status: "valid",
       document,
+    });
+  });
+
+  it("keeps the timeline duration separate from a later track end in source", () => {
+    const extendedTimeline: MotionTimeline = {
+      ...timeline,
+      durationMs: 120_000,
+      tracks: [
+        {
+          id: "tail-track",
+          targetNodeId: "hero",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0", ease: "linear" },
+            { t: 1, value: "1", ease: "linear" },
+          ],
+          delayMs: 120_000,
+          durationMs: 300,
+        },
+      ],
+    };
+    const compiled = compileMotionCode(extendedTimeline);
+    const decoded = decodeMotionCodeMetadata(compiled.css);
+
+    expect(decoded.status).toBe("valid");
+    if (decoded.status !== "valid") return;
+    expect(decoded.document.durationMs).toBe(120_000);
+    expect(decoded.document.tracks[0]).toMatchObject({
+      id: "tail-track",
+      delayMs: 120_000,
+      durationMs: 300,
+    });
+    expect(compiled.css).toContain("animation-delay: 120s");
+    expect(compiled.css).toContain("animation-duration: 0.3s");
+    const reconciled = reconcileMotionCodeDocument(
+      compiled.css,
+      decoded.document,
+    );
+    expect(reconciled.durationMs).toBe(120_000);
+    expect(reconciled.tracks).toMatchObject(decoded.document.tracks);
+  });
+
+  it("round-trips a native style that ends after the timeline duration", () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "Opacity",
+      targetNodeId: "hero",
+    });
+    const nativeStyle = {
+      ...base,
+      duration: 0.3,
+      timelineOffset: 120,
+      props: { ...base.props, delay: 0 },
+    };
+    const extendedTimeline: MotionTimeline = {
+      ...timeline,
+      durationMs: 120_000,
+      tracks: [],
+      nativeStyles: [nativeStyle],
+    };
+    const compiled = compileMotionCode(extendedTimeline);
+    const decoded = decodeMotionCodeMetadata(compiled.css);
+
+    expect(decoded.status).toBe("valid");
+    if (decoded.status !== "valid") return;
+    expect(decoded.document.durationMs).toBe(120_000);
+    expect(decoded.document.nativeStyles?.[0]).toMatchObject({
+      duration: 0.3,
+      timelineOffset: 120,
+    });
+    const reconciled = reconcileMotionCodeDocument(
+      compiled.css,
+      decoded.document,
+    );
+    expect(reconciled.durationMs).toBe(120_000);
+    expect(reconciled.nativeStyles?.[0]).toMatchObject({
+      duration: 0.3,
+      timelineOffset: 120,
     });
   });
 
@@ -1022,7 +1100,7 @@ describe("Motion source document CSS codec", () => {
     const document = motionCodeDocumentFromTimeline(timeline, { audioClips });
     const marker = encodeMotionCodeMetadata(document);
 
-    expect(document.version).toBe(5);
+    expect(document.version).toBe(MOTION_CODE_METADATA_VERSION);
     expect(document.durationMs).toBe(1100);
     expect(document.audioClips).toEqual(audioClips);
     expect(marker).not.toContain("ID3");
@@ -1327,7 +1405,7 @@ describe("Motion source document CSS codec", () => {
       status: "valid",
       document: {
         ...legacyDocument,
-        version: 5,
+        version: MOTION_CODE_METADATA_VERSION,
         tracks: legacyDocument.tracks.map((track, index) => ({
           ...track,
           id: `legacy-track-${index.toString(36)}`,
@@ -1388,7 +1466,7 @@ describe("Motion source document CSS codec", () => {
       status: "valid",
       document: {
         ...legacyDocument,
-        version: 5,
+        version: MOTION_CODE_METADATA_VERSION,
         tracks: legacyDocument.tracks.map((track, index) => ({
           ...track,
           id: `legacy-track-${index.toString(36)}`,
@@ -1440,7 +1518,7 @@ describe("Motion source document CSS codec", () => {
       status: "valid",
       document: {
         ...legacyDocument,
-        version: 5,
+        version: MOTION_CODE_METADATA_VERSION,
         tracks: legacyTracks.map((track, index) => ({
           ...track,
           id: `legacy-track-${index.toString(36)}`,
@@ -1492,11 +1570,34 @@ describe("Motion source document CSS codec", () => {
       status: "valid",
       document: {
         ...legacyDocument,
-        version: 5,
+        version: MOTION_CODE_METADATA_VERSION,
         tracks: legacyTracks.map((track) => ({
           ...track,
           composition: "add",
         })),
+      },
+    });
+  });
+
+  it("upgrades version 5 source documents to the independent-duration format", () => {
+    const legacyDocument = {
+      ...motionCodeDocumentFromTimeline(timeline),
+      version: 5,
+    };
+    const payload = encodeURIComponent(JSON.stringify(legacyDocument)).replace(
+      /\*/g,
+      "%2A",
+    );
+
+    expect(
+      decodeMotionCodeMetadata(
+        `/* ${MOTION_SOURCE_MARKER_NAME}:v5:${payload} */`,
+      ),
+    ).toEqual({
+      status: "valid",
+      document: {
+        ...legacyDocument,
+        version: MOTION_CODE_METADATA_VERSION,
       },
     });
   });
@@ -1529,7 +1630,7 @@ describe("Motion source document CSS codec", () => {
     const validMarker = encodeMotionCodeMetadata(
       motionCodeDocumentFromTimeline(timeline),
     );
-    const unknownVersion = validMarker.replace(":v5:", ":v99:");
+    const unknownVersion = validMarker.replace(":v6:", ":v99:");
     const unknownResult = decodeMotionCodeMetadata(unknownVersion);
     expect(unknownResult.status).toBe("invalid");
     if (unknownResult.status === "invalid") {
@@ -1595,6 +1696,6 @@ describe("Motion source document CSS codec", () => {
     ).toThrow(/must be in \[0, 1\]/);
     expect(() =>
       encodeMotionCodeMetadata({ ...document, version: 2 } as never),
-    ).toThrow(/version must be 5/);
+    ).toThrow(/version must be 6/);
   });
 });

@@ -1230,6 +1230,8 @@ export default {
       addKeyframe: "Añadir fotograma clave",
       trackExists:
         'Ya existe una pista de "{{property}}" para {{label}}. Edita sus fotogramas clave en la línea de tiempo.',
+      recipeDoesNotFit:
+        "No hay espacio suficiente para añadir esta animación en el punto actual de la línea de tiempo.",
       textSyncUnsupported:
         "No se pueden sincronizar estos ajustes de movimiento de texto.",
       textPropertyAlreadyAnimated:

@@ -1235,6 +1235,8 @@ export default {
       addKeyframe: "Ajouter une image clé",
       trackExists:
         "Une piste « {{property}} » existe déjà pour {{label}}. Modifiez ses images clés dans la chronologie.",
+      recipeDoesNotFit:
+        "Il n’y a pas assez de place pour ajouter cette animation à la position actuelle de la timeline.",
       textSyncUnsupported:
         "Ces réglages de mouvement du texte ne peuvent pas être synchronisés.",
       textPropertyAlreadyAnimated:

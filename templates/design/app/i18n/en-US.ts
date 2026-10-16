@@ -1150,6 +1150,8 @@ export default {
       addKeyframe: "Add keyframe",
       trackExists:
         'A "{{property}}" track already exists for {{label}}. Edit its keyframes in the timeline instead.',
+      recipeDoesNotFit:
+        "There isn't enough room to add this animation at the current time.",
       textSyncUnsupported: "These Text motion settings cannot be synchronized.",
       textPropertyAlreadyAnimated:
         "A code text animation already controls this property.",

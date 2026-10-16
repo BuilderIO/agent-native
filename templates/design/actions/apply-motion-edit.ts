@@ -55,7 +55,6 @@ import {
   readMotionHtmlSource,
 } from "../shared/motion-html-source.js";
 import {
-  motionNativeStyleEndTimeMs,
   motionNativeStyleWithMatchingAuthoredTextWhitespace,
   motionTextDocumentWithNativeStyles,
   motionTextDocumentWithoutNativeStyles,
@@ -97,9 +96,11 @@ import {
   isMotionTrackId,
   readTimelinePlaybackMode,
   motionTimelineDurationForContent,
+  motionTimelineDurationForTracks,
   MOTION_PATH_MAX_CONTROL_OFFSET_PX,
   MOTION_TIMELINE_DEFAULT_DURATION_MS,
   MOTION_TIMELINE_MAX_DURATION_MS,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
   isAdditiveMotionPositionTrack,
   parseMotionPosition,
   withMotionTrackIdsFromExisting,
@@ -1341,14 +1342,23 @@ export default defineAction({
       }
     }
 
+    const trackContentEndMs = Math.ceil(
+      motionTimelineDurationForTracks(requestedDurationMs, inputTracks),
+    );
+    if (trackContentEndMs > MOTION_TIMELINE_MAX_CONTENT_END_MS) {
+      fail(
+        `Motion tracks end at ${trackContentEndMs}ms, which exceeds the ${MOTION_TIMELINE_MAX_CONTENT_END_MS}ms content limit. Reduce a track delay or duration.`,
+        { errorCode: "motion_timeline_duration_exceeded", statusCode: 422 },
+      );
+    }
+
     const durationMs = Math.ceil(
       Math.max(
         motionTimelineDurationForContent(
           requestedDurationMs,
-          inputTracks,
+          [],
           textDocument?.animations ?? [],
         ),
-        ...nativeStyles.map(motionNativeStyleEndTimeMs),
         audioEndMs,
       ),
     );

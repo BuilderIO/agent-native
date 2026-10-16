@@ -327,7 +327,7 @@ describe("React Motion source adapter", () => {
     expect(read).toMatchObject({
       status: "valid",
       document: {
-        durationMs: 1350,
+        durationMs: 800,
         playbackMode: "ping-pong",
         tracks: [
           {
@@ -364,7 +364,7 @@ describe("React Motion source adapter", () => {
     expect(reread).toMatchObject({
       status: "valid",
       document: {
-        durationMs: 1350,
+        durationMs: 800,
         playbackMode: "ping-pong",
         tracks: read.document.tracks,
       },

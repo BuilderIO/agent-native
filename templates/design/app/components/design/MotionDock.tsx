@@ -25,6 +25,7 @@ import {
   MOTION_DEFAULT_PLAYBACK_MODE,
   MOTION_KEYFRAME_TIME_EPSILON,
   MOTION_TIMELINE_MAX_DURATION_MS,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
   MOTION_PROPERTY_PRESETS,
   getMotionTrackTiming,
   hasPreviousMotionKeyframe,
@@ -32,6 +33,7 @@ import {
   sampleMotionKeyframesAt,
   sortMotionKeyframes,
   timelineTimeToTrackTime,
+  motionTimelineDurationForTracks,
   upsertMotionKeyframeAtTime,
   withMotionTrackIds,
   withTimelinePlaybackMode,
@@ -294,7 +296,7 @@ function nativeStyleTiming(
     delayMs < 0 ||
     startMs < 0 ||
     durationMs <= 0 ||
-    endMs > 120_000
+    endMs > MOTION_TIMELINE_MAX_CONTENT_END_MS
   ) {
     return null;
   }
@@ -933,7 +935,17 @@ export function MotionDock({
       motionZoomScale(timelineZoomLevel)
     ).toFixed(4),
   );
+  const timelineExtentMs = Math.max(
+    durationMs,
+    motionTimelineDurationForTracks(durationMs, tracks),
+    ...nativeStyles.flatMap((instance) => {
+      const timing = nativeStyleTiming(instance);
+      return timing ? [timing.endMs] : [];
+    }),
+  );
   const timelineTrackWidthPx =
+    Math.round(timelineExtentMs * timelinePixelsPerMs * 1000) / 1000;
+  const timelineDurationWidthPx =
     Math.round(durationMs * timelinePixelsPerMs * 1000) / 1000;
   const timelineContentWidthPx = Math.max(
     0,
@@ -942,8 +954,8 @@ export function MotionDock({
   );
   const timelineScaleDurationMs =
     timelinePixelsPerMs > 0
-      ? Math.max(durationMs, timelineContentWidthPx / timelinePixelsPerMs)
-      : durationMs;
+      ? Math.max(timelineExtentMs, timelineContentWidthPx / timelinePixelsPerMs)
+      : timelineExtentMs;
   const timelineWidthStyle = `${timelineContentWidthPx}px`;
 
   const handleTimelineDurationPointerDown = useCallback(
@@ -1399,11 +1411,15 @@ export function MotionDock({
       if (readOnly || !onTracksChange) return;
       const safeDuration = Math.max(
         50,
-        Math.min(durationMs, Math.round(trackDurationMs)),
+        Math.min(MOTION_TIMELINE_MAX_DURATION_MS, Math.round(trackDurationMs)),
       );
       const safeStart = Math.max(
         0,
-        Math.min(Math.round(startMs), durationMs - safeDuration),
+        Math.min(
+          Math.round(startMs),
+          MOTION_TIMELINE_MAX_DURATION_MS,
+          MOTION_TIMELINE_MAX_CONTENT_END_MS - safeDuration,
+        ),
       );
       let changed = false;
       const nextTracks = tracks.map((candidate) => {
@@ -1741,11 +1757,20 @@ export function MotionDock({
           if (!timing) return tr;
           const startMs = Math.max(
             0,
-            Math.round(
-              nextSpan.startMs + (timing.startMs - spanStart) * factor,
+            Math.min(
+              MOTION_TIMELINE_MAX_DURATION_MS,
+              Math.round(
+                nextSpan.startMs + (timing.startMs - spanStart) * factor,
+              ),
             ),
           );
-          const trackDur = Math.max(20, Math.round(timing.durationMs * factor));
+          const trackDur = Math.max(
+            20,
+            Math.min(
+              MOTION_TIMELINE_MAX_DURATION_MS,
+              Math.round(timing.durationMs * factor),
+            ),
+          );
           const out: MotionDockTrack = { ...tr };
           if (startMs > 0) out.delayMs = startMs;
           else delete out.delayMs;
@@ -2342,7 +2367,7 @@ export function MotionDock({
                 aria-disabled={readOnly || !onDurationChange}
                 disabled={readOnly || !onDurationChange}
                 className="group absolute top-0 z-10 flex h-full w-3 -translate-x-1/2 cursor-ew-resize items-start justify-center bg-transparent p-0 outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] disabled:cursor-default"
-                style={{ left: timelineTrackWidthPx }}
+                style={{ left: timelineDurationWidthPx }}
                 onPointerDown={handleTimelineDurationPointerDown}
                 onPointerMove={handleTimelineDurationPointerMove}
                 onPointerUp={handleTimelineDurationPointerEnd}
@@ -2373,7 +2398,7 @@ export function MotionDock({
               className="pointer-events-none absolute top-0 h-full outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
               style={{
                 left: TIMELINE_SCRUBBER_LEFT_PX,
-                width: `${timelineTrackWidthPx + TIMELINE_SCRUBBER_HORIZONTAL_INSET_PX}px`,
+                width: `${timelineDurationWidthPx + TIMELINE_SCRUBBER_HORIZONTAL_INSET_PX}px`,
               }}
               onKeyDown={handleRulerKeyDown}
             />
@@ -2584,6 +2609,7 @@ export function MotionDock({
                     expanded={expandedNodeIds.has(layer.nodeId)}
                     playhead={playhead}
                     timelineDurationMs={durationMs}
+                    timelineExtentMs={timelineExtentMs}
                     defaultEase={defaultEase}
                     easingVariables={easingVariables}
                     onEasingVariablesChange={onEasingVariablesChange}
@@ -3371,11 +3397,11 @@ function MotionTrackSettingsButton({
     }
     const nextDuration = Math.max(
       50,
-      Math.min(timelineDurationMs, parsedDuration),
+      Math.min(MOTION_TIMELINE_MAX_DURATION_MS, parsedDuration),
     );
     const nextStart = Math.max(
       0,
-      Math.min(parsedStart, timelineDurationMs - nextDuration),
+      Math.min(MOTION_TIMELINE_MAX_DURATION_MS, parsedStart),
     );
     onTimingChange(track, nextStart, nextDuration);
     setStartInput(formatMotionTimeValue(nextStart, timeUnit));
@@ -3510,6 +3536,7 @@ interface LayerTrackRowsProps {
   expanded: boolean;
   playhead: number;
   timelineDurationMs: number;
+  timelineExtentMs: number;
   defaultEase: MotionEase;
   easingVariables: MotionEasingVariable[];
   onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
@@ -3558,6 +3585,7 @@ function LayerTrackRows({
   expanded,
   playhead: _playhead,
   timelineDurationMs,
+  timelineExtentMs,
   defaultEase,
   easingVariables,
   onEasingVariablesChange,
@@ -3598,7 +3626,7 @@ function LayerTrackRows({
           <LayerSpanBar
             spanStartMs={spanStartMs}
             spanEndMs={spanEndMs}
-            timelineDurationMs={timelineDurationMs}
+            timelineDurationMs={timelineExtentMs}
             label={layer.label}
             disabled={readOnly}
             onSpanChange={(span) => onLayerSpanChange(layer.nodeId, span)}
@@ -3614,6 +3642,7 @@ function LayerTrackRows({
             track={track}
             readOnly={readOnly}
             timelineDurationMs={timelineDurationMs}
+            timelineExtentMs={timelineExtentMs}
             defaultEase={defaultEase}
             easingVariables={easingVariables}
             onEasingVariablesChange={onEasingVariablesChange}
@@ -3647,7 +3676,7 @@ function LayerTrackRows({
               <NativeStyleSpanBar
                 entry={entry}
                 label={nativeStyleDisplayLabel(entry.instance, t)}
-                timelineDurationMs={timelineDurationMs}
+                timelineDurationMs={timelineExtentMs}
                 readOnly={readOnly}
                 selected={selectedNativeStyleKey === entry.key}
                 onSpanChange={onNativeStyleSpanChange}
@@ -3730,14 +3759,14 @@ function NativeStyleSpanBar({
       const deltaMs = (event.clientX - current.startX) / current.pxPerMs;
       const minimumStartMs = timing?.delayMs ?? 0;
       if (current.kind === "move") {
-        const maxStartMs = Math.max(
-          minimumStartMs,
+        const maxStartMs = Math.min(
           timelineDurationMs - current.durationMs,
+          MOTION_TIMELINE_MAX_DURATION_MS + (timing?.delayMs ?? 0),
         );
         changeSpan({
           startMs: Math.min(
             Math.max(minimumStartMs, current.startMs + deltaMs),
-            maxStartMs,
+            Math.max(minimumStartMs, maxStartMs),
           ),
           durationMs: current.durationMs,
         });
@@ -3746,6 +3775,7 @@ function NativeStyleSpanBar({
           50,
           Math.min(
             current.durationMs + deltaMs,
+            MOTION_TIMELINE_MAX_DURATION_MS,
             timelineDurationMs - current.startMs,
           ),
         );
@@ -3754,7 +3784,11 @@ function NativeStyleSpanBar({
         const endMs = current.startMs + current.durationMs;
         const startMs = Math.max(
           minimumStartMs,
-          Math.min(current.startMs + deltaMs, endMs - 50),
+          Math.min(
+            current.startMs + deltaMs,
+            endMs - 50,
+            endMs - MOTION_TIMELINE_MAX_DURATION_MS,
+          ),
         );
         changeSpan({ startMs, durationMs: endMs - startMs });
       }
@@ -3775,12 +3809,12 @@ function NativeStyleSpanBar({
       event.preventDefault();
       const stepMs = Math.max(1, Math.round(timelineDurationMs / 100));
       const minimumStartMs = timing.delayMs;
-      const maxStartMs = Math.max(
-        minimumStartMs,
+      const maxStartMs = Math.min(
         timelineDurationMs - (timing.endMs - timing.startMs),
+        MOTION_TIMELINE_MAX_DURATION_MS + minimumStartMs,
       );
       const startMs = Math.min(
-        maxStartMs,
+        Math.max(minimumStartMs, maxStartMs),
         Math.max(minimumStartMs, timing.startMs + direction * stepMs),
       );
       changeSpan({
@@ -3981,6 +4015,7 @@ interface TrackRowProps {
   track: MotionDockTrack;
   readOnly: boolean;
   timelineDurationMs: number;
+  timelineExtentMs: number;
   defaultEase: MotionEase;
   easingVariables: MotionEasingVariable[];
   onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
@@ -4008,6 +4043,7 @@ function TrackRow({
   track,
   readOnly,
   timelineDurationMs,
+  timelineExtentMs,
   defaultEase,
   easingVariables,
   onEasingVariablesChange,
@@ -4026,7 +4062,7 @@ function TrackRow({
   const rowRef = useRef<HTMLDivElement>(null);
   const timing = getMotionTrackTiming(track, timelineDurationMs);
   const fractionFor = (kfT: number) =>
-    (timing.startMs + kfT * timing.durationMs) / timelineDurationMs;
+    (timing.startMs + kfT * timing.durationMs) / timelineExtentMs;
 
   const dragging = useRef<{
     targets: MotionKeyframeDragTarget[];
@@ -4077,11 +4113,11 @@ function TrackRow({
       dragging.current.moved = true;
       onMoveKeyframes(
         dragging.current.targets,
-        (dx / rect.width) * timelineDurationMs,
+        (dx / rect.width) * timelineExtentMs,
         e.shiftKey,
       );
     },
-    [onMoveKeyframes, timelineDurationMs],
+    [onMoveKeyframes, timelineExtentMs],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -4123,9 +4159,9 @@ function TrackRow({
           0,
           Math.min(1, (event.clientX - rect.left) / rect.width),
         );
-        const timeMs = position * timelineDurationMs;
+        const timeMs = position * timelineExtentMs;
         onAddKeyframeAtTime(timeMs);
-        onJumpToPlayhead(position);
+        onJumpToPlayhead(timeMs / timelineDurationMs);
       }}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

@@ -265,6 +265,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "opacity",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "1", ease: "linear" },
           { t: 1, value: "0.8", ease: "linear" },
@@ -273,6 +274,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "rotate",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "0deg", ease: "linear" },
           { t: 1, value: "12deg", ease: "linear" },
@@ -281,6 +283,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "scale",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "1", ease: "linear" },
           { t: 1, value: "1.2", ease: "linear" },
@@ -289,6 +292,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "translate",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "0px 0px", ease: "linear" },
           { t: 1, value: "24px 0px", ease: "linear" },
@@ -767,7 +771,11 @@ test.describe.serial("React Motion source browser writeback", () => {
         await Promise.all(
           matchedAnimations.map((animation) => animation.ready),
         );
-        for (const animation of matchedAnimations) animation.currentTime = 250;
+        for (const animation of matchedAnimations) {
+          const timing = animation.effect!.getComputedTiming();
+          animation.currentTime =
+            Number(timing.delay) + Number(timing.duration) / 4;
+        }
         await new Promise<void>((resolve) =>
           requestAnimationFrame(() => resolve()),
         );
@@ -868,6 +876,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "opacity",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "1", ease: "linear" },
           { t: 1, value: "0.6", ease: "linear" },
@@ -876,6 +885,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "rotate",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "0deg", ease: "linear" },
           { t: 1, value: "24deg", ease: "linear" },
@@ -884,6 +894,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "scale",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "1", ease: "linear" },
           { t: 1, value: "1.4", ease: "linear" },
@@ -892,6 +903,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       {
         targetNodeId: nodeId,
         property: "translate",
+        durationMs: 1200,
         keyframes: [
           { t: 0, value: "0px 0px", ease: "linear" },
           { t: 1, value: "36px 0px", ease: "linear" },
@@ -909,7 +921,7 @@ test.describe.serial("React Motion source browser writeback", () => {
         timelines: [
           {
             sourceVersionHash: cssEditedHash,
-            durationMs: 1200,
+            durationMs: 1000,
             tracks: expectedDirectTracks,
           },
         ],
@@ -919,7 +931,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       name: "Duration",
       exact: true,
     });
-    await expect(durationInput).toHaveValue("1200");
+    await expect(durationInput).toHaveValue("1000");
     const priorSourceChangeCount = viteChangedFiles.filter(
       (changedPath) => changedPath === sourceFilePath,
     ).length;

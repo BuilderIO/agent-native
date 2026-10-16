@@ -1214,6 +1214,8 @@ export default {
       addKeyframe: "키프레임 추가",
       trackExists:
         "'{{property}}' 트랙이 {{label}}에 이미 있습니다. 타임라인에서 키프레임을 편집하세요.",
+      recipeDoesNotFit:
+        "현재 타임라인 위치에는 이 애니메이션을 추가할 공간이 부족합니다.",
       textSyncUnsupported: "이 텍스트 모션 설정은 동기화할 수 없습니다.",
       textPropertyAlreadyAnimated:
         "코드 텍스트 애니메이션이 이미 이 속성을 제어합니다.",

@@ -18,6 +18,7 @@ import {
 } from "./motion-text-code";
 import {
   isMotionPathSegmentV1,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
   type MotionTrack,
   parseMotionPosition,
 } from "./motion-timeline";
@@ -226,7 +227,8 @@ export function motionNativeStyleEndTimeMs(
     style.duration <= 0 ||
     style.timelineOffset < 0 ||
     delaySeconds < 0 ||
-    style.timelineOffset + delaySeconds + style.duration > 120
+    (style.timelineOffset + delaySeconds + style.duration) * 1000 >
+      MOTION_TIMELINE_MAX_CONTENT_END_MS
   ) {
     invalid(
       "Native Figma duration must be positive and offsets and delays non-negative.",

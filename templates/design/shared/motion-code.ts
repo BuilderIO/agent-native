@@ -40,12 +40,13 @@ import {
   isMotionPathSegmentV1,
   isAdditiveMotionPositionTrack,
   motionTimelineDurationForTracks,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
   MOTION_TIMELINE_MAX_DURATION_MS,
   parseMotionPosition,
   withMotionTrackIds,
 } from "./motion-timeline";
 
-export const MOTION_CODE_METADATA_VERSION = 5 as const;
+export const MOTION_CODE_METADATA_VERSION = 6 as const;
 const LEGACY_MOTION_CODE_METADATA_VERSION = 1;
 export const MOTION_SOURCE_MARKER_NAME = "agent-native-motion-source";
 export const MOTION_SOURCE_WRITE_UNAVAILABLE =
@@ -120,19 +121,9 @@ export function motionCodeDocumentFromTimeline(
 ): MotionCodeDocument {
   const audioClips = options.audioClips;
   const audioEndMs = motionAudioClipsEndTimeMs(audioClips ?? []);
-  const nativeStyleEndMs = Math.ceil(
-    Math.max(
-      0,
-      ...(timeline.nativeStyles ?? []).map(motionNativeStyleEndTimeMs),
-    ),
-  );
   const document: MotionCodeDocument = {
     version: MOTION_CODE_METADATA_VERSION,
-    durationMs: Math.max(
-      motionTimelineDurationForTracks(timeline.durationMs, timeline.tracks),
-      nativeStyleEndMs,
-      audioEndMs,
-    ),
+    durationMs: Math.max(timeline.durationMs, audioEndMs),
     defaultEase: timeline.defaultEase,
     tracks: withPositionTrackComposition(timeline.tracks),
     ...(timeline.playbackMode ? { playbackMode: timeline.playbackMode } : {}),
@@ -729,7 +720,7 @@ export function reconcileMotionCodeDocument(
   const playbackMode = parsePlaybackMode(css);
   const document: MotionCodeDocument = {
     ...stored,
-    durationMs: Math.max(stored.durationMs, timelineDuration ?? 0),
+    durationMs: stored.durationMs,
     ...((playbackMode ??
     (playbackModes.size === 1 ? [...playbackModes][0] : null))
       ? { playbackMode: playbackMode ?? [...playbackModes][0]! }
@@ -1304,13 +1295,8 @@ function assertMotionCodeDocument(
     const nativeStyleEndMs = Math.ceil(
       Math.max(0, ...value.nativeStyles.map(motionNativeStyleEndTimeMs)),
     );
-    if (nativeStyleEndMs > MOTION_TIMELINE_MAX_DURATION_MS) {
-      invalidDocument("nativeStyles exceed the 120000ms timeline limit");
-    }
-    if (value.durationMs < nativeStyleEndMs) {
-      invalidDocument(
-        "durationMs must cover every native style offset and duration",
-      );
+    if (nativeStyleEndMs > MOTION_TIMELINE_MAX_CONTENT_END_MS) {
+      invalidDocument("nativeStyles exceed the content end limit");
     }
     for (const [styleIndex, style] of value.nativeStyles.entries()) {
       const nativeEase = style.props.easing;
@@ -1498,10 +1484,10 @@ function assertMotionCodeDocument(
     }
   }
   if (
-    motionTimelineDurationForTracks(value.durationMs, value.tracks) !==
-    value.durationMs
+    motionTimelineDurationForTracks(value.durationMs, value.tracks) >
+    MOTION_TIMELINE_MAX_CONTENT_END_MS
   ) {
-    invalidDocument("durationMs must cover every track delay and duration");
+    invalidDocument("tracks exceed the content end limit");
   }
 }
 

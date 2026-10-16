@@ -1227,6 +1227,8 @@ export default {
       addKeyframe: "キーフレームを追加",
       trackExists:
         "「{{property}}」トラックは {{label}} にすでに存在します。タイムラインでキーフレームを編集してください。",
+      recipeDoesNotFit:
+        "現在のタイムライン位置にこのアニメーションを追加する十分な空きがありません。",
       textSyncUnsupported: "このテキストモーション設定は同期できません。",
       textPropertyAlreadyAnimated:
         "コードのテキストアニメーションがこのプロパティをすでに制御しています。",

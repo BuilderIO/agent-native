@@ -1225,6 +1225,8 @@ export default {
       addKeyframe: "Adicionar quadro-chave",
       trackExists:
         'Uma faixa de "{{property}}" já existe para {{label}}. Edite os quadros-chave na linha do tempo.',
+      recipeDoesNotFit:
+        "Não há espaço suficiente para adicionar esta animação na posição atual da linha do tempo.",
       textSyncUnsupported:
         "Não é possível sincronizar estas configurações de movimento do texto.",
       textPropertyAlreadyAnimated:

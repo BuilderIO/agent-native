@@ -22,7 +22,6 @@ describe("createMotionPresetTracks", () => {
       defaultEase: "ease-out",
       currentTimeMs: 750,
       timelineDurationMs: 2000,
-      existingTracks: [],
     });
 
     expect(result.timelineDurationMs).toBe(2000);
@@ -55,7 +54,6 @@ describe("createMotionPresetTracks", () => {
       currentTimeMs: 0,
       timelineDurationMs: 2000,
       currentValues: { width: "240px", height: "96px" },
-      existingTracks: [],
     });
 
     expect(
@@ -78,7 +76,7 @@ describe("createMotionPresetTracks", () => {
     ]);
   });
 
-  it("keeps existing properties and only adds missing size axes", () => {
+  it("adds every size axis when one already has a track", () => {
     const result = createMotionPresetTracks({
       targetNodeId: "card",
       preset: {
@@ -91,63 +89,47 @@ describe("createMotionPresetTracks", () => {
       currentTimeMs: 0,
       timelineDurationMs: 2000,
       currentValues: { width: "240px", height: "96px" },
-      existingTracks: [
-        {
-          targetNodeId: "card",
-          property: "width",
-          keyframes: [
-            { t: 0, value: "100px" },
-            { t: 1, value: "240px" },
-          ],
-        },
-      ],
     });
 
-    expect(result.tracks.map((track) => track.property)).toEqual(["height"]);
+    expect(result.tracks.map((track) => track.property)).toEqual([
+      "width",
+      "height",
+    ]);
   });
 
-  it("extends the timeline when a preset is added at its endpoint", () => {
+  it("keeps a preset at the endpoint within the current timeline duration", () => {
     const result = createMotionPresetTracks({
       targetNodeId: "hero",
       preset: positionPreset,
       defaultEase: "ease",
       currentTimeMs: 2000,
       timelineDurationMs: 2000,
-      existingTracks: [],
     });
 
-    expect(result.timelineDurationMs).toBe(2050);
+    expect(result.timelineDurationMs).toBe(2000);
     expect(result.tracks[0]).toMatchObject({ delayMs: 2000, durationMs: 50 });
   });
 
-  it("returns no tracks when every preset property already exists", () => {
+  it("adds a new track when the preset property already exists", () => {
     const result = createMotionPresetTracks({
       targetNodeId: "hero",
       preset: positionPreset,
       defaultEase: "ease",
       currentTimeMs: 0,
       timelineDurationMs: 2000,
-      existingTracks: [
-        { targetNodeId: "hero", property: "translate", keyframes: [] },
-      ],
     });
 
-    expect(result).toEqual({ tracks: [], timelineDurationMs: 2000 });
+    expect(result.timelineDurationMs).toBe(2000);
+    expect(result.tracks).toHaveLength(1);
+    expect(result.tracks[0]).toMatchObject({
+      targetNodeId: "hero",
+      property: "translate",
+    });
   });
 });
 
 describe("createMotionPresetTracksForTargets", () => {
-  it("applies one preset to every selected layer without replacing existing tracks", () => {
-    const existingTracks = [
-      {
-        targetNodeId: "hero",
-        property: "width",
-        keyframes: [
-          { t: 0, value: "180px" },
-          { t: 1, value: "240px" },
-        ],
-      },
-    ];
+  it("applies one preset to every selected layer", () => {
     const result = createMotionPresetTracksForTargets({
       targets: [
         {
@@ -170,7 +152,6 @@ describe("createMotionPresetTracksForTargets", () => {
       defaultEase: "ease-out",
       currentTimeMs: 500,
       timelineDurationMs: 2000,
-      existingTracks,
     });
 
     expect(result.timelineDurationMs).toBe(2000);
@@ -181,14 +162,14 @@ describe("createMotionPresetTracksForTargets", () => {
         label,
       ]),
     ).toEqual([
+      ["hero", "width", "Hero"],
       ["hero", "height", "Hero"],
       ["card", "width", "Card"],
       ["card", "height", "Card"],
     ]);
-    expect(result.tracks[1]?.keyframes).toEqual([
+    expect(result.tracks[2]?.keyframes).toEqual([
       { t: 0, value: "0px", ease: "ease-out" },
       { t: 1, value: "160px", ease: "ease-out" },
     ]);
-    expect(existingTracks[0]?.keyframes[0]?.value).toBe("180px");
   });
 });

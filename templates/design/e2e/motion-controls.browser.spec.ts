@@ -1,7 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { MOTION_BUILT_IN_RECIPES } from "../shared/motion-built-in-recipes";
@@ -60,7 +65,7 @@ async function getAction(
 }
 
 async function captureReferenceState(
-  page: import("@playwright/test").Page,
+  page: Page,
   stepId: string,
 ): Promise<void> {
   const artifactDirectory = path.resolve(
@@ -127,6 +132,19 @@ async function captureReferenceState(
     path: path.join(artifactDirectory, `${stepId}.png`),
     animations: "disabled",
   });
+}
+
+async function zoomCanvasTo100(page: Page): Promise<void> {
+  const canvasZoom = page
+    .getByRole("button")
+    .filter({ hasText: /^\s*\d+%\s*$/ })
+    .first();
+  await expect(canvasZoom).toBeVisible();
+  if ((await canvasZoom.innerText()).trim() !== "100%") {
+    await canvasZoom.click();
+    await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
+  }
+  await expect(canvasZoom).toHaveText(/100%/);
 }
 
 test.beforeAll(async ({ request }, workerInfo) => {
@@ -1013,6 +1031,7 @@ for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
         clearPreviousSelection: true,
         deep: false,
       });
+      await zoomCanvasTo100(page);
 
       const recipe = MOTION_BUILT_IN_RECIPES.find(
         (entry) => entry.id === recipeId,
@@ -1093,6 +1112,431 @@ for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
     }
   });
 }
+
+for (const { recipeId, manualPosition } of [
+  { recipeId: "enter.recipe-01", manualPosition: false },
+  { recipeId: "enter.recipe-01", manualPosition: true },
+  { recipeId: "enter.recipe-04", manualPosition: false },
+] as const) {
+  test(`reapplying ${recipeId} appends source-backed tracks at the playhead${manualPosition ? " with a manual Position style" : ""}`, async ({
+    page,
+    request,
+  }) => {
+    let recipeDesignId: string | undefined;
+    try {
+      const created = await postAction(request, "create-design", {
+        title: "Repeated Motion recipe tracks",
+        projectType: "prototype",
+      });
+      recipeDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+      if (!recipeDesignId) {
+        throw new Error("create-design did not return an id");
+      }
+      const file = await postAction(request, "create-file", {
+        designId: recipeDesignId,
+        filename: "index.html",
+        content: REFERENCE_FIXTURE_HTML,
+        fileType: "html",
+      });
+      if (!file.id) throw new Error("create-file did not return a file id");
+      await postAction(request, "index-components", {
+        designId: recipeDesignId,
+      });
+
+      await page.setViewportSize({ width: 1728, height: 941 });
+      await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+      await gotoEditor(page, recipeDesignId);
+      await selectByText(page, "Reference Rectangle", {
+        screenId: file.id,
+        clearPreviousSelection: true,
+        deep: false,
+      });
+      await zoomCanvasTo100(page);
+
+      const recipe = MOTION_BUILT_IN_RECIPES.find(
+        (entry) => entry.id === recipeId,
+      );
+      if (!recipe) throw new Error("The repeated recipe is missing");
+      const expectedTrackCount = recipe.tracks.length * 2;
+      const recipeRow = page.locator(`[data-motion-recipe-id="${recipe.id}"]`);
+      const applyRecipe = async () => {
+        await page
+          .getByRole("button", { name: "Animations", exact: true })
+          .click();
+        await expect(recipeRow).toBeVisible();
+        const applied = page.waitForResponse(
+          (response) =>
+            response
+              .url()
+              .includes("/_agent-native/actions/apply-motion-edit") &&
+            response.request().method() === "POST",
+          { timeout: 20_000 },
+        );
+        await recipeRow.click();
+        const response = await applied;
+        expect(response.ok(), await response.text()).toBe(true);
+        expect(await response.json()).toMatchObject({ persisted: true });
+      };
+
+      await applyRecipe();
+      const dock = page.getByRole("region", { name: "Motion dock" }).first();
+      await expect(dock).toBeVisible();
+      await expect(dock.locator("[data-motion-track-row]")).toHaveCount(
+        recipe.tracks.length,
+      );
+      if (manualPosition) {
+        const addAnimation = page
+          .getByRole("button", { name: "Add animation", exact: true })
+          .first();
+        const applied = page.waitForResponse(
+          (response) =>
+            response
+              .url()
+              .includes("/_agent-native/actions/apply-motion-edit") &&
+            response.request().method() === "POST",
+          { timeout: 20_000 },
+        );
+        await addAnimation.click();
+        await page
+          .getByRole("menuitem", { name: "Position", exact: true })
+          .click();
+        const response = await applied;
+        expect(response.ok(), await response.text()).toBe(true);
+        expect(await response.json()).toMatchObject({ persisted: true });
+        await expect(
+          dock.locator('[data-motion-native-style-row="Position"]'),
+        ).toHaveCount(1);
+      }
+      const currentTime = dock.getByRole("textbox", { name: "Current time" });
+      const secondApplyTimeMs = manualPosition ? 0 : 250;
+      if (secondApplyTimeMs > 0) {
+        await currentTime.click();
+        await currentTime.fill(String(secondApplyTimeMs));
+        await currentTime.press("Tab");
+      }
+      expect(Number(await currentTime.inputValue())).toBe(secondApplyTimeMs);
+      await applyRecipe();
+
+      const targetId = "e2e-motion-reference-rectangle";
+      const timeline = await getAction(request, "get-motion-timeline", {
+        designId: recipeDesignId,
+        sourceRef: file.id,
+      });
+      const tracks = timeline.timelines?.[0]?.tracks?.filter(
+        (track: { targetNodeId: string }) => track.targetNodeId === targetId,
+      );
+      expect(tracks).toHaveLength(expectedTrackCount);
+      expect(
+        tracks?.map((track: { property: string }) => track.property),
+      ).toEqual([
+        ...recipe.tracks.map((track) => track.property),
+        ...recipe.tracks.map((track) => track.property),
+      ]);
+      expect(
+        tracks
+          ?.slice(recipe.tracks.length)
+          .map((track: { delayMs?: number }) => track.delayMs ?? 0),
+      ).toEqual(
+        recipe.tracks.map((track) => secondApplyTimeMs + track.delayMs),
+      );
+      expect(
+        new Set(tracks?.map((track: { id: string }) => track.id)).size,
+      ).toBe(expectedTrackCount);
+      if (manualPosition) {
+        const positionStyle = timeline.timelines?.[0]?.nativeStyles?.find(
+          (style: { styleKey: string; targetNodeId: string }) =>
+            style.styleKey === "Position" && style.targetNodeId === targetId,
+        );
+        expect(positionStyle).toMatchObject({
+          duration: 0.5,
+          timelineOffset: 0,
+          props: {
+            type: "slide_in",
+            direction: "left",
+            distance: 200,
+            delay: 0,
+            easing: { type: "EASE_OUT" },
+          },
+        });
+      }
+      const expectedTrackSpanMs = manualPosition
+        ? 300
+        : recipeId === "enter.recipe-04"
+          ? 1460
+          : 550;
+      expect(
+        Math.max(
+          ...(tracks ?? []).map(
+            (track: { delayMs?: number; durationMs: number }) =>
+              (track.delayMs ?? 0) + track.durationMs,
+          ),
+        ),
+      ).toBe(expectedTrackSpanMs);
+      if (manualPosition) {
+        expect(
+          Math.max(
+            expectedTrackSpanMs,
+            ...(timeline.timelines?.[0]?.nativeStyles ?? []).map(
+              (style: { duration: number; timelineOffset: number }) =>
+                (style.timelineOffset + style.duration) * 1000,
+            ),
+          ),
+        ).toBe(500);
+      }
+
+      let sourceContent = "";
+      await expect
+        .poll(async () => {
+          const source = await getAction(request, "read-source-file", {
+            designId: recipeDesignId,
+            path: "index.html",
+          });
+          sourceContent = source.content;
+          return sourceContent.match(/@keyframes\s+an-motion-/g)?.length ?? 0;
+        })
+        .toBe(expectedTrackCount + Number(manualPosition));
+      expect(sourceContent).toContain("<style data-agent-native-motion>");
+      for (const track of tracks ?? []) {
+        expect(sourceContent).toContain(`--track-${track.id}`);
+      }
+      if (manualPosition) {
+        expect(sourceContent).toContain("--track-native-style-0-0");
+      }
+
+      await currentTime.fill("300");
+      await currentTime.press("Tab");
+      const renderedOpacity = await designFrame(page, file.id)
+        .locator(`[data-agent-native-node-id="${targetId}"]`)
+        .evaluate((element) => getComputedStyle(element).opacity);
+      if (recipeId === "enter.recipe-01") {
+        expect(Number(renderedOpacity)).toBe(1);
+      } else {
+        expect(Number(renderedOpacity)).toBeGreaterThan(0.5);
+        expect(Number(renderedOpacity)).toBeLessThan(1);
+      }
+      await captureReferenceState(
+        page,
+        `motion-recipe-repeat-${recipeId.replace(".", "-")}${manualPosition ? "-with-manual-position" : ""}-at-300ms`,
+      );
+
+      const firstTrack = tracks?.[0];
+      if (!firstTrack) throw new Error("The repeated recipe has no tracks");
+      await dock
+        .locator(
+          `[data-motion-property-row][data-motion-track-id="${firstTrack.id}"]`,
+        )
+        .click();
+      await dock
+        .getByRole("button", { name: "Edit animation", exact: true })
+        .click();
+      await expect(
+        page.getByRole("textbox", { name: "Start time in ms" }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("textbox", { name: "Duration in ms" }),
+      ).toBeVisible();
+      await captureReferenceState(
+        page,
+        `motion-track-editor-${recipeId.replace(".", "-")}${manualPosition ? "-with-manual-position" : ""}`,
+      );
+
+      await gotoEditor(page, recipeDesignId);
+      await selectByText(page, "Reference Rectangle", {
+        screenId: file.id,
+        clearPreviousSelection: true,
+        deep: false,
+      });
+      await page
+        .getByRole("button", { name: "Motion dock", exact: true })
+        .click();
+      const restoredDock = page
+        .getByRole("region", { name: "Motion dock" })
+        .first();
+      await expect(restoredDock.locator("[data-motion-track-row]")).toHaveCount(
+        expectedTrackCount,
+      );
+      if (manualPosition) {
+        await expect(
+          restoredDock.locator('[data-motion-native-style-row="Position"]'),
+        ).toHaveCount(1);
+      }
+      const restoredTimeline = await getAction(request, "get-motion-timeline", {
+        designId: recipeDesignId,
+        sourceRef: file.id,
+      });
+      expect(
+        restoredTimeline.timelines?.[0]?.tracks?.filter(
+          (track: { targetNodeId: string }) => track.targetNodeId === targetId,
+        ),
+      ).toHaveLength(expectedTrackCount);
+    } finally {
+      if (recipeDesignId) {
+        await postAction(request, "delete-design", { id: recipeDesignId });
+      }
+    }
+  });
+}
+
+test("applies recipe content past the timeline duration at its limit", async ({
+  page,
+  request,
+}) => {
+  let recipeDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Motion recipe content past timeline duration",
+      projectType: "prototype",
+    });
+    recipeDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!recipeDesignId) {
+      throw new Error("create-design did not return an id");
+    }
+    const file = await postAction(request, "create-file", {
+      designId: recipeDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    if (!file.id) throw new Error("create-file did not return a file id");
+    await postAction(request, "index-components", { designId: recipeDesignId });
+
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await gotoEditor(page, recipeDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: file.id,
+      clearPreviousSelection: true,
+      deep: false,
+    });
+    await zoomCanvasTo100(page);
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+
+    const dock = page.getByRole("region", { name: "Motion dock" }).first();
+    const duration = dock.getByRole("textbox", {
+      name: "Duration",
+      exact: true,
+    });
+    await duration.fill("120000");
+    await duration.press("Tab");
+    await expect(duration).toHaveValue("120000");
+
+    const currentTime = dock.getByRole("textbox", {
+      name: "Current time",
+      exact: true,
+    });
+    await currentTime.fill("120000");
+    await currentTime.press("Tab");
+    await expect(currentTime).toHaveValue("120000");
+
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (entry) => entry.id === "enter.recipe-01",
+    );
+    if (!recipe) throw new Error("The Burst Fast recipe is missing");
+    await page.getByRole("button", { name: "Animations", exact: true }).click();
+    const recipeRow = page.locator(`[data-motion-recipe-id="${recipe.id}"]`);
+    await expect(recipeRow).toBeVisible();
+    await recipeRow.click();
+    await expect(dock.locator("[data-motion-track-row]")).toHaveCount(4);
+    await expect(duration).toHaveValue("120000");
+    await expect(currentTime).toHaveValue("120000");
+    await expect(
+      dock.locator("[data-motion-timeline-duration-handle]"),
+    ).toHaveAttribute("aria-valuenow", "120000");
+    const motionSpans = await dock
+      .locator('[role="slider"]')
+      .evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("aria-valuetext")),
+      );
+    expect(motionSpans).toContain("120000ms – 120300ms");
+
+    await expect
+      .poll(async () => {
+        const timeline = await getAction(request, "get-motion-timeline", {
+          designId: recipeDesignId,
+          sourceRef: file.id,
+        });
+        return timeline.timelines?.[0]?.tracks?.length ?? 0;
+      })
+      .toBe(4);
+    const timeline = await getAction(request, "get-motion-timeline", {
+      designId: recipeDesignId,
+      sourceRef: file.id,
+    });
+    expect(timeline.timelines?.[0]?.durationMs).toBe(120_000);
+    expect(timeline.timelines?.[0]?.tracks).toHaveLength(4);
+    expect(
+      timeline.timelines?.[0]?.tracks?.map(
+        (track: { delayMs?: number; durationMs?: number }) => [
+          track.delayMs,
+          track.durationMs,
+        ],
+      ),
+    ).toEqual([
+      [120_000, 300],
+      [120_000, 300],
+      [120_000, 300],
+      [120_000, 30],
+    ]);
+
+    const source = await getAction(request, "read-source-file", {
+      designId: recipeDesignId,
+      path: "index.html",
+    });
+    expect(source.content).toContain("<style data-agent-native-motion>");
+    expect(source.content).toContain("agent-native-motion-source:v6:");
+    expect(source.content).toContain("animation-delay: 120s");
+    expect(source.content).toContain(
+      "animation-duration: 0.03s, 0.3s, 0.3s, 0.3s",
+    );
+    await captureReferenceState(page, "motion-recipe-content-overrun");
+
+    await gotoEditor(page, recipeDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: file.id,
+      clearPreviousSelection: true,
+      deep: false,
+    });
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const restoredDock = page
+      .getByRole("region", { name: "Motion dock" })
+      .first();
+    await expect(restoredDock.locator("[data-motion-track-row]")).toHaveCount(
+      4,
+    );
+    await expect(
+      restoredDock.getByRole("textbox", { name: "Duration", exact: true }),
+    ).toHaveValue("120000");
+
+    const restoredCurrentTime = restoredDock.getByRole("textbox", {
+      name: "Current time",
+      exact: true,
+    });
+    await restoredCurrentTime.fill("120000");
+    await restoredCurrentTime.press("Tab");
+    await page.getByRole("button", { name: "Animations", exact: true }).click();
+    const partiallyFittingRecipe = page.locator(
+      '[data-motion-recipe-id="enter.recipe-04"]',
+    );
+    await expect(partiallyFittingRecipe).toBeVisible();
+    await partiallyFittingRecipe.click();
+    await expect(restoredDock.locator("[data-motion-track-row]")).toHaveCount(
+      4,
+    );
+    await expect(
+      page.getByText(
+        "There isn't enough room to add this animation at the current time.",
+      ),
+    ).toBeVisible();
+  } finally {
+    if (recipeDesignId) {
+      await postAction(request, "delete-design", { id: recipeDesignId });
+    }
+  }
+});
 
 test("applying a composite recipe preserves an existing unrelated native style", async ({
   page,

@@ -25,6 +25,7 @@ import {
   motionPathCubicPoints,
   motionPathSegmentLength,
   motionTimelineDurationForTracks,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
   parseMotionPosition,
   readTimelinePlaybackMode,
   withMotionTrackIds,
@@ -75,6 +76,11 @@ export function compile(
     timeline.durationMs,
     tracks,
   );
+  if (durationMs > MOTION_TIMELINE_MAX_CONTENT_END_MS) {
+    throw new Error(
+      `Motion content ends at ${durationMs}ms, beyond the ${MOTION_TIMELINE_MAX_CONTENT_END_MS}ms content limit.`,
+    );
+  }
 
   if (!tracks || tracks.length === 0) {
     const css = [easingVariablesCss, reducedMotionBlock([])]

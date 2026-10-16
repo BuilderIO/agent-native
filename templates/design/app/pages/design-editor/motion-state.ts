@@ -19,6 +19,7 @@ import {
   type MotionTrack,
   withMotionTrackIds,
   MOTION_TIMELINE_MAX_DURATION_MS,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
 } from "@shared/motion-timeline";
 
 import type { MotionDockTrack } from "@/components/design/MotionDock";
@@ -654,7 +655,6 @@ export function motionAnimationStyleDefinitionFromTracks(args: {
 }
 
 export function applyMotionAnimationStyleToTargets(args: {
-  existingTracks: readonly MotionDockTrack[];
   style: MotionAnimationStyleDefinition;
   targets: readonly { nodeId: string; label: string }[];
   currentTimeMs: number;
@@ -665,14 +665,9 @@ export function applyMotionAnimationStyleToTargets(args: {
   unsupportedSequenceProperty?: string;
 } {
   const nextTracks: MotionDockTrack[] = [];
-  let timelineDurationMs = Math.min(
+  const timelineDurationMs = Math.min(
     MOTION_TIMELINE_MAX_DURATION_MS,
     Math.max(0, args.timelineDurationMs),
-  );
-  const existingProperties = new Set(
-    args.existingTracks.map(
-      (track) => `${track.targetNodeId}\u0000${track.property}`,
-    ),
   );
   const playheadMs = Math.max(0, args.currentTimeMs);
   const baseTimelineDurationMs = timelineDurationMs;
@@ -689,19 +684,26 @@ export function applyMotionAnimationStyleToTargets(args: {
     }
 
     for (const [property, styleTracks] of tracksByProperty) {
-      const identity = `${target.nodeId}\u0000${property}`;
-      if (existingProperties.has(identity)) continue;
       const segments = styleTracks
         .map((styleTrack, order) => {
           const startMs = playheadMs + (styleTrack.delayMs ?? 0);
-          if (startMs >= MOTION_TIMELINE_MAX_DURATION_MS) return null;
+          if (
+            startMs > MOTION_TIMELINE_MAX_DURATION_MS ||
+            startMs + (styleTrack.durationMs ?? 0) >
+              MOTION_TIMELINE_MAX_CONTENT_END_MS
+          ) {
+            return null;
+          }
           const requestedDuration =
             styleTrack.durationMs ??
             Math.max(50, baseTimelineDurationMs - startMs);
-          const durationMs = Math.min(
-            requestedDuration,
-            MOTION_TIMELINE_MAX_DURATION_MS - startMs,
-          );
+          if (
+            startMs + requestedDuration >
+            MOTION_TIMELINE_MAX_CONTENT_END_MS
+          ) {
+            return null;
+          }
+          const durationMs = requestedDuration;
           return durationMs > 0
             ? { styleTrack, startMs, durationMs, order }
             : null;
@@ -745,8 +747,6 @@ export function applyMotionAnimationStyleToTargets(args: {
           ? { durationMs }
           : {}),
       });
-      existingProperties.add(identity);
-      timelineDurationMs = Math.max(timelineDurationMs, endMs);
     }
   }
 
@@ -754,12 +754,15 @@ export function applyMotionAnimationStyleToTargets(args: {
 }
 
 export function applyMotionBuiltInRecipeToTargets(args: {
-  existingTracks: readonly MotionDockTrack[];
   recipe: MotionBuiltInRecipe;
   targets: readonly { nodeId: string; label: string }[];
   currentTimeMs: number;
   timelineDurationMs: number;
-}): { tracks: MotionDockTrack[]; timelineDurationMs: number } {
+}): {
+  tracks: MotionDockTrack[];
+  timelineDurationMs: number;
+  skippedTrackCount: number;
+} {
   const timelineDurationMs = Math.min(
     MOTION_TIMELINE_MAX_DURATION_MS,
     Math.max(0, args.timelineDurationMs),
@@ -769,23 +772,23 @@ export function applyMotionBuiltInRecipeToTargets(args: {
     Math.max(0, args.currentTimeMs),
   );
   const tracks: MotionDockTrack[] = [];
-  let nextTimelineDurationMs = timelineDurationMs;
+  let skippedTrackCount = 0;
 
   for (const target of args.targets) {
-    const existingProperties = new Set(
-      args.existingTracks
-        .filter((track) => track.targetNodeId === target.nodeId)
-        .map((track) => track.property),
-    );
     for (const recipeTrack of args.recipe.tracks) {
-      if (existingProperties.has(recipeTrack.property)) continue;
       const startMs = playheadMs + recipeTrack.delayMs;
-      if (startMs >= MOTION_TIMELINE_MAX_DURATION_MS) continue;
-      const durationMs = Math.min(
-        recipeTrack.durationMs,
-        MOTION_TIMELINE_MAX_DURATION_MS - startMs,
-      );
-      if (durationMs <= 0) continue;
+      if (startMs > MOTION_TIMELINE_MAX_DURATION_MS) {
+        skippedTrackCount += 1;
+        continue;
+      }
+      const durationMs = recipeTrack.durationMs;
+      if (
+        durationMs <= 0 ||
+        startMs + durationMs > MOTION_TIMELINE_MAX_CONTENT_END_MS
+      ) {
+        skippedTrackCount += 1;
+        continue;
+      }
       tracks.push({
         id: createMotionTrackId(),
         targetNodeId: target.nodeId,
@@ -801,14 +804,14 @@ export function applyMotionBuiltInRecipeToTargets(args: {
         ...(startMs > 0 ? { delayMs: startMs } : {}),
         durationMs,
       });
-      nextTimelineDurationMs = Math.max(
-        nextTimelineDurationMs,
-        startMs + durationMs,
-      );
     }
   }
 
-  return { tracks, timelineDurationMs: nextTimelineDurationMs };
+  return {
+    tracks: skippedTrackCount === 0 ? tracks : [],
+    timelineDurationMs,
+    skippedTrackCount,
+  };
 }
 
 function sequenceStyleTrackSegments(

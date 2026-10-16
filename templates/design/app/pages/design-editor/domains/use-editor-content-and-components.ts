@@ -666,7 +666,11 @@ export function useEditorContentAndComponents({
   );
 
   const handleMotionTracksChange = useCallback(
-    (tracks: MotionDockTrack[]) => {
+    (
+      tracks:
+        | MotionDockTrack[]
+        | ((current: MotionDockTrack[]) => MotionDockTrack[]),
+    ) => {
       if (!writeMotionAvailable || activeCanvasSourceType !== "inline") return;
       setMotionTracks(tracks);
       markMotionTracksDirty();
@@ -1064,7 +1068,7 @@ export function useEditorContentAndComponents({
       setMotionDurationMs(
         motionTimelineDurationForContent(
           durationMs,
-          motionTracks,
+          [],
           motionTextDocument?.animations ?? [],
         ),
       );
@@ -1072,7 +1076,6 @@ export function useEditorContentAndComponents({
     },
     [
       markMotionTracksDirty,
-      motionTracks,
       motionTextDocument?.animations,
       writeMotionAvailable,
     ],

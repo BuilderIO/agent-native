@@ -110,7 +110,7 @@ describe("HTML Motion source adapter", () => {
     );
     expect(edit.source).toContain('<script src="./head.js"></script>');
     expect(edit.source).toContain('<script src="./page.js"></script>');
-    expect(edit.source).toContain("agent-native-motion-source:v5:");
+    expect(edit.source).toContain("agent-native-motion-source:v6:");
     expect(edit.targetNodeIds).toEqual(["hero-title"]);
 
     const read = readMotionHtmlSource(edit.source);
@@ -321,7 +321,7 @@ describe("HTML Motion source adapter", () => {
     expect(stripManagedStyle(next.source)).toBe(
       stripManagedStyle(first.source),
     );
-    expect(next.source.match(/agent-native-motion-source:v5:/g)).toHaveLength(
+    expect(next.source.match(/agent-native-motion-source:v6:/g)).toHaveLength(
       1,
     );
     expect(readMotionHtmlSource(next.source)).toMatchObject({
@@ -415,7 +415,7 @@ describe("HTML Motion source adapter", () => {
     expect(read).toMatchObject({
       status: "valid",
       document: {
-        durationMs: 1100,
+        durationMs: 800,
         tracks: [
           {
             targetNodeId: "hero-title",
@@ -447,12 +447,12 @@ describe("HTML Motion source adapter", () => {
     expect(readMotionHtmlSource(written.source)).toMatchObject({
       status: "valid",
       document: {
-        durationMs: 1100,
+        durationMs: 800,
         tracks: read.document.tracks,
       },
     });
     expect(
-      written.source.match(/agent-native-motion-source:v5:/g),
+      written.source.match(/agent-native-motion-source:v6:/g),
     ).toHaveLength(1);
   });
 

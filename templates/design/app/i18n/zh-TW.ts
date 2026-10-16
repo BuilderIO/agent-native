@@ -1326,6 +1326,7 @@ export default {
       addKeyframe: "新增關鍵影格",
       trackExists:
         "「{{property}}」軌道已存在於 {{label}}。請在時間軸中編輯其關鍵影格。",
+      recipeDoesNotFit: "目前時間軸位置沒有足夠空間新增此動畫。",
       textSyncUnsupported: "無法同步這些文字動態設定。",
       textPropertyAlreadyAnimated: "程式碼中的文字動畫已控制此屬性。",
       layerAnimationSpan: "{{label}} 動態時間範圍",

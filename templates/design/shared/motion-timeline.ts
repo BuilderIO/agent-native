@@ -41,6 +41,8 @@ const MOTION_PATH_LENGTH_STEPS = 512;
 export const MOTION_DEFAULT_PLAYBACK_MODE: MotionPlaybackMode = "once";
 export const MOTION_TIMELINE_DEFAULT_DURATION_MS = 2_000;
 export const MOTION_TIMELINE_MAX_DURATION_MS = 120_000;
+export const MOTION_TIMELINE_MAX_CONTENT_END_MS =
+  MOTION_TIMELINE_MAX_DURATION_MS * 2;
 
 export interface MotionKeyframe {
   t: number;
@@ -88,7 +90,7 @@ export function createMotionTrackId(): string {
   );
 }
 
-/** Gives legacy tracks deterministic identities without changing their order. */
+/** Gives missing or colliding track identities deterministic IDs in order. */
 export function withMotionTrackIds<T extends MotionTrack>(
   tracks: readonly T[],
 ): Array<T & { id: string }> {
@@ -98,12 +100,14 @@ export function withMotionTrackIds<T extends MotionTrack>(
   const usedIds = new Set<string>();
   return tracks.map((track, index) => {
     let id = track.id;
-    if (id === undefined) {
-      const baseId = `legacy-track-${index.toString(36)}`;
-      id = baseId;
+    if (id === undefined || usedIds.has(id)) {
+      const baseId = id ?? `legacy-track-${index.toString(36)}`;
+      const candidateId =
+        id === undefined ? baseId : `${baseId}-${index.toString(36)}`;
+      id = candidateId;
       let suffix = 0;
       while (reservedIds.has(id) || usedIds.has(id)) {
-        id = `${baseId}-${++suffix}`;
+        id = `${candidateId}-${++suffix}`;
       }
     }
     usedIds.add(id);

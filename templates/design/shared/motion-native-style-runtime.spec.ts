@@ -1651,6 +1651,21 @@ describe("native Figma Motion runtime adapter", () => {
     expect(motionNativeStyleEndTimeMs(style)).toBe(1201);
   });
 
+  it("keeps a native style tail separate from the timeline duration", () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "Opacity",
+      targetNodeId: "hero",
+    });
+    const style = {
+      ...base,
+      duration: 0.3,
+      timelineOffset: 120,
+      props: { ...base.props, delay: 0 },
+    };
+
+    expect(motionNativeStyleEndTimeMs(style)).toBe(120_300);
+  });
+
   it.each(["cubic-bezier(0.2, 0, 0.8, 1)", "steps(4, end)"])(
     "preserves and compiles CSS easing token %s",
     (easing) => {

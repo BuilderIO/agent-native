@@ -601,7 +601,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       .reverse()
       .find(({ result }) => resultHasSourceVersion(result, directHash));
     expect(refreshedTimelineQuery?.result).toMatchObject({
-      timelines: [{ sourceVersionHash: directHash, durationMs: 1200 }],
+      timelines: [{ sourceVersionHash: directHash, durationMs: 1000 }],
     });
 
     const timeline = await getAction(request, "get-motion-timeline", {
@@ -610,7 +610,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     });
     expect(timeline.timelines[0]).toMatchObject({
       sourceVersionHash: directHash,
-      durationMs: 1200,
+      durationMs: 1000,
       tracks: [
         {
           targetNodeId: nodeId,
@@ -635,6 +635,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
         {
           targetNodeId: nodeId,
           property: "translate",
+          durationMs: 1200,
           keyframes: [
             { t: 0, value: "6px 0px", ease: "linear" },
             { t: 1, value: "24px 0px", ease: "linear" },
@@ -651,7 +652,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await expect(
       page.locator('[data-motion-property-row="transform"]'),
     ).toContainText("transform");
-    await expect(durationInput).toHaveValue("1200");
+    await expect(durationInput).toHaveValue("1000");
     await expect(frame.locator(`#${alpineTransitionNodeId}`)).toHaveAttribute(
       "x-transition.opacity",
       "",

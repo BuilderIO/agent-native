@@ -1554,7 +1554,6 @@ export function renderDesignEditorView({
               defaultEase: motionDefaultEase,
               currentTimeMs: motionPlayhead * motionDurationMs,
               timelineDurationMs: motionDurationMs,
-              existingTracks: motionTracks,
             });
             if (created.tracks.length === 0) {
               toast.info(
@@ -1569,14 +1568,15 @@ export function renderDesignEditorView({
             if (created.timelineDurationMs !== motionDurationMs) {
               handleMotionDurationChange(created.timelineDurationMs);
             }
-            handleMotionTracksChange(
-              motionTracks.length === 0
+            handleMotionTracksChange((currentTracks) => {
+              const nextTracks = [...currentTracks, ...created.tracks];
+              return currentTracks.length === 0
                 ? withTimelinePlaybackMode(
-                    created.tracks,
+                    nextTracks,
                     MOTION_DEFAULT_PLAYBACK_MODE,
                   )
-                : [...motionTracks, ...created.tracks],
-            );
+                : nextTracks;
+            });
             setMotionDockOpenAnimated(true);
           }
         : undefined,
@@ -1741,7 +1741,6 @@ export function renderDesignEditorView({
                   },
                 ];
             const result = applyMotionAnimationStyleToTargets({
-              existingTracks: motionTracks,
               style,
               targets,
               currentTimeMs: motionPlayhead * motionDurationMs,
@@ -1767,15 +1766,15 @@ export function renderDesignEditorView({
             if (result.timelineDurationMs !== motionDurationMs) {
               handleMotionDurationChange(result.timelineDurationMs);
             }
-            const nextTracks = [...motionTracks, ...result.tracks];
-            handleMotionTracksChange(
-              motionTracks.length === 0
+            handleMotionTracksChange((currentTracks) => {
+              const nextTracks = [...currentTracks, ...result.tracks];
+              return currentTracks.length === 0
                 ? withTimelinePlaybackMode(
                     nextTracks,
                     MOTION_DEFAULT_PLAYBACK_MODE,
                   )
-                : nextTracks,
-            );
+                : nextTracks;
+            });
             setMotionDockOpenAnimated(true);
           }
         : undefined,
@@ -1797,35 +1796,38 @@ export function renderDesignEditorView({
                   },
                 ];
             const result = applyMotionBuiltInRecipeToTargets({
-              existingTracks: motionTracks,
               recipe,
               targets,
               currentTimeMs: motionPlayhead * motionDurationMs,
               timelineDurationMs: motionDurationMs,
             });
             if (result.tracks.length === 0) {
-              toast.info(
-                t("designEditor.motion.trackExists", {
-                  property: Array.from(
-                    new Set(recipe.tracks.map((track) => track.property)),
-                  ).join(", "),
-                  label: motionTargetForInspector.label,
-                }),
-              );
+              if (result.skippedTrackCount > 0) {
+                toast.info(t("designEditor.motion.recipeDoesNotFit"));
+              } else {
+                toast.info(
+                  t("designEditor.motion.trackExists", {
+                    property: Array.from(
+                      new Set(recipe.tracks.map((track) => track.property)),
+                    ).join(", "),
+                    label: motionTargetForInspector.label,
+                  }),
+                );
+              }
               return;
             }
             if (result.timelineDurationMs !== motionDurationMs) {
               handleMotionDurationChange(result.timelineDurationMs);
             }
-            const nextTracks = [...motionTracks, ...result.tracks];
-            handleMotionTracksChange(
-              motionTracks.length === 0
+            handleMotionTracksChange((currentTracks) => {
+              const nextTracks = [...currentTracks, ...result.tracks];
+              return currentTracks.length === 0
                 ? withTimelinePlaybackMode(
                     nextTracks,
                     MOTION_DEFAULT_PLAYBACK_MODE,
                   )
-                : nextTracks,
-            );
+                : nextTracks;
+            });
             setMotionDockOpenAnimated(true);
           }
         : undefined,
