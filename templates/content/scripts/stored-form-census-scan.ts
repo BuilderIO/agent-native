@@ -26,9 +26,9 @@ const ORPHAN_BATCH = 1000;
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_LINE_CHARS = 32 * 1024;
 const MAX_NESTING = 100;
-// Matches only spaces, tabs and marker characters, so it never runs past the
-// end of a line.
-const CONTAINER_MARKER = /([ \t]*)(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]))/y;
+// Consumes only spaces, tabs and marker characters, so it never runs past the
+// end of a line. A list marker may end its line: an empty item still nests.
+const CONTAINER_MARKER = /([ \t]*)(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t\r\n]|$))/y;
 const PAST_PARSER_LIMITS = `over ${MAX_BODY_BYTES} characters, or with a line over ${MAX_LINE_CHARS} characters or nested over ${MAX_NESTING} levels`;
 const MAX_LIVE_COPY_BASE64_BYTES = 2 * 1024 * 1024;
 const MAX_SUGGESTION_PAYLOAD_BYTES = 4 * 1024 * 1024;

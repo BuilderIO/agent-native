@@ -650,15 +650,21 @@ async function createFixture(db: DbExec) {
 
 describe("stored-form census parser limits", () => {
   it("counts indentation as nesting, so a list cannot pass one level per line", () => {
-    const staircase = (indent: string, depth: number) =>
-      Array.from({ length: depth }, (_, i) => `${indent.repeat(i)}- x`).join(
-        "\n",
-      );
+    const staircase = (indent: string, depth: number, item = "- x") =>
+      Array.from(
+        { length: depth },
+        (_, i) => `${indent.repeat(i)}${item}`,
+      ).join("\n");
     // A list nested a thousand levels this way took 35 seconds to classify.
     expect(withinParserLimits(staircase("\t", 50))).toBe(true);
     expect(withinParserLimits(staircase("\t", 51))).toBe(false);
     expect(withinParserLimits(staircase("  ", 100))).toBe(true);
     expect(withinParserLimits(staircase("  ", 101))).toBe(false);
+    // An empty item nests as deeply, on the last line as on any other.
+    for (const item of ["*", "1.", "-\r"]) {
+      expect(withinParserLimits(staircase("\t", 50, item)), item).toBe(true);
+      expect(withinParserLimits(staircase("\t", 51, item)), item).toBe(false);
+    }
     expect(withinParserLimits(`${"> ".repeat(67)}x`)).toBe(true);
     expect(withinParserLimits(`${"> ".repeat(68)}x`)).toBe(false);
     expect(withinParserLimits("Plain prose\n\nwith no markers")).toBe(true);
