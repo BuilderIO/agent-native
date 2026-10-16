@@ -3819,6 +3819,7 @@ test("overview undo restores a deleted screen first, then walks back each screen
 });
 
 test("overview undo skips the content history of a screen deleted outside the editor", async ({
+  app,
   page,
 }) => {
   await postAction(page.request, "create-file", {
@@ -3887,6 +3888,7 @@ test("overview undo skips the content history of a screen deleted outside the ed
     })
     .toBe(aboutRectanglesBefore + 1);
 
+  await app.settled();
   await postAction(page.request, "delete-file", { id: aboutFile.id });
   await expect(aboutShell).toBeHidden({ timeout: 20_000 });
 

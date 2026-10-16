@@ -48,6 +48,7 @@ vi.mock("./db/index.js", () => ({
 
 import { sourceContentHash } from "../shared/source-workspace.js";
 import {
+  findSourceWorkspaceFile,
   prepareInlineSourceEdit,
   readPreparedSourceText,
   readLiveSourceFile,
@@ -178,6 +179,17 @@ describe("resolveSourceWorkspace", () => {
       "missing-design",
     );
     expect(mocks.getDb).not.toHaveBeenCalled();
+  });
+
+  it("returns a 404 action error for a source file that no longer exists", () => {
+    expect(() =>
+      findSourceWorkspaceFile([], { fileId: "deleted-screen" }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "source_file_not_found",
+        statusCode: 404,
+      }),
+    );
   });
 
   it("includes the Board only for callers that opt in", async () => {
