@@ -168,13 +168,7 @@ export default defineAction({
         hasDatabaseItems: !!databaseItem || !!database?.systemRole,
         now: Date.now(),
       });
-      return trashDocumentSubtree(
-        tx,
-        id,
-        ownerEmail,
-        undefined,
-        locks.databaseIds,
-      );
+      return trashDocumentSubtree(tx, id, ownerEmail, undefined, locks);
     });
     if (deletedIds.length > 0) {
       await writeAppState("refresh-signal", { ts: Date.now() });

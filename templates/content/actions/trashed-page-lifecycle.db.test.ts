@@ -40,6 +40,8 @@ let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let deleteDocument: typeof import("./delete-document.js").default;
+let lockLifecycleGroup: typeof import("./delete-document.js").lockLifecycleGroup;
+let trashDocumentSubtree: typeof import("./delete-document.js").trashDocumentSubtree;
 let restoreDocument: typeof import("./restore-document.js").default;
 let removeDatabaseItems: typeof import("./remove-database-items.js").default;
 let getContentDatabase: typeof import("./get-content-database.js").default;
@@ -52,7 +54,11 @@ beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   ({ getDb, schema } = await import("../server/db/index.js"));
   ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
-  deleteDocument = (await import("./delete-document.js")).default;
+  ({
+    default: deleteDocument,
+    lockLifecycleGroup,
+    trashDocumentSubtree,
+  } = await import("./delete-document.js"));
   restoreDocument = (await import("./restore-document.js")).default;
   removeDatabaseItems = (await import("./remove-database-items.js")).default;
   getContentDatabase = (await import("./get-content-database.js")).default;
@@ -164,6 +170,39 @@ describe("restore", () => {
       .where(inArray(schema.documents.id, order))
       .orderBy(asc(schema.documents.position), asc(schema.documents.id));
     expect(pages.map((page) => page.id)).toEqual(order);
+  });
+});
+
+describe("Trash", () => {
+  it("refuses a page that joined the subtree after its locks", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values(pageValues("late-child-root", null));
+    await expect(
+      getDb().transaction(async (transaction) => {
+        const tx = transaction as unknown as ReturnType<typeof getDb>;
+        const locks = await lockLifecycleGroup(tx, {
+          operation: "trash",
+          roots: [{ id: "late-child-root", ownerEmail: OWNER }],
+        });
+        await tx
+          .insert(schema.documents)
+          .values(pageValues("late-child", "late-child-root"));
+        await trashDocumentSubtree(
+          tx,
+          "late-child-root",
+          OWNER,
+          undefined,
+          locks,
+        );
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "LIFECYCLE_SCOPE_CHANGED",
+      statusCode: 409,
+    });
+    expect(await readPage("late-child-root")).toMatchObject({
+      trashedAt: null,
+    });
   });
 });
 

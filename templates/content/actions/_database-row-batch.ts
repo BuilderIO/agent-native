@@ -2,6 +2,8 @@ import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 export const DATABASE_ROW_BATCH_LIMIT = 100;
 
@@ -208,6 +210,23 @@ export async function renumberDatabaseRows(
 
   const itemIds = rows.map((row) => row.id);
   const documentIds = rows.map((row) => row.documentId);
+  const renumberedPages = and(
+    eq(schema.documents.ownerEmail, database.ownerEmail),
+    eq(schema.documents.parentId, database.documentId),
+    inArray(schema.documents.id, documentIds),
+  );
+  // An UPDATE locks rows in scan order. Take them in Content's row-lock order
+  // first; callers already hold the collection.
+  await lockDatabaseMemberships(db, itemIds);
+  await lockDocumentRows(
+    db,
+    (
+      await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(renumberedPages)
+    ).map((page) => page.id),
+  );
   await db
     .update(schema.contentDatabaseItems)
     .set({
@@ -235,11 +254,5 @@ export async function renumberDatabaseRows(
       ),
       updatedAt: now,
     })
-    .where(
-      and(
-        eq(schema.documents.ownerEmail, database.ownerEmail),
-        eq(schema.documents.parentId, database.documentId),
-        inArray(schema.documents.id, documentIds),
-      ),
-    );
+    .where(renumberedPages);
 }

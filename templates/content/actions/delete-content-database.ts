@@ -12,7 +12,11 @@ import {
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
-import { lockLifecycleGroup, trashDocumentSubtree } from "./delete-document.js";
+import {
+  lockLifecycleGroup,
+  trashDocumentSubtree,
+  type LifecycleGroupLocks,
+} from "./delete-document.js";
 
 export default defineAction({
   description:
@@ -57,7 +61,7 @@ export default defineAction({
       const { database } = await assertContentDatabaseLifecycleAccess(
         input.target.databaseId,
       );
-      let lockedIds: ReadonlySet<string> | undefined;
+      let locks: LifecycleGroupLocks | undefined;
       const result = await runDatabaseSetupMutation({
         operation: "delete-content-database",
         input,
@@ -65,15 +69,13 @@ export default defineAction({
         role: "admin",
         includeDeleted: true,
         lock: async (tx) => {
-          lockedIds = (
-            await lockLifecycleGroup(tx, {
-              operation: "trash",
-              roots: [
-                { id: database.documentId, ownerEmail: database.ownerEmail },
-              ],
-              alsoLockDatabaseIds: [database.id],
-            })
-          ).databaseIds;
+          locks = await lockLifecycleGroup(tx, {
+            operation: "trash",
+            roots: [
+              { id: database.documentId, ownerEmail: database.ownerEmail },
+            ],
+            alsoLockDatabaseIds: [database.id],
+          });
         },
         apply: async (tx, context) => {
           if (context.database.ownerDocumentId)
@@ -91,7 +93,7 @@ export default defineAction({
                 context.database.documentId,
                 context.database.ownerEmail,
                 deletedAt,
-                lockedIds,
+                locks!,
               );
           return {
             outcome: context.database.deletedAt
@@ -131,7 +133,7 @@ export default defineAction({
         database.documentId,
         database.ownerEmail,
         deletedAt,
-        locks.databaseIds,
+        locks,
       );
     });
 

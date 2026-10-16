@@ -39,6 +39,21 @@ export default defineAction({
       const now = new Date().toISOString();
       await withPositionLock(databaseItemsPositionScope(database.id), () =>
         db.transaction(async (tx) => {
+          // Restore locks the collection, then all its memberships in id
+          // order; deleting a membership first would hold one out of order.
+          await lockContentDatabaseMutation(
+            tx as unknown as ReturnType<typeof getDb>,
+            database.id,
+          );
+          await lockDatabaseMemberships(
+            tx,
+            (
+              await tx
+                .select({ id: schema.contentDatabaseItems.id })
+                .from(schema.contentDatabaseItems)
+                .where(eq(schema.contentDatabaseItems.databaseId, database.id))
+            ).map((item) => item.id),
+          );
           if (removedItemIds.length > 0) {
             await tx
               .delete(schema.contentDatabaseItems)

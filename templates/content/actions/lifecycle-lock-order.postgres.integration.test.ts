@@ -58,6 +58,7 @@ let permanentlyDeleteDocument: typeof import("./permanently-delete-document.js")
 let editDocument: typeof import("./edit-document.js").default;
 let updateDocument: typeof import("./update-document.js").default;
 let restoreDocumentVersion: typeof import("./restore-document-version.js").default;
+let removeDatabaseItems: typeof import("./remove-database-items.js").default;
 
 beforeAll(async () => {
   if (!POSTGRES_URL) return;
@@ -99,6 +100,7 @@ beforeAll(async () => {
   updateDocument = (await import("./update-document.js")).default;
   restoreDocumentVersion = (await import("./restore-document-version.js"))
     .default;
+  removeDatabaseItems = (await import("./remove-database-items.js")).default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
   await getDb()
     .insert(schema.contentSpaces)
@@ -515,6 +517,70 @@ async function seedSlashPage() {
   return { ids, rows };
 }
 
+/**
+ * A Favorites collection, in a space of its own (one per space), holding a
+ * page in Trash and a page about to be removed.
+ */
+async function seedFavorites() {
+  const key = fixtureKey();
+  const ids = {
+    space: `${key}_space`,
+    collection: `${key}_c`,
+    collectionPage: `${key}_p0`,
+    kept: `${key}_p1`,
+    removed: `${key}_p2`,
+    keptItem: `${key}_m1`,
+    removedItem: `${key}_m2`,
+  };
+  const db = getDb();
+  await db.insert(schema.contentSpaces).values({
+    id: ids.space,
+    name: "Synthetic Favorites space",
+    kind: "personal",
+    ownerEmail: OWNER,
+    orgId: null,
+    filesDatabaseId: `${ids.space}_files`,
+    createdBy: OWNER,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  const inSpace = { spaceId: ids.space };
+  await db.insert(schema.documents).values([
+    pageValues(ids.collectionPage, null, "Favorites", inSpace),
+    pageValues(ids.kept, null, "Kept", {
+      ...inSpace,
+      trashedAt: STAMP,
+      trashRootId: ids.kept,
+    }),
+    pageValues(ids.removed, null, "Removed", inSpace),
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: ids.collection,
+    ownerEmail: OWNER,
+    spaceId: ids.space,
+    documentId: ids.collectionPage,
+    systemRole: "favorites",
+    title: "Favorites",
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db
+    .insert(schema.contentDatabaseItems)
+    .values([
+      itemValues(ids.removedItem, ids.collection, ids.removed, 1),
+      itemValues(ids.keptItem, ids.collection, ids.kept, 0),
+    ]);
+  const rows: LockedRow[] = [
+    { label: "favorites collection", kind: "collection", id: ids.collection },
+    { label: "kept membership", kind: "membership", id: ids.keptItem },
+    { label: "removed membership", kind: "membership", id: ids.removedItem },
+    { label: "favorites page", kind: "page", id: ids.collectionPage },
+    { label: "kept page", kind: "page", id: ids.kept },
+    { label: "removed page", kind: "page", id: ids.removed },
+  ];
+  return { ids, rows };
+}
+
 async function readPage(id: string) {
   const [page] = await getDb()
     .select()
@@ -662,6 +728,51 @@ describe.skipIf(!POSTGRES_URL)(
         expect(report.waitedOn).toEqual(COLLECTION_ROWS);
       });
 
+      it("restore locks every membership's page, wherever it lives", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          const otherItem = `${seed.key}_m4`;
+          await getDb()
+            .insert(schema.contentDatabaseItems)
+            .values(
+              itemValues(
+                otherItem,
+                seed.ids.collection,
+                seed.ids.otherParent,
+                3,
+              ),
+            );
+          const trashedAt = await trashRow(seed);
+          return {
+            rows: [
+              ...seed.rows,
+              {
+                label: "other parent membership",
+                kind: "membership",
+                id: otherItem,
+              },
+            ],
+            run: () =>
+              asOwner(() =>
+                restoreDocument.run(
+                  {
+                    id: seed.ids.row,
+                    expectedTrashedAt: trashedAt,
+                    idempotencyKey: `${seed.key}-restore`,
+                  },
+                  agent,
+                ),
+              ),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          ...COLLECTION_ROWS,
+          "other parent page",
+          "other parent membership",
+        ]);
+      });
+
       it("guarded collection Trash", async () => {
         const report = await probeLockOrder(async () => {
           const seed = await seedCollection();
@@ -801,6 +912,58 @@ describe.skipIf(!POSTGRES_URL)(
           "later membership",
           "earlier membership",
           "row page",
+        ]);
+      });
+
+      it("permanent delete of a page whose child is its own Trash item", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedPageTree();
+          await asOwner(() => deleteDocument.run({ id: seed.ids.otherChild }));
+          await asOwner(() => deleteDocument.run({ id: seed.ids.otherParent }));
+          const plan = await asOwner(() =>
+            planContentTrashPurge.run({
+              mode: "selection",
+              documentIds: [seed.ids.otherParent],
+            }),
+          );
+          return {
+            rows: seed.rows,
+            run: () =>
+              asOwner(() =>
+                permanentlyDeleteDocument.run({
+                  id: seed.ids.otherParent,
+                  planId: plan.planId,
+                  scopeToken: plan.scopeToken,
+                }),
+              ),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "otherParent page",
+          "otherChild page",
+        ]);
+      });
+
+      it("removing a Favorite", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedFavorites();
+          return {
+            rows: seed.rows,
+            run: () =>
+              asOwner(() =>
+                removeDatabaseItems.run({
+                  databaseId: seed.ids.collection,
+                  itemIds: [seed.ids.removedItem],
+                }),
+              ),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "favorites collection",
+          "kept membership",
+          "removed membership",
         ]);
       });
 
@@ -1050,34 +1213,10 @@ describe.skipIf(!POSTGRES_URL)(
       }, 120_000);
     });
 
-    it("refuses an edit whose page moves to Trash while the edit commits", async () => {
-      const seed = await seedCollection();
-      let proceed!: () => void;
-      const editWaiting = new Promise<void>((resolve) => {
-        proceed = resolve;
-      });
-      let trashing!: (pid: number) => void;
-      const holderPid = new Promise<number>((resolve) => {
-        trashing = resolve;
-      });
-      const trashedAt = new Date().toISOString();
-      const trash = getDb().transaction(async (transaction) => {
-        const tx = transaction as unknown as Db;
-        const pid = await backendPid(tx);
-        await lockContentDatabaseMutation(tx, seed.ids.collection);
-        await lockDocumentRows(tx, [seed.ids.row]);
-        await tx
-          .update(schema.documents)
-          .set({ trashedAt, trashRootId: seed.ids.row, updatedAt: trashedAt })
-          .where(eq(schema.documents.id, seed.ids.row));
-        trashing(pid);
-        await editWaiting;
-      });
-      let edit: Promise<unknown> | undefined;
-      let settled = false;
-      try {
-        const pid = await holderPid;
-        edit = asOwner(() =>
+    it.each([
+      {
+        path: "revisioned",
+        edit: (seed: Awaited<ReturnType<typeof seedCollection>>) =>
           editDocument.run(
             {
               id: seed.ids.row,
@@ -1088,25 +1227,65 @@ describe.skipIf(!POSTGRES_URL)(
             },
             agent,
           ),
-        );
-        void edit.then(
-          () => (settled = true),
-          () => (settled = true),
-        );
-        expect(await waitUntilBlockedBy(pid, () => settled)).toBe(true);
-      } finally {
-        proceed();
-      }
-      await trash;
-      await expect(edit).rejects.toMatchObject({
-        errorCode: "DOCUMENT_NOT_FOUND",
-        statusCode: 404,
-      });
-      expect(await readPage(seed.ids.row)).toMatchObject({
-        content: "Row body",
-        bodyRevision: 0,
-        trashedAt,
-      });
-    });
+      },
+      {
+        path: "unrevisioned",
+        edit: (seed: Awaited<ReturnType<typeof seedCollection>>) =>
+          editDocument.run({
+            id: seed.ids.row,
+            find: "Row body",
+            replace: "Edited body",
+          }),
+      },
+    ])(
+      "refuses a $path edit whose page moves to Trash while the edit commits",
+      async ({ edit: runEdit }) => {
+        const seed = await seedCollection();
+        let proceed!: () => void;
+        const editWaiting = new Promise<void>((resolve) => {
+          proceed = resolve;
+        });
+        let trashing!: (pid: number) => void;
+        const holderPid = new Promise<number>((resolve) => {
+          trashing = resolve;
+        });
+        const trashedAt = new Date().toISOString();
+        const trash = getDb().transaction(async (transaction) => {
+          const tx = transaction as unknown as Db;
+          const pid = await backendPid(tx);
+          await lockContentDatabaseMutation(tx, seed.ids.collection);
+          await lockDocumentRows(tx, [seed.ids.row]);
+          await tx
+            .update(schema.documents)
+            .set({ trashedAt, trashRootId: seed.ids.row, updatedAt: trashedAt })
+            .where(eq(schema.documents.id, seed.ids.row));
+          trashing(pid);
+          await editWaiting;
+        });
+        let edit: Promise<unknown> | undefined;
+        let settled = false;
+        try {
+          const pid = await holderPid;
+          edit = asOwner(() => runEdit(seed));
+          void edit.then(
+            () => (settled = true),
+            () => (settled = true),
+          );
+          expect(await waitUntilBlockedBy(pid, () => settled)).toBe(true);
+        } finally {
+          proceed();
+        }
+        await trash;
+        await expect(edit).rejects.toMatchObject({
+          errorCode: "DOCUMENT_NOT_FOUND",
+          statusCode: 404,
+        });
+        expect(await readPage(seed.ids.row)).toMatchObject({
+          content: "Row body",
+          bodyRevision: 0,
+          trashedAt,
+        });
+      },
+    );
   },
 );

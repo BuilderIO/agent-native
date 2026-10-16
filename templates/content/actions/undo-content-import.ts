@@ -147,7 +147,7 @@ export default defineAction({
           page.id,
           page.ownerEmail,
           undefined,
-          locks.databaseIds,
+          locks,
           ctx?.caller,
         );
         if (!subtree.includes(page.id)) {

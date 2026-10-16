@@ -421,6 +421,7 @@ async function collectDocumentSubtreeForDelete(
 
 async function lockPermanentDeleteScope(
   db: ReturnType<typeof getDb>,
+  ownerEmail: string,
   collectScope: () => Promise<PermanentDeleteScope>,
 ) {
   const initialScope = await collectScope();
@@ -478,8 +479,34 @@ async function lockPermanentDeleteScope(
   ) {
     throw new PermanentDeleteScopeChangedError();
   }
-  await lockDocumentRows(db, lockedScope.documentIds);
+  // The children too: the delete detaches those in other Trash groups.
+  await lockDocumentRows(db, [
+    ...lockedScope.documentIds,
+    ...(await selectChildDocumentIds(db, lockedScope.documentIds, ownerEmail)),
+  ]);
   return lockedScope;
+}
+
+async function selectChildDocumentIds(
+  db: ReturnType<typeof getDb>,
+  parentIds: string[],
+  ownerEmail: string,
+) {
+  const rows: Array<{ id: string }> = [];
+  for (const batch of chunks(parentIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.ownerEmail, ownerEmail),
+            inArray(schema.documents.parentId, batch),
+          ),
+        )),
+    );
+  }
+  return rows.map((row) => row.id);
 }
 
 export type LifecycleGroupLocks = {
@@ -511,36 +538,23 @@ async function collectTrashScope(
   };
 }
 
-/** The collection rows `renumberDatabaseRows` rewrites `documents.position` for. */
-async function selectRenumberedDocumentIds(
+async function selectMembershipsOfDatabases(
   db: ReturnType<typeof getDb>,
   databaseIds: string[],
 ) {
-  const rows: Array<{ id: string }> = [];
+  const rows: Array<{ id: string; documentId: string }> = [];
   for (const batch of chunks(databaseIds, DELETE_BATCH_SIZE)) {
     rows.push(
       ...(await db
-        .select({ id: schema.documents.id })
+        .select({
+          id: schema.contentDatabaseItems.id,
+          documentId: schema.contentDatabaseItems.documentId,
+        })
         .from(schema.contentDatabaseItems)
-        .innerJoin(
-          schema.contentDatabases,
-          eq(
-            schema.contentDatabases.id,
-            schema.contentDatabaseItems.databaseId,
-          ),
-        )
-        .innerJoin(
-          schema.documents,
-          and(
-            eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-            eq(schema.documents.parentId, schema.contentDatabases.documentId),
-            eq(schema.documents.ownerEmail, schema.contentDatabases.ownerEmail),
-          ),
-        )
         .where(inArray(schema.contentDatabaseItems.databaseId, batch))),
     );
   }
-  return rows.map((row) => row.id);
+  return rows;
 }
 
 /**
@@ -602,11 +616,15 @@ export async function lockLifecycleGroup(
     ...(args.alsoLockDocumentIds ?? []),
   ];
   if (args.operation === "restore") {
+    // Every membership's page, not just those the collection parents now:
+    // renumbering picks its pages when it runs, and a move can reparent one
+    // in between.
+    const memberships = await selectMembershipsOfDatabases(db, databaseIds);
     await lockDatabaseMemberships(
       db,
-      await selectMembershipIdsForDatabases(db, databaseIds),
+      memberships.map((membership) => membership.id),
     );
-    documentIds.push(...(await selectRenumberedDocumentIds(db, databaseIds)));
+    documentIds.push(...memberships.map((membership) => membership.documentId));
   }
   return {
     databaseIds: lockedDatabaseIds,
@@ -619,22 +637,23 @@ export async function trashDocumentSubtree(
   id: string,
   ownerEmail: string,
   trashedAt = new Date().toISOString(),
-  lockedDatabaseIds?: ReadonlySet<string>,
+  locks: LifecycleGroupLocks,
   origin?: string,
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, id, ownerEmail);
-  if (lockedDatabaseIds) {
-    const memberships = await selectMembershipsForDocuments(db, documentIds);
-    const unlockedDatabaseId = [
-      ...new Set([
-        ...ownedDatabaseIds,
-        ...memberships.map((membership) => membership.databaseId),
-      ]),
-    ].find((databaseId) => !lockedDatabaseIds.has(databaseId));
-    if (unlockedDatabaseId) {
-      throw new Error("Document subtree changed; retry deletion.");
-    }
+  const memberships = await selectMembershipsForDocuments(db, documentIds);
+  if (
+    [
+      ...ownedDatabaseIds,
+      ...memberships.map((membership) => membership.databaseId),
+    ].some((databaseId) => !locks.databaseIds.has(databaseId)) ||
+    documentIds.some((documentId) => !locks.documentIds.has(documentId))
+  ) {
+    setupError(
+      "LIFECYCLE_SCOPE_CHANGED",
+      "The pages changed while moving to Trash. Retry.",
+    );
   }
   await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
 
@@ -902,6 +921,7 @@ export async function deleteDocumentRootsRecursive(
   };
   const { documentIds, ownedDatabaseIds } = await lockPermanentDeleteScope(
     db,
+    ownerEmail,
     collectScope,
   );
   return deleteCollectedDocuments(
@@ -1247,7 +1267,7 @@ export async function deleteTrashedDocumentSubtree(
     documentIds,
     ownedDatabaseIds,
     trashRootId = id,
-  } = await lockPermanentDeleteScope(db, collectScope);
+  } = await lockPermanentDeleteScope(db, ownerEmail, collectScope);
 
   const relationships = await inspectPermanentDeleteRelationships(
     db,
@@ -1351,7 +1371,7 @@ async function trashDocumentWithReceipt(
       input.id,
       ownerEmail,
       undefined,
-      locks.databaseIds,
+      locks,
       origin,
     );
     const after = await lockLifecycleDocument(tx, input.id, ownerEmail);
@@ -1466,7 +1486,7 @@ export default defineAction({
         id,
         ownerEmail,
         undefined,
-        locks.databaseIds,
+        locks,
         ctx?.caller,
       );
     });
