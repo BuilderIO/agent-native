@@ -79,17 +79,23 @@ export function dashboardFilterParams(
 export function dashboardFilterPreferenceUpdate({
   saved,
   savedState,
+  viewsState,
   searchParams,
 }: {
   saved: { filters?: Record<string, string>; viewId?: string };
   savedState: "loading" | "error" | "success";
+  viewsState: "loading" | "error" | "success";
   searchParams: URLSearchParams;
 }): { filters: Record<string, string>; viewId?: string } | null {
   // An unread preference (still loading, or failed) is not an empty one: skip
   // the write rather than compare against the `{}` the hook returns meanwhile.
   if (savedState !== "success") return null;
   const filters = dashboardFilterParams(searchParams);
-  const viewId = searchParams.get("view") ?? undefined;
+  // Without the views list the page can't reopen the saved view, so its
+  // absence from the URL doesn't mean it was closed.
+  const viewId =
+    searchParams.get("view") ??
+    (viewsState === "error" ? saved.viewId : undefined);
   if (sameDashboardFilterMap(saved.filters, filters) && saved.viewId === viewId)
     return null;
   return viewId ? { filters, viewId } : { filters };

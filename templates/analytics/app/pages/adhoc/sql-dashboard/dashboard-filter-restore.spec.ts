@@ -318,10 +318,12 @@ describe("dashboardFilterPreferenceUpdate", () => {
     saved: { filters?: Record<string, string>; viewId?: string },
     search: string,
     savedState: "loading" | "error" | "success" = "success",
+    viewsState: "loading" | "error" | "success" = "success",
   ) {
     return dashboardFilterPreferenceUpdate({
       saved,
       savedState,
+      viewsState,
       searchParams: new URLSearchParams(search),
     });
   }
@@ -342,6 +344,28 @@ describe("dashboardFilterPreferenceUpdate", () => {
         "f_timeRange=7d&f_emailFilter=all",
       ),
     ).toEqual({ filters: personalFilters });
+  });
+
+  it("keeps the saved view while the views list can't be read", () => {
+    expect(
+      update(
+        { filters: personalFilters, viewId: "q3" },
+        "f_timeRange=30d&f_emailFilter=all",
+        "success",
+        "error",
+      ),
+    ).toEqual({
+      filters: { f_timeRange: "30d", f_emailFilter: "all" },
+      viewId: "q3",
+    });
+    expect(
+      update(
+        { filters: personalFilters, viewId: "q3" },
+        "f_timeRange=7d&f_emailFilter=all",
+        "success",
+        "error",
+      ),
+    ).toBeNull();
   });
 
   it("writes nothing until the preference has been read", () => {

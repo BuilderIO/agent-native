@@ -24,22 +24,28 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
 
   const { mutate: save } = useMutation({
     scope,
+    mutationKey: queryKey,
     mutationFn: (value: T) =>
       callAction("set-user-pref", { key, value }, { method: "PUT" }),
+    // A queued write shows its value here, before the writes ahead of it run.
     onMutate: async (value: T) => {
       await queryClient.cancelQueries({ queryKey });
-      const previousValue = queryClient.getQueryData<T>(queryKey);
       queryClient.setQueryData(queryKey, value);
-      return { previousValue };
     },
-    onError: (_err, _value, context) => {
-      queryClient.setQueryData(queryKey, context?.previousValue);
+    onError: () => {
+      // Rolling back to this write's snapshot would hide a newer queued value
+      // that is still to be saved. Only the last pending write rereads the
+      // server, which by then holds every earlier write.
+      if (queryClient.isMutating({ mutationKey: queryKey }) <= 1) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
       toast.error("Failed to save preference");
     },
   });
 
   const { mutate: remove } = useMutation({
     scope,
+    mutationKey: queryKey,
     mutationFn: () =>
       callAction("delete-user-pref", { key }, { method: "DELETE" }),
     onError: () => {

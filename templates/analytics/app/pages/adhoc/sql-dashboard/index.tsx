@@ -1243,6 +1243,7 @@ function SqlDashboardPageContent({
       const update = dashboardFilterPreferenceUpdate({
         saved: savedFilters,
         savedState: savedFiltersState,
+        viewsState: dashboardViewsState,
         searchParams,
       });
       if (update) saveFilterPref(update);
