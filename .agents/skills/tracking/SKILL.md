@@ -301,7 +301,8 @@ Everyone else gets no banner and every tag at once.
   activation funnel joins them to a signup in the same session. Session
   replay waits for `performance` too, with no time-zone head start; a reject
   stops it and discards what it hasn't uploaded. Amplitude rechecks the
-  choice before it initializes. Sentry error capture and the session id `an_sid` aren't
+  choice before it initializes and never sends events from before an accept.
+  Google events held for the region's answer go out only if it allows them. Sentry error capture and the session id `an_sid` aren't
   gated.
 
 ## MCP Server Events

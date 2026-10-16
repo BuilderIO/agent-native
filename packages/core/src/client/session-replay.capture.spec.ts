@@ -280,6 +280,44 @@ describe("session replay console/network capture", () => {
     expect(uploads()).toBe(uploadedBeforeReject);
   });
 
+  it("starts a first-visit recording on accept after the region's first answer", async () => {
+    const { windowStub, fetchMock } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    const session = new Map<string, string>();
+    windowStub.sessionStorage = {
+      getItem: vi.fn((key: string) => session.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => session.set(key, value)),
+      removeItem: vi.fn(),
+    };
+    fetchMock.mockImplementation(async (input: unknown) =>
+      String(input).includes("/consent-region")
+        ? new Response(JSON.stringify({ region: "consent" }))
+        : new Response(JSON.stringify({ error: "not authenticated" })),
+    );
+    const cookies = new Map<string, string>();
+    Object.defineProperty(globalThis.document, "cookie", {
+      configurable: true,
+      get: () =>
+        [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
+      set: (assignment: string) => {
+        const [pair] = assignment.split(";", 1);
+        const eq = pair!.indexOf("=");
+        cookies.set(pair!.slice(0, eq), pair!.slice(eq + 1));
+      },
+    });
+    const mod = await freshSessionReplay();
+    activeModule = mod;
+
+    const result = await mod.startSessionReplay({ ...START_OPTIONS });
+    expect(result).toEqual({ started: false, reason: "consent-required" });
+    const { resolveConsentRegion, setConsentChoice } =
+      await import("./consent.js");
+    expect(await resolveConsentRegion()).toBe("consent");
+
+    setConsentChoice({ performance: true, targeting: false });
+    await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+  });
+
   it("still invokes the original console method first", async () => {
     installBrowser();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});

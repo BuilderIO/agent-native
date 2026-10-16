@@ -3572,10 +3572,11 @@ function replayConsentAllows(options: SessionReplayOptions): boolean {
         if (waiting) void startSessionReplay(waiting);
       },
       {
+        // The region's first answer revokes before any choice, so a start
+        // asked for earlier keeps waiting for an accept.
         revoke: () => {
           const wasGranted = replayConsentGranted;
           replayConsentGranted = false;
-          replayAwaitingConsent = null;
           if (wasGranted) void stopSessionReplay("consent-revoked");
         },
       },
