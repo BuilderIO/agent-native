@@ -966,7 +966,9 @@ describe("DeckEditor generation signal wiring", () => {
     };
     mocks.deck.slides = [];
     mocks.deck.generationContext = { ...persistedGenerationContext };
-    mocks.flushDeckSave.mockRejectedValueOnce(new Error("save failed"));
+    mocks.flushDeckSave
+      .mockRejectedValueOnce(new Error("initial save failed"))
+      .mockRejectedValueOnce(new Error("baseline save failed"));
     mocks.guidedQuestionRefetchPending.mockResolvedValue({
       status: "error",
       error: new Error("question check failed"),
@@ -1022,7 +1024,8 @@ describe("DeckEditor generation signal wiring", () => {
       kind: "generation_failure",
       attemptId: "attempt-1",
       failureCode: "outcome_unresolved",
-      failureSlidesFingerprint: null,
+      failureSlidesFingerprint:
+        partialGenerationFailureSlidesFingerprint(partialSlides),
     });
 
     await act(async () => {
@@ -1675,7 +1678,8 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.refreshOpenDeck
       .mockResolvedValueOnce(mocks.deck)
       .mockResolvedValueOnce(initialRefreshSnapshot)
-      .mockRejectedValueOnce(new Error("outcome refresh failed"));
+      .mockRejectedValueOnce(new Error("outcome refresh failed"))
+      .mockRejectedValue(new Error("later refresh unavailable"));
     mocks.flushDeckSave.mockRejectedValueOnce(new Error("save failed"));
     router = createMemoryRouter(
       [{ path: "/deck/:id", element: <DeckEditor /> }],
@@ -1755,6 +1759,107 @@ describe("DeckEditor generation signal wiring", () => {
     expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(2);
     expect(retryButton.disabled).toBe(false);
     expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("keeps the refreshed snapshot in recovery storage when saving it fails", async () => {
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    const refreshedFingerprint = partialGenerationFailureSlidesFingerprint([]);
+    mocks.broadGenerating = false;
+    mocks.deck.generationContext = {
+      ...mocks.deck.generationContext,
+      generationFailureCode: "outcome_unresolved",
+      generationFailureAttemptId: "attempt-1",
+      generationFailureSlidesFingerprint: null,
+    } as typeof mocks.deck.generationContext;
+    window.localStorage.setItem(
+      recoveryKey,
+      JSON.stringify({
+        kind: "generation_failure",
+        attemptId: "attempt-1",
+        failureCode: "outcome_unresolved",
+        failureSlidesFingerprint: null,
+      }),
+    );
+    mocks.refreshOpenDeck.mockResolvedValue(mocks.deck);
+    mocks.flushDeckSave.mockRejectedValue(new Error("save failed"));
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(
+        (mocks.deck.generationContext as Record<string, unknown>)
+          .generationFailureSlidesFingerprint,
+      ).toBe(refreshedFingerprint),
+    );
+    await waitFor(() =>
+      expect(
+        JSON.parse(window.localStorage.getItem(recoveryKey) ?? "{}"),
+      ).toMatchObject({
+        kind: "generation_failure",
+        attemptId: "attempt-1",
+        failureCode: "outcome_unresolved",
+        failureSlidesFingerprint: refreshedFingerprint,
+      }),
+    );
+    expect(mocks.toastError).toHaveBeenCalledWith("settings.saveFailed");
+  });
+
+  it("clears an old unknown recovery record after a refreshed snapshot saves", async () => {
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    mocks.broadGenerating = false;
+    mocks.deck.generationContext = {
+      ...mocks.deck.generationContext,
+      generationFailureCode: "outcome_unresolved",
+      generationFailureAttemptId: "attempt-1",
+      generationFailureSlidesFingerprint: null,
+    } as typeof mocks.deck.generationContext;
+    window.localStorage.setItem(
+      recoveryKey,
+      JSON.stringify({
+        kind: "generation_failure",
+        attemptId: "attempt-1",
+        failureCode: "outcome_unresolved",
+        failureSlidesFingerprint: null,
+      }),
+    );
+    vi.spyOn(localStorageStub, "setItem").mockImplementation((key, value) => {
+      const recovery = JSON.parse(String(value)) as {
+        kind?: string;
+        failureSlidesFingerprint?: string | null;
+      };
+      if (
+        recovery.kind === "generation_failure" &&
+        recovery.failureSlidesFingerprint !== null
+      ) {
+        throw new Error("Storage is unavailable");
+      }
+      localStorageState.set(key, String(value));
+    });
+    mocks.refreshOpenDeck.mockResolvedValue(mocks.deck);
+    mocks.flushDeckSave
+      .mockRejectedValueOnce(new Error("stale recovery save failed"))
+      .mockResolvedValueOnce(undefined);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(
+        (mocks.deck.generationContext as Record<string, unknown>)
+          .generationFailureSlidesFingerprint,
+      ).toBe(partialGenerationFailureSlidesFingerprint([])),
+    );
+    await waitFor(() =>
+      expect(window.localStorage.getItem(recoveryKey)).toBeNull(),
+    );
+    expect(mocks.flushDeckSave).toHaveBeenCalledTimes(2);
   });
 
   it("keeps checking an unknown snapshot while visible and pauses when hidden", async () => {

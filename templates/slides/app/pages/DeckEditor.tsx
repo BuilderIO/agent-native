@@ -558,6 +558,36 @@ function clearEmptyGenerationRecovery(
   }
 }
 
+function clearEmptyGenerationFailureRecovery(
+  key: string | null,
+  attemptId: string,
+  slidesFingerprint: string,
+): string | null {
+  if (!key || typeof window === "undefined") return null;
+  let serializedRecovery: string | null;
+  try {
+    serializedRecovery = window.localStorage.getItem(key);
+  } catch (error) {
+    console.error("Failed to read Slides generation recovery data.", error);
+    return null;
+  }
+  if (!serializedRecovery) return null;
+  const recovery = parseEmptyGenerationRecovery(serializedRecovery);
+  if (
+    recovery?.kind !== "generation_failure" ||
+    recovery.attemptId !== attemptId ||
+    recovery.failureCode !== "outcome_unresolved" ||
+    (recovery.failureSlidesFingerprint !== undefined &&
+      recovery.failureSlidesFingerprint !== null &&
+      recovery.failureSlidesFingerprint !== slidesFingerprint)
+  ) {
+    return null;
+  }
+  return clearEmptyGenerationRecovery(key, serializedRecovery)
+    ? serializedRecovery
+    : null;
+}
+
 function retryPromptFromLocationState(state: unknown): string | null {
   if (!state || typeof state !== "object" || Array.isArray(state)) return null;
   const prompt = (state as Record<string, unknown>).retryPrompt;
@@ -2610,7 +2640,8 @@ export default function DeckEditor() {
     generationContext.generationFailureAttemptId === generationAttemptId &&
     generationContext.generationFailureSlidesFingerprint === null;
   useEffect(() => {
-    if (!id || !unresolvedFailureSnapshotUnknown) return;
+    if (!id || !generationAttemptId || !unresolvedFailureSnapshotUnknown)
+      return;
     let cancelled = false;
     let retryTimeout: ReturnType<typeof setTimeout> | undefined;
     let retryIndex = 0;
@@ -2646,19 +2677,58 @@ export default function DeckEditor() {
       ) {
         return;
       }
+      const failureSlidesFingerprint =
+        partialGenerationFailureSlidesFingerprint(latestDeck.slides);
+      const nextContext = {
+        ...latestContext,
+        generationFailureSlidesFingerprint: failureSlidesFingerprint,
+      };
+      const recovery: EmptyGenerationRecovery = {
+        kind: "generation_failure",
+        attemptId: generationAttemptId,
+        failureCode: "outcome_unresolved",
+        failureSlidesFingerprint,
+      };
+      const serializedRecovery = JSON.stringify(recovery);
+      if (retryRecoveryStorageKey) {
+        try {
+          window.localStorage.setItem(
+            retryRecoveryStorageKey,
+            serializedRecovery,
+          );
+          emptyGenerationRecoveryRef.current = serializedRecovery;
+        } catch (error) {
+          console.error(
+            "Failed to store refreshed Slides generation recovery data.",
+            error,
+          );
+        }
+      }
       updateDeck(id, {
-        generationContext: {
-          ...latestContext,
-          generationFailureSlidesFingerprint:
-            partialGenerationFailureSlidesFingerprint(latestDeck.slides),
+        generationContext: nextContext,
+      });
+      void flushDeckSave(id).then(
+        () => {
+          const clearedRecovery = clearEmptyGenerationFailureRecovery(
+            retryRecoveryStorageKey,
+            generationAttemptId,
+            failureSlidesFingerprint,
+          );
+          if (
+            clearedRecovery &&
+            emptyGenerationRecoveryRef.current === clearedRecovery
+          ) {
+            emptyGenerationRecoveryRef.current = null;
+          }
         },
-      });
-      void flushDeckSave(id).catch((error) => {
-        console.error(
-          "Failed to save the refreshed Slides generation outcome.",
-          error,
-        );
-      });
+        (error) => {
+          console.error(
+            "Failed to save the refreshed Slides generation outcome.",
+            error,
+          );
+          toast.error(t("settings.saveFailed"));
+        },
+      );
     };
     const refreshOnVisibilityChange = () => {
       if (isDocumentHidden()) {
@@ -2690,6 +2760,8 @@ export default function DeckEditor() {
     getDeckLatest,
     id,
     refreshOpenDeck,
+    retryRecoveryStorageKey,
+    t,
     unresolvedFailureSnapshotUnknown,
     updateDeck,
   ]);
