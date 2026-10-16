@@ -80,6 +80,16 @@ jobs:
         with:
           targets: ${{ matrix.rust-targets }}
 
+      # The shared-main macOS smoke test runs cargo test before JavaScript
+      # dependencies are installed. Tauri's build script still validates the
+      # configured externalBin, so stage the native sidecar before that test.
+      - name: Prepare native macOS ffmpeg sidecar
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        env:
+          CLIPS_FFMPEG_TARGET_TRIPLE: aarch64-apple-darwin
+        run: node scripts/prepare-ffmpeg-sidecar.mjs
+
       - name: Link Apple compiler runtime for Rust
         if: runner.os == 'macOS'
         shell: bash
@@ -113,9 +123,7 @@ jobs:
         if: runner.os == 'macOS'
         working-directory: ${{ env.TAURI_APP_PATH }}
         shell: bash
-        run: |
-          CLIPS_FFMPEG_TARGET_TRIPLE=aarch64-apple-darwin pnpm run prepare:ffmpeg
-          CLIPS_FFMPEG_TARGET_TRIPLE=x86_64-apple-darwin pnpm run prepare:ffmpeg
+        run: CLIPS_FFMPEG_TARGET_TRIPLE=x86_64-apple-darwin pnpm run prepare:ffmpeg
 
       - name: Build Tauri app (no signing, no publish)
         working-directory: ${{ env.TAURI_APP_PATH }}
