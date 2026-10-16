@@ -308,7 +308,7 @@ Ce que vous levez décide de ce qui survit du message. `fail()` lève une `Actio
 - **message**: le texte que lit l’appelant. Écrivez-le pour une personne, pas pour un journal.
 - **options.errorCode**: un code stable, lisible par une machine. Vaut `"action_failed"` par défaut.
 - **options.statusCode**: le statut HTTP de la route d’action. Vaut `400` par défaut.
-- **options.details**: un contexte structuré et sûr pour l’appelant. N’y mettez jamais de secrets ni de sortie brute d’un pilote.
+- **options.details**: un contexte structuré et sûr pour l’appelant, comme l’identifiant dont une nouvelle tentative a besoin. Le navigateur et les agents le reçoivent tous les deux. N’y mettez jamais de secrets ni de sortie brute d’un pilote.
 
 L’appel le plus simple ne demande qu’un message :
 
@@ -386,7 +386,7 @@ Une coupure réseau, une page d’erreur HTML d’un proxy et une simple ligne d
 
 Le statut n’est donc pas cosmétique. Un refus envoyé en `404` coûte un aller-retour. Le même refus envoyé en `500`, ou levé nu, coûte quatre allers-retours et quatre rapports d’erreur en double.
 
-Les appelants agents ne voient pas le statut. L’agent exécute `run()` en processus, il reçoit donc le message directement quel que soit le type, sous la forme `Error running <action>: <message>`. Un `errorCode` autre que la valeur par défaut `action_failed` est ajouté sous la forme `(errorCode: not_found)`, ce qui permet au modèle de s’y appuyer sans analyser la prose. Les agents externes via MCP reçoivent le même texte. Les secrets présents dans le message sont d’abord expurgés, et les disjoncteurs d’erreurs répétées de l’agent bornent le nombre de nouvelles tentatives.
+Les appelants agents ne voient pas le statut. L’agent exécute `run()` en processus, il reçoit donc le message directement quel que soit le type, sous la forme `Error running <action>: <message>`. Un `errorCode` autre que la valeur par défaut `action_failed` est ajouté sous la forme `(errorCode: not_found)`, ce qui permet au modèle de s’y appuyer sans analyser la prose. Les `details` suivent sur leur propre ligne en JSON compact, par exemple `Error details: {"importId":"imp_1"}`, afin qu’un identifiant dont le modèle a besoin pour son appel suivant n’ait pas à être écrit dans le message. Les agents externes via MCP reçoivent le même texte, et les mêmes détails dans `structuredContent.error`. Les détails sont plafonnés à 2 000 caractères : au-delà, les petites entrées de premier niveau sont conservées et les autres sont listées comme omises. Les secrets présents dans le message et dans les détails sont d’abord expurgés, et les disjoncteurs d’erreurs répétées de l’agent bornent le nombre de nouvelles tentatives.
 
 ## Garder la surface d’actions restreinte {#small-surface}
 

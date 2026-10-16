@@ -12752,6 +12752,160 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("gives the model the details a fail() attached", async () => {
+    let streamCalls = 0;
+    let secondRequest = "";
+    const run = vi.fn(async () => {
+      fail("A transcript import is already running", {
+        errorCode: "import_in_progress",
+        statusCode: 409,
+        details: { importId: "imp_1", apiKey: "SENSITIVE_VALUE" },
+      });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          secondRequest = JSON.stringify(options.messages);
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "call-1",
+              name: "import-transcript",
+              input: { recordingId: "rec_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "import-transcript": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const expected =
+      "Error running import-transcript: A transcript import is already running (errorCode: import_in_progress)\n" +
+      'Error details: {"importId":"imp_1","apiKey":"[REDACTED]"}';
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "import-transcript",
+        result: expected,
+      }),
+    );
+    expect(secondRequest).toContain(JSON.stringify(expected).slice(1, -1));
+    expect(JSON.stringify(events)).not.toContain("SENSITIVE_VALUE");
+  });
+
+  it("still stops a repeated failure whose details change on every attempt", async () => {
+    let streamCalls = 0;
+    let attempts = 0;
+    const run = vi.fn(async () => {
+      attempts += 1;
+      fail("Recording rec_1 is still processing", {
+        errorCode: "recording_processing",
+        details: { attempt: attempts, checkedAt: `t${attempts}` },
+      });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The repeated action failures stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `tool-repeat-${streamCalls}`,
+              name: "get-recording",
+              input: { id: "rec_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-recording": { ...actionEntry({ readOnly: true }), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-recording",
+        result: expect.stringMatching(
+          /^Stopped after 3 identical errors[\s\S]*\nError details: \{"attempt":3,"checkedAt":"t3"\}$/,
+        ),
+      }),
+    );
+  });
+
   it("stops after repeated tool errors when a cooldown countdown changes", async () => {
     let streamCalls = 0;
     let attempts = 0;
