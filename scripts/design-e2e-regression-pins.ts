@@ -661,6 +661,7 @@ type SuppressionFingerprintEvent = {
   modifier: string;
   callee: string;
   arguments: string[];
+  conditions?: string[];
   callbackIdentity?: string;
 };
 
@@ -677,6 +678,8 @@ type RegistrationWalkContext = {
   suiteRuntimeReasons: string[][];
   unknownExecutionContext: boolean;
   unknownCallbackIdentities: string[];
+  conditions: string[];
+  activeHelpers: Set<TypeScript.Node>;
 };
 
 function stableNodeText(
@@ -686,6 +689,13 @@ function stableNodeText(
   ts: typeof TypeScript,
 ): string {
   return printer.printNode(ts.EmitHint.Unspecified, node, sourceFile).trim();
+}
+
+function conditionContext(
+  context: RegistrationWalkContext,
+  label: string,
+): RegistrationWalkContext {
+  return { ...context, conditions: [...context.conditions, label] };
 }
 
 function suppressionFingerprint(
@@ -699,6 +709,9 @@ function suppressionFingerprint(
         modifier: event.modifier,
         callee: event.callee,
         arguments: event.arguments,
+        ...(event.conditions === undefined
+          ? {}
+          : { conditions: event.conditions }),
         ...(event.callbackIdentity === undefined
           ? {}
           : { callbackIdentity: event.callbackIdentity }),
@@ -717,6 +730,7 @@ function suppressionFingerprintEvent(
   ts: typeof TypeScript,
   callbackArgument?: TypeScript.Expression,
   callbackIdentity?: string,
+  conditions: readonly string[] = [],
 ): SuppressionFingerprintEvent {
   return {
     scope,
@@ -725,18 +739,21 @@ function suppressionFingerprintEvent(
     arguments: call.arguments
       .filter((argument) => argument !== callbackArgument)
       .map((argument) => stableNodeText(argument, sourceFile, printer, ts)),
+    ...(conditions.length === 0 ? {} : { conditions: [...conditions] }),
     ...(callbackIdentity === undefined ? {} : { callbackIdentity }),
   };
 }
 
 function unknownSuppressionEvent(
   callbackIdentity: string,
+  conditions: readonly string[] = [],
 ): SuppressionFingerprintEvent {
   return {
     scope: "unknown",
     modifier: "uninspected-callback",
     callee: "unknown-execution-context",
     arguments: [],
+    ...(conditions.length === 0 ? {} : { conditions: [...conditions] }),
     callbackIdentity,
   };
 }
@@ -845,83 +862,259 @@ function propertyPath(
   return [];
 }
 
-function testImports(sourceFile: TypeScript.SourceFile, ts: typeof TypeScript) {
-  const aliases = new Map<string, string[] | undefined>([["test", ["test"]]]);
-  const namespaces = new Set<string>();
+type TestAlias = { kind: "test"; path: string[] } | { kind: "namespace" };
+
+type TestAliasResolver = {
+  resolve(expression: TypeScript.Expression): string[];
+};
+
+function isFunctionLikeNode(
+  node: TypeScript.Node,
+  ts: typeof TypeScript,
+): boolean {
+  return (
+    ts.isArrowFunction(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isFunctionDeclaration(node) ||
+    ts.isMethodDeclaration(node) ||
+    ts.isConstructorDeclaration(node) ||
+    ts.isGetAccessorDeclaration(node) ||
+    ts.isSetAccessorDeclaration(node)
+  );
+}
+
+function isLexicalScopeNode(
+  node: TypeScript.Node,
+  ts: typeof TypeScript,
+): boolean {
+  return (
+    ts.isSourceFile(node) ||
+    ts.isBlock(node) ||
+    ts.isModuleBlock(node) ||
+    ts.isCatchClause(node) ||
+    ts.isForStatement(node) ||
+    ts.isForInStatement(node) ||
+    ts.isForOfStatement(node) ||
+    isFunctionLikeNode(node, ts)
+  );
+}
+
+function nearestScope(
+  node: TypeScript.Node,
+  ts: typeof TypeScript,
+  functionScopeOnly = false,
+): TypeScript.Node {
+  let candidate: TypeScript.Node | undefined = node;
+  while (candidate) {
+    if (
+      ts.isSourceFile(candidate) ||
+      (functionScopeOnly
+        ? isFunctionLikeNode(candidate, ts)
+        : isLexicalScopeNode(candidate, ts))
+    ) {
+      return candidate;
+    }
+    candidate = candidate.parent;
+  }
+  return node.getSourceFile();
+}
+
+function testImports(
+  sourceFile: TypeScript.SourceFile,
+  ts: typeof TypeScript,
+): TestAliasResolver {
+  const scopes = new WeakMap<
+    TypeScript.Node,
+    Map<string, TestAlias | undefined>
+  >();
+  const declarationCounts = new WeakMap<TypeScript.Node, Map<string, number>>();
+  const importedNames = new WeakMap<TypeScript.Node, Set<string>>();
+  const aliasDeclarations: Array<{
+    declaration: TypeScript.VariableDeclaration;
+    scope: TypeScript.Node;
+    name: string;
+  }> = [];
+
+  const scopeBindings = (scope: TypeScript.Node) => {
+    let bindings = scopes.get(scope);
+    if (!bindings) {
+      bindings = new Map();
+      scopes.set(scope, bindings);
+    }
+    return bindings;
+  };
+  const recordImport = (
+    scope: TypeScript.Node,
+    name: string,
+    alias: TestAlias,
+  ) => {
+    const bindings = scopeBindings(scope);
+    const imported = importedNames.get(scope) ?? new Set<string>();
+    imported.add(name);
+    importedNames.set(scope, imported);
+    if (!bindings.has(name)) {
+      bindings.set(name, alias);
+      return;
+    }
+    const current = bindings.get(name);
+    if (
+      !current ||
+      current.kind !== alias.kind ||
+      (current.kind === "test" &&
+        alias.kind === "test" &&
+        (current.path.length !== alias.path.length ||
+          current.path.some((segment, index) => segment !== alias.path[index])))
+    ) {
+      bindings.set(name, undefined);
+    }
+  };
+  const recordDeclaration = (scope: TypeScript.Node, name: string) => {
+    const bindings = scopeBindings(scope);
+    const counts = declarationCounts.get(scope) ?? new Map<string, number>();
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+    declarationCounts.set(scope, counts);
+    bindings.set(name, undefined);
+  };
+
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !statement.importClause) continue;
     const namedBindings = statement.importClause.namedBindings;
     if (namedBindings && ts.isNamedImports(namedBindings)) {
       for (const element of namedBindings.elements) {
         if ((element.propertyName ?? element.name).text === "test") {
-          aliases.set(element.name.text, ["test"]);
+          recordImport(sourceFile, element.name.text, {
+            kind: "test",
+            path: ["test"],
+          });
         }
       }
     } else if (namedBindings && ts.isNamespaceImport(namedBindings)) {
-      namespaces.add(namedBindings.name.text);
+      recordImport(sourceFile, namedBindings.name.text, { kind: "namespace" });
     } else if (
       statement.importClause.name &&
       /(?:@playwright\/test|\/rails)$/.test(statement.moduleSpecifier.text)
     ) {
-      aliases.set(statement.importClause.name.text, ["test"]);
+      recordImport(sourceFile, statement.importClause.name.text, {
+        kind: "test",
+        path: ["test"],
+      });
     }
   }
 
-  const declarations: TypeScript.VariableDeclaration[] = [];
-  const collectAliases = (node: TypeScript.Node) => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer &&
-      ts.isVariableDeclarationList(node.parent) &&
-      (node.parent.flags & ts.NodeFlags.Const) !== 0
+  const recordBindingName = (
+    name: TypeScript.BindingName,
+    scope: TypeScript.Node,
+  ) => {
+    if (ts.isIdentifier(name)) {
+      recordDeclaration(scope, name.text);
+    } else if (
+      ts.isObjectBindingPattern(name) ||
+      ts.isArrayBindingPattern(name)
     ) {
-      declarations.push(node);
+      for (const element of name.elements) {
+        if (ts.isBindingElement(element)) {
+          recordBindingName(element.name, scope);
+        }
+      }
     }
-    ts.forEachChild(node, collectAliases);
   };
-  collectAliases(sourceFile);
+  const collectBindings = (node: TypeScript.Node) => {
+    if (ts.isVariableDeclaration(node)) {
+      const isVar =
+        ts.isVariableDeclarationList(node.parent) &&
+        (node.parent.flags & ts.NodeFlags.BlockScoped) === 0;
+      const scope = nearestScope(node, ts, isVar);
+      recordBindingName(node.name, scope);
+      if (
+        ts.isIdentifier(node.name) &&
+        node.initializer &&
+        ts.isVariableDeclarationList(node.parent) &&
+        (node.parent.flags & ts.NodeFlags.Const) !== 0
+      ) {
+        aliasDeclarations.push({
+          declaration: node,
+          scope,
+          name: node.name.text,
+        });
+      }
+    } else if (
+      isFunctionLikeNode(node, ts) &&
+      "parameters" in node &&
+      Array.isArray(node.parameters)
+    ) {
+      for (const parameter of node.parameters) {
+        recordBindingName(parameter.name, nearestScope(node, ts));
+      }
+      if (ts.isFunctionDeclaration(node) && node.name) {
+        recordBindingName(node.name, nearestScope(node.parent, ts));
+      }
+    } else if (ts.isClassDeclaration(node) && node.name) {
+      recordBindingName(node.name, nearestScope(node.parent, ts));
+    }
+    ts.forEachChild(node, collectBindings);
+  };
+  collectBindings(sourceFile);
+
+  const lookup = (name: string, at: TypeScript.Node): TestAlias | undefined => {
+    let scope: TypeScript.Node | undefined = at;
+    while (scope) {
+      const bindings = scopes.get(scope);
+      if (bindings?.has(name)) return bindings.get(name);
+      scope = scope.parent;
+    }
+    return name === "test" ? { kind: "test", path: ["test"] } : undefined;
+  };
+  const resolver: TestAliasResolver = {
+    resolve(expression) {
+      return normalizedTestPath(expression, lookup, ts);
+    },
+  };
 
   let changed = true;
   while (changed) {
     changed = false;
-    for (const declaration of declarations) {
-      const name = (declaration.name as TypeScript.Identifier).text;
-      const candidate = normalizedTestPath(
-        declaration.initializer!,
-        aliases,
-        namespaces,
-        ts,
-      );
+    for (const { declaration, scope, name } of aliasDeclarations) {
+      const counts = declarationCounts.get(scope);
+      if (counts?.get(name) !== 1 || importedNames.get(scope)?.has(name))
+        continue;
+      const candidate = resolver.resolve(declaration.initializer!);
       if (candidate.length === 0) continue;
-      const current = aliases.get(name);
-      if (!aliases.has(name)) {
-        aliases.set(name, candidate);
+      const bindings = scopeBindings(scope);
+      const current = bindings.get(name);
+      if (!current) {
+        bindings.set(name, { kind: "test", path: candidate });
         changed = true;
       } else if (
-        current !== undefined &&
-        (current.length !== candidate.length ||
-          current.some((segment, index) => segment !== candidate[index]))
+        current.kind !== "test" ||
+        current.path.length !== candidate.length ||
+        current.path.some((segment, index) => segment !== candidate[index])
       ) {
-        aliases.set(name, undefined);
-        changed = true;
+        bindings.set(name, undefined);
       }
     }
   }
 
-  return { aliases, namespaces };
+  return resolver;
 }
 
 function normalizedTestPath(
   expression: TypeScript.Expression,
-  aliases: Map<string, string[] | undefined>,
-  namespaces: Set<string>,
+  lookup: (name: string, at: TypeScript.Node) => TestAlias | undefined,
   ts: typeof TypeScript,
-) {
-  const segments = propertyPath(unwrapExpression(expression, ts), ts);
-  const aliasPath = aliases.get(segments[0] ?? "");
-  if (aliasPath) return [...aliasPath, ...segments.slice(1)];
-  if (namespaces.has(segments[0] ?? "") && segments[1] === "test") {
+): string[] {
+  const candidate = unwrapExpression(expression, ts);
+  if (ts.isCallExpression(candidate)) {
+    const factoryPath = normalizedTestPath(candidate.expression, lookup, ts);
+    if (factoryPath[0] === "test" && factoryPath.at(-1) === "extend") {
+      return ["test"];
+    }
+  }
+  const segments = propertyPath(candidate, ts);
+  const alias = lookup(segments[0] ?? "", candidate);
+  if (alias?.kind === "test") {
+    return [...alias.path, ...segments.slice(1)];
+  }
+  if (alias?.kind === "namespace" && segments[1] === "test") {
     return ["test", ...segments.slice(2)];
   }
   return [];
@@ -929,13 +1122,12 @@ function normalizedTestPath(
 
 function testCallKind(
   call: TypeScript.CallExpression,
-  aliases: Map<string, string[] | undefined>,
-  namespaces: Set<string>,
+  aliases: TestAliasResolver,
   testInfoNames: Set<string>,
   ts: typeof TypeScript,
 ): { kind: "test" | "describe" | "runtime"; modifier?: string } | undefined {
   const segments = propertyPath(call.expression, ts);
-  const testPath = normalizedTestPath(call.expression, aliases, namespaces, ts);
+  const testPath = aliases.resolve(call.expression);
   if (testPath.length === 1) return { kind: "test" };
   if (testPath.length === 2 && TEST_MODIFIERS.has(testPath[1]!)) {
     return { kind: "test", modifier: testPath[1] };
@@ -964,12 +1156,7 @@ function testCallKind(
     TEST_MODIFIERS.has(expression.name.text) &&
     ts.isCallExpression(expression.expression)
   ) {
-    const receiverPath = normalizedTestPath(
-      expression.expression.expression,
-      aliases,
-      namespaces,
-      ts,
-    );
+    const receiverPath = aliases.resolve(expression.expression.expression);
     if (receiverPath.length === 2 && receiverPath[1] === "info") {
       return { kind: "runtime", modifier: expression.name.text };
     }
@@ -1091,6 +1278,45 @@ function namedTestCallbacks(
   return callbacks;
 }
 
+function localTestHelpers(
+  sourceFile: TypeScript.SourceFile,
+  ts: typeof TypeScript,
+): Map<string, TestCallback | undefined> {
+  const helpers = new Map<string, TestCallback | undefined>();
+  const register = (name: string, helper: TestCallback) => {
+    if (helpers.has(name)) helpers.set(name, undefined);
+    else helpers.set(name, helper);
+  };
+  for (const statement of sourceFile.statements) {
+    if (
+      ts.isFunctionDeclaration(statement) &&
+      statement.name &&
+      statement.body
+    ) {
+      register(statement.name.text, statement);
+      continue;
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        !ts.isIdentifier(declaration.name) ||
+        !declaration.initializer ||
+        (statement.declarationList.flags & ts.NodeFlags.Const) === 0
+      ) {
+        continue;
+      }
+      const initializer = unwrapExpression(declaration.initializer, ts);
+      if (
+        ts.isArrowFunction(initializer) ||
+        ts.isFunctionExpression(initializer)
+      ) {
+        register(declaration.name.text, initializer);
+      }
+    }
+  }
+  return helpers;
+}
+
 function resolveTestCallback(
   expression: TypeScript.Expression,
   callbacks: Map<string, NamedTestCallback | undefined>,
@@ -1143,16 +1369,16 @@ export function findDesignE2ETestRegistrations(
     );
   }
 
-  const { aliases, namespaces } = testImports(sourceFile, ts);
+  const aliases = testImports(sourceFile, ts);
   const printer = ts.createPrinter({ removeComments: true });
   const namedCallbacks = namedTestCallbacks(sourceFile, ts);
+  const localHelpers = localTestHelpers(sourceFile, ts);
   const resolvedCallbacks = new Set<TypeScript.Node>();
   const collectResolvedCallbacks = (node: TypeScript.Node) => {
     if (ts.isCallExpression(node)) {
       const classification = testCallKind(
         node,
         aliases,
-        namespaces,
         new Set(["testInfo"]),
         ts,
       );
@@ -1196,6 +1422,7 @@ export function findDesignE2ETestRegistrations(
       ts,
       undefined,
       callbackIdentity || undefined,
+      context.conditions,
     );
     if (context.currentTest) {
       context.currentTest.suppressionEvents.push(event);
@@ -1241,11 +1468,131 @@ export function findDesignE2ETestRegistrations(
       return;
     }
 
+    if (ts.isIfStatement(node)) {
+      visit(node.expression, context);
+      const predicate = stableNodeText(
+        node.expression,
+        sourceFile,
+        printer,
+        ts,
+      );
+      visit(
+        node.thenStatement,
+        conditionContext(context, `if:true:${predicate}`),
+      );
+      if (node.elseStatement) {
+        visit(
+          node.elseStatement,
+          conditionContext(context, `if:false:${predicate}`),
+        );
+      }
+      return;
+    }
+
+    if (ts.isConditionalExpression(node)) {
+      visit(node.condition, context);
+      const predicate = stableNodeText(node.condition, sourceFile, printer, ts);
+      visit(
+        node.whenTrue,
+        conditionContext(context, `conditional:true:${predicate}`),
+      );
+      visit(
+        node.whenFalse,
+        conditionContext(context, `conditional:false:${predicate}`),
+      );
+      return;
+    }
+
+    if (ts.isBinaryExpression(node)) {
+      const operator = node.operatorToken.kind;
+      if (
+        operator === ts.SyntaxKind.AmpersandAmpersandToken ||
+        operator === ts.SyntaxKind.BarBarToken ||
+        operator === ts.SyntaxKind.QuestionQuestionToken
+      ) {
+        visit(node.left, context);
+        const predicate = stableNodeText(node.left, sourceFile, printer, ts);
+        const branch =
+          operator === ts.SyntaxKind.AmpersandAmpersandToken
+            ? "true"
+            : operator === ts.SyntaxKind.BarBarToken
+              ? "false"
+              : "nullish";
+        visit(
+          node.right,
+          conditionContext(context, `short-circuit:${branch}:${predicate}`),
+        );
+        return;
+      }
+    }
+
+    if (ts.isWhileStatement(node) || ts.isDoStatement(node)) {
+      const predicate = stableNodeText(
+        node.expression,
+        sourceFile,
+        printer,
+        ts,
+      );
+      if (ts.isWhileStatement(node)) {
+        visit(node.expression, context);
+        visit(node.statement, conditionContext(context, `while:${predicate}`));
+      } else {
+        visit(node.statement, conditionContext(context, `do:${predicate}`));
+        visit(node.expression, context);
+      }
+      return;
+    }
+
+    if (ts.isForStatement(node)) {
+      if (node.initializer) visit(node.initializer, context);
+      if (node.condition) visit(node.condition, context);
+      const predicate = node.condition
+        ? stableNodeText(node.condition, sourceFile, printer, ts)
+        : "true";
+      visit(node.statement, conditionContext(context, `for:${predicate}`));
+      if (node.incrementor) {
+        visit(
+          node.incrementor,
+          conditionContext(context, `for-increment:${predicate}`),
+        );
+      }
+      return;
+    }
+
+    if (ts.isForInStatement(node) || ts.isForOfStatement(node)) {
+      visit(node.initializer, context);
+      visit(node.expression, context);
+      const iterable = stableNodeText(node.expression, sourceFile, printer, ts);
+      visit(node.statement, conditionContext(context, `iteration:${iterable}`));
+      return;
+    }
+
+    if (ts.isSwitchStatement(node)) {
+      visit(node.expression, context);
+      const discriminant = stableNodeText(
+        node.expression,
+        sourceFile,
+        printer,
+        ts,
+      );
+      for (const clause of node.caseBlock.clauses) {
+        const clauseContext = ts.isCaseClause(clause)
+          ? conditionContext(
+              context,
+              `switch:${discriminant}:case:${stableNodeText(clause.expression, sourceFile, printer, ts)}`,
+            )
+          : conditionContext(context, `switch:${discriminant}:default`);
+        if (ts.isCaseClause(clause)) visit(clause.expression, context);
+        for (const statement of clause.statements)
+          visit(statement, clauseContext);
+      }
+      return;
+    }
+
     if (ts.isCallExpression(node)) {
       const classification = testCallKind(
         node,
         aliases,
-        namespaces,
         context.testInfoNames,
         ts,
       );
@@ -1272,6 +1619,8 @@ export function findDesignE2ETestRegistrations(
             printer,
             ts,
             callbackArgument,
+            undefined,
+            context.conditions,
           );
           suiteSuppressions.push({
             modifier: classification.modifier,
@@ -1303,13 +1652,33 @@ export function findDesignE2ETestRegistrations(
 
       if (classification?.kind === "test") {
         const callbackArgument = node.arguments.at(-1);
-        const hasCallbackArgument =
+        const callbackCandidate =
           callbackArgument !== undefined &&
           isTestCallbackArgument(callbackArgument, ts);
-        const callback =
-          hasCallbackArgument && callbackArgument
+        const resolvedCallback =
+          callbackCandidate && callbackArgument
             ? resolveTestCallback(callbackArgument, namedCallbacks, ts)
             : undefined;
+        const firstArgument = node.arguments[0];
+        const booleanConditionModifier =
+          classification.modifier !== undefined &&
+          (firstArgument?.kind === ts.SyntaxKind.TrueKeyword ||
+            firstArgument?.kind === ts.SyntaxKind.FalseKeyword);
+        const literalTitleModifier =
+          classification.modifier !== undefined &&
+          firstArgument !== undefined &&
+          (ts.isStringLiteral(firstArgument) ||
+            ts.isNoSubstitutionTemplateLiteral(firstArgument));
+        const unresolvedConditionModifier =
+          classification.modifier !== undefined &&
+          !booleanConditionModifier &&
+          !literalTitleModifier &&
+          resolvedCallback === undefined;
+        const hasCallbackArgument =
+          callbackCandidate &&
+          !booleanConditionModifier &&
+          !unresolvedConditionModifier;
+        const callback = hasCallbackArgument ? resolvedCallback : undefined;
         if (!context.currentTest && hasCallbackArgument && callbackArgument) {
           const titleArgument = node.arguments[0];
           if (!titleArgument) {
@@ -1347,6 +1716,8 @@ export function findDesignE2ETestRegistrations(
                 printer,
                 ts,
                 callbackArgument,
+                undefined,
+                context.conditions,
               )
             : undefined;
           const item: MutableRegistration = {
@@ -1371,7 +1742,9 @@ export function findDesignE2ETestRegistrations(
               : {}),
             suppressionEvents: [
               ...context.suiteSuppressions.map(({ event }) => event),
-              ...context.unknownCallbackIdentities.map(unknownSuppressionEvent),
+              ...context.unknownCallbackIdentities.map((identity) =>
+                unknownSuppressionEvent(identity, context.conditions),
+              ),
               ...(directEvent ? [directEvent] : []),
               ...(!callback && callbackArgument
                 ? [
@@ -1382,6 +1755,7 @@ export function findDesignE2ETestRegistrations(
                         printer,
                         ts,
                       ),
+                      context.conditions,
                     ),
                   ]
                 : []),
@@ -1403,6 +1777,8 @@ export function findDesignE2ETestRegistrations(
                 printer,
                 ts,
                 callbackArgument,
+                undefined,
+                context.conditions,
               ),
             );
           }
@@ -1475,6 +1851,35 @@ export function findDesignE2ETestRegistrations(
           }
         }
       }
+
+      const callee = unwrapExpression(node.expression, ts);
+      if (
+        !classification &&
+        !context.unknownExecutionContext &&
+        ts.isIdentifier(callee)
+      ) {
+        const helper = localHelpers.get(callee.text);
+        if (helper && !context.activeHelpers.has(helper)) {
+          const activeHelpers = new Set(context.activeHelpers);
+          activeHelpers.add(helper);
+          const testInfoNames = new Set(context.testInfoNames);
+          helper.parameters.forEach((parameter, index) => {
+            const argument = node.arguments[index];
+            if (
+              ts.isIdentifier(parameter.name) &&
+              argument &&
+              ((ts.isIdentifier(argument) &&
+                context.testInfoNames.has(argument.text)) ||
+                (ts.isCallExpression(argument) &&
+                  aliases.resolve(argument.expression).join(".") ===
+                    "test.info"))
+            ) {
+              testInfoNames.add(parameter.name.text);
+            }
+          });
+          visit(helper, { ...context, activeHelpers, testInfoNames }, true);
+        }
+      }
     }
     ts.forEachChild(node, (child) => visit(child, context));
   };
@@ -1485,6 +1890,8 @@ export function findDesignE2ETestRegistrations(
     suiteRuntimeReasons: [],
     unknownExecutionContext: false,
     unknownCallbackIdentities: [],
+    conditions: [],
+    activeHelpers: new Set(),
   });
 
   for (const item of registrations) {

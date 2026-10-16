@@ -320,6 +320,33 @@ test("changed runtime skip condition needs a new receipt for the same identity",
   );
 });
 
+test("changing an enclosing browser predicate needs a new receipt", () => {
+  const base = parseSingleSuppressedTest(
+    [
+      'function skipUnsupported() { test.skip(true, "browser unsupported"); }',
+      'test("existing behavior", () => {',
+      '  if (browserName === "chromium") skipUnsupported();',
+      "});",
+    ].join("\n"),
+  );
+  const head = parseSingleSuppressedTest(
+    [
+      'function skipUnsupported() { test.skip(true, "browser unsupported"); }',
+      'test("existing behavior", () => {',
+      '  if (browserName === "webkit") skipUnsupported();',
+      "});",
+    ].join("\n"),
+  );
+
+  assert.equal(base.suppressionKind, "runtime");
+  assert.equal(head.suppressionKind, "runtime");
+  assert.notEqual(base.suppressionFingerprint, head.suppressionFingerprint);
+  assert.match(
+    compareQuarantineSnapshots([base], [head], []).join("\n"),
+    /new test suppression needs an explicit exception/,
+  );
+});
+
 test("a runtime suppression condition change accepts a valid review receipt", () => {
   const base = parseSingleSuppressedTest(
     'test("existing behavior", () => { test.skip(isMobile, "unsupported"); });',

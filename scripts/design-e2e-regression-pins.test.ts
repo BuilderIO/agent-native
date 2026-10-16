@@ -899,6 +899,30 @@ test("runtime suppressions in nested helpers stay attached to their registered t
   }
 });
 
+test("top-level helpers called by tests attach skip and fixme suppressions without recursion leaks", () => {
+  const source = [
+    "function enterCycleA() { enterCycleB(); }",
+    "function enterCycleB() { enterCycleA(); skipMobile(); }",
+    'function skipMobile() { test.skip(isMobile, "mobile helper"); }',
+    'function markWebkitFixme() { test.fixme(browserName === "webkit", "webkit helper"); }',
+    'function unusedSkip() { test.skip(true, "uninvoked helper"); }',
+    'test("cycle skip behavior", () => { enterCycleA(); });',
+    'test("helper fixme behavior", () => { markWebkitFixme(); });',
+    'test("active unrelated behavior", () => {});',
+  ].join("\n");
+  const registrations = findDesignE2ETestRegistrations(source);
+
+  assert.equal(registrations.length, 3);
+  assert.deepEqual(
+    registrations.map(({ title, suppressionKind }) => [title, suppressionKind]),
+    [
+      ["cycle skip behavior", "runtime"],
+      ["helper fixme behavior", "runtime"],
+      ["active unrelated behavior", null],
+    ],
+  );
+});
+
 test("simple test aliases resolve through chains for direct and runtime fixme calls", () => {
   const directAlias = [
     "const firstTest = test;",
@@ -924,6 +948,42 @@ test("simple test aliases resolve through chains for direct and runtime fixme ca
   assert.throws(
     () => findDesignE2ETestLine(runtimeAlias, "pinned behavior"),
     /Unable to inspect conditional test\.fixme/,
+  );
+});
+
+test("test.extend aliases register tests without nested aliases hiding their scope", () => {
+  const extended = [
+    "const t = test.extend({});",
+    't("extended fixture behavior", () => {});',
+    't.fixme("extended quarantined behavior", () => {});',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(extended).map(
+      ({ title, modifier, suppressionKind }) => [
+        title,
+        modifier ?? null,
+        suppressionKind,
+      ],
+    ),
+    [
+      ["extended fixture behavior", null, null],
+      ["extended quarantined behavior", "fixme", "direct"],
+    ],
+  );
+
+  const shadowed = [
+    "const t = test;",
+    'test.describe("outer suite", () => {',
+    "  function nestedHelper() {",
+    "    const t = test.describe;",
+    '    t("nested suite", () => {});',
+    "  }",
+    '  t("outer alias remains a test", () => {});',
+    "});",
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(shadowed).map(({ title }) => title),
+    ["outer alias remains a test"],
   );
 });
 
@@ -1287,6 +1347,80 @@ test("statically unconditional file and enclosing suite skips reject pins", () =
       ),
     /Unable to inspect conditional test\.skip/,
   );
+});
+
+test("file and suite test.skip reason identifiers remain suppression metadata", () => {
+  const fileSkip = [
+    'const REASON = "file disabled";',
+    "test.skip(true, REASON);",
+    'test("file behavior", () => {});',
+  ].join("\n");
+  const fileRegistrations = findDesignE2ETestRegistrations(fileSkip);
+  assert.equal(fileRegistrations.length, 1);
+  assert.equal(fileRegistrations[0]?.title, "file behavior");
+  assert.equal(fileRegistrations[0]?.suppressionKind, "file");
+  assert.match(fileRegistrations[0]?.suppressionReason ?? "", /test\.skip/);
+  assert.ok(
+    (
+      JSON.parse(
+        fileRegistrations[0]?.suppressionFingerprint ?? "[]",
+      ) as Array<{
+        scope: string;
+        arguments: string[];
+      }>
+    ).some(
+      ({ scope, arguments: args }) =>
+        scope === "file" && args.includes("REASON"),
+    ),
+  );
+
+  const suiteSkip = [
+    'const REASON = "suite disabled";',
+    'test.describe("outer suite", () => {',
+    "  test.skip(true, REASON);",
+    '  test("suite behavior", () => {});',
+    "});",
+  ].join("\n");
+  const suiteRegistrations = findDesignE2ETestRegistrations(suiteSkip);
+  assert.equal(suiteRegistrations.length, 1);
+  assert.equal(suiteRegistrations[0]?.title, "suite behavior");
+  assert.equal(suiteRegistrations[0]?.suppressionKind, "suite");
+  assert.match(suiteRegistrations[0]?.suppressionReason ?? "", /test\.skip/);
+  assert.ok(
+    (
+      JSON.parse(
+        suiteRegistrations[0]?.suppressionFingerprint ?? "[]",
+      ) as Array<{
+        scope: string;
+        arguments: string[];
+      }>
+    ).some(
+      ({ scope, arguments: args }) =>
+        scope === "suite" && args.includes("REASON"),
+    ),
+  );
+});
+
+test("unknown file and suite skip conditions fail closed instead of leaving active pins", () => {
+  const fileSkip = [
+    'const REASON = "file disabled";',
+    "test.skip(isMobile, REASON);",
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+  const suiteSkip = [
+    'const REASON = "suite disabled";',
+    'test.describe("outer suite", () => {',
+    "  test.skip(isMobile, REASON);",
+    '  test("pinned behavior", () => {});',
+    "});",
+  ].join("\n");
+
+  for (const source of [fileSkip, suiteSkip]) {
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pinned behavior"),
+      /must run without|Unable to inspect conditional test\.skip/,
+    );
+  }
 });
 
 test("string-leading skip conditions fail closed", () => {
