@@ -60,24 +60,36 @@ export type TranscriptImportResult =
     }
   | { ok: false; format: TranscriptImportFormat; error: TranscriptImportError };
 
-const TIME = String.raw`(?:\d+:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?`;
+const CLOCK = String.raw`(?:\d+:)?\d{1,2}:\d{2}`;
+const TIME = String.raw`${CLOCK}(?:[.,]\d{1,3})?`;
 const CUE_TIMING = new RegExp(
   String.raw`^\s*(${TIME})\s*-->\s*(${TIME})(?:\s+.*)?$`,
 );
-// A start time right before the arrow: timestamped prose such as
-// "0:05 Use a --> b" is still text, while a cue with a bad end time is SRT
-// and gets SRT's line-specific error.
-const CUE_TIMING_START = new RegExp(String.raw`^\s*${TIME}\s*-->`);
+// A start time with a fraction right before the arrow, as every SRT and
+// WebVTT cue timing has: timestamped prose such as "0:05 Use a --> b" or
+// "0:05 --> 0:10 is the range" is still text, while a cue with a bad end time
+// is SRT and gets SRT's line-specific error.
+const CUE_TIMING_START = new RegExp(String.raw`^\s*${CLOCK}[.,]\d{1,3}\s*-->`);
 // Text can follow a closing bracket or bold marker directly, as in
 // "[0:21]The chart."; a bare time needs a space after it, so "3:45pm" in
-// prose isn't read as a start time.
+// prose isn't read as a start time. A separator dash can't start an arrow,
+// so "0:05 --> 0:10" keeps its arrow.
 const TIMESTAMP_LINE = new RegExp(
-  String.raw`^\s*(?:[-*]\s+)?(?:\*\*)?[[(]?(${TIME})(?:[\])](?:\*\*)?|\*\*|(?=\s|$))(?:\s*[-–—:|]?\s*(.*))?$`,
+  String.raw`^\s*(?:[-*]\s+)?(?:\*\*)?[[(]?(${TIME})(?:[\])](?:\*\*)?|\*\*|(?=\s|$))(?:\s*(?:[-–—:|](?!-*>))?\s*(.*))?$`,
 );
-// WebVTT's cue tags and timestamps, and the tags SRT players render. Any
-// other angle bracket is prose, such as "x < 5 and y > 3".
+// WebVTT's cue tags and timestamps, and the font tags SRT players render.
+// Only v and lang take an annotation, so any other angle bracket is prose,
+// such as "x < 5 and y > 3" or "a<b and c>d".
+const CUE_CLASSES = String.raw`(?:\.[^\s.<>]+)*`;
+const FONT_ATTRIBUTE = String.raw`\s+[a-z][\w-]*\s*=\s*(?:"[^"<>]*"|'[^'<>]*'|[^\s"'<>]+)`;
 const CUE_MARKUP = new RegExp(
-  String.raw`<\/?(?:[bciuvs]|ruby|rt|lang|font)(?:[.\s][^<>]*)?>|<${TIME}>`,
+  [
+    String.raw`<\/?(?:[bicus]|ruby|rt)${CUE_CLASSES}>`,
+    String.raw`<(?:v|lang)${CUE_CLASSES}(?:\s[^<>]*)?>`,
+    String.raw`<\/(?:v|lang|font)>`,
+    String.raw`<font(?:${FONT_ATTRIBUTE})*\s*>`,
+    `<${TIME}>`,
+  ].join("|"),
   "gi",
 );
 const VTT_LANGUAGE_HEADER = /^Language:\s*([a-z]{2,3}(?:-[a-z0-9]{1,8})*)$/i;

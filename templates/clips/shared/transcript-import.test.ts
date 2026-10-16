@@ -52,6 +52,36 @@ describe("detectTranscriptFormat", () => {
       ],
     });
   });
+
+  it("keeps a timestamped line that starts with an arrow as text", () => {
+    const text = [
+      "0:00 Intro.",
+      "0:05 --> 0:10 is the range we trim.",
+      "0:12 Done.",
+    ].join("\n");
+    expect(detectTranscriptFormat(text)).toBe("text");
+    const result = parseTranscriptImport(text);
+    if (!result.ok)
+      throw new Error(describeTranscriptImportError(result.error));
+    expect(result.segments.map((s) => [s.startMs, s.endMs, s.text])).toEqual([
+      [0, 5000, "Intro."],
+      [5000, 12_000, "--> 0:10 is the range we trim."],
+      [12_000, 13_000, "Done."],
+    ]);
+  });
+
+  it("reads cue timings with no WEBVTT header as SRT", () => {
+    const text =
+      "00:05.000 --> 00:10.000\nHello\n\n00:10.000 --> 00:12.000\nWorld";
+    expect(detectTranscriptFormat(text)).toBe("srt");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 5000, endMs: 10_000, text: "Hello" },
+        { startMs: 10_000, endMs: 12_000, text: "World" },
+      ],
+    });
+  });
 });
 
 describe("parseTranscriptImport", () => {
@@ -314,6 +344,32 @@ describe("parseTranscriptImport", () => {
     });
   });
 
+  it.each([
+    ["an SRT", "1\n00:00:00,000 --> 00:00:02,000\na<b and c>d"],
+    ["a WebVTT", "WEBVTT\n\n00:00.000 --> 00:02.000\na<b and c>d"],
+  ])("keeps prose that starts like a tag in %s cue", (_, text) => {
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: true,
+      segments: [{ text: "a<b and c>d" }],
+    });
+  });
+
+  it("strips tags with classes, annotations and font attributes", () => {
+    expect(
+      parseTranscriptImport(
+        "WEBVTT\n\n00:00.000 --> 00:02.000\n<v.loud Sarah><b.loud>x</b> <lang en>y</lang></v>",
+      ),
+    ).toMatchObject({
+      ok: true,
+      segments: [{ text: "x y", speaker: "Sarah" }],
+    });
+    expect(
+      parseTranscriptImport(
+        "1\n00:00:00,000 --> 00:00:02,000\n<font face='Arial' size=3>z</font>",
+      ),
+    ).toMatchObject({ ok: true, segments: [{ text: "z" }] });
+  });
+
   it("reads NUL and references that are not characters as U+FFFD", () => {
     const FFFD = String.fromCodePoint(0xfffd);
     const result = parseTranscriptImport(
@@ -351,6 +407,22 @@ describe("parseTranscriptImport", () => {
       segments: [
         { startMs: 1000, endMs: 2000, text: "Hello" },
         { startMs: 2000, endMs: 3000, text: "x --> y" },
+      ],
+    });
+  });
+
+  it("keeps a line that only looks like a timing as the cue's text", () => {
+    const result = parseTranscriptImport(
+      "WEBVTT\n\n00:01.000 --> 00:04.000\nThe range\n0:05 --> 0:10 is what we trim.",
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      segments: [
+        {
+          startMs: 1000,
+          endMs: 4000,
+          text: "The range 0:05 --> 0:10 is what we trim.",
+        },
       ],
     });
   });
