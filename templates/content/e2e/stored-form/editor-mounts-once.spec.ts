@@ -98,10 +98,12 @@ interface MountReport {
 
 /**
  * The mount reports one tab's server accepted. A report the client retried
- * after a failed attempt is counted once, as the server counts it.
+ * after a failed attempt is counted once, as the server counts it. A tab's
+ * first visit starts when it opens; a later one starts at startVisit().
  */
 class MountReports {
   readonly accepted: MountReport[] = [];
+  private visitStart = 0;
 
   constructor(page: Page) {
     page.on("response", (response: Response) => {
@@ -116,8 +118,15 @@ class MountReports {
     });
   }
 
-  for(documentId: string): MountReport[] {
-    return this.accepted.filter((report) => report.id === documentId);
+  startVisit(): void {
+    this.visitStart = this.accepted.length;
+  }
+
+  /** The reports for `documentId` since the current visit started. */
+  thisVisit(documentId: string): MountReport[] {
+    return this.accepted
+      .slice(this.visitStart)
+      .filter((report) => report.id === documentId);
   }
 }
 
@@ -138,12 +147,16 @@ async function editorNodes(page: Page): Promise<EditorNode[]> {
   );
 }
 
-async function startVisit(page: Page): Promise<void> {
-  await page.evaluate(() =>
+async function startVisit(tab: {
+  page: Page;
+  mounts: MountReports;
+}): Promise<void> {
+  await tab.page.evaluate(() =>
     (
       globalThis as unknown as { __startEditorVisit: () => void }
     ).__startEditorVisit(),
   );
+  tab.mounts.startVisit();
 }
 
 /**
@@ -157,7 +170,6 @@ async function expectOneMount(
   documentId: string,
   expected: { outcome: "initial" | "navigation"; mode: string },
 ): Promise<void> {
-  const before = mounts.for(documentId).length;
   if (expected.mode === "readonly") {
     await expect(page.locator(EDITOR)).toHaveAttribute(
       "contenteditable",
@@ -170,7 +182,7 @@ async function expectOneMount(
   await page.waitForTimeout(SETTLE_MS);
 
   const nodes = await editorNodes(page);
-  const reports = mounts.for(documentId).slice(before);
+  const reports = mounts.thisVisit(documentId);
   const evidence = JSON.stringify({ nodes, reports });
   expect(nodes.length, `editor nodes this visit created: ${evidence}`).toBe(1);
   expect(
@@ -296,7 +308,7 @@ test.describe(
         await expectEditorReady(tab.page);
         await tab.page.waitForTimeout(SETTLE_MS);
 
-        await startVisit(tab.page);
+        await startVisit(tab);
         await tab.page.locator(`a[href$="/page/${to}"]`).first().click();
         await expect(tab.page).toHaveURL(new RegExp(`/page/${to}`));
         await expectOneMount(tab.page, tab.mounts, to, {
@@ -314,7 +326,10 @@ test.describe(
       const id = await createPage(page, "SF-06 read only", EDITOR_BODY);
       await enterGateArm(page, id);
       const viewerEmail = `sf06-viewer+autoz-${Date.now().toString(36)}@content.test`;
-      const viewer = await browser.newContext();
+      const viewer = await browser.newContext({
+        baseURL,
+        storageState: { cookies: [], origins: [] },
+      });
       try {
         await signIn(viewer, baseURL!, viewerEmail, "SF-06 viewer");
         await postAction(page, "share-resource", {

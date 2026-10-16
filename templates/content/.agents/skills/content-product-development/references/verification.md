@@ -36,10 +36,12 @@ overridden defaults says `(not a D4 run)`.
 
 ### Stored-form acceptance (SF-01 to SF-12)
 
-The browser and MCP checks live in `e2e/stored-form/`; the writer checks are
-`acceptance/*.db.test.ts`. CI runs both on each side of the live-body gate, and
-checks tagged known-loss run in steps that report without failing the PR. A
-lane's fix drops the tag from every check it flips, in the same PR, so the
+SF-09, migration safety, is checked by the census and backfill scripts' own
+guard tests, which land with those scripts. The rest live here: browser and MCP
+checks in `e2e/stored-form/`, writer checks in `acceptance/*.db.test.ts`. CI
+runs both on each side of the live-body gate, and checks tagged known-loss run
+in steps that report without failing the PR. A lane's fix drops the tag from
+every check it flips, in the same PR, so the
 check blocks every PR after it. A check main fails differently on each side of
 the gate takes `knownLossOnArm` from `e2e/live-body-gate.ts`; a fix that flips
 one arm deletes only that arm's entry. Run the browser checks against the production

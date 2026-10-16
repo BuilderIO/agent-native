@@ -1222,9 +1222,9 @@ export class AgentClient {
       },
     );
     expect(
-      receipt.applied,
-      `edit-document applied ${receipt.applied} of ${receipt.total}: ${JSON.stringify(receipt)}`,
-    ).toBe(receipt.total);
+      { applied: receipt.applied, total: receipt.total },
+      `edit-document receipt: ${JSON.stringify(receipt)}`,
+    ).toEqual({ applied: 1, total: 1 });
   }
 }
 

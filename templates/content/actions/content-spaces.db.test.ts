@@ -889,10 +889,17 @@ describe("Content space provisioning", () => {
     },
   );
 
-  it(
-    "lists favorites across every authorized organization without admitting private or unrelated rows",
-    knownLossTest(ORG_FAVORITES_LOSS),
-    async () => {
+  // Both Favorites tests read one fixture, seeded on first use because the
+  // database is created once for the whole file.
+  let orgFavorites:
+    | Promise<{
+        favoritesMember: string;
+        memberProvisioned: Awaited<ReturnType<typeof provisionContentSpaces>>;
+        now: string;
+      }>
+    | undefined;
+  function seedOrgFavorites() {
+    return (orgFavorites ??= (async () => {
       const favoritesMember = "favorites-member@example.com";
       await addOrganization("org-favorites-a", "Favorites A");
       await addOrganization("org-favorites-b", "Favorites B");
@@ -964,6 +971,40 @@ describe("Content space provisioning", () => {
         { userEmail: favoritesMember, orgId: "org-favorites-a" },
         () => provisionContentSpaces(getDb(), favoritesMember),
       );
+      return { favoritesMember, memberProvisioned, now };
+    })());
+  }
+
+  it("keeps private and unrelated organizations' favorites out of a member's lists", async () => {
+    const { favoritesMember, memberProvisioned } = await seedOrgFavorites();
+    const asMember = <T>(run: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: favoritesMember, orgId: "org-favorites-a" },
+        run,
+      );
+    const listed = await asMember(() => listDocumentsAction.run({}));
+    const favorites = await asMember(() =>
+      getContentDatabaseAction.run({
+        databaseId: memberProvisioned.favoritesDatabaseId,
+      }),
+    );
+    expect(favorites, JSON.stringify(favorites)).toHaveProperty("items");
+    const favoriteIds =
+      "items" in favorites
+        ? favorites.items.map((item) => item.document.id)
+        : [];
+    for (const id of ["private-org-a", "favorite-unrelated"]) {
+      expect(listed.documents.map((document) => document.id)).not.toContain(id);
+      expect(favoriteIds).not.toContain(id);
+    }
+  });
+
+  it(
+    "lists favorites across every authorized organization",
+    knownLossTest(ORG_FAVORITES_LOSS),
+    async () => {
+      const { favoritesMember, memberProvisioned, now } =
+        await seedOrgFavorites();
 
       const result = await runWithRequestContext(
         { userEmail: favoritesMember, orgId: "org-favorites-a" },
@@ -973,8 +1014,6 @@ describe("Content space provisioning", () => {
       expect(ids).toEqual(
         expect.arrayContaining(["favorite-org-a", "favorite-org-b"]),
       );
-      expect(ids).not.toContain("private-org-a");
-      expect(ids).not.toContain("favorite-unrelated");
       expect(
         result.documents.find(
           (document) => document.id === memberProvisioned.favoritesDocumentId,
@@ -998,13 +1037,6 @@ describe("Content space provisioning", () => {
           }),
         ]),
       });
-      expect(
-        "items" in favorites
-          ? favorites.items.map((item) => item.document.id)
-          : [],
-      ).not.toEqual(
-        expect.arrayContaining(["private-org-a", "favorite-unrelated"]),
-      );
 
       await getDb().insert(schema.documentPropertyDefinitions).values({
         id: "favorites-personal-note",
