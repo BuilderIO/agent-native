@@ -247,9 +247,15 @@ function validateInventory(inventory: Inventory): string[] {
     }
     channelIds.add(channel.channelId);
 
-    const oldestQuery = channel.oldestQuery
-      ? slackTimestamp(channel.oldestQuery, `${name}.oldestQuery`)
-      : null;
+    if (!Object.prototype.hasOwnProperty.call(channel, "oldestQuery")) {
+      throw new Error(
+        `${name}: oldestQuery must be recorded as a Slack timestamp or explicit null`,
+      );
+    }
+    const oldestQuery =
+      channel.oldestQuery === null
+        ? null
+        : slackTimestamp(channel.oldestQuery, `${name}.oldestQuery`);
     if (oldestQuery !== null && oldestQuery > cutoff - 1_000_000n) {
       throw new Error(
         `${name}: oldestQuery must start at least one second before cutoffTs`,
@@ -421,6 +427,11 @@ function validateInventory(inventory: Inventory): string[] {
           inventory.sweepActorId,
         );
         const reconcilesOwnedStatus = ownsEye || hasCheckmark || hasTicket;
+        if (parent.disposition === "Owned elsewhere" && reconcilesOwnedStatus) {
+          throw new Error(
+            `${parentName}: Owned elsewhere is only valid for an item with no reaction owned by this actor`,
+          );
+        }
         if (reconcilesOwnedStatus) {
           if (
             !Object.prototype.hasOwnProperty.call(
@@ -1116,6 +1127,28 @@ if (args[0] === "--self-test" && args.length === 1) {
       inventory: { ...valid, cutoffTs: "10.000001" },
     },
     {
+      name: "oldestQuery is omitted instead of explicitly recorded",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map(
+          (channel) =>
+            Object.fromEntries(
+              Object.entries(channel).filter(([key]) => key !== "oldestQuery"),
+            ) as unknown as Channel,
+        ),
+      },
+    },
+    {
+      name: "oldestQuery cannot be an empty string",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          oldestQuery: "",
+        })),
+      },
+    },
+    {
       name: "owned eye missing a status reply",
       inventory: {
         ...valid,
@@ -1131,6 +1164,18 @@ if (args[0] === "--self-test" && args.length === 1) {
           })),
         })),
       },
+    },
+    {
+      name: "Owned elsewhere cannot hide this actor's eye or checkmark",
+      inventory: withSweepOwnedParent({ disposition: "Owned elsewhere" }),
+    },
+    {
+      name: "Owned elsewhere cannot hide this actor's checkmark without an eye",
+      inventory: withUnownedCheckmark({ disposition: "Owned elsewhere" }),
+    },
+    {
+      name: "Owned elsewhere cannot hide this actor's ticket",
+      inventory: withUnownedTicket({ disposition: "Owned elsewhere" }),
     },
     {
       name: "owned eye missing latest-human-reply audit",

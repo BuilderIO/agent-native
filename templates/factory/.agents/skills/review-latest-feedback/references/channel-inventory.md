@@ -15,10 +15,12 @@ place of Slack source messages.
   boundary rows; reactions and ownership determine investigation, not inventory.
 - Save `.tmp/feedback-inventory.json` with `cutoffTs`, optional `permalinkTs`,
   the exact connector `sweepActorId`, and `channels`. Set `permalinkTs` when a
-  supplied message anchors the scan. A channel has `channelId`, `oldestQuery`,
-  and `pages`. Set `oldestQuery` to `null` when Slack was read without an
-  `oldest` bound; the exact source manifest and cutoff-crossing page still
-  define the scan. A page has its requested `cursor`, returned `nextCursor`,
+  supplied message anchors the scan. Each channel must include `channelId`,
+  `oldestQuery`, and `pages`. Set `oldestQuery` to the exact timestamp passed to
+  Slack, or explicitly to `null` when the request had no `oldest` bound; a
+  missing or empty value is invalid. The exact source manifest and
+  cutoff-crossing page still define the scan. A page has its requested
+  `cursor`, returned `nextCursor`,
   `exhausted`, the full Slack `messageCount`, the complete `sourceTimestamps`
   list copied from that response, and one disposition row per source message.
   Each row records `ts` and the verified `threadParentTs` (equal to `ts` for a
@@ -50,6 +52,13 @@ place of Slack source messages.
   status update that points to the existing ask, then wait silently. Record an
   explicit decision for both `✅` and `🎫`: `present` with its scope, or `none`
   with the reason no mark applies.
+  For every parent with this actor's `👀`, `✅`, or `🎫`, include
+  `latestRelevantHumanReply`. Set it to `null` only when the root thread has no
+  relevant non-sweep human reply. Otherwise record the reply's exact Slack
+  timestamp (`ts`), `actorId`, and verbatim `text`; exclude this actor's status
+  replies and bot messages. The status reply must be newer than this human
+  reply. If a human answers later, update the disposition and status before
+  reconciling it.
   Record each verified `fixedScopes` entry with its proof; record every
   distinct human handoff in `handoffs[]`, with scope, owner, and action. Finish
   the reply and both
