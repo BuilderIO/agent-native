@@ -9594,6 +9594,7 @@ function PageEditorSessionBody({
                                     : null
                                 }
                                 observeLiveBody={observeLiveBody}
+                                bodyIsLiveCopy={bodyWritesThroughLiveCopy}
                                 replacesStoredBody={replacesStoredBody}
                                 collabSynced={
                                   collabEditorEnabled ? collabSynced : true

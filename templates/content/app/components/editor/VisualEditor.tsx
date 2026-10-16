@@ -1592,6 +1592,8 @@ interface VisualEditorProps {
   ydoc?: YDoc | null;
   /** Shadow mode: compare saves with the body built from the live copy. */
   observeLiveBody?: boolean;
+  /** The page saves no body; its body is the live copy. */
+  bodyIsLiveCopy?: boolean;
   /**
    * The stored body is on screen in this editor's place until it draws. Read
    * when the editor mounts.
@@ -3071,6 +3073,7 @@ export function VisualEditor({
   onImportFiles,
   ydoc,
   observeLiveBody = false,
+  bodyIsLiveCopy = false,
   replacesStoredBody = false,
   collabSynced = true,
   awareness,
@@ -4784,6 +4787,7 @@ export function VisualEditor({
           suggesting={suggesting}
           directoryWidgetEditing={directoryWidgetEditing}
           notionPageId={notionPageId}
+          bodyIsLiveCopy={bodyIsLiveCopy}
           onDraftCommitted={() =>
             Promise.resolve(
               persistEditorContent(editor, { userInitiated: true }),
