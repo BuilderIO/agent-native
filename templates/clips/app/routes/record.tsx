@@ -292,6 +292,10 @@ function isEmbeddedWindow(): boolean {
   }
 }
 
+function isEmbeddedWebClient(): boolean {
+  return isEmbeddedWindow() && getCaptureHostApp().kind !== "desktop";
+}
+
 function saveBlobToDisk(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -467,9 +471,7 @@ function isMicrophonePermissionError(message: string): boolean {
 }
 
 function isEmbeddedCapturePolicyUnknownError(message: string): boolean {
-  if (!isEmbeddedWindow() || getCaptureHostApp().kind === "desktop") {
-    return false;
-  }
+  if (!isEmbeddedWebClient()) return false;
   if (isCameraPermissionError(message)) {
     return captureFeaturePolicyState("camera") === "unknown";
   }
@@ -481,12 +483,10 @@ function isEmbeddedCapturePolicyUnknownError(message: string): boolean {
 
 function shouldOpenRecorderInTab(message: string): boolean {
   return (
-    isPolicyPermissionError(message) ||
+    (isPolicyPermissionError(message) && isEmbeddedWebClient()) ||
     isEmbeddedCapturePolicyUnknownError(message) ||
     isEmbeddedFrameScreenPermissionError(message) ||
-    (isEmbeddedWindow() &&
-      getCaptureHostApp().kind !== "desktop" &&
-      isScreenPermissionError(message))
+    (isEmbeddedWebClient() && isScreenPermissionError(message))
   );
 }
 
@@ -525,6 +525,7 @@ function permissionGuidance(
   if (isUploadFailureError(message)) return null;
   if (!isPermissionError(message)) return null;
   if (isPolicyPermissionError(message)) {
+    if (!isEmbeddedWebClient()) return null;
     if (opts?.mode === "screen") {
       return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates screen capture.";
     }
@@ -533,7 +534,7 @@ function permissionGuidance(
   if (isScreenPermissionError(message)) {
     if (
       isEmbeddedFrameScreenPermissionError(message) ||
-      (isEmbeddedWindow() && getCaptureHostApp().kind !== "desktop")
+      isEmbeddedWebClient()
     ) {
       return "The web client is running Clips inside a frame. Open the recorder in its own tab, then start recording; Chrome can block screen sharing in embedded pages even when macOS access is enabled.";
     }
@@ -759,10 +760,14 @@ function friendlyRecordingErrorMessage(error: string): string {
     return "The video could not finish uploading. Retry the upload before starting over.";
   }
   if (
-    isPolicyPermissionError(error) ||
-    isEmbeddedFrameScreenPermissionError(error)
+    isEmbeddedFrameScreenPermissionError(error) ||
+    (isEmbeddedWebClient() &&
+      (isPolicyPermissionError(error) || isScreenPermissionError(error)))
   ) {
     return "This recorder is embedded somewhere that blocks capture permissions.";
+  }
+  if (isPolicyPermissionError(error)) {
+    return "Something blocked the recorder before it could start.";
   }
   if (isScreenPermissionError(error)) {
     if (isMacPlatform()) {
@@ -1090,7 +1095,7 @@ export function RecordingErrorCard({
   const policyError = !uploadFailure && isPolicyPermissionError(error);
   const openDirectly = !uploadFailure && shouldOpenRecorderInTab(error);
   const settings =
-    permissionError && !isEmbeddedFrameScreenPermissionError(error)
+    permissionError && !openDirectly
       ? getModePermissionLabels(mode, micDeviceId)
       : [];
   const directUrl = directRecorderUrl({ mode, displaySurface });
