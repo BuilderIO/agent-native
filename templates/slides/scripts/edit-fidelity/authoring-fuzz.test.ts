@@ -19,6 +19,9 @@ import {
   createRetiredBrowserSessionErrorCorrelator,
   browserSessionNavigationRequestIdentity,
   cleanupNavigationSessionRequestKeys,
+  hasActiveCleanupNavigationSessionCompetitor,
+  recordCleanupNavigationSessionCompetitor,
+  removeCleanupNavigationSessionCompetitor,
   isCleanupNavigationCompetitionPage,
   browserSessionIdAfterRequest,
   authoringFuzzBrowserSessionCorsHeaders,
@@ -3022,6 +3025,65 @@ it("correlates cleanup registrations by endpoint and session", () => {
     overlaps(
       keys("heartbeat", "old-session", heartbeatPath("old-session")),
       keys("heartbeat", "new-session", heartbeatPath("new-session")),
+    ),
+  ).toBe(false);
+});
+
+it("counts only active cleanup registrations as competitors", () => {
+  const retiredRegistration = {
+    kind: "heartbeat" as const,
+    sessionId: "retired-session",
+    pathname: "/_agent-native/browser-sessions",
+  };
+  const newRegistration = {
+    ...retiredRegistration,
+    sessionId: "new-session",
+  };
+  const activeRequestsByKey = new Map<string, Set<object>>();
+  const keysByRequest = new Map<object, string[]>();
+  const firstRequest = {};
+  const secondRequest = {};
+
+  recordCleanupNavigationSessionCompetitor(
+    firstRequest,
+    newRegistration,
+    activeRequestsByKey,
+    keysByRequest,
+  );
+  recordCleanupNavigationSessionCompetitor(
+    secondRequest,
+    newRegistration,
+    activeRequestsByKey,
+    keysByRequest,
+  );
+  expect(
+    hasActiveCleanupNavigationSessionCompetitor(
+      retiredRegistration,
+      activeRequestsByKey,
+    ),
+  ).toBe(true);
+
+  removeCleanupNavigationSessionCompetitor(
+    firstRequest,
+    activeRequestsByKey,
+    keysByRequest,
+  );
+  expect(
+    hasActiveCleanupNavigationSessionCompetitor(
+      retiredRegistration,
+      activeRequestsByKey,
+    ),
+  ).toBe(true);
+
+  removeCleanupNavigationSessionCompetitor(
+    secondRequest,
+    activeRequestsByKey,
+    keysByRequest,
+  );
+  expect(
+    hasActiveCleanupNavigationSessionCompetitor(
+      retiredRegistration,
+      activeRequestsByKey,
     ),
   ).toBe(false);
 });

@@ -860,6 +860,54 @@ export function cleanupNavigationSessionRequestKeys(identity: {
   return keys;
 }
 
+export function recordCleanupNavigationSessionCompetitor(
+  request: object,
+  identity: {
+    kind: "poll" | "heartbeat";
+    sessionId: string;
+    pathname: string;
+  },
+  activeRequestsByKey: Map<string, Set<object>>,
+  keysByRequest: Map<object, string[]>,
+) {
+  const keys = cleanupNavigationSessionRequestKeys(identity);
+  keysByRequest.set(request, keys);
+  for (const key of keys) {
+    const requests = activeRequestsByKey.get(key) ?? new Set<object>();
+    requests.add(request);
+    activeRequestsByKey.set(key, requests);
+  }
+}
+
+export function removeCleanupNavigationSessionCompetitor(
+  request: object,
+  activeRequestsByKey: Map<string, Set<object>>,
+  keysByRequest: Map<object, string[]>,
+) {
+  const keys = keysByRequest.get(request);
+  if (!keys) return;
+  keysByRequest.delete(request);
+  for (const key of keys) {
+    const requests = activeRequestsByKey.get(key);
+    if (!requests) continue;
+    requests.delete(request);
+    if (requests.size === 0) activeRequestsByKey.delete(key);
+  }
+}
+
+export function hasActiveCleanupNavigationSessionCompetitor(
+  identity: {
+    kind: "poll" | "heartbeat";
+    sessionId: string;
+    pathname: string;
+  },
+  activeRequestsByKey: ReadonlyMap<string, ReadonlySet<unknown>>,
+) {
+  return cleanupNavigationSessionRequestKeys(identity).some(
+    (key) => (activeRequestsByKey.get(key)?.size ?? 0) > 0,
+  );
+}
+
 export function isCleanupNavigationCompetitionPage<T>(
   requestPage: T,
   cleanupNavigationPage: T | null,

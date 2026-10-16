@@ -31,13 +31,15 @@ import {
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
   browserSessionNavigationRequestIdentity,
-  cleanupNavigationSessionRequestKeys,
+  hasActiveCleanupNavigationSessionCompetitor,
   isCleanupNavigationCompetitionPage,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
   isFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
   normalizeFirefoxBrowserSessionConsoleError,
+  recordCleanupNavigationSessionCompetitor,
+  removeCleanupNavigationSessionCompetitor,
   recordCleanupRequestOutcome,
   redactBrowserSessionRequestPath,
   redactBrowserSessionSensitiveText,
@@ -5639,8 +5641,14 @@ async function runAuthoringFuzzQa(
     let cleanupNavigationCompetingClaimStarted = false;
     const cleanupNavigationCompetingClaimUrls = new Set<string>();
     const cleanupNavigationCompetingRequestUrls = new Set<string>();
-    const cleanupNavigationCompetingSessionRequests = new Set<string>();
-    const cleanupSessionRequestKeys = cleanupNavigationSessionRequestKeys;
+    const cleanupNavigationCompetingSessionRequests = new Map<
+      string,
+      Set<object>
+    >();
+    const cleanupNavigationCompetingSessionRequestKeysByRequest = new Map<
+      object,
+      string[]
+    >();
     const removePendingCleanupClaim = (target: Page, request: any) => {
       const pendingClaims = cleanupPendingClaimRequestsByPage.get(target);
       if (!pendingClaims) return;
@@ -5753,9 +5761,12 @@ async function runAuthoringFuzzQa(
         ) {
           cleanupNavigationCompetingRequestUrls.add(request.url());
           if (sessionIdentity) {
-            for (const key of cleanupSessionRequestKeys(sessionIdentity)) {
-              cleanupNavigationCompetingSessionRequests.add(key);
-            }
+            recordCleanupNavigationSessionCompetitor(
+              request,
+              sessionIdentity,
+              cleanupNavigationCompetingSessionRequests,
+              cleanupNavigationCompetingSessionRequestKeysByRequest,
+            );
           }
         }
         if (
@@ -5783,6 +5794,11 @@ async function runAuthoringFuzzQa(
         });
       };
       const onRequestFinished = (request: any) => {
+        removeCleanupNavigationSessionCompetitor(
+          request,
+          cleanupNavigationCompetingSessionRequests,
+          cleanupNavigationCompetingSessionRequestKeysByRequest,
+        );
         recordCleanupRequestOutcome(
           cleanupRequestFinishedAt,
           request,
@@ -5793,6 +5809,11 @@ async function runAuthoringFuzzQa(
         cleanupRequestStartTimes.delete(request);
       };
       const onRequestFailed = (request: any) => {
+        removeCleanupNavigationSessionCompetitor(
+          request,
+          cleanupNavigationCompetingSessionRequests,
+          cleanupNavigationCompetingSessionRequestKeysByRequest,
+        );
         const started = cleanupRequestStartTimes.get(request);
         if (started && started.sessionIdentity?.kind === "poll") {
           const requestUrl = new URL(request.url());
@@ -6066,8 +6087,9 @@ async function runAuthoringFuzzQa(
           ({ request, startedAt, sessionIdentity, ...candidate }) => {
             const finishedAt = cleanupRequestFinishedAt.get(request);
             const competingSessionRequestStarted = sessionIdentity
-              ? cleanupSessionRequestKeys(sessionIdentity).some((key) =>
-                  cleanupNavigationCompetingSessionRequests.has(key),
+              ? hasActiveCleanupNavigationSessionCompetitor(
+                  sessionIdentity,
+                  cleanupNavigationCompetingSessionRequests,
                 )
               : cleanupNavigationCompetingRequestUrls.has(candidate.url);
             return {
