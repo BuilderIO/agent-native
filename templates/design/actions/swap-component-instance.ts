@@ -53,7 +53,7 @@ import {
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
-import { parse as parseCss } from "postcss";
+import { CssSyntaxError, parse as parseCss } from "postcss";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -203,10 +203,22 @@ const INSTANCE_PLACEMENT_PROPERTIES = [
   "bottom",
 ] as const;
 
+function codePointText(codePoint: number, reference: string): string {
+  return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+    ? String.fromCodePoint(codePoint)
+    : reference;
+}
+
 function decodeAttributeText(value: string): string {
   return value
-    .replace(/&quot;|&#34;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (reference, hex: string) =>
+      codePointText(Number.parseInt(hex, 16), reference),
+    )
+    .replace(/&#([0-9]+);/g, (reference, decimal: string) =>
+      codePointText(Number.parseInt(decimal, 10), reference),
+    )
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&");
@@ -225,7 +237,17 @@ export function keepInstancePlacement(
     return value ? [`${property}:${value}`] : [];
   });
   const rest: string[] = [];
-  parseCss(authoredStyle).walkDecls((declaration) => {
+  let authoredDeclarations: ReturnType<typeof parseCss>;
+  try {
+    authoredDeclarations = parseCss(authoredStyle);
+  } catch (error) {
+    if (!(error instanceof CssSyntaxError)) throw error;
+    fail(
+      `The replacement component's inline style is malformed: ${error.reason}. Fix its style attribute and retry the swap.`,
+      { errorCode: "invalid_inline_style", statusCode: 422 },
+    );
+  }
+  authoredDeclarations.walkDecls((declaration) => {
     if (
       !(INSTANCE_PLACEMENT_PROPERTIES as readonly string[]).includes(
         declaration.prop.toLowerCase(),

@@ -232,6 +232,27 @@ describe("keepInstancePlacement", () => {
     );
   });
 
+  it("decodes numeric character references once when it rewrites placement", () => {
+    const target = `<div style="position:absolute;left:4px;font-family:&#x27;Inter&#x27;, sans-serif;content:&#47;">x</div>`;
+    expect(
+      keepInstancePlacement(target, { position: "absolute", left: "9px" }),
+    ).toBe(
+      `<div style="position:absolute;left:9px;font-family:'Inter', sans-serif;content:/">x</div>`,
+    );
+  });
+
+  it("refuses a malformed target style with a typed error instead of crashing the swap", () => {
+    const target = `<div style="position:absolute;left:4px;background:url(&quot;x">x</div>`;
+    expect(() =>
+      keepInstancePlacement(target, { position: "absolute", left: "9px" }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "invalid_inline_style",
+        statusCode: 422,
+      }),
+    );
+  });
+
   it("drops the target's placement when the instance flowed in its parent", () => {
     const target = `<div style="position:absolute;left:4px;top:8px;width:10px">x</div>`;
     expect(keepInstancePlacement(target, {})).toBe(
