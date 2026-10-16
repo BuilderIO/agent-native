@@ -188,6 +188,14 @@ test("passes the pull request title to the change-scope guard", () => {
   );
 });
 
+test("runs CI for pull requests into any base branch", () => {
+  const triggers = readFileSync(".github/workflows/ci.yml", "utf8").split(
+    /^jobs:/mu,
+  )[0];
+  assert.match(triggers, /^ {2}pull_request:\s*$/mu);
+  assert.doesNotMatch(triggers, /^\s*branches(?:-ignore)?:/mu);
+});
+
 test("selects Slides caret CI for exact package roots and Creative Context", () => {
   const filtersFor = (path: string) =>
     JSON.stringify(workspaceFiltersForPaths([path]));
@@ -1252,7 +1260,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     DESIGN_E2E_REGRESSION_SHARDS.flatMap((shard) =>
       resolveDesignE2ERegressionPinsForShard(shard),
     ).length,
-    84,
+    86,
     "the title manifest must retain every fixed regression pin",
   );
 });

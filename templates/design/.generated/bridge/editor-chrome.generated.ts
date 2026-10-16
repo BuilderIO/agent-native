@@ -903,6 +903,24 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/relative-position-containing-block.ts
+  function relativePositionContainingBlockDirection(element, getComputedStyle) {
+    let ancestor = element.parentElement;
+    while (ancestor) {
+      const styles = getComputedStyle(ancestor);
+      const display = styles.display;
+      if (display === "inline" || display === "contents") {
+        ancestor = ancestor.parentElement;
+        continue;
+      }
+      if (display === "block" || display === "flow-root" || display === "list-item" || display === "inline-block" || display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid" || display === "table-cell" || display === "table-caption") {
+        return styles.direction === "ltr" || styles.direction === "rtl" ? styles.direction : void 0;
+      }
+      return void 0;
+    }
+    return void 0;
+  }
+
   // shared/spacing-handle-rule.ts
   function isAutoLayoutDisplay(display) {
     return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
@@ -6030,6 +6048,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         gridTemplateRows: parentStyles.gridTemplateRows,
         position: parentStyles.position
       } : void 0;
+      var relativeContainingBlockDirection = cs.position === "relative" ? relativePositionContainingBlockDirection(
+        el,
+        (ancestor) => window.getComputedStyle(ancestor)
+      ) : void 0;
       var capabilities = sourceBacked ? [
         {
           kind: "deterministic-style-edit",
@@ -6110,6 +6132,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         parentDisplay,
         parentAutoLayout,
         parentLayout,
+        relativeContainingBlockDirection,
         editCapabilities: capabilities,
         confidence: capabilities.reduce(function(best, item) {
           return Math.max(best, item.confidence || 0);
@@ -19145,6 +19168,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         cancelMoveDrag();
       }
       function onUp(ev) {
+        onMove(ev);
         var controllerEnd = bridgeMoveController.pointerUp(
           bridgeGesturePointer(ev)
         );
