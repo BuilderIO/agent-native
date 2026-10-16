@@ -42,6 +42,12 @@ Some recordings are linked to a meeting — when `meeting_id` is non-null on the
    `processing` to `ready`. Do not wait for the upload/finalize response before
    opening the page.
 
+## Agent file upload
+
+An outside agent (MCP or CLI) with a local video file calls `create-recording-upload` with an explicit `visibility`, the file's `mimeType` and `sizeBytes`, and ideally `durationMs`/`width`/`height`. It creates the row through `create-recording` and returns a `chunkUrl`, an `Authorization: Bearer` upload ticket, `chunkSizeBytes` (3 MiB), `totalChunks`, `shareUrl`, and `next`. The agent POSTs the chunks in order with `&index=N&isFinal=0`, and the last with `isFinal=1`, which finalizes exactly as a browser upload does. Don't call `finalize-recording` separately.
+
+`chunkUrl` is `/api/uploads/:id/agent-chunk`, a public-path sibling of the browser's session-only chunk route that runs the same `handleRecordingChunk` (like `/api/clip-intake`). The ticket (`server/lib/recording-upload-ticket.ts`) is stored as a SHA-256 hash in the owner's `settings` row, opens only its own recording, and lasts six hours as a backstop; the real bounds are finalize and the one-hour idle reaper. The route accepts it only while that recording is `uploading`, so it stops working once the last chunk is accepted; a retried last chunk gets a 409 saying the clip is finished, not an invitation to upload again. A missing or bad ticket is refused before the recording or its chunks are touched. The action reserves the ticket before it creates the recording, and enforces the cap of 20 unfinished uploads per owner in that same write: at the cap it refuses with 429, and a refused or failed reservation leaves no recording behind. If creating the recording then fails, the action releases the ticket before rethrowing. Issuing never evicts a ticket whose recording is still `uploading`, or one reserved in the last 10 minutes whose recording is not created yet; a ticket whose recording finished or no longer exists frees its slot. The chunk route takes the org from the recording row, not the ticket.
+
 ## Mobile companion lifecycle
 
 The Agent-Native mobile app uses the same recording rows and binary upload

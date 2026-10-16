@@ -18,6 +18,7 @@ import type {
 import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { formatDollars } from "../../shared/format-dollars";
+import { resolvePanelEvents } from "../../shared/panel-events";
 import {
   chartPointLimit,
   limitChartRows,
@@ -41,6 +42,7 @@ import {
   renderReportChartSvg,
   renderFunnelChartSvg,
   REPORT_CHART_FONT_FAMILY,
+  type ReportChartEvent,
   type ReportChartSeries,
   type ReportChartType,
   type ReportChartValueFormatter,
@@ -430,6 +432,7 @@ const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   bar: "bar",
   line: "line",
   area: "area",
+  combo: "combo",
   pie: "pie",
   funnel: "funnel",
   "stacked-bar": "bar",
@@ -450,6 +453,7 @@ function pivotPanelRows(
 }
 
 type ChartInput = {
+  events: ReportChartEvent[];
   labels: string[];
   series: ReportChartSeries[];
   pointLimit: ChartPointLimit | null;
@@ -485,8 +489,17 @@ function buildChartInput(
   const dualAxis = resolveDualAxis(plotted, config);
   const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
     dualAxis.formatterFor(key);
+  const barKeys = new Set(config?.barKeys ?? []);
+
+  const events =
+    chartType === "pie"
+      ? []
+      : resolvePanelEvents(config?.events, visible.map((row) => row[xKey])).map(
+          ({ index, label, color }) => ({ index, label, color }),
+        );
 
   return {
+    events,
     labels,
     series: plotted.map((key, index) => ({
       label: formatReportSeriesLabel(panel, key),
@@ -494,6 +507,9 @@ function buildChartInput(
       color: colors[index],
       ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
       ...(formatterFor(key) ? { formatter: formatterFor(key) } : {}),
+      ...(chartType === "combo"
+        ? { mark: barKeys.has(key) ? ("bar" as const) : ("line" as const) }
+        : {}),
     })),
     pointLimit: chartPointLimit(rows, panel.chartType, xKey),
   };
@@ -883,6 +899,7 @@ async function renderChartBlock(args: {
       type: chartType,
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
+      events: input.events,
       ...(panel.config?.stacked === true ? { stacked: true } : {}),
     });
     const png = await rasterizeChartPng(svg, CHART_WIDTH * CHART_RASTER_SCALE);

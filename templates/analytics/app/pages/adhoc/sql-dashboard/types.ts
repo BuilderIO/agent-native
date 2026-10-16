@@ -85,8 +85,20 @@ export type DashboardTimeScope =
   | "cohort-history"
   | "all-time";
 
+export interface PanelEvent {
+  /** Calendar date in the event's own time zone, "YYYY-MM-DD". */
+  date: string;
+  /** Optional 24-hour time of day, "HH:MM". */
+  time?: string;
+  /** IANA zone for `time`, e.g. "America/New_York"; UTC when omitted. */
+  timeZone?: string;
+  label: string;
+  color?: string;
+}
+
 export interface SqlPanelConfig {
   timeScope?: DashboardTimeScope;
+  events?: PanelEvent[];
   xKey?: string;
   yKey?: string;
   yKeys?: string[];

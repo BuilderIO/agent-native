@@ -11,7 +11,15 @@ import { formatDollars } from "../../shared/format-dollars";
 
 export { estimateTextWidth };
 
-export type ReportChartType = "bar" | "line" | "area" | "pie" | "funnel";
+export type ReportChartType =
+  | "bar"
+  | "line"
+  | "area"
+  | "combo"
+  | "pie"
+  | "funnel";
+
+export type ReportChartEvent = { index: number; label: string; color?: string };
 
 export type ReportChartAxis = "left" | "right";
 
@@ -23,6 +31,8 @@ export type ReportChartSeries = {
   color?: string;
   axis?: ReportChartAxis;
   formatter?: ReportChartValueFormatter;
+  /** Combo charts only: draw this series as bars or as a line. */
+  mark?: "bar" | "line";
 };
 
 export type ChartSvgTheme = {
@@ -299,6 +309,7 @@ type ResolvedSeries = {
   data: Array<number | null>;
   axis?: ReportChartAxis;
   formatter?: ReportChartValueFormatter;
+  mark?: "bar" | "line";
 };
 
 type AxisScale = {
@@ -347,6 +358,194 @@ function stackSegments(
   return segments;
 }
 
+const EVENT_LABEL_FONT_SIZE = 10;
+const EVENT_LABEL_ROW_HEIGHT = 13;
+/** Space between the last label row and the plot, so a peak at the top stays clear of it. */
+const EVENT_LABEL_PLOT_GAP = 8;
+const EVENT_LABEL_MAX_ROWS = 6;
+const EVENT_LABEL_MAX_LINES = 3;
+const EVENT_LABEL_GAP = 8;
+const EVENT_LABEL_SEPARATOR = " · ";
+
+type EventGroup = { index: number; labels: string[]; color?: string };
+
+/** Same-day events share one line, so their labels join instead of overprinting. */
+function groupEventsByIndex(
+  events: readonly ReportChartEvent[],
+  labelCount: number,
+): EventGroup[] {
+  const groups = new Map<number, ReportChartEvent[]>();
+  for (const event of events) {
+    if (event.index < 0 || event.index >= labelCount) continue;
+    groups.set(event.index, [...(groups.get(event.index) ?? []), event]);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([index, members]) => ({
+      index,
+      labels: members.map((member) => member.label),
+      color: members[0].color,
+    }));
+}
+
+const fitsEventLine = (value: string, maxWidth: number) =>
+  estimateTextWidth(value, EVENT_LABEL_FONT_SIZE) <= maxWidth;
+
+/** Breaks a label at its spaces; only a single word wider than a line is trimmed. */
+function wrapEventLabel(label: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  for (const word of label.split(/\s+/).filter(Boolean)) {
+    const joined = `${lines[lines.length - 1]} ${word}`;
+    if (lines.length > 0 && fitsEventLine(joined, maxWidth)) {
+      lines[lines.length - 1] = joined;
+    } else {
+      lines.push(trimToWidth(word, EVENT_LABEL_FONT_SIZE, maxWidth));
+    }
+  }
+  return lines;
+}
+
+/** Joins whole labels into lines; a label that needs its own lines starts one. */
+function packEventLabels(labels: readonly string[], maxWidth: number) {
+  const lines: string[] = [];
+  let lastTakesMore = false;
+  for (const label of labels) {
+    const joined = `${lines[lines.length - 1]}${EVENT_LABEL_SEPARATOR}${label}`;
+    if (lastTakesMore && fitsEventLine(joined, maxWidth)) {
+      lines[lines.length - 1] = joined;
+      continue;
+    }
+    const wrapped = wrapEventLabel(label, maxWidth);
+    lines.push(...wrapped);
+    lastTakesMore = wrapped.length === 1;
+  }
+  return lines;
+}
+
+/**
+ * One day's labels as at most `EVENT_LABEL_MAX_LINES` lines. Labels that don't
+ * fit are counted in a "+N more" line rather than cut, and a lone label too
+ * long for the lines ends on a whole word.
+ */
+function eventLabelLines(labels: readonly string[], maxWidth: number) {
+  for (let shown = labels.length; shown > 0; shown -= 1) {
+    const lines = packEventLabels(labels.slice(0, shown), maxWidth);
+    const hidden = labels.length - shown;
+    if (hidden === 0 && lines.length <= EVENT_LABEL_MAX_LINES) return lines;
+    if (hidden > 0 && lines.length < EVENT_LABEL_MAX_LINES) {
+      return [...lines, `+${hidden} more`];
+    }
+  }
+  const hidden = labels.length - 1;
+  const kept = wrapEventLabel(labels[0], maxWidth).slice(
+    0,
+    EVENT_LABEL_MAX_LINES - (hidden > 0 ? 1 : 0),
+  );
+  const words = kept[kept.length - 1].split(" ");
+  while (words.length > 1 && !fitsEventLine(`${words.join(" ")} …`, maxWidth)) {
+    words.pop();
+  }
+  kept[kept.length - 1] = `${words.join(" ")} …`;
+  return hidden > 0 ? [...kept, `+${hidden} more`] : kept;
+}
+
+/** One line: the first label, ending on a whole word if cut, then "+N more". */
+function compactEventLabel(labels: readonly string[], maxWidth: number) {
+  const more = labels.length > 1 ? ` +${labels.length - 1} more` : "";
+  const room = maxWidth - estimateTextWidth(more, EVENT_LABEL_FONT_SIZE);
+  const words = labels[0].split(/\s+/).filter(Boolean);
+  if (fitsEventLine(words.join(" "), room)) return `${words.join(" ")}${more}`;
+  while (words.length > 1 && !fitsEventLine(`${words.join(" ")} …`, room)) {
+    words.pop();
+  }
+  const cut = trimToWidth(
+    `${words.join(" ")} …`,
+    EVENT_LABEL_FONT_SIZE,
+    room,
+    "…",
+  );
+  return `${cut}${more}`;
+}
+
+type PlacedEventLabel = {
+  x: number;
+  color?: string;
+  lines: string[];
+  row: number;
+  anchor: "start" | "end";
+};
+
+type EventLabelLayout = {
+  labels: PlacedEventLabel[];
+  /** Days with no clear rows left: drawn as a rule and dot, without text. */
+  unlabeled: Array<{ x: number; color?: string }>;
+  /** Counts the unlabeled days, so a dropped label shows. */
+  notice: { text: string; row: number } | null;
+  rowCount: number;
+};
+
+/**
+ * Puts each day's lines on the first rows where they clear the labels already
+ * there, never on top of one. Labels open toward the side with room, so one
+ * near the right edge is never cut off by the chart boundary. A day that finds
+ * no room tries one compact line, then goes unlabeled and is counted.
+ */
+function layoutEventLabels(
+  groups: readonly EventGroup[],
+  centerFor: (index: number) => number,
+  chartLeft: number,
+  chartRight: number,
+): EventLabelLayout {
+  const rows: Array<Array<[number, number]>> = [];
+  const maxWidth = (chartRight - chartLeft) / 2;
+  const clear = (row: number, span: [number, number]) =>
+    (rows[row] ?? []).every(
+      ([start, end]) =>
+        span[1] + EVENT_LABEL_GAP <= start || span[0] >= end + EVENT_LABEL_GAP,
+    );
+  const place = (x: number, lines: string[]) => {
+    const width = Math.max(
+      ...lines.map((line) => estimateTextWidth(line, EVENT_LABEL_FONT_SIZE)),
+    );
+    const anchor: "start" | "end" =
+      x + 5 + width > chartRight ? "end" : "start";
+    const span: [number, number] =
+      anchor === "end" ? [x - 5 - width, x] : [x, x + 5 + width];
+    for (let row = 0; row + lines.length <= EVENT_LABEL_MAX_ROWS; row += 1) {
+      if (lines.every((_, offset) => clear(row + offset, span))) {
+        lines.forEach((_, offset) => (rows[row + offset] ??= []).push(span));
+        return { x, lines, row, anchor };
+      }
+    }
+    return null;
+  };
+
+  const labels: PlacedEventLabel[] = [];
+  const unlabeled: EventLabelLayout["unlabeled"] = [];
+  for (const group of groups) {
+    const x = centerFor(group.index);
+    const placed =
+      place(x, eventLabelLines(group.labels, maxWidth)) ??
+      place(x, [compactEventLabel(group.labels, maxWidth)]);
+    if (placed) labels.push({ ...placed, color: group.color });
+    else unlabeled.push({ x, color: group.color });
+  }
+
+  let notice: EventLabelLayout["notice"] = null;
+  if (unlabeled.length > 0) {
+    const text = `+${unlabeled.length} ${unlabeled.length === 1 ? "date" : "dates"} not labeled`;
+    const span: [number, number] = [
+      chartRight - estimateTextWidth(text, EVENT_LABEL_FONT_SIZE),
+      chartRight,
+    ];
+    let row = 0;
+    while (row < rows.length && !clear(row, span)) row += 1;
+    (rows[row] ??= []).push(span);
+    notice = { text, row };
+  }
+  return { labels, unlabeled, notice, rowCount: rows.length };
+}
+
 function renderCartesianChartSvg({
   title,
   subtitle,
@@ -359,12 +558,14 @@ function renderCartesianChartSvg({
   fontFamily,
   stacked,
   fit,
+  events,
 }: {
   title: string;
   subtitle: string;
   labels: string[];
   series: ResolvedSeries[];
-  type: "bar" | "line" | "area";
+  events?: ReportChartEvent[];
+  type: "bar" | "line" | "area" | "combo";
   width: number;
   height: number;
   theme: ChartSvgTheme;
@@ -416,13 +617,27 @@ function renderCartesianChartSvg({
     : series;
   const legendLayout =
     fit && series.length > 1 ? layoutLegend(legendSeries, plotWidth) : null;
-  const chartTop = !fit
+  const slot = plotWidth / Math.max(labels.length, 1);
+  const centerFor = (index: number) => chartLeft + slot * index + slot / 2;
+  const eventLayout = layoutEventLabels(
+    groupEventsByIndex(events ?? [], labels.length),
+    centerFor,
+    chartLeft,
+    chartRight,
+  );
+  const eventsTop = !fit
     ? subtitle
       ? 88
       : 66
     : legendLayout
       ? legendTop + (legendLayout.rows.length - 1) * LEGEND_ROW_HEIGHT + 30
       : header.headerBottom + 34;
+  // Event labels get their own rows above the plot so they never sit on the data.
+  const chartTop =
+    eventsTop +
+    (eventLayout.rowCount > 0
+      ? eventLayout.rowCount * EVENT_LABEL_ROW_HEIGHT + EVENT_LABEL_PLOT_GAP
+      : 0);
   const plotHeight = Math.max(1, chartBottom - chartTop);
 
   const stackedBars = stacked && type === "bar";
@@ -474,7 +689,6 @@ function renderCartesianChartSvg({
   const scaleFor = (seriesIndex: number): AxisScale =>
     dualAxis && series[seriesIndex].axis === "right" ? rightScale : leftScale;
 
-  const slot = plotWidth / Math.max(labels.length, 1);
   const labelStep = Math.max(1, Math.ceil(labels.length / 8));
 
   const grid = Array.from({ length: 5 }, (_, index) => {
@@ -487,7 +701,6 @@ function renderCartesianChartSvg({
     return `<line x1="${chartLeft}" x2="${chartRight}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${theme.gridColor}" stroke-width="0.8"/><text x="${chartLeft - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(value, leftFormatter))}</text>${rightTick}`;
   }).join("");
 
-  const centerFor = (index: number) => chartLeft + slot * index + slot / 2;
   const xLabels = categoryAxis
     ? labels
         .map((label, index) => {
@@ -523,6 +736,19 @@ function renderCartesianChartSvg({
           })
           .join("");
 
+  const barIndexes =
+    type === "combo"
+      ? series.flatMap((entry, index) => (entry.mark === "bar" ? [index] : []))
+      : type === "bar"
+        ? series.map((_, index) => index)
+        : [];
+  const lineIndexes =
+    type === "combo"
+      ? series.flatMap((entry, index) => (entry.mark === "bar" ? [] : [index]))
+      : type === "bar"
+        ? []
+        : series.map((_, index) => index);
+
   let marks = "";
   if (stackedBars) {
     marks = labels
@@ -541,20 +767,24 @@ function renderCartesianChartSvg({
           .join("");
       })
       .join("");
-  } else if (type === "bar") {
+  } else {
     const groupWidth = slot * 0.72;
-    const barWidth = Math.max(4, groupWidth / Math.max(series.length, 1) - 2);
+    const barWidth = Math.max(
+      4,
+      groupWidth / Math.max(barIndexes.length, 1) - 2,
+    );
     marks = labels
       .map((_, labelIndex) =>
-        series
-          .map((entry, seriesIndex) => {
+        barIndexes
+          .map((seriesIndex, barSlot) => {
+            const entry = series[seriesIndex];
             const value = entry.data[labelIndex];
             if (value === null) return "";
             const x =
               chartLeft +
               slot * labelIndex +
               slot * 0.14 +
-              seriesIndex * (barWidth + 2);
+              barSlot * (barWidth + 2);
             const { yFor, zeroY } = scaleFor(seriesIndex);
             const y = yFor(value);
             return `<rect x="${x.toFixed(1)}" y="${Math.min(zeroY, y).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(2, Math.abs(zeroY - y)).toFixed(1)}" rx="4" fill="${entry.color}"/>`;
@@ -562,9 +792,9 @@ function renderCartesianChartSvg({
           .join(""),
       )
       .join("");
-  } else {
-    marks = series
-      .map((entry, seriesIndex) => {
+    marks += lineIndexes
+      .map((seriesIndex) => {
+        const entry = series[seriesIndex];
         const { yFor, zeroY } = scaleFor(seriesIndex);
         const zeroText = formatCoord(zeroY);
         const segments: Array<{
@@ -625,6 +855,63 @@ function renderCartesianChartSvg({
       : ""
   }`;
 
+  const rowTopFor = (row: number) => eventsTop + row * EVENT_LABEL_ROW_HEIGHT;
+  const placedEvents = eventLayout.labels.map((event) => ({
+    ...event,
+    color: safeColor(event.color, theme.labelColor),
+    rowTop: rowTopFor(event.row),
+  }));
+  // An unlabeled day's rule starts at the plot, clear of the label rows.
+  const eventRules = [
+    ...placedEvents,
+    ...eventLayout.unlabeled.map((event) => ({
+      ...event,
+      color: safeColor(event.color, theme.labelColor),
+      rowTop: chartTop,
+    })),
+  ];
+  const eventText = (
+    x: number,
+    rowTop: number,
+    anchor: "start" | "end",
+    fill: string,
+    text: string,
+  ) =>
+    `<text x="${x.toFixed(1)}" y="${rowTop + 10}" text-anchor="${anchor}" font-size="${EVENT_LABEL_FONT_SIZE}" fill="${fill}" stroke="${theme.background}" stroke-width="3" paint-order="stroke">${escapeXml(text)}</text>`;
+  // Every rule goes down before any text, so no event's line crosses another's label.
+  const eventMarkup = [
+    ...eventRules.map(
+      ({ x, color, rowTop }) =>
+        `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${rowTop}" y2="${chartBottom}" stroke="${color}" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="3 3"/>`,
+    ),
+    ...placedEvents.flatMap(({ x, color, rowTop, anchor, lines }) =>
+      lines.map((line, offset) =>
+        eventText(
+          anchor === "end" ? x - 5 : x + 5,
+          rowTop + offset * EVENT_LABEL_ROW_HEIGHT,
+          anchor,
+          color,
+          line,
+        ),
+      ),
+    ),
+    ...(eventLayout.notice
+      ? [
+          eventText(
+            chartRight,
+            rowTopFor(eventLayout.notice.row),
+            "end",
+            theme.tickColor,
+            eventLayout.notice.text,
+          ),
+        ]
+      : []),
+    ...eventRules.map(
+      ({ x, color }) =>
+        `<circle cx="${x.toFixed(1)}" cy="${chartBottom}" r="5" fill="${color}" stroke="${theme.background}" stroke-width="2"/>`,
+    ),
+  ].join("");
+
   const legendEntries = legendLayout
     ? legendLayout.rows
         .map((row, rowIndex) => {
@@ -661,6 +948,7 @@ function renderCartesianChartSvg({
     ${axis}
     ${marks}
     ${xLabels}
+    ${eventMarkup}
   </g>
 </svg>`;
 }
@@ -920,7 +1208,9 @@ export function renderReportChartSvg({
   width,
   height,
   stacked,
+  events,
 }: {
+  events?: ReportChartEvent[];
   title?: string;
   subtitle?: string;
   labels: string[];
@@ -957,6 +1247,7 @@ export function renderReportChartSvg({
       color: safeColor(entry.color, palette[index % palette.length]),
       axis: entry.axis,
       ...(entry.formatter ? { formatter: entry.formatter } : {}),
+      ...(type === "combo" && entry.mark ? { mark: entry.mark } : {}),
       data: normalizedLabels.map((_, dataIndex) =>
         exactValue(entry.data?.[dataIndex]),
       ),
@@ -968,5 +1259,6 @@ export function renderReportChartSvg({
     fontFamily: REPORT_CHART_FONT_FAMILY,
     stacked: stacked ?? false,
     fit: true,
+    events,
   });
 }

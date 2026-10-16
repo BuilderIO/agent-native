@@ -158,15 +158,15 @@ jobs:
             }
             return response.json();
           };
+          const readSiteVariable = async (key) => {
+            const response = await fetch(`${endpoint}/${encodeURIComponent(key)}?${query}`, { headers });
+            if (response.status === 404) return null;
+            if (!response.ok) {
+              throw new Error(`Could not read the Netlify ${key} environment metadata (${responseDetails(response)}).`);
+            }
+            return response.json();
+          };
           const variables = await readVariables();
-          const databaseVariable = variables.find(({ key }) => key === "DATABASE_URL_UNPOOLED");
-          if (
-            databaseVariable?.is_secret !== true ||
-            !databaseVariable.scopes?.includes("functions") ||
-            !databaseVariable.values?.some(({ context }) => ["all", "production"].includes(context))
-          ) {
-            throw new Error("DATABASE_URL_UNPOOLED must be secret, production-scoped, and available to Functions before publishing.");
-          }
           const appDatabaseOverride = variables.some(({ key, scopes, values }) => {
             const isPrefixedDatabaseUrl =
               key.endsWith("_DATABASE_URL") || key.endsWith("_DATABASE_URL_UNPOOLED");
@@ -179,54 +179,72 @@ jobs:
           if (appDatabaseOverride) {
             throw new Error("A production app-specific database URL would override the shared Community database.");
           }
-          const runtimeDatabaseVariable = variables.find(({ key }) => key === "DATABASE_URL");
-          if (
-            runtimeDatabaseVariable &&
-            (runtimeDatabaseVariable.is_secret !== true ||
-              !runtimeDatabaseVariable.scopes?.includes("functions"))
-          ) {
-            throw new Error("DATABASE_URL must be secret and available to Functions before publishing.");
-          }
-          const runtimeDatabaseUpdate = await fetch(
-            runtimeDatabaseVariable
-              ? endpoint + "/DATABASE_URL?" + query
-              : endpoint + "?" + query,
-            {
-              method: runtimeDatabaseVariable ? "PATCH" : "POST",
-              headers,
-              body: JSON.stringify(
-                runtimeDatabaseVariable
-                  ? { context: "production", value: DATABASE_URL }
-                  : [
-                      {
-                        key: "DATABASE_URL",
-                        scopes: ["functions"],
-                        values: [{ context: "production", value: DATABASE_URL }],
-                        is_secret: true,
-                      },
-                    ],
-              ),
-            },
-          );
-          if (!runtimeDatabaseUpdate.ok) {
-            throw new Error(`Could not configure the Community runtime database URL (${responseDetails(runtimeDatabaseUpdate)}).`);
-          }
-          const updateUrl = `${endpoint}/DATABASE_URL_UNPOOLED?${query}`;
-          const update = await fetch(updateUrl, {
-            method: "PATCH",
-            headers,
-            body: JSON.stringify({ context: "production", value: DATABASE_URL }),
-          });
-          if (!update.ok) {
-            throw new Error(`Could not point the Community Netlify site at its migrated Neon database (${responseDetails(update)}).`);
-          }
-          const verifiedVariables = await readVariables();
-          const verifiedRuntimeDatabase = verifiedVariables.find(
-            ({ key }) => key === "DATABASE_URL",
-          );
-          const verifiedUnpooledDatabase = verifiedVariables.find(
-            ({ key }) => key === "DATABASE_URL_UNPOOLED",
-          );
+          const configureDatabaseVariable = async (key) => {
+            const existingVariable = await readSiteVariable(key);
+            const existingValues = existingVariable?.values ?? [];
+            const preservedValues = existingValues.filter(
+              ({ context }) => context !== "production",
+            );
+            const unreadableContexts =
+              existingVariable?.is_secret === true
+                ? preservedValues
+                    .filter(({ context }) => context !== "dev")
+                    .map(({ context }) => context)
+                : [];
+            if (unreadableContexts.length > 0) {
+              throw new Error(
+                `Cannot safely update ${key}; Netlify does not return existing secret values for these contexts: ${unreadableContexts.join(", ")}.`,
+              );
+            }
+            if (
+              preservedValues.some(
+                ({ context, value }) =>
+                  context === "all" || typeof value !== "string",
+              )
+            ) {
+              throw new Error(
+                `Cannot safely preserve the existing ${key} environment variable contexts.`,
+              );
+            }
+            const existingScopes = Array.isArray(existingVariable?.scopes)
+              ? existingVariable.scopes.filter(
+                  (scope) => scope !== "post-processing",
+                )
+              : existingVariable
+                ? ["builds", "functions", "runtime"]
+                : [];
+            const variable = {
+              key,
+              scopes: [...new Set([...existingScopes, "functions"])],
+              values: [
+                ...preservedValues.map(
+                  ({ context, context_parameter, value }) => ({
+                    context,
+                    ...(context_parameter ? { context_parameter } : {}),
+                    value,
+                  }),
+                ),
+                { context: "production", value: DATABASE_URL },
+              ],
+              is_secret: true,
+            };
+            const update = await fetch(
+              existingVariable
+                ? `${endpoint}/${encodeURIComponent(key)}?${query}`
+                : `${endpoint}?${query}`,
+              {
+                method: existingVariable ? "PUT" : "POST",
+                headers,
+                body: JSON.stringify(existingVariable ? variable : [variable]),
+              },
+            );
+            if (!update.ok) {
+              throw new Error(`Could not configure the Community ${key} environment variable (${responseDetails(update)}).`);
+            }
+            return readSiteVariable(key);
+          };
+          const verifiedRuntimeDatabase = await configureDatabaseVariable("DATABASE_URL");
+          const verifiedUnpooledDatabase = await configureDatabaseVariable("DATABASE_URL_UNPOOLED");
           const hasProductionFunctionValue = (variable) =>
             variable?.is_secret === true &&
             variable.scopes?.includes("functions") &&

@@ -184,8 +184,7 @@ test.describe("layers menu structure operations", () => {
     expect(await app.designRect("beta")).toEqual(BETA);
   });
 
-  // fixme: product bug: Alpha is saved inside the non-positioned Section as position:absolute; left:0; top:0, so it renders at the screen's 0,0 corner over Beta.
-  test.fixme("reparenting into a different parent updates layer grouping", async ({
+  test("reparenting into a different parent updates layer grouping", async ({
     app,
   }) => {
     const page = app.page;

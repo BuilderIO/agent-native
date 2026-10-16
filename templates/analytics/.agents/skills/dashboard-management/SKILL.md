@@ -12,17 +12,17 @@ Dashboards are the canonical SQL-backed Analytics resources. New dashboards, sav
 
 Current storage:
 
-| Table              | Purpose                                      |
-| ------------------ | -------------------------------------------- |
-| `dashboards`       | Explorer and SQL dashboard records           |
-| `dashboard_folders` | Personal and shared SQL dashboard folders  |
-| `dashboard_views`  | Saved filter presets per dashboard           |
-| `dashboard_shares` | Standard framework share grants              |
-| `dashboard_folder_shares` | Standard folder share grants          |
-| `dashboard_revisions` | Bounded dashboard history snapshots       |
-| `analyses`         | Saved ad-hoc analysis records                |
-| `analysis_revisions` | Bounded analysis history snapshots        |
-| `analysis_shares`  | Standard framework share grants for analyses |
+| Table                     | Purpose                                      |
+| ------------------------- | -------------------------------------------- |
+| `dashboards`              | Explorer and SQL dashboard records           |
+| `dashboard_folders`       | Personal and shared SQL dashboard folders    |
+| `dashboard_views`         | Saved filter presets per dashboard           |
+| `dashboard_shares`        | Standard framework share grants              |
+| `dashboard_folder_shares` | Standard folder share grants                 |
+| `dashboard_revisions`     | Bounded dashboard history snapshots          |
+| `analyses`                | Saved ad-hoc analysis records                |
+| `analysis_revisions`      | Bounded analysis history snapshots           |
+| `analysis_shares`         | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
 
@@ -130,7 +130,7 @@ those CTEs needs its own `{{timeRange}}`/`{{<id>Start}}`/`{{<id>End}}`
 reference or literal date bound — not just the final `SELECT` or one sibling
 CTE. A CTE that computes something like "this user's first-ever active day"
 by scanning `analytics_events` with no bound at all will full-table-scan on
-every render even though the panel *looks* time-bound overall (root cause of
+every render even though the panel _looks_ time-bound overall (root cause of
 a 2026-07-25 production incident: several dashboards had exactly this shape).
 Server validation checks each top-level CTE independently now, so this fails
 at save time — but write it right the first time: bound every CTE, or use
@@ -216,18 +216,53 @@ flattens into the baseline and reads as "no data."
 - Scheduled email reports render the same two scales, so a dual-axis panel is
   safe to put on a subscribed dashboard.
 
+## Key-Date Event Markers
+
+Mark a launch, release, or incident on a `line`, `area`, `bar`, or `combo`
+chart with a date x-axis using `config.events`. Do not add a fake series or an
+extension for this.
+
+```json
+"config": {
+  "events": [
+    { "date": "2026-10-14", "time": "00:01", "timeZone": "America/Los_Angeles", "label": "Product Hunt live" },
+    { "date": "2026-10-14", "time": "12:00", "timeZone": "America/New_York", "label": "Launch posts on X, LinkedIn" }
+  ]
+}
+```
+
+- Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
+  multiple are allowed. `date` is the calendar date in the event's own zone.
+  Give `time` when the moment matters (a launch hour); `timeZone` is an IANA
+  zone and needs a `time`. Without a zone, the time is UTC.
+- A badge sits on the x-axis at the date with a faint dashed guide line.
+  Hovering the badge lists every event on that day with its time, shown in the
+  event's own zone ("12:01 AM PT"). It adds no legend entry and does not change
+  the series tooltip.
+- Events on the same day share one badge; on an hourly axis each timed event
+  sits in its own hour, and an event without a time sits on the first hour
+  shown for its date.
+- On a daily or coarser axis, a date missing from the data snaps to the nearest
+  x value. On an hourly axis, an event without a time whose date has no hours
+  shown is hidden. A date outside the visible range is hidden; a non-date
+  x-axis shows nothing.
+- `mutate-dashboard` rejects malformed events and other chart types.
+- Scheduled email reports draw the guide line, badge, and label text, including
+  on combo charts. Labels sit in rows above the plot: same-day labels join, a
+  long one wraps at words, and days that find no room are counted, not cut.
+
 ## Reusable Native Dashboard Patterns
 
 The recent extension-backed dashboards in Builder Analytics cluster into a few
 repeatable compositions. Prefer these native panels, with a real SQL or Data
 Program result behind each one, when creating a replacement or a new dashboard:
 
-| Pattern | Native composition |
-| --- | --- |
-| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative |
-| Account engagement / outreach | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts |
-| GTM pipeline / cross-sell | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up |
-| Win/loss analysis | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
+| Pattern                          | Native composition                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative            |
+| Account engagement / outreach    | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts                  |
+| GTM pipeline / cross-sell        | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up                      |
+| Win/loss analysis                | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
 
 Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
 non-negative count or value. The renderer preserves the SQL row order, shows
@@ -393,7 +428,7 @@ To offer a named group of values, give the multi-select `presets`, such as `"pre
 
 Filters auto-apply on change — there is no Apply button. Each filter change writes to the URL and re-runs the affected panels. Other filters are preserved (the URL update is functional, not destructive). If you see a filter "reset" itself when another filter changes, look for a duplicate `id` first.
 
-**Reset filters** in the filter bar returns the dashboard to what a fresh load shows: the default saved view when the dashboard has one, otherwise each filter's own `default`. It shows only while a filter's resolved value differs from that, so `f_timeRange=30d` on a 30d-default filter counts as reset. To reset for the user with `set-search-params`, remove every `f_` param and `view`, or set the default view's params and `view=<id>`.
+**Reset filters** in the filter bar returns to the saved view that is open: the one named by `view`, which filter edits keep. With no view open, it returns to what a fresh load shows: the default saved view when the dashboard has one, otherwise each filter's own `default`. It shows only while a filter's resolved value differs from that target, so `f_timeRange=30d` on a 30d-default filter counts as reset. To reset for the user with `set-search-params`, set the target view's params and `view=<id>`, or, when there is no target view, remove every `f_` param and `view`.
 
 ## Modifying A Dashboard
 
