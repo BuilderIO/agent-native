@@ -334,13 +334,15 @@ function matchesRetiredSessionHeartbeat(
   requestSessionId: string | null | undefined,
   retiredSessionId: string | null | undefined,
   competingSameTypeRequest = false,
+  competingRegistrationStartedAfterNavigation = false,
 ) {
   const heartbeat = browserSessionHeartbeatIdentity(method, pathname);
   return (
     heartbeat?.status === "identified" &&
     requestSessionId === heartbeat.sessionId &&
     retiredSessionId === heartbeat.sessionId &&
-    !competingSameTypeRequest
+    !competingSameTypeRequest &&
+    !competingRegistrationStartedAfterNavigation
   );
 }
 
@@ -741,6 +743,7 @@ export function isExpectedSaveReloadWatchedRequestAbort(
             sessionCorrelation?.requestSessionId,
             sessionCorrelation?.retiredSessionId,
             sessionCorrelation?.competingSameTypeRequest,
+            sessionCorrelation?.competingRegistrationStartedAfterNavigation,
           )) &&
         (rule !== browserSessionRegistrationRequestRule ||
           matchesRetiredSessionRegistration(
@@ -1219,6 +1222,7 @@ function isExpectedWatchedRequestNavigationAbort(
             candidate.requestSessionId,
             candidate.retiredSessionId,
             candidate.competingSameTypeRequest,
+            candidate.competingRegistrationStartedAfterNavigation,
           )) &&
         (rule !== browserSessionRegistrationRequestRule ||
           !requireRegistrationIdentity ||

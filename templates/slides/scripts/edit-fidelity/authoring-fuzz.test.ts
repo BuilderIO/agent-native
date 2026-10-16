@@ -1547,6 +1547,7 @@ it("defers status probes to strict navigation evidence in the reload abort match
     requestSessionId: "session-id",
     retiredSessionId: "session-id",
     competingSameTypeRequest: false,
+    competingRegistrationStartedAfterNavigation: false,
   };
   expect(
     isExpectedSameOriginSaveReloadAbort(
@@ -1595,6 +1596,22 @@ it("defers status probes to strict navigation evidence in the reload abort match
       false,
       false,
       { ...matchingSession, competingSameTypeRequest: true },
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      heartbeatPath,
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      100,
+      false,
+      false,
+      {
+        ...matchingSession,
+        competingRegistrationStartedAfterNavigation: true,
+      },
     ),
   ).toBe(false);
   expect(
