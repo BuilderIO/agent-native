@@ -478,4 +478,67 @@ describe("ChatHistoryList", () => {
     });
     expect(container.textContent).toContain("Load older chats");
   });
+
+  it("hides actions per row while the row stays selectable and other rows keep theirs", async () => {
+    const onSelect = vi.fn();
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[
+            item({ id: "mine" }),
+            item({ id: "shared", hideActions: true, pinned: true }),
+          ]}
+          onSelect={onSelect}
+          onRename={() => {}}
+          onDelete={() => {}}
+          onTogglePin={() => {}}
+          renderAdditionalRowActions={() => <span>extra</span>}
+        />,
+      );
+    });
+
+    const rows = container.querySelectorAll<HTMLElement>(
+      ".an-chat-history-row",
+    );
+    expect(
+      rows[0]?.querySelector(".an-chat-history-row__menu-trigger"),
+    ).not.toBeNull();
+    expect(rows[1]?.querySelector(".an-chat-history-row__menu")).toBeNull();
+    expect(rows[1]?.className).not.toContain("an-chat-history-row--has-menu");
+
+    await act(async () => {
+      rows[1]?.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(
+      document.body.querySelector(".an-chat-history-row__menu-content"),
+    ).toBeNull();
+
+    act(() => rows[1]?.querySelector("button")?.click());
+    expect(onSelect).toHaveBeenCalledWith("shared");
+
+    await openMenu(
+      rows[0]!.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    expect(getMenuItems().map((element) => element.textContent)).toContain(
+      "Delete",
+    );
+  });
+
+  it("hides the menu even when renderRowActions would return nothing", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[item({ id: "shared", hideActions: true })]}
+          onSelect={() => {}}
+          renderRowActions={() => null}
+        />,
+      );
+    });
+    expect(container.querySelector(".an-chat-history-row__menu")).toBeNull();
+  });
 });

@@ -341,6 +341,8 @@ export {
   setThreadPinned,
   setThreadScope,
   type ChatThread,
+  type ChatThreadAccessBasis,
+  type ChatThreadOwnership,
   type ChatThreadScope,
   type ChatThreadSummary,
   type ListThreadsOptions,

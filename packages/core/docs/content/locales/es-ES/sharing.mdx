@@ -124,6 +124,8 @@ Cada recurso que se puede compartir tiene un botón para compartir en su encabez
 - Una lista de concesiones actuales con selectores de roles y un control de eliminación.
 - Un botón de copiar-enlace que respeta la visibilidad actual.
 
+Pasar un recurso de `Private` a `Organization` pide confirmación primero. No cambia nada hasta que la persona confirma. Cancelar o Escape mantiene el acceso actual. Si falla el guardado, el cuadro de diálogo muestra el error y se puede volver a intentar. Los demás cambios de visibilidad se guardan de inmediato. La confirmación existe solo en la UI de uso compartido. `set-resource-visibility` no cambia, así que el agente y cualquier otro llamador siguen cambiando la visibilidad directamente y la política de uso compartido del recurso sigue decidiendo qué está permitido.
+
 El botón de compartir es una importación única:
 
 ```tsx
@@ -136,6 +138,36 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
 ```
 
 Para las listas, coloque un `<VisibilityBadge visibility={row.visibility} />` al lado de cada fila para que los usuarios puedan ver de un vistazo qué es privado y compartido.
+
+## Chats compartidos {#shared-chats}
+
+Los hilos de chat del agente usan el mismo modelo. Un chat nuevo o bifurcado es privado para su propietario, y compartir un chat sigue las reglas anteriores.
+
+Cada chat de una lista de historial incluye dos campos para que una fila pueda indicar de quién es el chat y por qué usted puede verlo:
+
+| Campo         | Valor                                                                                                                                   |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `ownerEmail`  | El propietario del chat.                                                                                                                |
+| `accessBasis` | `owner`, `direct` (una concesión a usted por nombre) o `organization`. `direct` prevalece sobre `organization` cuando se aplican ambos. |
+
+Las listas de historial y la búsqueda aceptan un filtro `ownership`:
+
+- `all` (predeterminado) lista todos los chats a los que tiene acceso.
+- `mine` lista los chats que son suyos, incluso cuando se comparten con la organización.
+- `shared` lista los chats a los que tiene acceso y que pertenecen a otra persona.
+
+El servidor aplica `ownership` antes de paginar, por lo que `limit`, `offset` y `hasMore` describen la lista filtrada. La búsqueda acepta el mismo filtro. Un valor desconocido se rechaza con un 400 en lugar de recurrir a `all`. Las reglas de acceso no cambian y al listar nunca se cargan las transcripciones.
+
+En el código del cliente, `useChatThreadList()` de `@agent-native/core/client` pagina una lista a la vez:
+
+```tsx
+import { useChatThreadList } from "@agent-native/core/client";
+
+const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
+// shared.threads, shared.hasMore, shared.loadMore(), shared.error
+```
+
+Una solicitud fallida establece `error` y conserva las filas ya cargadas. Nunca parece una lista vacía. `<ShareButton>` y `<ShareDialog>` actualizan las listas de chat montadas después de guardar. Si cambia el uso compartido de un chat de otra manera, llame a `notifyChatThreadsUpdated()` para que las listas montadas se vuelvan a cargar.
 
 ## Mismo modelo, agente y UI {#agent-and-ui}
 

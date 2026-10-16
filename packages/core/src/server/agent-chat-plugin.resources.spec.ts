@@ -1,5 +1,5 @@
 import { createApp, H3Event } from "h3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   ensurePersonalDefaults: vi.fn(async () => undefined),
@@ -27,6 +27,8 @@ const routeHarness = vi.hoisted(() => ({
 
 const threadStoreMocks = vi.hoisted(() => ({
   forkThread: vi.fn(),
+  listThreads: vi.fn(),
+  searchThreads: vi.fn(),
   mutateThreadQueuedMessages: vi.fn(),
   resolveThreadAccess: vi.fn(),
   updateThreadData: vi.fn(),
@@ -126,6 +128,8 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
   return {
     ...actual,
     forkThread: (...args: any[]) => threadStoreMocks.forkThread(...args),
+    listThreads: (...args: any[]) => threadStoreMocks.listThreads(...args),
+    searchThreads: (...args: any[]) => threadStoreMocks.searchThreads(...args),
     mutateThreadQueuedMessages: (...args: any[]) =>
       threadStoreMocks.mutateThreadQueuedMessages(...args),
     resolveThreadAccess: (...args: any[]) =>
@@ -398,6 +402,14 @@ async function mountResourceRoutes(options?: {
   return h3App;
 }
 
+// The first mount runs the plugin's one-time store migrations against the
+// worker's PGlite database. That cold start costs ~25 s on a slow machine, so
+// left inside the first test it uses up that test's 30 s budget. When it runs
+// out, the abandoned mount keeps consuming the next tests' one-shot mocks.
+beforeAll(async () => {
+  await mountResourceRoutes();
+}, 120_000);
+
 async function fetchWithRequestContext(
   h3App: ReturnType<typeof createApp>,
   path: string,
@@ -566,6 +578,114 @@ describe("agent chat queued-message route", () => {
     expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
       threadId,
       mutation,
+    );
+  });
+});
+
+describe("agent chat thread list route", () => {
+  const summary = (id: string) => ({ id, title: id });
+
+  async function getThreads(search: string) {
+    const h3App = await mountResourceRoutes();
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    return fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads${search}`,
+      { userEmail: "user@example.test" },
+    );
+  }
+
+  beforeEach(() => {
+    threadStoreMocks.listThreads.mockReset();
+    threadStoreMocks.searchThreads.mockReset();
+  });
+
+  it("passes ownership and offset to the store and reports hasMore from the extra row", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([
+      summary("a"),
+      summary("b"),
+      summary("c"),
+    ]);
+
+    const response = await getThreads("?ownership=shared&limit=2&offset=4");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      threads: [summary("a"), summary("b")],
+      hasMore: true,
+    });
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({
+        ownership: "shared",
+        limit: 3,
+        offset: 4,
+      }),
+    );
+  });
+
+  it("reports no more rows when the page is not over-full", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([summary("a")]);
+    const response = await getThreads("?ownership=mine&limit=2");
+    expect(await response.json()).toEqual({
+      threads: [summary("a")],
+      hasMore: false,
+    });
+  });
+
+  it("defaults to all and applies the same filter and paging to search", async () => {
+    threadStoreMocks.searchThreads.mockResolvedValue([
+      summary("a"),
+      summary("b"),
+    ]);
+
+    const response = await getThreads(
+      "?q=plan&ownership=mine&limit=1&offset=3",
+    );
+
+    expect(await response.json()).toEqual({
+      threads: [summary("a")],
+      hasMore: true,
+    });
+    expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      "plan",
+      2,
+      expect.objectContaining({ ownership: "mine", offset: 3 }),
+    );
+
+    threadStoreMocks.listThreads.mockResolvedValue([]);
+    await getThreads("");
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({ ownership: "all", limit: 51, offset: 0 }),
+    );
+  });
+
+  it.each([
+    ["an unknown ownership", "?ownership=everyone"],
+    ["a negative limit", "?limit=-5"],
+    ["a zero limit", "?limit=0"],
+    ["a fractional limit", "?limit=1.5"],
+    ["a non-numeric limit", "?limit=lots"],
+    ["a negative offset", "?offset=-1"],
+    ["a non-numeric offset", "?offset=next"],
+  ])(
+    "answers 400 for %s instead of listing from somewhere else",
+    async (_name, search) => {
+      const response = await getThreads(search);
+      expect(response.status).toBe(400);
+      expect(threadStoreMocks.listThreads).not.toHaveBeenCalled();
+      expect(threadStoreMocks.searchThreads).not.toHaveBeenCalled();
+    },
+  );
+
+  it("caps an oversized limit at the page maximum", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([]);
+    await getThreads("?limit=5000");
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({ limit: 201 }),
     );
   });
 });

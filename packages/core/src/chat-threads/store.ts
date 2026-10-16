@@ -340,8 +340,36 @@ export interface ChatThread {
   visibility: "private" | "org" | "public";
 }
 
+/**
+ * Which of the caller's lists a thread belongs to. `mine` is ownership alone,
+ * so a chat the caller owns stays in it however widely it is shared; `shared`
+ * is accessible-but-owned-by-someone-else.
+ */
+export type ChatThreadOwnership = "all" | "mine" | "shared";
+
+export const CHAT_THREAD_OWNERSHIPS: readonly ChatThreadOwnership[] = [
+  "all",
+  "mine",
+  "shared",
+];
+
+export function isChatThreadOwnership(
+  value: unknown,
+): value is ChatThreadOwnership {
+  return CHAT_THREAD_OWNERSHIPS.includes(value as ChatThreadOwnership);
+}
+
+/**
+ * Why the caller can see a thread. A direct per-user grant outranks
+ * organization access when both apply, so revoking the organization grant never
+ * looks like it removed access the person was given by name.
+ */
+export type ChatThreadAccessBasis = "owner" | "direct" | "organization";
+
 export interface ChatThreadSummary {
   id: string;
+  ownerEmail: string;
+  accessBasis: ChatThreadAccessBasis;
   title: string;
   preview: string;
   messageCount: number;
@@ -826,6 +854,13 @@ function rowToThread(r: Record<string, unknown>): ChatThread {
   };
 }
 
+function readAccessBasis(value: unknown): ChatThreadAccessBasis {
+  if (value === "owner" || value === "direct" || value === "organization") {
+    return value;
+  }
+  throw new Error(`Unexpected chat thread access basis: ${String(value)}`);
+}
+
 function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
   // The summary path never loads `thread_data`; the count comes from the
   // dedicated `message_count` column maintained on write. Empty threads are
@@ -834,6 +869,8 @@ function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
   if (!Number.isFinite(messageCount) || messageCount <= 0) return null;
   return {
     id: r.id as string,
+    ownerEmail: r.owner_email as string,
+    accessBasis: readAccessBasis(r.access_basis),
     title: r.title as string,
     preview: r.preview as string,
     messageCount,
@@ -911,7 +948,7 @@ const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_co
 // from the blob anymore — preview and message_count are dedicated columns
 // (message_count is maintained on write). The detail path (`THREAD_COLUMNS` /
 // `getThread`) still returns the full blob.
-const SUMMARY_COLUMNS = `id, title, preview, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, source_platform, source_app_id, source_url, org_id, visibility`;
+const SUMMARY_COLUMNS = `id, owner_email, title, preview, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, source_platform, source_app_id, source_url, org_id, visibility`;
 
 export function registerChatThreadsShareable(): void {
   registerShareableResource({
@@ -1176,13 +1213,15 @@ export interface ListThreadsOptions {
   includeExternal?: boolean;
   /** Current app id used by the local-only view. */
   sourceAppId?: string | null;
+  /** Defaults to `all`. Narrowed in SQL, so LIMIT/OFFSET page within the list. */
+  ownership?: ChatThreadOwnership;
 }
 
 function chatThreadAccessSql(
   userEmail: string,
   orgId: string | null | undefined,
 ): { sql: string; args: (string | number)[] } {
-  const normalizedEmail = userEmail.trim().toLowerCase();
+  const normalizedEmail = normalizeAccessEmail(userEmail);
   const clauses = [
     `LOWER(owner_email) = ?`,
     `EXISTS (SELECT 1 FROM chat_thread_shares WHERE chat_thread_shares.resource_id = chat_threads.id AND chat_thread_shares.principal_type = 'user' AND LOWER(chat_thread_shares.principal_id) = ?)`,
@@ -1197,6 +1236,41 @@ function chatThreadAccessSql(
     args.push(orgId);
   }
   return { sql: `(${clauses.join(" OR ")})`, args };
+}
+
+function normalizeAccessEmail(userEmail: string): string {
+  return userEmail.trim().toLowerCase();
+}
+
+/**
+ * Summary projection plus the caller's access basis, derived from the same
+ * owner and per-user-share comparisons the ACL uses. Anything that is neither
+ * owned nor directly granted reached the caller through the organization.
+ */
+function chatThreadSummarySelect(userEmail: string): {
+  sql: string;
+  args: string[];
+} {
+  const normalizedEmail = normalizeAccessEmail(userEmail);
+  return {
+    sql: `${SUMMARY_COLUMNS}, CASE WHEN LOWER(owner_email) = ? THEN 'owner' WHEN EXISTS (SELECT 1 FROM chat_thread_shares WHERE chat_thread_shares.resource_id = chat_threads.id AND chat_thread_shares.principal_type = 'user' AND LOWER(chat_thread_shares.principal_id) = ?) THEN 'direct' ELSE 'organization' END AS access_basis`,
+    args: [normalizedEmail, normalizedEmail],
+  };
+}
+
+function chatThreadOwnershipSql(
+  userEmail: string,
+  ownership: ChatThreadOwnership | undefined,
+): { sql: string; args: string[] } | null {
+  if (ownership === undefined || ownership === "all") return null;
+  const normalizedEmail = normalizeAccessEmail(userEmail);
+  if (ownership === "mine") {
+    return { sql: `LOWER(owner_email) = ?`, args: [normalizedEmail] };
+  }
+  if (ownership === "shared") {
+    return { sql: `LOWER(owner_email) <> ?`, args: [normalizedEmail] };
+  }
+  throw new Error(`Unknown chat thread ownership: ${String(ownership)}`);
 }
 
 export async function listThreads(
@@ -1223,8 +1297,14 @@ export async function listThreads(
     ownerEmail,
     opts.orgId ?? getRequestOrgId(),
   );
+  const ownershipFilter = chatThreadOwnershipSql(ownerEmail, opts.ownership);
+  const select = chatThreadSummarySelect(ownerEmail);
   const filters: string[] = [access.sql, `message_count > 0`];
-  const args: (string | number)[] = [...access.args];
+  const args: (string | number)[] = [...select.args, ...access.args];
+  if (ownershipFilter) {
+    filters.push(ownershipFilter.sql);
+    args.push(...ownershipFilter.args);
+  }
   if (!opts.includeArchived) {
     filters.push(`archived_at IS NULL`);
   }
@@ -1243,7 +1323,7 @@ export async function listThreads(
   }
   args.push(limit, offset);
   const { rows } = await client.execute({
-    sql: `SELECT ${SUMMARY_COLUMNS} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, updated_at DESC LIMIT ? OFFSET ?`,
+    sql: `SELECT ${select.sql} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, updated_at DESC, id ASC LIMIT ? OFFSET ?`,
     args,
   });
   return rows
@@ -1268,6 +1348,9 @@ export async function searchThreads(
     includeExternal?: boolean;
     /** Current app id used by the local-only view. */
     sourceAppId?: string | null;
+    /** See `ListThreadsOptions.ownership`. */
+    ownership?: ChatThreadOwnership;
+    offset?: number;
   } = {},
 ): Promise<ChatThreadSummary[]> {
   await ensureTable();
@@ -1280,12 +1363,24 @@ export async function searchThreads(
     ownerEmail,
     options.orgId ?? getRequestOrgId(),
   );
+  const ownershipFilter = chatThreadOwnershipSql(ownerEmail, options.ownership);
+  const select = chatThreadSummarySelect(ownerEmail);
   const filters: string[] = [
     access.sql,
     `message_count > 0`,
     `(title LIKE ? ESCAPE '!' OR preview LIKE ? ESCAPE '!' OR thread_data LIKE ? ESCAPE '!')`,
   ];
-  const args: (string | number)[] = [...access.args, pattern, pattern, pattern];
+  const args: (string | number)[] = [
+    ...select.args,
+    ...access.args,
+    pattern,
+    pattern,
+    pattern,
+  ];
+  if (ownershipFilter) {
+    filters.push(ownershipFilter.sql);
+    args.push(...ownershipFilter.args);
+  }
   if (!options.includeArchived) {
     filters.push(`archived_at IS NULL`);
   }
@@ -1300,9 +1395,9 @@ export async function searchThreads(
     filters.push(`scope_type = ? AND scope_id = ?`);
     args.push(options.scope.type, options.scope.id);
   }
-  args.push(limit);
+  args.push(limit, options.offset ?? 0);
   const { rows } = await client.execute({
-    sql: `SELECT ${SUMMARY_COLUMNS} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, updated_at DESC LIMIT ?`,
+    sql: `SELECT ${select.sql} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, updated_at DESC, id ASC LIMIT ? OFFSET ?`,
     args,
   });
   return rows

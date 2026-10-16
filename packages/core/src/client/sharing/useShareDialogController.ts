@@ -4,6 +4,7 @@ import { trackEvent } from "../analytics.js";
 import { useT } from "../i18n.js";
 import {
   extractShareErrorMessage,
+  notifyShareChanged,
   optimisticallyUpdateShareCache,
   rollbackShareCache,
   useShareMutationGuard,
@@ -12,6 +13,10 @@ import {
   useShareQuery,
 } from "./share-controller-helpers.js";
 import type { ShareOrgMember } from "./share-controller-helpers.js";
+import {
+  useShareVisibilityTransition,
+  type ShareVisibilityTransition,
+} from "./useShareVisibilityTransition.js";
 
 export type ShareVisibility = "private" | "org" | "public";
 export type ShareRole = "viewer" | "commenter" | "editor" | "admin";
@@ -110,7 +115,9 @@ export interface ShareDialogController {
     options: Array<ShareOption<ShareVisibility>>;
     disabled: boolean;
     pending: boolean;
+    /** Saves at once, or holds a broadening change for `transition`. */
     set: (visibility: ShareVisibility) => void;
+    transition: ShareVisibilityTransition;
   };
   invite: {
     email: string;
@@ -182,8 +189,24 @@ export function useShareDialogController({
   const [message, setMessage] = useState("");
   const [messageOpen, setMessageOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [visibilityOverride, setVisibilityOverride] =
-    useState<ShareVisibility | null>(null);
+  const resourceKey = `${resourceType}:${resourceId}`;
+  // Tied to the resource it was made for: a click that lands on a new resource
+  // before any effect runs must not see the previous resource's value.
+  const [visibilityOverrideState, setVisibilityOverrideState] = useState<{
+    resourceKey: string;
+    value: ShareVisibility;
+  } | null>(null);
+  const visibilityOverride =
+    visibilityOverrideState?.resourceKey === resourceKey
+      ? visibilityOverrideState.value
+      : null;
+  const clearVisibilityOverride = useCallback(
+    (key: string) =>
+      setVisibilityOverrideState((state) =>
+        state?.resourceKey === key ? null : state,
+      ),
+    [],
+  );
   const [mutationError, setMutationError] = useState<unknown>(null);
   const visibilityGuard = useShareMutationGuard();
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -223,9 +246,8 @@ export function useShareDialogController({
   );
 
   const refetch = useCallback(() => sharesQuery.refetch(), [sharesQuery]);
-  const setVisibility = useCallback(
-    (next: ShareVisibility) => {
-      if (!canManage || next === visibility) return;
+  const applyVisibility = useCallback(
+    async (next: ShareVisibility): Promise<void> => {
       const requestId = visibilityGuard.begin();
       const previous = optimisticallyUpdateShareCache<ResourceSharesResponse>(
         queryClient,
@@ -233,65 +255,86 @@ export function useShareDialogController({
         (cached) => (cached ? { ...cached, visibility: next } : cached),
       );
       setMutationError(null);
-      setVisibilityOverride(next);
-      visibilityMutation.mutate(
-        { resourceType, resourceId, visibility: next } as never,
-        {
-          onSuccess: (result: unknown) => {
-            if (visibilityGuard.isLatest(requestId)) {
-              const resultVisibility =
-                typeof result === "object" &&
-                result !== null &&
-                "visibility" in result &&
-                (result as { visibility?: unknown }).visibility;
-              optimisticallyUpdateShareCache<ResourceSharesResponse>(
-                queryClient,
-                shareQueryKey,
-                (cached) =>
-                  cached
-                    ? {
-                        ...cached,
-                        visibility:
-                          (resultVisibility as ShareVisibility | undefined) ??
-                          next,
-                      }
-                    : cached,
-              );
-            }
-            if (!visibilityGuard.isLatest(requestId)) return;
-            Promise.resolve(refetch())
-              .catch((error) => {
-                if (visibilityGuard.isLatest(requestId)) {
-                  setMutationError(extractShareErrorMessage(error));
-                }
-              })
-              .finally(() => {
-                if (visibilityGuard.isLatest(requestId)) {
-                  setVisibilityOverride(null);
-                }
-              });
-          },
-          onError: (error: unknown) => {
-            if (visibilityGuard.isLatest(requestId)) {
-              rollbackShareCache(queryClient, shareQueryKey, previous);
-              setVisibilityOverride(null);
-              setMutationError(extractShareErrorMessage(error));
-            }
-          },
-        },
+      setVisibilityOverrideState({ resourceKey, value: next });
+      let result: unknown;
+      try {
+        // Settles for this call alone: per-call mutate callbacks are skipped
+        // once a newer call supersedes it or the observer unmounts.
+        result = await visibilityMutation.mutateAsync({
+          resourceType,
+          resourceId,
+          visibility: next,
+        } as never);
+      } catch (error) {
+        // A newer change owns the cache and the override now, but this
+        // write still failed and must not read as saved.
+        if (visibilityGuard.isLatest(requestId)) {
+          rollbackShareCache(queryClient, shareQueryKey, previous);
+          clearVisibilityOverride(resourceKey);
+        }
+        throw error;
+      }
+      notifyShareChanged(resourceType);
+      if (!visibilityGuard.isLatest(requestId)) return;
+      const resultVisibility =
+        typeof result === "object" &&
+        result !== null &&
+        "visibility" in result &&
+        (result as { visibility?: unknown }).visibility;
+      optimisticallyUpdateShareCache<ResourceSharesResponse>(
+        queryClient,
+        shareQueryKey,
+        (cached) =>
+          cached
+            ? {
+                ...cached,
+                visibility:
+                  (resultVisibility as ShareVisibility | undefined) ?? next,
+              }
+            : cached,
       );
+      void Promise.resolve(refetch())
+        .catch((error) => {
+          if (visibilityGuard.isLatest(requestId)) {
+            setMutationError(extractShareErrorMessage(error));
+          }
+        })
+        .finally(() => {
+          if (visibilityGuard.isLatest(requestId)) {
+            clearVisibilityOverride(resourceKey);
+          }
+        });
     },
     [
-      canManage,
       refetch,
       resourceId,
       resourceType,
+      resourceKey,
+      clearVisibilityOverride,
       queryClient,
       shareQueryKey,
-      visibility,
       visibilityGuard,
       visibilityMutation,
     ],
+  );
+  const visibilityTransition = useShareVisibilityTransition({
+    resourceType,
+    resourceId,
+    current: visibility,
+    orgId: data?.orgId ?? null,
+    canManage,
+    active: open,
+    apply: applyVisibility,
+    onDirectError: (error) => setMutationError(extractShareErrorMessage(error)),
+  });
+  const requestVisibility = visibilityTransition.request;
+  // A void setter: callers that return it from a handler must not end up
+  // awaiting a change that may sit waiting for confirmation.
+  const setVisibility = useCallback(
+    (next: ShareVisibility) => {
+      void requestVisibility(next);
+    },
+    [requestVisibility],
   );
   const submitInvite = useCallback(() => {
     const principalId = email.trim();
@@ -323,6 +366,7 @@ export function useShareDialogController({
       } as never,
       {
         onSuccess: () => {
+          notifyShareChanged(resourceType);
           setEmail("");
           setMessage("");
           setMessageOpen(false);
@@ -377,7 +421,10 @@ export function useShareDialogController({
           principalId: share.principalId,
         } as never,
         {
-          onSuccess: refetch,
+          onSuccess: () => {
+            notifyShareChanged(resourceType);
+            return refetch();
+          },
           onError: (error: unknown) => {
             rollbackShareCache(queryClient, shareQueryKey, previous);
             setMutationError(extractShareErrorMessage(error));
@@ -470,6 +517,7 @@ export function useShareDialogController({
       disabled: !canManage,
       pending: visibilityMutation.isPending,
       set: setVisibility,
+      transition: visibilityTransition,
     },
     invite: {
       email,

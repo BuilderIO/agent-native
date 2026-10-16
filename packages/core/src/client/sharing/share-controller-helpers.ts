@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
+import { notifyChatThreadsUpdated } from "../use-chat-threads.js";
 
 export interface ShareQueryParams {
   resourceType: string;
@@ -82,6 +83,15 @@ export function useShareMutations() {
     share: useActionMutation("share-resource"),
     unshare: useActionMutation("unshare-resource"),
   };
+}
+
+/**
+ * Chat history lists are cached outside the share query, so a saved grant or
+ * visibility change must tell them to refetch. Other resource types have no
+ * such list to refresh.
+ */
+export function notifyShareChanged(resourceType: string): void {
+  if (resourceType === "chat_thread") notifyChatThreadsUpdated();
 }
 
 export function optimisticallyUpdateShareCache<TData>(

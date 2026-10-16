@@ -5,6 +5,7 @@ import {
   DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
   DEFAULT_MEMBER_SUGGESTION_LIMIT,
   extractShareErrorMessage,
+  notifyShareChanged,
   optimisticallyUpdateShareCache,
   rollbackShareCache,
   useShareOrgMemberSearch,
@@ -12,6 +13,10 @@ import {
   useShareMutations,
   useShareQuery,
 } from "./share-controller-helpers.js";
+import {
+  useShareVisibilityTransition,
+  type ShareVisibilityTransition,
+} from "./useShareVisibilityTransition.js";
 
 export type ShareButtonVisibility = "private" | "org" | "public";
 export type ShareButtonRole = "viewer" | "commenter" | "editor" | "admin";
@@ -89,7 +94,18 @@ export interface ShareButtonController {
   setInviteEmail: (email: string) => void;
   sharesQuery: ReturnType<typeof useActionQuery<ShareButtonSharesResponse>>;
   visibilityOverride: ShareButtonVisibility | null;
+  /**
+   * @deprecated Use `visibilityTransition.request`, which this calls. It
+   * resolves only once the change is persisted. A direct change rejects when
+   * its save fails. A private-to-Organization change stays pending through
+   * `visibilityTransition.confirm()` failures (retry is possible) and rejects
+   * with `ShareVisibilityNotSavedError` once it is cancelled or invalidated.
+   * Without manage rights it
+   * sets `shareError` and resolves, as it always has.
+   */
   handleVisibilityChange: (visibility: ShareButtonVisibility) => Promise<void>;
+  /** Request, confirm and cancel a visibility change that needs confirming. */
+  visibilityTransition: ShareVisibilityTransition;
   data: ShareButtonSharesResponse | undefined;
   policy: {
     allowPublic: boolean;
@@ -136,9 +152,26 @@ export function useShareButtonController(
   );
   const shareTabDefaultValue = options.shareTabs?.defaultValue ?? "share";
   const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
-  const [visibilityOverride, setVisibilityOverride] =
-    useState<ShareButtonVisibility | null>(null);
+  const resourceKey = `${options.resourceType}:${options.resourceId}`;
+  // Tied to the resource it was made for: a click that lands on a new resource
+  // before any effect runs must not see the previous resource's value.
+  const [visibilityOverrideState, setVisibilityOverrideState] = useState<{
+    resourceKey: string;
+    value: ShareButtonVisibility;
+  } | null>(null);
+  const visibilityOverride =
+    visibilityOverrideState?.resourceKey === resourceKey
+      ? visibilityOverrideState.value
+      : null;
+  const clearVisibilityOverride = useCallback(
+    (key: string) =>
+      setVisibilityOverrideState((state) =>
+        state?.resourceKey === key ? null : state,
+      ),
+    [],
+  );
   const visibilitySequenceStartRef = useRef<{
+    resourceKey: string;
     visibility: ShareButtonVisibility;
     shares: ShareButtonSharesResponse | undefined;
   } | null>(null);
@@ -197,11 +230,11 @@ export function useShareButtonController(
     [options.shareTabs],
   );
 
-  const handleVisibilityChange = useCallback(
-    (next: ShareButtonVisibility): Promise<void> => {
+  const applyVisibility = useCallback(
+    async (next: ShareButtonVisibility): Promise<void> => {
       if (!canManage) {
         setShareError("Only owners and admins can change access.");
-        return Promise.resolve();
+        return;
       }
       const requestId = visibilityGuard.begin();
       const previous =
@@ -210,73 +243,79 @@ export function useShareButtonController(
           shareQueryKey,
           (prev) => (prev ? { ...prev, visibility: next } : prev),
         );
-      visibilitySequenceStartRef.current ??= { visibility, shares: previous };
-      setVisibilityOverride(next);
-      return new Promise((resolve, reject) => {
-        setVisibility.mutate(
-          {
-            resourceType: options.resourceType,
-            resourceId: options.resourceId,
-            visibility: next,
-          } as never,
-          {
-            onSuccess: (result: unknown) => {
-              const resultVisibility =
-                typeof result === "object" &&
-                result !== null &&
-                "visibility" in result &&
-                (result as { visibility?: unknown }).visibility;
-              if (visibilityGuard.isLatest(requestId)) {
-                if (
-                  visibilitySequenceStartRef.current?.visibility ===
-                    "private" &&
-                  (resultVisibility === "org" || resultVisibility === "public")
-                ) {
-                  options.onShareSuccess?.();
+      if (visibilitySequenceStartRef.current?.resourceKey !== resourceKey) {
+        visibilitySequenceStartRef.current = {
+          resourceKey,
+          visibility,
+          shares: previous,
+        };
+      }
+      setVisibilityOverrideState({ resourceKey, value: next });
+      let result: unknown;
+      try {
+        // Settles for this call alone: per-call mutate callbacks are skipped
+        // once a newer call supersedes it or the observer unmounts.
+        result = await setVisibility.mutateAsync({
+          resourceType: options.resourceType,
+          resourceId: options.resourceId,
+          visibility: next,
+        } as never);
+      } catch (error) {
+        if (visibilityGuard.isLatest(requestId)) {
+          const sequenceStart =
+            visibilitySequenceStartRef.current?.resourceKey === resourceKey
+              ? visibilitySequenceStartRef.current
+              : null;
+          clearVisibilityOverride(resourceKey);
+          if (sequenceStart) visibilitySequenceStartRef.current = null;
+          rollbackShareCache(
+            queryClient,
+            shareQueryKey,
+            sequenceStart ? sequenceStart.shares : previous,
+          );
+          void sharesQuery.refetch();
+        }
+        throw error;
+      }
+      notifyShareChanged(options.resourceType);
+      const resultVisibility =
+        typeof result === "object" &&
+        result !== null &&
+        "visibility" in result &&
+        (result as { visibility?: unknown }).visibility;
+      if (visibilityGuard.isLatest(requestId)) {
+        const sequenceStart = visibilitySequenceStartRef.current;
+        if (
+          sequenceStart?.resourceKey === resourceKey &&
+          sequenceStart.visibility === "private" &&
+          (resultVisibility === "org" || resultVisibility === "public")
+        ) {
+          options.onShareSuccess?.();
+        }
+        optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+          queryClient,
+          shareQueryKey,
+          (prev) =>
+            prev
+              ? {
+                  ...prev,
+                  visibility:
+                    (resultVisibility as ShareButtonVisibility | undefined) ??
+                    next,
                 }
-                optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
-                  queryClient,
-                  shareQueryKey,
-                  (prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          visibility:
-                            (resultVisibility as
-                              | ShareButtonVisibility
-                              | undefined) ?? next,
-                        }
-                      : prev,
-                );
-              }
-              sharesQuery
-                .refetch()
-                .then(() => resolve())
-                .catch(reject)
-                .finally(() => {
-                  if (visibilityGuard.isLatest(requestId)) {
-                    setVisibilityOverride(null);
-                    visibilitySequenceStartRef.current = null;
-                  }
-                });
-            },
-            onError: (error) => {
-              if (visibilityGuard.isLatest(requestId)) {
-                const sequenceStart = visibilitySequenceStartRef.current;
-                setVisibilityOverride(null);
-                visibilitySequenceStartRef.current = null;
-                rollbackShareCache(
-                  queryClient,
-                  shareQueryKey,
-                  sequenceStart ? sequenceStart.shares : previous,
-                );
-                void sharesQuery.refetch();
-              }
-              reject(error);
-            },
-          },
+              : prev,
         );
-      });
+      }
+      try {
+        await sharesQuery.refetch();
+      } finally {
+        if (visibilityGuard.isLatest(requestId)) {
+          clearVisibilityOverride(resourceKey);
+          if (visibilitySequenceStartRef.current?.resourceKey === resourceKey) {
+            visibilitySequenceStartRef.current = null;
+          }
+        }
+      }
     },
     [
       options.resourceId,
@@ -289,6 +328,8 @@ export function useShareButtonController(
       visibilityGuard,
       options.onShareSuccess,
       visibility,
+      resourceKey,
+      clearVisibilityOverride,
     ],
   );
 
@@ -392,6 +433,18 @@ export function useShareButtonController(
     setInviteEmail(group.name);
   }, []);
 
+  const visibilityTransition = useShareVisibilityTransition({
+    resourceType: options.resourceType,
+    resourceId: options.resourceId,
+    current: visibility,
+    orgId: data?.orgId ?? null,
+    canManage,
+    active: open,
+    apply: applyVisibility,
+    onDirectError: (error) => setShareError(extractShareErrorMessage(error)),
+  });
+  const requestVisibility = visibilityTransition.request;
+
   const handleVisibility = useCallback(
     (next: ShareButtonVisibility) => {
       if (next === visibility) return;
@@ -400,11 +453,20 @@ export function useShareButtonController(
         return;
       }
       setShareError(null);
-      void handleVisibilityChange(next).catch((error) => {
-        setShareError(extractShareErrorMessage(error));
-      });
+      void requestVisibility(next);
     },
-    [canManage, handleVisibilityChange, visibility],
+    [canManage, requestVisibility, visibility],
+  );
+  const handleVisibilityChange = useCallback(
+    (next: ShareButtonVisibility): Promise<void> => {
+      if (!canManage) {
+        setShareError("Only owners and admins can change access.");
+        return Promise.resolve();
+      }
+      setShareError(null);
+      return requestVisibility(next);
+    },
+    [canManage, requestVisibility],
   );
 
   const handleHideInSearch = useCallback(() => {
@@ -463,6 +525,7 @@ export function useShareButtonController(
       } as never,
       {
         onSuccess: (result: unknown) => {
+          notifyShareChanged(options.resourceType);
           if (
             !(
               typeof result === "object" &&
@@ -549,6 +612,7 @@ export function useShareButtonController(
         } as never,
         {
           onSuccess: () => {
+            notifyShareChanged(options.resourceType);
             void sharesQuery.refetch().then(() => {
               setRoleOverrides((previous) => {
                 const { [key]: _removed, ...rest } = previous;
@@ -613,6 +677,7 @@ export function useShareButtonController(
         } as never,
         {
           onSuccess: () => {
+            notifyShareChanged(options.resourceType);
             void sharesQuery.refetch().then(() => {
               setPendingRemoves((previous) => {
                 const next = new Set(previous);
@@ -658,6 +723,7 @@ export function useShareButtonController(
     sharesQuery,
     visibilityOverride,
     handleVisibilityChange,
+    visibilityTransition,
     data,
     policy,
     visibility,

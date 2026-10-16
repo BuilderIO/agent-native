@@ -124,6 +124,8 @@ description: "框架內建了熟悉且一致的共享方式。使用者建立的
 - 包含角色選取器和刪除控制項的目前授權清單。
 - 尊重目前可見性的複製連結按鈕。
 
+將資源從 `Private` 改為 `Organization` 時會先要求確認。確認之前不會有任何變更。取消或按 Escape 會保留目前的存取權。如果儲存失敗，對話方塊會顯示錯誤，使用者可以重試。其他可見性變更會立即儲存。確認只存在於共用 UI 中。`set-resource-visibility` 維持不變，因此代理和其他呼叫端仍然直接變更可見性，資源的共用政策仍然決定允許什麼。
+
 共用按鈕是一次匯入：
 
 ```tsx
@@ -136,6 +138,36 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
 ```
 
 對於清單，請在每行旁邊放置一個 `<VisibilityBadge visibility={row.visibility} />`，以便使用者可以一目了然地了解哪些是私人的，哪些是共用的。
+
+## 共用聊天 {#shared-chats}
+
+代理聊天執行緒使用相同的模型。新建或分岔的聊天僅對其擁有者私有，共用聊天遵循上述規則。
+
+歷史清單中的每個聊天都帶有兩個欄位，讓一列能顯示聊天屬於誰，以及你為什麼能看到它：
+
+| 欄位          | 值                                                                                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------- |
+| `ownerEmail`  | 聊天的擁有者。                                                                                             |
+| `accessBasis` | `owner`、`direct`（以你的名義授予的權限）或 `organization`。兩者都適用時，`direct` 優先於 `organization`。 |
+
+歷史清單和搜尋接受 `ownership` 篩選器：
+
+- `all`（預設）列出你可以存取的所有聊天。
+- `mine` 列出你擁有的聊天，即使它們已與組織共用。
+- `shared` 列出你可以存取但歸他人所有的聊天。
+
+伺服器在分頁之前套用 `ownership`，因此 `limit`、`offset` 和 `hasMore` 描述的是篩選後的清單。搜尋接受相同的篩選器。未知值會被 400 拒絕，而不是回退到 `all`。存取規則不變，列出時從不載入對話紀錄。
+
+在用戶端程式碼中，`@agent-native/core/client` 的 `useChatThreadList()` 一次對一個清單分頁：
+
+```tsx
+import { useChatThreadList } from "@agent-native/core/client";
+
+const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
+// shared.threads, shared.hasMore, shared.loadMore(), shared.error
+```
+
+請求失敗會設定 `error`，並保留已載入的列。它不會看起來像空清單。`<ShareButton>` 和 `<ShareDialog>` 會在儲存後重新整理已掛載的聊天清單。如果你以其他方式變更了聊天的共用，請呼叫 `notifyChatThreadsUpdated()`，讓已掛載的清單重新擷取。
 
 ## 與 UI 相同型號、代理 {#agent-and-ui}
 

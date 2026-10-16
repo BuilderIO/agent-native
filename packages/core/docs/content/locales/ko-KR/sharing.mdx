@@ -124,6 +124,8 @@ description: "프레임워크에 내장된 익숙하고 일관된 공유 기능�
 - 역할 선택기와 제거 컨트롤이 포함된 현재 부여 목록입니다.
 - 현재 표시 여부를 고려하는 링크 복사 버튼입니다.
 
+리소스를 `Private`에서 `Organization`으로 바꾸면 먼저 확인을 요청합니다. 확인하기 전에는 아무것도 바뀌지 않습니다. 취소 또는 Escape를 누르면 현재 액세스가 유지됩니다. 저장에 실패하면 대화 상자에 오류가 표시되고 다시 시도할 수 있습니다. 그 외의 가시성 변경은 바로 저장됩니다. 확인은 공유 UI에만 있습니다. `set-resource-visibility`는 바뀌지 않으므로 에이전트와 다른 호출자는 계속 가시성을 직접 변경할 수 있고, 무엇이 허용되는지는 여전히 리소스의 공유 정책이 결정합니다.
+
 공유 버튼은 단일 가져오기입니다:
 
 ```tsx
@@ -136,6 +138,36 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
 ```
 
 목록의 경우 각 행 옆에 `<VisibilityBadge visibility={row.visibility} />`를 배치하면 사용자가 무엇이 비공개인지 공유인지 한눈에 확인할 수 있습니다.
+
+## 공유된 채팅 {#shared-chats}
+
+에이전트 채팅 스레드도 같은 모델을 사용합니다. 새 채팅이나 분기한 채팅은 소유자에게만 비공개이며, 채팅 공유는 위의 규칙을 따릅니다.
+
+기록 목록의 각 채팅에는 두 개의 필드가 있어서 행에 누구의 채팅인지와 내가 볼 수 있는 이유를 표시할 수 있습니다.
+
+| 필드          | 값                                                                                                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `ownerEmail`  | 채팅의 소유자입니다.                                                                                                             |
+| `accessBasis` | `owner`, `direct`(이름으로 직접 부여된 권한) 또는 `organization`입니다. 둘 다 해당하면 `direct`가 `organization`보다 우선합니다. |
+
+기록 목록과 검색은 `ownership` 필터를 받습니다.
+
+- `all`(기본값)은 액세스할 수 있는 모든 채팅을 나열합니다.
+- `mine`은 조직과 공유된 경우를 포함해 내가 소유한 채팅을 나열합니다.
+- `shared`는 액세스할 수 있고 다른 사람이 소유한 채팅을 나열합니다.
+
+서버는 페이지 매김 전에 `ownership`을 적용하므로 `limit`, `offset`, `hasMore`는 필터링된 목록을 설명합니다. 검색도 같은 필터를 받습니다. 알 수 없는 값은 `all`로 대체되지 않고 400으로 거부됩니다. 액세스 규칙은 바뀌지 않으며 목록을 불러올 때 대화 내용은 로드되지 않습니다.
+
+클라이언트 코드에서 `@agent-native/core/client`의 `useChatThreadList()`는 한 번에 하나의 목록을 페이지 단위로 가져옵니다.
+
+```tsx
+import { useChatThreadList } from "@agent-native/core/client";
+
+const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
+// shared.threads, shared.hasMore, shared.loadMore(), shared.error
+```
+
+요청이 실패하면 `error`가 설정되고 이미 로드된 행은 유지됩니다. 빈 목록처럼 보이지 않습니다. `<ShareButton>`과 `<ShareDialog>`는 저장 후 마운트된 채팅 목록을 새로 고칩니다. 다른 방법으로 채팅의 공유를 변경했다면 `notifyChatThreadsUpdated()`를 호출하여 마운트된 목록이 다시 불러오게 하세요.
 
 ## 동일 모델, 에이전트 및 UI {#agent-and-ui}
 
