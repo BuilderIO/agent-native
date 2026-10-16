@@ -1810,6 +1810,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       name: "analytics-bi-migration-external-dashboards",
       sql: EXTERNAL_DASHBOARD_MIGRATION_SQL.join(";\n"),
     },
+    {
+      version: 170,
+      name: "dashboard-revisions-change-summary",
+      sql: `ALTER TABLE dashboard_revisions ADD COLUMN IF NOT EXISTS change_summary TEXT`,
+    },
   ],
   { table: "analytics_migrations" },
 );
