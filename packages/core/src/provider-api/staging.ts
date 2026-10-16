@@ -32,7 +32,7 @@ import {
   deriveColumns,
   legacyStagedDatasetId,
   stagedDatasetId,
-  MAX_ROWS_PER_APP,
+  MAX_ROWS_PER_OWNER,
 } from "./staged-datasets-store.js";
 
 export type ItemsPath =
@@ -342,9 +342,9 @@ export async function stagingExecuteRequest(
     );
     allRows = allRows.concat(typedRows);
 
-    if (allRows.length >= MAX_ROWS_PER_APP) {
+    if (allRows.length >= MAX_ROWS_PER_OWNER) {
       truncated = true;
-      allRows = allRows.slice(0, MAX_ROWS_PER_APP);
+      allRows = allRows.slice(0, MAX_ROWS_PER_OWNER);
       break;
     }
 

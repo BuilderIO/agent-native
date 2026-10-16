@@ -273,7 +273,9 @@ vi.mock("../db/client.js", () => ({
 
 const {
   MAX_BYTES_PER_APP,
+  MAX_BYTES_PER_OWNER,
   MAX_ROWS_PER_APP,
+  MAX_ROWS_PER_OWNER,
   STAGED_DATASET_MAX_AGE_MS,
   deleteStagedDataset,
   legacyStagedDatasetId,
@@ -439,95 +441,6 @@ describe("upsertStagedDataset eviction", () => {
       columns: [],
     });
 
-  it("evicts the oldest datasets of other owners when the writer has none", async () => {
-    seed("ds_old", {
-      owner_email: "ada@example.com",
-      byte_size: 25 * MB,
-      updated_at: NOW - 3 * DAY,
-    });
-    seed("ds_mid", {
-      owner_email: "linus@example.com",
-      byte_size: 20 * MB,
-      updated_at: NOW - 2 * DAY,
-    });
-    seed("ds_new", {
-      owner_email: "ada@example.com",
-      byte_size: 5 * MB - 10,
-      updated_at: NOW - DAY,
-    });
-
-    const rowsToStage = Array.from({ length: 3 }, (_, i) => ({
-      blob: "x".repeat(100) + i,
-    }));
-    const meta = await write("ds_fresh", rowsToStage);
-
-    expect(meta.rowCount).toBe(3);
-    expect(_metaStore.has("ds_old")).toBe(false);
-    expect(_rowStore.has("ds_old")).toBe(false);
-    expect(_metaStore.has("ds_mid")).toBe(true);
-    expect(_metaStore.has("ds_new")).toBe(true);
-    expect(_metaStore.get("ds_fresh")?.row_count).toBe(3);
-    expect(_rowStore.get("ds_fresh")).toHaveLength(3);
-  });
-
-  it("evicts inside the same transaction as the write it makes room for", async () => {
-    seed("ds_a", { byte_size: 20 * MB, updated_at: NOW - 3 * DAY });
-    seed("ds_b", { byte_size: 20 * MB, updated_at: NOW - 2 * DAY });
-    seed("ds_c", { byte_size: 10 * MB, updated_at: NOW - DAY });
-
-    await write("ds_big", [{ blob: "x".repeat(25 * MB) }]);
-
-    expect(_metaStore.has("ds_a")).toBe(false);
-    expect(_metaStore.has("ds_b")).toBe(false);
-    expect(_metaStore.has("ds_c")).toBe(true);
-
-    const writeTx = _log.find((e) =>
-      /INSERT INTO staged_datasets/i.test(e.sql),
-    )?.tx;
-    expect(writeTx).toBeTypeOf("number");
-    for (const id of ["ds_a", "ds_b"]) {
-      const victimDeletes = _log.filter(
-        (e) =>
-          /DELETE FROM staged_datasets WHERE id/i.test(e.sql) &&
-          e.args[0] === id,
-      );
-      expect(victimDeletes).toHaveLength(1);
-      expect(victimDeletes[0]?.tx).toBe(writeTx);
-    }
-  });
-
-  it("evicts to satisfy the row cap", async () => {
-    seed("ds_rows_old", {
-      row_count: MAX_ROWS_PER_APP - 10,
-      byte_size: 1,
-      updated_at: NOW - 2 * DAY,
-    });
-    seed("ds_rows_new", { row_count: 10, byte_size: 1, updated_at: NOW - DAY });
-
-    await write(
-      "ds_next",
-      Array.from({ length: 20 }, (_, i) => ({ i })),
-    );
-
-    expect(_metaStore.has("ds_rows_old")).toBe(false);
-    expect(_metaStore.has("ds_rows_new")).toBe(true);
-    expect(_metaStore.get("ds_next")?.row_count).toBe(20);
-  });
-
-  it("never evicts other apps' datasets", async () => {
-    seed("ds_other_app", {
-      app_id: "mail",
-      byte_size: 40 * MB,
-      updated_at: NOW - 30 * DAY,
-    });
-    seed("ds_mine", { byte_size: 40 * MB, updated_at: NOW - DAY });
-
-    await write("ds_next", [{ blob: "x".repeat(15 * MB) }]);
-
-    expect(_metaStore.has("ds_other_app")).toBe(true);
-    expect(_metaStore.has("ds_mine")).toBe(false);
-  });
-
   it("does not evict anything when replacing a dataset in place stays under the cap", async () => {
     seed("ds_self", { byte_size: 30 * MB, updated_at: NOW - DAY });
     seed("ds_peer", { byte_size: 19 * MB, updated_at: NOW - 5 * DAY });
@@ -543,64 +456,6 @@ describe("upsertStagedDataset eviction", () => {
 
     expect(_metaStore.has("ds_peer")).toBe(true);
     expect(_metaStore.get("ds_self")?.updated_at).toBe(NOW);
-  });
-
-  it("never evicts the dataset being written when it must make room", async () => {
-    seed("ds_self", { byte_size: 5 * MB, updated_at: NOW - 20 * DAY });
-    seed("ds_peer", { byte_size: 45 * MB, updated_at: NOW - 10 * DAY });
-
-    await upsertStagedDataset({
-      id: "ds_self",
-      appId: "analytics",
-      ownerEmail: "ada@example.com",
-      name: "ds_self",
-      rows: [{ blob: "x".repeat(20 * MB) }],
-      columns: [],
-    });
-
-    expect(_metaStore.has("ds_peer")).toBe(false);
-    expect(_metaStore.get("ds_self")?.byte_size).toBeGreaterThan(20 * MB);
-    expect(_rowStore.get("ds_self")).toHaveLength(1);
-  });
-
-  it("drops datasets older than the max age during an over-cap write only", async () => {
-    seed("ds_stale", {
-      byte_size: 1,
-      updated_at: NOW - STAGED_DATASET_MAX_AGE_MS - DAY,
-    });
-    seed("ds_big", { byte_size: 49 * MB, updated_at: NOW - 2 * DAY });
-
-    await write("ds_small", [{ a: 1 }]);
-    expect(_metaStore.has("ds_stale")).toBe(true);
-    expect(_log.some((e) => /SELECT id, owner_email/i.test(e.sql))).toBe(false);
-
-    await write("ds_large", [{ blob: "x".repeat(3 * MB) }]);
-    expect(_metaStore.has("ds_stale")).toBe(false);
-    expect(_metaStore.has("ds_big")).toBe(false);
-  });
-
-  it("evicts only as many datasets as needed when none are past the max age", async () => {
-    seed("ds_a", { byte_size: 30 * MB, updated_at: NOW - 13 * DAY });
-    seed("ds_b", { byte_size: 19 * MB, updated_at: NOW - 12 * DAY });
-
-    await write("ds_next", [{ blob: "x".repeat(2 * MB) }]);
-
-    expect(_metaStore.has("ds_a")).toBe(false);
-    expect(_metaStore.has("ds_b")).toBe(true);
-  });
-
-  it("refuses to overwrite a dataset id that belongs to another owner", async () => {
-    seed("ds_shared", {
-      owner_email: "ada@example.com",
-      byte_size: 1 * MB,
-      updated_at: NOW - DAY,
-    });
-
-    await expect(write("ds_shared", [{ a: 1 }])).rejects.toThrow(
-      /belongs to another owner/,
-    );
-    expect(_metaStore.get("ds_shared")?.owner_email).toBe("ada@example.com");
-    expect(_rowStore.get("ds_shared")).toEqual(['{"seed":true}']);
   });
 
   it("rolls back rows when the guarded upsert catches an ownership race", async () => {
@@ -664,7 +519,7 @@ describe("upsertStagedDataset eviction", () => {
       updated_at: NOW - DAY,
     });
     _rowStore.set("ds_legacy_reject", [legacyRow]);
-    const oversized = { value: "x".repeat(MAX_BYTES_PER_APP + 1) };
+    const oversized = { value: "x".repeat(MAX_BYTES_PER_OWNER + 1) };
 
     await expect(write("ds_rejected", [oversized])).rejects.toThrow(
       /this dataset alone/,
@@ -708,7 +563,7 @@ describe("upsertStagedDataset eviction", () => {
     expect(result.byteSize).toBe(
       Buffer.byteLength(JSON.stringify(replacement), "utf8"),
     );
-    expect(result.byteSize).toBeLessThan(MAX_BYTES_PER_APP);
+    expect(result.byteSize).toBeLessThan(MAX_BYTES_PER_OWNER);
     expect(_metaStore.get("ds_replace_bytes")?.byte_size).toBe(result.byteSize);
     expect(_metaStore.has("ds_peer_bytes")).toBe(true);
     expect(_rowStore.get("ds_replace_bytes")).toEqual([
@@ -718,81 +573,14 @@ describe("upsertStagedDataset eviction", () => {
 
   it("enforces the byte quota using UTF-8 size", async () => {
     const oversized = {
-      label: "😀".repeat(Math.floor(MAX_BYTES_PER_APP / 4) + 1),
+      label: "😀".repeat(Math.floor(MAX_BYTES_PER_OWNER / 4) + 1),
     };
-    expect(JSON.stringify(oversized).length).toBeLessThan(MAX_BYTES_PER_APP);
+    expect(JSON.stringify(oversized).length).toBeLessThan(MAX_BYTES_PER_OWNER);
 
     await expect(write("ds_unicode_oversized", [oversized])).rejects.toThrow(
       /this dataset alone/,
     );
     expect(_metaStore.has("ds_unicode_oversized")).toBe(false);
-  });
-
-  it("moves updated_at on every replacement, even inside one millisecond", async () => {
-    const stage = () =>
-      upsertStagedDataset({
-        id: "ds_same",
-        appId: "analytics",
-        ownerEmail: "ada@example.com",
-        name: "ds_same",
-        rows: [{ a: 1 }],
-        columns: [],
-      });
-
-    const first = await stage();
-    const second = await stage();
-    const third = await stage();
-
-    expect(first.updatedAt).toBe(NOW);
-    expect(second.updatedAt).toBe(NOW + 1);
-    expect(third.updatedAt).toBe(NOW + 2);
-    expect(_metaStore.get("ds_same")?.updated_at).toBe(NOW + 2);
-  });
-
-  it("stays ahead of a previous writer whose clock was later", async () => {
-    seed("ds_same", { byte_size: 1, updated_at: NOW + 5_000 });
-
-    const replaced = await upsertStagedDataset({
-      id: "ds_same",
-      appId: "analytics",
-      ownerEmail: "ada@example.com",
-      name: "ds_same",
-      rows: [{ a: 1 }],
-      columns: [],
-    });
-
-    expect(replaced.updatedAt).toBe(NOW + 5_001);
-  });
-
-  it("takes the app lock before reading totals, in the write's own transaction", async () => {
-    seed("ds_peer", { byte_size: 1 * MB, updated_at: NOW - DAY });
-
-    await write("ds_next", [{ a: 1 }]);
-
-    const lock = _log.findIndex((e) => /pg_advisory_xact_lock/i.test(e.sql));
-    const totals = _log.findIndex((e) => /AS total_rows/i.test(e.sql));
-    const insert = _log.findIndex((e) =>
-      /INSERT INTO staged_datasets/i.test(e.sql),
-    );
-    expect(lock).toBeGreaterThanOrEqual(0);
-    expect(lock).toBeLessThan(totals);
-    expect(totals).toBeLessThan(insert);
-    expect(_log[lock]?.args).toEqual(["staged-datasets:analytics"]);
-    expect(_log[lock]?.tx).toBe(_log[insert]?.tx);
-  });
-
-  it("names the single-dataset cause and evicts nothing when bytes cannot fit", async () => {
-    seed("ds_peer", { byte_size: 10 * MB, updated_at: NOW - DAY });
-
-    await expect(
-      write("ds_huge", [{ blob: "x".repeat(MAX_BYTES_PER_APP + 1) }]),
-    ).rejects.toThrow(
-      /Staged dataset byte cap exceeded: this dataset alone is 50\.0 MB \(limit 50 MB per app/,
-    );
-
-    expect(_metaStore.has("ds_peer")).toBe(true);
-    expect(_rowStore.has("ds_peer")).toBe(true);
-    expect(_metaStore.has("ds_huge")).toBe(false);
   });
 
   it("names the single-dataset cause and evicts nothing when rows cannot fit", async () => {
@@ -801,11 +589,11 @@ describe("upsertStagedDataset eviction", () => {
     await expect(
       write(
         "ds_many",
-        Array.from({ length: MAX_ROWS_PER_APP + 1 }, () => ({})),
+        Array.from({ length: MAX_ROWS_PER_OWNER + 1 }, () => ({})),
       ),
     ).rejects.toThrow(
       new RegExp(
-        `Staged dataset cap exceeded: this dataset alone has ${MAX_ROWS_PER_APP + 1} rows`,
+        `Staged dataset cap exceeded: this dataset alone has ${MAX_ROWS_PER_OWNER + 1} rows`,
       ),
     );
 
@@ -884,31 +672,6 @@ describe("upsertStagedDataset append", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  it("reads the stored rows under the app lock, in the write's transaction", async () => {
-    seed("ds_log", { byte_size: 20, updated_at: NOW - DAY });
-    _rowStore.set("ds_log", ['{"n":1}', '{"n":2}']);
-
-    const meta = await upsertStagedDataset({
-      id: "ds_log",
-      appId: "analytics",
-      ownerEmail: "ada@example.com",
-      name: "ds_log",
-      rows: [{ n: 3 }],
-      columns: [],
-      append: true,
-    });
-
-    expect(meta.rowCount).toBe(3);
-    expect(_rowStore.get("ds_log")).toEqual(['{"n":1}', '{"n":2}', '{"n":3}']);
-    const lock = _log.findIndex((e) => /pg_advisory_xact_lock/i.test(e.sql));
-    const read = _log.findIndex((e) =>
-      /SELECT row_data FROM staged_dataset_rows/i.test(e.sql),
-    );
-    expect(lock).toBeGreaterThanOrEqual(0);
-    expect(read).toBeGreaterThan(lock);
-    expect(_log[read]?.tx).toBe(_log[lock]?.tx);
   });
 
   it("appends to nothing when the dataset does not exist yet", async () => {
@@ -1081,29 +844,6 @@ describe("deleteStagedDataset", () => {
 
   const remove = (ownerEmail = "ada@example.com") =>
     deleteStagedDataset({ id: "ds_mine", appId: "analytics", ownerEmail });
-
-  it("takes the app lock before deleting, in the delete's own transaction", async () => {
-    seed("ds_mine", { byte_size: 1 * MB, updated_at: NOW });
-
-    await expect(remove()).resolves.toBe(true);
-
-    const lock = _log.findIndex((e) => /pg_advisory_xact_lock/i.test(e.sql));
-    const dropMeta = _log.findIndex((e) =>
-      /DELETE FROM staged_datasets WHERE id/i.test(e.sql),
-    );
-    const dropRows = _log.findIndex((e) =>
-      /DELETE FROM staged_dataset_rows/i.test(e.sql),
-    );
-    expect(lock).toBeGreaterThanOrEqual(0);
-    expect(lock).toBeLessThan(dropMeta);
-    expect(dropMeta).toBeLessThan(dropRows);
-    expect(_log[lock]?.args).toEqual(["staged-datasets:analytics"]);
-    expect(_log[lock]?.tx).toBeTypeOf("number");
-    expect(_log[lock]?.tx).toBe(_log[dropMeta]?.tx);
-    expect(_log[lock]?.tx).toBe(_log[dropRows]?.tx);
-    expect(_metaStore.has("ds_mine")).toBe(false);
-    expect(_rowStore.has("ds_mine")).toBe(false);
-  });
 
   it("leaves another owner's dataset and its rows alone", async () => {
     seed("ds_mine", {

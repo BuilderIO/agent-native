@@ -497,6 +497,10 @@
     {
       "name": "indexes",
       "checksum": null
+    },
+    {
+      "name": "removed-markers",
+      "checksum": null
     }
   ],
   "sync_events": [

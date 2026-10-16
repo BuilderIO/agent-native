@@ -213,7 +213,7 @@ const { stagingExecuteRequest } = await import("./staging.js");
 const {
   upsertStagedDataset,
   getStagedDatasetRows,
-  MAX_ROWS_PER_APP,
+  MAX_ROWS_PER_OWNER,
   _resetInitPromiseForTests,
 } = await import("./staged-datasets-store.js");
 const { createProviderApiRuntime } = await import("./index.js");
@@ -309,14 +309,14 @@ describe("staging caps", () => {
     _resetInitPromiseForTests();
   });
 
-  it("rejects a single dataset larger than MAX_ROWS_PER_APP and names that cause", async () => {
+  it("rejects a single dataset larger than MAX_ROWS_PER_OWNER and names that cause", async () => {
     await expect(
       upsertStagedDataset({
         id: "ds_huge",
         appId: "cappedapp",
         ownerEmail: "ada@example.com",
         name: "huge",
-        rows: Array.from({ length: MAX_ROWS_PER_APP + 1 }, (_, i) => ({
+        rows: Array.from({ length: MAX_ROWS_PER_OWNER + 1 }, (_, i) => ({
           id: i,
         })),
         columns: ["id"],
