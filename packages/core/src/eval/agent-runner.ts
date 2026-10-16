@@ -466,7 +466,7 @@ async function runProductionChatPath(args: {
       };
     }
     const output = result.output;
-    const usage = output.usage ?? partialUsage;
+    const usage = normalizeProductionPathUsage(output.usage) ?? partialUsage;
     if (!usage) {
       return failedProductionPathOutput(
         output,
@@ -516,33 +516,134 @@ function productionAdapterErrorDetails(error: unknown): {
   errorType: string;
   statusCode?: number;
 } {
-  if (!(error instanceof Error)) {
-    return { errorType: error === null ? "null" : typeof error };
+  try {
+    if (!(error instanceof Error)) {
+      return { errorType: error === null ? "null" : typeof error };
+    }
+
+    const details = error as Error & {
+      status?: unknown;
+      statusCode?: unknown;
+    };
+    const errorType =
+      error instanceof AggregateError
+        ? "AggregateError"
+        : error instanceof TypeError
+          ? "TypeError"
+          : error instanceof RangeError
+            ? "RangeError"
+            : error instanceof ReferenceError
+              ? "ReferenceError"
+              : error instanceof SyntaxError
+                ? "SyntaxError"
+                : error instanceof URIError
+                  ? "URIError"
+                  : error instanceof EvalError
+                    ? "EvalError"
+                    : "Error";
+    const statusCode = [details.statusCode, details.status].find(
+      (value): value is number =>
+        typeof value === "number" &&
+        Number.isInteger(value) &&
+        value >= 100 &&
+        value <= 599,
+    );
+
+    return {
+      errorType,
+      ...(statusCode ? { statusCode } : {}),
+    };
+  } catch {
+    return { errorType: "Error" };
+  }
+}
+
+function normalizeProductionPathUsage(
+  value: unknown,
+): AgentLoopUsage | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
   }
 
-  const details = error as Error & {
-    status?: unknown;
-    statusCode?: unknown;
-  };
-  const errorName =
-    error.name === "Error" ? error.constructor.name : error.name;
-  const errorType =
-    typeof errorName === "string" &&
-    /^[A-Z][A-Za-z0-9_.-]{0,63}$/.test(errorName)
-      ? errorName
-      : "Error";
-  const statusCode = [details.statusCode, details.status].find(
-    (value): value is number =>
-      typeof value === "number" &&
-      Number.isInteger(value) &&
-      value >= 100 &&
-      value <= 599,
-  );
+  try {
+    if (Array.isArray(value)) return undefined;
 
-  return {
-    errorType,
-    ...(statusCode ? { statusCode } : {}),
-  };
+    const usage = value as Record<string, unknown>;
+    const requiredNumberFields = [
+      "inputTokens",
+      "outputTokens",
+      "cacheReadTokens",
+      "cacheWriteTokens",
+    ] as const;
+    const optionalNumberFields = [
+      "builderCreditsUsed",
+      "llmCalls",
+      "followUpMs",
+      "followUpInputTokens",
+      "receiptUnverifiedCount",
+      "receiptChangedFalseCount",
+      "firstEngineEventAtMs",
+    ] as const;
+    const isUsageNumber = (field: string) => {
+      const fieldValue = usage[field];
+      return (
+        typeof fieldValue === "number" &&
+        Number.isFinite(fieldValue) &&
+        fieldValue >= 0
+      );
+    };
+
+    if (
+      !requiredNumberFields.every(isUsageNumber) ||
+      typeof usage.model !== "string" ||
+      (usage.engineName !== undefined &&
+        typeof usage.engineName !== "string") ||
+      (usage.usageReported !== undefined &&
+        typeof usage.usageReported !== "boolean") ||
+      optionalNumberFields.some(
+        (field) => usage[field] !== undefined && !isUsageNumber(field),
+      )
+    ) {
+      return undefined;
+    }
+
+    return {
+      inputTokens: usage.inputTokens as number,
+      outputTokens: usage.outputTokens as number,
+      cacheReadTokens: usage.cacheReadTokens as number,
+      cacheWriteTokens: usage.cacheWriteTokens as number,
+      model: usage.model,
+      ...(usage.builderCreditsUsed !== undefined
+        ? { builderCreditsUsed: usage.builderCreditsUsed as number }
+        : {}),
+      ...(usage.engineName !== undefined
+        ? { engineName: usage.engineName as string }
+        : {}),
+      ...(usage.llmCalls !== undefined
+        ? { llmCalls: usage.llmCalls as number }
+        : {}),
+      ...(usage.followUpMs !== undefined
+        ? { followUpMs: usage.followUpMs as number }
+        : {}),
+      ...(usage.followUpInputTokens !== undefined
+        ? { followUpInputTokens: usage.followUpInputTokens as number }
+        : {}),
+      ...(usage.receiptUnverifiedCount !== undefined
+        ? { receiptUnverifiedCount: usage.receiptUnverifiedCount as number }
+        : {}),
+      ...(usage.receiptChangedFalseCount !== undefined
+        ? { receiptChangedFalseCount: usage.receiptChangedFalseCount as number }
+        : {}),
+      ...(usage.usageReported !== undefined
+        ? { usageReported: usage.usageReported as boolean }
+        : {}),
+      ...(usage.firstEngineEventAtMs !== undefined
+        ? { firstEngineEventAtMs: usage.firstEngineEventAtMs as number }
+        : {}),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function validateProductionPathRun(

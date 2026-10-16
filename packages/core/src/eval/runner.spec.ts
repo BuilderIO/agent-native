@@ -1027,7 +1027,7 @@ describe("runEvalSuite runner creation", () => {
     const productionChatPath = testProductionChatPath();
     const adapterError = Object.assign(
       new Error("token=sk-test-example; customer=example.customer@example.com"),
-      { name: "ProviderAuthError", code: "sk-test-example", status: 401 },
+      { name: "ABCD1234", code: "sk-test-example", status: 401 },
     );
     productionChatPath.run = async () => {
       throw adapterError;
@@ -1063,7 +1063,7 @@ describe("runEvalSuite runner creation", () => {
     expect(errorLog).toHaveBeenCalledWith(
       "[eval] Production chat eval adapter failed",
       {
-        errorType: "ProviderAuthError",
+        errorType: "Error",
         statusCode: 401,
       },
     );
@@ -1074,6 +1074,58 @@ describe("runEvalSuite runner creation", () => {
       "example.customer@example.com",
     );
     errorLog.mockRestore();
+  });
+
+  it("keeps observed partial usage when the adapter returns malformed usage", async () => {
+    const evalCase = defineEval({
+      name: "malformed-production-adapter-usage",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run(args);
+      return {
+        ...result,
+        output: {
+          ...result.output,
+          usage: {
+            inputTokens: "malformed",
+            outputTokens: 999,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "untrusted-adapter-model",
+            unexpected: "untrusted adapter field",
+          } as never,
+        },
+      };
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report.results[0]).toMatchObject({
+      status: "passed",
+      usage: {
+        inputTokens: 4,
+        outputTokens: 2,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "fake-model",
+        llmCalls: 1,
+        usageReported: true,
+      },
+    });
+    expect(JSON.stringify(suite.report)).not.toContain(
+      "untrusted adapter field",
+    );
   });
 
   it("does not expose returned production adapter errors after usage is reported", async () => {
