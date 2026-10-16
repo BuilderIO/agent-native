@@ -1058,6 +1058,53 @@ describe("runEvalSuite runner creation", () => {
     );
   });
 
+  it("does not expose returned production adapter errors after usage is reported", async () => {
+    const evalCase = defineEval({
+      name: "returned-production-adapter-error",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run(args);
+      return {
+        ...result,
+        output: {
+          ...result.output,
+          ok: false,
+          error: "token=sk-test-example; customer=example.customer@example.com",
+        },
+      };
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report).toMatchObject({
+      total: 1,
+      passed: 0,
+      failed: 1,
+      results: [
+        {
+          status: "failed",
+          error: "Production chat eval failed.",
+          usage: { inputTokens: 4, outputTokens: 2, usageReported: true },
+        },
+      ],
+    });
+    expect(JSON.stringify(suite.report)).not.toContain("sk-test-example");
+    expect(JSON.stringify(suite.report)).not.toContain(
+      "example.customer@example.com",
+    );
+  });
+
   it("persists eval results by default", async () => {
     const e = defineEval({
       name: "local-only",

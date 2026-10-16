@@ -476,10 +476,12 @@ async function runProductionChatPath(args: {
         Date.now() - started,
       );
     }
+    const error =
+      receiptError ?? (output.ok ? undefined : "Production chat eval failed.");
     return {
       ...output,
       ok: output.ok && !receiptError,
-      ...(receiptError ? { error: receiptError } : {}),
+      error,
       runId: output.runId || `eval:${crypto.randomUUID()}`,
       durationMs: Date.now() - started,
       usage,
