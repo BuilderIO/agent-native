@@ -108,7 +108,13 @@ export default defineAction({
       ])
       .optional()
       .describe("Limit search to a view (default: all)"),
-    limit: z.coerce.number().optional().describe("Max results (default: 25)"),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe("Max results (default: 25, max: 500)"),
     account: z
       .string()
       .optional()
@@ -217,7 +223,7 @@ export default defineAction({
       ownerEmail,
       accountFilter ? [accountFilter] : undefined,
     );
-    if (clients.length === 0 && clientErrors.length > 0) {
+    if (clientErrors.length > 0) {
       throw new Error(
         clientErrors
           .map((error) => `${error.email}: ${error.error}`)
@@ -247,20 +253,12 @@ export default defineAction({
       {
         mode: "threads",
         threadFormat: "metadata",
-        threadCandidateLimit: 40,
+        threadCandidateLimit: Math.min(500, Math.max(40, limit + 1)),
         ...(accountFilter && { accountEmails: [accountFilter] }),
       },
     );
-    if (errors.length > 0 && messages.length === 0) {
-      const failedAccounts = new Set(
-        errors.map((error) => error.email.toLowerCase()),
-      );
-      if (
-        errors.every((error) => error.isQuotaError) &&
-        clients.every((client) =>
-          failedAccounts.has(client.email.toLowerCase()),
-        )
-      ) {
+    if (errors.length > 0) {
+      if (errors.every((error) => error.isQuotaError)) {
         throw new GmailQuotaCooldownError(
           retryAfterSecondsFromErrors(errors) * 1000,
         );

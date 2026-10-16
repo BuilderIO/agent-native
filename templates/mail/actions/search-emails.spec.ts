@@ -132,4 +132,71 @@ describe("search-emails query cost", () => {
       },
     );
   });
+
+  it("keeps larger requested result limits within the candidate window", async () => {
+    mocks.listGmailMessages.mockResolvedValue({ messages: [], errors: [] });
+
+    await action.run({ q: "from:sender@example.com", limit: 60 });
+
+    expect(mocks.listGmailMessages).toHaveBeenCalledWith(
+      "from:sender@example.com",
+      60,
+      OWNER,
+      undefined,
+      expect.objectContaining({ threadCandidateLimit: 61 }),
+    );
+  });
+
+  it("rejects result limits outside Gmail's supported range", () => {
+    expect(action.schema.safeParse({ q: "invoice", limit: 501 }).success).toBe(
+      false,
+    );
+    expect(action.schema.safeParse({ q: "invoice", limit: 0 }).success).toBe(
+      false,
+    );
+  });
+
+  it("fails when any mailbox cannot be resolved", async () => {
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [
+        { email: ACCOUNT, accessToken: "access-token", refreshToken: "" },
+      ],
+      errors: [{ email: "second@example.com", error: "token refresh failed" }],
+    });
+
+    await expect(action.run({ q: "invoice" })).rejects.toThrow(
+      "second@example.com: token refresh failed",
+    );
+    expect(mocks.listGmailMessages).not.toHaveBeenCalled();
+  });
+
+  it("fails instead of returning a partial mailbox result", async () => {
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [{}],
+      errors: [{ email: "second@example.com", error: "provider unavailable" }],
+    });
+
+    await expect(action.run({ q: "invoice" })).rejects.toThrow(
+      "second@example.com: provider unavailable",
+    );
+  });
+
+  it("keeps quota errors typed when another mailbox returned results", async () => {
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [{}],
+      errors: [
+        {
+          email: "second@example.com",
+          error: "rate limit exceeded",
+          isQuotaError: true,
+          retryAfterMs: 30_000,
+        },
+      ],
+    });
+
+    await expect(action.run({ q: "invoice" })).rejects.toMatchObject({
+      errorCode: "gmail_quota_cooldown",
+      details: { retryAfterMs: 30_000 },
+    });
+  });
 });

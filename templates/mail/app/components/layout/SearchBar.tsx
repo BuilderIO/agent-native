@@ -40,6 +40,7 @@ import {
 } from "@/hooks/use-emails";
 import { INBOX_THREADS_QUERY_KEY } from "@/hooks/use-inbox-threads";
 import { getActiveDescendantId } from "@/lib/combobox-aria";
+import { mailThreadHref } from "@/lib/mail-routes";
 import { ensureThread } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -215,7 +216,14 @@ export function SearchBar({
         result_type: "thread",
       });
       void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
-      void navigate(`/all/${targetThreadId}`);
+      void navigate(
+        mailThreadHref(
+          "all",
+          targetThreadId,
+          new URLSearchParams(),
+          email.accountEmail,
+        ),
+      );
       inputRef.current?.blur();
     },
     [navigate],

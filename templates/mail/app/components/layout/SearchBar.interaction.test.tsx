@@ -216,6 +216,12 @@ describe("SearchBar suggestion selection", () => {
     expect(screen.getByRole("option").textContent).toContain(
       "Inbox only result",
     );
+
+    fireEvent.mouseDown(screen.getByRole("option"));
+
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      "/all/inbox-thread?accountEmail=demo%40example.test",
+    );
   });
 
   it("clears an active query when the visible clear control is clicked", () => {
@@ -277,7 +283,9 @@ describe("SearchBar suggestion selection", () => {
     );
 
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(mocks.navigate).toHaveBeenCalledWith("/all/thread-be");
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      "/all/thread-be?accountEmail=demo%40example.test",
+    );
   });
 
   it("drops a stale selection before Enter when a rapid query change removes all results", () => {
