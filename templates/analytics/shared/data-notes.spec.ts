@@ -659,7 +659,7 @@ describe("dataNoteInRange", () => {
     expect(listed(summer2024, { timeRange: "365d" })).toBe(false);
   });
 
-  it("reads a date-range filter's start and end, and no range when the SQL reads two", () => {
+  it("reads a date-range filter's start and end, not from a comment, and no range when the SQL reads two", () => {
     const bySignup = {
       sql: "SELECT plan, count(*) FROM signups WHERE signup_date >= '{{signupStart}}' AND signup_date <= '{{signupEnd}}' GROUP BY plan",
     };
@@ -678,13 +678,36 @@ describe("dataNoteInRange", () => {
         panelTimeRange(bySignup, { ...vars, signupStart: "2026-10-14" }),
       ),
     ).toBe(false);
+    const withSignups = (sql: string) =>
+      panelTimeRange({ sql }, { ...vars, timeRange: "90d" }, december);
     expect(
-      panelTimeRange(
-        { sql: `${funnel.sql} -- {{signupStart}} {{signupEnd}}` },
-        { ...vars, timeRange: "90d" },
-        december,
+      withSignups(
+        funnel.sql.replace(
+          " GROUP BY step",
+          " AND signup_date >= '{{signupStart}}' AND signup_date <= '{{signupEnd}}' GROUP BY step",
+        ),
       ),
     ).toEqual({ kind: "unreadable" });
+    expect(
+      withSignups(`${funnel.sql}
+-- by {{signupStart}} to {{signupEnd}}`),
+    ).toEqual(panelTimeRange(funnel, { timeRange: "90d" }, december));
+  });
+
+  it("reads timeRange's own start and end when the SQL uses only those", () => {
+    const bounded = {
+      sql: "SELECT step, count(*) FROM events WHERE event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}' GROUP BY step",
+    };
+    const vars = {
+      timeRange: "30d",
+      timeRangeStart: "2026-01-05",
+      timeRangeEnd: "2026-01-09",
+    };
+    expect(panelTimeRange(bounded, vars, december)).toEqual({
+      kind: "days",
+      start: Date.parse("2026-01-05"),
+      end: Date.parse("2026-01-10"),
+    });
   });
 
   it("lists a note that overlaps a custom range by a day", () => {

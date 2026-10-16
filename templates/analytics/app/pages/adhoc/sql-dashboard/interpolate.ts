@@ -1,3 +1,4 @@
+import { stripSqlComments } from "../../../../shared/sql-comments";
 import { parseDayCount } from "./filter-vars";
 import { serializePanelSql } from "./panel-sql";
 import type { SqlPanel } from "./types";
@@ -62,8 +63,8 @@ export function interpolateDashboardPanelSql(
 
 /**
  * The dates a panel's query covers under the dashboard's time filters: the
- * `timeRange` preset, or a date-range filter's `{{<id>Start}}` and
- * `{{<id>End}}`. "days" runs from `start` up to `end`, both midnight UTC;
+ * `{{timeRange}}` preset, or a filter's `{{<id>Start}}` and `{{<id>End}}`
+ * such as a date range's. "days" runs from `start` up to `end`, both midnight UTC;
  * "all" has no bound. "absent" when the panel's SQL reads no time filter that
  * is set; "unreadable" for a value none of the SQL's branches reads, a range
  * without a valid start and end, or SQL that reads more than one range, as
@@ -84,9 +85,11 @@ export function panelTimeRange(
   vars: Record<string, string>,
   now: number = Date.now(),
 ): PanelTimeRange {
-  const sql = serializePanelSql(panel.sql);
+  // A placeholder in a comment doesn't bound the query.
+  const sql = stripSqlComments(serializePanelSql(panel.sql));
+  if (sql === null) return { kind: "unreadable" };
   const readsPreset =
-    vars.timeRange !== undefined && sql.includes("{{timeRange");
+    vars.timeRange !== undefined && sql.includes("{{timeRange}}");
   const ranges = [
     ...(readsPreset ? [presetTimeRange(vars.timeRange, vars, now)] : []),
     ...boundedFilterNames(sql, vars)
