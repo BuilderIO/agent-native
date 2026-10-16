@@ -534,6 +534,24 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     note: "A close tag in code is the cell's text.",
   },
   {
+    id: "html-table-row-closed-on-cell-line",
+    origin: "agent",
+    markdown:
+      "<table>\n<tr>\n<td>a</td></tr>\n<tr>\n<td>b</td>\n</tr>\n</table>",
+    canonical:
+      "<table>\n<tr>\n<td>a</td>\n</tr>\n<tr>\n<td>b</td>\n</tr>\n</table>",
+    note: "A row closed on its last cell's line ends there.",
+  },
+  {
+    id: "html-table-row-closed-after-wrapped-cell",
+    origin: "agent",
+    markdown:
+      "<table>\n<tr>\n<td>a\nb</td></tr>\n<tr>\n<td>c</td>\n</tr>\n</table>",
+    canonical:
+      "<table>\n<tr>\n<td>a b</td>\n</tr>\n<tr>\n<td>c</td>\n</tr>\n</table>",
+    note: "A cell wrapped over lines may close its row on its last line.",
+  },
+  {
     id: "html-table-cell-edge-spaces",
     origin: "editor",
     markdown: "<table>\n<tr>\n<td> a </td>\n</tr>\n</table>",
@@ -657,6 +675,15 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     origin: "agent",
     markdown: '<table header-row="yes">\n<tr>\n<td>a</td>\n</tr>\n</table>',
     unrepresentable: 'A table flag is "true" or "false".',
+    losses: ["dropped-attribute"],
+  },
+  {
+    id: "refuse-details-open-false",
+    origin: "agent",
+    markdown:
+      '<details open="false">\n<summary>S</summary>\n\tbody\n</details>',
+    unrepresentable:
+      'HTML reads any value of `open` as open, so `open="false"` is a toggle that is open.',
     losses: ["dropped-attribute"],
   },
   {
