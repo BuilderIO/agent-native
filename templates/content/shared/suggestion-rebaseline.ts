@@ -129,7 +129,10 @@ function siblingRangesOnCanonical<T extends MarkdownSuggestionOperationLike>(
   const listed = anchorOf(suggestion.operation)?.siblingRanges ?? [];
   if (!listed.length) return [];
   const group = suggestions.filter(
-    (other) => other.id !== suggestion.id && other.group === suggestion.group,
+    (other) =>
+      other.id !== suggestion.id &&
+      other.group === suggestion.group &&
+      anchorOf(other.operation) !== null,
   );
   if (
     group.length ||
@@ -203,6 +206,18 @@ export function rebaselineSuggestions<
     );
     const { from, to } = own.range;
     const afterMarkdown = `${canonical.slice(0, from)}${own.after}${canonical.slice(to)}`;
+    // A range would let it accept on a page a sibling has since changed.
+    if (anchorOf(suggestion.operation) === null) {
+      outcomes.set(suggestion.id, {
+        kind: "rebased",
+        operation: {
+          ...suggestion.operation,
+          before: { markdown: canonical },
+          after: { markdown: afterMarkdown },
+        },
+      });
+      continue;
+    }
     outcomes.set(suggestion.id, {
       kind: "rebased",
       operation: {

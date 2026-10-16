@@ -163,7 +163,7 @@ describe("rebaselineSuggestions", () => {
       anchor: null,
     });
 
-    it("rebases onto the canonical text with the change accepting it makes", () => {
+    function rebasedWholePage() {
       const canonical = canonicalizeNfm(stored);
       const outcome = rebaselineSuggestions(
         [{ id: "s1", group: "s1", operation: wholePage(stored) }],
@@ -172,18 +172,29 @@ describe("rebaselineSuggestions", () => {
       ).get("s1");
       if (outcome?.kind !== "rebased")
         throw new Error(`expected a rebase, got ${JSON.stringify(outcome)}`);
-      const { operation } = outcome;
-      const anchor = operationAnchor(operation);
+      return { canonical, operation: outcome.operation };
+    }
+
+    it("rebases onto the canonical text with the change accepting it makes", () => {
+      const { canonical, operation } = rebasedWholePage();
+      expect(operation.anchor).toBeNull();
       expect(markdownPayload(operation.before, "before").markdown).toBe(
         canonical,
       );
-      expect(resolveMarkdownSuggestionRange(canonical, operation)).toEqual({
-        from: anchor.from,
-        to: anchor.to,
-      });
       expect(applyMarkdownSuggestionOperation(canonical, operation)).toBe(
         canonicalizeNfm(stored.replace("$60", "$75")),
       );
+    });
+
+    it("still accepts only on a page that reads as its before-state", () => {
+      const { canonical, operation } = rebasedWholePage();
+      // As after a sibling suggestion was accepted first.
+      expect(
+        applyMarkdownSuggestionOperation(
+          canonical.replace("rest", "remainder"),
+          operation,
+        ),
+      ).toBeNull();
     });
 
     it("is stale on a page that no longer reads as its before-state", () => {
