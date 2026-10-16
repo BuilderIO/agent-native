@@ -6,6 +6,7 @@ import {
   useAgentChatContext,
 } from "@agent-native/core/client/agent-chat";
 import { setClientAppState } from "@agent-native/core/client/hooks";
+import { REAL_DATA_REQUIRED_MARKER } from "@shared/real-data-marker";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -52,6 +53,22 @@ export interface DashboardChatContextResult {
   ) => void;
 }
 
+const REQUEST_MARKER = new RegExp(REAL_DATA_REQUIRED_MARKER, "gi");
+
+/**
+ * Titles, ids, and the URL's query are all free text an author or a link
+ * controls, and the chat guard reads any chat context carrying the request
+ * marker as the request itself. Rewrite whole published text, not chosen fields.
+ */
+function withoutRequestMarker(text: string): string {
+  return text.replace(REQUEST_MARKER, (marker) => marker.replace(/_/g, " "));
+}
+
+/** As encodeURIComponent, with "_" escaped too, so an id can't spell the request marker. */
+function encodeSelectionPart(part: string): string {
+  return encodeURIComponent(part).replace(/_/g, "%5F");
+}
+
 function dashboardContext(
   args: Required<Pick<DashboardChatContextArgs, "id" | "kind">> & {
     title: string;
@@ -90,9 +107,9 @@ function dashboardContext(
 }
 
 function panelSelectionMarker(dashboardId: string, panelId: string): string {
-  return `Analytics panel selection: dashboard=${encodeURIComponent(
+  return `Analytics panel selection: dashboard=${encodeSelectionPart(
     dashboardId,
-  )}; panel=${encodeURIComponent(panelId)}`;
+  )}; panel=${encodeSelectionPart(panelId)}`;
 }
 
 function parsePanelSelection(
@@ -151,8 +168,10 @@ export function useDashboardChatContext(
       if (!id) return;
       if (options.openSidebar !== true && !isAgentSidebarOpen) return;
       suppressDashboardContextRef.current = false;
-      const displayDashboardTitle = title?.trim() || id;
-      const displayPanelTitle = panel.panelTitle.trim() || panel.panelId;
+      const displayDashboardTitle = withoutRequestMarker(title?.trim() || id);
+      const displayPanelTitle = withoutRequestMarker(
+        panel.panelTitle.trim() || panel.panelId,
+      );
       const contextLines = [
         panelSelectionMarker(id, panel.panelId),
         `The user selected this ${panel.panelKind} on the Analytics dashboard "${displayDashboardTitle}".`,
@@ -187,7 +206,7 @@ export function useDashboardChatContext(
       setAgentChatContextItem({
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         title: displayPanelTitle,
-        context: contextLines.join("\n"),
+        context: withoutRequestMarker(contextLines.join("\n")),
         openSidebar: options.openSidebar === true,
         focus: options.focus ?? false,
       });
@@ -246,20 +265,22 @@ export function useDashboardChatContext(
   useEffect(() => {
     if (!id) return;
     suppressDashboardContextRef.current = false;
-    const displayTitle = title?.trim() || id;
+    const dashboardTitle = withoutRequestMarker(title?.trim() || id);
     const timer = setTimeout(() => {
       if (suppressDashboardContextRef.current) return;
       setAgentChatContextItem({
         key: DASHBOARD_CONTEXT_KEY,
-        title: `Dashboard: ${displayTitle}`,
-        context: dashboardContext({
-          id,
-          kind,
-          title: displayTitle,
-          panelCount,
-          canEdit,
-          editing,
-        }),
+        title: `Dashboard: ${dashboardTitle}`,
+        context: withoutRequestMarker(
+          dashboardContext({
+            id,
+            kind,
+            title: dashboardTitle,
+            panelCount,
+            canEdit,
+            editing,
+          }),
+        ),
         openSidebar: false,
         focus: false,
       });
@@ -270,12 +291,12 @@ export function useDashboardChatContext(
   useEffect(() => {
     if (!id || hasSelectedPanel) return;
     if (suppressDashboardContextRef.current) return;
-    const displayTitle = title?.trim() || id;
+    const dashboardTitle = withoutRequestMarker(title?.trim() || id);
     const selection: SelectedDashboardObject = {
       type: "dashboard",
       id,
       kind,
-      title: displayTitle,
+      title: dashboardTitle,
       panelCount,
       canEdit,
       ...(canEdit && typeof editing === "boolean"

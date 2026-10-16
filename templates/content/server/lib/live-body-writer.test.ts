@@ -7,6 +7,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { putOrgSetting, putSetting } from "@agent-native/core/settings";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import * as Y from "yjs";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -21,6 +22,7 @@ const WRITER = "feature-flag:content.live-body-writer";
 let getDb: typeof import("../db/index.js").getDb;
 let schema: typeof import("../db/schema.js");
 let gate: typeof import("./live-body-writer.js");
+let collab: typeof import("@agent-native/core/collab");
 
 function rules(targets: { emails?: string[]; orgIds?: string[] }) {
   return {
@@ -48,6 +50,7 @@ async function insertPage(
     switched?: boolean;
     bodyRevision?: number;
     collabBodyRevision?: number | null;
+    liveCopyVersion?: number | null;
     orgId?: string | null;
   } = {},
 ) {
@@ -64,9 +67,13 @@ async function insertPage(
       collabBodyRevision:
         page.collabBodyRevision === undefined ? 3 : page.collabBodyRevision,
       liveBodySwitchedAt: page.switched === false ? null : now,
+      liveCopyVersion:
+        page.liveCopyVersion === undefined ? 0 : page.liveCopyVersion,
       createdAt: now,
       updatedAt: now,
     });
+  // Its collab doc, created at version 0.
+  await collab.saveYDocState(id, Y.encodeStateAsUpdate(new Y.Doc()), "Body");
 }
 
 beforeAll(async () => {
@@ -82,10 +89,17 @@ beforeAll(async () => {
     await import("../../shared/feature-flags.js");
   registerFeatureFlags(CONTENT_FEATURE_FLAGS);
   gate = await import("./live-body-writer.js");
+  collab = await import("@agent-native/core/collab");
 }, 60_000);
 
 beforeEach(async () => {
   await getDb().delete(schema.documents);
+  await getDbExec()
+    .execute("DELETE FROM _collab_docs")
+    .catch((error) => {
+      // The first test runs before core creates the table.
+      if (!/_collab_docs" does not exist/.test(String(error))) throw error;
+    });
   await setFlags({});
 });
 
@@ -186,6 +200,38 @@ describe("live-body writer gate", () => {
     await expect(gate.liveBodyWriterGate("never-synced")).resolves.toEqual({
       writePath: "legacy",
       reason: "live_copy_behind",
+    });
+  });
+
+  it("keeps a switched page on the legacy path once its live copy has moved past the stored body", async () => {
+    await setFlags({
+      shadow: { emails: [OWNER] },
+      writer: { emails: [OWNER] },
+    });
+    await insertPage("moved", { liveCopyVersion: 0 });
+    await insertPage("never-derived", { liveCopyVersion: null });
+    // An editor update committed on main's path while the flags were off.
+    await collab.saveYDocState(
+      "moved",
+      Y.encodeStateAsUpdate(new Y.Doc()),
+      "Body",
+    );
+
+    await expect(gate.liveBodyWriterGate("moved")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "stored_body_behind",
+    });
+    await expect(gate.liveBodyWriterGate("never-derived")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "stored_body_behind",
+    });
+    await getDbExec().execute({
+      sql: "DELETE FROM _collab_docs WHERE doc_id = ?",
+      args: ["moved"],
+    });
+    await expect(gate.liveBodyWriterGate("moved")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "stored_body_behind",
     });
   });
 

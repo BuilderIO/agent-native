@@ -14,11 +14,18 @@ const mocks = vi.hoisted(() => ({
   deleteDataNote: vi.fn(async () => ({ id: "note-1" })),
   dashboardAnnotationScope: vi.fn(),
 }));
+const reads = vi.hoisted(() => ({
+  readDashboardForPlacement: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
+  fail: (message: string, options: object) => {
+    throw Object.assign(new Error(message), options);
+  },
 }));
 vi.mock("../server/lib/data-notes-store.js", () => mocks);
+vi.mock("../server/lib/dashboard-annotation-reads.js", () => reads);
 vi.mock("../server/lib/dashboard-annotation-scope.js", () => ({
   dashboardAnnotationScope: mocks.dashboardAnnotationScope,
 }));
@@ -54,6 +61,68 @@ describe("data-note actions", () => {
 
     await actions.remove.run({ id: "note-1" });
     expect(mocks.deleteDataNote).toHaveBeenCalledWith(scope, "note-1");
+  });
+
+  it("checks a saved note against the dashboard on screen", async () => {
+    reads.readDashboardForPlacement.mockResolvedValue({
+      config: {
+        panels: [
+          {
+            id: "failures",
+            title: "Setup failures per day",
+            chartType: "line",
+            sql: "SELECT day, count(*) FROM events WHERE event_name = 'builder_connect_failed'",
+          },
+          {
+            id: "signups",
+            title: "Signups per day",
+            chartType: "line",
+            sql: "SELECT day, count(*) FROM signups",
+          },
+        ],
+      },
+    });
+    mocks.saveDataNote.mockResolvedValueOnce(SETUP_INCIDENT as never);
+    const { id: _, ...input } = SETUP_INCIDENT;
+
+    const result = await actions.save.run({ ...input, dashboardId: "dash" });
+
+    expect(reads.readDashboardForPlacement).toHaveBeenCalledWith("dash", scope);
+    expect(mocks.saveDataNote).toHaveBeenCalledWith(scope, input);
+    expect(result.dashboard).toEqual({
+      dashboardId: "dash",
+      shownOn: [{ panelId: "failures", title: "Setup failures per day" }],
+    });
+  });
+
+  it("saves the note even when the dashboard on screen can't draw it", async () => {
+    reads.readDashboardForPlacement.mockResolvedValue({
+      unavailable: "Only SQL dashboards draw key dates and data notes.",
+    });
+    const { id: _, ...input } = SETUP_INCIDENT;
+
+    const result = await actions.save.run({ ...input, dashboardId: "explore" });
+
+    expect(mocks.saveDataNote).toHaveBeenCalledWith(scope, input);
+    expect(result.dashboard).toEqual({
+      dashboardId: "explore",
+      hint: "Only SQL dashboards draw key dates and data notes.",
+    });
+  });
+
+  it("saves nothing when the dashboard to check against can't be read", async () => {
+    reads.readDashboardForPlacement.mockRejectedValue(
+      new Error('Dashboard "gone" was not found.'),
+    );
+    await expect(
+      actions.save.run({
+        kind: "data",
+        title: "Connect clicks undercounted",
+        note: "Clicks are undercounted from Oct 2.",
+        dashboardId: "gone",
+      }),
+    ).rejects.toThrow("not found");
+    expect(mocks.saveDataNote).not.toHaveBeenCalled();
   });
 
   describe("for a dashboard from another organization", () => {
@@ -98,10 +167,31 @@ describe("data-note actions", () => {
       expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
         "shared-dashboard",
         scope,
+        undefined,
       );
       expect(mocks.listDataNotes).toHaveBeenCalledWith(owner);
       const { addedBy: _, ...incident } = SETUP_INCIDENT;
       expect(result).toEqual({ notes: [incident], editable: false });
+    });
+
+    it("lists a reviewed dashboard's notes through the Human Review check", async () => {
+      shared(false);
+
+      const result = await actions.list.run({
+        dashboardId: "shared-dashboard",
+        reviewPreview: true,
+        reviewOrgId: "org-2",
+      });
+
+      expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
+        "shared-dashboard",
+        scope,
+        { reviewOrgId: "org-2" },
+      );
+      expect(result.editable).toBe(false);
+      await expect(
+        actions.list.run({ reviewPreview: true, reviewOrgId: "org-2" }),
+      ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it("drops pins to the owner's other dashboards, and notes only a section is pinned to", async () => {

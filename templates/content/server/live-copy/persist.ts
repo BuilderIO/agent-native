@@ -11,7 +11,9 @@ import {
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "../../actions/_content-database-lifecycle.js";
+import { documentContentHash } from "../../actions/_document-edit-mutation.js";
 import { HISTORY_IDLE_MS } from "../../app/components/editor/document-history-session.js";
+import { changedBlocksBetween } from "../../shared/document-intent-merge.js";
 import { getDb, schema } from "../db/index.js";
 import { followCommentAnchors } from "../lib/comment-anchor-follow.js";
 import {
@@ -33,6 +35,7 @@ import { drizzleOverExec } from "./exec-db.js";
 import {
   currentContentBodyWriteCause,
   liveBodyConversionFor,
+  type ContentBodyIntentRecord,
   type ContentBodyWriteCause,
   type LiveBodyConversion,
 } from "./write-cause.js";
@@ -56,9 +59,9 @@ const persistedCommits = new WeakMap<DbExec, PersistedContentBodyCommit>();
 /**
  * What the binding's persist wrote in transaction `tx`, for a caller's own
  * `mutateLiveCopy` persist, which core runs after it in the same
- * transaction. `undefined` when persist did not derive the page (the page
- * went back to its legacy writer) and on an unchanged edit, which commits no
- * live copy.
+ * transaction. `undefined` on an unchanged edit, which commits no live copy.
+ * A server write whose page left its live copy never gets this far: persist
+ * refuses it with `LIVE_BODY_WRITE_PATH_CHANGED`.
  */
 export function persistedContentBodyCommit(
   tx: DbExec,
@@ -80,16 +83,19 @@ export class LiveBodyConversionError extends Error {
 }
 
 // A typing session sends a commit every few hundred milliseconds. History
-// keeps one row per this interval; the next row carries the skipped commits'
-// state, and any later writer records a before checkpoint first.
+// keeps one row per this interval, and each commit inside it updates that
+// row, so a session's last row always holds its final state. A row changes
+// only within the interval after it was created.
 const LIVE_COPY_HISTORY_INTERVAL_MS = 2_000;
 
 const pageColumns = {
+  id: schema.documents.id,
   title: schema.documents.title,
   content: schema.documents.content,
   bodyRevision: schema.documents.bodyRevision,
   collabBodyRevision: schema.documents.collabBodyRevision,
   liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
+  liveCopyVersion: schema.documents.liveCopyVersion,
   ownerEmail: schema.documents.ownerEmail,
   orgId: schema.documents.orgId,
   updatedAt: schema.documents.updatedAt,
@@ -97,11 +103,13 @@ const pageColumns = {
 };
 
 export type PageRow = {
+  id: string;
   title: string;
   content: string;
   bodyRevision: number;
   collabBodyRevision: number | null;
   liveBodySwitchedAt: string | null;
+  liveCopyVersion: number | null;
   ownerEmail: string;
   orgId: string | null;
   updatedAt: string;
@@ -114,6 +122,7 @@ export interface LockedPage {
   page: PageRow;
   blocksFields: BlocksFields;
   lockedDatabaseIds: ReadonlySet<string>;
+  lockedMembershipIds: ReadonlySet<string>;
 }
 
 function scopeChanged(message: string): never {
@@ -169,6 +178,9 @@ async function lockPageForBodyWrite(
       "The document's backing collection changed. Read the document again and retry.",
     );
   }
+  // Read before the lock, so a membership added in between is refused later
+  // rather than written without its lock.
+  const memberships = await pageMembershipIds(db, documentId);
   const blocksFields = await lockPrimaryBlocksFields(db, documentId);
   // guard:allow-unscoped — locks the page row whose owner was read above, for a write already authorized.
   const [page] = await db
@@ -186,7 +198,54 @@ async function lockPageForBodyWrite(
     page: page as PageRow,
     blocksFields,
     lockedDatabaseIds: new Set(databases.map((row) => row.id)),
+    lockedMembershipIds: new Set(memberships),
   };
+}
+
+async function pageMembershipIds(
+  db: ContentDb,
+  documentId: string,
+): Promise<string[]> {
+  // guard:allow-unscoped — lists the memberships of a page whose write was already authorized.
+  const rows = await db
+    .select({ id: schema.contentDatabaseItems.id })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.documentId, documentId));
+  return rows.map((row) => row.id);
+}
+
+/**
+ * The blocks-field write covers the memberships locked before the page. One
+ * added since would get no write, and locking it now would take it after the
+ * page, against an edit or restore that locks memberships first.
+ */
+async function assertMembershipsLocked(
+  db: ContentDb,
+  documentId: string,
+  lockedMembershipIds: ReadonlySet<string>,
+): Promise<void> {
+  const current = await pageMembershipIds(db, documentId);
+  if (current.some((id) => !lockedMembershipIds.has(id))) {
+    scopeChanged(
+      "The document was added to a collection while it saved. Read the document again and retry.",
+    );
+  }
+}
+
+/**
+ * Refuses a server write whose page left its live copy after the write
+ * chose it. A commit persist leaves alone would put the edit in Yjs and not
+ * in SQL; the writer takes the legacy path instead.
+ */
+function writePathChanged(documentId: string, reason: string): never {
+  throw new ActionContractError(
+    `Page ${documentId} stopped taking writes through its live copy (${reason}) while this write was in flight. Read it again and retry.`,
+    {
+      errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+      statusCode: 409,
+      details: { documentId, reason },
+    },
+  );
 }
 
 // A page in Trash refuses body writes, as update-document refuses them.
@@ -243,23 +302,30 @@ async function assertInlineDatabasesLocked(
   }
 }
 
+type EditorHistory =
+  | { kind: "record"; cause: DocumentHistoryCause }
+  | { kind: "update"; versionId: string };
+
 /**
  * History for a commit no server writer caused: the editor's own updates.
  * They join the actor's open session, one row per interval.
  */
-async function editorHistoryCause(
+async function editorHistory(
   db: ContentDb,
   page: PageRow,
   documentId: string,
   actorEmail: string | null,
   now: string,
-): Promise<DocumentHistoryCause | null> {
+): Promise<EditorHistory> {
   const [latest] = await db
     .select({
+      id: schema.documentVersions.id,
       groupId: schema.documentVersions.groupId,
       groupKind: schema.documentVersions.groupKind,
+      checkpointKind: schema.documentVersions.checkpointKind,
       actorEmail: schema.documentVersions.actorEmail,
       createdAt: schema.documentVersions.createdAt,
+      updatedAt: schema.documentVersions.updatedAt,
     })
     .from(schema.documentVersions)
     .where(
@@ -280,41 +346,84 @@ async function editorHistoryCause(
     origin: "collab",
     operation: "live-copy-update",
   };
-  const age = latest
-    ? Date.parse(now) - Date.parse(latest.createdAt)
-    : Number.POSITIVE_INFINITY;
   if (
     latest?.groupId &&
     latest.groupKind === "human_session" &&
     latest.actorEmail === actorEmail &&
-    age < HISTORY_IDLE_MS
+    Date.parse(now) - Date.parse(latest.updatedAt ?? latest.createdAt) <
+      HISTORY_IDLE_MS
   ) {
-    if (age < LIVE_COPY_HISTORY_INTERVAL_MS) return null;
+    if (
+      latest.checkpointKind === "after" &&
+      Date.parse(now) - Date.parse(latest.createdAt) <
+        LIVE_COPY_HISTORY_INTERVAL_MS
+    ) {
+      return { kind: "update", versionId: latest.id };
+    }
     return {
-      ...base,
-      groupId: latest.groupId,
-      groupKind: "human_session",
-      skipBeforeCheckpoint: true,
+      kind: "record",
+      cause: {
+        ...base,
+        groupId: latest.groupId,
+        groupKind: "human_session",
+        skipBeforeCheckpoint: true,
+      },
     };
   }
   return {
-    ...base,
-    groupId: `human:${actorEmail ?? "unknown"}:${crypto.randomUUID()}`,
-    groupKind: "human_session",
+    kind: "record",
+    cause: {
+      ...base,
+      groupId: `human:${actorEmail ?? "unknown"}:${crypto.randomUUID()}`,
+      groupKind: "human_session",
+    },
   };
 }
 
 function serverHistoryCause(
   cause: ContentBodyWriteCause,
+  actorEmail: string | null,
 ): DocumentHistoryCause {
   return {
     ctx: cause.ctx,
+    // Without an action context, SQL attribution takes the request's user;
+    // History must name the same actor.
+    ...(cause.ctx ? {} : { actorEmail }),
     operation: cause.operation,
     ...(cause.origin ? { origin: cause.origin } : {}),
     ...(cause.historySessionId
       ? { historySessionId: cause.historySessionId }
       : {}),
   };
+}
+
+async function recordBodyIntent(
+  db: ContentDb,
+  documentId: string,
+  page: PageRow,
+  record: ContentBodyIntentRecord,
+  commit: { after: string; committedRevision: number; now: string },
+): Promise<void> {
+  await recordDocumentBodyIntent({
+    db,
+    ownerEmail: page.ownerEmail,
+    orgId: page.orgId ?? "",
+    documentId,
+    intent: {
+      ...record.intent,
+      authoredBaseRevision:
+        record.intent.authoredBaseRevision ?? page.bodyRevision,
+    },
+    candidateHash: record.candidateHash ?? documentContentHash(commit.after),
+    metadataHash: record.metadataHash,
+    changedBlockIndexes:
+      record.changedBlockIndexes ??
+      changedBlocksBetween(page.content, commit.after),
+    displacedCheckpointId: record.displacedCheckpointId,
+    committedRevision: commit.committedRevision,
+    canonicalChanged: commit.after !== page.content,
+    now: commit.now,
+  });
 }
 
 /**
@@ -328,39 +437,40 @@ async function writeBody(args: {
   documentId: string;
   locked: LockedPage;
   text: string;
+  /** The `_collab_docs.version` this commit leaves stored. */
+  liveCopyVersion: number;
   cause: ContentBodyWriteCause | undefined;
   extraColumns?: Partial<typeof schema.documents.$inferInsert>;
 }): Promise<PersistedContentBodyCommit> {
   const { db, documentId, text, cause } = args;
-  const { page, blocksFields, lockedDatabaseIds } = args.locked;
+  const { page, blocksFields, lockedDatabaseIds, lockedMembershipIds } =
+    args.locked;
   const changed = text !== page.content;
+  if (changed) {
+    await assertMembershipsLocked(db, documentId, lockedMembershipIds);
+  }
   const bodyRevision = page.bodyRevision + (changed ? 1 : 0);
   const updatedAt = changed
     ? nextDocumentUpdatedAt(page.updatedAt)
     : page.updatedAt;
   const actor = documentAttributionActor(cause?.ctx);
-  if (
-    changed ||
-    args.extraColumns ||
-    page.collabBodyRevision !== bodyRevision
-  ) {
-    // guard:allow-unscoped — writes the page row this transaction locked, for a write already authorized.
-    await db
-      .update(schema.documents)
-      .set({
-        ...args.extraColumns,
-        collabBodyRevision: bodyRevision,
-        ...(changed
-          ? {
-              content: text,
-              bodyRevision,
-              updatedAt,
-              ...(actor ? documentEditAttribution(actor) : {}),
-            }
-          : {}),
-      })
-      .where(eq(schema.documents.id, documentId));
-  }
+  // guard:allow-unscoped — writes the page row this transaction locked, for a write already authorized.
+  await db
+    .update(schema.documents)
+    .set({
+      ...args.extraColumns,
+      collabBodyRevision: bodyRevision,
+      liveCopyVersion: args.liveCopyVersion,
+      ...(changed
+        ? {
+            content: text,
+            bodyRevision,
+            updatedAt,
+            ...(actor ? documentEditAttribution(actor) : {}),
+          }
+        : {}),
+    })
+    .where(eq(schema.documents.id, documentId));
 
   let softDeletedDatabaseIds: string[] = [];
   if (changed) {
@@ -383,10 +493,10 @@ async function writeBody(args: {
       ownerEmail: page.ownerEmail,
       orgId: page.orgId,
     });
-    const historyCause = cause
-      ? serverHistoryCause(cause)
-      : await editorHistoryCause(db, page, documentId, actor, updatedAt);
-    if (historyCause) {
+    const history: EditorHistory = cause
+      ? { kind: "record", cause: serverHistoryCause(cause, actor) }
+      : await editorHistory(db, page, documentId, actor, updatedAt);
+    if (history.kind === "record") {
       await recordDocumentHistoryTransition({
         db,
         ownerEmail: page.ownerEmail,
@@ -395,9 +505,25 @@ async function writeBody(args: {
         after: { title: page.title, content: text },
         beforeBodyRevision: page.bodyRevision,
         afterBodyRevision: bodyRevision,
-        cause: historyCause,
+        cause: history.cause,
         now: updatedAt,
       });
+    } else {
+      await db
+        .update(schema.documentVersions)
+        .set({
+          title: page.title,
+          content: text,
+          bodyRevision,
+          updatedAt,
+        })
+        .where(
+          and(
+            eq(schema.documentVersions.id, history.versionId),
+            eq(schema.documentVersions.ownerEmail, page.ownerEmail),
+            eq(schema.documentVersions.documentId, documentId),
+          ),
+        );
     }
     await assertInlineDatabasesLocked(
       db,
@@ -419,18 +545,9 @@ async function writeBody(args: {
     });
   }
   if (cause?.intent) {
-    await recordDocumentBodyIntent({
-      db,
-      ownerEmail: page.ownerEmail,
-      orgId: page.orgId ?? "",
-      documentId,
-      intent: cause.intent.intent,
-      candidateHash: cause.intent.candidateHash,
-      metadataHash: cause.intent.metadataHash,
+    await recordBodyIntent(db, documentId, page, cause.intent, {
+      after: text,
       committedRevision: bodyRevision,
-      changedBlockIndexes: cause.intent.changedBlockIndexes,
-      canonicalChanged: changed,
-      displacedCheckpointId: cause.intent.displacedCheckpointId,
       now: updatedAt,
     });
   }
@@ -454,6 +571,7 @@ export async function persistLiveBodyConversion(
   tx: DbExec,
   conversion: LiveBodyConversion,
   text: string,
+  liveCopyVersion: number,
 ): Promise<PersistedContentBodyCommit> {
   const db = drizzleOverExec(tx);
   const locked = await lockPageForBodyWrite(db, conversion.documentId);
@@ -479,6 +597,7 @@ export async function persistLiveBodyConversion(
     documentId: conversion.documentId,
     locked,
     text,
+    liveCopyVersion,
     cause: currentContentBodyWriteCause(),
     extraColumns: { liveBodySwitchedAt: new Date().toISOString() },
   });
@@ -495,7 +614,12 @@ export async function persistContentLiveCopy(
 ): Promise<LiveCopyPersistOutcome> {
   const conversion = liveBodyConversionFor(commit.docId);
   if (conversion) {
-    await persistLiveBodyConversion(tx, conversion, commit.text);
+    await persistLiveBodyConversion(
+      tx,
+      conversion,
+      commit.text,
+      commit.version,
+    );
     return { derived: true };
   }
   const cause = currentContentBodyWriteCause();
@@ -508,12 +632,15 @@ export async function persistContentLiveCopy(
   const locked = await lockPageForBodyWrite(db, commit.docId);
   const gate = await liveBodyWriterGateForRow(locked?.page, {
     transaction: tx,
+    collabVersion: commit.previousVersion,
   });
   if (!locked || gate.writePath === "legacy") {
-    return {
-      derived: false,
-      reason: gate.writePath === "legacy" ? gate.reason : "no_page",
-    };
+    const reason = gate.writePath === "legacy" ? gate.reason : "no_page";
+    if (cause) writePathChanged(commit.docId, reason);
+    // An editor update still commits, as on main. It moves the live copy
+    // past `live_copy_version`, so the gate keeps the page legacy until it
+    // is converted again.
+    return { derived: false, reason };
   }
   assertEditablePage(locked.page);
   await writeBody({
@@ -522,7 +649,42 @@ export async function persistContentLiveCopy(
     documentId: commit.docId,
     locked,
     text: commit.text,
+    liveCopyVersion: commit.version,
     cause,
   });
   return { derived: true };
+}
+
+/**
+ * The persist an edit that changed nothing gets, which core runs in place of
+ * the binding's: it locks the page in Content's order and records the
+ * cause's intent at the current revision, as a legacy save records an
+ * accepted no-op.
+ */
+export async function persistUnchangedContentBodyEdit(
+  tx: DbExec,
+  documentId: string,
+  cause: ContentBodyWriteCause,
+  collabVersion: number,
+): Promise<void> {
+  const db = drizzleOverExec(tx);
+  const locked = await lockPageForBodyWrite(db, documentId);
+  const gate = await liveBodyWriterGateForRow(locked?.page, {
+    transaction: tx,
+    collabVersion,
+  });
+  if (!locked || gate.writePath === "legacy") {
+    writePathChanged(
+      documentId,
+      gate.writePath === "legacy" ? gate.reason : "no_page",
+    );
+  }
+  assertEditablePage(locked.page);
+  if (cause.intent) {
+    await recordBodyIntent(db, documentId, locked.page, cause.intent, {
+      after: locked.page.content,
+      committedRevision: locked.page.bodyRevision,
+      now: new Date().toISOString(),
+    });
+  }
 }

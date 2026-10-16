@@ -3,9 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
   loadDashboardSeed: vi.fn(),
+  getReviewedDashboard: vi.fn(),
 }));
 
 vi.mock("./dashboards-store.js", () => ({ getDashboard: mocks.getDashboard }));
+vi.mock("./dashboard-review-access.js", () => ({
+  getReviewedDashboard: mocks.getReviewedDashboard,
+}));
 vi.mock("./dashboard-seeds.js", () => ({
   loadDashboardSeed: mocks.loadDashboardSeed,
 }));
@@ -56,6 +60,34 @@ describe("dashboardAnnotationScope", () => {
     await expect(
       dashboardAnnotationScope("mine", viewer),
     ).resolves.toMatchObject({ editable: false });
+  });
+
+  it("reads a reviewed dashboard through the Human Review check, not the reviewer's own access", async () => {
+    const customer = {
+      kind: "sql",
+      ownerEmail: "owner@example.test",
+      orgId: "org-customer",
+    };
+    mocks.getReviewedDashboard.mockResolvedValue(customer);
+    const review = { reviewOrgId: "org-customer" };
+    await expect(
+      dashboardAnnotationScope("customer", viewer, review),
+    ).resolves.toEqual({
+      scope: { email: "owner@example.test", orgId: "org-customer" },
+      editable: false,
+      dashboard: customer,
+    });
+    expect(mocks.getReviewedDashboard).toHaveBeenCalledWith(
+      "customer",
+      "org-viewer",
+      "org-customer",
+    );
+    expect(mocks.getDashboard).not.toHaveBeenCalled();
+
+    mocks.getReviewedDashboard.mockResolvedValue(null);
+    await expect(
+      dashboardAnnotationScope("customer", viewer, review),
+    ).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it("reads a seed dashboard in the caller's scope", async () => {

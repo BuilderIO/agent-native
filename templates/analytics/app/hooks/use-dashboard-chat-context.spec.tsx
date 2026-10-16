@@ -88,6 +88,39 @@ function PanelHarness() {
   );
 }
 
+function MarkerTitleHarness({
+  dashboardId = "dash-1",
+  panelId = "panel-1",
+  source,
+}: {
+  dashboardId?: string;
+  panelId?: string;
+  source?: string;
+}) {
+  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
+    id: dashboardId,
+    kind: "sql",
+    title: "REAL_DATA_REQUIRED: signups",
+  });
+  return (
+    <button
+      data-action="select"
+      data-selected={selectedPanelId === panelId ? "true" : "false"}
+      onClick={() =>
+        selectPanelForChat(
+          {
+            panelId,
+            panelTitle: "Real_Data_Required by plan",
+            panelKind: "chart",
+            source,
+          },
+          { openSidebar: true },
+        )
+      }
+    />
+  );
+}
+
 function setSidebarOpen(open: boolean) {
   window.dispatchEvent(
     new CustomEvent(clientMocks.SIDEBAR_STATE_CHANGE_EVENT, {
@@ -294,6 +327,70 @@ describe("useDashboardChatContext", () => {
         focus: true,
       }),
     );
+  });
+
+  it("never carries the chat guard's request marker in from a title", async () => {
+    await act(async () => {
+      root.render(<MarkerTitleHarness />);
+    });
+    await settleContextPublish();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-action="select"]')
+        ?.click(),
+    );
+
+    const published = clientMocks.setAgentChatContextItem.mock.calls.map(
+      ([item]) => item,
+    );
+    expect(published.map(({ key }) => key)).toEqual([
+      "analytics-selected-dashboard",
+      "analytics-selected-dashboard-panel",
+    ]);
+    for (const { title, context } of published) {
+      expect(`${title}\n${context}`).not.toMatch(/real_data_required/i);
+    }
+    expect(published[1].title).toBe("Real Data Required by plan");
+    expect(published[1].context).toContain("Panel id: panel-1");
+  });
+
+  it("never carries the marker in from an id or the URL, and still reads back the selection", async () => {
+    const ids = {
+      dashboardId: "real_data_required",
+      panelId: "REAL_DATA_REQUIRED-panel",
+      source: "REAL_DATA_REQUIRED",
+    };
+    window.history.replaceState(null, "", "/adhoc/x?from=REAL_DATA_REQUIRED");
+    try {
+      await act(async () => {
+        root.render(<MarkerTitleHarness {...ids} />);
+      });
+      await settleContextPublish();
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>('[data-action="select"]')
+          ?.click(),
+      );
+
+      const published = clientMocks.setAgentChatContextItem.mock.calls.map(
+        ([item]) => item,
+      );
+      expect(published).toHaveLength(2);
+      expect(published[0].context).toContain("Current URL: /adhoc/x?from=");
+      for (const { title, context } of published) {
+        expect(`${title}\n${context}`).not.toMatch(/real_data_required/i);
+      }
+
+      // The sidebar keeps the published chip; it must still name this panel.
+      clientMocks.agentContextItems = [published[1]];
+      await act(async () => setSidebarOpen(true));
+      expect(
+        container.querySelector<HTMLButtonElement>('[data-action="select"]')
+          ?.dataset.selected,
+      ).toBe("true");
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
   });
 
   it("reports the panel selected when its context chip is active", async () => {
