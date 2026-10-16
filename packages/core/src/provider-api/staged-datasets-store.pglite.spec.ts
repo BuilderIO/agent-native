@@ -9,6 +9,9 @@ let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 // outside one), so ordering under the app lock can be asserted.
 const log: { tx: number | null; sql: string; args: unknown[] }[] = [];
 let txCounter = 0;
+// Makes the write's ownership lookup miss this id once, as if another owner
+// created it between that lookup and the guarded upsert.
+let hideOwnerLookupOnce: string | null = null;
 
 type Statement = string | { sql: string; args?: unknown[] };
 const record = (tx: number | null, input: Statement) =>
@@ -43,6 +46,17 @@ vi.mock("../db/client.js", async (importOriginal) => ({
         fn({
           execute: (input: Statement) => {
             record(id, input);
+            if (
+              typeof input !== "string" &&
+              hideOwnerLookupOnce !== null &&
+              /removed_reason FROM staged_datasets WHERE id = \?$/.test(
+                input.sql,
+              ) &&
+              input.args?.[0] === hideOwnerLookupOnce
+            ) {
+              hideOwnerLookupOnce = null;
+              return Promise.resolve({ rows: [], rowsAffected: 0 });
+            }
             return tx.execute(input as never);
           },
         }),
@@ -83,6 +97,9 @@ async function seed(
     removedReason?: string;
     rowCount?: number;
     appId?: string;
+    name?: string;
+    rowData?: string;
+    legacyByteSize?: boolean;
   } = {},
 ) {
   await pglite.query(
@@ -91,10 +108,10 @@ async function seed(
       id,
       extra.appId ?? APP,
       ownerEmail,
-      id,
+      extra.name ?? id,
       extra.rowCount ?? 1,
       byteSize,
-      updatedAt,
+      extra.legacyByteSize ? null : updatedAt,
       updatedAt,
       updatedAt,
       extra.removedAt ?? null,
@@ -102,9 +119,35 @@ async function seed(
     ],
   );
   await pglite.query(
-    `INSERT INTO staged_dataset_rows (dataset_id, row_index, row_data) VALUES (?, 0, '{"seed":true}')`,
+    `INSERT INTO staged_dataset_rows (dataset_id, row_index, row_data) VALUES (?, 0, ?)`,
+    [id, extra.rowData ?? SEED_ROW],
+  );
+}
+
+const SEED_ROW = '{"seed":true}';
+
+async function storedRows(id: string): Promise<string[]> {
+  const { rows } = await pglite.query(
+    `SELECT row_data FROM staged_dataset_rows WHERE dataset_id = ? ORDER BY row_index`,
     [id],
   );
+  return rows.map((r) => (r as { row_data: string }).row_data);
+}
+
+async function storedBytes(id: string) {
+  const { rows } = await pglite.query(
+    `SELECT byte_size, byte_size_utf8_updated_at, updated_at FROM staged_datasets WHERE id = ?`,
+    [id],
+  );
+  const row = rows[0] as Record<string, unknown>;
+  return {
+    byteSize: Number(row.byte_size),
+    marker:
+      row.byte_size_utf8_updated_at === null
+        ? null
+        : Number(row.byte_size_utf8_updated_at),
+    updatedAt: Number(row.updated_at),
+  };
 }
 
 function stage(id: string, ownerEmail: string) {
@@ -152,6 +195,7 @@ beforeEach(async () => {
   await listStagedDatasets({ appId: APP, ownerEmail: "setup@example.com" });
   log.length = 0;
   txCounter = 0;
+  hideOwnerLookupOnce = null;
 });
 
 afterEach(async () => {
@@ -604,5 +648,285 @@ describe("staged dataset writes on Postgres", () => {
     expect(log[dropRows]?.tx).toBe(log[lock]?.tx);
     expect(await liveIds()).toEqual([]);
     expect(await rowCount("ada_mine")).toBe(0);
+  });
+});
+
+describe("staged dataset replacement and byte accounting on Postgres", () => {
+  it("excludes the replaced payload from the quota and stores exact UTF-8 bytes", async () => {
+    const now = Date.now();
+    await seed("ada_self", "ada@example.com", 20 * MB, now - DAY);
+    await seed("ada_peer", "ada@example.com", 29 * MB, now - 5 * DAY);
+    const replacement = { blob: "é".repeat(MB) };
+
+    const result = await upsertStagedDataset({
+      id: "ada_self",
+      appId: APP,
+      ownerEmail: "ada@example.com",
+      name: "ada_self",
+      rows: [replacement],
+      columns: [],
+    });
+
+    expect(result.byteSize).toBe(
+      Buffer.byteLength(JSON.stringify(replacement), "utf8"),
+    );
+    expect((await storedBytes("ada_self")).byteSize).toBe(result.byteSize);
+    expect(await liveIds()).toEqual(["ada_peer", "ada_self"]);
+    expect(await storedRows("ada_self")).toEqual([JSON.stringify(replacement)]);
+  });
+
+  it("rolls back rows when the guarded upsert catches an ownership race", async () => {
+    await seed("race_id", "ada@example.com", 1, Date.now() - DAY);
+    hideOwnerLookupOnce = "race_id";
+
+    await expect(stage("race_id", "bea@example.com")).rejects.toThrow(
+      /already exists/i,
+    );
+
+    const { rows } = await pglite.query(
+      `SELECT owner_email FROM staged_datasets WHERE id = 'race_id'`,
+    );
+    expect(rows).toEqual([{ owner_email: "ada@example.com" }]);
+    expect(await storedRows("race_id")).toEqual([SEED_ROW]);
+  });
+
+  it("normalizes a legacy byte size once and keeps the normalized value", async () => {
+    const legacyRow = JSON.stringify({ label: "café 😀" });
+    const updatedAt = Date.now() - DAY;
+    await seed("ada_legacy", "ada@example.com", legacyRow.length, updatedAt, {
+      rowData: legacyRow,
+      legacyByteSize: true,
+    });
+
+    await stage("bea_first", "bea@example.com");
+
+    expect(await storedBytes("ada_legacy")).toEqual({
+      byteSize: Buffer.byteLength(legacyRow, "utf8"),
+      marker: updatedAt,
+      updatedAt,
+    });
+  });
+
+  it("keeps the legacy byte normalization when the write itself is refused", async () => {
+    const legacyRow = JSON.stringify({ label: "café 😀" });
+    const updatedAt = Date.now() - DAY;
+    await seed("ada_legacy", "ada@example.com", legacyRow.length, updatedAt, {
+      rowData: legacyRow,
+      legacyByteSize: true,
+    });
+
+    await expect(
+      upsertStagedDataset({
+        id: "bea_rejected",
+        appId: APP,
+        ownerEmail: "bea@example.com",
+        name: "bea_rejected",
+        rows: [{ value: "x".repeat(MAX_BYTES_PER_OWNER + 1) }],
+        columns: [],
+      }),
+    ).rejects.toThrow(/this dataset alone/);
+
+    expect((await storedBytes("ada_legacy")).byteSize).toBe(
+      Buffer.byteLength(legacyRow, "utf8"),
+    );
+    expect(await storedRows("ada_legacy")).toEqual([legacyRow]);
+    expect(await liveIds()).toEqual(["ada_legacy"]);
+  });
+
+  it("enforces the byte quota using UTF-8 size", async () => {
+    const oversized = {
+      label: "😀".repeat(Math.floor(MAX_BYTES_PER_OWNER / 4) + 1),
+    };
+    expect(JSON.stringify(oversized).length).toBeLessThan(MAX_BYTES_PER_OWNER);
+
+    await expect(
+      upsertStagedDataset({
+        id: "ada_unicode",
+        appId: APP,
+        ownerEmail: "ada@example.com",
+        name: "ada_unicode",
+        rows: [oversized],
+        columns: [],
+      }),
+    ).rejects.toThrow(/this dataset alone/);
+    expect(await liveIds()).toEqual([]);
+  });
+
+  it("names the single-dataset cause and evicts nothing when rows cannot fit", async () => {
+    await seed("ada_peer", "ada@example.com", 10 * MB, Date.now() - DAY);
+
+    await expect(
+      upsertStagedDataset({
+        id: "ada_many",
+        appId: APP,
+        ownerEmail: "ada@example.com",
+        name: "ada_many",
+        rows: Array.from({ length: MAX_ROWS_PER_OWNER + 1 }, () => ({})),
+        columns: [],
+      }),
+    ).rejects.toThrow(
+      new RegExp(
+        `Staged dataset cap exceeded: this dataset alone has ${MAX_ROWS_PER_OWNER + 1} rows \\(limit ${MAX_ROWS_PER_OWNER} per user\\)`,
+      ),
+    );
+    expect(await liveIds()).toEqual(["ada_peer"]);
+  });
+});
+
+describe("staged dataset row inserts on Postgres", () => {
+  const stageRows = (rows: Record<string, unknown>[]) =>
+    upsertStagedDataset({
+      id: "ada_batch",
+      appId: APP,
+      ownerEmail: "ada@example.com",
+      name: "ada_batch",
+      rows,
+      columns: [],
+    });
+  const rowInserts = () =>
+    log.filter((e) => /INSERT INTO staged_dataset_rows/.test(e.sql));
+
+  it("writes rows in multi-row statements inside the locked transaction", async () => {
+    await stageRows(Array.from({ length: 1_200 }, (_, i) => ({ i })));
+
+    const inserts = rowInserts();
+    expect(inserts.map((e) => e.args.length / 3)).toEqual([500, 500, 200]);
+    const lock = indexOf(/pg_advisory_xact_lock/);
+    expect(log.indexOf(inserts[0]!)).toBeGreaterThan(lock);
+    expect(new Set(inserts.map((e) => e.tx))).toEqual(new Set([log[lock]?.tx]));
+    const stored = await storedRows("ada_batch");
+    expect(stored).toHaveLength(1_200);
+    expect(JSON.parse(stored[0]!)).toEqual({ i: 0 });
+    expect(JSON.parse(stored[1_199]!)).toEqual({ i: 1_199 });
+  });
+
+  it("starts a new statement before a batch outgrows the byte budget", async () => {
+    await stageRows(
+      Array.from({ length: 6 }, (_, i) => ({
+        i,
+        blob: "x".repeat(400 * 1024),
+      })),
+    );
+
+    const sizes = rowInserts().map((e) => e.args.length / 3);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(6);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(2);
+    expect(await storedRows("ada_batch")).toHaveLength(6);
+  });
+
+  it("keeps an oversized row in a statement of its own", async () => {
+    await stageRows([{ a: 1 }, { blob: "x".repeat(1_500_000) }, { a: 3 }]);
+
+    expect(rowInserts().map((e) => e.args.length / 3)).toEqual([1, 1, 1]);
+  });
+
+  it("appends to nothing when the dataset does not exist yet", async () => {
+    const meta = await upsertStagedDataset({
+      id: "ada_new",
+      appId: APP,
+      ownerEmail: "ada@example.com",
+      name: "ada_new",
+      rows: [{ n: 1 }],
+      columns: [],
+      append: true,
+    });
+
+    expect(meta.rowCount).toBe(1);
+    expect(await storedRows("ada_new")).toEqual(['{"n":1}']);
+  });
+});
+
+describe("staged dataset superseded ids on Postgres", () => {
+  const restage = (
+    name: string,
+    rows: Record<string, unknown>[] = [{ a: 1 }],
+    ownerEmail = "ada@example.com",
+  ) =>
+    upsertStagedDataset({
+      id: "ada_hashed",
+      supersedes: "ada_legacy",
+      appId: APP,
+      ownerEmail,
+      name,
+      rows,
+      columns: [],
+    });
+
+  it("removes the legacy copy of the same owner and name in the write's transaction", async () => {
+    await seed("ada_legacy", "ada@example.com", 5 * MB, Date.now() - 3 * DAY, {
+      name: "gong_calls",
+    });
+
+    await restage("gong_calls");
+
+    expect(await liveIds()).toEqual(["ada_hashed"]);
+    expect(await rowCount("ada_legacy")).toBe(0);
+    const retire = log.find(
+      (e) =>
+        /DELETE FROM staged_datasets WHERE id/.test(e.sql) &&
+        e.args[0] === "ada_legacy",
+    );
+    const write = log.find((e) => /INSERT INTO staged_datasets/.test(e.sql));
+    expect(retire?.tx).toBeTypeOf("number");
+    expect(retire?.tx).toBe(write?.tx);
+  });
+
+  it("frees the legacy copy's share of the quota before planning evictions", async () => {
+    const now = Date.now();
+    await seed("ada_legacy", "ada@example.com", 45 * MB, now - DAY, {
+      name: "gong_calls",
+    });
+    await seed("ada_peer", "ada@example.com", 3 * MB, now - 5 * DAY);
+
+    await restage("gong_calls", [{ blob: "x".repeat(6 * MB) }]);
+
+    expect(await liveIds()).toEqual(["ada_hashed", "ada_peer"]);
+  });
+
+  it("leaves a dataset under that id that has another name or owner", async () => {
+    await seed("ada_legacy", "ada@example.com", MB, Date.now() - DAY, {
+      name: "other_name",
+    });
+    await restage("gong_calls");
+    expect(await liveIds()).toContain("ada_legacy");
+
+    await pglite.query(`DELETE FROM staged_datasets`);
+    await pglite.query(`DELETE FROM staged_dataset_rows`);
+    await seed("ada_legacy", "lin@example.com", MB, Date.now() - DAY, {
+      name: "gong_calls",
+    });
+    await restage("gong_calls");
+    expect(await liveIds()).toContain("ada_legacy");
+    expect(await storedRows("ada_legacy")).toEqual([SEED_ROW]);
+  });
+});
+
+describe("deleteStagedDataset on Postgres", () => {
+  it("leaves another owner's dataset and its rows alone", async () => {
+    await seed("lin_mine", "lin@example.com", MB, Date.now());
+
+    await expect(
+      deleteStagedDataset({
+        id: "lin_mine",
+        appId: APP,
+        ownerEmail: "ada@example.com",
+      }),
+    ).resolves.toBe(false);
+
+    expect(await liveIds()).toEqual(["lin_mine"]);
+    expect(await storedRows("lin_mine")).toEqual([SEED_ROW]);
+    expect(log.some((e) => /DELETE FROM staged_dataset_rows/.test(e.sql))).toBe(
+      false,
+    );
+  });
+
+  it("reports false for a dataset that is already gone", async () => {
+    await expect(
+      deleteStagedDataset({
+        id: "never_staged",
+        appId: APP,
+        ownerEmail: "ada@example.com",
+      }),
+    ).resolves.toBe(false);
   });
 });
