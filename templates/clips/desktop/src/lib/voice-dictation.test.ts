@@ -487,4 +487,63 @@ describe("desktop voice dictation runs", () => {
 
     expect(tauri.invoke).toHaveBeenCalledWith("hide_flow_bar");
   });
+
+  it("dismisses the flow bar after a history retry succeeds", async () => {
+    let historyAttempts = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("transcribe-voice")) {
+        return jsonResponse({ text: "recognized words" });
+      }
+      if (url.includes("create-dictation")) {
+        historyAttempts += 1;
+        if (historyAttempts === 1) {
+          return {
+            ok: false,
+            status: 503,
+            text: async () =>
+              JSON.stringify({ error: "temporarily unavailable" }),
+          } as Response;
+        }
+        const body = JSON.parse(String(init?.body));
+        return jsonResponse({ id: body.id });
+      }
+      return jsonResponse({
+        builder: false,
+        gemini: false,
+        groq: false,
+        native: false,
+      });
+    });
+    const started = await startDictation("auto");
+    dispose = started.dispose;
+    const recorder = FakeRecorder.instances[0];
+    recorder.ondataavailable?.({ data: new Blob(["audio"]) });
+    await release();
+    await recorder.onstop?.();
+    await settle();
+
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "error",
+      failure: "history-save",
+      retryHistory: true,
+    });
+    tauri.invoke.mockClear();
+
+    await dispatch("voice:retry-history", { runId: started.runId });
+
+    expect(historyAttempts).toBe(2);
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "complete",
+      historySaved: true,
+    });
+    await vi.advanceTimersByTimeAsync(1_200);
+    await settle();
+
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "idle",
+      runId: started.runId,
+    });
+    expect(tauri.invoke).toHaveBeenCalledWith("hide_flow_bar");
+  });
 });

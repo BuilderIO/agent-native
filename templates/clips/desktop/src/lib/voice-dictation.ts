@@ -2151,6 +2151,10 @@ export function installDesktopVoiceDictation(
               insertion: target.insertionOutcome,
               historySaved: true,
             });
+            dismissRunAfter(
+              target.runId,
+              target.insertionOutcome === "copied" ? 1_800 : 1_200,
+            );
             return;
           }
           if (!lifecycle.finish(target.runId, "failed")) return;
