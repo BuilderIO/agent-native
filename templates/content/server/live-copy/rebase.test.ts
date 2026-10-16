@@ -138,6 +138,44 @@ describe("rebaseBodyEdit", () => {
         ),
       ).toBe("Bravo\nCharlie\nNew\nDelta\nEcho peer");
     });
+
+    it("applies an edit whose replaced text takes a closing code fence when another writer changed a block after it", () => {
+      const fenced = "```js\nold\n```\nTail\nEnd";
+      const edited = "```js\nnew\n```\nTail\nEnd";
+      // Replacing "old\n```" with "new\n```".
+      const range = [
+        { start: fenced.indexOf("old"), end: fenced.indexOf("\nTail") },
+      ];
+
+      expect(
+        rebaseBodyEdit(
+          fenced,
+          edited,
+          "```js\nold\n```\nTail\nEnd peer",
+          range,
+        ),
+      ).toBe("```js\nnew\n```\nTail\nEnd peer");
+      expect(
+        rebaseBodyEdit(
+          fenced,
+          edited,
+          "```js\nold peer\n```\nTail\nEnd",
+          range,
+        ),
+      ).toBeNull();
+    });
+
+    it("refuses an edit whose replaced text takes a callout's closing tag when another writer changed the callout", () => {
+      const base = "<callout>\n\tSaved\n</callout>\nTail";
+      // Replacing "Saved\n</callout>\nTail", which the diff reads as keeping
+      // the callout.
+      const candidate = "<callout>\n\tSaved\n</callout>\nTail two";
+      const current = "<callout>\n\tSaved peer\n</callout>\nTail";
+      const range = [{ start: base.indexOf("Saved"), end: base.length }];
+
+      expect(rebaseBodyEdit(base, candidate, current, range)).toBeNull();
+      expect(rebaseBodyEdit(base, candidate, current)).not.toBeNull();
+    });
   });
 
   it("adds a new block both writers added in different places twice", () => {

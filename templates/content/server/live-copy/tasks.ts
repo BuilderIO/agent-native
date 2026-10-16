@@ -160,26 +160,29 @@ function bodyEdit(value: unknown): BodyEdit | undefined {
   ) {
     return undefined;
   }
-  return {
-    base,
-    candidate,
-    authored: authored.map(({ start, end }) => ({ start, end })),
-  };
+  const ranges = authored
+    .map(({ start, end }) => ({ start, end }))
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+  // The rebase probes each range at its offsets in base, which an
+  // overlapping range's replacement would move.
+  if (
+    ranges.some(
+      (range, index) => index > 0 && range.start < ranges[index - 1].end,
+    )
+  ) {
+    return undefined;
+  }
+  return { base, candidate, authored: ranges };
 }
 
-const BODY_EDIT_SHAPE =
-  "{ base, candidate } as strings, with authored? as ranges of base";
-
-function rebaseBodyInput(input: unknown): BodyEdit[] | LiveCopyTaskRefusal {
-  const edit = bodyEdit(input);
-  if (!edit) return refused("invalid_input", `expected ${BODY_EDIT_SHAPE}`);
-  const { earlier } = (input ?? {}) as Record<string, unknown>;
-  if (earlier === undefined) return [edit];
-  const earlierEdit = bodyEdit(earlier);
-  if (!earlierEdit) {
-    return refused("invalid_input", `expected earlier as ${BODY_EDIT_SHAPE}`);
-  }
-  return [edit, earlierEdit];
+function rebaseBodyInput(input: unknown): BodyEdit | LiveCopyTaskRefusal {
+  return (
+    bodyEdit(input) ??
+    refused(
+      "invalid_input",
+      "expected { base, candidate } as strings, with authored? as ranges of base that don't overlap",
+    )
+  );
 }
 
 function applySuggestionInput(
@@ -276,39 +279,22 @@ const liveCopyTasks = defineLiveCopyTasks({
      * ambiguous, or when a tab changed a block the edit's `authored` ranges
      * of `base` touch. A peer's commit that overtakes it runs it again on
      * the peer's body.
-     *
-     * With `earlier`, `base` and `earlier.base` are the recorded bodies
-     * after and before a base no longer known, each with the edit made on
-     * it, and the edit commits only when both give the same body.
      */
     "rebase-body"(doc, field, input) {
-      const edits = rebaseBodyInput(input);
-      if (isRefusal(edits)) return edits;
+      const edit = rebaseBodyInput(input);
+      if (isRefusal(edit)) return edit;
       const current = deriveBody(doc, field);
       if (isRefusal(current)) return current;
       // The rebase keeps the candidate's blocks in their parsed form, which
       // has already lost whatever the parse drops.
-      if (edits.some((edit) => parseDropsText(edit.candidate))) {
+      if (parseDropsText(edit.candidate)) {
         return refused("lossy", "the Markdown parser drops part of this body");
       }
-      const [content, ...others] = edits.map((edit) =>
+      const content =
         current === edit.base
           ? edit.candidate
-          : rebaseBodyEdit(edit.base, edit.candidate, current, edit.authored),
-      );
+          : rebaseBodyEdit(edit.base, edit.candidate, current, edit.authored);
       if (content === null) return refused("conflict");
-      // A candidate that needed no rebase is still in the writer's form.
-      const canonical = docToNfm(nfmToDoc(content));
-      if (
-        others.some(
-          (other) => other === null || docToNfm(nfmToDoc(other)) !== canonical,
-        )
-      ) {
-        return refused(
-          "conflict",
-          "the recorded bodies either side of the edit's base give different bodies",
-        );
-      }
       const root = buildBody(content);
       if (isRefusal(root)) return root;
       const fragment = doc.getXmlFragment(field);

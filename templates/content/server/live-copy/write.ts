@@ -17,7 +17,13 @@ import {
   type ContentBodyWriteCause,
 } from "./write-cause.js";
 
-type ContentLiveCopyBodyEdit = {
+/**
+ * A server writer's replace names the body it was built from. Core retries
+ * an edit a peer's commit overtook, and a replace without `expected` would
+ * silently overwrite the peer's text on that retry. A rebase names the body
+ * its edit was made on.
+ */
+export type ContentLiveCopyRebaseInput = {
   base: string;
   candidate: string;
   /**
@@ -25,17 +31,6 @@ type ContentLiveCopyBodyEdit = {
    * a tab's change to a block they touch refuses the rebase.
    */
   authored?: ReadonlyArray<{ start: number; end: number }>;
-};
-
-/**
- * A server writer's replace names the body it was built from. Core retries
- * an edit a peer's commit overtook, and a replace without `expected` would
- * silently overwrite the peer's text on that retry. A rebase names the body
- * its edit was made on, or, with `earlier`, the recorded bodies after and
- * before a base History no longer holds.
- */
-export type ContentLiveCopyRebaseInput = ContentLiveCopyBodyEdit & {
-  earlier?: ContentLiveCopyBodyEdit;
 };
 
 type ContentLiveCopyEditInput<Edit extends string> =
@@ -63,7 +58,7 @@ function replaceBodyInput(
   return { content, expected };
 }
 
-function bodyEditInput(input: unknown): Record<string, unknown> {
+function rebaseBodyInput(input: unknown): Record<string, unknown> {
   const { base, candidate, authored } = (input ?? {}) as Record<
     string,
     unknown
@@ -79,13 +74,6 @@ function bodyEditInput(input: unknown): Record<string, unknown> {
         })
       : authored,
   };
-}
-
-function rebaseBodyInput(input: unknown): Record<string, unknown> {
-  const { earlier } = (input ?? {}) as Record<string, unknown>;
-  return earlier === undefined
-    ? bodyEditInput(input)
-    : { ...bodyEditInput(input), earlier: bodyEditInput(earlier) };
 }
 
 /**

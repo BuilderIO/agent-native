@@ -106,6 +106,10 @@ const { schema } = vi.hoisted(() => ({
       documentId: "documentVersions.documentId",
       ownerEmail: "documentVersions.ownerEmail",
     },
+    documentBodySteps: {
+      documentId: "documentBodySteps.documentId",
+      ownerEmail: "documentBodySteps.ownerEmail",
+    },
     builderDocSidecars: {
       documentId: "builderDocSidecars.documentId",
       ownerEmail: "builderDocSidecars.ownerEmail",
@@ -245,6 +249,21 @@ describe("deleteDocumentRecursive", () => {
       __and: [
         { __inArray: [schema.documentComments.documentId, ["doc-1"]] },
         { __eq: [schema.documentComments.ownerEmail, "owner-a@example.com"] },
+      ],
+    });
+  });
+
+  it("deletes the body steps that hold the deleted document's text", async () => {
+    await deleteDocumentRecursive(db, "doc-1", "owner-a@example.com");
+
+    const stepDeletes = deleteCalls.filter(
+      (c) => c.table === "documentBodySteps",
+    );
+    expect(stepDeletes).toHaveLength(1);
+    expect(stepDeletes[0].cond).toEqual({
+      __and: [
+        { __inArray: [schema.documentBodySteps.documentId, ["doc-1"]] },
+        { __eq: [schema.documentBodySteps.ownerEmail, "owner-a@example.com"] },
       ],
     });
   });
