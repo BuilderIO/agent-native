@@ -843,7 +843,7 @@ test("Shift-picking a Screen extends the Delete selection in All screens", async
   await expect(layerRow(page, "Third")).toHaveCount(1);
 });
 
-test("Shift-marquee keeps reselected Screens in the existing Delete selection", async ({
+test("Shift-marquee adds a hit Screen to the existing Delete selection", async ({
   app,
   page,
 }) => {
