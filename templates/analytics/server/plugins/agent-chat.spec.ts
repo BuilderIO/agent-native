@@ -1360,9 +1360,20 @@ describe("realDataFinalGuard", () => {
         ],
       }),
     );
+    const comparedBareDates = realDataFinalGuard(
+      guardContext({
+        userText: "Compare 2026-07-01 to 2026-07-07 activation rate.",
+        draftText: "The activation rate was 42%.",
+        toolCalls: [dbtMetricCall(comparedDates)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: comparedDates }),
+        ],
+      }),
+    );
 
     expect(correct).toBeNull();
     expect(compared).toBeNull();
+    expect(comparedBareDates).toBeNull();
   });
 
   it("resolves past and within rolling periods and rejects vague or sub-day windows", () => {

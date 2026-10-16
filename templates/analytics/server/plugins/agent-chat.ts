@@ -1882,8 +1882,7 @@ function dbtMetricTimeScopeMismatch(
       .replace(/[^a-z0-9 ]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-  const organizationHierarchyQualifier = (evidence: string) => {
-    const tokens = normalizeDimensionEvidence(evidence).split(" ");
+  const organizationHierarchyQualifier = (...evidence: string[]) => {
     const organizationTokens = new Set([
       "organization",
       "org",
@@ -1899,29 +1898,24 @@ function dbtMetricTimeScopeMismatch(
       { tokens: ["parent"], qualifier: "parent" },
       { tokens: ["root"], qualifier: "root" },
     ];
-    for (let start = 0; start < tokens.length; start += 1) {
-      for (const marker of hierarchyMarkers) {
-        if (
-          !marker.tokens.every(
-            (token, offset) => tokens[start + offset] === token,
-          )
-        ) {
-          continue;
-        }
-        const end = start + marker.tokens.length;
-        if (
-          tokens.some((token, index) => {
-            if (!organizationTokens.has(token)) return false;
-            const gap =
-              index < start
-                ? start - index - 1
-                : index >= end
-                  ? index - end
-                  : 0;
-            return gap <= 2;
-          })
-        ) {
-          return marker.qualifier;
+    for (const field of evidence) {
+      const tokens = normalizeDimensionEvidence(field).split(" ");
+      for (let start = 0; start < tokens.length; start += 1) {
+        for (const marker of hierarchyMarkers) {
+          if (
+            !marker.tokens.every(
+              (token, offset) => tokens[start + offset] === token,
+            )
+          ) {
+            continue;
+          }
+          const end = start + marker.tokens.length;
+          if (
+            organizationTokens.has(tokens[start - 1] ?? "") ||
+            organizationTokens.has(tokens[end] ?? "")
+          ) {
+            return marker.qualifier;
+          }
         }
       }
     }
@@ -2002,7 +1996,8 @@ function dbtMetricTimeScopeMismatch(
           (candidate) => String(candidate.name ?? "") === name,
         );
         const selectedQualifier = organizationHierarchyQualifier(
-          `${name} ${String(dimension?.description ?? "")}`,
+          name,
+          String(dimension?.description ?? ""),
         );
         if (
           selectedQualifier !== requestedOrganizationQualifier &&

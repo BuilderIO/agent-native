@@ -379,6 +379,63 @@ describe("dbt Semantic Layer continuation guard", () => {
   });
 
   it.each([
+    "Top-level tier of each organization",
+    "root or member account",
+    "root identifier",
+  ])(
+    "does not infer organization hierarchy from unrelated description text: %s",
+    (description) => {
+      const definition = {
+        ...metric,
+        dimensions: [
+          { name: "organization_id", description },
+          metric.dimensions[1],
+        ],
+      };
+
+      expect(
+        realDataFinalGuard(
+          context({
+            initialMetric: definition,
+            continuationMetric: definition,
+          }),
+        ),
+      ).toBeNull();
+    },
+  );
+
+  it("uses an explicit adjacent hierarchy phrase in a dimension description", () => {
+    const definition = {
+      ...metric,
+      dimensions: [
+        { name: "org_id", description: "Root organization identifier" },
+        metric.dimensions[1],
+      ],
+    };
+    const rootOrganizationQuery = {
+      ...querySpec,
+      groupBy: [groupBy[0], { name: "org_id" }],
+    };
+
+    expect(
+      realDataFinalGuard(
+        context({
+          initialQuerySpec: rootOrganizationQuery,
+          querySpec: rootOrganizationQuery,
+          initialMetric: definition,
+          continuationMetric: definition,
+          requestText:
+            "What was activation rate from 2026-10-05 to 2026-10-11 by organization by week?",
+        }),
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "same bounded date range and requested grouping",
+      ),
+    });
+  });
+
+  it.each([
     ["query lineage", { queryId: "different-query" }],
     [
       "query scope",

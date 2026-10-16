@@ -188,8 +188,9 @@ function queryFailure(error: unknown): QueryFailure {
       case "unsupported_function":
         return {
           ...QUERY_FAILURES.unsupported_sql,
-          message:
-            "The first-party Analytics source rejected a SQL function it does not support. Rewrite with supported functions, or use the BigQuery action if the query needs GoogleSQL-specific syntax.",
+          message: /\bunapproved SQL function div\b/i.test(error.message)
+            ? "The first-party Analytics SQL policy rejects DIV(). For a ratio, use numerator / NULLIF(denominator, 0). Use FLOOR(numerator / NULLIF(denominator, 0)) only when both operands are nonnegative and floor division is intended; otherwise clarify the requested rounding. Retry once with the same source, filters, and grain, and do not repeat DIV()."
+            : "The first-party Analytics source rejected a SQL function it does not support. Rewrite with supported functions, or use the BigQuery action if the query needs GoogleSQL-specific syntax.",
         };
       case "invalid_query":
         return QUERY_FAILURES.invalid_query;

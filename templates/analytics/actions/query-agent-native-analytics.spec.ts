@@ -115,6 +115,32 @@ describe("query-agent-native-analytics", () => {
     );
   });
 
+  it("explains how to recover from the rejected DIV function without changing the metric scope", async () => {
+    const sql =
+      "SELECT DIV(active_users, total_users) FROM analytics_user_days";
+    const error = new FirstPartyAnalyticsValidationError(
+      "unsupported_function",
+      "First-party analytics queries cannot call unapproved SQL function div",
+    );
+    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+
+    const thrown = await action.run({ sql }).catch((caught: Error) => caught);
+
+    expect(thrown.message).toContain(
+      "For a ratio, use numerator / NULLIF(denominator, 0)",
+    );
+    expect(thrown.message).toContain("clarify the requested rounding");
+    expect(thrown.message).toContain("same source, filters, and grain");
+    expect(thrown.message).toContain("do not repeat DIV()");
+    expect(thrown.message).not.toContain(sql);
+    expect(thrown.message).not.toContain(error.message);
+    expect(mocks.track).toHaveBeenCalledWith(
+      "query_failed",
+      expect.objectContaining({ failure_class: "unsupported_sql" }),
+      undefined,
+    );
+  });
+
   it.each([
     [
       "invalid_shape",
