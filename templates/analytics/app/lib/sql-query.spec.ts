@@ -34,7 +34,6 @@ describe("executeSqlQuery", () => {
     mocks.addBytesProcessed.mockReset();
     mocks.callAction.mockReset();
     mocks.recordQueryCost.mockReset();
-    mocks.recordQueryCost.mockReturnValue({ counted: 0, reason: "no-bytes" });
   });
 
   it("uses the dashboard panel action with the existing source/query payload", async () => {
@@ -127,17 +126,13 @@ describe("executeSqlQuery", () => {
     });
   });
 
-  it("reports bytes read only when the cost meter counted a scan", async () => {
+  it("reports bytes read only when both caches confirm a miss", async () => {
     mocks.callAction.mockResolvedValue({
       rows: [],
       schema: [],
       bytesProcessed: 4096,
       cached: false,
       providerCacheHit: false,
-    });
-    mocks.recordQueryCost.mockReturnValueOnce({
-      counted: 4096,
-      reason: "scanned",
     });
     await expect(
       executeSqlQuery("SELECT 1", "bigquery"),
@@ -148,10 +143,6 @@ describe("executeSqlQuery", () => {
       schema: [],
       bytesProcessed: 4096,
       cached: true,
-    });
-    mocks.recordQueryCost.mockReturnValueOnce({
-      counted: 0,
-      reason: "app-cache",
     });
     const cached = await executeSqlQuery("SELECT 1", "bigquery");
     expect(cached).not.toHaveProperty("bytesRead");

@@ -1,6 +1,7 @@
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
 import {
+  confirmedScanBytes,
   isConfirmedPreQueryFailure,
   isSqlQueryAccessDenied,
   SqlQueryRefusalError,
@@ -313,7 +314,7 @@ export async function executeSqlQuery(
   }
 
   const metadata = responseMetadata(data);
-  const cost = recordQueryCost({
+  recordQueryCost({
     status: "success",
     cached: metadata.cached,
     providerCacheHit: metadata.providerCacheHit,
@@ -338,11 +339,15 @@ export async function executeSqlQuery(
     totalMs: performance.now() - startedAt,
   });
 
+  const bytesRead = confirmedScanBytes({
+    ...metadata,
+    bytesProcessed: data.bytesProcessed,
+  });
   return {
     rows: data.rows ?? [],
     schema: data.schema,
     ...metadata,
-    ...(cost.reason === "scanned" ? { bytesRead: cost.counted } : {}),
+    ...(bytesRead !== null ? { bytesRead } : {}),
   };
 }
 
