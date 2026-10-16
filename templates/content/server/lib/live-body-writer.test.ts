@@ -206,6 +206,15 @@ describe("live-body writer gate", () => {
       writePath: "legacy",
       reason: "not_switched",
     });
+
+    await getDbExec().execute({
+      sql: "UPDATE public.settings SET value = ? WHERE key = ?",
+      args: ["null", WRITER],
+    });
+    await expect(gate.liveBodyWriterGate("switched")).rejects.toMatchObject({
+      name: "FeatureFlagRulesError",
+      code: "malformed",
+    });
   });
 
   it("reads the flags in the caller's transaction rather than the request's settings snapshot", async () => {
@@ -219,13 +228,6 @@ describe("live-body writer gate", () => {
       await expect(gate.liveBodyWriterGate("switched")).resolves.toEqual({
         writePath: "live_copy",
       });
-      await runWithRequestContext({}, () =>
-        setFlags({ shadow: { emails: [OWNER] } }),
-      );
-      // Precondition: this request still holds the flags it read first.
-      await expect(gate.liveBodyWriterGate("switched")).resolves.toEqual({
-        writePath: "live_copy",
-      });
 
       await getDb().transaction(async (tx) => {
         const [row] = await tx
@@ -233,6 +235,14 @@ describe("live-body writer gate", () => {
           .from(schema.documents)
           .where(eq(schema.documents.id, "switched"))
           .for("update");
+        // Turned off inside this transaction, so only a read in it can see the
+        // change; a request of its own leaves this request's snapshot stale.
+        await runWithRequestContext({}, () =>
+          setFlags({ shadow: { emails: [OWNER] } }),
+        );
+        await expect(gate.liveBodyWriterGateForRow(row)).resolves.toEqual({
+          writePath: "live_copy",
+        });
         await expect(
           gate.liveBodyWriterGateForRow(row, { transaction: getDbExec() }),
         ).resolves.toEqual({ writePath: "legacy", reason: "flag_off" });

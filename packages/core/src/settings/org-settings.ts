@@ -1,10 +1,12 @@
 import {
   getSetting,
+  getSettingEntry,
   mutateSetting,
   putSetting,
   deleteSetting,
   deleteSettingsByPrefix,
   listSettingsByPrefix,
+  type SettingEntry,
   type StoreWriteOptions,
   type StoreReadOptions,
 } from "./store.js";
@@ -21,6 +23,14 @@ export async function getOrgSetting(
   options?: StoreReadOptions,
 ): Promise<Record<string, unknown> | null> {
   return getSetting(orgKey(orgId, key), options);
+}
+
+export async function getOrgSettingEntry(
+  orgId: string,
+  key: string,
+  options?: StoreReadOptions,
+): Promise<SettingEntry> {
+  return getSettingEntry(orgKey(orgId, key), options);
 }
 
 export async function putOrgSetting(

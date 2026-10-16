@@ -1,6 +1,16 @@
 import { getDbExec, type DbExec } from "../db/client.js";
-import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
-import { getSetting, getSettings, mutateSetting } from "../settings/store.js";
+import {
+  getOrgSetting,
+  getOrgSettingEntry,
+  mutateOrgSetting,
+} from "../settings/org-settings.js";
+import {
+  getSetting,
+  getSettingEntry,
+  getSettings,
+  mutateSetting,
+  type SettingEntry,
+} from "../settings/store.js";
 import {
   getFeatureFlagDefinition,
   type FeatureFlagDefinition,
@@ -203,8 +213,24 @@ export class FeatureFlagRulesError extends Error {
   }
 }
 
-function storedRulesProblem(value: Record<string, unknown>): string | null {
-  if (Array.isArray(value)) return "stored rules are a list, not an object";
+async function readStoredFeatureFlagRulesEntry(
+  key: string,
+  scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
+): Promise<SettingEntry> {
+  const orgId = scope.orgId?.trim();
+  const options = { transaction: scope.transaction };
+  if (!orgId) return getSettingEntry(settingKey(key), options);
+  const [orgEntry, globalEntry] = await Promise.all([
+    getOrgSettingEntry(orgId, settingKey(key), options),
+    getSettingEntry(settingKey(key), options),
+  ]);
+  return orgEntry.found ? orgEntry : globalEntry;
+}
+
+function storedRulesProblem(stored: unknown): string | null {
+  if (!stored || typeof stored !== "object" || Array.isArray(stored))
+    return `stored rules are ${stored === null ? "null" : Array.isArray(stored) ? "a list" : typeof stored}, not an object`;
+  const value = stored as Record<string, unknown>;
   if (value.mode !== "off" && value.mode !== "on" && value.mode !== "rules")
     return `stored mode ${JSON.stringify(value.mode)} is not off, on, or rules`;
   for (const field of ["emails", "orgIds"] as const) {
@@ -220,12 +246,12 @@ function storedRulesProblem(value: Record<string, unknown>): string | null {
     percentage !== undefined &&
     !(
       typeof percentage === "number" &&
-      Number.isFinite(percentage) &&
+      Number.isInteger(percentage) &&
       percentage >= 0 &&
       percentage <= 100
     )
   )
-    return "stored percentage is not a number from 0 to 100";
+    return "stored percentage is not a whole number from 0 to 100";
   return null;
 }
 
@@ -241,11 +267,11 @@ export async function getFeatureFlagRulesStrict(
 ): Promise<FeatureFlagRules> {
   if (!getFeatureFlagDefinition(key))
     throw new FeatureFlagRulesError("unregistered", key, "not registered");
-  const stored = await readStoredFeatureFlagRules(key, scope);
-  if (stored == null) return defaultFeatureFlagRules();
-  const problem = storedRulesProblem(stored);
+  const stored = await readStoredFeatureFlagRulesEntry(key, scope);
+  if (!stored.found) return defaultFeatureFlagRules();
+  const problem = storedRulesProblem(stored.value);
   if (problem) throw new FeatureFlagRulesError("malformed", key, problem);
-  return normalizeFeatureFlagRules(stored);
+  return normalizeFeatureFlagRules(stored.value);
 }
 
 export async function getFeatureFlagRulesForKeys(
