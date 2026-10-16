@@ -18,6 +18,7 @@ import {
   CollabStateMalformedError,
   ensureTable,
   loadYDocRecordStrict,
+  loadYDocVersion,
   trySaveYDocStateWithClient,
 } from "./storage.js";
 
@@ -605,6 +606,34 @@ async function runLiveCopyTransaction(
   await exec.transaction(write);
 }
 
+/**
+ * Runs one write attempt at `version`. False means the attempt was stale and
+ * wrote nothing: its own check found another version, or it threw after a
+ * peer had moved the copy. A persist that reads the app's rows sees that
+ * peer's commit and may refuse it as stale; fresh state answers that, not
+ * the persist's error.
+ */
+async function runLiveCopyAttempt(
+  docId: string,
+  version: number | null,
+  write: (tx: DbExec) => Promise<void>,
+): Promise<boolean> {
+  try {
+    await runLiveCopyTransaction(docId, write);
+    return true;
+  } catch (error) {
+    if (error instanceof CommitVersionConflict) return false;
+    let current: number | null;
+    try {
+      current = await loadYDocVersion(docId);
+    } catch {
+      throw error;
+    }
+    if (current !== version) return false;
+    throw error;
+  }
+}
+
 async function runCallPersist(
   docId: string,
   tx: DbExec,
@@ -631,8 +660,10 @@ export async function commitLiveCopy(
   assertOwnTransaction(commit.docId, "commitLiveCopy");
   await ensureTable();
   let outcome: LiveCopyOutcome = { liveCopy: "derived" };
-  try {
-    await runLiveCopyTransaction(commit.docId, async (tx) => {
+  const committed = await runLiveCopyAttempt(
+    commit.docId,
+    commit.previousVersion,
+    async (tx) => {
       const persist = binding.persist;
       if (persist) {
         // The pool's own transaction does not scope getDbExec(); without
@@ -650,12 +681,9 @@ export async function commitLiveCopy(
         commit.previousVersion,
       );
       if (!saved) throw new CommitVersionConflict();
-    });
-    return outcome;
-  } catch (error) {
-    if (error instanceof CommitVersionConflict) return null;
-    throw error;
-  }
+    },
+  );
+  return committed ? outcome : null;
 }
 
 /**
@@ -669,22 +697,16 @@ export async function persistLiveCopyCall(
   callPersist: LiveCopyCallPersist,
 ): Promise<boolean> {
   assertOwnTransaction(docId, "persistLiveCopyCall");
-  try {
-    await runLiveCopyTransaction(docId, async (tx) => {
-      await runCallPersist(docId, tx, callPersist);
-      // Locked after the app's rows, as a commit locks them, and held to the
-      // end so no commit can slip in before this one lands.
-      const current = await tx.execute({
-        sql: "SELECT version FROM _collab_docs WHERE doc_id = ? FOR SHARE",
-        args: [docId],
-      });
-      if (Number(current.rows[0]?.version) !== version) {
-        throw new CommitVersionConflict();
-      }
+  return runLiveCopyAttempt(docId, version, async (tx) => {
+    await runCallPersist(docId, tx, callPersist);
+    // Locked after the app's rows, as a commit locks them, and held to the
+    // end so no commit can slip in before this one lands.
+    const current = await tx.execute({
+      sql: "SELECT version FROM _collab_docs WHERE doc_id = ? FOR SHARE",
+      args: [docId],
     });
-    return true;
-  } catch (error) {
-    if (error instanceof CommitVersionConflict) return false;
-    throw error;
-  }
+    if (Number(current.rows[0]?.version) !== version) {
+      throw new CommitVersionConflict();
+    }
+  });
 }
