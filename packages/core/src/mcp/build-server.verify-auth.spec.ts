@@ -53,8 +53,11 @@ vi.mock("../org/service-principal-guard.js", async (importActual) => ({
     recordServicePrincipalDenialMock(...a),
 }));
 
-const { resolveMcpIdentityOrgId, verifyAuth } =
-  await import("./build-server.js");
+const {
+  McpIdentityVerificationUnavailableError,
+  resolveMcpIdentityOrgId,
+  verifyAuth,
+} = await import("./build-server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
 
 const SECRET = "verify-auth-secret";
@@ -1736,6 +1739,20 @@ describe("resolveMcpIdentityOrgId", () => {
       expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
     },
   );
+
+  it("keeps domain lookup failures on the retryable identity path", async () => {
+    const databaseError = new Error("database connection failed");
+    lookupOrgByDomainMock.mockRejectedValue(databaseError);
+
+    const error = await resolveMcpIdentityOrgId({
+      userEmail: "alice@example.com",
+      orgDomain: "example.com",
+    }).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(McpIdentityVerificationUnavailableError);
+    expect(error).toMatchObject({ cause: databaseError });
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
 
   it("falls back to the verified user email when a token has no org claim", async () => {
     resolveOrgIdForEmailMock.mockResolvedValue("org-email");

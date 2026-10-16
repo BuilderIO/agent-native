@@ -1209,14 +1209,18 @@ export async function getMcpOAuthBearerSession(
   const bearerToken = getBearerSessionToken(event);
   if (!bearerToken) return null;
 
+  let identityVerificationUnavailableErrorClass:
+    | typeof import("../mcp/build-server.js").McpIdentityVerificationUnavailableError
+    | undefined;
   try {
-    const [
-      { getMcpConnectUrl, getMcpOAuthAudiences },
-      { verifyAuth, resolveMcpIdentityOrgId },
-    ] = await Promise.all([
+    const [oauthRoute, mcp] = await Promise.all([
       import("../mcp/oauth-route.js"),
       import("../mcp/build-server.js"),
     ]);
+    identityVerificationUnavailableErrorClass =
+      mcp.McpIdentityVerificationUnavailableError;
+    const { getMcpConnectUrl, getMcpOAuthAudiences } = oauthRoute;
+    const { verifyAuth, resolveMcpIdentityOrgId } = mcp;
     const result = await verifyAuth(authHeader, undefined, {
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
@@ -1256,6 +1260,13 @@ export async function getMcpOAuthBearerSession(
       ...(orgId ? { orgId } : {}),
     };
   } catch (e) {
+    if (
+      identityVerificationUnavailableErrorClass &&
+      e instanceof identityVerificationUnavailableErrorClass
+    ) {
+      markCredentialMembershipUnavailable(event);
+      return null;
+    }
     console.error("[auth] MCP OAuth bearer verification error:", e);
     return null;
   }

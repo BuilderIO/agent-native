@@ -4593,7 +4593,12 @@ export async function resolveOrgIdFromDomain(
 ): Promise<string | undefined> {
   if (!orgDomain) return undefined;
   const { lookupOrgByDomain } = await import("../org/context.js");
-  const result = await lookupOrgByDomain(orgDomain);
+  let result: Awaited<ReturnType<typeof lookupOrgByDomain>>;
+  try {
+    result = await lookupOrgByDomain(orgDomain);
+  } catch (cause) {
+    throw new McpIdentityVerificationUnavailableError(cause);
+  }
   if (result.status === "ambiguous") {
     throw new Error("MCP caller organization domain is ambiguous");
   }

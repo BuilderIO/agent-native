@@ -166,9 +166,11 @@ vi.mock("./builtin-tools.js", () => ({
 }));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn(async () => null));
 const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
+const lookupOrgByDomainMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
+  lookupOrgByDomain: (...args: any[]) => lookupOrgByDomainMock(...args),
   resolveA2AOrganizationMetadataById: (
     ...args: Parameters<typeof resolveA2AOrganizationMetadataByIdMock>
   ) => resolveA2AOrganizationMetadataByIdMock(...args),
@@ -862,6 +864,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       async (orgId: string) =>
         orgId === "org_123" ? { orgId, orgDomain: null } : null,
     );
+    lookupOrgByDomainMock.mockReset();
+    lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
@@ -8978,6 +8982,35 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       membershipOverride.answer = null;
       delete process.env.BETTER_AUTH_SECRET;
     }
+  });
+
+  it("answers 503 without an auth challenge when the token's org domain cannot be resolved", async () => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgDomain: "example.com",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+    lookupOrgByDomainMock.mockRejectedValueOnce(
+      new Error("database connection failed"),
+    );
+
+    const event = makeWebEvent({
+      method: "POST",
+      body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const result = await handleMcpRequest(event, config as any);
+
+    expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+    expect(event._status).toBe(503);
+    expect(event._responseHeaders?.["retry-after"]).toBe("5");
+    expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+    expect(result).toMatchObject({ error: "Service Unavailable" });
   });
 
   it("preserves the legacy MCP resource in its OAuth challenge", async () => {

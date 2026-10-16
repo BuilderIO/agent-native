@@ -25,6 +25,7 @@ import {
   McpIdentityVerificationUnavailableError,
   getAccessTokens,
   resolveOrgIdFromDomain,
+  resolveMcpIdentityOrgId,
   buildLinkArtifacts,
   McpDirectoryProfileValidationError,
   validateMcpDirectoryProfile,
@@ -290,6 +291,18 @@ function directoryProfileUnavailable(
   };
 }
 
+function identityVerificationUnavailable(event: H3Event): {
+  error: string;
+  message: string;
+} {
+  setResponseStatus(event, 503);
+  setResponseHeader(event, "Retry-After", "5");
+  return {
+    error: "Service Unavailable",
+    message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // handleMcpRequest — runtime-agnostic MCP request handler
 // ---------------------------------------------------------------------------
@@ -369,12 +382,7 @@ async function handleMcpRequestInternal(
   } catch (error) {
     if (!(error instanceof McpIdentityVerificationUnavailableError))
       throw error;
-    setResponseStatus(event, 503);
-    setResponseHeader(event, "Retry-After", "5");
-    return {
-      error: "Service Unavailable",
-      message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
-    };
+    return identityVerificationUnavailable(event);
   }
   if (!authResult.authed && authResult.unavailable) {
     // The token is valid but its org membership could not be checked. No auth
@@ -395,6 +403,23 @@ async function handleMcpRequestInternal(
       buildMcpOAuthChallenge(event, routePath, authResult.refusal),
     );
     return buildUnauthorizedBody(event, routePath, authResult.refusal);
+  }
+
+  if (
+    authResult.identity?.orgId === undefined &&
+    authResult.identity?.orgDomain !== undefined
+  ) {
+    try {
+      const orgId = await resolveMcpIdentityOrgId(authResult.identity);
+      authResult = {
+        ...authResult,
+        identity: { ...authResult.identity, orgId },
+      };
+    } catch (error) {
+      if (!(error instanceof McpIdentityVerificationUnavailableError))
+        throw error;
+      return identityVerificationUnavailable(event);
+    }
   }
 
   const body = method === "POST" ? await readBody(event) : undefined;
