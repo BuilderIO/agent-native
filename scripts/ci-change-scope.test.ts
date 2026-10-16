@@ -618,6 +618,32 @@ test("does not select Design dependencies for test or typecheck", () => {
   ]);
 });
 
+test("routes Design pin reporter changes to the fixed core lane only", () => {
+  const reporter = classifyChangedPaths([
+    "templates/design/e2e/retry-failure-reporter.ts",
+  ]);
+  assert.equal(reporter.checks.design_canvas_core_regression, true);
+  assert.equal(reporter.checks.design_canvas_broad_workflows, false);
+  assert.deepEqual(reporter.designCanvasE2eSpecs, []);
+  assert.deepEqual(reporter.designCanvasE2eDiagnosticSpecs, []);
+
+  const config = classifyChangedPaths([
+    "templates/design/playwright.config.ts",
+  ]);
+  assert.equal(config.checks.design_canvas_core_regression, true);
+  assert.equal(config.checks.design_canvas_broad_workflows, true);
+  assert.deepEqual(config.designCanvasE2eSpecs, []);
+  assert.deepEqual(config.designCanvasE2eDiagnosticSpecs, []);
+
+  const unrelatedUnitTest = classifyChangedPaths([
+    "templates/design/playwright-cleanup.test.ts",
+  ]);
+  assert.equal(unrelatedUnitTest.checks.design_canvas_core_regression, false);
+  assert.equal(unrelatedUnitTest.checks.design_canvas_broad_workflows, false);
+  assert.deepEqual(unrelatedUnitTest.designCanvasE2eSpecs, []);
+  assert.deepEqual(unrelatedUnitTest.designCanvasE2eDiagnosticSpecs, []);
+});
+
 test("selects focused Design core regression for its runtime dependencies", () => {
   for (const path of [
     "templates/design/app/components/MultiScreenCanvas.tsx",

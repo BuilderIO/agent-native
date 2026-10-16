@@ -16,7 +16,7 @@ type PinOutcome = {
   expectedStatus: TestCase["expectedStatus"];
 };
 
-function designRelativeFile(file: string): string {
+function maybeDesignRelativeFile(file: string): string | undefined {
   const absolute = path.isAbsolute(file)
     ? path.resolve(file)
     : path.resolve(DESIGN_DIR, file);
@@ -27,9 +27,15 @@ function designRelativeFile(file: string): string {
     relative.startsWith(`..${path.sep}`) ||
     path.isAbsolute(relative)
   ) {
-    throw new Error(`path is outside templates/design: ${file}`);
+    return undefined;
   }
   return relative.split(path.sep).join("/");
+}
+
+function designRelativeFile(file: string): string {
+  const relative = maybeDesignRelativeFile(file);
+  if (!relative) throw new Error(`path is outside templates/design: ${file}`);
+  return relative;
 }
 
 function normalizePinSelector(selector: string): string {
@@ -110,8 +116,9 @@ export default class RetryFailureReporter implements Reporter {
     if (this.pinAttestationEnabled && this.requiredPinSelectors) {
       const line = test.location?.line;
       if (Number.isSafeInteger(line) && line > 0) {
-        try {
-          const selector = `${designRelativeFile(test.location.file)}:${line}`;
+        const file = maybeDesignRelativeFile(test.location.file);
+        if (file?.startsWith("e2e/")) {
+          const selector = `${file}:${line}`;
           if (this.requiredPinSelectors.has(selector)) {
             const outcomes = this.pinOutcomes.get(selector) ?? new Map();
             outcomes.set(test.id, {
@@ -120,8 +127,6 @@ export default class RetryFailureReporter implements Reporter {
             });
             this.pinOutcomes.set(selector, outcomes);
           }
-        } catch {
-          // Non-Design tests cannot match the required e2e selectors.
         }
       }
     }

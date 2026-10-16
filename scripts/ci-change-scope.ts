@@ -120,6 +120,10 @@ const DESIGN_CANVAS_E2E_SHARED_HELPER_SPECS = new Map([
   ],
 ]);
 
+const DESIGN_CANVAS_PIN_ATTESTATION_FILES = new Set([
+  "templates/design/e2e/retry-failure-reporter.ts",
+]);
+
 const DESIGN_CANVAS_CONFIG_FILES = new Set([
   "templates/design/agent-native.config.ts",
   "templates/design/agent-native.json",
@@ -721,6 +725,9 @@ function buildChecks(
     toolkitChanged ||
     agentkitChanged ||
     hasPath(changedPaths, "packages/creative-context/");
+  const designCanvasPinAttestationChanged = changedPaths.some((path) =>
+    DESIGN_CANVAS_PIN_ATTESTATION_FILES.has(path),
+  );
   const preAuthSessionReplayE2eChanged = changedPaths.some((path) =>
     PRE_AUTH_SESSION_REPLAY_E2E_FILES.has(path),
   );
@@ -781,7 +788,8 @@ function buildChecks(
     // The probe imports only core's database client, so templates cannot
     // move it.
     neon_connection_budget: coreChanged,
-    design_canvas_core_regression: designCanvasInteractionE2eChanged,
+    design_canvas_core_regression:
+      designCanvasInteractionE2eChanged || designCanvasPinAttestationChanged,
     design_canvas_broad_workflows: designCanvasInteractionE2eChanged,
     pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,

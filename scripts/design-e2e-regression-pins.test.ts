@@ -1531,6 +1531,117 @@ test("named test callbacks stay registered and retain runtime suppression", () =
   );
 });
 
+test("reassigned named callbacks fail closed instead of using a stale initializer", () => {
+  const source = [
+    "let body = () => {};",
+    'body = () => test.skip(true, "replacement callback skip");',
+    'test("pinned behavior", body);',
+  ].join("\n");
+  const registration = findDesignE2ETestRegistrations(source)[0];
+
+  assert.equal(registration?.suppressionKind, "runtime");
+  assert.match(registration?.suppressionReason ?? "", /Unable to inspect/);
+  assert.throws(
+    () => findDesignE2ETestLine(source, "pinned behavior"),
+    /Unable to inspect the test callback body/,
+  );
+});
+
+test("writes to shadowed callback names do not invalidate the outer binding", () => {
+  const source = [
+    "const body = () => {};",
+    "function helper(body: () => void) {",
+    "  body = () => {};",
+    "}",
+    'test("pinned behavior", body);',
+  ].join("\n");
+
+  assert.equal(findDesignE2ETestLine(source, "pinned behavior"), 5);
+});
+
+test("mutable Playwright aliases and TestInfo API origins retain suppressions", () => {
+  const mutableAlias = [
+    'test("pinned behavior", () => {',
+    "  let api = test;",
+    '  api.skip(true, "mutable API alias");',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(mutableAlias, "pinned behavior"),
+    /must run without/,
+  );
+
+  const reassignedAlias = [
+    'test("pinned behavior", () => {',
+    "  let api = test;",
+    "  api = unrelatedApi;",
+    '  api.skip(true, "ambiguous API alias");',
+    "});",
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(reassignedAlias, "pinned behavior"),
+    /Unable to inspect ambiguous Playwright API alias/,
+  );
+
+  const shadowedAlias = [
+    "const api = test;",
+    'test("shadowed API alias stays active", () => {',
+    "  {",
+    "    const api = {};",
+    '    api.skip(true, "unrelated method");',
+    "  }",
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestLine(shadowedAlias, "shadowed API alias stays active"),
+    2,
+  );
+
+  const testInfoCallAlias = [
+    'test("test.info alias suppression", () => {',
+    "  const info = test.info();",
+    '  info.skip(true, "TestInfo alias");',
+    "});",
+  ].join("\n");
+  const testInfoMethodAlias = [
+    'test("destructured TestInfo modifier", (_fixtures, testInfo) => {',
+    "  const { skip } = testInfo;",
+    '  skip(true, "destructured TestInfo modifier");',
+    "});",
+  ].join("\n");
+  const testMethodAlias = [
+    'test("destructured test modifier", () => {',
+    "  const { skip } = test;",
+    '  skip(true, "destructured test modifier");',
+    "});",
+  ].join("\n");
+  for (const [source, title] of [
+    [testInfoCallAlias, "test.info alias suppression"],
+    [testInfoMethodAlias, "destructured TestInfo modifier"],
+    [testMethodAlias, "destructured test modifier"],
+  ]) {
+    assert.throws(
+      () => findDesignE2ETestLine(source, title),
+      /must run without/,
+      source,
+    );
+  }
+
+  const unrelatedMethodAlias = [
+    'test("unrelated destructured method stays active", () => {',
+    "  const { skip } = unrelatedApi;",
+    '  skip(true, "not from a test API");',
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestLine(
+      unrelatedMethodAlias,
+      "unrelated destructured method stays active",
+    ),
+    1,
+  );
+});
+
 test("uninvoked function registrations fail closed without leaking runtime skips", () => {
   const source = [
     "function unusedHelper() {",

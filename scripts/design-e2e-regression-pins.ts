@@ -887,6 +887,7 @@ type TestAlias = { kind: "test"; path: string[] } | { kind: "namespace" };
 
 type TestAliasResolver = {
   resolve(expression: TypeScript.Expression): string[];
+  isAmbiguous(expression: TypeScript.Expression): boolean;
 };
 
 function isFunctionLikeNode(
@@ -951,10 +952,12 @@ function testImports(
   const declarationCounts = new WeakMap<TypeScript.Node, Map<string, number>>();
   const importedNames = new WeakMap<TypeScript.Node, Set<string>>();
   const aliasDeclarations: Array<{
-    declaration: TypeScript.VariableDeclaration;
     scope: TypeScript.Node;
     name: string;
+    initializer: TypeScript.Expression;
+    property?: string;
   }> = [];
+  const writtenAliases = new WeakMap<TypeScript.Node, Set<string>>();
 
   const scopeBindings = (scope: TypeScript.Node) => {
     let bindings = scopes.get(scope);
@@ -1046,17 +1049,32 @@ function testImports(
         (node.parent.flags & ts.NodeFlags.BlockScoped) === 0;
       const scope = nearestScope(node, ts, isVar);
       recordBindingName(node.name, scope);
-      if (
-        ts.isIdentifier(node.name) &&
-        node.initializer &&
-        ts.isVariableDeclarationList(node.parent) &&
-        (node.parent.flags & ts.NodeFlags.Const) !== 0
-      ) {
+      if (ts.isIdentifier(node.name) && node.initializer) {
         aliasDeclarations.push({
-          declaration: node,
           scope,
           name: node.name.text,
+          initializer: node.initializer,
         });
+      } else if (node.initializer && ts.isObjectBindingPattern(node.name)) {
+        for (const element of node.name.elements) {
+          if (!ts.isBindingElement(element) || !ts.isIdentifier(element.name))
+            continue;
+          const propertyName = element.propertyName ?? element.name;
+          const property =
+            ts.isIdentifier(propertyName) ||
+            ts.isStringLiteral(propertyName) ||
+            ts.isNoSubstitutionTemplateLiteral(propertyName)
+              ? propertyName.text
+              : undefined;
+          if (property && TEST_MODIFIERS.has(property)) {
+            aliasDeclarations.push({
+              scope,
+              name: element.name.text,
+              initializer: node.initializer,
+              property,
+            });
+          }
+        }
       }
     } else if (
       isFunctionLikeNode(node, ts) &&
@@ -1085,21 +1103,91 @@ function testImports(
     }
     return name === "test" ? { kind: "test", path: ["test"] } : undefined;
   };
+  const bindingScope = (name: string, at: TypeScript.Node) => {
+    let scope: TypeScript.Node | undefined = at;
+    while (scope) {
+      if (scopes.get(scope)?.has(name)) return scope;
+      scope = scope.parent;
+    }
+    return undefined;
+  };
   const resolver: TestAliasResolver = {
     resolve(expression) {
       return normalizedTestPath(expression, lookup, ts);
     },
+    isAmbiguous(expression) {
+      const root = rootIdentifier(expression, ts);
+      if (!root) return false;
+      const scope = bindingScope(root.text, root);
+      return (
+        scope !== undefined &&
+        aliasDeclarations.some(
+          (declaration) =>
+            declaration.scope === scope && declaration.name === root.text,
+        ) &&
+        (writtenAliases.get(scope)?.has(root.text) ?? false)
+      );
+    },
   };
+
+  const markWrittenTarget = (target: TypeScript.Node) => {
+    const candidate = unwrapExpression(target as TypeScript.Expression, ts);
+    if (ts.isIdentifier(candidate)) {
+      const scope = bindingScope(candidate.text, candidate);
+      if (
+        scope &&
+        aliasDeclarations.some(
+          (declaration) =>
+            declaration.scope === scope && declaration.name === candidate.text,
+        )
+      ) {
+        const names = writtenAliases.get(scope) ?? new Set<string>();
+        names.add(candidate.text);
+        writtenAliases.set(scope, names);
+      }
+      return;
+    }
+    if (ts.isArrayLiteralExpression(candidate)) {
+      for (const element of candidate.elements) {
+        if (ts.isSpreadElement(element)) markWrittenTarget(element.expression);
+        else if (!ts.isOmittedExpression(element)) markWrittenTarget(element);
+      }
+      return;
+    }
+    if (ts.isObjectLiteralExpression(candidate)) {
+      for (const property of candidate.properties) {
+        if (ts.isShorthandPropertyAssignment(property)) {
+          markWrittenTarget(property.name);
+        } else if (ts.isPropertyAssignment(property)) {
+          markWrittenTarget(property.initializer);
+        } else if (ts.isSpreadAssignment(property)) {
+          markWrittenTarget(property.expression);
+        }
+      }
+    }
+  };
+  const collectWrites = (node: TypeScript.Node) => {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      markWrittenTarget(node.left);
+    }
+    ts.forEachChild(node, collectWrites);
+  };
+  collectWrites(sourceFile);
 
   let changed = true;
   while (changed) {
     changed = false;
-    for (const { declaration, scope, name } of aliasDeclarations) {
+    for (const { scope, name, initializer, property } of aliasDeclarations) {
       const counts = declarationCounts.get(scope);
       if (counts?.get(name) !== 1 || importedNames.get(scope)?.has(name))
         continue;
-      const candidate = resolver.resolve(declaration.initializer!);
+      const candidate = resolver.resolve(initializer);
       if (candidate.length === 0) continue;
+      if (property) candidate.push(property);
       const bindings = scopeBindings(scope);
       const current = bindings.get(name);
       if (!current) {
@@ -1153,33 +1241,44 @@ function testCallKind(
       kind: "test" | "describe" | "runtime" | "hook";
       modifier?: string;
       uncertain?: boolean;
+      uncertainty?: "playwright" | "test-info";
     }
   | undefined {
   const segments = propertyPath(call.expression, ts);
   const testPath = aliases.resolve(call.expression);
-  if (testPath.length === 1) return { kind: "test" };
+  const aliasUncertainty = aliases.isAmbiguous(call.expression)
+    ? { uncertain: true, uncertainty: "playwright" as const }
+    : {};
+  if (testPath.length === 1) return { kind: "test", ...aliasUncertainty };
   if (testPath.length === 2 && TEST_LIFECYCLE_HOOKS.has(testPath[1]!)) {
-    return { kind: "hook" };
+    return { kind: "hook", ...aliasUncertainty };
   }
   if (testPath.length === 2 && TEST_MODIFIERS.has(testPath[1]!)) {
-    return { kind: "test", modifier: testPath[1] };
+    return { kind: "test", modifier: testPath[1], ...aliasUncertainty };
+  }
+  if (
+    testPath.length === 3 &&
+    testPath[1] === "info" &&
+    TEST_MODIFIERS.has(testPath[2]!)
+  ) {
+    return { kind: "runtime", modifier: testPath[2], ...aliasUncertainty };
   }
   if (testPath.length === 2 && testPath[1] === "describe") {
-    return { kind: "describe" };
+    return { kind: "describe", ...aliasUncertainty };
   }
   if (
     testPath.length === 3 &&
     testPath[1] === "describe" &&
     (testPath[2] === "serial" || testPath[2] === "parallel")
   ) {
-    return { kind: "describe" };
+    return { kind: "describe", ...aliasUncertainty };
   }
   if (
     testPath.length === 3 &&
     testPath[1] === "describe" &&
     TEST_MODIFIERS.has(testPath[2]!)
   ) {
-    return { kind: "describe", modifier: testPath[2] };
+    return { kind: "describe", modifier: testPath[2], ...aliasUncertainty };
   }
 
   const expression = call.expression;
@@ -1194,6 +1293,23 @@ function testCallKind(
     }
   }
   const testInfoRoot = rootIdentifier(expression, ts);
+  if (segments.length === 1 && testInfoRoot) {
+    const alias = testInfoAliases.modifierAlias(
+      testInfoRoot,
+      testInfoBindings,
+      testInfoMaybeBindings,
+    );
+    if (alias) {
+      return {
+        kind: "runtime",
+        modifier: alias.modifier,
+        ...(alias.status === "ambiguous" ? { uncertain: true } : {}),
+        ...(alias.status === "ambiguous"
+          ? { uncertainty: "test-info" as const }
+          : {}),
+      };
+    }
+  }
   if (
     segments.length === 2 &&
     testInfoRoot &&
@@ -1209,6 +1325,9 @@ function testCallKind(
         kind: "runtime",
         modifier: segments[1],
         ...(status === "ambiguous" ? { uncertain: true } : {}),
+        ...(status === "ambiguous"
+          ? { uncertainty: "test-info" as const }
+          : {}),
       };
     }
   }
@@ -1341,9 +1460,130 @@ function namedTestCallbacks(
   sourceFile: TypeScript.SourceFile,
   ts: typeof TypeScript,
 ): Map<string, NamedTestCallback | undefined> {
+  const scopeBindings = new WeakMap<
+    TypeScript.Node,
+    Map<string, TypeScript.Identifier | undefined>
+  >();
+  const recordBinding = (
+    scope: TypeScript.Node,
+    identifier: TypeScript.Identifier,
+  ) => {
+    let bindings = scopeBindings.get(scope);
+    if (!bindings) {
+      bindings = new Map();
+      scopeBindings.set(scope, bindings);
+    }
+    if (bindings.has(identifier.text)) bindings.set(identifier.text, undefined);
+    else bindings.set(identifier.text, identifier);
+  };
+  const recordBindingName = (
+    name: TypeScript.BindingName,
+    scope: TypeScript.Node,
+  ) => {
+    if (ts.isIdentifier(name)) {
+      recordBinding(scope, name);
+    } else {
+      for (const element of name.elements) {
+        if (ts.isBindingElement(element))
+          recordBindingName(element.name, scope);
+      }
+    }
+  };
+  const collectBindings = (node: TypeScript.Node) => {
+    if (ts.isVariableDeclaration(node)) {
+      const isVar =
+        ts.isVariableDeclarationList(node.parent) &&
+        (node.parent.flags & ts.NodeFlags.BlockScoped) === 0;
+      recordBindingName(node.name, nearestScope(node, ts, isVar));
+    } else if (
+      isFunctionLikeNode(node, ts) &&
+      "parameters" in node &&
+      Array.isArray(node.parameters)
+    ) {
+      for (const parameter of node.parameters)
+        recordBindingName(parameter.name, nearestScope(node, ts));
+      if (ts.isFunctionDeclaration(node) && node.name) {
+        recordBinding(nearestScope(node.parent, ts), node.name);
+      } else if (
+        (ts.isFunctionExpression(node) || ts.isMethodDeclaration(node)) &&
+        node.name &&
+        ts.isIdentifier(node.name)
+      ) {
+        recordBinding(nearestScope(node, ts), node.name);
+      }
+    } else if (ts.isClassDeclaration(node) && node.name) {
+      recordBinding(nearestScope(node.parent, ts), node.name);
+    } else if (ts.isImportDeclaration(node) && node.importClause) {
+      const clause = node.importClause;
+      if (clause.name) recordBinding(sourceFile, clause.name);
+      const bindings = clause.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) {
+        recordBinding(sourceFile, bindings.name);
+      } else if (bindings && ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements)
+          recordBinding(sourceFile, element.name);
+      }
+    }
+    ts.forEachChild(node, collectBindings);
+  };
+  collectBindings(sourceFile);
+
+  const writtenBindings = new Set<TypeScript.Identifier>();
+  const lookupBinding = (identifier: TypeScript.Identifier) => {
+    let scope: TypeScript.Node | undefined = identifier;
+    while (scope) {
+      const bindings = scopeBindings.get(scope);
+      if (bindings?.has(identifier.text)) return bindings.get(identifier.text);
+      scope = scope.parent;
+    }
+    return undefined;
+  };
+  const markWrittenTarget = (target: TypeScript.Node) => {
+    const candidate = unwrapExpression(target as TypeScript.Expression, ts);
+    if (ts.isIdentifier(candidate)) {
+      const binding = lookupBinding(candidate);
+      if (binding) writtenBindings.add(binding);
+    } else if (ts.isArrayLiteralExpression(candidate)) {
+      for (const element of candidate.elements) {
+        if (ts.isSpreadElement(element)) markWrittenTarget(element.expression);
+        else if (!ts.isOmittedExpression(element)) markWrittenTarget(element);
+      }
+    } else if (ts.isObjectLiteralExpression(candidate)) {
+      for (const property of candidate.properties) {
+        if (ts.isShorthandPropertyAssignment(property)) {
+          markWrittenTarget(property.name);
+        } else if (ts.isPropertyAssignment(property)) {
+          markWrittenTarget(property.initializer);
+        } else if (ts.isSpreadAssignment(property)) {
+          markWrittenTarget(property.expression);
+        }
+      }
+    } else if (
+      ts.isBinaryExpression(candidate) &&
+      candidate.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    ) {
+      markWrittenTarget(candidate.left);
+    }
+  };
+  const collectWrites = (node: TypeScript.Node) => {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      markWrittenTarget(node.left);
+    }
+    ts.forEachChild(node, collectWrites);
+  };
+  collectWrites(sourceFile);
+
   const callbacks = new Map<string, NamedTestCallback | undefined>();
-  const register = (name: string, callback: NamedTestCallback) => {
-    if (callbacks.has(name)) {
+  const register = (
+    name: string,
+    binding: TypeScript.Identifier,
+    callback: NamedTestCallback,
+  ) => {
+    if (callbacks.has(name) || writtenBindings.has(binding)) {
       callbacks.set(name, undefined);
     } else {
       callbacks.set(name, callback);
@@ -1351,13 +1591,13 @@ function namedTestCallbacks(
   };
   const visit = (node: TypeScript.Node) => {
     if (ts.isFunctionDeclaration(node) && node.name && node.body) {
-      register(node.name.text, node);
+      register(node.name.text, node.name, node);
     } else if (
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
       node.initializer
     ) {
-      register(node.name.text, node.initializer);
+      register(node.name.text, node.name, node.initializer);
     }
     ts.forEachChild(node, visit);
   };
@@ -1373,12 +1613,23 @@ type TestInfoBinding = {
   node: TypeScript.Identifier;
   alias?: TypeScript.Identifier;
   mutable: boolean;
+  testInfo?: boolean;
+  modifierAlias?: {
+    modifier: string;
+    source?: TypeScript.Identifier;
+    directTestInfo?: boolean;
+  };
 };
 
 type TestInfoAliasStatus = "known" | "ambiguous" | "not-test-info";
 
 type TestInfoAliasResolver = {
   bindingNode(identifier: TypeScript.Identifier): TypeScript.Node | undefined;
+  modifierAlias(
+    identifier: TypeScript.Identifier,
+    knownBindings: ReadonlySet<TypeScript.Node>,
+    maybeBindings: ReadonlySet<TypeScript.Node>,
+  ): { modifier: string; status: "known" | "ambiguous" } | undefined;
   isTestInfo(
     identifier: TypeScript.Identifier,
     knownBindings: ReadonlySet<TypeScript.Node>,
@@ -1389,6 +1640,7 @@ type TestInfoAliasResolver = {
 
 function testInfoAliases(
   sourceFile: TypeScript.SourceFile,
+  aliases: TestAliasResolver,
   ts: typeof TypeScript,
 ): TestInfoAliasResolver {
   const scopes = new WeakMap<
@@ -1402,6 +1654,8 @@ function testInfoAliases(
     identifier: TypeScript.Identifier,
     alias?: TypeScript.Identifier,
     mutable = false,
+    testInfo = false,
+    modifierAlias?: TestInfoBinding["modifierAlias"],
   ) => {
     let bindings = scopes.get(scope);
     if (!bindings) {
@@ -1412,9 +1666,15 @@ function testInfoAliases(
     const count = (counts.get(identifier.text) ?? 0) + 1;
     counts.set(identifier.text, count);
     declarationCounts.set(scope, counts);
-    if (count === 1)
-      bindings.set(identifier.text, { node: identifier, alias, mutable });
-    else bindings.set(identifier.text, undefined);
+    if (count === 1) {
+      bindings.set(identifier.text, {
+        node: identifier,
+        alias,
+        mutable,
+        testInfo,
+        modifierAlias,
+      });
+    } else bindings.set(identifier.text, undefined);
   };
 
   const bindName = (
@@ -1442,12 +1702,51 @@ function testInfoAliases(
       const scope = nearestScope(node, ts, isVar);
       if (ts.isIdentifier(node.name) && node.initializer) {
         const initializer = unwrapExpression(node.initializer, ts);
+        const testInfoCall =
+          ts.isCallExpression(initializer) &&
+          aliases.resolve(initializer.expression).join(".") === "test.info";
         bind(
           scope,
           node.name,
           ts.isIdentifier(initializer) ? initializer : undefined,
           mutable,
+          testInfoCall,
         );
+      } else if (ts.isObjectBindingPattern(node.name) && node.initializer) {
+        const initializer = unwrapExpression(node.initializer, ts);
+        const directTestInfo =
+          ts.isCallExpression(initializer) &&
+          aliases.resolve(initializer.expression).join(".") === "test.info";
+        for (const element of node.name.elements) {
+          if (!ts.isBindingElement(element)) continue;
+          if (!ts.isIdentifier(element.name)) {
+            bindName(element.name, scope, mutable);
+            continue;
+          }
+          const propertyName = element.propertyName ?? element.name;
+          const modifier =
+            ts.isIdentifier(propertyName) ||
+            ts.isStringLiteral(propertyName) ||
+            ts.isNoSubstitutionTemplateLiteral(propertyName)
+              ? propertyName.text
+              : undefined;
+          if (!modifier || !TEST_MODIFIERS.has(modifier)) {
+            bindName(element.name, scope, mutable);
+            continue;
+          }
+          bind(
+            scope,
+            element.name,
+            undefined,
+            mutable,
+            false,
+            ts.isIdentifier(initializer)
+              ? { modifier, source: initializer }
+              : directTestInfo
+                ? { modifier, directTestInfo: true }
+                : undefined,
+          );
+        }
       } else {
         bindName(node.name, scope, mutable);
       }
@@ -1571,6 +1870,8 @@ function testInfoAliases(
     if (!binding) return "ambiguous";
     if (resolving.has(binding.node)) return "ambiguous";
     if (maybeBindings.has(binding.node)) return "ambiguous";
+    if (binding.testInfo)
+      return writtenBindings.has(binding.node) ? "ambiguous" : "known";
     if (knownBindings.has(binding.node))
       return writtenBindings.has(binding.node) ? "ambiguous" : "known";
     if (!binding.alias)
@@ -1592,6 +1893,25 @@ function testInfoAliases(
     bindingNode(identifier) {
       const result = lookup(identifier.text, identifier);
       return result.binding?.node;
+    },
+    modifierAlias(identifier, knownBindings, maybeBindings) {
+      const result = lookup(identifier.text, identifier);
+      const binding = result.binding;
+      const alias = binding?.modifierAlias;
+      if (!binding || !alias) return undefined;
+      const sourceStatus = alias.directTestInfo
+        ? "known"
+        : alias.source
+          ? isTestInfo(alias.source, knownBindings, maybeBindings)
+          : "not-test-info";
+      if (sourceStatus === "not-test-info") return undefined;
+      return {
+        modifier: alias.modifier,
+        status:
+          sourceStatus === "ambiguous" || writtenBindings.has(binding.node)
+            ? "ambiguous"
+            : "known",
+      };
     },
     isTestInfo,
   };
@@ -1832,7 +2152,7 @@ export function findDesignE2ETestRegistrations(
   }
 
   const aliases = testImports(sourceFile, ts);
-  const testInfoAliasResolver = testInfoAliases(sourceFile, ts);
+  const testInfoAliasResolver = testInfoAliases(sourceFile, aliases, ts);
   const printer = ts.createPrinter({ removeComments: true });
   const namedCallbacks = namedTestCallbacks(sourceFile, ts);
   const localHelpers = localTestHelpers(sourceFile, ts);
@@ -2411,6 +2731,14 @@ export function findDesignE2ETestRegistrations(
         context.testInfoMaybeBindings,
         ts,
       );
+      if (classification?.uncertainty === "playwright") {
+        const line =
+          sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+            .line + 1;
+        throw new PinInspectionUnavailableError(
+          `${file || "Design E2E source"}:${line}: Unable to inspect ambiguous Playwright API alias`,
+        );
+      }
       if (classification?.kind === "describe") {
         const callbackArgument = node.arguments.at(-1);
         const callback = callbackArgument

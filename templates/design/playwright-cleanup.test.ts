@@ -299,6 +299,48 @@ describe("Design Playwright artifact cleanup", () => {
     await expect(reporter.onEnd()).resolves.toBeUndefined();
   });
 
+  it("ignores unrelated test locations but still fails for a missing required pin", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = reporterWithPinAttestation();
+      reporter.onTestEnd(
+        {
+          id: "unrelated-test",
+          expectedStatus: "passed",
+          location: {
+            file: path.resolve(
+              import.meta.dirname,
+              "../../packages/core/unrelated.spec.ts",
+            ),
+            line: 42,
+          },
+        } as TestCase,
+        testResult("passed"),
+      );
+
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining(`(0/1): ${pinSelector}`),
+      );
+
+      const invalidSelectorReporter = new RetryFailureReporter({
+        markerPath: path.join(os.tmpdir(), "unused-design-retry-marker"),
+        requiredPinSelectors: JSON.stringify([
+          "../../packages/core/unrelated.spec.ts:42",
+        ]),
+      });
+      await expect(invalidSelectorReporter.onEnd()).resolves.toEqual({
+        status: "failed",
+      });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining("path is outside templates/design"),
+      );
+    } finally {
+      reportError.mockRestore();
+    }
+  });
+
   it("fails a required pin skipped at runtime through a TestInfo alias", async () => {
     const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
 
