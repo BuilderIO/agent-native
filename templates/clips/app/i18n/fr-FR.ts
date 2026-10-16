@@ -7,6 +7,8 @@ const messages = {
     whatIsThis: "Qu'est-ce que c'est ?",
     off: "Désactivé",
     none: "Aucun",
+    noneExplanation:
+      "« Aucun » signifie que les nouveaux Clips n’incluront pas le temps d’écran précédent. Rewind continue d’enregistrer votre écran tant qu’il est activé. Choisissez Désactiver ci-dessous pour l’arrêter.",
     custom: "Personnalisé…",
     customLabel: "Durée personnalisée",
     customAmount: "Durée",
@@ -33,13 +35,13 @@ const messages = {
       "Impossible d’accéder au stockage de Rewind. Vérifiez l’espace disque et les autorisations du dossier, puis réessayez.",
     rewindConsentTitle: "Activer Rewind ?",
     rewindConsentBody:
-      "Clips enregistre continuellement votre écran et le conserve sur cet appareil. Les agents reçoivent des extraits de texte, et la vidéo n’est partagée qu’après votre accord.",
+      "Lorsque Rewind est activé, Clips enregistre continuellement votre écran et conserve l’historique récent sur cet appareil jusqu’à atteindre votre limite de durée ou de stockage. Choisissez « Écran + audio » pour enregistrer aussi le micro et le son du système. Les agents connectés peuvent accéder directement aux images de l’écran, sans validation par Clips ; leur utilisation ultérieure dépend de l’agent. Clips ajoute automatiquement la durée d’écran précédent choisie à chaque nouveau Clip, selon ses paramètres de partage. Par défaut, les demandes de partage d’une période choisie sous forme de Clip sont vérifiées avant envoi. Désactivez la vérification avant envoi dans les réglages Rewind pour envoyer automatiquement ces demandes. Un Clip peut inclure l’audio capturé du micro et du système. Désactiver Rewind arrête les nouveaux enregistrements, mais conserve l’historique enregistré. Tant que Rewind est désactivé, l’historique peut dépasser vos limites de durée ou de stockage jusqu’à la reprise de l’enregistrement. Choisissez « Tout supprimer » pour l’effacer maintenant.",
     rewindConsentCancel: "Pas maintenant",
     rewindConsentConfirm: "Activer Rewind",
     rewindConsentBusy: "Activation de Rewind…",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
-      "Désactivé par défaut. L’historique de l’écran reste sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",
+      "Pour inclure l’écran précédent, activez d’abord Rewind. Lorsque Rewind est activé, il conserve l’historique récent de l’écran sur cet appareil dans les limites de durée et de stockage choisies. Lorsqu’il est désactivé, l’historique peut dépasser ces limites jusqu’à la reprise de l’enregistrement. Pour l’effacer maintenant, ouvrez Settings > Rewind > Storage > On this device, puis choisissez Delete all. Les demandes de Clip sont vérifiées avant envoi par défaut, sauf si vous désactivez la vérification avant envoi dans les réglages Rewind.",
     requestFailed:
       "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
     localOnlyUnavailable:
@@ -1625,6 +1627,9 @@ const messages = {
     disconnected: "Microphone déconnecté.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "L’offre gratuite de Builder.io inclut le stockage vidéo, avec une configuration en un clic.",
+    customKeys: "Clés personnalisées",
     builderConnectPopupError:
       "Impossible d’ouvrir Builder.io. Si cette application est intégrée à une conversation, ouvrez-la dans un onglet de navigateur ; sinon, réessayez.",
     builderConnectError:
@@ -1645,8 +1650,7 @@ const messages = {
       "Impossible de confirmer que le stockage Builder.io est prêt. Réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
-    description:
-      "Stockez les vidéos enregistrées avec Builder.io ou un stockage compatible S3. Builder.io inclut un hébergement gratuit et des crédits d'IA.",
+    description: "Choisissez où stocker vos vidéos enregistrées.",
     createBuilderAccount: "Utiliser Builder.io",
     signInWithBuilderAccount: "Se connecter avec un compte Builder.io",
     free: "Gratuit",

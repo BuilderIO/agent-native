@@ -7,6 +7,8 @@ const messages = {
     whatIsThis: "O que é isto?",
     off: "Desativado",
     none: "Nenhum",
+    noneExplanation:
+      "“Nenhum” significa que novos Clips não incluirão o tempo de tela anterior. O Rewind continuará gravando sua tela enquanto estiver ligado. Selecione “Desativar” abaixo para parar.",
     custom: "Personalizado…",
     customLabel: "Duração personalizada",
     customAmount: "Duração",
@@ -33,13 +35,13 @@ const messages = {
       "Não foi possível acessar o armazenamento do Rewind. Confira o espaço em disco e as permissões da pasta e tente novamente.",
     rewindConsentTitle: "Ativar o Rewind?",
     rewindConsentBody:
-      "O Clips gravará sua tela continuamente e a manterá neste dispositivo. Os agentes recebem trechos de texto, e o vídeo só é compartilhado quando você aprova.",
+      "Enquanto o Rewind estiver ativado, o Clips grava a tela continuamente e mantém o histórico recente neste dispositivo até atingir o limite de tempo ou de armazenamento escolhido. Escolha “Tela + áudio” para gravar também o microfone e o áudio do sistema. Agentes conectados podem acessar imagens da tela diretamente, sem uma aprovação do Clips; o uso posterior depende do agente. O período de tela anterior escolhido é adicionado automaticamente a cada novo Clip, seguindo as configurações de compartilhamento dele. Por padrão, pedidos para compartilhar um intervalo selecionado como Clip são revisados antes do envio. Desative a revisão antes do envio nas configurações do Rewind para enviar esses pedidos automaticamente. Um Clip pode incluir áudio capturado do microfone e do sistema. Desativar o Rewind interrompe novas gravações, mas mantém o histórico salvo. Enquanto o Rewind estiver desativado, o histórico pode ultrapassar os limites de tempo ou armazenamento até a gravação recomeçar. Escolha “Excluir tudo” para apagá-lo agora.",
     rewindConsentCancel: "Agora não",
     rewindConsentConfirm: "Ativar o Rewind",
     rewindConsentBusy: "Ativando o Rewind…",
     rewindOffTitle: "Ativar o Rewind",
     rewindOffBody:
-      "Desativado por padrão. O histórico da tela fica neste dispositivo até você incluí-lo em uma gravação ou aprovar uma solicitação para compartilhá-lo.",
+      "Para incluir tempo de tela anterior, ative primeiro o Rewind. Enquanto o Rewind estiver ativado, ele mantém o histórico recente da tela neste dispositivo dentro dos limites de tempo e armazenamento escolhidos. Quando estiver desativado, o histórico salvo pode ultrapassar esses limites até a gravação recomeçar. Para apagá-lo agora, abra Settings > Rewind > Storage > On this device e escolha Delete all. Por padrão, os pedidos para compartilhar um intervalo como Clip são revisados antes do envio, a menos que você desative essa revisão nas configurações do Rewind.",
     requestFailed:
       "Não foi possível incluir o tempo de tela anterior. A gravação continua sem ele.",
     localOnlyUnavailable:
@@ -1611,6 +1613,9 @@ const messages = {
     disconnected: "Microfone desconectado.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "O plano gratuito do Builder.io inclui armazenamento de vídeo, com configuração em um clique.",
+    customKeys: "Chaves personalizadas",
     builderConnectPopupError:
       "Não foi possível abrir o Builder.io. Se este app estiver incorporado em um chat, abra-o em uma aba do navegador; caso contrário, tente novamente.",
     builderConnectError:
@@ -1632,8 +1637,7 @@ const messages = {
       "Não foi possível confirmar que o armazenamento do Builder.io está pronto. Tente novamente.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Aguardando Builder...",
-    description:
-      "Armazene os vídeos gravados com o Builder.io ou com um armazenamento compatível com S3. O Builder.io inclui hospedagem gratuita e créditos de IA.",
+    description: "Escolha onde salvar seus vídeos gravados.",
     createBuilderAccount: "Usar Builder.io",
     signInWithBuilderAccount: "Entrar com uma conta do Builder.io",
     free: "Grátis",

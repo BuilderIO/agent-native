@@ -2827,8 +2827,6 @@ const messages: ToolkitAgentChatTranslation = {
     "{{owner}}에서 생성하고 교체합니다. 연결 해제도 그곳에서 하세요.",
   "settingsApiKeys.membersLocked":
     "소유자와 관리자만 {{org}}와(과) 키를 공유할 수 있습니다.",
-  "settingsApiKeys.modelFootnote": "자체 모델 제공업체를 사용하려면 {{link}}.",
-  "settingsApiKeys.modelFootnoteLink": "모델에서 추가하세요",
   "settingsApiKeys.name": "이름",
   "settingsApiKeys.noKeys": "아직 키가 없습니다",
   "settingsApiKeys.noKeysDescription":
