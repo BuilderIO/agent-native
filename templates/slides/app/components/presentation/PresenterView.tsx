@@ -1,5 +1,11 @@
-import { useT } from "@agent-native/core/client/i18n";
-import { IconChevronLeft, IconChevronRight, IconX } from "@tabler/icons-react";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconMicrophone,
+  IconX,
+} from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
@@ -18,6 +24,7 @@ import {
   type SlideNavigationLayout,
   type SlideNavigationState,
 } from "./slide-navigation";
+import { matchVoiceNavigationPhrase } from "./voice-navigation";
 
 interface PresenterViewProps {
   slides: Slide[];
@@ -52,6 +59,16 @@ export default function PresenterView({
   designSystem,
 }: PresenterViewProps) {
   const t = useT();
+  const { locale } = useLocale();
+  const {
+    supported: voiceSupported,
+    isActive: voiceActive,
+    transcript: voiceTranscript,
+    start: startVoiceTranscription,
+    stop: stopVoiceTranscription,
+    getIncompleteReason,
+  } = useLiveTranscription({ lang: locale });
+  const [voiceError, setVoiceError] = useState(false);
   const initialIndex = useMemo(() => {
     const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
     if (rawSlides.length === 0) return 0;
@@ -169,6 +186,85 @@ export default function PresenterView({
     [send],
   );
 
+  const nextVoiceCommand = t("presentation.voiceNavigationNextCommand");
+  const previousVoiceCommand = t("presentation.voiceNavigationPreviousCommand");
+  const voiceCommandHint = t("presentation.voiceNavigationHint", {
+    next: nextVoiceCommand,
+    previous: previousVoiceCommand,
+  });
+  // guard:allow-raw-color — presenter controls stay legible on the dedicated dark stage.
+  const voiceActiveButtonClassName = "bg-white/25 ring-1 ring-white/40";
+  // guard:allow-raw-color — presenter controls stay legible on the dedicated dark stage.
+  const voiceIdleButtonClassName = "bg-white/10 hover:bg-white/20";
+  const voiceStatusClassName =
+    // guard:allow-raw-color — presenter status stays legible on the dedicated dark stage.
+    "sr-only min-w-0 max-w-48 truncate text-xs text-white/60 md:not-sr-only";
+  const lastTranscriptRef = useRef("");
+  const pendingVoicePhraseRef = useRef("");
+
+  const toggleVoiceNavigation = useCallback(() => {
+    if (voiceActive) {
+      stopVoiceTranscription();
+      lastTranscriptRef.current = voiceTranscript;
+      pendingVoicePhraseRef.current = "";
+      setVoiceError(false);
+      return;
+    }
+
+    lastTranscriptRef.current = "";
+    pendingVoicePhraseRef.current = "";
+    setVoiceError(false);
+    startVoiceTranscription();
+    if (getIncompleteReason()) setVoiceError(true);
+  }, [
+    getIncompleteReason,
+    startVoiceTranscription,
+    stopVoiceTranscription,
+    voiceActive,
+    voiceTranscript,
+  ]);
+
+  useEffect(() => {
+    if (!voiceActive && getIncompleteReason()) setVoiceError(true);
+  }, [getIncompleteReason, voiceActive]);
+
+  useEffect(() => {
+    if (!voiceActive) {
+      lastTranscriptRef.current = voiceTranscript;
+      pendingVoicePhraseRef.current = "";
+      return;
+    }
+
+    const previousTranscript = lastTranscriptRef.current;
+    const addition = voiceTranscript.startsWith(previousTranscript)
+      ? voiceTranscript.slice(previousTranscript.length)
+      : voiceTranscript;
+    lastTranscriptRef.current = voiceTranscript;
+    if (!addition.trim()) return;
+
+    const candidate = pendingVoicePhraseRef.current + addition;
+    const match = matchVoiceNavigationPhrase(candidate, {
+      next: nextVoiceCommand,
+      previous: previousVoiceCommand,
+    });
+    if (match.type === "command") {
+      pendingVoicePhraseRef.current = "";
+      if (match.command === "next") goNext();
+      else goPrev();
+    } else if (match.type === "partial") {
+      pendingVoicePhraseRef.current = candidate;
+    } else {
+      pendingVoicePhraseRef.current = "";
+    }
+  }, [
+    goNext,
+    goPrev,
+    nextVoiceCommand,
+    previousVoiceCommand,
+    voiceActive,
+    voiceTranscript,
+  ]);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (isMediaKeyboardEvent(e)) return;
@@ -265,6 +361,46 @@ export default function PresenterView({
           {formatElapsed(elapsed)}
         </span>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleVoiceNavigation}
+            disabled={!voiceSupported}
+            title={
+              !voiceSupported
+                ? t("presentation.voiceNavigationUnavailable")
+                : voiceError
+                  ? t("presentation.voiceNavigationError")
+                  : voiceCommandHint
+            }
+            className={`cursor-pointer rounded-lg p-2 disabled:cursor-not-allowed disabled:opacity-30 ${voiceActive ? voiceActiveButtonClassName : voiceIdleButtonClassName}`}
+            aria-label={
+              voiceActive
+                ? t("presentation.voiceNavigationStop")
+                : t("presentation.voiceNavigationStart")
+            }
+            aria-description={
+              !voiceSupported
+                ? t("presentation.voiceNavigationUnavailable")
+                : voiceError
+                  ? t("presentation.voiceNavigationError")
+                  : voiceCommandHint
+            }
+            aria-pressed={voiceActive}
+          >
+            <IconMicrophone className="h-4 w-4" aria-hidden="true" />
+          </button>
+          {(voiceActive || voiceError || !voiceSupported) && (
+            <span role="status" className={voiceStatusClassName}>
+              {voiceError
+                ? t("presentation.voiceNavigationError")
+                : voiceActive
+                  ? t("presentation.voiceNavigationListening", {
+                      next: nextVoiceCommand,
+                      previous: previousVoiceCommand,
+                    })
+                  : t("presentation.voiceNavigationUnavailable")}
+            </span>
+          )}
           <button
             onClick={goPrev}
             disabled={!canCommand(navState, presenterLayout, "prev")}

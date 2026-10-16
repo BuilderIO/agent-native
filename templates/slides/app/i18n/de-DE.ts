@@ -722,6 +722,17 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
+    voiceNavigationStart: "Sprachsteuerung starten",
+    voiceNavigationStop: "Sprachsteuerung beenden",
+    voiceNavigationNextCommand: "Nächste Folie",
+    voiceNavigationPreviousCommand: "Vorherige Folie",
+    voiceNavigationHint:
+      "Sagen Sie „{{next}}“ oder „{{previous}}“, um zu navigieren.",
+    voiceNavigationListening: "Höre auf „{{next}}“ oder „{{previous}}“.",
+    voiceNavigationUnavailable:
+      "Sprachsteuerung ist in diesem Browser nicht verfügbar.",
+    voiceNavigationError:
+      "Sprachsteuerung wurde beendet. Prüfen Sie den Mikrofonzugriff und versuchen Sie es erneut.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
