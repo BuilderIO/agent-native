@@ -105,10 +105,10 @@ function jsonSafeEntry(key: string, value: unknown): unknown {
   } catch {
     return UNSERIALIZABLE;
   }
-  const redacted = redactSensitiveFields({ [key]: parsed }) as Record<
-    string,
-    unknown
-  >;
+  const redacted = redactSensitiveFields(
+    { [key]: parsed },
+    { compoundNames: true },
+  ) as Record<string, unknown>;
   return sanitizeStrings(redacted[key]);
 }
 

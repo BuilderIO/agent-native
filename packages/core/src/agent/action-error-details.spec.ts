@@ -59,6 +59,31 @@ describe("agentErrorDetails", () => {
     expect(result?.line).not.toContain("SENSITIVE_VALUE");
   });
 
+  it("redacts compound credential names but keeps a retry cursor", () => {
+    const error = thrown(() =>
+      fail("Upstream refused", {
+        details: {
+          clientSecret: "SENSITIVE_VALUE",
+          "x-api-key": "SENSITIVE_VALUE",
+          oauth: {
+            auth_token: "SENSITIVE_VALUE",
+            privateKey: "SENSITIVE_VALUE",
+          },
+          nextPageToken: "page_2",
+          maxTokens: 4000,
+        },
+      }),
+    );
+
+    expect(agentErrorDetails(error)?.details).toEqual({
+      clientSecret: "[REDACTED]",
+      "x-api-key": "[REDACTED]",
+      oauth: { auth_token: "[REDACTED]", privateKey: "[REDACTED]" },
+      nextPageToken: "page_2",
+      maxTokens: 4000,
+    });
+  });
+
   it("keeps small entries and names the rest when the whole object is too long", () => {
     const error = thrown(() =>
       fail("Too many rows", {
