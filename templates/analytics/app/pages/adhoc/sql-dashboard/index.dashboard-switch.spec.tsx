@@ -939,6 +939,44 @@ describe("SqlDashboardPage dashboard switch", () => {
     expect(sectionCell?.style.height).toBe("");
   });
 
+  it("resets a fixed panel height to content-based sizing", async () => {
+    const savedConfigs: { panels: SqlPanel[] }[] = [];
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200), height: 3 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      savedConfigs.push(args.config as { panels: SqlPanel[] });
+      return {};
+    };
+    await renderAt("/dashboards/dash-a");
+
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const resetButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="sqlDashboard.resetPanelHeight"]',
+    );
+    expect(resetButton).not.toBeNull();
+    await act(async () => {
+      resetButton?.click();
+    });
+    await settle();
+
+    expect(savedConfigs).toHaveLength(1);
+    expect(savedConfigs[0].panels[0]).not.toHaveProperty("height");
+    expect(
+      container.querySelector(
+        'button[aria-label="sqlDashboard.resetPanelHeight"]',
+      ),
+    ).toBeNull();
+  });
+
   it("keeps a resize made while the panel editor is open", async () => {
     const savedConfigs: { panels: SqlPanel[] }[] = [];
     mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [

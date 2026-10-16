@@ -1023,6 +1023,7 @@ export default {
     dragToReorder: "Drag to reorder",
     resizePanelWidth: "Resize panel width",
     resizePanelHeight: "Resize panel height",
+    resetPanelHeight: "Reset panel height",
     columnFormat: "Format",
     columnFormatText: "Plain text",
     columnFormatNumber: "Number",

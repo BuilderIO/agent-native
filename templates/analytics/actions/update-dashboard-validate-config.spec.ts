@@ -34,8 +34,12 @@ vi.mock("../server/lib/bigquery", () => ({
   dryRunQuery: vi.fn(async () => null),
 }));
 
-const { assertValidDashboardConfig, isAgentCaller, validateDashboardConfig } =
-  await import("./update-dashboard");
+const {
+  assertValidDashboardConfig,
+  changedPanelIdsForSqlValidation,
+  isAgentCaller,
+  validateDashboardConfig,
+} = await import("./update-dashboard");
 const { applyDashboardMutationOperations, parseDashboardMutationScript } =
   await import("./dashboard-mutation-api");
 
@@ -458,5 +462,56 @@ describe("validateDashboardConfig annotations", () => {
     expect(
       validateDashboardConfig(config({ hiddenDataNotes: ["note-1"] })),
     ).toMatch(/hiddenDataNotes must be/);
+  });
+});
+
+describe("dashboard SQL validation scope", () => {
+  const baseline = {
+    name: "Usage",
+    filters: [] as unknown[],
+    variables: {} as Record<string, string>,
+    panels: [panel("a"), panel("b")],
+  };
+
+  it("skips SQL validation when only panel layout changes", () => {
+    const next = clone(baseline);
+    next.panels[0].width = 2;
+    next.panels[0].height = 3;
+
+    expect(changedPanelIdsForSqlValidation(next, baseline)).toEqual(new Set());
+  });
+
+  it("validates the panels whose query inputs changed", () => {
+    const next = clone(baseline);
+    next.panels[1].sql = "SELECT 2 AS value";
+    next.panels[0].config = { timeScope: "all-time" };
+
+    expect(changedPanelIdsForSqlValidation(next, baseline)).toEqual(
+      new Set(["a", "b"]),
+    );
+  });
+
+  it("validates all panels when dashboard filters or variables change", () => {
+    const withFilter = clone(baseline);
+    withFilter.filters = [{ id: "timeRange", label: "Time", type: "date" }];
+    const withVariable = clone(baseline);
+    withVariable.variables = { timeRange: "30d" };
+
+    expect(
+      changedPanelIdsForSqlValidation(withFilter, baseline),
+    ).toBeUndefined();
+    expect(
+      changedPanelIdsForSqlValidation(withVariable, baseline),
+    ).toBeUndefined();
+  });
+
+  it("validates newly added panels and every panel without a baseline", () => {
+    const next = clone(baseline);
+    next.panels.push(panel("new"));
+
+    expect(changedPanelIdsForSqlValidation(next, baseline)).toEqual(
+      new Set(["new"]),
+    );
+    expect(changedPanelIdsForSqlValidation(next, null)).toBeUndefined();
   });
 });

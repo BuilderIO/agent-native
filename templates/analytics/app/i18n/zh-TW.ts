@@ -1409,6 +1409,7 @@ export default {
     dragToReorder: "拖動以重新排序",
     resizePanelWidth: "調整面板寬度",
     resizePanelHeight: "調整面板高度",
+    resetPanelHeight: "重設面板高度",
     columnFormat: "格式",
     columnFormatText: "純文字",
     columnFormatNumber: "數字",

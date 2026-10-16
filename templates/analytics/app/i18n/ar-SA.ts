@@ -1375,6 +1375,7 @@ export default {
     dragToReorder: "اسحب لإعادة الترتيب",
     resizePanelWidth: "تغيير عرض اللوحة",
     resizePanelHeight: "تغيير ارتفاع اللوحة",
+    resetPanelHeight: "إعادة ضبط ارتفاع اللوحة",
     columnFormat: "التنسيق",
     columnFormatText: "نص عادي",
     columnFormatNumber: "رقم",

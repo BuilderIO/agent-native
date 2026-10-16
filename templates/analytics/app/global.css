@@ -624,6 +624,14 @@
   cursor: ns-resize;
 }
 
+.dashboard-panel-reset-height {
+  bottom: 0.125rem;
+  left: calc(50% + 1.5rem);
+  width: 1.5rem;
+  height: 1.5rem;
+  cursor: pointer;
+}
+
 .dashboard-row-drop-slot,
 .dashboard-column-drop-slot {
   position: relative;

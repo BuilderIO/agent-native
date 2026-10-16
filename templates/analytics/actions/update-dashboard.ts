@@ -591,6 +591,61 @@ export interface ValidatePanelSqlOptions {
   signal?: AbortSignal;
 }
 
+function isDashboardRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function panelSqlValidationInput(
+  panel: Record<string, unknown>,
+): Record<string, unknown> {
+  const config = isDashboardRecord(panel.config) ? panel.config : {};
+  return {
+    sql: panel.sql,
+    source: panel.source,
+    chartType: panel.chartType,
+    timeScope: config.timeScope,
+  };
+}
+
+export function changedPanelIdsForSqlValidation(
+  config: Record<string, unknown>,
+  baseline: Record<string, unknown> | null,
+): ReadonlySet<string> | undefined {
+  if (!baseline) return undefined;
+  if (
+    stableStringify(config.filters) !== stableStringify(baseline.filters) ||
+    stableStringify(config.variables) !== stableStringify(baseline.variables)
+  ) {
+    return undefined;
+  }
+
+  const previousPanels = Array.isArray(baseline.panels)
+    ? baseline.panels.filter(isDashboardRecord)
+    : [];
+  const nextPanels = Array.isArray(config.panels)
+    ? config.panels.filter(isDashboardRecord)
+    : [];
+  const previousById = new Map<string, Record<string, unknown>>();
+  for (const panel of previousPanels) {
+    if (typeof panel.id === "string") {
+      previousById.set(panel.id, panel);
+    }
+  }
+  const changedPanelIds = new Set<string>();
+  for (const panel of nextPanels) {
+    if (typeof panel.id !== "string") return undefined;
+    const previous = previousById.get(panel.id);
+    if (
+      !previous ||
+      stableStringify(panelSqlValidationInput(panel)) !==
+        stableStringify(panelSqlValidationInput(previous))
+    ) {
+      changedPanelIds.add(panel.id);
+    }
+  }
+  return changedPanelIds;
+}
+
 export async function validatePanelSql(
   config: Record<string, unknown>,
   panelIds?: ReadonlySet<string>,
@@ -955,8 +1010,17 @@ export default defineAction({
       assertValidDashboardConfig(args.config, {
         baseline: before ? before.config : null,
       });
-      const sqlError = await validatePanelSql(args.config);
-      if (sqlError) fail(sqlError);
+      const panelIdsToValidate = changedPanelIdsForSqlValidation(
+        args.config,
+        before ? before.config : null,
+      );
+      if (!panelIdsToValidate || panelIdsToValidate.size > 0) {
+        const sqlError = await validatePanelSql(
+          args.config,
+          panelIdsToValidate,
+        );
+        if (sqlError) fail(sqlError);
+      }
       const verdict = agentCaller
         ? await verifyPanelWrite({
             base: before ? before.config : null,

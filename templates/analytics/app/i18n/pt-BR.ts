@@ -1422,6 +1422,7 @@ export default {
     dragToReorder: "Arraste para reordenar",
     resizePanelWidth: "Redimensionar a largura do painel",
     resizePanelHeight: "Redimensionar a altura do painel",
+    resetPanelHeight: "Redefinir a altura do painel",
     columnFormat: "Formato",
     columnFormatText: "Texto simples",
     columnFormatNumber: "Número",

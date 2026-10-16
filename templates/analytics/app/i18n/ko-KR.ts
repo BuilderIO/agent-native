@@ -1380,6 +1380,7 @@ export default {
     dragToReorder: "드래그하여 재정렬하세요.",
     resizePanelWidth: "패널 너비 조정",
     resizePanelHeight: "패널 높이 조정",
+    resetPanelHeight: "패널 높이 초기화",
     columnFormat: "형식",
     columnFormatText: "일반 텍스트",
     columnFormatNumber: "숫자",

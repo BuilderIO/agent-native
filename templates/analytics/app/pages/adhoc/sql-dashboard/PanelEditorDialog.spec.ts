@@ -6,7 +6,7 @@ import {
   panelToForm,
   type PanelFormValues,
 } from "./PanelEditorDialog";
-import { mergeUnchangedPanelDimensions } from "./types";
+import { mergeUnchangedPanelFields } from "./types";
 import type { SqlPanel } from "./types";
 
 const baseForm: PanelFormValues = {
@@ -151,7 +151,7 @@ describe("dashboard extension panel editor values", () => {
       height: 3,
       sql: "SELECT 1",
     };
-    const merged = mergeUnchangedPanelDimensions(panel, original, {
+    const merged = mergeUnchangedPanelFields(panel, original, {
       ...original,
       height: 4,
     });
@@ -179,12 +179,45 @@ describe("dashboard extension panel editor values", () => {
     );
     const current = { ...original, width: 3, height: 4 };
 
-    expect(
-      mergeUnchangedPanelDimensions(edited, original, current),
-    ).toMatchObject({
+    expect(mergeUnchangedPanelFields(edited, original, current)).toMatchObject({
       title: "Updated title",
       width: 3,
       height: 4,
+    });
+  });
+
+  it("keeps a concurrent SQL edit when the editor changes only the title", () => {
+    const original: SqlPanel = {
+      id: "pipeline-widget",
+      title: "Pipeline Widget",
+      chartType: "table",
+      source: "bigquery",
+      width: 2,
+      sql: "SELECT 1",
+      config: { description: "Original", columns: [{ key: "value" }] },
+    };
+    const edited: SqlPanel = {
+      ...original,
+      title: "Updated title",
+      config: { ...original.config },
+    };
+    const current: SqlPanel = {
+      ...original,
+      sql: "SELECT 2",
+      config: {
+        ...original.config,
+        description: "Updated elsewhere",
+        columns: [{ key: "value", width: 240 }],
+      },
+    };
+
+    expect(mergeUnchangedPanelFields(edited, original, current)).toMatchObject({
+      title: "Updated title",
+      sql: "SELECT 2",
+      config: {
+        description: "Updated elsewhere",
+        columns: [{ key: "value", width: 240 }],
+      },
     });
   });
 
@@ -201,9 +234,10 @@ describe("dashboard extension panel editor values", () => {
     const edited = { ...original, width: 4, height: 5 };
     const current = { ...original, width: 3, height: 6 };
 
-    expect(
-      mergeUnchangedPanelDimensions(edited, original, current),
-    ).toMatchObject({ width: 4, height: 5 });
+    expect(mergeUnchangedPanelFields(edited, original, current)).toMatchObject({
+      width: 4,
+      height: 5,
+    });
   });
 
   it("clears a stale fixed height when the latest panel is auto-height", () => {
@@ -226,7 +260,7 @@ describe("dashboard extension panel editor values", () => {
     };
 
     expect(
-      mergeUnchangedPanelDimensions(edited, edited, current),
+      mergeUnchangedPanelFields(edited, edited, current),
     ).not.toHaveProperty("height");
   });
 });

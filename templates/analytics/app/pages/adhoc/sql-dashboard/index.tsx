@@ -212,7 +212,7 @@ import {
   DEFAULT_DASHBOARD_COLUMNS,
   MAX_PANEL_HEIGHT,
   PANEL_HEIGHT_UNIT_PX,
-  mergeUnchangedPanelDimensions,
+  mergeUnchangedPanelFields,
   type DashboardFilter,
   type FilterPreset,
   type SqlDashboardConfig,
@@ -350,7 +350,7 @@ const PanelCell = memo(function PanelCell({
   onResizePanel: (
     panelId: string,
     axis: "width" | "height",
-    value: number,
+    value: number | undefined,
   ) => Promise<SqlPanel>;
   onSaveColumns: (panelId: string, columns: TableColumnConfig[]) => void;
   hasPendingDashboardSave: boolean;
@@ -476,8 +476,9 @@ const PanelCell = memo(function PanelCell({
       ),
     );
 
-  const saveResize = (axis: "width" | "height", value: number) => {
+  const saveResize = (axis: "width" | "height", value: number | undefined) => {
     if (axis === "height" && panel.chartType === "section") return;
+    if (axis === "width" && value === undefined) return;
     const current =
       resizeValuesRef.current.panelId === panel.id
         ? resizeValuesRef.current
@@ -486,13 +487,16 @@ const PanelCell = memo(function PanelCell({
             width: clampPanelWidth(panel.width, gridColumns),
             height: panel.height,
           };
-    const nextValues = { ...current, [axis]: value };
+    const nextValues =
+      axis === "width"
+        ? { ...current, width: value! }
+        : { ...current, height: value };
     const sequence = ++resizeSaveSequenceRef.current;
     resizeValuesRef.current = nextValues;
     resizeSaveCountRef.current += 1;
     resizeSaveAxisCountRef.current[axis] += 1;
-    if (axis === "width") setPreviewWidth(value);
-    else setPreviewHeight(value);
+    if (axis === "width") setPreviewWidth(value!);
+    else setPreviewHeight(value ?? null);
 
     void onResizePanel(panel.id, axis, value)
       .then((savedPanel) => {
@@ -789,6 +793,20 @@ const PanelCell = memo(function PanelCell({
               onPointerCancel={cancelResize}
             >
               <IconGripVertical className="h-4 w-4 rotate-90" />
+            </button>
+          ) : null}
+          {panel.chartType !== "section" && panel.height !== undefined ? (
+            <button
+              type="button"
+              aria-label={t("sqlDashboard.resetPanelHeight")}
+              title={t("sqlDashboard.resetPanelHeight")}
+              className="dashboard-panel-resize-handle dashboard-panel-reset-height"
+              onClick={(event) => {
+                event.stopPropagation();
+                saveResize("height", undefined);
+              }}
+            >
+              <IconArrowBackUp aria-hidden="true" className="h-3.5 w-3.5" />
             </button>
           ) : null}
         </>
@@ -1975,16 +1993,22 @@ function SqlDashboardPageContent({
     async (
       panelId: string,
       axis: "width" | "height",
-      value: number,
+      value: number | undefined,
     ): Promise<SqlPanel> => {
       const savedConfig = await persistThrow((current) => {
         const panel = current.panels.find((p) => p.id === panelId);
         if (!panel) return current;
         return {
           ...current,
-          panels: current.panels.map((p) =>
-            p.id === panelId ? { ...p, [axis]: value } : p,
-          ),
+          panels: current.panels.map((p) => {
+            if (p.id !== panelId) return p;
+            if (axis === "height" && value === undefined) {
+              const resized = { ...p };
+              delete resized.height;
+              return resized;
+            }
+            return { ...p, [axis]: value };
+          }),
         };
       });
       const savedPanel = savedConfig?.panels.find((p) => p.id === panelId);
@@ -1999,7 +2023,7 @@ function SqlDashboardPageContent({
         const idx = current.panels.findIndex((p) => p.id === panel.id);
         const nextPanel =
           editorBaseline !== undefined && idx >= 0
-            ? mergeUnchangedPanelDimensions(
+            ? mergeUnchangedPanelFields(
                 panel,
                 editorBaseline,
                 current.panels[idx],

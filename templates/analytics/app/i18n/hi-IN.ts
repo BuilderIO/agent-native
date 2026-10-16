@@ -1365,6 +1365,7 @@ export default {
     dragToReorder: "पुनः व्यवस्थित करने के लिए खींचें",
     resizePanelWidth: "पैनल की चौड़ाई बदलें",
     resizePanelHeight: "पैनल की ऊँचाई बदलें",
+    resetPanelHeight: "पैनल की ऊँचाई रीसेट करें",
     columnFormat: "प्रारूप",
     columnFormatText: "सादा पाठ",
     columnFormatNumber: "संख्या",

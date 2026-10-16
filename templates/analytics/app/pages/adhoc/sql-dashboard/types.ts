@@ -230,21 +230,114 @@ export function clampPanelHeight(value: unknown): number {
   return integer;
 }
 
-export function mergeUnchangedPanelDimensions(
+function isPanelRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function samePanelValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => samePanelValue(value, right[index]))
+    );
+  }
+  if (!isPanelRecord(left) || !isPanelRecord(right)) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) =>
+        key === rightKeys[index] && samePanelValue(left[key], right[key]),
+    )
+  );
+}
+
+function mergeEditedRecord(
+  edited: Record<string, unknown>,
+  baseline: Record<string, unknown>,
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...current };
+  const keys = new Set([...Object.keys(baseline), ...Object.keys(edited)]);
+  for (const key of keys) {
+    const hadBaseline = Object.prototype.hasOwnProperty.call(baseline, key);
+    const hasEdited = Object.prototype.hasOwnProperty.call(edited, key);
+    if (
+      hadBaseline === hasEdited &&
+      samePanelValue(edited[key], baseline[key])
+    ) {
+      continue;
+    }
+    if (!hasEdited) {
+      delete merged[key];
+      continue;
+    }
+    const editedValue = edited[key];
+    const baselineValue = baseline[key];
+    const currentValue = merged[key];
+    merged[key] =
+      isPanelRecord(editedValue) &&
+      isPanelRecord(baselineValue) &&
+      isPanelRecord(currentValue)
+        ? mergeEditedRecord(editedValue, baselineValue, currentValue)
+        : editedValue;
+  }
+  return merged;
+}
+
+export function mergeUnchangedPanelFields(
   editedPanel: SqlPanel,
   basePanel: SqlPanel | null,
   currentPanel: SqlPanel | null,
 ): SqlPanel {
   const merged = { ...editedPanel };
   if (!currentPanel || currentPanel.id !== editedPanel.id) return merged;
-  if (!basePanel || editedPanel.width === basePanel.width) {
+  if (!basePanel) {
     merged.width = currentPanel.width;
-  }
-  if (editedPanel.chartType === "section") {
-    delete merged.height;
-  } else if (!basePanel || editedPanel.height === basePanel.height) {
     if (currentPanel.height === undefined) delete merged.height;
     else merged.height = currentPanel.height;
+    if (editedPanel.chartType === "section") delete merged.height;
+    return merged;
+  }
+
+  const keys = new Set([
+    ...Object.keys(basePanel),
+    ...Object.keys(editedPanel),
+  ]);
+  for (const key of keys) {
+    if (key === "config") continue;
+    if (
+      !samePanelValue(
+        editedPanel[key as keyof SqlPanel],
+        basePanel[key as keyof SqlPanel],
+      )
+    ) {
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(currentPanel, key)) {
+      Object.assign(merged, { [key]: currentPanel[key as keyof SqlPanel] });
+    } else {
+      delete (merged as unknown as Record<string, unknown>)[key];
+    }
+  }
+
+  const mergedConfig = mergeEditedRecord(
+    isPanelRecord(editedPanel.config) ? editedPanel.config : {},
+    isPanelRecord(basePanel.config) ? basePanel.config : {},
+    isPanelRecord(currentPanel.config) ? currentPanel.config : {},
+  );
+  if (Object.keys(mergedConfig).length > 0) {
+    merged.config = mergedConfig as SqlPanel["config"];
+  } else {
+    delete merged.config;
+  }
+
+  if (editedPanel.chartType === "section") {
+    delete merged.height;
   }
   return merged;
 }

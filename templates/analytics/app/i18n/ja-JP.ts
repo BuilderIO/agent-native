@@ -1404,6 +1404,7 @@ export default {
     dragToReorder: "ドラッグして並べ替えます",
     resizePanelWidth: "パネルの幅を変更",
     resizePanelHeight: "パネルの高さを変更",
+    resetPanelHeight: "パネルの高さをリセット",
     columnFormat: "形式",
     columnFormatText: "プレーンテキスト",
     columnFormatNumber: "数値",
