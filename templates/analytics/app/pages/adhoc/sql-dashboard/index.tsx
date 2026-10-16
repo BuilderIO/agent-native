@@ -2011,7 +2011,7 @@ function SqlDashboardPageContent({
   );
 
   const annotationEditing = useAnnotationEditing({
-    dashboardId,
+    dashboardId: loadedDashboardId ?? undefined,
     dashboard,
     editing,
     persist,
@@ -2771,7 +2771,7 @@ function SqlDashboardPageContent({
   );
   return (
     <DashboardAnnotationsProvider
-      dashboardId={dashboardId}
+      dashboardId={loadedDashboardId}
       annotations={dashboard.annotations}
       dataNoteActions={
         reportScreenshot ? undefined : annotationEditing.dataNoteActions
