@@ -3123,6 +3123,8 @@ async function runAuthoringParityQa(
     })),
     { id: "authoring-list-ul", kind: "ul-flow" as const },
     { id: "authoring-list-ol", kind: "ol-flow" as const },
+    { id: "authoring-list-ul-enter-exit", kind: "ul-enter-exit" as const },
+    { id: "authoring-list-ol-enter-exit", kind: "ol-enter-exit" as const },
     { id: "authoring-list-styled", kind: "styled-flow" as const },
     {
       id: "authoring-list-boundary-delete",
@@ -3158,14 +3160,14 @@ async function runAuthoringParityQa(
   const created = await action(page, "create-deck", {
     title: `[edit-fidelity] authoring parity ${Date.now()}`,
     slides: cases.map((test) => {
-      if (test.kind === "ul-flow") {
+      if (test.kind === "ul-flow" || test.kind === "ul-enter-exit") {
         return {
           id: test.id,
           content:
             '<div class="fmd-slide"><ul style="list-style-type: disc"><li><p>Alpha</p></li></ul></div>',
         };
       }
-      if (test.kind === "ol-flow") {
+      if (test.kind === "ol-flow" || test.kind === "ol-enter-exit") {
         return {
           id: test.id,
           content:
@@ -3799,6 +3801,16 @@ async function runAuthoringParityQa(
             );
           }
         });
+      } else if (
+        test.kind === "ul-enter-exit" ||
+        test.kind === "ol-enter-exit"
+      ) {
+        await editor.press(lineEndKey);
+        await editor.press("Enter");
+        await editor.press("Enter");
+        await editor.pressSequentially("Plain");
+        await assertPlainLine(editor);
+        await finish(index, async () => {});
       } else if (test.kind === "ul-flow" || test.kind === "ol-flow") {
         await editor.press(lineEndKey);
         await editor.press("Enter");

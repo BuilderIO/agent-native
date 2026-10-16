@@ -19,6 +19,21 @@ const messages = {
     turnOffRewind: "बंद करें",
     turnOffRewindFailed:
       "Rewind बंद नहीं किया जा सका। रिकॉर्डिंग रोकें और फिर से प्रयास करें।",
+    turnOnRewindFailed: "Rewind चालू नहीं हो सका। फिर से प्रयास करें।",
+    turnOnRewindPermissionFailed:
+      "System Settings > Privacy & Security > Screen & System Audio Recording में Clips के लिए स्क्रीन रिकॉर्डिंग की अनुमति दें, फिर Clips को पुनः प्रारंभ करके दोबारा प्रयास करें।",
+    turnOnRewindUnsupported: "Rewind स्क्रीन रिकॉर्डिंग केवल macOS पर उपलब्ध है।",
+    turnOnRewindNoSpace:
+      "Rewind शुरू करने के लिए डिस्क में पर्याप्त जगह नहीं है। जगह खाली करके फिर से प्रयास करें।",
+    turnOnRewindStopClip: "Rewind चालू करने से पहले मौजूदा Clip रोकें।",
+    turnOnRewindStorageFailed:
+      "Rewind स्टोरेज तक पहुँचा नहीं जा सका। डिस्क की जगह और फ़ोल्डर की अनुमतियाँ जाँचकर फिर से प्रयास करें।",
+    rewindConsentTitle: "Rewind चालू करें?",
+    rewindConsentBody:
+      "Clips आपकी स्क्रीन को लगातार रिकॉर्ड करके इसी डिवाइस पर रखेगा। एजेंटों को टेक्स्ट अंश मिलेंगे, और वीडियो केवल आपकी मंज़ूरी के बाद साझा किया जाएगा।",
+    rewindConsentCancel: "अभी नहीं",
+    rewindConsentConfirm: "Rewind चालू करें",
+    rewindConsentBusy: "Rewind चालू हो रहा है…",
     rewindOffTitle: "Rewind चालू करें",
     rewindOffBody:
       "डिफ़ॉल्ट रूप से बंद। स्क्रीन इतिहास इसी डिवाइस पर रहता है, जब तक आप उसे रिकॉर्डिंग में शामिल न करें या साझा करने का अनुरोध मंज़ूर न करें।",
@@ -1527,6 +1542,8 @@ const messages = {
     builderGrantAskAdmin:
       "किसी मालिक या एडमिन से क्लिप अपलोड की अनुमति के साथ Builder.io कनेक्ट करने को कहें।",
     statusUnavailable: "वीडियो स्टोरेज की स्थिति जाँची नहीं जा सकी।",
+    hostedStorageUnavailable:
+      "Clips का होस्टेड स्टोरेज अभी उपलब्ध नहीं है। आपके मुफ़्त क्लिप की सीमा नहीं बदली है; बाद में अपलोड फिर से करें।",
     checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
     builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
@@ -1818,6 +1835,16 @@ const messages = {
     validWebUrl: "मान्य http:// या https:// पता दर्ज करें।",
   },
   recordRoute: {
+    freeClipsLeft_one: "{{count}} मुफ़्त क्लिप बाकी",
+    freeClipsLeft_other: "{{count}} मुफ़्त क्लिप बाकी",
+    hostedClipsExhaustedTitle:
+      "रिकॉर्डिंग जारी रखने के लिए Builder.io को मुफ़्त में कनेक्ट करें",
+    hostedClipsExhaustedDescription:
+      "आपके मुफ़्त होस्ट किए गए क्लिप इस्तेमाल हो चुके हैं। अपनी लाइब्रेरी में क्लिप सेव करते रहने के लिए Builder.io स्टोरेज कनेक्ट करें।",
+    clipExceedsSizeLimit: "यह क्लिप मौजूदा अपलोड आकार सीमा से बड़ी है।",
+    clipExceedsMaxDuration: "यह क्लिप मौजूदा रिकॉर्डिंग अवधि सीमा से लंबी है।",
+    maxClipDurationReached:
+      "क्लिप की अधिकतम अवधि पूरी हो गई है। रिकॉर्डिंग सेव हो रही है।",
     pageTitle: "New recording — Clips (स्थानीयकृत)",
     uploadFailed: "Upload failed (स्थानीयकृत)",
     uploadFailedAtChunk:
@@ -2051,6 +2078,10 @@ const messages = {
     vocabularyRemoveFailed: "शब्द नहीं हटाया जा सका",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips का होस्ट किया गया स्टोरेज भर गया है। क्लिप सेव करते रहने के लिए Builder.io स्टोरेज कनेक्ट करें।",
+    hostedRecordingTakenDown:
+      "यह रिकॉर्डिंग Clips के होस्ट किए गए स्टोरेज से हटा दी गई।",
     splitAtPlayhead: "प्लेहेड पर विभाजित करें (S)",
     selectedCount: "{{count}} चुने गए",
     selectAll: "सभी चुनें",
@@ -2231,9 +2262,15 @@ const messages = {
     issues: "समस्याएँ",
     consoleSource: "कंसोल",
     networkSource: "नेटवर्क",
+    appSource: "ऐप गतिविधि",
+    appEvent: "इवेंट",
+    appData: "डेटा",
+    appFailureSummary: "{{count}} ऐप विफलताएँ",
+    appUnavailable: "ऐप गतिविधि लोड नहीं हो सकी।",
     consoleCount: "कंसोल {{count}}",
     networkCount: "नेटवर्क {{count}}",
     afterRecording: "रिकॉर्डिंग के बाद",
+    beforeRecording: "रिकॉर्डिंग से पहले",
     seekToTime: "{{time}} पर जाएँ",
     occurrences: "घटनाएँ",
     message: "संदेश",
@@ -2245,6 +2282,7 @@ const messages = {
     noIssuesTitle: "ब्राउज़र की कोई समस्या नहीं मिली",
     noConsoleTitle: "कोई कंसोल इवेंट नहीं",
     noNetworkTitle: "कोई नेटवर्क अनुरोध नहीं",
+    noAppTitle: "कोई ऐप गतिविधि नहीं",
     capturedDescription: "इस रिकॉर्डिंग के लिए डायग्नोस्टिक्स कैप्चर किए गए।",
   },
   timeline: { clipStartedHere: "क्लिप यहाँ शुरू हुई" },

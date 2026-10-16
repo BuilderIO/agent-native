@@ -244,6 +244,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     kind: "image",
   });
   const { data: sharedCount } = useRecordingsCount({ view: "shared" });
+  const { data: archiveCount } = useRecordingsCount({ view: "archive" });
+  const { data: trashCount } = useRecordingsCount({ view: "trash" });
   const suggestionCountArgs = useMemo(() => {
     if (recordingScope) return null;
     if (location.pathname === "/library") {
@@ -530,6 +532,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       label: t("navigation.archive"),
       icon: IconArchive,
       match: (p) => p.startsWith("/archive"),
+      count: archiveCount,
     },
     {
       to: "/trash",
@@ -538,6 +541,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       match: (p) =>
         p.startsWith("/trash") ||
         (p.startsWith("/r/") && recordingSection === "trash"),
+      count: trashCount,
     },
   ];
 

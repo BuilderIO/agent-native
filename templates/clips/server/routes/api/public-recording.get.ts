@@ -275,6 +275,12 @@ export default defineEventHandler(async (event) => {
     return { error: "Not found" };
   }
 
+  if (rec.failureCode === "taken_down") {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+
   const viewerCanComment = Boolean(
     session?.email &&
     (rec.visibility === "public" || viewerAccess || viewerIsOrgMember),
@@ -406,7 +412,8 @@ export default defineEventHandler(async (event) => {
   //      the URL leaks it into browser history, CDN logs, and Referer headers.
   //      The downstream `/api/video/:id` route accepts `?t=<token>`, the media
   //      cookie, or `?password=<pw>` as a legacy fallback. (audit 11 F-07)
-  //      Remote provider URLs (R2/S3/Builder) are kept behind the same-origin
+  //      Remote provider URLs (S3-compatible storage, including hosted GCS,
+  //      or Builder) are kept behind the same-origin
   //      proxy on public pages so CORS, Range support, and fragile signed URLs
   //      fail in one server-controlled place instead of as opaque <video>
   //      errors in the browser.

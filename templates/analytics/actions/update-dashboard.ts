@@ -11,6 +11,8 @@ import { z } from "zod";
 
 import {
   FILTER_TYPES,
+  filterPresetIssues,
+  MAX_FILTER_OPTIONS,
   MULTI_SELECT_EMPTY,
   normalizeMultiSelectValue,
 } from "../app/pages/adhoc/sql-dashboard/filter-vars";
@@ -307,9 +309,9 @@ function collectDashboardConfigIssues(
         );
       }
       // The read path (isDashboardFilter) rejects more than 100 options, so a save that passes here would make the dashboard unreadable.
-      if (Array.isArray(f.options) && f.options.length > 100) {
+      if (Array.isArray(f.options) && f.options.length > MAX_FILTER_OPTIONS) {
         return dashboardIssue(
-          `config.filters[${i}].options can have at most 100 entries`,
+          `config.filters[${i}].options can have at most ${MAX_FILTER_OPTIONS} entries`,
         );
       }
       // isDashboardFilter rejects these shapes for every filter type, so a save that passes here would drop the whole filter set on read.
@@ -366,6 +368,24 @@ function collectDashboardConfigIssues(
               `config.filters[${i}].default names "${unknown}", which is not one of its options`,
             );
           }
+        }
+      }
+      if (f.presets !== undefined) {
+        // isDashboardFilter rejects a malformed preset, so a save that passes here would drop the whole filter set on read.
+        if (f.type !== "multi-select" || !Array.isArray(f.presets)) {
+          return dashboardIssue(
+            `config.filters[${i}].presets must be an array, and only multi-select filters take presets`,
+          );
+        }
+        const optionValues = new Set(
+          options.map((option) => (option as { value: string }).value),
+        );
+        const issues = filterPresetIssues(f.presets, optionValues);
+        const j = issues.findIndex((issue) => issue !== null);
+        if (j !== -1) {
+          return dashboardIssue(
+            `config.filters[${i}].presets[${j}] ${issues[j]}`,
+          );
         }
       }
       if (seen.has(id)) continue;

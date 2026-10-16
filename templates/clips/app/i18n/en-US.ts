@@ -19,6 +19,22 @@ const messages = {
     turnOffRewind: "Turn off",
     turnOffRewindFailed:
       "Couldn't turn off Rewind. Stop your recording and try again.",
+    turnOnRewindFailed: "Couldn't turn on Rewind. Try again.",
+    turnOnRewindPermissionFailed:
+      "Allow screen recording for Clips in System Settings > Privacy & Security > Screen & System Audio Recording, then restart Clips and try again.",
+    turnOnRewindUnsupported:
+      "Rewind screen capture is available only on macOS.",
+    turnOnRewindNoSpace:
+      "There isn't enough free disk space to start Rewind. Free up space and try again.",
+    turnOnRewindStopClip: "Stop the current Clip before turning on Rewind.",
+    turnOnRewindStorageFailed:
+      "Couldn't access Rewind's storage. Check disk space and folder permissions, then try again.",
+    rewindConsentTitle: "Turn on Rewind?",
+    rewindConsentBody:
+      "Clips will continuously record your screen and keep it on this device. Agents get text excerpts, and video is shared only when you approve it.",
+    rewindConsentCancel: "Not now",
+    rewindConsentConfirm: "Turn on Rewind",
+    rewindConsentBusy: "Turning on…",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
       "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",
@@ -1483,6 +1499,8 @@ const messages = {
     builderGrantAskAdmin:
       "Ask an owner or admin to connect Builder.io with clip upload access.",
     statusUnavailable: "Couldn't check whether video storage is ready.",
+    hostedStorageUnavailable:
+      "Clips hosted storage is temporarily unavailable. Your free clip allowance is unchanged; try the upload again later.",
     checkingBuilderConnection: "Checking Builder connection…",
     builderTimeout:
       "Couldn't confirm that Builder.io storage is ready. Try again.",
@@ -1834,6 +1852,16 @@ const messages = {
     validWebUrl: "Enter a valid http:// or https:// address.",
   },
   recordRoute: {
+    freeClipsLeft_one: "{{count}} free clip left",
+    freeClipsLeft_other: "{{count}} free clips left",
+    hostedClipsExhaustedTitle: "Connect Builder.io for free to keep recording",
+    hostedClipsExhaustedDescription:
+      "Your free hosted clips are used up. Connect Builder.io storage to keep saving clips to your library.",
+    clipExceedsSizeLimit: "This clip exceeds the current upload size limit.",
+    clipExceedsMaxDuration:
+      "This clip exceeds the current recording length limit.",
+    maxClipDurationReached:
+      "The maximum clip length was reached. Saving your recording now.",
     pageTitle: "New recording — Clips",
     uploadFailed: "Upload failed",
     uploadFailedAtChunk:
@@ -2066,6 +2094,10 @@ const messages = {
     vocabularyRemoveFailed: "Couldn't remove term",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Hosted Clips storage is full. Connect Builder.io storage to keep saving clips.",
+    hostedRecordingTakenDown:
+      "This recording was removed from hosted Clips storage.",
     splitAtPlayhead: "Split at playhead (S)",
     selectedCount: "{{count}} selected",
     selectAll: "Select all",
@@ -2244,9 +2276,15 @@ const messages = {
     issues: "Issues",
     consoleSource: "Console",
     networkSource: "Network",
+    appSource: "App activity",
+    appEvent: "Event",
+    appData: "Data",
+    appFailureSummary: "{{count}} app failures",
+    appUnavailable: "App activity could not be loaded.",
     consoleCount: "Console {{count}}",
     networkCount: "Network {{count}}",
     afterRecording: "After recording",
+    beforeRecording: "Before recording",
     seekToTime: "Seek to {{time}}",
     occurrences: "Occurrences",
     message: "Message",
@@ -2258,6 +2296,7 @@ const messages = {
     noIssuesTitle: "No browser issues detected",
     noConsoleTitle: "No console events",
     noNetworkTitle: "No network requests",
+    noAppTitle: "No app activity",
     capturedDescription: "Diagnostics were captured for this recording.",
   },
   timeline: {

@@ -28,6 +28,10 @@ import type {
   ClipsAiRequestStatus,
 } from "@shared/ai-request-status";
 import {
+  type AppActivityEvent,
+  MAX_APP_ACTIVITY_EVENTS,
+} from "@shared/app-activity";
+import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
@@ -82,6 +86,7 @@ import {
 } from "@/components/library/page-header";
 import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import {
+  type AppActivityEventsState,
   BrowserDiagnosticsPanel,
   isFullBrowserDiagnostics,
 } from "@/components/player/browser-diagnostics-panel";
@@ -898,6 +903,13 @@ export default function RecordingPage() {
   }, [legacyShareQuery, recordingId, shouldFallbackToShare, navigate]);
 
   const recording = playerDataQ.data?.recording;
+  const hostedFailureCode = (recording as any)?.failureCode;
+  const localizedHostedFailure =
+    hostedFailureCode === "global_storage_cap"
+      ? t("clipsFinalRaw.hostedStorageFull")
+      : hostedFailureCode === "taken_down"
+        ? t("clipsFinalRaw.hostedRecordingTakenDown")
+        : null;
   // A screenshot: an image and no video file, so no finalize step, no
   // transcript, no timeline, and nothing to download as a clip.
   const isImage = isImageRecording(recording ?? null);
@@ -1158,6 +1170,20 @@ export default function RecordingPage() {
     canEdit && isFullBrowserDiagnostics(browserDiagnosticsCandidate)
       ? browserDiagnosticsCandidate
       : null;
+  const appActivityQ = useActionQuery<{ events: AppActivityEvent[] }>(
+    "get-recording-app-activity",
+    { recordingId: recordingId ?? "", maxEvents: MAX_APP_ACTIVITY_EVENTS },
+    {
+      enabled: Boolean(
+        recordingId && browserDiagnostics?.appActivity && panel === "debug",
+      ),
+    },
+  );
+  const appActivityEvents: AppActivityEventsState = appActivityQ.data
+    ? { status: "ready", events: appActivityQ.data.events }
+    : appActivityQ.isError
+      ? { status: "failed" }
+      : { status: "loading" };
   const browserDiagnosticsDurationMs =
     recordingId === VIEWER_REDESIGN_PREVIEW_ID
       ? VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS
@@ -2154,7 +2180,9 @@ export default function RecordingPage() {
     const displayReason = explicitFailure
       ? storedButUnservableFailure
         ? t("recordingPage.clipDataPreserved")
-        : (rawFailureReason ?? t("recordingPage.retryLibrary"))
+        : (localizedHostedFailure ??
+          rawFailureReason ??
+          t("recordingPage.retryLibrary"))
       : nativeSaveFailed
         ? nativeSaveFailureMessage(rawFailureReason)
         : stuckFailure
@@ -2178,7 +2206,9 @@ export default function RecordingPage() {
         ? t("recordingPage.loomSourcePreserved")
         : t("recordingPage.clipDataPreserved")
       : displayReason;
-    const detail = failureDetail(rawFailureReason);
+    const detail = localizedHostedFailure
+      ? null
+      : failureDetail(rawFailureReason);
     if (!showRecoveryState) {
       const processingView = (
         <div className="flex h-full min-h-0 w-full flex-col bg-background">
@@ -2534,6 +2564,7 @@ export default function RecordingPage() {
           >
             <BrowserDiagnosticsPanel
               diagnostics={browserDiagnostics}
+              appActivityEvents={appActivityEvents}
               durationMs={browserDiagnosticsDurationMs}
               onSeek={(ms) => playerRef.current?.seek(ms)}
             />

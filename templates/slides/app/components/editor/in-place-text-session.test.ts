@@ -2354,7 +2354,7 @@ describe("in-place text session: deleting", () => {
   });
 
   it.each(["ul", "ol"] as const)(
-    "clears an empty sole top-level %s item on Backspace",
+    "turns an empty sole top-level %s item into a paragraph on Backspace",
     (listTag) => {
       const el = mount(`<${listTag} id="t"><li>\u200b</li></${listTag}>`);
       session = startInPlaceTextSession(el);
@@ -2362,13 +2362,17 @@ describe("in-place text session: deleting", () => {
       const text = item.firstChild as Text;
       caret(text, text.length);
 
-      const event = beforeInput(session.element, "deleteContentBackward");
+      expect(
+        beforeInput(session.element, "deleteContentBackward").defaultPrevented,
+      ).toBe(true);
 
-      expect(event.defaultPrevented).toBe(true);
+      expect(session.element.tagName).toBe("DIV");
       expect(session.element.querySelector("ul, ol, li")).toBeNull();
-      expect(session.element.firstElementChild?.tagName).toBe("P");
+      expect(session.element.querySelectorAll("p")).toHaveLength(1);
       expect(session.element.firstElementChild?.textContent).toBe(ZWSP);
       expect(session.changed).toBe(true);
+      expect(session.undo()).toBe(true);
+      expect(session.element.tagName).toBe(listTag.toUpperCase());
     },
   );
 
@@ -3608,13 +3612,13 @@ describe("in-place text session: commands", () => {
     expect(window.getSelection()!.toString()).toBe("One two");
   });
 
-  it("selects the current block before the whole edit for Mod-A", () => {
+  it("selects every block on the first Mod-A and keeps it on a second", () => {
     const el = mount('<div id="t"><p>One</p><p>Two</p></div>');
     session = startInPlaceTextSession(el);
     caret(textOf(el, "Two"), 1);
 
     key(el, { key: "a", metaKey: true });
-    expect(window.getSelection()?.toString()).toBe("Two");
+    expect(window.getSelection()?.toString()).toBe("OneTwo");
     key(el, { key: "a", metaKey: true });
     expect(window.getSelection()?.toString()).toBe("OneTwo");
   });
@@ -3913,7 +3917,9 @@ describe("in-place text session: commands", () => {
 
     type(el, " ");
 
-    expect(session.element.textContent).toBe("Before●After");
+    expect(session.element.textContent?.replaceAll(ZWSP, "")).toBe(
+      "Before●After",
+    );
     expect(session.element.querySelectorAll(":scope > div")).toHaveLength(3);
     expect(session.element.children[0].querySelector("span")?.style.color).toBe(
       "red",
@@ -4745,7 +4751,7 @@ describe("in-place text session: review fixes", () => {
     );
   });
 
-  it("strips pasted links from mixed rich blocks inside an existing link", () => {
+  it("keeps pasted links outside an existing link for mixed rich blocks", () => {
     const el = mount(
       '<div id="t"><p><a href="https://example.com/original">Intro</a></p></div>',
     );
@@ -4758,13 +4764,17 @@ describe("in-place text session: review fixes", () => {
     });
     session.end();
 
-    expect(el.querySelectorAll("a")).toHaveLength(1);
-    expect(el.querySelector("a")?.textContent).toBe("Intro");
+    const anchors = Array.from(el.querySelectorAll("a"));
+    expect(anchors.map((a) => a.textContent)).toEqual([
+      "Intro",
+      "Docs list item",
+    ]);
+    expect(anchors[0].href.endsWith("/original")).toBe(true);
     expect(el.querySelectorAll("a a")).toHaveLength(0);
-    expect(el.textContent).toContain("Docs list item");
+    expect(el.textContent).toContain("Docs paragraph");
   });
 
-  it("pastes a list into a paragraph as lines, since a paragraph cannot hold one", () => {
+  it("pastes a list into a paragraph as a list, since a paragraph cannot hold one", () => {
     const el = mount('<p id="t">Intro</p>');
     session = startInPlaceTextSession(el);
     caret(textOf(el, "Intro"), 5);
@@ -4772,8 +4782,12 @@ describe("in-place text session: review fixes", () => {
       "text/html": "<ul><li>One</li><li>Two</li></ul>",
       "text/plain": "One\nTwo",
     });
+    const root = session.element;
     session.end();
-    expect(el.innerHTML).toBe("IntroOne<br>Two");
+    expect(root.querySelector("p")?.textContent).toBe("Intro");
+    expect(
+      Array.from(root.querySelectorAll("ul > li"), (item) => item.textContent),
+    ).toEqual(["One", "Two"]);
   });
 });
 

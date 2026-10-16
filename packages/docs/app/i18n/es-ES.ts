@@ -2648,6 +2648,7 @@ const esES = {
     auditLog: "Registro de auditoría",
     doctorCodeChecks: "Doctor (verificaciones de código)",
     observability: "Observabilidad",
+    recorder: "Grabador",
     observationalMemory: "Memoria observacional",
     ciEvalGate: "Puerta de evals en CI",
     usingYourAgentOverview: "Visión general",

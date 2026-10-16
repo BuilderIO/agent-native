@@ -32,6 +32,7 @@ Use `tool-search` for the full surface, including screen-memory.
 | Action | Purpose |
 | --- | --- |
 | `view-screen` / `navigate` | Read context or open a surface |
+| `get-video-storage-status` | Check storage and any hosted clips available in the current rollout before asking to connect Builder |
 | `list-recordings` / `search-recordings` / `get-recording-player-data` | Find authorized clips; read transcript, chapters, diagnostics |
 | `create-recording-agent-link` | Make a temporary scoped link for an authorized private clip |
 | `create-recording` / `finalize-recording` / `import-loom-recording` | Create, upload, or import a recording |

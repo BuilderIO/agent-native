@@ -781,6 +781,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "doctor",
       },
       { id: "observability", labelKey: "observability", slug: "observability" },
+      { id: "recorder", labelKey: "recorder", slug: "recorder" },
       {
         id: "observational-memory",
         labelKey: "observationalMemory",

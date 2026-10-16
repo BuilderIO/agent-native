@@ -25,6 +25,17 @@ export default {
     templateCatalog: "Katalog",
     semanticLayer: "Semantische Ebene",
   },
+  dashboardMode: {
+    label: "Dashboard-Modus",
+    view: "Ansehen",
+    edit: "Bearbeiten",
+    viewHint:
+      "Ansehen, ohne etwas zu ändern. Spaltenbreiten, die Sie ziehen, gelten nur für Sie.",
+    editHint: "Änderungen werden für alle gespeichert",
+    columnResizePersonal:
+      "Ziehen, um die Breite nur für Sie zu ändern. Doppelklick zum Zurücksetzen.",
+    columnResizeShared: "Ziehen, um die Breite für alle zu ändern",
+  },
   dashboardHeader: {
     updated: "Aktualisiert am {{date}}",
     created: "Erstellt am {{date}}",
@@ -1270,6 +1281,7 @@ export default {
     selectAll: "Alle auswählen",
     selectOnly: "Nur",
     selectOnlyValue: "Nur {{value}}",
+    presets: "Vorlagen",
     untitledDashboard: "Unbenanntes Dashboard",
     dashboardFallback: "Dashboard",
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",

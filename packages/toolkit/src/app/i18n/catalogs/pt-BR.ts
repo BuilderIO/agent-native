@@ -1338,6 +1338,10 @@ const messages: ToolkitAgentChatTranslation = {
     "O provedor do modelo rejeitou esta solicitação por estar malformada, então ela não foi repetida. Tente novamente ou inicie um novo chat se continuar acontecendo.",
   "errorMessages.requestTooLarge":
     "Esta solicitação excedeu o limite de tamanho do servidor (HTTP 413). Inicie um novo chat ou remova anexos ou referências grandes e tente novamente.",
+  "errorMessages.capabilityUnavailable":
+    "Não foi possível enviar sua mensagem agora. Tente novamente em instantes.",
+  "errorMessages.capabilityUnsupported":
+    "Este app ainda não pode tentar novamente com segurança o seu prompt salvo. Atualize o app e tente de novo.",
   "errorMessages.runInterrupted": "O agente parou antes de terminar.",
   "errorMessages.runFailed": "A execução do agente falhou.",
   "errorMessages.runUnverified":
@@ -3271,6 +3275,20 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Fechar",
   "observability.insights.rawTrace":
     "Trace bruto (todos os spans, com entradas e saídas)",
+  "reportProblem.menuItem": "Relatar um problema",
+  "reportProblem.title_one":
+    "Anexar o que o app fez no último {{count}} segundo?",
+  "reportProblem.title_many":
+    "Anexar o que o app fez nos últimos {{count}} segundos?",
+  "reportProblem.title_other":
+    "Anexar o que o app fez nos últimos {{count}} segundos?",
+  "reportProblem.noEvents": "Nada registrado ainda.",
+  "reportProblem.send": "Enviar ao agente",
+  "reportProblem.copy": "Copiar relatório do problema",
+  "reportProblem.attaching": "Anexando…",
+  "reportProblem.notAttached": "O relatório não foi anexado.",
+  "reportProblem.agentMessage":
+    "Algo deu errado no app. Use o relatório do problema anexado para explicar o que aconteceu.",
 };
 
 export default messages;

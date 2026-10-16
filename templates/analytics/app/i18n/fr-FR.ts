@@ -25,6 +25,17 @@ export default {
     templateCatalog: "Catalogue",
     semanticLayer: "Couche sémantique",
   },
+  dashboardMode: {
+    label: "Mode du tableau de bord",
+    view: "Afficher",
+    edit: "Modifier",
+    viewHint:
+      "Consultez sans rien modifier. Les largeurs de colonne que vous ajustez restent les vôtres.",
+    editHint: "Les modifications sont enregistrées pour tout le monde",
+    columnResizePersonal:
+      "Faites glisser pour redimensionner pour vous seul. Double-cliquez pour réinitialiser.",
+    columnResizeShared: "Faites glisser pour redimensionner pour tout le monde",
+  },
   dashboardHeader: {
     updated: "Mis à jour le {{date}}",
     created: "Créé le {{date}}",
@@ -1266,6 +1277,7 @@ export default {
     selectAll: "Tout sélectionner",
     selectOnly: "Uniquement",
     selectOnlyValue: "Uniquement {{value}}",
+    presets: "Préréglages",
     untitledDashboard: "Tableau de bord sans titre",
     dashboardFallback: "tableau de bord",
     viewOnly: "Vous disposez d'un accès en lecture seule à ce tableau de bord.",

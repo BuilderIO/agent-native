@@ -66,6 +66,7 @@ type AgentGeneratingSubmitOptions = Pick<
   AgentChatMessage,
   | "newTab"
   | "openSidebar"
+  | "submissionExpiresAt"
   | "referenceImagePaths"
   | "images"
   | "model"

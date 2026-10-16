@@ -25,6 +25,17 @@ export default {
     templateCatalog: "テンプレートカタログ",
     semanticLayer: "セマンティックレイヤー",
   },
+  dashboardMode: {
+    label: "ダッシュボードのモード",
+    view: "表示",
+    edit: "編集",
+    viewHint:
+      "何も変更せずに閲覧します。ドラッグした列の幅はあなただけに適用されます。",
+    editHint: "変更は全員に保存されます",
+    columnResizePersonal:
+      "ドラッグしてあなただけの列幅に変更します。ダブルクリックでリセットします。",
+    columnResizeShared: "ドラッグして全員の列幅を変更します",
+  },
   dashboardHeader: {
     updated: "{{date}} 更新",
     created: "{{date}} 作成",
@@ -1239,6 +1250,7 @@ export default {
     selectAll: "すべて選択",
     selectOnly: "のみ",
     selectOnlyValue: "{{value}} のみ",
+    presets: "プリセット",
     untitledDashboard: "無題のダッシュボード",
     dashboardFallback: "ダッシュボード",
     viewOnly: "このダッシュボードには表示のみのアクセス権があります。",

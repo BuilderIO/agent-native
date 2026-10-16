@@ -159,6 +159,15 @@ export default {
     templateCatalog: "目錄",
     semanticLayer: "語意層",
   },
+  dashboardMode: {
+    label: "儀表板模式",
+    view: "檢視",
+    edit: "編輯",
+    viewHint: "瀏覽而不做任何變更。您拖曳的欄寬只對您生效。",
+    editHint: "變更會為所有人儲存",
+    columnResizePersonal: "拖曳以僅為您調整欄寬。按兩下可重設。",
+    columnResizeShared: "拖曳以為所有人調整欄寬",
+  },
   dashboardHeader: {
     updated: "更新於 {{date}}",
     created: "建立於 {{date}}",
@@ -1251,6 +1260,7 @@ export default {
     selectAll: "全選",
     selectOnly: "僅此項",
     selectOnlyValue: "僅選取 {{value}}",
+    presets: "預設組合",
     untitledDashboard: "無標題儀表板",
     dashboardFallback: "儀表板",
     viewOnly: "您對此儀表板只有檢視權限。",
