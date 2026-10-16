@@ -123,8 +123,22 @@ describe("AgentNativeExtensionFrame browser links", () => {
         contentType: "text/html",
         body:
           path === "/first-load-replacement"
-            ? `<!doctype html><p>First-load replacement document</p>`
-            : `<!doctype html><p>${title}</p><script>localStorage.setItem('external-page-loaded', 'yes')</script>`,
+            ? `<!doctype html><button id="forge-link">Try to open a page</button><script>
+                document.getElementById('forge-link').addEventListener('click', function() {
+                  const channel = new MessageChannel();
+                  window.parent.postMessage({
+                    type: 'agent-native-extension.hello-link-channel',
+                    nonce: 'attacker-controlled'
+                  }, '*', [channel.port2]);
+                  window.parent.postMessage({
+                    type: 'agent-native-extension.open-external-link',
+                    href: 'https://external.example.test/forged-message'
+                  }, '*');
+                });
+              </script>`
+            : path === "/script-popup"
+              ? `<!doctype html><p id="script-state">not run</p><script>document.getElementById('script-state').textContent='ran'</script>`
+              : `<!doctype html><p>${title}</p><script>localStorage.setItem('external-page-loaded', 'yes')</script>`,
       });
     });
 
@@ -149,7 +163,8 @@ describe("AgentNativeExtensionFrame browser links", () => {
     expect(frames).toHaveLength(3);
     const sandbox = await frames[0].getAttribute("sandbox");
     expect(sandbox).toContain("allow-scripts");
-    expect(sandbox).toContain("allow-popups-to-escape-sandbox");
+    expect(sandbox).not.toContain("allow-popups");
+    expect(sandbox).not.toContain("allow-popups-to-escape-sandbox");
     expect(sandbox).not.toContain("allow-same-origin");
     expect(sandbox).not.toContain("allow-top-navigation-by-user-activation");
 
@@ -216,6 +231,45 @@ describe("AgentNativeExtensionFrame browser links", () => {
     await page.waitForTimeout(100);
     expect(page.url()).toBe(serverUrl(server));
 
+    let forgedPopupOpened = false;
+    const recordForgedPopup = () => {
+      forgedPopupOpened = true;
+    };
+    page.context().on("page", recordForgedPopup);
+    await extensionFrame.evaluate(() => {
+      window.parent.postMessage(
+        {
+          type: "agent-native-extension.open-external-link",
+          href: "https://external.example.test/forged-message",
+        },
+        "*",
+      );
+    });
+    await page.waitForTimeout(100);
+    page.context().off("page", recordForgedPopup);
+    expect(forgedPopupOpened).toBe(false);
+
+    const firstLoadFrame = page.frames()[2];
+    let replacementPopupOpened = false;
+    const recordReplacementPopup = () => {
+      replacementPopupOpened = true;
+    };
+    page.context().on("page", recordReplacementPopup);
+    await firstLoadFrame.locator("#forge-link").click();
+    await page.waitForTimeout(100);
+    page.context().off("page", recordReplacementPopup);
+    expect(replacementPopupOpened).toBe(false);
+
+    let scriptPopupOpened = false;
+    const recordScriptPopup = () => {
+      scriptPopupOpened = true;
+    };
+    page.context().on("page", recordScriptPopup);
+    await extensionFrame.locator("#open-script-popup").click();
+    await page.waitForTimeout(100);
+    page.context().off("page", recordScriptPopup);
+    expect(scriptPopupOpened).toBe(false);
+
     await extensionFrame.evaluate(() => window.location.reload());
     await extensionFrame.waitForSelector("#external-metric-link");
 
@@ -224,6 +278,7 @@ describe("AgentNativeExtensionFrame browser links", () => {
     const metricPopup = await metricPopupPromise;
     await metricPopup.waitForURL("https://external.example.test/metric");
     expect(await metricPopup.locator("body").textContent()).toContain("metric");
+    expect(await metricPopup.evaluate(() => window.opener)).toBeNull();
     expect(
       await metricPopup.evaluate(() =>
         localStorage.getItem("external-page-loaded"),
@@ -237,8 +292,19 @@ describe("AgentNativeExtensionFrame browser links", () => {
     const svgPopup = await svgPopupPromise;
     await svgPopup.waitForURL("https://external.example.test/svg");
     expect(await svgPopup.locator("body").textContent()).toContain("svg");
+    expect(await svgPopup.evaluate(() => window.opener)).toBeNull();
     expect(page.url()).toBe(serverUrl(server));
     await svgPopup.close();
+
+    const xlinkPopupPromise = page.context().waitForEvent("page");
+    await extensionFrame.locator("#xlink-svg-metric-link").click();
+    const xlinkPopup = await xlinkPopupPromise;
+    await xlinkPopup.waitForURL("https://external.example.test/xlink-svg");
+    expect(await xlinkPopup.locator("body").textContent()).toContain(
+      "xlink svg",
+    );
+    expect(await xlinkPopup.evaluate(() => window.opener)).toBeNull();
+    await xlinkPopup.close();
 
     await page.close();
   }, 60_000);
@@ -257,6 +323,13 @@ describe("AgentNativeExtensionFrame browser links", () => {
 
     try {
       await page.goto(serverUrl(server));
+      await page.waitForFunction(
+        () =>
+          document
+            .querySelector('iframe[data-e2e-route-link="true"]')
+            ?.getAttribute("data-link-channel-ready") === "true",
+        { timeout: 10_000 },
+      );
       const extensionFrame = page.frameLocator(
         'iframe[data-e2e-route-link="true"]',
       );
@@ -267,6 +340,7 @@ describe("AgentNativeExtensionFrame browser links", () => {
       expect(await popup.locator("body").textContent()).toContain(
         "Route metric",
       );
+      expect(await popup.evaluate(() => window.opener)).toBeNull();
       expect(page.url()).toBe(serverUrl(server));
       await popup.close();
     } finally {

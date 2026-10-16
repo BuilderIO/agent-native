@@ -65,7 +65,7 @@ describe("buildExtensionHtml", () => {
     );
   });
 
-  it("opens clicked external extension links in a new popup", () => {
+  it("routes clicked external extension links through a private parent channel", () => {
     const html = buildExtensionHtml(
       '<a href="https://docs.example.com/metric">Metric docs</a>',
       ":root{}",
@@ -75,14 +75,20 @@ describe("buildExtensionHtml", () => {
 
     expect(html).toContain("if (!event.isTrusted");
     expect(html).toContain("link.getAttribute('href')");
-    expect(html).toContain("link.setAttribute('target', '_blank')");
-    expect(html).toContain("rel.add('noopener')");
-    expect(html).toContain("rel.add('noreferrer')");
+    expect(html).toContain(
+      "link.getAttributeNS('http://www.w3.org/1999/xlink', 'href')",
+    );
+    expect(html).toContain("bootstrapScript.remove()");
+    expect(html).toContain("window.location.hash.slice(1)");
+    expect(html).toContain("sendExternalLink({");
+    expect(html).toContain("event.preventDefault()");
     expect(html).toContain(
       "destination.origin === new URL(document.baseURI).origin",
     );
-    expect(html).not.toContain("MessageChannel");
-    expect(html).not.toContain("agentNative.extension.openExternalLink");
+    expect(html).toContain("agent-native-extension.hello-link-channel");
+    expect(html).toContain("agent-native-extension.reseed-link-channel");
+    expect(html).toContain("agent-native-extension.open-external-link");
+    expect(html).not.toContain("link.setAttribute('target'");
     expect(html).not.toContain("location.assign");
     expect(html).toContain("document.addEventListener('click'");
   });

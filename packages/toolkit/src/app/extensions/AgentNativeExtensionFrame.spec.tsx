@@ -41,7 +41,7 @@ describe("AgentNativeExtensionFrame", () => {
     const iframe = container.querySelector("iframe");
     expect(iframe).toBeTruthy();
     expect(iframe?.getAttribute("sandbox")).toBe(
-      "allow-scripts allow-popups allow-downloads",
+      "allow-scripts allow-downloads",
     );
     expect(iframe?.getAttribute("srcdoc")).toContain(
       "<section>Customer health</section>",

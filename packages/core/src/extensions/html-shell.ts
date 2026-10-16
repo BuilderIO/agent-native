@@ -67,6 +67,15 @@ export const EXTENSION_IFRAME_META_CSP = extensionIframeCspBase(
 export const EXTENSION_IFRAME_DISPLAY_SOURCES_PATH =
   "/_agent-native/extensions/iframe/display-sources";
 
+export const EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE =
+  "agent-native-extension.hello-link-channel";
+export const EXTENSION_LINK_CHANNEL_RESEED_MESSAGE_TYPE =
+  "agent-native-extension.reseed-link-channel";
+export const EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE =
+  "agent-native-extension.link-channel-ready";
+export const EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE =
+  "agent-native-extension.open-external-link";
+
 /**
  * Builds the meta CSP for a client-rendered frame from the
  * `EXTENSION_IFRAME_DISPLAY_SOURCES_PATH` response. Anything that is not a
@@ -101,8 +110,8 @@ export function extensionIframeMetaCspFromDisplaySources(
  *      include `allow-same-origin`. The viewer (`ExtensionViewer.tsx`,
  *      `EmbeddedExtension.tsx`) normalizes the sandbox through
  *      `normalizeAgentNativeExtensionSandbox()`, which permits scripts, forms,
- *      popups, and downloads. External anchors open sandbox-escaping popups;
- *      extensions never receive top-level navigation permission. Adding
+ *      and downloads. External anchors ask the parent to open a fresh tab;
+ *      extensions never receive top-level navigation or popup permission. Adding
  *      `allow-same-origin` would give the extension full DOM access to the
  *      parent window via cross-frame script.
  *
@@ -158,16 +167,78 @@ export interface ExtensionRenderBinding {
   };
 }
 
-export function buildExtensionExternalLinkTargetBootstrap(): string {
-  return `<script>
+export function buildExtensionExternalLinkTargetBootstrap(
+  linkNonce?: string,
+): string {
+  const nonceAttribute = linkNonce
+    ? ` data-link-nonce="${escapeHtmlAttribute(linkNonce)}"`
+    : "";
+  return `<script${nonceAttribute}>
     (function() {
+      var sendExternalLink = null;
+      var portPostMessage = MessagePort.prototype.postMessage;
+      var parentWindow = window.parent;
+      var parentPostMessage = parentWindow.postMessage.bind(parentWindow);
+      var bootstrapScript = document.currentScript;
+      var linkNonce = bootstrapScript && bootstrapScript.getAttribute('data-link-nonce');
+      if (!linkNonce && window.location.hash.length > 1) {
+        linkNonce = window.location.hash.slice(1);
+        try {
+          history.replaceState(history.state, '', window.location.pathname + window.location.search);
+        } catch (_) {
+          linkNonce = '';
+        }
+      }
+      if (!linkNonce) linkNonce = ${JSON.stringify(linkNonce ?? "")};
+      if (bootstrapScript) bootstrapScript.remove();
+
+      function sendLinkChannelRequest() {
+        if (!linkNonce) {
+          parentPostMessage({
+            type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_RESEED_MESSAGE_TYPE)}
+          }, '*');
+          return;
+        }
+
+        pendingPorts.forEach(function(port) {
+          port.close();
+        });
+        pendingPorts = [];
+        var channel = new MessageChannel();
+        var childPort = channel.port1;
+        childPort.addEventListener('message', function(event) {
+          if (!event.data || event.data.type !== ${JSON.stringify(EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE)}) return;
+          sendExternalLink = portPostMessage.bind(childPort);
+          if (handshakeTimer) clearInterval(handshakeTimer);
+          pendingPorts.forEach(function(port) {
+            if (port !== childPort) port.close();
+          });
+          pendingPorts = [childPort];
+        });
+        childPort.start();
+        pendingPorts.push(childPort);
+        parentPostMessage({
+          type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE)},
+          nonce: linkNonce
+        }, '*', [channel.port2]);
+      }
+
+      var pendingPorts = [];
+      var handshakeTimer = null;
+      sendLinkChannelRequest();
+      handshakeTimer = setInterval(function() {
+        if (!sendExternalLink) sendLinkChannelRequest();
+      }, 100);
+
       document.addEventListener('click', function(event) {
         if (!event.isTrusted) return;
         var target = event.target;
         if (!target || typeof target.closest !== 'function') return;
-        var link = target.closest('a[href]');
+        var link = target.closest('a');
         if (!link || link.hasAttribute('download')) return;
-        var href = link.getAttribute('href');
+        var href = link.getAttribute('href') ||
+          link.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ||
+          link.getAttribute('xlink:href');
         if (!href) return;
         var destination;
         try {
@@ -180,11 +251,12 @@ export function buildExtensionExternalLinkTargetBootstrap(): string {
           destination.origin === new URL(document.baseURI).origin
         ) return;
 
-        link.setAttribute('target', '_blank');
-        var rel = new Set((link.getAttribute('rel') || '').split(/\\s+/).filter(Boolean));
-        rel.add('noopener');
-        rel.add('noreferrer');
-        link.setAttribute('rel', Array.from(rel).join(' '));
+        event.preventDefault();
+        if (!sendExternalLink) return;
+        sendExternalLink({
+          type: ${JSON.stringify(EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE)},
+          href: destination.href
+        });
       }, true);
     })();
   </script>`;
@@ -197,6 +269,7 @@ export function buildExtensionHtml(
   extensionId?: string,
   binding?: ExtensionRenderBinding,
   metaCsp: string = EXTENSION_IFRAME_META_CSP,
+  linkNonce?: string,
 ): string {
   const extensionIdJson = JSON.stringify(extensionId ?? "");
   const extensionIdAttr = escapeHtmlAttribute(extensionId ?? "");
@@ -278,7 +351,7 @@ export function buildExtensionHtml(
       _collectError(msg, stack);
     });
   </script>
-  ${buildExtensionExternalLinkTargetBootstrap()}
+  ${buildExtensionExternalLinkTargetBootstrap(linkNonce)}
   <!--
     SECURITY: pinned to exact patch versions + SRI integrity hashes. A
     malicious republish of @tailwindcss/browser@4.x or alpinejs@3.x would

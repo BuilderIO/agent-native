@@ -32,6 +32,10 @@ import {
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
 import {
+  extensionFrameUrlWithLinkNonce,
+  useExternalExtensionLinks,
+} from "./extension-links.js";
+import {
   extensionLoadError,
   extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
@@ -176,6 +180,11 @@ export function EmbeddedExtension({
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
   });
   extensionRef.current = extension ?? null;
+  const iframeKey = `${extensionId}-${extension?.updatedAt ?? ""}`;
+  const linkNonce = useExternalExtensionLinks(
+    iframeRef,
+    `${iframeKey}:${Boolean(extension)}`,
+  );
 
   const onUnavailableRef = useRef(onUnavailable);
   onUnavailableRef.current = onUnavailable;
@@ -449,8 +458,12 @@ export function EmbeddedExtension({
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
-        key={`${extensionId}-${extension.updatedAt ?? ""}`}
-        src={iframeSrc}
+        key={iframeKey}
+        src={
+          linkNonce
+            ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)
+            : undefined
+        }
         title={extension.name}
         sandbox={EXTENSION_IFRAME_SANDBOX}
         style={{ width: "100%", border: 0, height, display: "block" }}

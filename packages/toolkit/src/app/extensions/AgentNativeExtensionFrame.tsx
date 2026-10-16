@@ -23,6 +23,7 @@ import React, {
   type IframeHTMLAttributes,
 } from "react";
 
+import { useExternalExtensionLinks } from "./extension-links.js";
 import {
   AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
   buildAgentNativeExtensionHtml,
@@ -344,7 +345,9 @@ export const AgentNativeExtensionFrame = forwardRef<
   },
   forwardedRef,
 ) {
+  const extensionFrameKey = `${extension.id}:${extension.updatedAt ?? ""}`;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const linkNonce = useExternalExtensionLinks(iframeRef, extensionFrameKey);
   const bridgeRef = useRef<AgentNativeHostBridge | null>(null);
   const [height, setHeight] = useState(initialHeight);
   const localStorageAdapter = useMemo(
@@ -412,6 +415,7 @@ export const AgentNativeExtensionFrame = forwardRef<
       extensionId: extension.id,
       title: title ?? extension.name,
       content: extension.content,
+      linkNonce: linkNonce ?? undefined,
       slotId,
       slotContext: context,
       themeCss,
@@ -421,6 +425,7 @@ export const AgentNativeExtensionFrame = forwardRef<
     contextJson,
     extension.content,
     extension.id,
+    linkNonce,
     extension.name,
     isDark,
     slotId,
@@ -595,14 +600,14 @@ export const AgentNativeExtensionFrame = forwardRef<
     <iframe
       {...iframeProps}
       {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-      key={`${extension.id}:${extension.updatedAt ?? ""}`}
+      key={extensionFrameKey}
       ref={(node) => {
         iframeRef.current = node;
         setForwardedRef(forwardedRef, node);
         bridgeRef.current?.setTargetWindow(node?.contentWindow ?? null);
       }}
       title={title ?? extension.name}
-      srcDoc={srcDoc}
+      srcDoc={linkNonce ? srcDoc : undefined}
       sandbox={sandboxValue}
       allow={allow}
       referrerPolicy={referrerPolicy}

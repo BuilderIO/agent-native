@@ -31,8 +31,9 @@ describe("portable extension runtime", () => {
     expect(html).toContain("recordCrossOriginIframes: true");
     expect(html).toContain("agentNative.host.ready");
     expect(html).toContain("link.getAttribute('href')");
-    expect(html).toContain("link.setAttribute('target', '_blank')");
-    expect(html).toContain("rel.add('noopener')");
+    expect(html).toContain("agent-native-extension.hello-link-channel");
+    expect(html).toContain("agent-native-extension.reseed-link-channel");
+    expect(html).toContain("agent-native-extension.open-external-link");
     expect(html).toContain("window.appAction = hostAction");
     expect(html).toContain("window.extensionData = extensionData");
     expect(html).toContain("var bodyRect = body.getBoundingClientRect()");
@@ -103,13 +104,18 @@ describe("portable extension runtime", () => {
       normalizeAgentNativeExtensionSandbox(
         "allow-scripts allow-same-origin allow-popups",
       ),
-    ).toBe("allow-scripts allow-popups allow-downloads");
+    ).toBe("allow-scripts allow-downloads");
     expect(normalizeAgentNativeExtensionSandbox(undefined)).toContain(
       "allow-scripts",
     );
     expect(normalizeAgentNativeExtensionSandbox(undefined)).toBe(
-      "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads",
+      "allow-scripts allow-forms allow-downloads",
     );
+    expect(
+      normalizeAgentNativeExtensionSandbox(
+        "allow-scripts allow-popups-to-escape-sandbox",
+      ),
+    ).toBe("allow-scripts allow-downloads");
     expect(
       normalizeAgentNativeExtensionSandbox(
         "allow-scripts allow-top-navigation-by-user-activation",

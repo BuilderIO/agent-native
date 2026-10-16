@@ -1,18 +1,28 @@
 import { defineClientAction } from "@agent-native/core/client/host";
 import React from "react";
+import { useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 
 import { AgentNativeExtensionSlot } from "./AgentNativeExtensionFrame.js";
+import {
+  extensionFrameUrlWithLinkNonce,
+  useExternalExtensionLinks,
+} from "./extension-links.js";
 
 const extensionContent = `
 <a id="external-metric-link" href="https://external.example.test/metric">Open metric</a>
 <svg width="120" height="32"><a id="svg-metric-link" href="https://external.example.test/svg"><text x="0" y="20">SVG docs</text></a></svg>
+<svg width="120" height="32" xmlns:xlink="http://www.w3.org/1999/xlink"><a id="xlink-svg-metric-link" xlink:href="https://external.example.test/xlink-svg"><text x="0" y="20">Legacy SVG docs</text></a></svg>
+<button id="open-script-popup">Open script popup</button>
 <button id="try-top-navigation">Try top navigation</button>
 <div id="status">pending</div>
 <pre id="results"></pre>
 <script>
   document.getElementById('try-top-navigation').addEventListener('click', function() {
     window.top.location.assign('https://external.example.test/forged');
+  });
+  document.getElementById('open-script-popup').addEventListener('click', function() {
+    window.open('https://external.example.test/script-popup', '_blank');
   });
   (async function() {
     const result = {};
@@ -61,11 +71,26 @@ interface ExtensionE2EWindow {
 const hostWindow = window as Window & ExtensionE2EWindow;
 
 function RouteLinkFrame() {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const setLinkChannelReady = useCallback(() => {
+    iframeRef.current?.setAttribute("data-link-channel-ready", "true");
+  }, []);
+  const linkNonce = useExternalExtensionLinks(
+    iframeRef,
+    "route-link-fixture",
+    setLinkChannelReady,
+  );
+
   return (
     <iframe
-      src="/__extension-e2e-route"
+      ref={iframeRef}
+      src={
+        linkNonce
+          ? extensionFrameUrlWithLinkNonce("/__extension-e2e-route", linkNonce)
+          : undefined
+      }
       title="Route external link fixture"
-      sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+      sandbox="allow-scripts"
       data-e2e-route-link="true"
     />
   );

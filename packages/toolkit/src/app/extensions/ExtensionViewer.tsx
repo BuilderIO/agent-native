@@ -53,6 +53,10 @@ import {
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
 import {
+  extensionFrameUrlWithLinkNonce,
+  useExternalExtensionLinks,
+} from "./extension-links.js";
+import {
   extensionLoadError,
   extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
@@ -176,6 +180,7 @@ function buildExtensionViewerSrcDoc(
   extension: Extension,
   isDark: boolean,
   metaCsp: string,
+  linkNonce: string,
 ): string {
   const role = extensionRole(extension.role);
   return buildExtensionHtml(
@@ -192,6 +197,7 @@ function buildExtensionViewerSrcDoc(
       permissions: extension.source?.permissions,
     },
     metaCsp,
+    linkNonce,
   );
 }
 
@@ -1021,6 +1027,11 @@ export function ExtensionViewer({
   });
 
   toolRef.current = extension ?? null;
+  const iframeKey = `${extension?.updatedAt ?? ""}-${refreshKey}`;
+  const linkNonce = useExternalExtensionLinks(
+    iframeRef,
+    `${iframeKey}:${Boolean(extension)}`,
+  );
 
   useEffect(() => {
     if (!extension) return;
@@ -1058,8 +1069,14 @@ export function ExtensionViewer({
     if (!extension || !usesSrcDoc || !iframeMetaCsp) {
       return undefined;
     }
-    return buildExtensionViewerSrcDoc(extension, isDark, iframeMetaCsp);
-  }, [extension, iframeMetaCsp, isDark, usesSrcDoc]);
+    if (!linkNonce) return undefined;
+    return buildExtensionViewerSrcDoc(
+      extension,
+      isDark,
+      iframeMetaCsp,
+      linkNonce,
+    );
+  }, [extension, iframeMetaCsp, isDark, linkNonce, usesSrcDoc]);
   const unavailableStatus = extensionLoadErrorStatus(
     extensionError ?? extensionFailureReason,
   );
@@ -1287,9 +1304,13 @@ export function ExtensionViewer({
           <iframe
             {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
             ref={iframeRef}
-            key={`${extension.updatedAt}-${refreshKey}`}
-            src={usesSrcDoc ? undefined : iframeSrc}
-            srcDoc={iframeSrcDoc}
+            key={iframeKey}
+            src={
+              !usesSrcDoc && linkNonce
+                ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)
+                : undefined
+            }
+            srcDoc={linkNonce ? iframeSrcDoc : undefined}
             className="h-full w-full border-0"
             sandbox={EXTENSION_IFRAME_SANDBOX}
             title={extension.name}

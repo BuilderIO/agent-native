@@ -7,6 +7,10 @@ import { getThemeVars } from "@agent-native/core/extensions/theme";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  extensionFrameUrlWithLinkNonce,
+  useExternalExtensionLinks,
+} from "./extension-links.js";
+import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
   checkBridgePolicy,
@@ -302,6 +306,7 @@ function buildTransientSrcDoc(
   extension: InlineExtensionDefinition,
   isDark: boolean,
   metaCsp: string,
+  linkNonce: string,
 ): string {
   return buildExtensionHtml(
     extension.content ?? "",
@@ -315,6 +320,7 @@ function buildTransientSrcDoc(
       role: "owner",
     },
     metaCsp,
+    linkNonce,
   );
 }
 
@@ -390,6 +396,11 @@ export function InlineExtensionFrame({
   const isTransient =
     extension?.mode === "transient" ||
     (!!extension?.content && !extensionId && extension?.mode !== "persisted");
+  const iframeKey = `${resolvedId}-${extension?.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}`;
+  const linkNonce = useExternalExtensionLinks(
+    iframeRef,
+    `${iframeKey}:${Boolean(extension)}`,
+  );
 
   const initialDarkRef = useRef(isDark);
   const iframeSrc = useMemo(() => {
@@ -404,15 +415,16 @@ export function InlineExtensionFrame({
   // img-src / media-src from the server and wait for it before rendering.
   const iframeMetaCsp = useExtensionIframeMetaCsp(!!extension && isTransient);
   const srcDoc = useMemo(() => {
-    if (!extension || !isTransient || !iframeMetaCsp) {
+    if (!extension || !isTransient || !iframeMetaCsp || !linkNonce) {
       return undefined;
     }
     return buildTransientSrcDoc(
       extension,
       initialDarkRef.current,
       iframeMetaCsp,
+      linkNonce,
     );
-  }, [extension, iframeMetaCsp, isTransient]);
+  }, [extension, iframeMetaCsp, isTransient, linkNonce]);
 
   useEffect(() => {
     bridgeContextRef.current = isTransient
@@ -675,9 +687,13 @@ export function InlineExtensionFrame({
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
-        key={`${resolvedId}-${extension.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}`}
-        src={iframeSrc}
-        srcDoc={srcDoc}
+        key={iframeKey}
+        src={
+          !isTransient && iframeSrc && linkNonce
+            ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)
+            : undefined
+        }
+        srcDoc={linkNonce ? srcDoc : undefined}
         title={extension.name}
         sandbox={EXTENSION_IFRAME_SANDBOX}
         aria-disabled={isTransient && hasSubmitted ? true : undefined}
