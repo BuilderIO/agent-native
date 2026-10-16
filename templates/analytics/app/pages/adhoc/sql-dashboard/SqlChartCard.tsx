@@ -2,6 +2,8 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
+import { dataNoteIsRecent, type DataNote } from "@shared/data-notes";
+import { isKeyDateChartType } from "@shared/key-dates";
 import {
   IconGripVertical,
   IconDotsVertical,
@@ -16,10 +18,22 @@ import {
   IconBrandGoogle,
   IconArrowUpRight,
   IconLink,
+  IconFlag,
+  IconEyeOff,
 } from "@tabler/icons-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { isPendingAnnotation } from "@/components/dashboard/annotation-mutations";
+import {
+  useDataNoteActions,
+  usePanelDataNotes,
+} from "@/components/dashboard/dashboard-annotations-context";
+import {
+  DataNoteFlag,
+  DataNoteLines,
+  UnplacedDataNotesListener,
+} from "@/components/dashboard/data-note-bands";
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import {
   AlertDialog,
@@ -163,6 +177,20 @@ export function SqlChartCard({
   onTimeRangeOverrideChange,
 }: SqlChartCardProps) {
   const t = useT();
+  const panelDataNotes = usePanelDataNotes(panel);
+  const dataNoteActions = useDataNoteActions();
+  const timeChart = isKeyDateChartType(panel.chartType);
+  // Other charts list the recent notes under the card. A time chart shades
+  // notes over its dates and lists, under its plot, the ones it can't place.
+  const listedDataNotes = useMemo(
+    () =>
+      timeChart ? [] : panelDataNotes.filter((note) => dataNoteIsRecent(note)),
+    [timeChart, panelDataNotes],
+  );
+  const [unplacedDataNotes, setUnplacedDataNotes] = useState<
+    readonly DataNote[]
+  >([]);
+  const flaggedDataNotes = timeChart ? unplacedDataNotes : listedDataNotes;
   const timeRange = timeRangeDays(filters?.timeRange);
   const timeRangeOverrideLabel = timeRangeFilter?.options?.find(
     (option) => option.value === timeRangeOverride,
@@ -689,9 +717,12 @@ export function SqlChartCard({
         )}
       >
         <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
-          <CardTitle className="text-sm font-medium flex-1 truncate">
-            {panel.title}
-          </CardTitle>
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <CardTitle className="text-sm font-medium truncate">
+              {panel.title}
+            </CardTitle>
+            <DataNoteFlag notes={flaggedDataNotes} panelId={panel.id} />
+          </div>
           {timeRangeOverrideLabel ? (
             <Badge
               variant="secondary"
@@ -785,6 +816,33 @@ export function SqlChartCard({
                     <IconLink className="h-4 w-4 mr-2" />
                     {t("sidebar.copyLink")}
                   </DropdownMenuItem>
+                  {dataNoteActions?.add ? (
+                    <DropdownMenuItem
+                      onSelect={() => dataNoteActions.add?.(panel.id)}
+                    >
+                      <IconFlag className="h-4 w-4 mr-2" />
+                      {t("annotations.addDataNote")}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {/* The note cards are hover-only, so keyboard users hide a note here. */}
+                  {dataNoteActions?.hide
+                    ? panelDataNotes.map((note) => (
+                        <DropdownMenuItem
+                          key={note.id}
+                          disabled={isPendingAnnotation(note.id)}
+                          onSelect={() =>
+                            dataNoteActions.hide?.(note.id, panel.id)
+                          }
+                        >
+                          <IconEyeOff className="h-4 w-4 mr-2 shrink-0" />
+                          <span className="min-w-0 truncate">
+                            {t("annotations.hideNoteHere", {
+                              title: note.title,
+                            })}
+                          </span>
+                        </DropdownMenuItem>
+                      ))
+                    : null}
                   {editable || panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
                   ) : null}
@@ -856,21 +914,24 @@ export function SqlChartCard({
           </div>
         </CardHeader>
         <CardContent className="dashboard-chart-content flex flex-1 flex-col overflow-visible pt-0">
-          <SqlChart
-            panel={panel}
-            resolvedSql={resolvedSql}
-            loadData={shouldLoadData}
-            retainWhileOffscreen
-            timeRange={timeRange}
-            reportScreenshot={reportScreenshot}
-            refreshToken={refreshToken}
-            onRefreshRequested={handleRefresh}
-            dashboardId={dashboardId}
-            onExportCsvChange={handleExportCsvChange}
-            onCopyTableChange={handleCopyTableChange}
-            {...tableColumnProps}
-            extensionContext={extensionContext}
-          />
+          <UnplacedDataNotesListener value={setUnplacedDataNotes}>
+            <SqlChart
+              panel={panel}
+              resolvedSql={resolvedSql}
+              loadData={shouldLoadData}
+              retainWhileOffscreen
+              timeRange={timeRange}
+              reportScreenshot={reportScreenshot}
+              refreshToken={refreshToken}
+              onRefreshRequested={handleRefresh}
+              dashboardId={dashboardId}
+              onExportCsvChange={handleExportCsvChange}
+              onCopyTableChange={handleCopyTableChange}
+              {...tableColumnProps}
+              extensionContext={extensionContext}
+            />
+          </UnplacedDataNotesListener>
+          <DataNoteLines notes={listedDataNotes} panelId={panel.id} />
         </CardContent>
       </Card>
 
