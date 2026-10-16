@@ -100,16 +100,17 @@ const SPOKEN_DURATION =
   /^\d+\s+(?:hours?|minutes?|seconds?)(?:,?\s+\d+\s+(?:hours?|minutes?|seconds?))*$/i;
 
 export function detectTranscriptFormat(text: string): TranscriptImportFormat {
-  const [first = "", second = ""] = splitLines(stripBom(text))
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const first =
+    splitLines(stripBom(text))
+      .map((line) => line.trim())
+      .find(Boolean) ?? "";
   if (/^WEBVTT(?:\s|$)/.test(first)) return "vtt";
-  // A cue file opens with its first timing, or with an SRT index and then the
-  // timing. Judging by the opening alone keeps an arrow line further down a
-  // timestamped text file, such as "0:05 --> 0:10 is the range", from
-  // turning the whole file into cues.
-  const opening = /^\d+$/.test(first) ? second : first;
-  return CUE_TIMING_START.test(opening) ? "srt" : "text";
+  // A cue file opens with an SRT index or its first timing, and timestamped
+  // text never opens with a bare number, so an index means cues even when the
+  // timing under it is broken. Judging by the opening alone keeps an arrow
+  // line further down a timestamped text file, such as "0:05 --> 0:10 is the
+  // range", from turning the whole file into cues.
+  return /^\d+$/.test(first) || CUE_TIMING_START.test(first) ? "srt" : "text";
 }
 
 export function parseTranscriptImport(

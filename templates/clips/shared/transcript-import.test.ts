@@ -131,6 +131,16 @@ describe("detectTranscriptFormat", () => {
       ],
     });
   });
+
+  it("reads a file that opens with an SRT index as cues when the timing under it is broken", () => {
+    const text =
+      "1\n00:00:01,000 -> 00:00:02,000\nHello\n\n2\n00:00:02,000 --> 00:00:03,000\nWorld";
+    expect(detectTranscriptFormat(text)).toBe("srt");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: false,
+      error: { code: "missing-timing", line: 1 },
+    });
+  });
 });
 
 describe("parseTranscriptImport", () => {
