@@ -212,13 +212,13 @@ describe("suggestion decomposition", () => {
   );
 
   // The parse reads these stored spellings, which the writer never writes.
-  // Without the L7 bridge in the source mapper, suggestions on them fail.
-  it.fails.each([
+  // The L7 bridge in the source mapper maps them until L7 replaces it.
+  it.each([
     ["Some _x_ text and **b**.", "text and", "words, and"],
     ["Some _x_ text.", "Some _x_", "Some **x**"],
   ])("suggests an edit to %j, which the L7 bridge maps", suggestsAnEdit);
 
-  it.fails("replaces text that follows delimiters the stored source reopens", () => {
+  it("replaces text that follows delimiters the stored source reopens", () => {
     const before = "**b****b****b**";
     const middle = before.indexOf("b", 3);
     const operations = markdownSuggestionOperationsForEditorRevision({

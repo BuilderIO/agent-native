@@ -493,9 +493,9 @@ describe("text the writer spells in context stays suggestable", () => {
 });
 
 // The parse reads these stored spellings, which the writer never writes.
-// Without the L7 bridge in the source mapper, suggestions on them fail.
+// The L7 bridge in the source mapper maps them until L7 replaces it.
 describe("stored spellings the L7 bridge maps", () => {
-  it.fails.each([
+  it.each([
     // Agents write emphasis with underscores and escape what needs none.
     ["Some _x_ text and **b**.", ["_x_", "**b**"]],
     ["Call __init__ then **b**.", ["__init__", "**b**"]],
@@ -511,7 +511,7 @@ describe("stored spellings the L7 bridge maps", () => {
     ).toEqual(marked);
   });
 
-  it.fails("maps a page whose last line is the editor's trailing empty paragraph", () => {
+  it("maps a page whose last line is the editor's trailing empty paragraph", () => {
     const source = "Intro **b** text\n# H\n<empty-block/>";
     const alignment = suggestionSourceAlignment(source);
     expect(alignment?.canonical).toBe("Intro **b** text\n# H");
@@ -520,7 +520,7 @@ describe("stored spellings the L7 bridge maps", () => {
     expect(alignment?.map(source.length, "stored")).toBeNull();
   });
 
-  it.fails("maps a place after delimiters the stored source reopens", () => {
+  it("maps a place after delimiters the stored source reopens", () => {
     const source = "**a****b**";
     const b = source.indexOf("b");
     expect(suggestionSourceAlignment(source)?.map(b, "stored")).toBe(3);
