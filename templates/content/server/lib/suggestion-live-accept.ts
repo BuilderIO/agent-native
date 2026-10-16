@@ -1,8 +1,4 @@
-import {
-  fail,
-  isActionContractError,
-  type ActionRunContext,
-} from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { LiveCopyError } from "@agent-native/core/collab";
 import { getDbExec, type DbExec } from "@agent-native/core/db";
 import {
@@ -29,7 +25,10 @@ import {
   persistedContentBodyCommit,
   type PersistedContentBodyCommit,
 } from "../live-copy/persist.js";
-import { editContentLiveCopy } from "../live-copy/write.js";
+import {
+  editContentLiveCopy,
+  liveCopyWriteLeftPath,
+} from "../live-copy/write.js";
 
 // On a Page whose body is its live copy, accepting is one live-copy edit that
 // places exactly the accepted suggestions, and the decision commits in that
@@ -265,15 +264,7 @@ export async function acceptOnLiveCopy<T>(
   } catch (error) {
     if (error instanceof DecisionReplayed)
       return run({ liveCopy: "replaying" } satisfies LiveCopyDecision);
-    if (
-      // Only the binding declining the Page means the Page left; a released
-      // or replaced binding refuses every retry the same way.
-      (error instanceof LiveCopyError &&
-        error.code === "not_live_copy" &&
-        error.reason === undefined) ||
-      (isActionContractError(error) &&
-        error.errorCode === "LIVE_BODY_WRITE_PATH_CHANGED")
-    )
+    if (liveCopyWriteLeftPath(error))
       throw new LiveCopyAcceptUnavailable(context.resourceId, error);
     if (
       error instanceof LiveCopyError &&
