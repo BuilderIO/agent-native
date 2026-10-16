@@ -72,6 +72,7 @@ import {
   finishRemoteAutomationHistory,
   getRemoteAutomationStatus,
 } from "./remote-execution.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   automationRunClaimLeaseMs,
   claimAutomationRun,
@@ -448,7 +449,7 @@ async function processRecurringJobsWithLease(
         }
         if (await updateResource(resource, meta, body)) {
           await recoverStaleAutomationHistory(
-            resource.owner,
+            staleHistoryOwner(resource, meta),
             resource.path,
             now,
           );
@@ -671,6 +672,27 @@ async function processRecurringJobsWithLease(
       error: healthError,
     });
   }
+}
+
+/**
+ * The owner the runner recorded this automation's history under: a legacy
+ * shared resource has no organization in its owner, so the resolved execution
+ * identity decides (the organization for an org-bound run, the creator
+ * otherwise). Recovery must query that owner, not the resource owner.
+ */
+function staleHistoryOwner(resource: Resource, meta: JobFrontmatter): string {
+  const effectiveRunAs = meta.runAs ?? "creator";
+  const executionOwner =
+    effectiveRunAs === "creator"
+      ? meta.createdBy?.trim() || resource.owner
+      : resource.owner;
+  return automationRunOwnership(
+    resource.owner,
+    executionOwner,
+    recoveredFactoryOwnerOrgId(meta, resource.path, resource.owner) ??
+      meta.orgId ??
+      null,
+  ).owner;
 }
 
 async function recoverStaleAutomationHistory(
