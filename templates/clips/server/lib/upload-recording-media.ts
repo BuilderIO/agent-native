@@ -108,6 +108,9 @@ export async function uploadRecordingMedia(
   }
 
   const { recordingId, ownerEmail, ...upload } = input;
+  // Stored under the recording's id, the only names the recording-bound bucket
+  // readers accept, so its own-bucket files load even from a private address.
+  const filename = recordingScopedFilename(recordingId, upload.filename);
   if (recording.storageMode === "hosted") {
     const uploadedBytes = upload.data.byteLength;
     if (!Number.isSafeInteger(uploadedBytes) || uploadedBytes < 0) {
@@ -122,7 +125,7 @@ export async function uploadRecordingMedia(
 
     const uploaded = await clipsHostedFileUploadProvider.upload({
       ...upload,
-      filename: recordingScopedFilename(recordingId, upload.filename),
+      filename,
       ownerEmail,
     });
 
@@ -157,5 +160,5 @@ export async function uploadRecordingMedia(
     return uploaded;
   }
 
-  return uploadFile({ ...upload, ownerEmail });
+  return uploadFile({ ...upload, filename, ownerEmail });
 }

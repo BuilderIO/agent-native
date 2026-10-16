@@ -270,6 +270,89 @@ describe("/api/thumbnail/:recordingId route", () => {
     );
   });
 
+  it("reads an own-bucket thumbnail on a private address with the owner's bucket credentials", async () => {
+    const thumbnailUrl = "http://127.0.0.1:4634/bucket/clips/rec-1/thumb.jpg";
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({
+          thumbnailUrl,
+          storageMode: "own",
+          ownerEmail: "owner@example.com",
+          organizationId: "org-1",
+        }),
+      ),
+    );
+    const contexts: unknown[] = [];
+    mockRunWithRequestContext.mockImplementation(async (context, callback) => {
+      contexts.push(context);
+      try {
+        return await callback();
+      } finally {
+        contexts.pop();
+      }
+    });
+    let readerContext: unknown;
+    mockFetchS3ObjectByUrl.mockImplementation(async () => {
+      readerContext = contexts[contexts.length - 1];
+      return new Response("bucket thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    });
+
+    const result = await handler(makeEvent() as any);
+
+    expect(await (result as Response).text()).toBe("bucket thumbnail");
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      thumbnailUrl,
+      expect.objectContaining({ recordingId: "rec-1", storageMode: "own" }),
+    );
+    expect(readerContext).toEqual({
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a private address the own bucket does not serve", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({
+          thumbnailUrl: "http://169.254.169.254/latest/meta-data",
+          storageMode: "own",
+        }),
+      ),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expectDefaultSocialRedirect(result);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the public fetch when the own bucket refuses the thumbnail", async () => {
+    const thumbnailUrl = "https://bucket.example.com/clips/rec-1/thumb.jpg";
+    mockGetDb.mockReturnValue(
+      createDbWithRow(makeRow({ thumbnailUrl, storageMode: "own" })),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("denied", { status: 403 }),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(await (result as Response).text()).toBe("public thumbnail");
+    expect(mockIsBlockedExtensionUrlWithDns).toHaveBeenCalledWith(thumbnailUrl);
+  });
+
   it("redirects to the branded image while a thumbnail is unavailable", async () => {
     mockGetDb.mockReturnValue(
       createDbWithRow(

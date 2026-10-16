@@ -66,6 +66,7 @@ type ThumbnailRecording = {
   baseImageUrl?: string | null;
   expiresAt?: string | null;
   organizationId?: string | null;
+  ownerEmail?: string | null;
   password?: string | null;
   sharePasswordVersion?: string | null;
   trashedAt?: string | null;
@@ -244,7 +245,40 @@ async function fetchHostedThumbnail(
     timeoutMs: FETCH_TIMEOUT_MS,
   });
   if (!upstream) return imageResponse(null, "text/plain", 404);
+  return bucketImageResponse(upstream);
+}
 
+/**
+ * Reads a thumbnail from the owner's own bucket with the bucket's credentials,
+ * so it loads even when the bucket sits on a private address the public fetch
+ * refuses. The credentials are the owner's workspace secrets, so they resolve
+ * under the owner, not the viewer. Null means the bucket did not serve it.
+ */
+async function fetchOwnBucketThumbnail(
+  sourceUrl: string,
+  recordingId: string,
+  recording: ThumbnailRecording,
+): Promise<Response | null> {
+  const upstream = await runWithRequestContext(
+    {
+      userEmail: recording.ownerEmail ?? undefined,
+      orgId: recording.organizationId ?? undefined,
+    },
+    () =>
+      fetchS3ObjectByUrl(sourceUrl, {
+        recordingId,
+        storageMode: "own",
+        timeoutMs: FETCH_TIMEOUT_MS,
+      }),
+  );
+  if (!upstream?.ok) {
+    await upstream?.body?.cancel().catch(() => {});
+    return null;
+  }
+  return bucketImageResponse(upstream);
+}
+
+async function bucketImageResponse(upstream: Response): Promise<Response> {
   const contentType =
     upstream.headers
       .get("content-type")
@@ -283,6 +317,7 @@ async function loadRecording(recordingId: string, event: H3Event) {
         storageMode: schema.recordings.storageMode,
         expiresAt: schema.recordings.expiresAt,
         organizationId: schema.recordings.organizationId,
+        ownerEmail: schema.recordings.ownerEmail,
         password: schema.recordings.password,
         sharePasswordVersion: schema.recordings.sharePasswordVersion,
         trashedAt: schema.recordings.trashedAt,
@@ -451,16 +486,25 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       try {
-        // Imported thumbnails (e.g. Loom's) live outside the bucket, so only
-        // URLs inside it take the recording-bound private fetch.
-        const isHostedObject =
-          recording.storageMode === "hosted" &&
-          (await isUrlInS3Storage(resolvedSourceUrl, {
-            storageMode: "hosted",
-          })) !== false;
-        const response = isHostedObject
-          ? await fetchHostedThumbnail(resolvedSourceUrl, recordingId)
-          : await fetchThumbnail(resolvedSourceUrl);
+        let response: Response;
+        if (recording.storageMode === "hosted") {
+          // Imported thumbnails (e.g. Loom's) live outside the bucket, so only
+          // URLs inside it take the recording-bound private fetch.
+          const isHostedObject =
+            (await isUrlInS3Storage(resolvedSourceUrl, {
+              storageMode: "hosted",
+            })) !== false;
+          response = isHostedObject
+            ? await fetchHostedThumbnail(resolvedSourceUrl, recordingId)
+            : await fetchThumbnail(resolvedSourceUrl);
+        } else {
+          response =
+            (await fetchOwnBucketThumbnail(
+              resolvedSourceUrl,
+              recordingId,
+              recording,
+            )) ?? (await fetchThumbnail(resolvedSourceUrl));
+        }
         if (response.status >= 500) {
           captureRouteError(
             new Error(
