@@ -1503,6 +1503,30 @@ describe("suggest-document-edit on a Page written through its live copy", () => 
     );
   });
 
+  // A backslash at its line's start escapes the block marker after it.
+  for (const { name, content, find } of [
+    { name: "a heading marker", content: "\\# Heading", find: "# Heading" },
+    {
+      name: "a heading marker the match starts inside",
+      content: "\\## Heading",
+      find: "# Heading",
+    },
+    { name: "a list marker", content: "\\- item", find: " item" },
+    { name: "a numbered list marker", content: "\\1. item", find: ". item" },
+  ])
+    it(`refuses to strand the backslash that escapes ${name}`, async () => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const page = await switchedPage(content);
+          expect(page.content).toContain(content);
+          await expect(
+            suggestOwnSpelling(page, find, "Changed"),
+          ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+        },
+      );
+    });
+
   // Where the parse keeps a backslash as written, it escapes nothing.
   for (const { name, content, find, replace } of [
     {

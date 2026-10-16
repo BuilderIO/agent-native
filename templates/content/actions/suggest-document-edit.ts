@@ -140,8 +140,6 @@ function inStoredForm(text: string): string | undefined {
   return `${lead}${canonicalizeNfm(core)}${trail}`;
 }
 
-const ESCAPABLE = /[!-/:-@[-`{-~]/;
-
 /** A character `text` doesn't use, so the parse shows it only where it's put. */
 function unusedCharacter(text: string) {
   const used = new Set(text.match(/[\uE000-\uF8FF]/g));
@@ -162,28 +160,56 @@ function shownAfter(value: unknown, probe: string, after: string[] = []) {
 }
 
 /**
- * Whether the backslashes before `index` escape the character there. Code
- * keeps a backslash as written, and so does a link's destination except
- * before a parenthesis: only the parse can tell. A character the page
- * doesn't use, put just before the backslash, changes no escape, and the
- * parse shows the backslash after it wherever it kept the backslash.
+ * Reads backslashes as the parse does, parsing each text once. Code keeps a
+ * backslash as written, and so do a link's destination, except before a
+ * parenthesis, and a code block's language; elsewhere it escapes, and what
+ * it escapes at its line's start is a block marker. Only the parse can tell,
+ * and it is asked two ways, each blind where the other sees: a character the
+ * page doesn't use, put just before the backslash, shows followed by it
+ * wherever the parse kept it, but moves it off its line's start; deleting
+ * it deletes one shown backslash exactly when it was kept, unless a
+ * backslash before it takes over its escape.
  */
-function escapedAt(text: string, index: number) {
-  let slashes = 0;
-  while (text[index - slashes - 1] === "\\") slashes += 1;
-  if (slashes % 2 === 0 || !ESCAPABLE.test(text[index] ?? "")) return false;
-  const probe = unusedCharacter(text);
-  const shown =
-    probe === undefined
-      ? []
-      : shownAfter(
-          nfmToDoc(
-            `${text.slice(0, index - 1)}${probe}${text.slice(index - 1)}`,
-          ),
-          probe,
-        );
-  // Taking a kept backslash for an escape only refuses the match.
-  return !shown.length || shown.some((next) => next !== "\\");
+function backslashReader() {
+  const parsed = new Map<string, string>();
+  const parse = (text: string) => {
+    let json = parsed.get(text);
+    if (json === undefined)
+      parsed.set(text, (json = JSON.stringify(nfmToDoc(text))));
+    return json;
+  };
+  /**
+   * Whether the parse shows the backslash at `at` as written; undefined when
+   * the page uses every character the question could be asked with.
+   */
+  const kept = (text: string, at: number) => {
+    const probe = unusedCharacter(text);
+    if (probe === undefined) return undefined;
+    const after = shownAfter(
+      nfmToDoc(`${text.slice(0, at)}${probe}${text.slice(at)}`),
+      probe,
+    );
+    if (!after.length || after.some((next) => next !== "\\")) return false;
+    const shown = parse(text);
+    const without = parse(`${text.slice(0, at)}${text.slice(at + 1)}`);
+    let same = 0;
+    while (same < without.length && shown[same] === without[same]) same += 1;
+    // JSON spells a shown backslash as two.
+    return (
+      shown.slice(same, same + 2) === "\\\\" &&
+      shown.slice(same + 2) === without.slice(same)
+    );
+  };
+  return {
+    kept,
+    /** Whether the backslashes before `index` escape the character there. */
+    escapes(text: string, index: number) {
+      let slashes = 0;
+      while (text[index - slashes - 1] === "\\") slashes += 1;
+      // Taking a kept backslash for an escape only refuses the match.
+      return slashes % 2 === 1 && kept(text, index - 1) !== true;
+    },
+  };
 }
 
 /**
@@ -210,14 +236,39 @@ function resolveOnStoredForm(content: string, edit: DocumentTextEdit) {
     if (!found.ok && found.error.kind === "missing") return exact;
   }
   if (!found.ok) return found;
+  const backslashes = backslashReader();
   let { start, end } = found.ranges[0]!;
-  if (escapedAt(content, start)) start -= 1;
-  if (end > start && content[end - 1] === "\\" && escapedAt(content, end))
+  if (backslashes.escapes(content, start)) start -= 1;
+  if (
+    end > start &&
+    content[end - 1] === "\\" &&
+    backslashes.escapes(content, end)
+  )
     return missing;
   const placed = (text: string) =>
     `${content.slice(0, start)}${text}${content.slice(end)}`;
   if (canonicalizeNfm(placed(edit.find)) !== content) return missing;
-  const after = canonicalizeNfm(placed(edit.replace));
+  // What a backslash escapes can depend on the rest of its line, so each one
+  // on the lines the edit touches must still read as it did.
+  const replaced = placed(edit.replace);
+  const lineStart = content.lastIndexOf("\n", start - 1) + 1;
+  const newline = content.indexOf("\n", end);
+  const lineEnd = newline === -1 ? content.length : newline;
+  const shift = edit.replace.length - (end - start);
+  for (const [first, last, moved] of [
+    [lineStart, start, 0],
+    [end, lineEnd, shift],
+  ] as const)
+    for (let at = first; at < last; at += 1) {
+      if (content[at] !== "\\") continue;
+      const before = backslashes.kept(content, at);
+      if (
+        before === undefined ||
+        before !== backslashes.kept(replaced, at + moved)
+      )
+        return missing;
+    }
+  const after = canonicalizeNfm(replaced);
   // Canonicalizing can respell text next to the replacement, so the range
   // widens to every byte the change touches.
   let prefix = 0;
