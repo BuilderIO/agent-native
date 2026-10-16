@@ -1347,6 +1347,29 @@ describe("other collab paths", () => {
     expect(stateReads).toHaveLength(1);
   });
 
+  it("drop cached bytes when a peer recreates the row at the same version", async () => {
+    const binding = define();
+    await manager.seedLiveCopy(binding, "live:doc", { source: "old" });
+    expect(textOf(await manager.getState("live:doc"))).toBe("old");
+    await pglite
+      .prepare("DELETE FROM _collab_docs WHERE doc_id = ?")
+      .run("live:doc");
+    const recreated = new Y.Doc();
+    appendParagraph("new")(recreated);
+    await insertRow("live:doc", base64(Y.encodeStateAsUpdate(recreated)));
+    recreated.destroy();
+
+    expect(textOf(await manager.getState("live:doc"))).toBe("new");
+    await manager.mutateLiveCopy(binding, "live:doc", {
+      edit: "append",
+      input: { text: "more" },
+    });
+    expect(await row("live:doc")).toMatchObject({
+      text_snapshot: "new\nmore",
+      version: 1,
+    });
+  });
+
   it("keep call order for plain documents when no live copy is defined", async () => {
     await manager.seedFromText("plain:doc", "a");
     const update = clientEdit(await manager.getState("plain:doc"), (doc) =>
