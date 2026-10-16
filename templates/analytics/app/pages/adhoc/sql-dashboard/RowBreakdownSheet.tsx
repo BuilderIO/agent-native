@@ -147,8 +147,20 @@ export function RowBreakdownSheet({
     },
   );
 
+  // A block that runs but never selects the column comes back without it,
+  // which would otherwise read as one "(none)" group.
+  const firstQueryRow = query.data?.rows[0];
+  const unavailable =
+    plan.kind === "unavailable" ||
+    (plan.kind === "query" &&
+      firstQueryRow !== undefined &&
+      !Object.prototype.hasOwnProperty.call(firstQueryRow, activeColumn));
   const sourceRows =
-    plan.kind === "reuse" ? resultRows : (query.data?.rows ?? null);
+    plan.kind === "reuse"
+      ? resultRows
+      : unavailable
+        ? null
+        : (query.data?.rows ?? null);
   const table = useMemo(() => {
     if (!sourceRows || !row) return null;
     return buildBreakdownTable({
@@ -322,7 +334,7 @@ export function RowBreakdownSheet({
           </Select>
         ) : null}
         <div className="min-h-0 flex-1 overflow-auto">
-          {plan.kind === "unavailable" ? (
+          {unavailable ? (
             <p className="text-sm text-muted-foreground">
               {t("sqlDashboard.rowBreakdownUnavailable", {
                 column: breakdown.label ?? breakdown.column,

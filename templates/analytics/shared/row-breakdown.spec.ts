@@ -80,6 +80,18 @@ describe("planBreakdown", () => {
       }),
     ).toEqual({ kind: "unavailable" });
   });
+
+  it("is unavailable when no breakdown block selects the column", () => {
+    expect(
+      planBreakdown({
+        column: "app",
+        panelRows: [{ role: "Engineer", people: 40 }],
+        panelSql:
+          "SELECT role{{?breakdown}}, 'x' AS tag{{/breakdown}}, COUNT(*) AS people FROM t GROUP BY 1",
+        vars: {},
+      }),
+    ).toEqual({ kind: "unavailable" });
+  });
 });
 
 describe("isValidPanelBreakdowns", () => {

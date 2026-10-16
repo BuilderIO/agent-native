@@ -306,13 +306,13 @@ export function SqlChartCard({
   const shouldLoadData =
     visible || (authorization.key === queryKey && authorization.allowed);
   const [refreshToken, setRefreshToken] = useState(0);
-  // New filters, a refresh or another account change every number in the open
+  // New filters, a refresh or another account or organization change every number in the open
   // row. A row opened under other ones is closed in the same render, before the
   // sheet could start a breakdown query, and dropped so returning to the old
   // filters does not reopen it. The filters count on their own, since a filter
   // used only inside the breakdown block leaves the panel's SQL unchanged.
   const breakdownScope = JSON.stringify([
-    session?.email ?? null,
+    accountScope,
     resolvedSql ?? null,
     filters ?? {},
     refreshToken,

@@ -53,8 +53,13 @@ export function isValidPanelBreakdowns(
   );
 }
 
+const BREAKDOWN_BLOCK = /\{\{\?breakdown\}\}([\s\S]*?)\{\{\/breakdown\}\}/g;
+
+/** True when some breakdown block actually puts the chosen column in the SQL. */
 export function sqlHasBreakdownBlock(sql: string): boolean {
-  return sql.includes(`{{?${BREAKDOWN_SQL_VARIABLE}}}`);
+  return [...sql.matchAll(BREAKDOWN_BLOCK)].some((match) =>
+    match[1].includes(`{{${BREAKDOWN_SQL_VARIABLE}}}`),
+  );
 }
 
 /**
