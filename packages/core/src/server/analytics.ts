@@ -126,10 +126,34 @@ export function getGaInlineConfigScriptBody(options?: {
 
 /**
  * Queue `body` until the visitor's region and choice allow `category`; the
- * bootstrap after it, or `client/consent.ts` once loaded, runs it.
+ * bootstrap after it, or `client/consent.ts` once loaded, runs it. A reject
+ * then a fresh accept calls it again, so it loads its tag only once a page.
  */
 function consentGatedScript(category: ConsentCategory, body: string): string {
-  return `<script>(window.__AN_CONSENT_QUEUE__=window.__AN_CONSENT_QUEUE__||[]).push([${JSON.stringify(category)},function(){${body}}]);</script>`;
+  return `<script>(window.__AN_CONSENT_QUEUE__=window.__AN_CONSENT_QUEUE__||[]).push([${JSON.stringify(category)},(function(){var ran=false;return function(){if(ran)return;ran=true;${body}}})()]);</script>`;
+}
+
+const GA_FALLBACK_DATA_LAYER = "__AGENT_NATIVE_GA_DATA_LAYER__";
+
+// gtag reads an `arguments` object from the data layer, never an array.
+const GOOGLE_CONSENT_PUSH =
+  `function push(g){for(var i=0;i<L.length;i++){var l=w[L[i]]=w[L[i]]||[];` +
+  `(function(){l.push(arguments)})("consent",g.mode,{analytics_storage:g.p?"granted":"denied",ad_storage:g.t?"granted":"denied",ad_user_data:g.t?"granted":"denied",ad_personalization:g.t?"granted":"denied"})}}`;
+
+/**
+ * Google Consent Mode: before any Google tag loads, tell each data layer
+ * what the stored choice allows (nothing, without one), so tags already on
+ * the page stop storing and sending when `client/consent.ts` later pushes a
+ * reject. Lists the layers there, under `__AN_CONSENT_LAYERS__`.
+ */
+function getGoogleConsentDefaultScript(dataLayers: string[]): string {
+  return (
+    `<script data-agent-native-consent-mode>(function(w,d){var L=${JSON.stringify(dataLayers)};w.__AN_CONSENT_LAYERS__=L;` +
+    GOOGLE_CONSENT_PUSH +
+    `var m=/(?:^|;\\s*)an_consent=1\\.p([01])\\.t([01])(?:;|$)/.exec(d.cookie||"");` +
+    `push({mode:"default",p:!!m&&m[1]==="1",t:!!m&&m[2]==="1"})` +
+    `})(window,document);</script>`
+  );
 }
 
 /**
@@ -146,7 +170,11 @@ function getConsentBootstrapScript(): string {
   return (
     `<script data-agent-native-consent>(function(w,d){var Q="__AN_CONSENT_QUEUE__",K="an_consent_region";` +
     `function choice(){var m=/(?:^|;\\s*)an_consent=1\\.p([01])\\.t([01])(?:;|$)/.exec(d.cookie||"");return m?{performance:m[1]==="1",targeting:m[2]==="1"}:null}` +
-    `function run(region){var q=w[Q];if(!Array.isArray(q))return;var c=choice(),keep=[];for(var i=0;i<q.length;i++){var e=q[i];if(c?c[e[0]]:region==="none"){e[1]()}else{keep.push(e)}}q.length=0;q.push.apply(q,keep)}` +
+    `function allows(c,k,region){return c?c[k]:region==="none"}` +
+    `function run(region){var q=w[Q];if(!Array.isArray(q))return;var c=choice(),keep=[],L=w.__AN_CONSENT_LAYERS__||[];` +
+    GOOGLE_CONSENT_PUSH +
+    `push({mode:"update",p:allows(c,"performance",region),t:allows(c,"targeting",region)});` +
+    `for(var i=0;i<q.length;i++){var e=q[i];if(allows(c,e[0],region)){e[1]()}else{keep.push(e)}}q.length=0;q.push.apply(q,keep)}` +
     `function zone(){try{return ${zones}.indexOf(Intl.DateTimeFormat().resolvedOptions().timeZone)>-1?"consent":"none"}catch(e){return"consent"}}` +
     // coercion-ok: a page without session storage asks the server again.
     `var cached=null;try{cached=w.sessionStorage.getItem(K)}catch(e){}` +
@@ -167,7 +195,7 @@ function getGaScript(): string | null {
 
 function getGtmGaFallbackScript(): string | null {
   const inlineBody = getGaInlineConfigScriptBody({
-    dataLayerName: "__AGENT_NATIVE_GA_DATA_LAYER__",
+    dataLayerName: GA_FALLBACK_DATA_LAYER,
     sendPageView: false,
   });
   return inlineBody ? consentGatedScript("performance", inlineBody) : null;
@@ -196,6 +224,7 @@ function getAnalyticsInjection(): AnalyticsInjection | null {
     return {
       head: [
         agentNativeAnalytics,
+        getGoogleConsentDefaultScript(["dataLayer", GA_FALLBACK_DATA_LAYER]),
         getGtmHeadScript(containerId),
         getGtmGaFallbackScript(),
         getConsentBootstrapScript(),
@@ -209,6 +238,7 @@ function getAnalyticsInjection(): AnalyticsInjection | null {
   const gaScript = getGaScript();
   const head = [
     agentNativeAnalytics,
+    gaScript ? getGoogleConsentDefaultScript(["dataLayer"]) : null,
     gaScript,
     gaScript ? getConsentBootstrapScript() : null,
   ]

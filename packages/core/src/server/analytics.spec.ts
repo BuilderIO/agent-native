@@ -163,7 +163,10 @@ describe("wrapWithAnalytics", () => {
     expect(html).toContain(
       'window.__AGENT_NATIVE_SYNTHETIC_TRAFFIC__!=="beta-e2e"',
     );
-    expect(html).toContain('.push(["targeting",function(){');
+    expect(html).toContain('.push(["targeting",(function(){');
+    expect(html.indexOf("data-agent-native-consent-mode")).toBeLessThan(
+      html.indexOf("gtm.js"),
+    );
     expect(html).not.toContain("<noscript>");
     expect(html).toContain(
       "https://www.googletagmanager.com/gtag/js?id=G-IGNORED123&l=__AGENT_NATIVE_GA_DATA_LAYER__",
@@ -345,8 +348,22 @@ describe("consent bootstrap", () => {
     const tags = loaded.map((src) =>
       src.includes("gtm.js") ? "gtm" : src.includes("gtag/js") ? "ga" : src,
     );
-    return { tags, fetched, session, window };
+    const consent = (layer = "dataLayer") =>
+      ((window[layer] ?? []) as ArrayLike<unknown>[])
+        .filter((entry) => entry[0] === "consent")
+        .map((entry) => [entry[1], entry[2]]);
+    return { tags, loaded, fetched, session, window, consent };
   }
+
+  const granted = (performance: boolean, targeting: boolean) => {
+    const value = (on: boolean) => (on ? "granted" : "denied");
+    return {
+      analytics_storage: value(performance),
+      ad_storage: value(targeting),
+      ad_user_data: value(targeting),
+      ad_personalization: value(targeting),
+    };
+  };
 
   it("loads every tag outside the consent region", async () => {
     const page = await loadPage({ region: "none" });
@@ -354,6 +371,10 @@ describe("consent bootstrap", () => {
     expect(page.tags.sort()).toEqual(["ga", "gtm"]);
     expect(page.fetched).toEqual(["/_agent-native/auth/consent-region"]);
     expect(page.session.get("an_consent_region")).toBe("none");
+    expect(page.consent()).toEqual([
+      ["default", granted(false, false)],
+      ["update", granted(true, true)],
+    ]);
   });
 
   it("holds every tag in the consent region until the visitor chooses", async () => {
@@ -361,6 +382,23 @@ describe("consent bootstrap", () => {
 
     expect(page.tags).toEqual([]);
     expect(page.window.__AN_CONSENT_QUEUE__).toHaveLength(2);
+    expect(page.consent("__AGENT_NATIVE_GA_DATA_LAYER__")).toEqual([
+      ["default", granted(false, false)],
+      ["update", granted(false, false)],
+    ]);
+  });
+
+  it("loads each tag once, however often consent is given again", async () => {
+    const page = await loadPage({ region: "consent" });
+    const [[, loadGtm]] = page.window.__AN_CONSENT_QUEUE__ as [
+      string,
+      () => void,
+    ][];
+
+    loadGtm!();
+    loadGtm!();
+
+    expect(page.loaded).toHaveLength(1);
   });
 
   it("falls back to the time zone when the server can't tell", async () => {
@@ -378,6 +416,10 @@ describe("consent bootstrap", () => {
 
     expect(page.tags).toEqual(["ga"]);
     expect(page.fetched).toEqual([]);
+    expect(page.consent()).toEqual([
+      ["default", granted(true, false)],
+      ["update", granted(true, false)],
+    ]);
   });
 
   it("reuses the region already known this session", async () => {

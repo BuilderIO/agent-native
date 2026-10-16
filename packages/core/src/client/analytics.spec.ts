@@ -170,13 +170,30 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
     [...cookieAssignments.values()]
       .map((assignment) => assignment.split(";", 1)[0]!)
       .join("; ");
+  // A visitor outside the consent region, already known this session.
+  const session = new Map<string, string>([["an_consent_region", "none"]]);
+  const sessionStorage = {
+    getItem: (key: string) => session.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      session.set(key, value);
+    },
+    removeItem: (key: string) => {
+      session.delete(key);
+    },
+  };
   const windowMock = {
     location,
     history,
     gtag,
     localStorage,
+    sessionStorage,
     addEventListener: vi.fn((event: string, listener: () => void) => {
       listeners[event] = [...(listeners[event] ?? []), listener];
+    }),
+    removeEventListener: vi.fn((event: string, listener: () => void) => {
+      listeners[event] = (listeners[event] ?? []).filter(
+        (existing) => existing !== listener,
+      );
     }),
     setTimeout,
   };
@@ -205,6 +222,7 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
     gtag,
     history,
     localStorage,
+    session,
     listeners,
     location,
     getCookie: readCookies,
@@ -782,9 +800,9 @@ describe("browser analytics pageviews", () => {
   });
 
   it("stores no attribution in a consent-region time zone until the visitor accepts", async () => {
-    const { cookieAssignment, localStorage, setTimeZone } = installBrowser(
-      "https://clips.agent-native.com/?utm_source=youtube",
-    );
+    const { cookieAssignment, localStorage, session, setTimeZone } =
+      installBrowser("https://clips.agent-native.com/?utm_source=youtube");
+    session.clear();
     setTimeZone("Europe/Berlin");
     localStorage.setItem("an_attribution", JSON.stringify({ ref: "old" }));
     localStorage.setItem("an_last_touch", JSON.stringify({ ref: "old" }));
@@ -1285,8 +1303,40 @@ describe("browser analytics pageviews", () => {
     expect(sentryMock.init).not.toHaveBeenCalled();
   });
 
+  it("leaves Amplitude off when a reject lands while it loads", async () => {
+    const { session } = installBrowser();
+    session.set("an_consent_region", "consent");
+    installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amp_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    trackEvent("before_consent", {});
+    const { setConsentChoice } = await import("./consent.js");
+
+    setConsentChoice({ performance: true, targeting: false });
+    setConsentChoice({ performance: false, targeting: false });
+    trackEvent("after_reject", {});
+    await tick();
+
+    expect(amplitudeMock.init).not.toHaveBeenCalled();
+    expect(amplitudeMock.track).not.toHaveBeenCalled();
+
+    setConsentChoice({ performance: true, targeting: false });
+    await tick();
+    expect(amplitudeMock.init).toHaveBeenCalledTimes(1);
+    expect(amplitudeMock.track).not.toHaveBeenCalledWith(
+      "after_reject",
+      expect.anything(),
+    );
+  });
+
   it("starts Amplitude in the consent region only after analytics consent", async () => {
-    const { setTimeZone } = installBrowser();
+    const { session, setTimeZone } = installBrowser();
+    session.clear();
     setTimeZone("Europe/Berlin");
     installFetch();
     vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amp_test");
@@ -1311,16 +1361,24 @@ describe("browser analytics pageviews", () => {
   });
 
   it("sends first-party events without a visitor id until analytics consent", async () => {
-    const { setTimeZone, localStorage, getCookie } = installBrowser();
-    setTimeZone("Europe/Berlin");
+    const { session, localStorage, getCookie } = installBrowser();
+    session.set("an_consent_region", "consent");
     const { analyticsCalls } = installFetch();
+    const lastEvent = () =>
+      JSON.parse(
+        String(
+          analyticsCalls
+            .filter(([url]) => String(url).endsWith("/track"))
+            .at(-1)![1].body,
+        ),
+      );
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     const { configureTracking, trackEvent } = await freshAnalytics();
     configureTracking({ pageviewTracking: false });
 
     trackEvent("before_consent", {});
     await tick();
-    const before = JSON.parse(String(analyticsCalls.at(-1)![1].body));
+    const before = lastEvent();
     expect(before.anonymousId).toBeUndefined();
     expect(before.properties.analytics_consent).toBe("withheld");
     expect(localStorage.getItem("agent-native.anonymous_id")).toBeNull();
@@ -1330,7 +1388,7 @@ describe("browser analytics pageviews", () => {
     setConsentChoice({ performance: true, targeting: false });
     trackEvent("after_consent", {});
     await tick();
-    const after = JSON.parse(String(analyticsCalls.at(-1)![1].body));
+    const after = lastEvent();
     expect(after.anonymousId).toEqual(expect.any(String));
     expect(after.properties.analytics_consent).toBeUndefined();
     expect(getCookie()).toContain(`an_aid=${after.anonymousId}`);
@@ -1338,6 +1396,70 @@ describe("browser analytics pageviews", () => {
     setConsentChoice({ performance: false, targeting: false });
     expect(localStorage.getItem("agent-native.anonymous_id")).toBeNull();
     expect(getCookie()).not.toMatch(/an_aid=[^;]/);
+  });
+
+  it("holds events until the server's region decides the visitor id", async () => {
+    const { session, setTimeZone } = installBrowser();
+    session.clear();
+    // The time zone guesses outside the region; the server says inside.
+    setTimeZone("America/New_York");
+    const { fetchMock, analyticsCalls } = installFetch();
+    let answerRegion: (region: string) => void = () => {};
+    fetchMock.mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes("/_agent-native/auth/consent-region")) {
+        const region = await new Promise<string>((resolve) => {
+          answerRegion = resolve;
+        });
+        return new Response(JSON.stringify({ region }));
+      }
+      if (String(url).includes("/_agent-native/")) {
+        return new Response(JSON.stringify({ error: "not authenticated" }));
+      }
+      analyticsCalls.push([url, init ?? {}]);
+      return new Response("{}");
+    });
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({ pageviewTracking: false });
+
+    trackEvent("before_region", {});
+    await tick();
+    expect(analyticsCalls).toEqual([]);
+
+    answerRegion("consent");
+    await vi.waitFor(() => expect(analyticsCalls).toHaveLength(1));
+    const held = JSON.parse(String(analyticsCalls[0]![1].body));
+    expect(held.event).toBe("before_region");
+    expect(held.anonymousId).toBeUndefined();
+    expect(held.properties.analytics_consent).toBe("withheld");
+  });
+
+  it("sends held events without a visitor id when the page closes first", async () => {
+    const { session, listeners } = installBrowser();
+    session.clear();
+    const { fetchMock, analyticsCalls } = installFetch();
+    fetchMock.mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes("/_agent-native/auth/consent-region")) {
+        return new Promise<Response>(() => {});
+      }
+      if (String(url).includes("/_agent-native/")) {
+        return new Response(JSON.stringify({ error: "not authenticated" }));
+      }
+      analyticsCalls.push([url, init ?? {}]);
+      return new Response("{}");
+    });
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({ pageviewTracking: false });
+
+    trackEvent("before_leaving", {});
+    await tick();
+    expect(analyticsCalls).toEqual([]);
+
+    for (const listener of listeners.pagehide ?? []) listener();
+    const sent = JSON.parse(String(analyticsCalls[0]![1].body));
+    expect(sent.event).toBe("before_leaving");
+    expect(sent.anonymousId).toBeUndefined();
   });
 
   it("mirrors timing browser events to the OTel bridge", async () => {

@@ -8,7 +8,7 @@ import {
   normalizeAnalyticsSessionId,
   serializeAnalyticsSessionIdCookie,
 } from "../shared/analytics-session-id.js";
-import { consentAllowsNow, whenConsentAllows } from "./consent.js";
+import { consentDecision, whenConsentAllows } from "./consent.js";
 
 const ANONYMOUS_ID_STORAGE_KEY = "agent-native.anonymous_id";
 const SESSION_ID_STORAGE_KEY = "agent-native.session_id";
@@ -99,19 +99,20 @@ function clearAnalyticsAnonymousId(): void {
 
 /**
  * The visitor id, `an_aid`, waits for analytics consent where the banner
- * applies. Until then this returns `undefined` and stores nothing, so events
- * still count but can't be tied to one visitor across pages.
+ * applies, and for the server's region rather than the time zone's guess,
+ * since a sent id can't be recalled. Until then this returns `undefined` and
+ * stores nothing, so events still count but can't be tied to one visitor
+ * across pages.
  */
 export function getOrCreateAnalyticsAnonymousId(): string | undefined {
   if (typeof window === "undefined") return undefined;
   if (!anonymousIdConsentWatched) {
     anonymousIdConsentWatched = true;
     whenConsentAllows("performance", () => {}, {
-      optimistic: true,
       revoke: clearAnalyticsAnonymousId,
     });
   }
-  if (!consentAllowsNow("performance")) return undefined;
+  if (consentDecision("performance") !== true) return undefined;
   let id = safeStorageGet(ANONYMOUS_ID_STORAGE_KEY);
   if (!id) {
     id = generateVisitorId();

@@ -178,6 +178,50 @@ describe("client consent", () => {
     expect(later).toHaveBeenCalledTimes(1);
   });
 
+  it("tells Google's tags on the page about each choice", async () => {
+    const { windowMock } = installBrowser({ region: "consent" });
+    windowMock.__AN_CONSENT_LAYERS__ = ["dataLayer"];
+    const consent = await freshConsent();
+    const updates = () =>
+      ((windowMock.dataLayer ?? []) as ArrayLike<unknown>[])
+        .filter((entry) => entry[0] === "consent")
+        .map((entry) => [entry[1], entry[2]]);
+
+    await consent.resolveConsentRegion();
+    consent.setConsentChoice({ performance: true, targeting: true });
+    consent.setConsentChoice({ performance: false, targeting: false });
+
+    const denied = {
+      analytics_storage: "denied",
+      ad_storage: "denied",
+      ad_user_data: "denied",
+      ad_personalization: "denied",
+    };
+    expect(updates()).toEqual([
+      ["update", denied],
+      [
+        "update",
+        {
+          analytics_storage: "granted",
+          ad_storage: "granted",
+          ad_user_data: "granted",
+          ad_personalization: "granted",
+        },
+      ],
+      ["update", denied],
+    ]);
+  });
+
+  it("decides nothing on the time zone's guess alone", async () => {
+    installBrowser({ region: "consent" });
+    const consent = await freshConsent();
+
+    expect(consent.consentAllowsNow("performance")).toBe(true);
+    expect(consent.consentDecision("performance")).toBeNull();
+    await consent.resolveConsentRegion();
+    expect(consent.consentDecision("performance")).toBe(false);
+  });
+
   it("reopens the banner from the settings link", async () => {
     installBrowser({ region: "none" });
     const consent = await freshConsent();

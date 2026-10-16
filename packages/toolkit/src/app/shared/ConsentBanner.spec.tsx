@@ -66,6 +66,23 @@ describe("ConsentBanner", () => {
     expect(banner()).toBeNull();
   });
 
+  it("shows on a later page once the region is already known this session", async () => {
+    window.sessionStorage.setItem("an_consent_region", "consent");
+    const fetchMock = vi.fn(async () => new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.resetModules();
+    const { ConsentBanner } = await import("./ConsentBanner.js");
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(<ConsentBanner />);
+    });
+
+    expect(banner()).not.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("stores accept-all and closes", async () => {
     const consent = await renderBanner("consent");
     expect(banner()).not.toBeNull();

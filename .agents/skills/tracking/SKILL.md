@@ -278,16 +278,30 @@ Everyone else gets no banner and every tag at once.
   anywhere else do.
 - The inline bootstrap in `server/analytics.ts` runs the queue on pages that
   never load the app bundle. It repeats the cookie format and time-zone
-  rules of `client/consent.ts`; change both together.
+  rules of `client/consent.ts`; change both together. Each queued loader
+  runs once a page, even after a reject and a fresh accept.
+- A loaded tag can't be unloaded, so Google's tags follow Consent Mode: the
+  server pushes a `consent default` from the stored choice (all denied
+  without one) to every Google data layer before any tag, and
+  `client/consent.ts` pushes a `consent update` on each region answer and
+  choice. Our own `gtag` events also wait for `performance`. Non-Google tags
+  in GTM stop only on the next page load.
+- Use `consentDecision(category)` for anything a revoke can't undo once
+  sent; it is `null` until the visitor's choice or the server's region is
+  known. `consentAllowsNow` guesses from the time zone, so only pair it with
+  storage a `revoke` can clear.
 - First-party analytics keeps counting in the region before consent, but the
   visitor id `an_aid` waits for `performance`: until then
   `getOrCreateAnalyticsAnonymousId()` returns `undefined` and stores nothing,
   and events go out with no `anonymousId` and
-  `properties.analytics_consent: "withheld"`. A reject clears a stored id.
+  `properties.analytics_consent: "withheld"`. Events sent before the region
+  is known wait for it, or leave without the id if the page closes first. A
+  reject clears a stored id.
   Those rows count as events and views but never as people; the Analytics
   activation funnel joins them to a signup in the same session. Session
-  replay waits for `performance` too, with no time-zone head start, and stops
-  on a reject. Sentry error capture and the session id `an_sid` aren't
+  replay waits for `performance` too, with no time-zone head start; a reject
+  stops it and discards what it hasn't uploaded. Amplitude rechecks the
+  choice before it initializes. Sentry error capture and the session id `an_sid` aren't
   gated.
 
 ## MCP Server Events

@@ -23,6 +23,8 @@ const REGION_STORAGE_KEY = "an_consent_region";
  * injects into the page, queue `[category, run]` here.
  */
 const SCRIPT_QUEUE_KEY = "__AN_CONSENT_QUEUE__";
+/** The Google data layers the server's Consent Mode default script set up. */
+const GOOGLE_CONSENT_LAYERS_KEY = "__AN_CONSENT_LAYERS__";
 
 interface Waiter {
   category: ConsentCategory;
@@ -199,8 +201,50 @@ export function consentAllowsNow(category: ConsentCategory): boolean {
   return allows(category, regionGuess());
 }
 
+/**
+ * Whether `category` is allowed, from the visitor's choice or the server's
+ * region; `null` until one of them is known, where `consentAllowsNow` would
+ * guess from the time zone. For what `revoke` can't undo once it's sent.
+ */
+export function consentDecision(category: ConsentCategory): boolean | null {
+  if (typeof window === "undefined") return false;
+  const choice = getConsentChoice();
+  if (choice) return choice[category];
+  const region = state().region ?? readCachedRegion();
+  if (region) return region === "none";
+  void resolveConsentRegion();
+  return null;
+}
+
+/**
+ * Google's tags can't be unloaded, but they follow Consent Mode: a reject
+ * stops what's already on the page from storing or sending identifiers.
+ */
+function updateGoogleConsent(region: ConsentRegion | null): void {
+  const holder = window as unknown as Record<string, unknown>;
+  const layers = holder[GOOGLE_CONSENT_LAYERS_KEY];
+  if (!Array.isArray(layers)) return;
+  const grant = (category: ConsentCategory) =>
+    allows(category, region) ? "granted" : "denied";
+  const update = {
+    analytics_storage: grant("performance"),
+    ad_storage: grant("targeting"),
+    ad_user_data: grant("targeting"),
+    ad_personalization: grant("targeting"),
+  };
+  for (const name of layers) {
+    if (typeof name !== "string") continue;
+    const layer = (holder[name] ??= []) as unknown[];
+    // gtag reads an `arguments` object from the data layer, never an array.
+    (function gtag(..._args: unknown[]) {
+      layer.push(arguments);
+    })("consent", "update", update);
+  }
+}
+
 function settle(): void {
   const region = state().region;
+  if (region || getConsentChoice()) updateGoogleConsent(region);
   for (const waiter of state().waiters) {
     const allowed = allows(waiter.category, region);
     if (allowed && !waiter.ran) {

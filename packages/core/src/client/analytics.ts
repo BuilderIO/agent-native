@@ -55,7 +55,12 @@ import { agentNativePath } from "./api-path.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
-import { consentAllowsNow, whenConsentAllows } from "./consent.js";
+import {
+  consentAllowsNow,
+  consentDecision,
+  resolveConsentRegion,
+  whenConsentAllows,
+} from "./consent.js";
 import { clientFailureContext } from "./failure-report.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
@@ -217,7 +222,8 @@ let _amplitudeModule: typeof amplitude | null = null;
 let _amplitudeLoadPromise: Promise<typeof amplitude | null> | null = null;
 let _amplitudeApiKey: string | null = null;
 let _pendingAmplitudeEvents: Array<[string, Record<string, unknown>]> = [];
-let _amplitudeConsent: "unasked" | "waiting" | "granted" = "unasked";
+let _amplitudeConsent: "unasked" | "waiting" | "granted" | "revoked" =
+  "unasked";
 let _sentryInitialized = false;
 let _sentryModule: typeof Sentry | null = null;
 let _sentryLoadPromise: Promise<typeof Sentry | null> | null = null;
@@ -1210,7 +1216,6 @@ function isSyntheticBrowserTraffic(): boolean {
 
 function ensureAmplitude(): boolean {
   if (isSyntheticBrowserTraffic()) return false;
-  if (_amplitudeInitialized) return true;
   const key = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_AMPLITUDE_API_KEY;
   if (!key) return false;
@@ -1229,6 +1234,7 @@ function ensureAmplitude(): boolean {
         },
         {
           revoke: () => {
+            _amplitudeConsent = "revoked";
             _pendingAmplitudeEvents = [];
             _amplitudeModule?.setOptOut(true);
           },
@@ -1237,6 +1243,7 @@ function ensureAmplitude(): boolean {
     }
     return false;
   }
+  if (_amplitudeInitialized) return true;
   if (_amplitudeLoadPromise) return false;
 
   _amplitudeLoadPromise = loadOptionalPeer(
@@ -1244,6 +1251,8 @@ function ensureAmplitude(): boolean {
     () => import("@amplitude/analytics-browser"),
   )
     .then((module) => {
+      // A reject while the SDK loaded: the next accept initializes it.
+      if (_amplitudeConsent !== "granted") return null;
       module.init(key, { autocapture: false });
       _amplitudeModule = module;
       _amplitudeInitialized = true;
@@ -2644,21 +2653,61 @@ function sendAgentNativeAnalytics(
   );
   const userId =
     typeof properties.userId === "string" ? properties.userId : undefined;
-  const anonymousId = getOrCreateAnonymousId();
-  const body = JSON.stringify({
-    publicKey,
-    event: name,
-    // The visitor id waits for analytics consent; mark the event so reports
-    // can tell it from one that lost its id some other way.
-    properties: anonymousId
-      ? properties
-      : { ...properties, analytics_consent: "withheld" },
-    userId,
-    anonymousId,
-    sessionId: getOrCreateSessionId(),
-    timestamp: new Date().toISOString(),
-  });
+  const sessionId = getOrCreateSessionId();
+  const timestamp = new Date().toISOString();
+  whenVisitorIdDecided((anonymousId) =>
+    postAgentNativeAnalytics(
+      endpoint,
+      JSON.stringify({
+        publicKey,
+        event: name,
+        // The visitor id waits for analytics consent; mark the event so
+        // reports can tell it from one that lost its id some other way.
+        properties: anonymousId
+          ? properties
+          : { ...properties, analytics_consent: "withheld" },
+        userId,
+        anonymousId,
+        sessionId,
+        timestamp,
+      }),
+    ),
+  );
+}
 
+let eventsAwaitingRegion: ((decided: boolean) => void)[] | null = null;
+
+/**
+ * Hold an event until the server says whether the visitor id may go with it,
+ * so the time zone's guess never sends one. Leaving the page first sends what
+ * is held without the id rather than dropping it.
+ */
+function whenVisitorIdDecided(
+  send: (anonymousId: string | undefined) => void,
+): void {
+  if (consentDecision("performance") !== null) {
+    send(getOrCreateAnonymousId());
+    return;
+  }
+  if (!eventsAwaitingRegion) {
+    const held: ((decided: boolean) => void)[] = [];
+    eventsAwaitingRegion = held;
+    const release = (decided: boolean) => {
+      if (eventsAwaitingRegion !== held) return;
+      eventsAwaitingRegion = null;
+      window.removeEventListener("pagehide", onPageHide);
+      for (const run of held) run(decided);
+    };
+    const onPageHide = () => release(false);
+    window.addEventListener("pagehide", onPageHide);
+    void resolveConsentRegion().then(() => release(true));
+  }
+  eventsAwaitingRegion.push((decided) =>
+    send(decided ? getOrCreateAnonymousId() : undefined),
+  );
+}
+
+function postAgentNativeAnalytics(endpoint: string, body: string): void {
   try {
     if (navigator.sendBeacon) {
       const sent = navigator.sendBeacon(endpoint, body);
@@ -2697,13 +2746,13 @@ function emitBrowserTrackingEvent(
     sendGtag = true,
   } = options;
   const amplitudeProps = amplitudeEventProperties(name, props);
-  if (sendGtag) {
+  if (sendGtag && consentDecision("performance") === true) {
     const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
     gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
   }
   if (ensureAmplitude()) {
     _amplitudeModule?.track(name, amplitudeProps);
-  } else if (_amplitudeApiKey) {
+  } else if (_amplitudeApiKey && _amplitudeConsent !== "revoked") {
     if (_pendingAmplitudeEvents.length < 100) {
       _pendingAmplitudeEvents.push([name, amplitudeProps]);
     }
