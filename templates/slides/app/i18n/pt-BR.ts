@@ -610,6 +610,8 @@ const messages = {
     addTransition: "Adicionar transição",
     effect: "Efeito",
     onClick: "Ao clicar",
+    withPrevious: "Com a anterior",
+    trigger: "Início",
     byParagraph: "Por parágrafo",
     expand: "Expandir transição",
     collapse: "Recolher transição",
@@ -719,6 +721,15 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
+    voiceNavigation: "Navegação por voz",
+    voiceNavigationNextCommand: "Próximo slide",
+    voiceNavigationPreviousCommand: "Slide anterior",
+    voiceNavigationHint: "Diga “{{next}}” ou “{{previous}}” para navegar.",
+    voiceNavigationListening: "Ouvindo “{{next}}” ou “{{previous}}”.",
+    voiceNavigationUnavailable:
+      "A navegação por voz não está disponível neste navegador.",
+    voiceNavigationError:
+      "A navegação por voz parou. Verifique a permissão e a conexão do microfone e tente novamente.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
@@ -835,6 +846,10 @@ const messages = {
     leaveWithoutSaving: "Sair sem salvar",
     editorMarkupNotSaved:
       "Esta edição não foi salva porque adicionaria marcação do editor ao slide.",
+    historyStepConflict:
+      "Esta etapa do histórico foi ignorada porque entra em conflito com a apresentação atual.",
+    historyStepFailed:
+      "Esta etapa do histórico foi ignorada porque não foi possível aplicá-la.",
     textEditConflictNotSaved:
       "Sua edição de texto não foi salva porque o mesmo texto foi alterado em outro lugar ao mesmo tempo.",
   },

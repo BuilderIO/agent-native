@@ -2353,23 +2353,28 @@ describe("in-place text session: deleting", () => {
     expect(remainingList.style.paddingLeft).toBe("1.25em");
   });
 
-  it("turns an empty sole top-level list item into a paragraph on Backspace", () => {
-    const el = mount('<ul id="t"><li>\u200b</li></ul>');
-    session = startInPlaceTextSession(el);
-    const item = el.querySelector("li")!;
-    const text = item.firstChild as Text;
-    caret(text, text.length);
+  it.each(["ul", "ol"] as const)(
+    "turns an empty sole top-level %s item into a paragraph on Backspace",
+    (listTag) => {
+      const el = mount(`<${listTag} id="t"><li>\u200b</li></${listTag}>`);
+      session = startInPlaceTextSession(el);
+      const item = el.querySelector("li")!;
+      const text = item.firstChild as Text;
+      caret(text, text.length);
 
-    expect(
-      beforeInput(session.element, "deleteContentBackward").defaultPrevented,
-    ).toBe(true);
+      expect(
+        beforeInput(session.element, "deleteContentBackward").defaultPrevented,
+      ).toBe(true);
 
-    expect(session.element.tagName).toBe("DIV");
-    expect(session.element.querySelector("li")).toBeNull();
-    expect(session.element.querySelectorAll("p")).toHaveLength(1);
-    expect(session.undo()).toBe(true);
-    expect(session.element.tagName).toBe("UL");
-  });
+      expect(session.element.tagName).toBe("DIV");
+      expect(session.element.querySelector("ul, ol, li")).toBeNull();
+      expect(session.element.querySelectorAll("p")).toHaveLength(1);
+      expect(session.element.firstElementChild?.textContent).toBe(ZWSP);
+      expect(session.changed).toBe(true);
+      expect(session.undo()).toBe(true);
+      expect(session.element.tagName).toBe(listTag.toUpperCase());
+    },
+  );
 
   it("preserves the ordinal after lifting the first ordered item", () => {
     const liftFirst = (el: HTMLElement) => {

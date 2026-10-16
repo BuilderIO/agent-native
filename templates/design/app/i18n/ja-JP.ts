@@ -1714,6 +1714,8 @@ export default {
     tweaksPlaceholder: "アクセントオプション、密度、角丸、ダークモード...",
     designExport: "Design エクスポート",
     designPreview: "Design プレビュー",
+    preview: "プレビュー",
+    publish: "公開",
     presentMode: "プレゼントモード",
     useThisDirection: "この方向を使用してください",
     variantHandoffHelp:

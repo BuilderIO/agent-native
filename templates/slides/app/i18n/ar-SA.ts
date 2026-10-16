@@ -608,6 +608,8 @@ const messages = {
     addTransition: "إضافة انتقال",
     effect: "التأثير",
     onClick: "عند النقر",
+    withPrevious: "مع السابق",
+    trigger: "البدء",
     byParagraph: "حسب الفقرة",
     expand: "توسيع الانتقال",
     collapse: "طي الانتقال",
@@ -721,6 +723,14 @@ const messages = {
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
+    voiceNavigation: "التنقل الصوتي",
+    voiceNavigationNextCommand: "الشريحة التالية",
+    voiceNavigationPreviousCommand: "الشريحة السابقة",
+    voiceNavigationHint: "قل «{{next}}» أو «{{previous}}» للتنقل.",
+    voiceNavigationListening: "يستمع إلى «{{next}}» أو «{{previous}}».",
+    voiceNavigationUnavailable: "التنقل الصوتي غير متاح في هذا المتصفح.",
+    voiceNavigationError:
+      "توقف التنقل الصوتي. تحقّق من إذن الميكروفون واتصاله، ثم حاول مرة أخرى.",
     exitPresentation: "Salir de la presentación",
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
@@ -840,6 +850,9 @@ const messages = {
     leaveWithoutSaving: "الخروج دون حفظ",
     editorMarkupNotSaved:
       "لم يتم حفظ هذا التعديل لأنه كان سيضيف ترميز المحرر إلى الشريحة.",
+    historyStepConflict:
+      "تم تخطي خطوة السجل هذه لتعارضها مع العرض التقديمي الحالي.",
+    historyStepFailed: "تم تخطي هذه الخطوة من السجل لتعذر تطبيقها.",
     textEditConflictNotSaved:
       "لم يتم حفظ تعديل النص لأن النص نفسه تم تغييره في مكان آخر في الوقت نفسه.",
   },
