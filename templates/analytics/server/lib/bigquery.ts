@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "crypto";
 
+import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { getDbExec } from "@agent-native/core/db";
 
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
@@ -514,9 +515,71 @@ function getCacheKey(
     .digest("hex")}`;
 }
 
-function addUtcDateCacheKey(sql: string): string {
-  if (!/\bCURRENT_DATE\s*(?:\(\s*\))?/i.test(sql)) return sql;
-  return `${sql}\n/* agent-native-utc-date:${new Date().toISOString().slice(0, 10)} */`;
+const TIME_ZONE_LITERAL = /^(['"])[A-Za-z0-9_+\-/:]+\1$/;
+
+function calendarDateIn(timeZone: string, now: Date): string | null {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+  } catch (error) {
+    if (error instanceof RangeError) return null;
+    throw error;
+  }
+}
+
+/**
+ * Replace `CURRENT_DATE` with the date literal BigQuery would evaluate it to.
+ * BigQuery never serves a query that calls CURRENT_DATE from its result cache,
+ * and the literal also rolls the app cache key over at the date boundary.
+ * A time zone that is not a string literal is left for BigQuery to evaluate.
+ */
+export function renderCurrentDateLiterals(
+  sql: string,
+  now: Date = new Date(),
+): string {
+  const tokens = lexAgentSql(sql, { dialect: "bigquery" });
+  let rendered = "";
+  let cursor = 0;
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (
+      token.kind !== "word" ||
+      token.value !== "current_date" ||
+      tokens[index - 1]?.text === "."
+    ) {
+      continue;
+    }
+    let end = token.end;
+    let timeZone = "UTC";
+    let consumed = 0;
+    if (tokens[index + 1]?.text === "(") {
+      const argument = tokens[index + 2];
+      if (argument?.text === ")") {
+        end = argument.end;
+        consumed = 2;
+      } else if (
+        argument?.kind === "string" &&
+        TIME_ZONE_LITERAL.test(argument.text) &&
+        tokens[index + 3]?.text === ")"
+      ) {
+        timeZone = argument.text.slice(1, -1);
+        end = tokens[index + 3].end;
+        consumed = 3;
+      } else {
+        continue;
+      }
+    }
+    const date = calendarDateIn(timeZone, now);
+    if (!date) continue;
+    rendered += `${sql.slice(cursor, token.start)}DATE '${date}'`;
+    cursor = end;
+    index += consumed;
+  }
+  return rendered + sql.slice(cursor);
 }
 
 function getL1(
@@ -1197,7 +1260,7 @@ export async function runQuery(
     appEventsTable,
     signal,
   );
-  const cacheableSql = addUtcDateCacheKey(resolvedSql);
+  const cacheableSql = renderCurrentDateLiterals(resolvedSql);
 
   const cacheKey = getCacheKey(
     options.sourceGeneration

@@ -28,6 +28,7 @@ const {
   BigQueryQueryTimeoutError,
   dryRunQuery,
   dryRunQuerySchema,
+  renderCurrentDateLiterals,
   runQuery,
 } = await import("./bigquery");
 
@@ -1200,12 +1201,67 @@ describe("runQuery cancellation", () => {
     await runQuery("SELECT CURRENT_DATE() AS day");
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
-      "agent-native-utc-date:2026-09-08",
+    const submitted = (call: number) =>
+      JSON.parse(String(fetchMock.mock.calls[call]?.[1]?.body)).configuration
+        .query.query;
+    expect(submitted(0)).toBe("SELECT DATE '2026-09-08' AS day");
+    expect(submitted(2)).toBe("SELECT DATE '2026-09-09' AS day");
+  });
+
+  it("serves a repeated current-date query from the app cache within the day", async () => {
+    useCacheDatabase();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-08T10:00:00Z"));
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
     );
-    expect(String(fetchMock.mock.calls[2]?.[1]?.body)).toContain(
-      "agent-native-utc-date:2026-09-09",
-    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runQuery("SELECT CURRENT_DATE() AS day");
+    vi.setSystemTime(new Date("2026-09-08T18:00:00Z"));
+    const second = await runQuery("SELECT CURRENT_DATE() AS day");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(second.cached).toBe(true);
+  });
+
+  describe("renderCurrentDateLiterals", () => {
+    const now = new Date("2026-10-17T02:30:00Z");
+
+    it("renders every current-date form as a UTC date literal", () => {
+      expect(
+        renderCurrentDateLiterals(
+          "SELECT * FROM t WHERE event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) AND event_date <= current_date",
+          now,
+        ),
+      ).toBe(
+        "SELECT * FROM t WHERE event_date >= DATE_SUB(DATE '2026-10-17', INTERVAL 7 DAY) AND event_date <= DATE '2026-10-17'",
+      );
+    });
+
+    it("evaluates a literal time zone argument", () => {
+      expect(
+        renderCurrentDateLiterals(
+          "SELECT CURRENT_DATE('America/Los_Angeles') AS pt, CURRENT_DATE(\"UTC\") AS utc",
+          now,
+        ),
+      ).toBe("SELECT DATE '2026-10-16' AS pt, DATE '2026-10-17' AS utc");
+    });
+
+    it("leaves strings, comments, qualified columns and dynamic zones alone", () => {
+      const sql = [
+        "SELECT 'CURRENT_DATE()' AS label, t.current_date,",
+        "CURRENT_DATE(zone_column), CURRENT_DATE('Not/AZone')",
+        "-- CURRENT_DATE()",
+        "FROM t",
+      ].join("\n");
+      expect(renderCurrentDateLiterals(sql, now)).toBe(sql);
+    });
   });
 
   it("bypasses result caches on forced refresh and replaces the cached result", async () => {
