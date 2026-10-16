@@ -47,6 +47,7 @@ import {
   resolveA2AOrganizationCredentialsByDomain,
   resolveA2AOrganizationMetadataByDomain,
   isSoleOrgDomain,
+  lookupOrgByDomain,
   listOrgMembershipsForEvent,
   markActiveOrgSelectionChanged,
   resolveOrgByDomain,
@@ -1609,9 +1610,18 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
 
   it("does not resolve a secret or organization when a domain is ambiguous", async () => {
     const duplicateRows = [{ id: "org1" }, { id: "org2" }];
-    queueSelect(duplicateRows, duplicateRows, duplicateRows, duplicateRows);
+    queueSelect(
+      duplicateRows,
+      duplicateRows,
+      duplicateRows,
+      duplicateRows,
+      duplicateRows,
+    );
 
     await expect(getA2ASecretByDomain("acme.com")).resolves.toBeNull();
+    await expect(lookupOrgByDomain("acme.com")).resolves.toEqual({
+      status: "ambiguous",
+    });
     await expect(resolveOrgByDomain("acme.com")).resolves.toBeNull();
     await expect(
       resolveA2AOrganizationMetadataByDomain("acme.com"),
@@ -1619,7 +1629,7 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
     await expect(
       resolveA2AOrganizationCredentialsByDomain("acme.com"),
     ).resolves.toBeNull();
-    expect(mockExecute.mock.calls).toHaveLength(4);
+    expect(mockExecute.mock.calls).toHaveLength(5);
     expect(
       mockExecute.mock.calls.every(([query]) => query.sql.includes("LIMIT 2")),
     ).toBe(true);
@@ -1669,8 +1679,8 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
     expect(await resolveOrgByDomain("nope.com")).toBeNull();
   });
 
-  it("resolveOrgByDomain returns null on DB error", async () => {
+  it("preserves domain lookup failures", async () => {
     mockExecute.mockRejectedValueOnce(new Error("boom"));
-    expect(await resolveOrgByDomain("acme.com")).toBeNull();
+    await expect(resolveOrgByDomain("acme.com")).rejects.toThrow("boom");
   });
 });

@@ -4592,13 +4592,12 @@ export async function resolveOrgIdFromDomain(
   orgDomain: string | undefined,
 ): Promise<string | undefined> {
   if (!orgDomain) return undefined;
-  try {
-    const { resolveOrgByDomain } = await import("../org/context.js");
-    const org = await resolveOrgByDomain(orgDomain);
-    return org?.orgId ?? undefined;
-  } catch {
-    return undefined;
+  const { lookupOrgByDomain } = await import("../org/context.js");
+  const result = await lookupOrgByDomain(orgDomain);
+  if (result.status === "ambiguous") {
+    throw new Error("MCP caller organization domain is ambiguous");
   }
+  return result.status === "found" ? result.org.orgId : undefined;
 }
 
 export async function resolveMcpIdentityOrgId(
@@ -4606,8 +4605,13 @@ export async function resolveMcpIdentityOrgId(
 ): Promise<string | undefined> {
   if (identity?.orgId !== undefined) return identity.orgId ?? undefined;
 
-  const orgIdFromDomain = await resolveOrgIdFromDomain(identity?.orgDomain);
-  if (orgIdFromDomain) return orgIdFromDomain;
+  if (identity?.orgDomain !== undefined) {
+    const orgIdFromDomain = await resolveOrgIdFromDomain(identity.orgDomain);
+    if (!orgIdFromDomain) {
+      throw new Error("MCP caller organization domain is not configured here");
+    }
+    return orgIdFromDomain;
+  }
 
   const userEmail = identity?.userEmail?.trim();
   if (!userEmail) return undefined;

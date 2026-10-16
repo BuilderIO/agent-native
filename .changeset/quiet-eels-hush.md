@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Keep trusted first-session reads subscribed while delaying new action queries until the scoped cache binds.
+Keep trusted first-session reads visible while the scoped cache binds, then clear them on sign-out.

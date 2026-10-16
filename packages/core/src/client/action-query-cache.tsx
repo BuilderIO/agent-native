@@ -967,8 +967,11 @@ export async function bindActionQueryCache(
 
 /** Sign-out: stop, drop this document's results, and delete every stored
  * record. */
-export async function clearActionQueryCache(): Promise<void> {
+export async function clearActionQueryCache(
+  client?: QueryClient,
+): Promise<void> {
   closeBinding();
+  client?.removeQueries({ queryKey: ACTION_QUERY_KEY });
   const clear = beginStorageClear();
   const clearFinished = await waitForCleanup(
     clear,
@@ -1005,7 +1008,7 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     // A transient session reread does not replace a same-scope cache binding.
     if (terminalUnauthenticated) {
-      clearActionQueryCache().catch((error) =>
+      clearActionQueryCache(queryClient).catch((error) =>
         console.warn("Unable to clear cached action results", error),
       );
       setSettledAttempt(bindAttempt);

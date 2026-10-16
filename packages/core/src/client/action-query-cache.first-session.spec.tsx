@@ -9,8 +9,10 @@ const sessionState = vi.hoisted(() => {
   const listeners = new Set<() => void>();
   let session: { email: string; userId: string; orgId: string } | null = null;
   let fromFirstRead = false;
+  let status = "loading";
   return {
     read: () => session,
+    readStatus: () => status,
     isFromFirstRead: () => fromFirstRead,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
@@ -19,9 +21,11 @@ const sessionState = vi.hoisted(() => {
     set(
       sessionValue: { email: string; userId: string; orgId: string } | null,
       trustedFirstRead: boolean,
+      nextStatus = sessionValue ? "authenticated" : "loading",
     ) {
       session = sessionValue;
       fromFirstRead = trustedFirstRead;
+      status = nextStatus;
       for (const listener of listeners) listener();
     },
   };
@@ -38,8 +42,8 @@ vi.mock("./use-session.js", async () => {
       );
       return {
         session,
-        status: session ? "authenticated" : "loading",
-        isLoading: !session,
+        status: sessionState.readStatus(),
+        isLoading: sessionState.readStatus() === "loading",
         error: null,
         retry: () => {},
       };
@@ -260,6 +264,42 @@ it("keeps a trusted prebind fetch subscribed while the scoped cache binds", asyn
   client.setQueryData(["action", "cache-write-trigger"], { ready: true });
   await expect.poll(() => records.has(SCOPE_A), { timeout: 2_000 }).toBe(true);
   expect(queryIn(records.get(SCOPE_A))).toBeUndefined();
+});
+
+it("clears trusted prebind results on sign-out when binding failed", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  sessionState.set(null, false);
+  const { storage } = memoryStorage();
+  setActionQueryCacheStorage({
+    ...storage,
+    keys: async () => {
+      throw new Error("simulated cache key lookup failure");
+    },
+  });
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => response("first-read-user-a")),
+  );
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const container = await mount(client, []);
+
+  await expect.poll(() => ownerText(container)).toBe("first-read-user-a");
+  await act(async () => sessionState.set(USER_A, true));
+  await expect.poll(() => ownerText(container)).toBe("first-read-user-a");
+  expect(client.getQueryData<Payload>(QUERY_KEY)?.owner).toBe(
+    "first-read-user-a",
+  );
+
+  await act(async () => sessionState.set(null, false, "unauthenticated"));
+  await expect.poll(() => client.getQueryData(QUERY_KEY)).toBeUndefined();
+  expect(
+    container
+      .querySelector('[data-testid="session-shell"]')
+      ?.getAttribute("style"),
+  ).toContain("display: none");
 });
 
 it("hides and removes a completed unknown preload before first B children remount", async () => {
