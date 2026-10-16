@@ -44,6 +44,45 @@ export function buildDrawingHandoffPrompt(args: {
   };
 }
 
+export type ContextToolbarQuickPick =
+  | "tightenTone"
+  | "polish"
+  | "translate"
+  | "makeMoreVisual"
+  | "generateImage"
+  | "removeBackground";
+
+// Agent-facing instructions, not UI copy: the visible labels are localized.
+const QUICK_PICK_INSTRUCTIONS: Record<ContextToolbarQuickPick, string> = {
+  tightenTone: "Tighten the tone of the selected text: shorter, more direct.", // i18n-ignore agent prompt
+  polish: "Polish the selected text: fix grammar and flow, keep the meaning.", // i18n-ignore agent prompt
+  translate:
+    "Translate the selected text. Ask which language if it is not obvious.", // i18n-ignore agent prompt
+  makeMoreVisual:
+    "Make the selected content more visual: replace prose with a clearer layout, diagram, or imagery.", // i18n-ignore agent prompt
+  generateImage: "Generate a new image to replace the selected image.", // i18n-ignore agent prompt
+  removeBackground: "Remove the background from the selected image.", // i18n-ignore agent prompt
+};
+
+export function buildQuickPickPrompt(args: {
+  pick: ContextToolbarQuickPick;
+  slideNumber: number;
+  slideId: string;
+  selectors: readonly string[];
+}): EditorAgentPrompt {
+  return {
+    message: [
+      `[Current selection on slide ${args.slideNumber} (${args.slideId}): ${args.selectors.join(", ")}]`,
+      QUICK_PICK_INSTRUCTIONS[args.pick],
+    ].join("\n"),
+    submit: true,
+  };
+}
+
+export function openAgentPanel(): void {
+  window.dispatchEvent(new Event("agent-panel:open"));
+}
+
 export function sendEditorPromptToAgent(prompt: EditorAgentPrompt): void {
   sendToAgentChat({
     message: prompt.message,

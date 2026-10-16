@@ -41,6 +41,18 @@ describe("Slides content-edit agent guidance", () => {
     );
   });
 
+  it("uses web search for factual slide research", () => {
+    expect(agentChatSource).toContain(
+      'call tool-search with names ["web-search", "web-request"] to load both tools, even when the user gives only a name or domain',
+    );
+    expect(agentChatSource).toContain(
+      "Then call web-search to find sources and web-request to read the most relevant public pages before writing factual claims to slides.",
+    );
+    expect(agentChatSource).toContain(
+      "If tool-search cannot find either tool, or a tool reports a missing backend or an error, tell the user exactly what failed.",
+    );
+  });
+
   it("researches named public topics and recovers from broken result URLs", () => {
     expect(agentChatSource).toContain(
       "Public-topic research rule: when the user names a company, product, person, or topic without a URL, use web-search to find likely pages before authoring",
