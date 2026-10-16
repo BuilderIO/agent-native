@@ -1814,11 +1814,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
     },
     {
       version: 170,
+      name: "dashboard-revisions-change-summary",
+      sql: `ALTER TABLE dashboard_revisions ADD COLUMN IF NOT EXISTS change_summary TEXT`,
+    },
+    {
+      version: 171,
       name: "analytics-key-date-sets",
       sql: KEY_DATES_MIGRATION_SQL.join(";\n"),
     },
     {
-      version: 171,
+      version: 172,
       name: "analytics-data-notes",
       sql: DATA_NOTES_MIGRATION_SQL.join(";\n"),
     },

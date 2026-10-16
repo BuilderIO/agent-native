@@ -247,9 +247,6 @@ export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
   beforeCaretRange.deleteContents();
 
   const marker = document.createElement("span");
-  marker.style.fontSize = "0.3em";
-  marker.style.position = "relative";
-  marker.style.top = "-0.15em";
   marker.textContent = "\u25CF";
 
   const textSpan = document.createElement("span");

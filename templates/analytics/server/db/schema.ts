@@ -65,6 +65,7 @@ export const dashboardRevisions = table(
     createdAt: text("created_at").notNull().default(now()),
     createdBy: text("created_by"),
     chatContext: text("chat_context"),
+    changeSummary: text("change_summary"),
     ownerEmail: text("owner_email").notNull().default("local@localhost"),
     orgId: text("org_id"),
   },

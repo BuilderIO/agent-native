@@ -510,6 +510,39 @@ describe("onboarding plugin routes", () => {
     expect(sharedCookie).not.toContain("Partitioned");
   });
 
+  it("tracks an adopted custom role as other with scrubbed text", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+    vi.stubEnv("ONBOARDING_SHARED_COMPLETION", "1");
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === FIRST_RUN_ONBOARDING_ELIGIBLE_KEY ? { orgId: "org-1" } : null,
+    );
+
+    await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/status",
+      "GET",
+      {
+        cookie: [
+          `${FIRST_RUN_ONBOARDING_COOKIE}=1`,
+          `${SHARED_ONBOARDING_COOKIE}=${encodeSharedOnboardingCookie({ role: "Teacher, call 555 123 4567", email: "alice@example.com" })}`,
+        ].join("; "),
+      },
+    );
+
+    expect(trackMock).toHaveBeenCalledWith(
+      "onboarding_first_run_adopted",
+      {
+        flow: "first_run",
+        source: "shared_cookie",
+        role: "other",
+        role_text: "Teacher, call [number]",
+      },
+      { userId: "alice@example.com" },
+    );
+  });
+
   it("adopts a matching shared completion and role once", async () => {
     vi.stubEnv("COOKIE_DOMAIN", ".example.com");
     vi.stubEnv("ONBOARDING_SHARED_COMPLETION", "1");
@@ -859,7 +892,7 @@ describe("onboarding plugin routes", () => {
     );
   });
 
-  it("saves custom onboarding roles while categorizing telemetry as other", async () => {
+  it("saves custom onboarding roles and tracks them as other with scrubbed text", async () => {
     updateUserOnboardingRoleMock.mockResolvedValueOnce("Content strategist");
     const nitroApp = createNitroApp();
     await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
@@ -887,9 +920,39 @@ describe("onboarding plugin routes", () => {
         flow: "first_run",
         step_id: "role",
         role: "other",
+        role_text: "Content strategist",
         outcome: "success",
       },
       { userId: "alice@example.com", sessionId: "session-custom-role" },
+    );
+  });
+
+  it("keeps contact details out of the tracked custom role text", async () => {
+    const role = "Founder, alice@acme.io, https://acme.io/team @alice_a";
+    updateUserOnboardingRoleMock.mockResolvedValueOnce(role);
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/role",
+      "POST",
+      { "content-type": "application/json" },
+      { role },
+    );
+
+    expect(result.status).toBe(200);
+    expect(updateUserOnboardingRoleMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      role,
+    );
+    expect(trackMock).toHaveBeenCalledWith(
+      "onboarding.role_selected",
+      expect.objectContaining({
+        role: "other",
+        role_text: "Founder, [email], [url] [handle]",
+      }),
+      { userId: "alice@example.com" },
     );
   });
 

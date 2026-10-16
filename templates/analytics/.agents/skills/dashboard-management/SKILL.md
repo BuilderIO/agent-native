@@ -59,6 +59,24 @@ Every meaningful dashboard save snapshots the previous state into
 points and `restore-dashboard-revision` to restore one; restore snapshots the
 current state first, then syncs open dashboard editors.
 
+Each revision's `changes` names what the save that left it behind changed
+(`panel-added`, `column-resized`, `filter-changed`, `version-restored`, and so
+on), so restoring it undoes that change and every later one. To answer "undo
+the column I widened", pick the revision whose `changes` match instead of
+guessing from times. `changesStatus` is `absent` for revisions saved before
+changes were recorded and `unreadable` when the stored list is corrupt; say you
+can't tell what those changed rather than treating them as empty.
+
+On the page, an editor's own saves show a toast that names the change its Undo
+takes back, says "Saved for everyone" (org or public visibility; "Saved" when
+private), and counts the others who have the dashboard open. That Undo
+restores the revision its save left (a full-config `update-dashboard` save
+returns it as `revisionId`), but only while the dashboard is as that save left
+it: once someone else has saved, it fails rather than taking their change back.
+For "undo my last change" in chat, restore the newest revision from
+`list-dashboard-revisions`. The History panel shows each revision's first
+change with "+N more".
+
 Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.
 
@@ -379,6 +397,17 @@ non-negative count or value. The renderer preserves the SQL row order, shows
 each stage's share of the first stage, and shows the change from the previous
 stage. Keep the intended stage order in SQL with `ORDER BY`.
 
+When people can skip a stage or go around it (onboarding, setup flows), add
+`config.funnelOutcomes` so a skip never reads as drop-off. It names result
+columns of per-stage people counts, not shares: `completedKey` and `leftKey`
+are required, `skippedKey` is optional, and `optionalKey` names a boolean
+column that tags a stage Optional. `yKey` stays the people shown the stage, and
+completed + skipped + left must not exceed it; the rest are "moved on without
+either". Each bar then splits into those outcomes and the stage leads with the
+share who left the app there. A missing column draws the usual warning; a
+stage whose counts are not numbers or add up to more than shown draws a plain
+bar, and the panel check reports it under `funnelOutcomes`.
+
 When a dashboard is being migrated from an extension, create a new v2 copy,
 bind its panels to the real provider schema or Data Programs, and compare it
 with the original before retiring the extension-backed version. Do not invent
@@ -534,11 +563,13 @@ Use conditional blocks for optional filters:
 
 An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
 
-To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter.
+To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter. In Edit mode, people add presets themselves: checking two or more values that no preset matches offers Save as group at the bottom of the dropdown, which appends the same `presets` entry, so treat a preset you did not write as someone's saved choice and keep it unless asked.
 
 Filters auto-apply on change — there is no Apply button. Each filter change writes to the URL and re-runs the affected panels. Other filters are preserved (the URL update is functional, not destructive). If you see a filter "reset" itself when another filter changes, look for a duplicate `id` first.
 
-**Reset filters** in the filter bar returns the dashboard to what a fresh load shows: the default saved view when the dashboard has one, otherwise each filter's own `default`. It shows only while a filter's resolved value differs from that, so `f_timeRange=30d` on a 30d-default filter counts as reset. To reset for the user with `set-search-params`, remove every `f_` param and `view`, or set the default view's params and `view=<id>`.
+**Reset filters** in the filter bar returns to the saved view that is open: the one named by `view`, which filter edits keep. With no view open, it returns to what a fresh load shows: the default saved view when the dashboard has one, otherwise each filter's own `default`. It shows only while a filter's resolved value differs from that target, so `f_timeRange=30d` on a 30d-default filter counts as reset. To reset for the user with `set-search-params`, set the target view's params and `view=<id>`, or, when there is no target view, remove every `f_` param and `view`.
+
+Filter changes are personal: they live in the URL and in the user's own `dashboard-filters:<id>` pref, never in the dashboard. While a filter differs from the Reset target, the bar says "Only you see these filters", and people who can edit the dashboard get Save view on hover. To share filters, save a view (shared with everyone who can open the dashboard) or send the link. The pref also remembers the open `view`, so a dashboard with no default view reopens on it, as long as that view still exists. A default view still wins over the pref on a fresh load.
 
 ## Modifying A Dashboard
 

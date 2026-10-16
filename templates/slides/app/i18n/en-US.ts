@@ -822,6 +822,10 @@ const messages = {
     leaveWithoutSaving: "Exit without saving",
     editorMarkupNotSaved:
       "This edit wasn't saved because it would have added editor markup to the slide.",
+    historyStepConflict:
+      "This history step was skipped because it conflicts with the current presentation.",
+    historyStepFailed:
+      "This history step was skipped because it could not be applied.",
     textEditConflictNotSaved:
       "Your text edit wasn't saved because the same text was changed elsewhere at the same time.",
   },

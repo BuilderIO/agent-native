@@ -993,17 +993,28 @@ export default defineAction({
       );
       const panelCount = countPanels(args.config);
       trackDashboardSaved(dashboardId, args.config, actionContext);
-      return dashboardResult(
-        dashboardId,
-        args.config,
-        0,
-        `Replaced dashboard "${dashboardId}"; it now has ${panelCount} panel(s).`,
-        [],
-        args.returnConfig === true,
-        saved.updatedAt,
-        verdict,
-        agentCaller ? `Saved dashboard "${dashboardId}"` : undefined,
-      );
+      return {
+        ...dashboardResult(
+          dashboardId,
+          args.config,
+          0,
+          `Replaced dashboard "${dashboardId}"; it now has ${panelCount} panel(s).`,
+          [],
+          args.returnConfig === true,
+          saved.updatedAt,
+          verdict,
+          agentCaller ? `Saved dashboard "${dashboardId}"` : undefined,
+        ),
+        // The page's save toast undoes this save by restoring this revision,
+        // and names the change history records on it.
+        ...(outcome.revisionId ? { revisionId: outcome.revisionId } : {}),
+        ...(outcome.changeSummary
+          ? {
+              changes: outcome.changeSummary.changes,
+              omittedChanges: outcome.changeSummary.omitted,
+            }
+          : {}),
+      };
     }
 
     if (args.panelOrder) {

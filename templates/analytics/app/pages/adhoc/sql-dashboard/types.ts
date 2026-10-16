@@ -79,6 +79,18 @@ export interface PivotConfig {
   seriesOrder?: string[];
 }
 
+/**
+ * Funnel only: result columns that split each stage's count (`yKey`, the
+ * people shown the stage) by what those people did there.
+ */
+export interface FunnelOutcomesConfig {
+  completedKey: string;
+  leftKey: string;
+  skippedKey?: string;
+  /** A boolean column; true marks a stage people may skip. */
+  optionalKey?: string;
+}
+
 export type DashboardTimeScope =
   | "dashboard"
   | "fixed-window"
@@ -111,6 +123,7 @@ export interface SqlPanelConfig {
   seriesLabels?: Record<string, string>;
   description?: string;
   pivot?: PivotConfig;
+  funnelOutcomes?: FunnelOutcomesConfig;
   stacked?: boolean;
   legend?: boolean;
   valueLabels?: Record<string, string>;

@@ -161,6 +161,10 @@ vi.mock("../server/lib/s3-upload-provider.js", () => ({
     mocks.deleteS3ObjectByUrl(...args),
 }));
 
+vi.mock("./lib/imported-transcript.js", () => ({
+  notImportedTranscript: () => "not-imported-transcript",
+}));
+
 vi.mock("./lib/direct-video.js", () => ({
   downloadDirectVideo: (...args: unknown[]) =>
     mocks.downloadDirectVideo(...args),
@@ -193,6 +197,15 @@ function createDb(firstReadyImportId: string | null) {
     firstReadyImportId ? [{ id: firstReadyImportId }] : [],
   );
   return { select: mocks.select } as any;
+}
+
+// Inserts are awaited directly, apart from the transcript row's upsert.
+function insertValuesMock(
+  onConflictDoUpdate = vi.fn(async (_: unknown) => undefined),
+) {
+  return vi.fn((_: unknown) =>
+    Object.assign(Promise.resolve(undefined), { onConflictDoUpdate }),
+  );
 }
 
 describe("first imported recording transactional email", () => {
@@ -298,7 +311,7 @@ describe("first imported recording transactional email", () => {
 
   it("preserves WebM format and filename for direct imports", async () => {
     const updated: unknown[] = [];
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     const db = {
       insert: vi.fn(() => ({ values: insertValues })),
       update: vi.fn(() => ({
@@ -364,8 +377,11 @@ describe("first imported recording transactional email", () => {
   it("reserves and pins hosted direct imports before downloading", async () => {
     const inserted: unknown[] = [];
     const updated: unknown[] = [];
-    const insertValues = vi.fn(async (value: unknown) => {
+    const insertValues = vi.fn((value: unknown) => {
       inserted.push(value);
+      return Object.assign(Promise.resolve(undefined), {
+        onConflictDoUpdate: vi.fn(async (_: unknown) => undefined),
+      });
     });
     const db = {
       select: vi.fn(() => ({
@@ -494,7 +510,7 @@ describe("first imported recording transactional email", () => {
       .mockResolvedValueOnce([]);
     const db = {
       select: vi.fn(() => ({ from: vi.fn(() => ({ where: selectWhere })) })),
-      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      insert: vi.fn(() => ({ values: insertValuesMock() })),
       update: vi.fn(() => ({
         set: (value: unknown) => {
           updates.push(value);
@@ -563,7 +579,7 @@ describe("first imported recording transactional email", () => {
         .mockResolvedValue([]);
       mocks.getDb.mockReturnValue({
         select: vi.fn(() => ({ from: vi.fn(() => ({ where: selectWhere })) })),
-        insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+        insert: vi.fn(() => ({ values: insertValuesMock() })),
         update: vi.fn(() => ({
           set: (value: Record<string, unknown>) => {
             updates.push(value);
@@ -824,7 +840,7 @@ describe("first imported recording transactional email", () => {
 
   it("releases a new hosted reservation when the import exceeds its byte cap", async () => {
     const updates: unknown[] = [];
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     const db = {
       select: vi.fn(),
       insert: vi.fn(() => ({ values: insertValues })),
@@ -894,7 +910,7 @@ describe("first imported recording transactional email", () => {
     const updates: unknown[] = [];
     const db = {
       select: vi.fn(),
-      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      insert: vi.fn(() => ({ values: insertValuesMock() })),
       update: vi.fn(() => ({
         set: (value: unknown) => {
           updates.push(value);
@@ -948,7 +964,7 @@ describe("first imported recording transactional email", () => {
   });
 
   it("rejects hosted policy denials instead of parking the import", async () => {
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     const db = {
       select: vi.fn(),
       insert: vi.fn(() => ({ values: insertValues })),
@@ -988,7 +1004,7 @@ describe("first imported recording transactional email", () => {
   });
 
   it("does not hide a failed direct-import thumbnail enqueue", async () => {
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     const db = {
       insert: vi.fn(() => ({ values: insertValues })),
       update: vi.fn(() => ({
@@ -1065,7 +1081,7 @@ describe("first imported recording transactional email", () => {
       select: vi.fn(() => ({
         from: vi.fn(() => ({ where: selectWhere })),
       })),
-      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      insert: vi.fn(() => ({ values: insertValuesMock() })),
       update: vi.fn(() => ({
         set: (values: unknown) => {
           updateValues(values);
@@ -1123,6 +1139,7 @@ describe("first imported recording transactional email", () => {
   it("retries a direct import in place after the reaper expired its storage wait", async () => {
     const sourceUrl = "https://media.example.com/source.mp4";
     const updateValues = vi.fn();
+    const transcriptUpsert = vi.fn(async (_: unknown) => undefined);
     const existing = {
       id: "recording-expired",
       organizationId: "org-1",
@@ -1150,7 +1167,7 @@ describe("first imported recording transactional email", () => {
       select: vi.fn(() => ({
         from: vi.fn(() => ({ where: selectWhere })),
       })),
-      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      insert: vi.fn(() => ({ values: insertValuesMock(transcriptUpsert) })),
       update: vi.fn(() => ({
         set: (values: unknown) => {
           updateValues(values);
@@ -1200,10 +1217,13 @@ describe("first imported recording transactional email", () => {
     expect(updateValues).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready", failureReason: null }),
     );
+    expect(transcriptUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ setWhere: "not-imported-transcript" }),
+    );
   });
 
   it("completes a persisted import when transactional email enqueue fails", async () => {
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     const db = {
       insert: vi.fn(() => ({ values: insertValues })),
       update: vi.fn(() => ({
@@ -1290,7 +1310,7 @@ describe("Loom imports", () => {
   });
 
   it("leases background imports so the reaper can close a lost job", async () => {
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     mocks.getDb.mockReturnValue({
       insert: vi.fn(() => ({ values: insertValues })),
     });
@@ -1338,7 +1358,7 @@ describe("Loom imports", () => {
   });
 
   it("parks an import without storage on the days-long waiting lease", async () => {
-    const insertValues = vi.fn(async () => undefined);
+    const insertValues = insertValuesMock();
     mocks.getDb.mockReturnValue({
       insert: vi.fn(() => ({ values: insertValues })),
     });

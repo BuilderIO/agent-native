@@ -523,11 +523,7 @@ it("characterizes Gate scope changes separately from direct binding", async () =
   await expect
     .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
     .toBe("bob-private");
-  expect(
-    batchedActions.some(
-      (actions) =>
-        actions.includes("get-private-data") &&
-        actions.includes("list-designs"),
-    ),
-  ).toBe(true);
+  // The denial cleared the query's data, so Bob's read is a first fetch and
+  // goes alone instead of joining a batch.
+  expect(batchedActions.flat()).not.toContain("get-private-data");
 });

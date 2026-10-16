@@ -18,6 +18,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
         : undefined,
   }),
   useActionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSession: () => ({
+    session: { email: "a@example.com", userId: "user-a", orgId: "org-1" },
+    status: "authenticated",
+  }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

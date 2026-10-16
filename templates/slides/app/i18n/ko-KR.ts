@@ -818,6 +818,9 @@ const messages = {
     leaveWithoutSaving: "저장하지 않고 나가기",
     editorMarkupNotSaved:
       "이 편집은 슬라이드에 편집기 마크업이 추가되므로 저장되지 않았습니다.",
+    historyStepConflict:
+      "현재 프레젠테이션과 충돌하여 이 기록 단계를 건너뛰었습니다.",
+    historyStepFailed: "이 기록 단계는 적용할 수 없어 건너뛰었습니다.",
     textEditConflictNotSaved:
       "같은 텍스트가 동시에 다른 곳에서 변경되어 텍스트 편집이 저장되지 않았습니다.",
   },
