@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  searchConsolePropertyMessage,
+  searchConsolePropertyProblem,
+} from "../../../shared/search-console-property.js";
+
 /**
  * Collection steps, in the order the daily job runs them. A step's id is the
  * `step` stored on its collection runs and the `source` on what it writes.
@@ -20,7 +25,19 @@ const stepToggleSchema = z.object({ enabled: z.boolean() });
  * site to the pages the Content view tracks.
  */
 export const searchConsoleSiteSchema = z.object({
-  siteUrl: z.string().trim().min(1),
+  siteUrl: z
+    .string()
+    .trim()
+    .min(1)
+    .superRefine((siteUrl, ctx) => {
+      const problem = searchConsolePropertyProblem(siteUrl);
+      if (problem) {
+        ctx.addIssue({
+          code: "custom",
+          message: searchConsolePropertyMessage(siteUrl, problem),
+        });
+      }
+    }),
   pathPrefix: z.string().trim().startsWith("/").optional(),
 });
 export type SearchConsoleSite = z.infer<typeof searchConsoleSiteSchema>;

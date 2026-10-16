@@ -1286,6 +1286,13 @@ export default {
       unavailable: "Collection status is unavailable: {{message}}",
       keyUnreadable:
         "Couldn't read the saved service account key. Re-save it under Google Cloud.",
+      propertyBareDomain: "For a Domain property, use {{suggestion}}.",
+      propertyInvalidDomain:
+        "Put only the domain after sc-domain:, as in {{suggestion}}.",
+      propertyMissingSlash:
+        "URL-prefix properties end in /. Use {{suggestion}}.",
+      propertyUnrecognized:
+        "Use sc-domain:example.com, or a URL-prefix property ending in /.",
     },
     uploadFile: "Upload file",
     googleSheetsExport: "Google Sheets export",

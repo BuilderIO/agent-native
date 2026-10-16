@@ -703,6 +703,12 @@ export default {
       unavailable: "無法取得收集狀態：{{message}}",
       keyUnreadable:
         "無法讀取已儲存的服務帳戶金鑰。請在 Google Cloud 下重新儲存。",
+      propertyBareDomain: "網域資源請使用 {{suggestion}}。",
+      propertyInvalidDomain: "sc-domain: 後面只填寫網域，例如 {{suggestion}}。",
+      propertyMissingSlash:
+        "網址前置字元資源以 / 結尾。請使用 {{suggestion}}。",
+      propertyUnrecognized:
+        "請使用 sc-domain:example.com，或以 / 結尾的網址前置字元資源。",
     },
     uploadFile: "上傳檔案",
     googleSheetsExport: "Google Sheets 匯出",

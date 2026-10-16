@@ -768,6 +768,14 @@ export default {
       unavailable: "Status da coleta indisponível: {{message}}",
       keyUnreadable:
         "Não foi possível ler a chave de conta de serviço salva. Salve-a novamente em Google Cloud.",
+      propertyBareDomain:
+        "Para uma propriedade de domínio, use {{suggestion}}.",
+      propertyInvalidDomain:
+        "Depois de sc-domain: vem só o domínio, como em {{suggestion}}.",
+      propertyMissingSlash:
+        "Propriedades de prefixo de URL terminam em /. Use {{suggestion}}.",
+      propertyUnrecognized:
+        "Use sc-domain:example.com ou uma propriedade de prefixo de URL terminada em /.",
     },
     uploadFile: "Carregar arquivo",
     googleSheetsExport: "Exportação para o Google Sheets",
