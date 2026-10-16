@@ -16,10 +16,12 @@ import {
 } from "./live-copy-tasks.js";
 import {
   CollabStateMalformedError,
+  collabStateDigest,
   ensureTable,
   loadYDocRecordStrict,
-  loadYDocVersion,
+  loadYDocStampWithClient,
   trySaveYDocStateWithClient,
+  type YDocStamp,
 } from "./storage.js";
 
 // A live copy is a collab document whose Yjs state is the only writable copy
@@ -260,7 +262,7 @@ export function assertOwnTransaction(docId: string, path: string): void {
 
 export type StoredLiveCopy =
   | { kind: "absent" }
-  | { kind: "stored"; state: Uint8Array; version: number };
+  | { kind: "stored"; state: Uint8Array; version: number; digest: string };
 
 /**
  * The stored bytes, read strictly: unreadable base64 or a bad version throws
@@ -288,7 +290,12 @@ export async function readStoredLiveCopy(
   }
   if (record.kind === "absent") return { kind: "absent" };
   assertStateSize(binding, docId, record.state, "Stored live copy");
-  return { kind: "stored", state: record.state, version: record.version };
+  return {
+    kind: "stored",
+    state: record.state,
+    version: record.version,
+    digest: await collabStateDigest(record.state),
+  };
 }
 
 function assertStateSize(
@@ -606,34 +613,6 @@ async function runLiveCopyTransaction(
   await exec.transaction(write);
 }
 
-/**
- * Runs one write attempt at `version`. False means the attempt was stale and
- * wrote nothing: its own check found another version, or it threw after a
- * peer had moved the copy. A persist that reads the app's rows sees that
- * peer's commit and may refuse it as stale; fresh state answers that, not
- * the persist's error.
- */
-async function runLiveCopyAttempt(
-  docId: string,
-  version: number | null,
-  write: (tx: DbExec) => Promise<void>,
-): Promise<boolean> {
-  try {
-    await runLiveCopyTransaction(docId, write);
-    return true;
-  } catch (error) {
-    if (error instanceof CommitVersionConflict) return false;
-    let current: number | null;
-    try {
-      current = await loadYDocVersion(docId);
-    } catch {
-      throw error;
-    }
-    if (current !== version) return false;
-    throw error;
-  }
-}
-
 async function runCallPersist(
   docId: string,
   tx: DbExec,
@@ -647,23 +626,27 @@ async function runCallPersist(
   }
 }
 
+function sameStamp(a: YDocStamp | null, b: YDocStamp | null): boolean {
+  return a?.version === b?.version && a?.digest === b?.digest;
+}
+
 /**
  * Commits a derived state: the binding's persist hook, the caller's, then
- * the versioned `_collab_docs` write, in one transaction. Returns null when
- * another writer moved the version first; nothing is written in that case.
+ * the `_collab_docs` write, in one transaction, at the row `base` names
+ * (null: no row). Returns null when another writer changed the row first;
+ * nothing is written in that case.
  */
 export async function commitLiveCopy(
   binding: LiveCopyBinding,
   commit: LiveCopyCommit,
+  base: YDocStamp | null,
   callPersist?: LiveCopyCallPersist,
 ): Promise<LiveCopyOutcome | null> {
   assertOwnTransaction(commit.docId, "commitLiveCopy");
   await ensureTable();
   let outcome: LiveCopyOutcome = { liveCopy: "derived" };
-  const committed = await runLiveCopyAttempt(
-    commit.docId,
-    commit.previousVersion,
-    async (tx) => {
+  try {
+    await runLiveCopyTransaction(commit.docId, async (tx) => {
       const persist = binding.persist;
       if (persist) {
         // The pool's own transaction does not scope getDbExec(); without
@@ -672,41 +655,56 @@ export async function commitLiveCopy(
         const value = await withDbExec(tx, () => persist(tx, commit));
         outcome = persistOutcome(commit.docId, value);
       }
-      if (callPersist) await runCallPersist(commit.docId, tx, callPersist);
+      if (callPersist) {
+        // The caller's persist checks the app's rows against this edit, so a
+        // peer that committed first must stop the attempt here, as a retry,
+        // not there, as a refusal. Exact once the binding's persist holds
+        // the lock every commit of the document takes.
+        const current = await loadYDocStampWithClient(tx, commit.docId);
+        if (!sameStamp(current, base)) throw new CommitVersionConflict();
+        await runCallPersist(commit.docId, tx, callPersist);
+      }
       const saved = await trySaveYDocStateWithClient(
         tx,
         commit.docId,
         commit.state,
         commit.text,
-        commit.previousVersion,
+        base?.version ?? null,
+        base?.digest,
       );
       if (!saved) throw new CommitVersionConflict();
-    },
-  );
-  return committed ? outcome : null;
+    });
+    return outcome;
+  } catch (error) {
+    if (error instanceof CommitVersionConflict) return null;
+    throw error;
+  }
 }
 
 /**
  * Runs a caller's persist by itself, for a write that committed nothing,
- * while the copy is still at `version`. Returns false, with nothing
- * written, when another writer moved it first.
+ * while the copy is still the row `base` names. Returns false, with nothing
+ * written, when another writer changed it first.
  */
 export async function persistLiveCopyCall(
   docId: string,
-  version: number,
+  base: YDocStamp,
   callPersist: LiveCopyCallPersist,
 ): Promise<boolean> {
   assertOwnTransaction(docId, "persistLiveCopyCall");
-  return runLiveCopyAttempt(docId, version, async (tx) => {
-    await runCallPersist(docId, tx, callPersist);
-    // Locked after the app's rows, as a commit locks them, and held to the
-    // end so no commit can slip in before this one lands.
-    const current = await tx.execute({
-      sql: "SELECT version FROM _collab_docs WHERE doc_id = ? FOR SHARE",
-      args: [docId],
+  try {
+    await runLiveCopyTransaction(docId, async (tx) => {
+      await runCallPersist(docId, tx, callPersist);
+      // Locked after the app's rows, as a commit locks them, and held to the
+      // end so no commit can slip in before this one lands.
+      const current = await loadYDocStampWithClient(tx, docId, {
+        forShare: true,
+      });
+      if (!sameStamp(current, base)) throw new CommitVersionConflict();
     });
-    if (Number(current.rows[0]?.version) !== version) {
-      throw new CommitVersionConflict();
-    }
-  });
+    return true;
+  } catch (error) {
+    if (error instanceof CommitVersionConflict) return false;
+    throw error;
+  }
 }
