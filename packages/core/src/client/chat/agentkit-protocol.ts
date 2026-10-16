@@ -4296,6 +4296,7 @@ export function createAgentKitProtocolAdapter(
           throw restoredConnectionRequestUnverifiedError();
         }
         await waitForRestoredConnectionRequest(run, input.requestId);
+        run.requiresRestoredConnectionRequestReplay = false;
       } else if (restoredThisCall && run.pumpPromise) {
         await run.pumpPromise;
       }

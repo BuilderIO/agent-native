@@ -1336,6 +1336,106 @@ describe("createAgentKitProtocolAdapter", () => {
     }
   });
 
+  it("does not apply a restored decline replay check to later requests", async () => {
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    async function* laterConnectionEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "connection-request",
+        requestId: "later-request",
+        provider: "calendar",
+        reason: "connect",
+      };
+    }
+    let continuationCount = 0;
+    const continueTurn = vi.fn(async () => {
+      continuationCount += 1;
+      return continuationCount === 1
+        ? {
+            id: "turn-2",
+            runId: "run-2",
+            sessionId: "thread-1",
+            events: laterConnectionEvents(),
+          }
+        : {
+            id: "turn-3",
+            runId: "run-3",
+            sessionId: "thread-1",
+            events: noEvents(),
+          };
+    });
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+          rich: { connectionRequests: true },
+        },
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn: async () => ({
+              id: "turn-1",
+              runId: "restored-run",
+              sessionId: "thread-1",
+              events: noEvents(),
+            }),
+            continueTurn,
+          };
+        },
+        async readRunState() {
+          return {
+            status: "running",
+            runId: "restored-run",
+            turnId: "turn-1",
+            terminalReason: null,
+            pendingConnectionRequestId: "restored-request",
+          };
+        },
+        async subscribe() {
+          return (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+            yield {
+              type: "connection-request",
+              requestId: "restored-request",
+              provider: "gong",
+              reason: "connect",
+            };
+          })();
+        },
+      }),
+    );
+
+    try {
+      await transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId: "restored-run",
+        requestId: "restored-request",
+        response: { status: "declined" },
+      });
+      for await (const event of transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: "run-2",
+      })) {
+        if (
+          event.type === "connection.requested" &&
+          event.request.id === "later-request"
+        ) {
+          break;
+        }
+      }
+      await transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId: "run-2",
+        requestId: "later-request",
+        response: { status: "declined" },
+      });
+
+      expect(continueTurn).toHaveBeenCalledTimes(2);
+    } finally {
+      await transport.dispose();
+    }
+  });
+
   it("restores the pending request before declining an excluded provider", async () => {
     async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
     const subscribe = vi.fn(async () => {
