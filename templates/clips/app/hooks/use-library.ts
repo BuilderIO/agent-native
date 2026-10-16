@@ -31,6 +31,7 @@ export interface RecordingSummary {
   status: "uploading" | "processing" | "ready" | "failed";
   uploadProgress?: number;
   failureReason?: string | null;
+  failureCode?: string | null;
   visibility: "private" | "org" | "public";
   hasPassword: boolean;
   expiresAt: string | null;

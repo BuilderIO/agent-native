@@ -96,6 +96,7 @@ vi.mock("../server/db/index.js", () => ({
       hasAudio: "recordings.hasAudio",
       sourceAppName: "recordings.sourceAppName",
       sourceWindowTitle: "recordings.sourceWindowTitle",
+      storageMode: "recordings.storageMode",
     },
     recordingTranscripts: {
       recordingId: "recordingTranscripts.recordingId",
@@ -667,7 +668,8 @@ describe("requestTranscript regeneration", () => {
       ],
       [
         {
-          videoUrl: "https://cdn.example.com/recording.webm",
+          videoUrl: "https://private-storage.example.test/clips/rec_ready",
+          storageMode: "hosted",
           videoFormat: "webm",
           hasAudio: true,
           durationMs: 1200,
@@ -688,6 +690,13 @@ describe("requestTranscript regeneration", () => {
       "recording",
       "rec_ready",
       "editor",
+    );
+    expect(mockPrepareRecordingTranscriptionAudio).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec_ready",
+        videoUrl: "https://private-storage.example.test/clips/rec_ready",
+        storageMode: "hosted",
+      }),
     );
     expect(result).toMatchObject({
       recordingId: "rec_ready",

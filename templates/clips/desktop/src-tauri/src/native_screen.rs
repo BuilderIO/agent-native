@@ -2047,6 +2047,14 @@ fn refresh_selected_window_camera_capture(
     Ok(true)
 }
 
+fn should_track_selected_window_camera_capture(
+    include_camera_overlay: bool,
+    target_window_id: Option<u32>,
+    defer_recording_output: bool,
+) -> bool {
+    include_camera_overlay && target_window_id.is_some() && !defer_recording_output
+}
+
 #[cfg(target_os = "macos")]
 fn spawn_selected_window_camera_capture_tracker(
     app: AppHandle,
@@ -4257,6 +4265,28 @@ mod detached_discard_tests {
     }
 
     #[test]
+    fn selected_window_camera_tracker_skips_disposable_warm_streams() {
+        assert!(!should_track_selected_window_camera_capture(
+            true,
+            Some(12),
+            true
+        ));
+        assert!(should_track_selected_window_camera_capture(
+            true,
+            Some(12),
+            false
+        ));
+        assert!(!should_track_selected_window_camera_capture(
+            false,
+            Some(12),
+            false
+        ));
+        assert!(!should_track_selected_window_camera_capture(
+            true, None, false
+        ));
+    }
+
+    #[test]
     fn detached_discard_deletes_files_off_the_calling_thread() {
         let root = std::env::temp_dir().join(format!(
             "clips-detached-discard-test-{}-{}",
@@ -4695,7 +4725,11 @@ pub(crate) fn start_screencapturekit_backend_at(
         target_window_id.is_some()
     );
     let stream = Arc::new(Mutex::new(stream));
-    let camera_tracker_shutdown = if include_camera_overlay {
+    let camera_tracker_shutdown = if should_track_selected_window_camera_capture(
+        include_camera_overlay,
+        target_window_id,
+        defer_recording_output,
+    ) {
         target_window_id.map(|target_window_id| {
             let shutdown = Arc::new(AtomicBool::new(false));
             spawn_selected_window_camera_capture_tracker(

@@ -1,0 +1,259 @@
+---
+title: "レコーダー"
+description: "レコーダーは、アプリが直前に行ったことを、短く、秘匿化したうえでメモリ上に残す記録です。この記録は、アプリのエージェント、Clips、Sentry、または登録した任意の送信先に向けたレポートになります。"
+---
+
+# レコーダー
+
+レコーダーは、Agent-Native アプリが直前に行ったことを、短く、秘匿化したうえでメモリ上に残す記録です。すべてのアプリは、直近 2 分間のアクション、`application_state` への書き込み、ルート変更、エラー、エラートーストを記録します。アプリ側のコードは不要です。問題が起きると、この記録はレポートになり、アプリのエージェント、Clips の録画、Sentry、または独自の送信先が読めるようになります。
+
+```ts
+import { recorder } from "@agent-native/core/client/recorder";
+
+const report = recorder.report();
+```
+
+レポートがどこかに送信されるまで、サーバーには何も保存されず、ブラウザの外にも何も出ません。レコーダー自身がネットワークリクエストを送ることはありません。
+
+## 記録される内容 {#captured}
+
+| 種類     | ソース                                                                                                                                                | 例                                                                              |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `action` | すべての `useActionQuery()`、`useActionMutation()`、`callAction()` の呼び出し。バッチ読み取りに含まれる各アクションは、それぞれ個別のイベントになる。 | `200` を返したバッチの中で、`list-folders` が `403` と `forbidden_scope` で失敗 |
+| `state`  | 失敗またはキャンセルされたものも含む、すべての `application_state` への書き込みと削除                                                                 | `design-selection` の `state` が `hover` から `focus` に変化                    |
+| `nav`    | ルート変更。パスだけが保持される。                                                                                                                    | `/design/d_8f2c1a`                                                              |
+| `error`  | キャッチされなかったエラーと未処理の Promise 拒否。最初のスタックフレーム付き                                                                         | `/app/pages/design-editor/commands/undo.ts:1715` での `TypeError`               |
+| `toast`  | ユーザーが目にしたエラーと警告のトースト                                                                                                              | `This screen changed elsewhere. Your edit was not saved.`                       |
+| `log`    | アプリが `recorder.log()` で追加するイベント                                                                                                          | `f_1` から `f_9` への `screen.restored`                                         |
+
+どのイベントにも同じフィールドがあります。
+
+| フィールド  | 意味                                                                                                           |
+| ----------- | -------------------------------------------------------------------------------------------------------------- |
+| `t`         | レポート作成時点から何秒前か。負の値になる。                                                                   |
+| `at`        | エポックミリ秒。Clips の診断情報も同じ時計を使う。                                                             |
+| `type`      | `action`、`state`、`nav`、`error`、`toast`、`log` のいずれか                                                   |
+| `name`      | アクション名、状態キー、ルートパス、エラーの種類、トーストのレベル、またはログ名                               |
+| `ok`        | アクションまたは状態の書き込みが成功したかどうか                                                               |
+| `status`    | HTTP ステータス（ある場合）                                                                                    |
+| `errorCode` | アクションのエラーコード。アプリがキャンセルした呼び出しや書き込みには `errorCode: "cancelled"` が付く。       |
+| `ms`        | アクションまたは状態の書き込みにかかった時間                                                                   |
+| `requestId` | サーバーのリクエスト ID。サーバーのログと、対応する Sentry イベントにも表示される                              |
+| `data`      | 秘匿化され、サイズが制限された詳細。アクションには HTTP メソッドが入り、失敗した場合はエラーメッセージも入る。 |
+
+状態の書き込みでは、そのキーで最後に保存された値からの変更点だけが記録されます。キーへの最初の書き込みでは `data.value` が記録されます。それ以降の書き込みでは `data.changed` が記録され、削除されたフィールドは `"[removed]"` と表示されます。何も変わらなかった書き込みでは `data.unchanged` が、削除では `data.deleted` が記録されます。失敗した書き込みには `data.error` も付きます。次の書き込みは、引き続き最後に保存された値と比較されます。
+
+## レポート {#reports}
+
+レポートは、ウィンドウ内のイベントに、アプリが監視している値と、まだ処理中の作業を加えたものです。
+
+```json
+{
+  "app": "design",
+  "build": "59929e9",
+  "url": "/design/d_8f2c1a?file=[redacted]",
+  "at": "2026-10-14T16:20:05.120Z",
+  "reason": "user",
+  "windowSeconds": 120,
+  "events": [
+    {
+      "t": -12.4,
+      "at": 1791994792720,
+      "type": "state",
+      "name": "design-selection",
+      "ok": true,
+      "ms": 41,
+      "data": { "changed": { "state": "hover" } }
+    },
+    {
+      "t": -10.9,
+      "at": 1791994794220,
+      "type": "action",
+      "name": "update-file",
+      "ok": true,
+      "status": 200,
+      "ms": 180,
+      "requestId": "req_a1",
+      "data": { "method": "POST" }
+    }
+  ],
+  "watched": {
+    "inspector": {
+      "state": "focus",
+      "fields": [{ "label": "Opacity", "shown": "91%" }]
+    }
+  },
+  "pending": [],
+  "dropped": 0
+}
+```
+
+- **app**: アプリ ID。指定がない場合は `localhost:8080` のようなページのホストが使われるため、空になることはありません。
+- **url**: ルートパス。クエリの値はすべて秘匿化され、ハッシュは含まれません。
+- **windowSeconds**: レポートが対象とする秒数。
+- **pending**: まだ処理中のアクションと状態の書き込み。それぞれに `ageMs` が付きます。
+- **dropped**: ページの読み込み以降、またはユーザーのサインアウト以降に、上限によって失われたイベント。ウィンドウから期限切れで外れたイベントは数えません。
+
+## SDK {#sdk}
+
+### `recorder.report()` {#report}
+
+`recorder.report()` は現在のレポートを返します。同期的に動作します。省略可能なオブジェクトを 1 つ受け取ります。
+
+- **seconds**: ウィンドウのうち、直近 `seconds` 秒だけを残します。
+- **reason**: `"user"`、`"error"`、`"test"`、`"manual"` のいずれか。デフォルトは `"manual"` です。
+
+```ts
+const report = recorder.report();
+```
+
+録画開始前の 30 秒間のように、より短い範囲が必要な場合は `seconds` を渡します。
+
+```ts
+const before = recorder.report({ seconds: 30 });
+```
+
+`"manual"` 以外の理由では、レポートは `recorder.onReport()` のリスナーにも送られます。引数なしの `recorder.report()` 呼び出しでは送られないため、リスナーはループを起こさずにレポートを作成できます。
+
+### `recorder.log()` {#log}
+
+`recorder.log()` は、アプリ独自の言葉でイベントを追加します。名前と、省略可能なデータを受け取ります。プレーンオブジェクトでないデータは `{ value }` として記録されます。
+
+Design は、元に戻す操作で復元された各画面の新しい ID をログに残します。元に戻す操作は、削除された画面を新しい ID で作り直すためです。
+
+```ts
+recorder.log("screen.restored", { from: file.id, to: result.id });
+```
+
+### `recorder.watch()` {#watch}
+
+`recorder.watch()` は、すべてのレポートにライブの値を追加します。名前と、その値を返す関数を受け取り、監視を止める関数を返します。
+
+Design のインスペクターは、表示している内容と、編集中のインタラクション状態を追加します。どちらも `application_state` には入っていないため、これがなければレポートに表示できません。
+
+```tsx
+useEffect(
+  () =>
+    recorder.watch("inspector", () => ({
+      state: interactionState ?? "default",
+      fields: readVisualScrubInputs(),
+    })),
+  [interactionState],
+);
+```
+
+例外を投げる関数は、省略されるのではなく `{ unreadable: "<message>" }` として報告されます。
+
+### `recorder.onReport()` {#on-report}
+
+`recorder.onReport()` は、レポートを送信先に送ります。リスナーを受け取り、そのリスナーを解除する関数を返します。リスナーは、`"manual"` 以外の理由で作成されたすべてのレポートを受け取ります。対象は「問題を報告」（`"user"`）、キャッチされなかったエラー（`"error"`）、テスト（`"test"`）です。
+
+```ts
+recorder.onReport((report) => posthog.capture("problem_report", report));
+```
+
+```ts
+recorder.onReport((report) =>
+  navigator.sendBeacon("/api/logs", JSON.stringify(report)),
+);
+```
+
+キャッチされなかったエラーが送るレポートは、10 秒ごとに最大 1 件です。そのため、エラーのループで送信先があふれることはありません。例外を投げたリスナーはログに記録され、他のリスナーはそのまま実行されます。
+
+### `recorder.redact()` {#redact}
+
+`recorder.redact()` は、呼び出し以降に記録されるすべてのイベントと、すべての監視値から、さらにフィールドを隠します。フィールド名、またはイベント名で始まるドット区切りのパスを渡します。`*` は任意の 1 つのフィールドに一致します。
+
+```ts
+recorder.redact("email");
+recorder.redact("compose.body", "payment.*");
+```
+
+### `recorder.pending()` {#pending}
+
+`recorder.pending()` は、まだ処理中のアクションと状態の書き込みを一覧にします。テストでは、固定時間のスリープではなく、本当にアイドルになるまで待つために使います。Design の E2E テスト基盤は、`app.settled()` でこれが空になるまで待ち、失敗したすべてのテストに `recorder.json` を添付します。
+
+```ts
+await expect
+  .poll(() =>
+    page.evaluate(
+      () => window.__agentNativeRecorder?.report({ seconds: 0 }).pending,
+    ),
+  )
+  .toEqual([]);
+```
+
+### `recorder.disable()` {#disable}
+
+`recorder.disable()` はレコーダーをオフにします。`configureRecorder({ enabled: false })` と同じ動作です。
+
+## `configureRecorder()` {#configure}
+
+`configureRecorder()` は、省略可能な 1 回の呼び出しです。デフォルト値は次のとおりです。
+
+```ts
+import { configureRecorder } from "@agent-native/core/client/recorder";
+
+configureRecorder({
+  windowSeconds: 120,
+  maxEvents: 2000,
+  sentry: true,
+  enabled: true,
+});
+```
+
+- **windowSeconds**: レコーダーがどこまでさかのぼってイベントを保持するか。
+- **maxEvents**: 保持するイベントの最大数。上限に達すると、最も古いイベントから破棄され、`dropped` に数えられます。
+- **sentry**: Sentry のエラーに直近のイベントを付けるかどうか。アプリにブラウザ版 Sentry がある場合にのみ機能します。
+- **enabled**: レコーダーをそもそも動かすかどうか。
+
+正の数でないウィンドウや上限を指定すると、デフォルト値に戻すのではなく `RangeError` を投げます。また、レコーダーは `maxEvents` の値にかかわらず、全体のサイズを JSON で約 512 KB に制限します。これにより、タブあたりのメモリ使用量は 2 MB 未満に収まります。
+
+## 送信先 {#destinations}
+
+### 問題を報告 {#report-a-problem}
+
+すべてのアプリに **問題を報告** があります。サイドバーの下部、エージェントパネルのオプションメニュー、コマンドメニュー（⌘K）にあります。
+
+- アプリが直近 2 分間に行ったことを添付するかどうかを確認し、件数、失敗、最初のイベントをプレビューします。確認は毎回行われます。
+- ユーザーが同意すると、完全なレポートは、そのユーザーだけが読める非公開ファイルとして保存されます。アプリのエージェントには、ファイルへの参照を添えた短い要約が渡されます。
+- エージェントは `read-problem-report` アクションで、イベントの種類や時間で絞り込みながらレポートの続きを読みます。
+- ページにエージェントのチャットがない場合、ボタンは代わりに要約と参照をコピーします。
+- レポートにはファイルストレージが必要です。ない場合、ダイアログにはレポートが添付されなかったと表示され、何も送信されません。
+
+### Sentry {#sentry}
+
+Agent-Native を通じてブラウザ版 Sentry を設定しているアプリでは（[エラー報告](/docs/observability#sentry)を参照）、すべての Sentry エラーイベントに次の情報が付きます。
+
+- 直近 100 件のイベント。`recorder.action`、`recorder.state` などのカテゴリのブレッドクラムとして付き、それぞれに結果、ステータス、リクエスト ID が含まれます
+- レポート全体。`recorder.json` 添付ファイルとして付きます
+
+アプリ側のコードは不要です。`configureRecorder({ sentry: false })` でオフにできます。
+
+### 独自の送信先 {#own-destination}
+
+[`recorder.onReport()`](#on-report) でリスナーを登録します。
+
+### Clips とブラウザ拡張機能 {#extensions}
+
+ページは `window.__agentNativeRecorder.report()` を公開します。ブラウザ拡張機能は、ページのメインワールドからこれを読み取ります。
+
+開発者ログがオンのとき、Clips 拡張機能は録画の開始時（直近 30 秒）と停止時に、録画中のタブでこれを読み取ります。イベントは同じ時計で録画のコンソールエントリとネットワークエントリに合流し、クリップのエージェントには失敗の要約が渡されます。[Clips のブラウザログ](/docs/template-clips-features#chrome-extension-browser-logs)を参照してください。
+
+## プライバシー {#privacy}
+
+- **ブラウザの中にとどまります。** レポートが外に出るのは、送信先が送ったときだけです。送信先とは、ユーザーが同意した後の「問題を報告」、ユーザーが開始した Clips の録画、Sentry、または開発者が登録したリスナーです。
+- **シークレットは取り除かれます。** 名前がシークレットらしいフィールド（`password`、`token`、`secret`、`apiKey`、`authorization`、`cookie`、`session`、`card`、`cvv`）は `"[redacted]"` と表示されます。JWT、Bearer トークン、プロバイダーの API キーなど、値の中にあるトークンらしいテキストも `[redacted]` に置き換えられます。これらは、core がエラーレポートに使うものと同じ秘匿化処理です。
+- **値のサイズは制限されます。** 文字列は 200 文字で、各イベントは約 2 KB で切り詰められます。切り詰めた箇所には、何を削ったかが示されます。リクエストとレスポンスの本文が記録されることはありません。
+- **記録は消えます。** 保持するのはウィンドウ内の分だけで、上限までです。再読み込みとサインアウトのたびに消去されます。
+- **新しいアクセスはありません。** レコーダーが見るのは、すでにアプリを通過しているものだけです。アクションの呼び出しはもともとサーバーに送られており、`application_state` はもともと保存され、エージェントに読まれています。
+
+## オフにする {#off}
+
+```ts
+import { configureRecorder } from "@agent-native/core/client/recorder";
+
+configureRecorder({ enabled: false });
+```
+
+無効にしたレコーダーは、保持していた内容を消去し、リッスンを止め、ページから `window.__agentNativeRecorder` を取り除きます。その `recorder.report()` はイベントも監視値も返さず、リスナーにも何も送りません。`configureRecorder({ enabled: true })` で再び開始できます。

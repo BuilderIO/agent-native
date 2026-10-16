@@ -121,6 +121,7 @@ interface PendingSend {
   requestMode?: "act" | "plan";
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  submissionExpiresAt?: number;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
@@ -227,6 +228,18 @@ function deliverPendingSend(
   onHandoff: (delivered: boolean) => boolean,
 ): void | Promise<void> {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
+  if (
+    send.submissionExpiresAt !== undefined &&
+    send.submissionExpiresAt <= Date.now()
+  ) {
+    if (onHandoff(false))
+      reportAgentChatSubmitResult(
+        send.submitMessageId,
+        false,
+        "submission-expired",
+      );
+    return;
+  }
   if (!send.submit) {
     return deliverPendingPrefill(ref, send, isCurrent, onHandoff).catch(
       (error: unknown) => {
@@ -250,6 +263,9 @@ function deliverPendingSend(
     ...(send.requestMode ? { requestMode: send.requestMode } : {}),
     ...(send.attachments ? { attachments: send.attachments } : {}),
     ...(send.submitMessageId ? { submitMessageId: send.submitMessageId } : {}),
+    ...(send.submissionExpiresAt !== undefined
+      ? { submissionExpiresAt: send.submissionExpiresAt }
+      : {}),
     ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
     ...(send.actionScope ? { actionScope: send.actionScope } : {}),
     // An approval resume is a protocol continuation, not a visible prompt.
@@ -2259,6 +2275,23 @@ export function MultiTabAssistantChat({
     (onlyThreadId?: string, immediate?: boolean) => void
   >(
     (onlyThreadId, immediate = false) => {
+      for (const delivery of [...pendingDeliveries.current]) {
+        if (
+          delivery.send.submissionExpiresAt === undefined ||
+          delivery.send.submissionExpiresAt > Date.now()
+        ) {
+          continue;
+        }
+        pendingDeliveries.current = pendingDeliveries.current.filter(
+          (pending) => pending !== delivery,
+        );
+        reportAgentChatSubmitResult(
+          delivery.send.submitMessageId,
+          false,
+          "submission-expired",
+        );
+        cancelAgentChatSubmit(delivery.send.submitMessageId);
+      }
       const active = activeThreadIdRef.current;
       for (const delivery of pendingDeliveries.current) {
         if (delivery.threadId === null && active) delivery.threadId = active;
@@ -2524,9 +2557,11 @@ export function MultiTabAssistantChat({
         ...(submitMessageId ? { submitMessageId } : {}),
         ...(usageLabel ? { usageLabel } : {}),
         ...(actionScope ? { actionScope } : {}),
+        ...(typeof parsed.submissionExpiresAt === "number"
+          ? { submissionExpiresAt: parsed.submissionExpiresAt }
+          : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
       };
-
       // Resolved once, up front, and carried with the send until a thread
       // exists to key it by. Applying it only when `model` matched
       // `availableModels` dropped every override that arrived before the

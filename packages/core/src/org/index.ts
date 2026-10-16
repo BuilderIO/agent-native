@@ -98,9 +98,14 @@ export type {
   IdentityOrgScope,
 } from "../identity/rekey.js";
 export {
+  checkWorkspaceAppAccess,
   claimWorkspaceAppForOrganization,
   isStandaloneDispatchRuntime,
   isWorkspaceAppAccessAllowed,
+  isWorkspaceAppAccessUnavailable,
+  type WorkspaceAppAccessCheck,
+  type WorkspaceAppAccessOutcome,
+  type WorkspaceAppAccessUnavailable,
 } from "./workspace-app-access.js";
 
 export {

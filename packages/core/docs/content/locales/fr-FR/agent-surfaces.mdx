@@ -269,6 +269,22 @@ outil qui disparaît et un autre qui apparaît. Les approbations « Toujours
 autoriser » suivent le nom de l’outil : elles sont donc conservées lorsque ce
 même nom désigne plus tard autre chose.
 
+Définissez `revision` sur une entrée pour l’empêcher : les approbations ponctuelles
+et « Toujours autoriser » enregistrent la révision pour laquelle elles ont été
+données, et une révision différente redemande à l’utilisateur.
+Un gestionnaire « Toujours autoriser » personnalisé doit transmettre l’`askId`
+de l’approbation à `set-tool-approval-policy` en tant que `approvalId` ; sans lui,
+l’autorisation ne couvre que les entrées sans révision.
+
+Un appel à un outil que la conversation a utilisé ou chargé plus tôt, mais que
+cette exécution n’a plus, échoue avec `Error: Tool no longer available` au lieu de
+`Unknown tool`, et une exécution qui démarre après la disparition d’outils chargés
+indique au modèle lesquels. Si l’utilisateur avait approuvé cet appel,
+l’exécution s’arrête plutôt que de laisser le modèle continuer sans lui. Pour le
+chat, le callback reçoit aussi `threadId`, `requestedTurnId` et
+`internalContinuation`, ce qui permet à une application qui veut un seul jeu
+d’outils pour tout un tour de conserver son propre instantané.
+
 Ces entrées sont des outils natifs réservés à la boucle de l’agent. Comme les
 outils MCP de l’appelant, elles ne sont pas accessibles depuis `run-code` ou
 `tool-orchestration`.

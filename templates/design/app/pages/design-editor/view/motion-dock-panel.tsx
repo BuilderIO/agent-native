@@ -74,6 +74,7 @@ export function renderMotionDockPanel({
     handleMotionDurationChange,
     motionLivePlayheadRef,
     motionControlsWritable,
+    motionSourceReadUnavailableReason,
     markMotionTracksDirty,
   } = editorContentAndComponents;
   const canWriteMotion = canEditDesign && motionControlsWritable;
@@ -226,6 +227,7 @@ export function renderMotionDockPanel({
             )
           }
           readOnly={!canWriteMotion}
+          sourceReadUnavailableReason={motionSourceReadUnavailableReason}
           applying={motionAutosavePending}
         />
       ) : null}

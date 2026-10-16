@@ -6071,12 +6071,77 @@ describe("upsertUserMessage", () => {
     expect(result.status).toBe("already_submitted");
     if (
       result.status === "already_claimed" ||
-      result.status === "claim_expired"
+      result.status === "claim_expired" ||
+      result.status === "submission_expired"
     ) {
       throw new Error("Expected an already-submitted result.");
     }
     expect(result.repo.messages).toHaveLength(2);
     expect(result.repo.queuedMessages).toEqual([]);
+  });
+
+  it("rejects deadline-bound prompts that expire before durable submission", () => {
+    const submissionExpiresAt = Date.now() - 1;
+    const direct = applySubmittedUserMessage(
+      {},
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-direct",
+        submissionExpiresAt,
+      }),
+    );
+    expect(direct).toEqual({ status: "submission_expired" });
+
+    const queued = applySubmittedUserMessage(
+      {
+        queuedMessages: [
+          {
+            id: "queued-retry",
+            text: "Retry this deck prompt",
+            promotionClaim: { id: "tab-1", expiresAt: Date.now() + 60_000 },
+          },
+        ],
+      },
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-queued",
+        queuedMessageId: "queued-retry",
+        submissionExpiresAt,
+      }),
+      { id: "queued-retry", claimId: "tab-1" },
+    );
+    expect(queued).toEqual({ status: "submission_expired" });
+  });
+
+  it("accepts an expired direct replay only when its run was already saved", () => {
+    const first = applySubmittedUserMessage(
+      {},
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-direct",
+        submissionExpiresAt: Date.now() + 60_000,
+      }),
+    );
+    if (!("repo" in first)) throw new Error("Expected a submitted result.");
+
+    const later = applySubmittedUserMessage(
+      first.repo,
+      buildUserMessage({ text: "A later prompt", runId: "run-later" }),
+    );
+    if (!("repo" in later)) throw new Error("Expected a submitted result.");
+
+    const replay = applySubmittedUserMessage(
+      later.repo,
+      buildUserMessage({
+        text: "Retry this deck prompt",
+        runId: "run-direct",
+        submissionExpiresAt: Date.now() - 1,
+      }),
+    );
+
+    expect(replay).toEqual({ status: "already_submitted", repo: later.repo });
+    if (!("repo" in replay)) throw new Error("Expected an idempotent replay.");
+    expect(replay.repo.messages).toHaveLength(2);
   });
 
   it("submits a background operation once and reports a later run as already claimed", () => {

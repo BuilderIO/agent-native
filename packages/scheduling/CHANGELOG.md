@@ -1,5 +1,21 @@
 # @agent-native/scheduling
 
+## 0.2.29
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [e90b90a]
+- Updated dependencies [5b201d1]
+- Updated dependencies [ce01559]
+- Updated dependencies
+- Updated dependencies [c139e35]
+- Updated dependencies [c139e35]
+- Updated dependencies [e5a64ae]
+- Updated dependencies [e6e1f56]
+- Updated dependencies [73da788]
+  - @agent-native/toolkit@0.209.1
+
 ## 0.2.28
 
 ### Patch Changes
@@ -1087,11 +1103,5 @@
   - **shared-app-config:** clarify that the template-catalog `icon` field is an
     internal icon-alias key resolved by the desktop sidebar `ICON_MAP`, not a raw
     `@tabler/icons-react` export name.
-
-## 0.1.5
-
-### Patch Changes
-
-- 79a0eb9: Align local Drizzle peer resolution with the framework's Postgres driver version.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -1,6 +1,6 @@
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
-import { and, asc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, ne, or } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
@@ -11,11 +11,18 @@ import {
 import { dispatchPostFinalizeJob } from "../../server/lib/post-finalize-dispatch.js";
 import { trackRecordingFailure } from "../../server/lib/recording-failures.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
+import { deleteS3ObjectByUrl } from "../../server/lib/s3-upload-provider.js";
 import { transactionalEmailStore } from "../../server/lib/transactional-email-store.js";
 import {
   UPLOAD_LEASE_MS,
   renewUploadLease,
 } from "../../server/lib/upload-lease.js";
+import {
+  consumeHostedClipRecording,
+  releaseHostedClipRecording,
+  resolveClipsVideoStorage,
+  verifyHostedClipMedia,
+} from "../../server/lib/video-storage.js";
 import {
   extractLoomVideoId,
   loomEmbedUrlForId,
@@ -37,6 +44,16 @@ const LOOM_IMPORT_LEASE_LOST_REASON =
   "The Loom import lease was lost before media was saved.";
 const LOOM_IMPORT_LEASE_UNCONFIRMED_REASON =
   "The Loom import lease could not be confirmed before media was saved.";
+const TAKEN_DOWN_FAILURE_CODE = "taken_down";
+const TAKEN_DOWN_REASON =
+  "This recording was removed from hosted Clips storage.";
+
+function notTakenDown() {
+  return or(
+    isNull(schema.recordings.failureCode),
+    ne(schema.recordings.failureCode, TAKEN_DOWN_FAILURE_CODE),
+  );
+}
 
 async function startLoomImportLeaseRenewal(input: {
   recordingId: string;
@@ -129,6 +146,7 @@ export async function failLoomImport(
   recordingId: string,
   failureReason: string,
   claimId?: string,
+  failureCode = "loom_import_failed",
 ): Promise<LoomImportJobResult> {
   console.error("[loom-import] failed", {
     recordingId,
@@ -140,7 +158,7 @@ export async function failLoomImport(
     .update(schema.recordings)
     .set({
       status: "failed",
-      failureCode: "loom_import_failed",
+      failureCode,
       failureReason,
       loomImportClaimId: null,
       loomImportClaimedAt: null,
@@ -150,9 +168,15 @@ export async function failLoomImport(
       claimId
         ? and(
             eq(schema.recordings.id, recordingId),
+            eq(schema.recordings.status, "processing"),
+            notTakenDown(),
             eq(schema.recordings.loomImportClaimId, claimId),
           )
-        : eq(schema.recordings.id, recordingId),
+        : and(
+            eq(schema.recordings.id, recordingId),
+            eq(schema.recordings.status, "processing"),
+            notTakenDown(),
+          ),
     )
     .returning({
       id: schema.recordings.id,
@@ -203,6 +227,12 @@ export async function runLoomImportJob({
       sourceWindowTitle: schema.recordings.sourceWindowTitle,
       loomImportClaimId: schema.recordings.loomImportClaimId,
       createdAt: schema.recordings.createdAt,
+      storageMode: schema.recordings.storageMode,
+      videoUrl: schema.recordings.videoUrl,
+      videoSizeBytes: schema.recordings.videoSizeBytes,
+      videoFormat: schema.recordings.videoFormat,
+      status: schema.recordings.status,
+      failureCode: schema.recordings.failureCode,
     })
     .from(schema.recordings)
     .where(
@@ -214,8 +244,12 @@ export async function runLoomImportJob({
 
   const shareUrl = normalizeLoomShareUrl(recording?.sourceWindowTitle ?? "");
   const loomId = shareUrl ? extractLoomVideoId(shareUrl) : null;
+  if (recording?.failureCode === TAKEN_DOWN_FAILURE_CODE) {
+    return { status: "failed", failureReason: TAKEN_DOWN_REASON };
+  }
   if (
     !recording ||
+    recording.status !== "processing" ||
     recording.loomImportClaimId !== claimId ||
     !shareUrl ||
     !loomId
@@ -238,63 +272,272 @@ export async function runLoomImportJob({
     return { status: "failed", failureReason: lease.failureReason };
   }
   let media: Awaited<ReturnType<typeof downloadLoomVideo>> | null = null;
-  try {
+  let upload: Awaited<ReturnType<typeof uploadFile>> | null = null;
+  let resolvedStorageMode = recording.storageMode;
+  let uploadSizeMismatch = false;
+
+  // An upload that never reached recordings.videoUrl is invisible to the
+  // reaper, which would leave the object stored and the reservation held.
+  // Linking it before the failure is recorded hands both to the reaper's
+  // delete-then-release path. Returns whether the link landed.
+  const linkUnlinkedHostedUpload = async (): Promise<boolean> => {
+    if (!upload?.url || resolvedStorageMode !== "hosted") return false;
     try {
-      media = await downloadLoomVideo({
-        loomId,
-        shareUrl,
-        expectedDurationMs: recording.durationMs,
-      });
-      console.log("[loom-import] download complete", {
+      const linked = await db
+        .update(schema.recordings)
+        .set({ videoUrl: upload.url })
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            eq(schema.recordings.loomImportClaimId, claimId),
+            eq(schema.recordings.status, "processing"),
+            notTakenDown(),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      return linked.length > 0;
+    } catch (error) {
+      console.error("[clips] Failed hosted Loom upload could not be linked", {
         recordingId,
-        bytes: media.sizeBytes,
-        mimeType: media.mimeType,
+        error: error instanceof Error ? error.message : String(error),
       });
-    } catch (err) {
-      if (err instanceof LoomVideoUnavailableError) {
+      return false;
+    }
+  };
+
+  const cleanupUnlinkedHostedUploadAfterTakedown = async () => {
+    if (!upload?.url || resolvedStorageMode !== "hosted") return;
+    try {
+      const [current] = await db
+        .select({ failureCode: schema.recordings.failureCode })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ),
+        );
+      if (current?.failureCode !== TAKEN_DOWN_FAILURE_CODE) return;
+
+      const deleted = await deleteS3ObjectByUrl(upload.url, {
+        storageMode: "hosted",
+        recordingId,
+      });
+      if (!deleted) {
         console.warn(
-          "[loom-import] MP4 unavailable or could not be verified; keeping Loom embed",
+          "[clips] Unlinked hosted Loom upload cleanup unavailable",
           {
             recordingId,
-            loomId,
           },
         );
-      } else {
-        throw err;
       }
-    }
-    if (lease.failureReason) {
-      return { status: "failed", failureReason: lease.failureReason };
-    }
-
-    const upload = media
-      ? await uploadFile({
-          data: media.bytes,
-          filename: `${recordingId}.mp4`,
-          mimeType: media.mimeType,
-          ownerEmail,
-          stableUrl: true,
-          recordAsset: false,
-        })
-      : null;
-    await lease.stop();
-    if (lease.failureReason) {
-      return { status: "failed", failureReason: lease.failureReason };
-    }
-    if (media && !upload?.url) {
-      return failLoomImport(
+    } catch (error) {
+      console.warn("[clips] Unlinked hosted Loom upload cleanup failed", {
         recordingId,
-        "File upload returned no URL. Check your storage provider configuration.",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  try {
+    const storage = await resolveClipsVideoStorage({
+      intent: "existing",
+      recordingId,
+      email: ownerEmail,
+    });
+    if (storage.mode === "none") {
+      const failureCode = storage.denyReason ?? "storage_setup_required";
+      return await failLoomImport(
+        recordingId,
+        `Clips video storage is unavailable (${failureCode}).`,
         claimId,
+        failureCode,
       );
     }
+    if (storage.mode === "hosted" && !storage.provider) {
+      // guard:allow-bare-error — invariant: a hosted storage resolution always includes its server-side provider.
+      throw new Error("Hosted Clips storage provider is unavailable.");
+    }
+    resolvedStorageMode = storage.mode;
 
-    const videoUrl = upload?.url ?? loomEmbedUrlForId(loomId);
-    if (upload) {
-      console.log("[loom-import] reupload complete", {
+    let videoUrl = "";
+    let videoSizeBytes = 0;
+    let videoFormat = recording.videoFormat ?? "mp4";
+    let usingLoomEmbed = false;
+    const reusableHostedUrl =
+      storage.mode === "hosted" ? recording.videoUrl : null;
+
+    if (reusableHostedUrl) {
+      videoSizeBytes = await verifyHostedClipMedia({
         recordingId,
-        videoUrl: upload.url,
+        videoUrl: reusableHostedUrl,
       });
+      if (lease.failureReason) {
+        return { status: "failed", failureReason: lease.failureReason };
+      }
+      const consumed = await consumeHostedClipRecording({
+        recordingId,
+        ownerEmail,
+        actualBytes: videoSizeBytes,
+      });
+      if (!consumed.ok) {
+        return await failLoomImport(
+          recordingId,
+          `Hosted Clips storage could not retain this video (${consumed.reason}).`,
+          claimId,
+          consumed.reason,
+        );
+      }
+      videoUrl = reusableHostedUrl;
+    } else {
+      try {
+        media = await downloadLoomVideo({
+          loomId,
+          shareUrl,
+          expectedDurationMs: recording.durationMs,
+          ...(storage.mode === "hosted"
+            ? { maxBytes: storage.maxClipBytes }
+            : {}),
+        });
+        console.log("[loom-import] download complete", {
+          recordingId,
+          bytes: media.sizeBytes,
+          mimeType: media.mimeType,
+        });
+      } catch (err) {
+        if (err instanceof LoomVideoUnavailableError) {
+          console.warn(
+            "[loom-import] MP4 unavailable or could not be verified; keeping Loom embed",
+            {
+              recordingId,
+              loomId,
+            },
+          );
+        } else {
+          throw err;
+        }
+      }
+      if (lease.failureReason) {
+        return { status: "failed", failureReason: lease.failureReason };
+      }
+
+      upload = media
+        ? storage.provider
+          ? await storage.provider.upload({
+              data: media.bytes,
+              filename: `${recordingId}.mp4`,
+              mimeType: media.mimeType,
+              ownerEmail,
+              stableUrl: true,
+              recordAsset: false,
+            })
+          : await uploadFile({
+              data: media.bytes,
+              filename: `${recordingId}.mp4`,
+              mimeType: media.mimeType,
+              ownerEmail,
+              stableUrl: true,
+              recordAsset: false,
+            })
+        : null;
+      if (media && !upload?.url) {
+        // guard:allow-bare-error — invariant: the background job catch persists provider failures on the recording before returning.
+        throw new Error(
+          "File upload returned no URL. Check your storage provider configuration.",
+        );
+      }
+
+      if (upload) {
+        console.log("[loom-import] reupload complete", {
+          recordingId,
+          videoUrl: upload.url,
+        });
+        videoUrl = upload.url;
+        videoSizeBytes = media?.sizeBytes ?? 0;
+        videoFormat = media?.mimeType === "video/webm" ? "webm" : "mp4";
+
+        if (storage.mode === "hosted") {
+          const verifiedBytes = await verifyHostedClipMedia({
+            recordingId,
+            videoUrl,
+          });
+          if (
+            verifiedBytes !== media?.sizeBytes ||
+            verifiedBytes > storage.maxClipBytes
+          ) {
+            uploadSizeMismatch = true;
+            // guard:allow-bare-error — invariant: the provider's verified object size must match the downloaded bytes before consumption.
+            throw new Error(
+              "Hosted Clips media size does not match the downloaded file.",
+            );
+          }
+          videoSizeBytes = verifiedBytes;
+          const [persisted] = await db
+            .update(schema.recordings)
+            .set({
+              videoUrl,
+              videoSizeBytes,
+              videoFormat,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(
+              and(
+                eq(schema.recordings.id, recordingId),
+                ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                eq(schema.recordings.loomImportClaimId, claimId),
+                eq(schema.recordings.status, "processing"),
+                notTakenDown(),
+              ),
+            )
+            .returning({ id: schema.recordings.id });
+          if (!persisted) {
+            throw new Error(LOOM_IMPORT_LEASE_LOST_REASON);
+          }
+          const consumed = await consumeHostedClipRecording({
+            recordingId,
+            ownerEmail,
+            actualBytes: verifiedBytes,
+          });
+          if (!consumed.ok) {
+            return await failLoomImport(
+              recordingId,
+              `Hosted Clips storage could not retain this video (${consumed.reason}).`,
+              claimId,
+              consumed.reason,
+            );
+          }
+        }
+      }
+      if (!upload) usingLoomEmbed = true;
+
+      await lease.stop();
+      if (lease.failureReason) {
+        return { status: "failed", failureReason: lease.failureReason };
+      }
+
+      if (usingLoomEmbed) {
+        videoUrl = loomEmbedUrlForId(loomId);
+        if (storage.mode === "hosted") {
+          const [cleared] = await db
+            .update(schema.recordings)
+            .set({ storageMode: null, videoUrl, videoSizeBytes: 0 })
+            .where(
+              and(
+                eq(schema.recordings.id, recordingId),
+                ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                eq(schema.recordings.loomImportClaimId, claimId),
+                eq(schema.recordings.status, "processing"),
+                notTakenDown(),
+              ),
+            )
+            .returning({ id: schema.recordings.id });
+          if (!cleared) {
+            throw new Error(LOOM_IMPORT_LEASE_LOST_REASON);
+          }
+          resolvedStorageMode = null;
+          await releaseHostedClipRecording({ recordingId, ownerEmail });
+        }
+      }
     }
 
     const now = new Date().toISOString();
@@ -302,7 +545,9 @@ export async function runLoomImportJob({
       .update(schema.recordings)
       .set({
         videoUrl,
-        videoSizeBytes: media?.sizeBytes ?? 0,
+        videoSizeBytes,
+        videoFormat,
+        storageMode: resolvedStorageMode,
         status: "ready",
         failureReason: null,
         updatedAt: now,
@@ -313,6 +558,7 @@ export async function runLoomImportJob({
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           eq(schema.recordings.loomImportClaimId, claimId),
           eq(schema.recordings.status, "processing"),
+          notTakenDown(),
         ),
       )
       .returning({ id: schema.recordings.id });
@@ -471,13 +717,22 @@ export async function runLoomImportJob({
     return { status: "ready" };
   } catch (err) {
     await lease.stop();
+    const linked = await linkUnlinkedHostedUpload();
+    if (!linked) {
+      await cleanupUnlinkedHostedUploadAfterTakedown();
+    }
     if (lease.failureReason) {
       return { status: "failed", failureReason: lease.failureReason };
     }
+    // Only a confirmed size mismatch marks the object unusable; a transient read
+    // failure leaves a complete upload the retry may still reuse and re-verify.
     return failLoomImport(
       recordingId,
       err instanceof Error ? err.message : String(err),
       claimId,
+      linked && uploadSizeMismatch
+        ? "media_verification_failed"
+        : "loom_import_failed",
     );
   } finally {
     await lease.stop();

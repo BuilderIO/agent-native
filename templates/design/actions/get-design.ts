@@ -10,10 +10,11 @@ import {
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { and, asc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
+import { designFileOrder } from "../server/lib/design-file-order.js";
 import { isHumanCaller, trackDesign } from "../server/lib/design-tracking.js";
 import "../server/db/index.js";
 import getDesignSystem from "./get-design-system.js";
@@ -172,20 +173,43 @@ export default defineAction({
           eq(schema.designFiles.id, fileId),
         )
       : eq(schema.designFiles.designId, id);
-    const fileOrder = [
-      asc(schema.designFiles.createdAt),
-      asc(schema.designFiles.id),
-    ] as const;
+    const fileOrder = designFileOrder(schema);
     const files =
       includeFileContent === false
         ? await db
             .select(baseFileFields)
             .from(schema.designFiles)
+            .leftJoin(
+              schema.designScreenRestoreClaims,
+              and(
+                eq(
+                  schema.designScreenRestoreClaims.designId,
+                  schema.designFiles.designId,
+                ),
+                eq(
+                  schema.designScreenRestoreClaims.restoredFileId,
+                  schema.designFiles.id,
+                ),
+              ),
+            )
             .where(fileFilter)
             .orderBy(...fileOrder)
         : await db
             .select({ ...baseFileFields, content: schema.designFiles.content })
             .from(schema.designFiles)
+            .leftJoin(
+              schema.designScreenRestoreClaims,
+              and(
+                eq(
+                  schema.designScreenRestoreClaims.designId,
+                  schema.designFiles.designId,
+                ),
+                eq(
+                  schema.designScreenRestoreClaims.restoredFileId,
+                  schema.designFiles.id,
+                ),
+              ),
+            )
             .where(fileFilter)
             .orderBy(...fileOrder);
     const designSystem = await loadAgentDesignSystemContext(

@@ -756,6 +756,67 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
+    it("sends a Netlify-proxied Builder Cloud site to its declared APP_URL", () => {
+      process.env.NODE_ENV = "production";
+      setOnlyBuilderAppUrl("https://secret-santa.builder.cloud");
+      process.env.URL = "https://nimble-dolphin-656dea.netlify.app";
+      process.env.DEPLOY_URL =
+        "https://abc123--nimble-dolphin-656dea.netlify.app";
+      const event = createBuilderBrowserEvent(
+        {
+          host: "nimble-dolphin-656dea.netlify.app",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
+
+      const callbackUrl = resolveBuilderConnectCallbackUrl(
+        event,
+        "<STATE_EXAMPLE>",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://secret-santa.builder.cloud/_agent-native/builder/connect",
+      );
+      expect(callbackUrl).toBe(
+        "https://secret-santa.builder.cloud/_agent-native/builder/callback?state=%3CSTATE_EXAMPLE%3E",
+      );
+      expect(isBuilderConnectCallbackUrlAllowed(callbackUrl!, event)).toBe(
+        true,
+      );
+    });
+
+    it("keeps an inbound origin the app declared", () => {
+      process.env.NODE_ENV = "production";
+      setOnlyBuilderAppUrl("https://app.example.com");
+      process.env.BETTER_AUTH_TRUSTED_ORIGINS = "https://other.example.com";
+      const event = createBuilderBrowserEvent(
+        { host: "other.example.com", "x-forwarded-proto": "https" },
+        "203.0.113.10",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://other.example.com/_agent-native/builder/connect",
+      );
+    });
+
+    it("keeps the inbound Netlify origin when the app declares none", () => {
+      process.env.NODE_ENV = "production";
+      clearBuilderOriginEnv();
+      process.env.URL = "https://nimble-dolphin-656dea.netlify.app";
+      const event = createBuilderBrowserEvent(
+        {
+          host: "nimble-dolphin-656dea.netlify.app",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://nimble-dolphin-656dea.netlify.app/_agent-native/builder/connect",
+      );
+    });
+
     it("ignores a forwarded Builder Cloud host without a proxy host", () => {
       process.env.NODE_ENV = "production";
       setOnlyBuilderAppUrl("https://default-template.netlify.app");
