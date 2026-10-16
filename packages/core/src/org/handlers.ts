@@ -46,10 +46,6 @@ import {
 } from "../server/credential-provider.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
-import {
-  getRequestContext,
-  getRequestRunContext,
-} from "../server/request-context.js";
 import { resolveDeploymentSignInMethods } from "../server/social-sign-in-providers.js";
 import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
 import { isEmailDerivedName } from "../user-profile/shared.js";
@@ -167,14 +163,11 @@ function normalizeWorkspaceAppDefaultVisibility(
   );
 }
 
+// Agent calls have no event, so they get the configured app URL. Do not fall
+// back to the request context's `requestOrigin`: some paths fill it from an
+// unchecked x-forwarded-host, which would put a caller-chosen host in the email.
 function getInviteAppUrl(event?: H3Event): string {
-  // Agent and MCP calls arrive without the h3 event; the request context keeps
-  // the origin the event would have given, so the link names the same host.
-  return getAppProductionUrl(event, {
-    requestOrigin:
-      getRequestContext()?.requestOrigin ??
-      getRequestRunContext()?.requestOrigin,
-  });
+  return getAppProductionUrl(event);
 }
 
 async function exec() {
